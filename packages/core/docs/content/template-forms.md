@@ -1,28 +1,30 @@
 ---
 title: "Forms Template"
-description: "Agent-native form builder — create, edit, and analyze forms through natural language, with a live preview and click-to-edit GUI."
+description: "Agent-native form builder — create, edit, publish, and route form submissions through natural language plus a visual editor."
 ---
 
 # Forms
 
-A form builder where the form builder _is_ the agent. Drag fields around in the editor, or just say "add a 'how did you hear about us' dropdown with five options and make it required" — same result, same underlying data. Think Typeform, but you can build, edit, and analyze forms by talking to the agent.
+Forms is an agent-native form builder. Describe the form you want, refine it in the editor, and publish a public form that stores submissions in your own SQL database.
 
-When you open the app, you'll see a list of your forms on the left and the editor in the middle. Open a form and you can click any field to fine-tune it, or ask the agent to make changes for you.
+When you open the app, you see your forms, the current editor, and a live preview. The agent can create a form from a prompt, update field labels and options, change validation, and connect submission destinations using the same actions the UI uses.
 
 ## What you can do with it
 
-- **Build forms conversationally.** "Create a contact form," "add an NPS score question," "make the email field required." The agent updates the schema and the preview updates live.
-- **Click-to-edit fine-tuning.** Every field in the preview is editable in place — label, placeholder, validation, conditional logic — with the usual GUI controls.
-- **Field types out of the box:** short text, long text, email, phone, URL, number, date, single-select, multi-select, rating, file upload, section header, conditional branch.
-- **Responses dashboard.** Per-response view plus an aggregate dashboard the agent can pivot on request: "show me signups from the last 30 days grouped by source."
-- **Agent-driven analysis.** Ask the agent to cluster free-text responses, extract sentiments, or draft a reply to everyone who scored the NPS below 7.
-- **Publish anywhere.** Public share link, embed snippet, branded thank-you page, webhook on submit.
+- **Build forms conversationally.** "Create a contact form," "add an NPS score question," "make the email field required." The agent updates the form schema and the preview updates from SQL-backed state.
+- **Fine-tune visually.** Edit labels, placeholders, required state, options, and field order from the builder UI when you want direct control.
+- **Use the shipped field types.** Text, email, number, long text, select, multi-select, checkbox, radio, date, rating, and scale fields are supported out of the box.
+- **Collect responses.** Each submission is stored in SQL with a per-response detail view and a dashboard for reviewing entries.
+- **Route submissions.** Send submission payloads to webhooks, Slack, Discord, or Google Sheets using the built-in integrations.
+- **Publish public forms.** Share a public form URL and show a thank-you message after submission.
 
 ## Why it's interesting
 
-The hard part of a form builder isn't the editor UI — it's everything around it: changing the questions after responses are already in, analyzing what people said, adding conditional logic, publishing, notifications, hooking it into Slack or your CRM. Most of that is just asking the agent. See [What is agent-native?](/docs/what-is-agent-native) for the bigger picture.
+The useful part of an agent-native form builder is that setup and iteration happen in the same place. You can ask the agent to add fields, adjust copy, connect Slack notifications, or inspect the submission data, while the UI remains the direct editor for the same SQL records.
 
-## For developers
+See [What is agent-native?](/docs/what-is-agent-native) for the broader framework model.
+
+## For Developers
 
 ### Scaffolding
 
@@ -30,25 +32,28 @@ The hard part of a form builder isn't the editor UI — it's everything around i
 pnpm dlx @agent-native/core create my-forms --template forms --standalone
 ```
 
-For a workspace with forms alongside other apps:
+For a workspace with Forms alongside other apps:
 
 ```bash
-pnpm dlx @agent-native/core create my-platform  # pick Forms + other templates
+pnpm dlx @agent-native/core create my-platform
 ```
 
-### Customize it
+Pick Forms and any other templates you want during the workspace setup.
 
-Ask the agent for the outcome you want:
+### Customize It
 
-- "Add a signature field where people can draw their name."
-- "When someone submits this form, post it in our #signups Slack channel." (Connect Slack first via [Messaging](/docs/messaging).)
+Ask the agent for shipped behavior first:
+
+- "Add a required radio field for preferred contact method."
+- "Post every new submission to Slack." Connect Slack first via [Messaging](/docs/messaging).
+- "Add a webhook destination for our CRM."
+- "Create a customer feedback form with a 1-10 scale and a long-text follow-up."
 - "Make some forms public and others login-only."
-- "Send everyone who scored below 5 a follow-up email asking what we could do better."
 
-The agent figures out the schema changes, components, and storage on its own — you just describe the result you want. See [Cloneable SaaS](/docs/cloneable-saas) for the full clone, customize, deploy flow.
+If you need new capabilities such as file uploads, signatures, or custom field widgets, treat them as template extensions: add the SQL shape, actions, UI editor controls, public renderer support, and agent instructions together. See [Creating Templates](/docs/creating-templates) for the current build pattern.
 
-## What's next
+## What's Next
 
 - [**Cloneable SaaS**](/docs/cloneable-saas) — the clone-and-own model
 - [**Actions**](/docs/actions) — the action system powering the builder
-- [**Real-Time Sync**](/docs/real-time-collaboration) — how the preview stays in sync with agent edits
+- [**Messaging**](/docs/messaging) — Slack and other submission destinations

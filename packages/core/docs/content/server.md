@@ -1,200 +1,184 @@
 ---
 title: "Server"
-description: "Nitro server layer with file-based routing, server plugins, SSE handlers, and production agent configuration."
+description: "Nitro server routes, plugins, framework-mounted routes, request context, and SQL-backed sync."
 ---
 
 # Server
 
-Agent-native apps use [Nitro](https://nitro.build) for the server layer. Nitro is included automatically via the `defineConfig()` Vite plugin — you get file-based API routing, server plugins, and deploy-anywhere presets out of the box.
+Agent-native apps use [Nitro](https://nitro.build) for server routes and plugins. Most product behavior should live in [Actions](/docs/actions); custom routes are for protocol surfaces that actions do not fit: uploads, streaming, public pages, webhooks, OAuth callbacks, and provider-specific APIs.
 
-## File-Based Routing {#file-based-routing}
+## File-Based Routes {#file-based-routes}
 
-API routes live in `server/routes/`. Nitro auto-discovers them based on file name and path:
+Routes live in `server/routes/` and Nitro maps filenames to methods and paths:
 
 ```text
 server/routes/
   api/
-    hello.get.ts          → GET  /api/hello
-    items/
-      index.get.ts        → GET  /api/items
-      index.post.ts       → POST /api/items
-      [id].get.ts         → GET  /api/items/:id
-      [id].delete.ts      → DELETE /api/items/:id
-      [id]/
-        archive.patch.ts  → PATCH /api/items/:id/archive
+    health.get.ts              -> GET  /api/health
+    uploads.post.ts            -> POST /api/uploads
+    webhooks/
+      stripe.post.ts           -> POST /api/webhooks/stripe
+  [...page].get.ts             -> SSR catch-all for public pages
 ```
 
-Each route file exports a default `defineEventHandler`:
+Each route exports a `defineEventHandler`:
 
 ```ts
-// server/routes/api/items/index.get.ts
+// server/routes/api/health.get.ts
 import { defineEventHandler } from "h3";
-import fs from "fs/promises";
 
-export default defineEventHandler(async () => {
-  const files = await fs.readdir("./data/items");
-  const items = await Promise.all(
-    files
-      .filter((f) => f.endsWith(".json"))
-      .map(async (f) =>
-        JSON.parse(await fs.readFile(`./data/items/${f}`, "utf-8")),
-      ),
-  );
-  return items;
-});
+export default defineEventHandler(() => ({
+  ok: true,
+  service: "my-template",
+}));
 ```
 
 ### Route naming conventions {#route-naming-conventions}
 
-| File name pattern  | HTTP method | Example path               |
-| ------------------ | ----------- | -------------------------- |
-| `index.get.ts`     | GET         | `/api/items`               |
-| `index.post.ts`    | POST        | `/api/items`               |
-| `[id].get.ts`      | GET         | `/api/items/:id`           |
-| `[id].patch.ts`    | PATCH       | `/api/items/:id`           |
-| `[id].delete.ts`   | DELETE      | `/api/items/:id`           |
-| `[...slug].get.ts` | GET         | `/api/items/* (catch-all)` |
+| File name pattern  | HTTP method | Example path                |
+| ------------------ | ----------- | --------------------------- |
+| `index.get.ts`     | GET         | `/api/items`                |
+| `index.post.ts`    | POST        | `/api/items`                |
+| `[id].get.ts`      | GET         | `/api/items/:id`            |
+| `[id].patch.ts`    | PATCH       | `/api/items/:id`            |
+| `[id].delete.ts`   | DELETE      | `/api/items/:id`            |
+| `[...slug].get.ts` | GET         | `/api/items/*` or catch-all |
 
-### Accessing route parameters {#accessing-route-parameters}
+## Prefer Actions For App Operations {#actions-first}
+
+If the UI and agent both need to do something, define an action instead of a custom API route. Actions automatically become:
+
+- Agent tools.
+- Typed frontend hooks.
+- HTTP endpoints under `/_agent-native/actions/:name`.
+- MCP and A2A-callable tools.
+- CLI commands for development.
+
+Use custom `/api/*` routes only when you need a route-shaped protocol or binary/streaming behavior. See [Actions](/docs/actions).
+
+## Request Context And Access {#request-context}
+
+Actions mounted by the framework automatically run with request context. Custom routes do not. If a custom route reads or writes ownable resources, load the session and wrap the work:
 
 ```ts
-import { defineEventHandler, getRouterParam, readBody, getQuery } from "h3";
+import { defineEventHandler } from "h3";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import { getDb } from "@agent-native/core/db";
+import { accessFilter } from "@agent-native/core/access";
+import * as schema from "../../db/schema";
 
-// GET /api/items/:id
 export default defineEventHandler(async (event) => {
-  const id = getRouterParam(event, "id");
-  const { filter } = getQuery(event);
-  // ...
+  const session = await getSession(event);
+  if (!session?.user?.email) {
+    throw new Response("Unauthorized", { status: 401 });
+  }
+
+  return runWithRequestContext(
+    { userEmail: session.user.email, orgId: session.orgId },
+    async () => {
+      const db = getDb();
+      return db
+        .select()
+        .from(schema.projects)
+        .where(accessFilter(schema.projects, schema.projectShares));
+    },
+  );
 });
 ```
+
+Do not run unscoped `db.select().from(ownableTable)` in custom routes.
 
 ## Server Plugins {#server-plugins}
 
-Cross-cutting concerns — file watchers, file sync, scheduled jobs, auth — go in `server/plugins/`. Nitro runs these at startup before serving requests:
+Plugins live in `server/plugins/` and run at startup. Use them for migrations, provider setup, recurring jobs, integration adapters, and framework plugin configuration.
 
 ```ts
-// server/plugins/file-sync.ts
-import { defineNitroPlugin } from "@agent-native/core";
-import { createFileSync } from "@agent-native/core/adapters/sync";
+// server/plugins/db.ts
+import { runMigrations } from "@agent-native/core/db/migrations";
 
-export default defineNitroPlugin(async () => {
-  const result = await createFileSync({ contentRoot: "./data" });
-  if (result.status === "error") {
-    console.warn(`[app] File sync failed: ${result.reason}`);
-  }
-});
+export default runMigrations([
+  {
+    id: "001_create_projects",
+    sql: `CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  },
+]);
 ```
 
-## Shared State Between Plugins and Routes {#shared-state}
+Migrations must be additive. Never put destructive SQL in startup plugins.
 
-Use a shared module in `server/lib/` to pass state from plugins to route handlers:
+## Framework-Mounted Routes {#framework-routes}
 
-```ts
-// server/lib/watcher.ts
-import { createFileWatcher } from "@agent-native/core";
-import type { SSEHandlerOptions } from "@agent-native/core";
+The framework mounts its own routes under `/_agent-native/`. Treat that namespace as reserved.
 
-export const watcher = createFileWatcher("./data");
-export const sseExtraEmitters: NonNullable<SSEHandlerOptions["extraEmitters"]> =
-  [];
+| Route prefix                     | Purpose                              |
+| -------------------------------- | ------------------------------------ |
+| `/_agent-native/actions/:name`   | Action HTTP endpoints                |
+| `/_agent-native/agent-chat`      | Agent chat loop                      |
+| `/_agent-native/poll`            | SQL-backed UI sync                   |
+| `/_agent-native/resources/*`     | Workspace resources                  |
+| `/_agent-native/tools/*`         | Runtime tools and tool proxy         |
+| `/_agent-native/integrations/*`  | Messaging/webhook integrations       |
+| `/_agent-native/a2a`             | Agent-to-agent JSON-RPC              |
+| `/_agent-native/mcp`             | MCP endpoint                         |
+| `/_agent-native/onboarding/*`    | Setup checklist                      |
+| `/_agent-native/observability/*` | Traces, feedback, evals, experiments |
+| `/_agent-native/file-upload`     | File upload provider endpoint        |
 
-export let syncResult: any = { status: "disabled" };
-export function setSyncResult(result: any) {
-  syncResult = result;
-  if (result.status === "ready" && result.sseEmitter) {
-    sseExtraEmitters.push(result.sseEmitter);
-  }
-}
-```
+Custom app routes should use `/api/*`, public app paths, or provider-specific callback paths that do not collide with `/_agent-native/`.
 
-The plugin populates the state at startup; route handlers read it at request time.
+## SQL-Backed Sync {#sync}
 
-## createFileWatcher(dir, options?) {#createfilewatcher}
+Agent-native does not rely on filesystem watchers or sticky in-memory state. When actions or framework helpers mutate data, the database sync version increments. The client `useDbSync()` hook polls `/_agent-native/poll` and invalidates React Query caches.
 
-Creates a chokidar file watcher for real-time file change detection:
+This works across serverless and multi-instance deployments because the database is the coordination point. If you write custom mutations outside actions, use framework helpers or emit the appropriate sync invalidation so open UIs refresh.
 
-```ts
-import { createFileWatcher } from "@agent-native/core";
+## Webhooks {#webhooks}
 
-const watcher = createFileWatcher("./data");
-// watcher emits "all" events: (eventName, filePath)
-```
+Inbound webhooks should verify, persist, and return quickly. Long-running agent work should use the integration queue pattern:
 
-### Options {#filewatcher-options}
+1. Verify the platform signature or challenge.
+2. Insert durable work into SQL.
+3. Self-fire a signed processor route.
+4. Return 200 immediately.
+5. Let the fresh processor execution run the agent loop and post the result.
 
-| Option        | Type    | Description                                       |
-| ------------- | ------- | ------------------------------------------------- |
-| `ignored`     | any     | Glob patterns or regex to ignore                  |
-| `emitInitial` | boolean | Emit events for initial file scan. Default: false |
+Do not rely on unawaited promises after returning a response. See [Messaging](/docs/messaging) for the canonical integration queue.
 
-## createSSEHandler(watcher, options?) {#createssehandler}
+## Programmatic H3 Servers {#create-server}
 
-Creates an H3 event handler that streams file changes as Server-Sent Events:
+For custom packages or tests that need an H3 app directly, `createServer()` returns a preconfigured app and router:
 
 ```ts
-// server/routes/_agent-native/events.get.ts
-import { createSSEHandler } from "@agent-native/core";
-import { watcher, sseExtraEmitters } from "../../lib/watcher.js";
-
-export default createSSEHandler(watcher, {
-  extraEmitters: sseExtraEmitters,
-  contentRoot: "./data",
-});
-```
-
-Each SSE message is JSON: `{ "type": "change", "path": "data/file.json" }`
-
-### Options {#ssehandler-options}
-
-| Option        | Type                        | Description                                       |
-| ------------- | --------------------------- | ------------------------------------------------- |
-| extraEmitters | `Array<{ emitter, event }>` | Additional EventEmitters to stream                |
-| contentRoot   | string                      | Root directory used to relativize paths in events |
-
-## createServer(options?) {#createserver}
-
-Optional helper that creates a pre-configured H3 app with CORS middleware and a health-check route. Returns `{ app, router }`. Useful for programmatic route registration when file-based routing doesn't fit:
-
-```ts
-import { createServer } from "@agent-native/core";
+import { createServer } from "@agent-native/core/server";
 import { defineEventHandler } from "h3";
 
 const { app, router } = createServer();
-router.get("/api/items", defineEventHandler(listItems));
+
+router.get(
+  "/api/health",
+  defineEventHandler(() => ({ ok: true })),
+);
 ```
 
-## mountAuthMiddleware(app, accessToken) {#mountauthmiddleware}
+Most templates do not need this helper because Nitro file routes and framework plugins handle the app server.
 
-Mounts session-cookie authentication onto an H3 app. Serves a login page for unauthenticated browser requests and returns 401 for unauthenticated API requests.
+## Production Agent Handler {#agent-handler}
 
-```ts
-import { mountAuthMiddleware } from "@agent-native/core";
-
-mountAuthMiddleware(app, process.env.ACCESS_TOKEN!);
-```
-
-Adds two routes automatically: `POST /api/auth/login` and `POST /api/auth/logout`.
-
-## createProductionAgentHandler(options) {#createproductionagenthandler}
-
-Creates an H3 SSE handler at `POST /_agent-native/agent-chat` that runs an agentic tool loop using Claude. Each script's `run()` function is registered as a tool the agent can invoke.
+The framework's agent chat plugin mounts the production agent handler for templates. Only call `createProductionAgentHandler()` directly when building a custom server integration outside the standard template plugin stack.
 
 ```ts
-import { createProductionAgentHandler } from "@agent-native/core";
-import { scripts } from "./scripts/registry.js";
-import { readFileSync } from "fs";
+import { createProductionAgentHandler } from "@agent-native/core/server";
 
-const agent = createProductionAgentHandler({
+const handler = createProductionAgentHandler({
   scripts,
-  systemPrompt: readFileSync("agents/system-prompt.md", "utf-8"),
+  systemPrompt: "You are the app agent...",
 });
 ```
 
-### Options {#agent-handler-options}
-
-| Option         | Type                          | Description                                       |
-| -------------- | ----------------------------- | ------------------------------------------------- |
-| `scripts`      | `Record<string, ScriptEntry>` | Map of script name → { tool, run } entries        |
-| `systemPrompt` | string                        | System prompt for the embedded agent              |
-| `apiKey`       | string                        | Anthropic API key. Default: ANTHROPIC_API_KEY env |
-| `model`        | string                        | Model to use. Default: claude-sonnet-4-6          |
+Standard templates should customize the agent through `AGENTS.md`, skills, actions, and the agent chat plugin rather than hand-mounting this route.

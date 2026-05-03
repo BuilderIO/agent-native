@@ -75,7 +75,7 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 - **storing-data** — Settings and config in SQL via settings API
 - **delegate-to-agent** — UI never calls LLMs directly
 - **actions** — Complex operations as `pnpm action <name>`
-- **real-time-sync** — Real-time UI sync via SSE (DB change events)
+- **real-time-sync** — UI sync via polling and query invalidation
 - **frontend-design** — Build distinctive, production-grade UI
 
 ### Provider Skills
@@ -122,7 +122,7 @@ Agent Chat  ------>  Actions (pnpm action)
 
 ### Data Storage
 
-Dashboard configs, explorer configs, and theme settings are stored in SQL via the settings API:
+Dashboards and analyses live in SQL resource tables. Some legacy dashboard/config/theme rows still live in the framework settings table and are migrated or read as fallbacks:
 
 | Key Pattern                      | Contents                                       |
 | -------------------------------- | ---------------------------------------------- |
@@ -335,7 +335,7 @@ pnpm action commonroom-members --query="enterprise" --limit=10
 | ----------------------------------- | ------------------------------------------------------------------------------ |
 | "What am I looking at?"             | `view-screen`                                                                  |
 | "Show weekly signup trends"         | Use the configured signup source, generate chart, present in chat              |
-| "Create a dashboard for X"          | Write config to `dashboard-{id}`, navigate to it                               |
+| "Create a dashboard for X"          | Use `update-dashboard`, then navigate to it                                    |
 | "How many open bugs?"               | `jira-search --jql="issuetype = Bug AND resolution = Unresolved"`              |
 | "Find deals over $50k"              | `hubspot-deals --grep="50000" --fields=dealname,amount,stageLabel`             |
 | "Check error rates"                 | `sentry --mode=issues --statsPeriod=7d`                                        |

@@ -1,32 +1,30 @@
 ---
 title: "Design"
-description: "An Agent-native design tool — sketch a UI, brand kit, or marketing visual by prompt or by hand, with the agent as your co-designer."
+description: "An agent-native HTML prototyping studio — generate, refine, preview, and export interactive Alpine/Tailwind designs with an agent."
 ---
 
 # Design
 
-A design tool where the agent is a real collaborator. Sketch a UI, a brand kit, or a marketing visual by prompt or by hand, and the agent generates layouts, suggests color systems, swaps fonts, and adjusts spacing alongside you on the same canvas.
+Design is an agent-native HTML prototyping studio. Instead of a layered drawing canvas, the agent generates complete self-contained Alpine/Tailwind HTML prototypes, renders them in an iframe, and lets you refine the result with prompts and tweak controls.
 
-Think along the lines of Figma or Canva, but the agent has full edit rights — it can move shapes, restyle layers, and generate new artwork from a description, all in the same canvas you're working in.
+Use it when you want a polished landing page concept, product UI direction, brand exploration, or interactive prototype that can leave the tool as real HTML.
 
-## What you can do with it
+## What You Can Do With It
 
-- **Prompt-driven design.** Describe what you want — "a hero section for a B2B fintech SaaS, dark mode, brand color #14B8A6" — and the agent drafts it on the canvas.
-- **Edit by hand or by chat.** Drag, resize, recolor with the toolbar; or ask the agent to "tighten the spacing", "swap the headline font for something more editorial", "make every CTA the brand teal".
-- **AI image generation built in.** Generate background art, illustrations, or icons inline. Re-run with refined prompts without leaving the canvas.
-- **Brand-aware.** Save a brand kit (colors, fonts, voice). The agent applies it consistently across new artwork.
-- **Components and frames.** Reusable components, multi-page documents, and export to PNG/SVG/PDF.
-- **Agent context awareness.** When a layer is selected, the agent knows what you've selected and can act on just that piece.
+- **Generate complete prototypes.** Describe the screen or page you need and the agent creates a working HTML document with Tailwind styling and Alpine interactions.
+- **Compare variants.** Start with multiple directions, pick the strongest one, then continue refining.
+- **Tweak visually.** Use the built-in tweak controls for common changes, or ask the agent for copy, layout, color, spacing, and interaction updates.
+- **Apply design systems.** Save and reuse design-system preferences so generated work stays closer to your brand.
+- **Import references.** Bring in existing HTML or reference material as context for a new design pass.
+- **Export real files.** Export HTML, ZIP, or PDF from the generated prototype.
 
-## Why it's interesting
+## Why It's Interesting
 
-Three things make Design a good showcase of what agent-native enables:
+Design is useful because the agent edits an artifact that is already close to shippable web UI. There is no separate "AI mockup" format to translate later: the preview, the editable source, and the exported artifact all come from the same HTML.
 
-1. **The agent edits the canvas directly.** Layers, frames, styles — the agent calls the same actions the toolbar does. There's no "AI mode" separate from the design tool; they're the same tool.
-2. **Selection-aware editing.** Select a button and ask "make this the brand teal across all pages" — the agent knows which element you mean and propagates the change.
-3. **Designs you own.** The files live in your SQL, the artwork lives in your storage, the agent is yours. Fork the template, plug in a different image-generation provider, integrate your team's component library — it's your code.
+The template is also a good example of agent-native ownership. The app stores designs in SQL, exposes template operations as actions, and lets you fork the whole workflow when your team needs a different renderer, exporter, or design-system model.
 
-## For developers
+## For Developers
 
 The rest of this doc is for anyone forking the Design template or extending it.
 
@@ -36,20 +34,20 @@ The rest of this doc is for anyone forking the Design template or extending it.
 pnpm dlx @agent-native/core create my-design --template design --standalone
 ```
 
-### Customize it
+### Customize It
 
-Design is a full cloneable SaaS — fork it and ask the agent to extend it. Some examples:
+Design is a cloneable SaaS template. Some practical extension ideas:
 
-- "Add a 'Generate variations' button that produces five color-swap alternatives for the selected frame."
-- "Wire the brand kit to read from our marketing-site repo so colors stay in sync."
-- "Add a comments layer with @-mentions and email notifications."
-- "Auto-export every published frame as a 1200×630 OG image and upload to our CDN."
-- "Let me drop a Figma link in chat and have the agent re-create it as native components here."
+- "Add a reusable ecommerce design system with our tokens and sample components."
+- "Add an export step that uploads the ZIP to our internal review system."
+- "Let me paste existing landing-page HTML and ask the agent for three stronger versions."
+- "Add a saved prompt library for product-page, dashboard, and onboarding-screen briefs."
+- "Add a custom PDF export preset for stakeholder review."
 
-The agent edits routes, components, canvas actions, and the schema as needed. See [Cloneable SaaS](/docs/cloneable-saas) for the full clone, customize, deploy flow, and [Getting Started](/docs/getting-started) if this is your first agent-native template.
+The agent edits routes, components, actions, and SQL-backed models as needed. See [Cloneable SaaS](/docs/cloneable-saas) for the full clone, customize, deploy flow, and [Getting Started](/docs/getting-started) if this is your first agent-native template.
 
-## What's next
+## What's Next
 
 - [**Cloneable SaaS**](/docs/cloneable-saas) — the clone-and-own model
-- [**Context Awareness**](/docs/context-awareness) — how the agent knows the selected layer
-- [**Tools**](/docs/tools) — generate one-off image-creation utilities alongside the canvas
+- [**Context Awareness**](/docs/context-awareness) — how the agent knows what the user is viewing
+- [**Creating Templates**](/docs/creating-templates) — current build patterns for agent-native templates

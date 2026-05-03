@@ -14,6 +14,7 @@ When you open the app, you'll see your inbox on the left, the open thread in the
 - **Read and triage email** with keyboard shortcuts (`J`/`K` to move, `E` to archive, `R` to reply, `C` to compose).
 - **Connect multiple Gmail accounts** — personal and work in one inbox.
 - **Ask the agent to do anything you can do.** "Summarize my unread emails." "Draft a reply that politely declines." "Archive all Netlify bot emails older than a week."
+- **Queue drafts for review.** Teammates and Slack users can ask the agent to prepare an email for an org member; the owner reviews, edits, and sends it from Mail.
 - **Auto-triage with rules.** Set up automation rules in plain English ("from a newsletter") with actions (label, archive, mark read, star, trash).
 - **Track opens and clicks** on the emails you send.
 - **Search across every connected inbox** with one query.
@@ -96,6 +97,8 @@ agent-native add-app
 
 **Multiple compose drafts.** The compose panel supports multiple draft tabs at once. Each draft is stored as an `application_state` entry at `compose-{id}` and syncs live between the agent and the UI. The agent can create a new draft with `manage-draft --action=create`, edit your in-progress draft with `--action=update`, or close tabs with `--action=delete`. Drafts use markdown in the body field; the TipTap editor renders it as rich text and converts to HTML on send.
 
+**Queued draft review.** Drafts requested by teammates or Slack are durable SQL rows in `queued_email_drafts`. The agent uses `queue-email-draft` to assign a draft to an org member, returns a review URL such as `/draft-queue/<id>`, and waits for the owner to review or explicitly send. The queue supports listing assigned drafts, editing them, opening one in the compose panel, dismissing it, and sending one or all reviewed drafts.
+
 **AI triage via automations.** Mail supports automation rules that run against new inbox email using AI. A rule has a natural-language condition (for example, `"from a newsletter"` or `"subject contains invoice"`) and a list of actions (`label`, `archive`, `mark_read`, `star`, `trash`). Manage them via `pnpm action manage-automations --action=create|list|update|delete|enable|disable`, or through the Settings page. Rules fire automatically and can be triggered manually with `pnpm action trigger-automations`.
 
 **Send tracking.** Sent messages get open-pixel and link-click tracking injected automatically. Settings live under `mail-settings.tracking` with `tracking.opens` and `tracking.clicks` (both default `true`). Only links in the new portion of a reply or forward are rewritten — quoted content is left alone. Pull stats for any sent message with `pnpm action get-tracking --id=<message-id>`, or from `GET /api/emails/:id/tracking`. Open and click events are stored in the `email_tracking` and `email_link_tracking` tables.
@@ -132,6 +135,7 @@ When a Google account is connected, email lives in Gmail — the app is a view o
 | `getSetting("labels")`        | System and user labels, with unread counts                     |
 | `getSetting("mail-settings")` | User profile, tracking preferences, signature, aliases         |
 | `getSetting("aliases")`       | Email aliases                                                  |
+| `queued_email_drafts` table   | Teammate-requested drafts awaiting owner review/send           |
 | `email_tracking` table        | Open-pixel events for sent messages                            |
 | `email_link_tracking` table   | Link-click events for sent messages                            |
 | `application_state` table     | `navigation`, `navigate`, `compose-{id}` entries (ephemeral)   |

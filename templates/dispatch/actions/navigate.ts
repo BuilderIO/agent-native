@@ -27,6 +27,7 @@ export default defineAction({
         "new-app",
         "vault",
         "integrations",
+        "messaging",
         "workspace",
         "agents",
         "destinations",

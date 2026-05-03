@@ -9,6 +9,7 @@ import { Onboarding } from "./overlays/onboarding";
 import { MeetingNotification } from "./overlays/meeting-notification";
 import { MeetingNub } from "./overlays/meeting-nub";
 import { FlowBar } from "./overlays/flow-bar";
+import { RecordingPill } from "./overlays/recording-pill";
 import "./styles.css";
 
 /**
@@ -35,6 +36,8 @@ function pickRoute(): React.ReactElement {
       return <MeetingNub />;
     case "flow-bar":
       return <FlowBar />;
+    case "recording-pill":
+      return <RecordingPill />;
     default:
       return <App />;
   }

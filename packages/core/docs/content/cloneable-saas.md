@@ -15,19 +15,19 @@ We call them **cloneable SaaS**, not templates. You're not starting from scratch
 
 Each one is a real app you could use today, and the launching pad for your own version of it.
 
-| Template      | What it is                                                                                                |
-| ------------- | --------------------------------------------------------------------------------------------------------- |
-| **Mail**      | An agent-native Superhuman. Inbox, labels, AI triage, keyboard-first, drafts and sends through the agent. |
-| **Calendar**  | An agent-native Google Calendar. Events, sync, public booking links, agent-driven scheduling.             |
-| **Content**   | An agent-native Notion / Google Docs. Markdown + Tiptap editor, Notion sync, real-time multi-user collab. |
-| **Slides**    | An agent-native Google Slides. React-based decks the agent generates and edits directly.                  |
-| **Video**     | An agent-native video editor on Remotion. Prompt for a cut, the agent assembles it.                       |
-| **Analytics** | An agent-native Amplitude/Mixpanel. Connect data sources, prompt for charts, pin to dashboards.           |
-| **Clips**     | An agent-native Loom. Async screen + camera recording with transcription, chapters, AI summaries.         |
-| **Design**    | An agent-native Figma/Canva. Vector design tool the agent can edit alongside you.                         |
-| **Forms**     | An agent-native Typeform. Build, share, and collect; the agent handles schema and submission analysis.    |
-| **Dispatch**  | The workspace control plane: shared secrets, cross-app integrations, Slack/Telegram, scheduled jobs.      |
-| **Starter**   | The minimal scaffold. Agent chat plus the architecture, nothing else. Build something new.                |
+| Template      | What it is                                                                                                     |
+| ------------- | -------------------------------------------------------------------------------------------------------------- |
+| **Mail**      | An agent-native Superhuman. Inbox, labels, AI triage, keyboard-first, drafts and sends through the agent.      |
+| **Calendar**  | An agent-native Google Calendar. Events, sync, public booking links, agent-driven scheduling.                  |
+| **Content**   | An agent-native Notion / Google Docs. Markdown + Tiptap editor, Notion sync, real-time multi-user collab.      |
+| **Slides**    | An agent-native Google Slides. React-based decks the agent generates and edits directly.                       |
+| **Video**     | An agent-native video editor on Remotion. Prompt for a cut, the agent assembles it.                            |
+| **Analytics** | An agent-native Amplitude/Mixpanel. Connect data sources, prompt for charts, pin to dashboards.                |
+| **Clips**     | An agent-native Loom. Async screen + camera recording with transcription, chapters, AI summaries.              |
+| **Design**    | Agent-native HTML prototyping studio for interactive Alpine/Tailwind designs.                                  |
+| **Forms**     | An agent-native Typeform. Build, share, collect, and route submissions to Slack, Sheets, webhooks, or Discord. |
+| **Dispatch**  | The workspace control plane: shared secrets, cross-app integrations, Slack/Telegram, scheduled jobs.           |
+| **Starter**   | The minimal scaffold. Agent chat plus the architecture, nothing else. Build something new.                     |
 
 See the full catalog under [Templates](/templates), or jump straight to one — for example, [Dispatch](/docs/template-dispatch) is a great place to start if you want a workspace-style app.
 

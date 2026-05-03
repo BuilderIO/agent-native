@@ -242,7 +242,7 @@ When the user is on the draft queue, navigation state is:
 }
 ```
 
-SSE streams DB change events (source: `"app-state"`, `"settings"`) so the UI updates in real time when any state changes.
+The framework polling sync detects database state changes and invalidates the UI caches, so app-state and settings changes appear without a manual refresh.
 
 ### Navigation state (read what the user sees)
 
@@ -308,7 +308,7 @@ To update an in-progress draft (e.g., user asks "make this more formal"):
 3. Modify the fields you want to change
 4. Write the updated draft back via `writeAppState("compose-{id}", updatedDraft)`
 
-The UI will pick up the changes automatically (via SSE on `"app-state"` events).
+The UI will pick up the changes automatically through polling sync.
 
 #### Compose state shape
 

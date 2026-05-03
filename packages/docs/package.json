@@ -12,7 +12,6 @@
   },
   "scripts": {
     "dev": "agent-native dev --port 3000",
-    "generate-search-index": "tsx scripts/generate-search-index.ts",
     "generate-source-index": "tsx scripts/generate-source-index.ts",
     "prebuild": "tsx scripts/generate-source-index.ts",
     "build": "agent-native build",

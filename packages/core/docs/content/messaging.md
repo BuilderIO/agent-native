@@ -31,11 +31,15 @@ Connect your agent to Slack, email, Telegram, or WhatsApp so you can chat with i
    - `chat:write` — lets the agent send messages
    - `app_mentions:read` — lets the agent see when it's @-mentioned (optional)
    - `im:history` — lets the agent read DMs sent to it
+   - `assistant:write` — optional; lets Slack show native "is thinking..." status in assistant threads
+   - `users:read.email` — optional; helps templates such as Mail verify Slack sender email for draft-queue identity
 3. Click **Install to Workspace** at the top of that page. Slack will give you a **Bot User OAuth Token** that starts with `xoxb-`. Copy it.
 4. Go to **Basic Information** in the sidebar and copy the **Signing Secret**.
 5. Open your app's settings (or your hosting provider's environment variable panel) and paste:
    - `SLACK_BOT_TOKEN` — the `xoxb-…` token
    - `SLACK_SIGNING_SECRET` — the signing secret
+   - `SLACK_ALLOWED_TEAM_IDS` — recommended in production; comma-separated Slack workspace/team IDs allowed to send events
+   - `SLACK_ALLOWED_API_APP_IDS` — recommended for multi-workspace apps; comma-separated Slack app IDs allowed to use this signing secret
 6. Back in Slack, open **Event Subscriptions**, toggle it on, and paste this Request URL:
 
    ```text
@@ -51,6 +55,7 @@ Connect your agent to Slack, email, Telegram, or WhatsApp so you can chat with i
 - **Channel mentions** — the bot only responds in channels when it's @-mentioned, to avoid noise.
 - **DMs** — every DM is treated as a private conversation with the agent.
 - **Same identity, all channels** — if a Slack user has the same email as a registered user in your app, the agent treats them as the same person.
+- **Production allowlists** — set `SLACK_ALLOWED_TEAM_IDS` and, for shared Slack apps, `SLACK_ALLOWED_API_APP_IDS` so a valid signing secret cannot be reused by an unexpected workspace.
 
 ## Set up Telegram {#telegram}
 
@@ -252,12 +257,12 @@ POST /_agent-native/integrations/telegram/setup
 
 ### Environment variables {#env-vars}
 
-| Platform | Required                                                                     | Optional                       |
-| -------- | ---------------------------------------------------------------------------- | ------------------------------ |
-| Slack    | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                    | —                              |
-| Telegram | `TELEGRAM_BOT_TOKEN`                                                         | —                              |
-| Email    | `EMAIL_AGENT_ADDRESS`, plus one of `RESEND_API_KEY` or `SENDGRID_API_KEY`    | `EMAIL_INBOUND_WEBHOOK_SECRET` |
-| WhatsApp | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                              |
+| Platform | Required                                                                     | Optional                                              |
+| -------- | ---------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Slack    | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                    | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
+| Telegram | `TELEGRAM_BOT_TOKEN`                                                         | —                                                     |
+| Email    | `EMAIL_AGENT_ADDRESS`, plus one of `RESEND_API_KEY` or `SENDGRID_API_KEY`    | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
+| WhatsApp | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
 
 All credentials live in env vars — never the database, never source code. Use the sidebar settings UI or your hosting provider's env panel.
 

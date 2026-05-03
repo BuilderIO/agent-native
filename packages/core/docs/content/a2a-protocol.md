@@ -16,13 +16,13 @@ A2A is the substrate for cross-app delegation in this framework — most promine
 Key concepts:
 
 - **Agent card** — public metadata at `/.well-known/agent-card.json` describing skills and capabilities
-- **JSON-RPC** — all communication goes through `POST /a2a` with standard JSON-RPC 2.0
+- **JSON-RPC** — agent-native apps use `POST /_agent-native/a2a`; external/legacy peers may use `POST /a2a`
 - **Tasks** — each message creates a task with a lifecycle (submitted, working, completed, failed, canceled)
-- **Bearer auth** — optional API key authentication via environment variable
+- **JWT bearer auth** — production A2A requires `A2A_SECRET` or an explicit legacy `apiKeyEnv`
 
 ## Server setup {#server-setup}
 
-Call `mountA2A()` in a server plugin to expose the A2A endpoints:
+Most templates get A2A through the framework agent chat plugin. If you are mounting it yourself, call `mountA2A()` in a server plugin:
 
 ```ts
 // server/plugins/a2a.ts
@@ -41,13 +41,21 @@ export default defineNitroPlugin((nitro) => {
         examples: ["Show me signups by source this month"],
       },
     ],
-    apiKeyEnv: "A2A_API_KEY", // env var name for bearer token
+    // Optional legacy external-peer bearer key. Prefer A2A_SECRET for
+    // agent-native workspace calls and production deployments.
+    apiKeyEnv: "A2A_API_KEY",
     streaming: true, // enable message/stream
   });
 });
 ```
 
-This mounts two endpoints: `GET /.well-known/agent-card.json` (public, no auth) and `POST /a2a` (authenticated JSON-RPC).
+This mounts:
+
+- `GET /.well-known/agent-card.json` — public discovery metadata.
+- `POST /_agent-native/a2a` — primary agent-native JSON-RPC endpoint.
+- `POST /_agent-native/a2a/_process-task` — internal async processor route, signed with `A2A_SECRET`.
+
+The client also falls back to `/a2a` for external agents that expose the legacy/simple path. Production agent-native deployments should set `A2A_SECRET`; without it, hosted runtimes fail closed instead of accepting unauthenticated remote work.
 
 ## Agent card {#agent-card}
 
@@ -87,7 +95,7 @@ The card endpoint is public, so the framework redacts skills whose IDs reveal pe
 
 ## JSON-RPC methods {#json-rpc-methods}
 
-All methods are called via `POST /a2a` with JSON-RPC 2.0 format:
+All methods are called via `POST /_agent-native/a2a` with JSON-RPC 2.0 format:
 
 | Method           | Description                                                                                                           | Key params                    |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
@@ -179,7 +187,9 @@ Tasks persist in the `a2a_tasks` SQL table and can be retrieved later via `tasks
 
 ## Security {#security}
 
-Set `apiKeyEnv` in your config to the name of an environment variable containing the expected bearer token:
+Set `A2A_SECRET` on every production app that calls or receives A2A traffic. Agent-native callers sign JWT bearer tokens with this secret so receivers can verify the caller identity before the agent loop starts.
+
+For external peers that still use a shared static token, set `apiKeyEnv` in your config to the name of an environment variable containing the expected bearer token:
 
 ```ts
 // Config
@@ -192,7 +202,7 @@ mountA2A(app, {
 const client = new A2AClient(url, process.env.A2A_API_KEY);
 ```
 
-The agent card endpoint is always public (no auth) so other agents can discover capabilities. The `/a2a` JSON-RPC endpoint requires a valid bearer token when `apiKeyEnv` is set. In dev mode (no env var configured), auth is skipped.
+The agent card endpoint is always public (no auth) so other agents can discover capabilities. The `/_agent-native/a2a` JSON-RPC endpoint accepts JWT bearer tokens signed by `A2A_SECRET`, and also accepts the legacy `apiKeyEnv` token when configured. In local development, auth can be omitted; in hosted production runtimes, missing A2A auth returns 503 instead of running unauthenticated.
 
 ### Auth policy boundary {#auth-policy}
 
@@ -253,7 +263,7 @@ The framework's pattern, used by both A2A async dispatch and the [integration we
 3. Authenticate the self-fire with an HMAC token bound to the row id, signed with `A2A_SECRET`.
 4. A recurring retry job sweeps any rows that were claimed but not finished, so a crashed function doesn't strand the work.
 
-When you write your own A2A handler or integration adapter, follow the same shape. Don't attach work to a detached promise after `return`. The `integration-webhooks` skill is the canonical reference.
+When you write your own A2A handler or integration adapter, follow the same shape. Don't attach work to a detached promise after `return`. If you must self-fire from a serverless handler, start the fetch before returning and give it a tiny head start (the framework uses a short timeout) so Lambda-style runtimes do not freeze before the outbound request leaves the process. The `integration-webhooks` skill is the canonical reference.
 
 ## Agent mentions {#agent-mentions}
 

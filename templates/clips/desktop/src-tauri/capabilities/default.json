@@ -12,7 +12,8 @@
     "onboarding",
     "meeting-notif",
     "meeting-nub",
-    "flow-bar"
+    "flow-bar",
+    "recording-pill"
   ],
   "permissions": [
     "core:default",
@@ -29,6 +30,7 @@
     "global-shortcut:allow-is-registered",
     "updater:default",
     "process:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "notification:default"
   ]
 }
