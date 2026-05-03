@@ -7,7 +7,6 @@ import { getDoc } from "../components/docs-content";
 const SLUG_REDIRECTS: Record<string, string> = {
   resources: "workspace",
   secrets: "security",
-  observability: "tracking",
 };
 
 export async function loader({ params }: LoaderFunctionArgs) {
