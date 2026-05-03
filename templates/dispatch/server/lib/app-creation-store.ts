@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { getSetting, putSetting } from "@agent-native/core/settings";
 import {
   getBuilderBranchProjectId,
@@ -14,6 +15,8 @@ import {
 import { grantSecretsToApp, listSecrets } from "./vault-store.js";
 
 const SETTINGS_KEY = "dispatch-app-creation-settings";
+const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
+const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 
 export interface WorkspaceAppSummary {
   id: string;
@@ -83,6 +86,88 @@ function workspaceAppUrl(appPath: string): string | null {
   }
 }
 
+function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
+  const rawApps = Array.isArray(parsed?.apps)
+    ? parsed.apps
+    : Array.isArray(parsed)
+      ? parsed
+      : null;
+  if (!rawApps) return null;
+
+  const apps = rawApps
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const id = typeof entry.id === "string" ? entry.id.trim() : "";
+      const pathValue = typeof entry.path === "string" ? entry.path.trim() : "";
+      if (!id || !pathValue.startsWith("/")) return null;
+      return {
+        id,
+        name:
+          typeof entry.name === "string" && entry.name.trim()
+            ? entry.name.trim()
+            : titleCase(id),
+        description:
+          typeof entry.description === "string" ? entry.description : "",
+        path: pathValue,
+        url: workspaceAppUrl(pathValue),
+        isDispatch:
+          typeof entry.isDispatch === "boolean"
+            ? entry.isDispatch
+            : id === "dispatch",
+      } satisfies WorkspaceAppSummary;
+    })
+    .filter((app): app is WorkspaceAppSummary => !!app)
+    .sort((a, b) => {
+      if (a.id === "dispatch") return -1;
+      if (b.id === "dispatch") return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+  return apps.length ? apps : null;
+}
+
+function readWorkspaceAppsFromEnv(): WorkspaceAppSummary[] | null {
+  const raw = process.env[WORKSPACE_APPS_ENV_KEY];
+  if (!raw) return null;
+  try {
+    return parseWorkspaceAppsManifest(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+function workspaceAppsManifestCandidates(): string[] {
+  const candidates: string[] = [];
+  try {
+    candidates.push(
+      path.join(process.cwd(), ".agent-native", WORKSPACE_APPS_MANIFEST_FILE),
+      path.join(process.cwd(), WORKSPACE_APPS_MANIFEST_FILE),
+    );
+  } catch {
+    // Some edge runtimes do not expose process.cwd().
+  }
+  try {
+    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    candidates.push(
+      path.join(moduleDir, ".agent-native", WORKSPACE_APPS_MANIFEST_FILE),
+      path.join(moduleDir, WORKSPACE_APPS_MANIFEST_FILE),
+    );
+  } catch {
+    // Some edge runtimes expose non-file module URLs. The env manifest still
+    // works there, so skip file-relative candidates.
+  }
+  return candidates;
+}
+
+function readWorkspaceAppsFromManifestFile(): WorkspaceAppSummary[] | null {
+  for (const file of workspaceAppsManifestCandidates()) {
+    if (!fs.existsSync(file)) continue;
+    const apps = parseWorkspaceAppsManifest(readJson(file));
+    if (apps) return apps;
+  }
+  return null;
+}
+
 export function getEnvBuilderProjectId(): string | null {
   return (
     process.env.DISPATCH_BUILDER_PROJECT_ID ||
@@ -93,6 +178,10 @@ export function getEnvBuilderProjectId(): string | null {
 }
 
 export async function listWorkspaceApps(): Promise<WorkspaceAppSummary[]> {
+  const manifestApps =
+    readWorkspaceAppsFromEnv() ?? readWorkspaceAppsFromManifestFile();
+  if (manifestApps) return manifestApps;
+
   const workspaceRoot = findWorkspaceRoot();
   if (!workspaceRoot) {
     return [
