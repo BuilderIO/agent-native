@@ -445,7 +445,7 @@ const migrations = runMigrations(
     )`,
     },
     // ---------------------------------------------------------------------------
-    // Dictations (Wispr-style press-and-hold history)
+    // Dictations (press-and-hold history)
     // ---------------------------------------------------------------------------
     {
       version: 24,
@@ -468,6 +468,87 @@ const migrations = runMigrations(
     {
       version: 25,
       sql: `CREATE TABLE IF NOT EXISTS dictation_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    // ---------------------------------------------------------------------------
+    // Namespaced rebuilds. Earlier migrations 17/18/24/25 used unprefixed table
+    // names (`meetings`, `dictations`, etc.) which collided with the
+    // meeting-notes and voice templates when those templates share a database.
+    // The collision was a no-op CREATE TABLE IF NOT EXISTS, so clips ended up
+    // querying the foreign template's table with the wrong column shape.
+    // These migrations create the correctly-shaped clips-prefixed tables.
+    // The legacy unprefixed tables stay in place (additive only — never drop).
+    // ---------------------------------------------------------------------------
+    {
+      version: 26,
+      sql: `CREATE TABLE IF NOT EXISTS clips_meetings (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT,
+      title TEXT NOT NULL DEFAULT 'Untitled meeting',
+      scheduled_start TEXT,
+      scheduled_end TEXT,
+      actual_start TEXT,
+      actual_end TEXT,
+      platform TEXT NOT NULL DEFAULT 'adhoc',
+      join_url TEXT,
+      calendar_event_id TEXT,
+      recording_id TEXT,
+      user_notes_md TEXT NOT NULL DEFAULT '',
+      transcript_status TEXT NOT NULL DEFAULT 'idle',
+      summary_md TEXT NOT NULL DEFAULT '',
+      bullets_json TEXT NOT NULL DEFAULT '[]',
+      action_items_json TEXT NOT NULL DEFAULT '[]',
+      source TEXT NOT NULL DEFAULT 'adhoc',
+      reminder_fired_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      archived_at TEXT,
+      trashed_at TEXT,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    )`,
+    },
+    {
+      version: 27,
+      sql: `CREATE TABLE IF NOT EXISTS clips_meeting_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 28,
+      sql: `CREATE TABLE IF NOT EXISTS clips_dictations (
+      id TEXT PRIMARY KEY,
+      full_text TEXT NOT NULL DEFAULT '',
+      cleaned_text TEXT,
+      duration_ms INTEGER NOT NULL DEFAULT 0,
+      audio_url TEXT,
+      source TEXT NOT NULL DEFAULT 'fn-hold',
+      target_app TEXT,
+      started_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    )`,
+    },
+    {
+      version: 29,
+      sql: `CREATE TABLE IF NOT EXISTS clips_dictation_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
       principal_type TEXT NOT NULL,
@@ -905,9 +986,238 @@ async function backfillRecordingOrgId(): Promise<void> {
   }
 }
 
+function assertSafeIdentifier(name: string): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    throw new Error(`Unsafe SQL identifier: ${name}`);
+  }
+  return name;
+}
+
+async function tableExists(name: string): Promise<boolean> {
+  const exec = getDbExec();
+  const pg = isPostgres();
+  assertSafeIdentifier(name);
+
+  try {
+    if (pg) {
+      const result = await exec.execute({
+        sql: `SELECT 1 FROM information_schema.tables WHERE table_name = $1 LIMIT 1`,
+        args: [name],
+      });
+      return (result.rows?.length ?? 0) > 0;
+    }
+
+    const result = await exec.execute({
+      sql: `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`,
+      args: [name],
+    });
+    return (result.rows?.length ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function tableHasColumns(
+  name: string,
+  columns: readonly string[],
+): Promise<boolean> {
+  const exec = getDbExec();
+  const pg = isPostgres();
+  assertSafeIdentifier(name);
+
+  if (!(await tableExists(name))) return false;
+
+  try {
+    if (pg) {
+      const result = await exec.execute({
+        sql: `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
+        args: [name],
+      });
+      const present = new Set(
+        (result.rows as Array<{ column_name?: string }>).map(
+          (row) => row.column_name,
+        ),
+      );
+      return columns.every((column) => present.has(column));
+    }
+
+    const result = await exec.execute(
+      `PRAGMA table_info(${assertSafeIdentifier(name)})`,
+    );
+    const present = new Set(
+      (result.rows as Array<{ name?: string }>).map((row) => row.name),
+    );
+    return columns.every((column) => present.has(column));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Best-effort additive copy from the legacy unprefixed Clips tables into the
+ * new namespaced tables. The legacy names are left untouched because other
+ * templates may own them in shared databases.
+ */
+async function backfillLegacyClipsTables(): Promise<void> {
+  const exec = getDbExec();
+
+  const meetingColumns = [
+    "id",
+    "organization_id",
+    "title",
+    "scheduled_start",
+    "scheduled_end",
+    "actual_start",
+    "actual_end",
+    "platform",
+    "join_url",
+    "calendar_event_id",
+    "recording_id",
+    "user_notes_md",
+    "transcript_status",
+    "summary_md",
+    "bullets_json",
+    "action_items_json",
+    "source",
+    "reminder_fired_at",
+    "created_at",
+    "updated_at",
+    "archived_at",
+    "trashed_at",
+    "owner_email",
+    "org_id",
+    "visibility",
+  ] as const;
+  const shareColumns = [
+    "id",
+    "resource_id",
+    "principal_type",
+    "principal_id",
+    "role",
+    "created_by",
+    "created_at",
+  ] as const;
+  const dictationColumns = [
+    "id",
+    "full_text",
+    "cleaned_text",
+    "duration_ms",
+    "audio_url",
+    "source",
+    "target_app",
+    "started_at",
+    "created_at",
+    "updated_at",
+    "owner_email",
+    "org_id",
+    "visibility",
+  ] as const;
+
+  // guard:allow-unscoped — additive schema backfill from legacy Clips table.
+  try {
+    if (
+      (await tableHasColumns("meetings", meetingColumns)) &&
+      (await tableHasColumns("clips_meetings", meetingColumns))
+    ) {
+      const cols = meetingColumns.join(", ");
+      await exec.execute(`
+        INSERT INTO clips_meetings (${cols})
+        SELECT ${cols}
+        FROM meetings m
+        WHERE NOT EXISTS (
+          SELECT 1 FROM clips_meetings cm WHERE cm.id = m.id
+        )
+      `);
+    }
+  } catch (err) {
+    console.warn(
+      "[db] legacy meetings → clips_meetings backfill failed:",
+      (err as Error)?.message ?? err,
+    );
+  }
+
+  // guard:allow-unscoped — additive schema backfill from legacy Clips shares.
+  try {
+    if (
+      (await tableHasColumns("meeting_shares", shareColumns)) &&
+      (await tableHasColumns("clips_meeting_shares", shareColumns)) &&
+      (await tableExists("clips_meetings"))
+    ) {
+      const cols = shareColumns.join(", ");
+      await exec.execute(`
+        INSERT INTO clips_meeting_shares (${cols})
+        SELECT ${cols}
+        FROM meeting_shares s
+        WHERE EXISTS (
+          SELECT 1 FROM clips_meetings cm WHERE cm.id = s.resource_id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM clips_meeting_shares cms WHERE cms.id = s.id
+        )
+      `);
+    }
+  } catch (err) {
+    console.warn(
+      "[db] legacy meeting_shares → clips_meeting_shares backfill failed:",
+      (err as Error)?.message ?? err,
+    );
+  }
+
+  // guard:allow-unscoped — additive schema backfill from legacy Clips table.
+  try {
+    if (
+      (await tableHasColumns("dictations", dictationColumns)) &&
+      (await tableHasColumns("clips_dictations", dictationColumns))
+    ) {
+      const cols = dictationColumns.join(", ");
+      await exec.execute(`
+        INSERT INTO clips_dictations (${cols})
+        SELECT ${cols}
+        FROM dictations d
+        WHERE NOT EXISTS (
+          SELECT 1 FROM clips_dictations cd WHERE cd.id = d.id
+        )
+      `);
+    }
+  } catch (err) {
+    console.warn(
+      "[db] legacy dictations → clips_dictations backfill failed:",
+      (err as Error)?.message ?? err,
+    );
+  }
+
+  // guard:allow-unscoped — additive schema backfill from legacy Clips shares.
+  try {
+    if (
+      (await tableHasColumns("dictation_shares", shareColumns)) &&
+      (await tableHasColumns("clips_dictation_shares", shareColumns)) &&
+      (await tableExists("clips_dictations"))
+    ) {
+      const cols = shareColumns.join(", ");
+      await exec.execute(`
+        INSERT INTO clips_dictation_shares (${cols})
+        SELECT ${cols}
+        FROM dictation_shares s
+        WHERE EXISTS (
+          SELECT 1 FROM clips_dictations cd WHERE cd.id = s.resource_id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM clips_dictation_shares cds WHERE cds.id = s.id
+        )
+      `);
+    }
+  } catch (err) {
+    console.warn(
+      "[db] legacy dictation_shares → clips_dictation_shares backfill failed:",
+      (err as Error)?.message ?? err,
+    );
+  }
+}
+
 export default async (nitroApp: any): Promise<void> => {
   await migrations(nitroApp);
   await retypeBooleanColumnsOnPostgres();
+  await backfillLegacyClipsTables();
   await syncWorkspacesToOrganizations();
   await backfillRecordingOrgId();
   // Best-effort chunk sweep — don't block startup on failures.

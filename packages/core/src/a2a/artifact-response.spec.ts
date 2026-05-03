@@ -34,6 +34,62 @@ describe("appendA2AArtifactLinks", () => {
     expect(text).not.toContain("Artifacts:");
   });
 
+  it("appends a deck URL from a successful create-deck result", () => {
+    const text = appendA2AArtifactLinks(
+      "Created the deck.",
+      [
+        {
+          tool: "create-deck",
+          result: JSON.stringify({ id: "deck_123", title: "Roadmap" }),
+        },
+      ],
+      { baseUrl: "https://slides.agent.test/" },
+    );
+
+    expect(text).toContain(
+      "- Deck: https://slides.agent.test/deck/deck_123 (ID: deck_123)",
+    );
+  });
+
+  it("does not duplicate a deck path that is already in the response", () => {
+    const text = appendA2AArtifactLinks(
+      "Created it: https://slides.agent.test/deck/deck_123",
+      [
+        {
+          tool: "create-deck",
+          result: JSON.stringify({ id: "deck_123", title: "Roadmap" }),
+        },
+      ],
+      { baseUrl: "https://slides.agent.test" },
+    );
+
+    expect(text).not.toContain("Artifacts:");
+  });
+
+  it("blocks hallucinated deck URLs with no successful deck action", () => {
+    const text = appendA2AArtifactLinks(
+      "Done: https://slides.agent.test/deck/deck_404",
+      [],
+      { baseUrl: "https://slides.agent.test" },
+    );
+
+    expect(text).toContain("could not verify the deck URL");
+    expect(text).not.toContain("deck_404");
+    expect(text).not.toContain("https://slides.agent.test/deck/");
+  });
+
+  it("does not validate deck-shaped URLs on another host", () => {
+    const text = appendA2AArtifactLinks(
+      "The Slides agent returned https://slides.agent.test/deck/deck_123",
+      [],
+      { baseUrl: "https://dispatch.agent.test" },
+    );
+
+    expect(text).toBe(
+      "The Slides agent returned https://slides.agent.test/deck/deck_123",
+    );
+  });
+
   it("appends a design URL only after generate-design saved files", () => {
     const text = appendA2AArtifactLinks(
       "The prototype is ready.",

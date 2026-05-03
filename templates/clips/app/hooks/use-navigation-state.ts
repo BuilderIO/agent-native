@@ -18,7 +18,7 @@ export type ClipsView =
   | "settings"
   | "meetings"
   | "meeting"
-  | "wispr";
+  | "dictate";
 
 export interface NavigationState {
   view: ClipsView;
@@ -107,12 +107,12 @@ function stateFromLocation(pathname: string, search: string): NavigationState {
     return { view: "meetings" };
   }
 
-  // /wispr (optionally /wispr/:dictationId in the future)
-  const wisprMatch = p.match(/^\/wispr(?:\/([^/]+))?$/);
-  if (wisprMatch) {
+  // /dictate (optionally /dictate/:dictationId in the future)
+  const dictateMatch = p.match(/^\/dictate(?:\/([^/]+))?$/);
+  if (dictateMatch) {
     return {
-      view: "wispr",
-      ...(wisprMatch[1] ? { dictationId: wisprMatch[1] } : {}),
+      view: "dictate",
+      ...(dictateMatch[1] ? { dictationId: dictateMatch[1] } : {}),
     };
   }
 
@@ -166,8 +166,8 @@ function pathFromCommand(cmd: NavigateCommand): string {
       return "/meetings";
     case "meeting":
       return cmd.meetingId ? `/meetings/${cmd.meetingId}` : "/meetings";
-    case "wispr":
-      return "/wispr";
+    case "dictate":
+      return "/dictate";
     case "library":
     default:
       if (cmd.folderId) return `/library/folder/${cmd.folderId}`;

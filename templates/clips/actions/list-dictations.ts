@@ -1,5 +1,5 @@
 /**
- * List Wispr-style dictations the current user has access to.
+ * List press-and-hold dictations the current user has access to.
  */
 
 import { defineAction } from "@agent-native/core";
@@ -10,7 +10,7 @@ import { accessFilter } from "@agent-native/core/sharing";
 
 export default defineAction({
   description:
-    "List press-and-hold dictations (Wispr tab) sorted newest first. Scoped to the current user via the framework sharing access filter.",
+    "List press-and-hold dictations (Dictate tab) sorted newest first. Scoped to the current user via the framework sharing access filter.",
   schema: z.object({
     limit: z.coerce.number().int().min(1).max(500).default(100),
     offset: z.coerce.number().int().min(0).default(0),

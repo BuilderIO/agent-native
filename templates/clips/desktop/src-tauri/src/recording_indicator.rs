@@ -1,4 +1,4 @@
-//! Granola-style recording indicator pill.
+//! Floating recording indicator pill.
 //!
 //! A small floating window anchored ~16 px from the top-right of the primary
 //! display. Always-on-top, transparent, no decorations, skip-taskbar, and

@@ -8,7 +8,7 @@
  * no chat sidebar.
  *
  * Used by:
- *   - Wispr dictation finalize (task='cleanup')
+ *   - Dictate dictation finalize (task='cleanup')
  *   - Clips finalize (task='title' / 'cleanup')
  *   - Meetings finalize (task='summary' → summary + bullets + action items)
  *

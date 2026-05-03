@@ -2,12 +2,12 @@
  * Voice dictation hook for the agent composer.
  *
  * Wires voice providers behind a single state machine:
- *   - "openai" / "builder" / "builder-gemini" / "gemini" / "groq"
+ *   - "auto" / "openai" / "builder" / "builder-gemini" / "gemini" / "groq"
  *     — MediaRecorder → POST /_agent-native/transcribe-voice
  *   - "browser" — Web Speech API (low quality, offline capable)
  *
  * Provider preference lives in application_state under
- * `voice-transcription-prefs` (`{ provider: VoiceProvider, instructions?: string }`).
+ * `voice-transcription-prefs` (`{ transcriptionMode, provider, instructions }`).
  * The composer reads it on every start so settings changes take effect
  * immediately without unmounting the composer.
  *
@@ -19,6 +19,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { agentNativePath } from "../api-path.js";
 
 export type VoiceProvider =
+  | "auto"
   | "openai"
   | "browser"
   | "builder-gemini"
@@ -26,8 +27,11 @@ export type VoiceProvider =
   | "gemini"
   | "groq";
 
+export type TranscriptionMode = "mac-native" | "google-realtime" | "batch";
+
 export interface VoicePrefs {
   provider: VoiceProvider;
+  transcriptionMode?: TranscriptionMode;
   instructions?: string;
 }
 
@@ -36,16 +40,9 @@ const PREFS_URL = agentNativePath(
   `/_agent-native/application-state/${PREFS_KEY}`,
 );
 const TRANSCRIBE_URL = agentNativePath("/_agent-native/transcribe-voice");
-const PROVIDER_STATUS_URL = agentNativePath(
-  "/_agent-native/voice-providers/status",
-);
-
-interface ProviderStatus {
-  builder?: boolean;
-}
-
 function isVoiceProvider(value: unknown): value is VoiceProvider {
   return (
+    value === "auto" ||
     value === "openai" ||
     value === "browser" ||
     value === "builder-gemini" ||
@@ -55,16 +52,32 @@ function isVoiceProvider(value: unknown): value is VoiceProvider {
   );
 }
 
+function isTranscriptionMode(value: unknown): value is TranscriptionMode {
+  return (
+    value === "mac-native" || value === "google-realtime" || value === "batch"
+  );
+}
+
 async function defaultProvider(): Promise<VoiceProvider> {
-  try {
-    const res = await fetch(PROVIDER_STATUS_URL);
-    if (!res.ok) return "browser";
-    const status = (await res.json()) as ProviderStatus | null;
-    if (status?.builder) return "builder-gemini";
-  } catch {
-    /* fall through */
+  return "auto";
+}
+
+function normalizeProviderForMode(
+  mode: TranscriptionMode | undefined,
+  provider: VoiceProvider | null,
+): VoiceProvider | null {
+  if (mode === "mac-native") return "browser";
+  // The dedicated Google streaming endpoint is intentionally separate from
+  // the batch transcribe route. Until a client is wired to that WebSocket path,
+  // normalize saved Google realtime prefs to the existing auto batch fallback
+  // instead of trying to retrofit streaming into /transcribe-voice.
+  if (mode === "google-realtime") return "auto";
+  if (mode === "batch") {
+    if (!provider || provider === "browser") return "auto";
+    return provider === "builder" ? "builder-gemini" : provider;
   }
-  return "browser";
+  if (!provider) return null;
+  return provider === "builder" ? "builder-gemini" : provider;
 }
 
 export type VoiceState =
@@ -101,15 +114,26 @@ async function readVoicePrefs(): Promise<VoicePrefs> {
       | VoicePrefs
       | { value?: VoicePrefs }
       | null;
+    const value =
+      (body as { value?: VoicePrefs } | null)?.value ??
+      (body as VoicePrefs | null);
+    const mode = isTranscriptionMode(value?.transcriptionMode)
+      ? value.transcriptionMode
+      : undefined;
     const p =
       (body as VoicePrefs | null)?.provider ??
       (body as { value?: VoicePrefs } | null)?.value?.provider;
     const instructions =
       (body as VoicePrefs | null)?.instructions ??
       (body as { value?: VoicePrefs } | null)?.value?.instructions;
-    if (isVoiceProvider(p)) {
+    const provider = normalizeProviderForMode(
+      mode,
+      isVoiceProvider(p) ? p : null,
+    );
+    if (provider) {
       return {
-        provider: p === "builder" ? "builder-gemini" : p,
+        transcriptionMode: mode,
+        provider,
         instructions:
           typeof instructions === "string" ? instructions.trim() : undefined,
       };
@@ -162,7 +186,7 @@ export function useVoiceDictation(
   const [amplitude, setAmplitude] = useState(0);
   const [durationMs, setDurationMs] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [provider, setProvider] = useState<VoiceProvider>("browser");
+  const [provider, setProvider] = useState<VoiceProvider>("auto");
 
   // Keep refs for teardown / cross-branch access.
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -509,6 +533,7 @@ export function useVoiceDictation(
     // (MediaRecorder -> POST to /_agent-native/transcribe-voice).
     // The server route handles routing to the right backend.
     const resolvedProvider: VoiceProvider =
+      pref === "auto" ||
       pref === "builder" ||
       pref === "builder-gemini" ||
       pref === "gemini" ||

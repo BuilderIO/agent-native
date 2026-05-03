@@ -507,7 +507,7 @@ pub async fn close_signin(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Show the Wispr Flow-style dictation pill at the bottom-center of the
+/// Show the dictation pill at the bottom-center of the
 /// primary display. The React overlay is driven by `voice:*` events.
 ///
 /// Reuses an existing flow-bar window if one is alive (just repositions
@@ -525,7 +525,7 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
     let w: u32 = 420;
     let h: u32 = 120;
     let x: i32 = ((mw as i32 - w as i32) / 2).max(0);
-    // Bottom margin: ~14 logical px ≈ 28 physical px, matching Wispr Flow.
+    // Bottom margin: ~14 logical px ≈ 28 physical px.
     let y: i32 = (mh as i32 - h as i32 - 28).max(0);
 
     if let Some(existing) = app.get_webview_window(FLOW_BAR_LABEL) {

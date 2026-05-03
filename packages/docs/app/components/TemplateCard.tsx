@@ -96,11 +96,11 @@ export const templates = [
   {
     name: "Clips",
     slug: "clips",
-    replaces: "Replaces or augments Loom",
+    replaces: "Replaces or augments Loom, Granola, and Wisprflow",
     cliCommand: "npx @agent-native/core create my-clips-app --template clips",
     demoUrl: "https://clips.agent-native.com",
     description:
-      "Async screen recording with auto-transcripts, shareable links, and an agent that summarizes, captions, and edits clips on demand.",
+      "Screen recordings, calendar-synced meeting notes, and Fn-hold voice dictation — all transcribed, summarized, and searchable, with an agent that can edit any of it.",
     color: "#625DF5",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7366585df5a545e697e254bb0138182d?format=webp&width=800",

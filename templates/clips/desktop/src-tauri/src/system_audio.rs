@@ -14,8 +14,8 @@
 //!      us a CMSampleBuffer of audio frames we can feed into a second
 //!      SFSpeechRecognizer running in parallel with the mic recognizer in
 //!      `native_speech.rs`. SFSpeechRecognizer is single-channel, so the
-//!      "two recognizers, merge segments by timestamp" approach is what
-//!      Granola itself appears to do.
+//!      "two recognizers, merge segments by timestamp" approach is the
+//!      typical workaround.
 //!   2. Hand-roll the selectors via `objc2` (same approach taken in
 //!      `eventkit.rs`). Heavier — SCStream's delegate protocol is large.
 //!

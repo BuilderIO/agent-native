@@ -13,7 +13,7 @@ import cleanupTranscript from "./cleanup-transcript.js";
 
 export default defineAction({
   description:
-    "Clean up a Wispr dictation's raw text via the Gemini 3.1 Flash-Lite cleanup pass. Stores the result on `dictations.cleanedText`. Editor access required.",
+    "Clean up a dictation's raw text via the Gemini 3.1 Flash-Lite cleanup pass. Stores the result on `dictations.cleanedText`. Editor access required.",
   schema: z.object({
     id: z.string().describe("Dictation id"),
   }),

@@ -209,7 +209,7 @@ export const recordingTranscripts = table("recording_transcripts", {
   // JSON array of { startMs, endMs, text }
   segmentsJson: text("segments_json").notNull().default("[]"),
   fullText: text("full_text").notNull().default(""),
-  status: text("status", { enum: ["pending", "ready", "failed"] })
+  status: text("status", { enum: ["pending", "streaming", "ready", "failed"] })
     .notNull()
     .default("pending"),
   failureReason: text("failure_reason"),
@@ -293,7 +293,7 @@ export const recordingViewers = table("recording_viewers", {
 // model as recordings.
 // -----------------------------------------------------------------------------
 
-export const meetings = table("meetings", {
+export const meetings = table("clips_meetings", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id"),
   // Display fields
@@ -345,7 +345,7 @@ export const meetings = table("meetings", {
   ...ownableColumns(),
 });
 
-export const meetingShares = createSharesTable("meeting_shares");
+export const meetingShares = createSharesTable("clips_meeting_shares");
 
 export const meetingParticipants = table("meeting_participants", {
   id: text("id").primaryKey(),
@@ -435,12 +435,12 @@ export const calendarEvents = table("calendar_events", {
 });
 
 // -----------------------------------------------------------------------------
-// Dictations — Wispr-style press-and-hold dictation history. Each row is
+// Dictations — press-and-hold dictation history. Each row is
 // one full press-and-hold session. Lives separately from `recording_*` so
 // the dictations tab can render fast without scanning the recordings table.
 // -----------------------------------------------------------------------------
 
-export const dictations = table("dictations", {
+export const dictations = table("clips_dictations", {
   id: text("id").primaryKey(),
   // Raw transcript text from the live native pipeline.
   fullText: text("full_text").notNull().default(""),
@@ -464,7 +464,7 @@ export const dictations = table("dictations", {
   ...ownableColumns(),
 });
 
-export const dictationShares = createSharesTable("dictation_shares");
+export const dictationShares = createSharesTable("clips_dictation_shares");
 
 export const recordingEvents = table("recording_events", {
   id: text("id").primaryKey(),

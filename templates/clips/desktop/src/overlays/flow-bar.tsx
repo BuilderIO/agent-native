@@ -6,7 +6,7 @@ import { IconX } from "@tabler/icons-react";
 type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
 
 /**
- * Wispr Flow-style dictation overlay — a slim dark floating panel,
+ * Dictation overlay — a slim dark floating panel,
  * horizontally centered. The bar only ever appears once the user has
  * triggered a voice shortcut, so it mounts in "recording" state and
  * shows the waveform immediately. State transitions arrive via Tauri

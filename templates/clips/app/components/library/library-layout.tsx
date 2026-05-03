@@ -117,10 +117,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       match: (p) => p.startsWith("/meetings"),
     },
     {
-      to: "/wispr",
-      label: "Wispr",
+      to: "/dictate",
+      label: "Dictate",
       icon: IconMicrophone2,
-      match: (p) => p.startsWith("/wispr"),
+      match: (p) => p.startsWith("/dictate"),
     },
     {
       to: "/archive",

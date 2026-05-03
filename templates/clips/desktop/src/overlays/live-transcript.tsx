@@ -10,7 +10,7 @@ interface FinalPayload {
 
 /**
  * Auto-scrolling live-transcript view. Subscribes to the same Tauri events
- * the Wispr flow-bar listens for:
+ * the dictation flow-bar listens for:
  *
  *   - `voice:partial-transcript` — interim hypothesis (replaces tail).
  *   - `voice:final-transcript`   — locked-in segment (appended).
