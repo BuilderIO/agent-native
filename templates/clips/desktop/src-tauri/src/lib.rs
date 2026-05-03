@@ -77,7 +77,7 @@ pub fn run() {
             native_speech::native_speech_start,
             native_speech::native_speech_stop,
             native_speech::native_speech_cancel,
-            // recording indicator (Granola-style pill)
+            // recording indicator pill
             recording_indicator::recording_pill_show,
             recording_indicator::recording_pill_expand,
             recording_indicator::recording_pill_hide,

@@ -22,7 +22,11 @@ interface GeneratedDesignArtifact {
   fileCount: number;
 }
 
-type ReferencedArtifactKind = "design" | "document";
+interface CreatedDeckArtifact {
+  id: string;
+}
+
+type ReferencedArtifactKind = "deck" | "design" | "document";
 
 interface ReferencedArtifact {
   kind: ReferencedArtifactKind;
@@ -113,12 +117,25 @@ function numberValue(value: unknown): number | undefined {
     : undefined;
 }
 
+function deckIdValue(parsed: Record<string, unknown>): string | undefined {
+  return stringValue(parsed.id) ?? stringValue(parsed.deckId);
+}
+
+function isReadyDeckArtifact(parsed: Record<string, unknown>): boolean {
+  const slideCount = numberValue(parsed.slideCount);
+  if (slideCount !== undefined) return slideCount > 0;
+  if (Array.isArray(parsed.slides)) return parsed.slides.length > 0;
+  return true;
+}
+
 function collectArtifacts(results: A2AToolResultSummary[]): {
   documents: CreatedDocumentArtifact[];
+  decks: CreatedDeckArtifact[];
   designShells: CreatedDesignShell[];
   generatedDesigns: GeneratedDesignArtifact[];
 } {
   const documents = new Map<string, CreatedDocumentArtifact>();
+  const decks = new Map<string, CreatedDeckArtifact>();
   const designShells = new Map<string, CreatedDesignShell>();
   const generatedDesigns = new Map<string, GeneratedDesignArtifact>();
 
@@ -134,6 +151,18 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
       const id = stringValue(parsed.id);
       if (id) {
         documents.set(id, { id, title: stringValue(parsed.title) });
+      }
+      continue;
+    }
+
+    if (
+      toolResult.tool === "create-deck" ||
+      toolResult.tool === "get-deck" ||
+      toolResult.tool === "duplicate-deck"
+    ) {
+      const id = deckIdValue(parsed);
+      if (id && isReadyDeckArtifact(parsed)) {
+        decks.set(id, { id });
       }
       continue;
     }
@@ -207,6 +236,7 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
 
   return {
     documents: [...documents.values()],
+    decks: [...decks.values()],
     designShells: [...designShells.values()],
     generatedDesigns: [...generatedDesigns.values()],
   };
@@ -218,6 +248,13 @@ function formatDocumentLine(
 ): string {
   const label = document.title ? `Document "${document.title}"` : "Document";
   return `- ${label}: ${artifactUrl(baseUrl, `/page/${document.id}`)} (ID: ${document.id})`;
+}
+
+function formatDeckLine(
+  deck: CreatedDeckArtifact,
+  baseUrl: string | undefined,
+): string {
+  return `- Deck: ${artifactUrl(baseUrl, `/deck/${deck.id}`)} (ID: ${deck.id})`;
 }
 
 function formatDesignLine(
@@ -245,7 +282,7 @@ function collectReferencedArtifacts(
   const refs = new Map<string, ReferencedArtifact>();
   const baseOrigin = safeOrigin(baseUrl);
   const artifactUrlPattern =
-    /(?:(https?:\/\/[^/\s<>()]+))?(?:\/[^\s<>()]*)?\/(design|page)\/([A-Za-z0-9_-]+)/g;
+    /(?:(https?:\/\/[^/\s<>()]+))?(?:\/[^\s<>()]*)?\/(deck|design|page)\/([A-Za-z0-9_-]+)/g;
 
   for (const match of text.matchAll(artifactUrlPattern)) {
     const origin = safeOrigin(match[1]);
@@ -254,7 +291,7 @@ function collectReferencedArtifacts(
     const route = match[2];
     const id = match[3];
     const kind: ReferencedArtifactKind =
-      route === "design" ? "design" : "document";
+      route === "deck" ? "deck" : route === "design" ? "design" : "document";
     refs.set(`${kind}:${id}`, { kind, id });
   }
 
@@ -274,13 +311,16 @@ function findUnverifiedArtifactReferences(
   text: string,
   baseUrl: string | undefined,
   documents: CreatedDocumentArtifact[],
+  decks: CreatedDeckArtifact[],
   generatedDesigns: GeneratedDesignArtifact[],
 ): ReferencedArtifact[] {
   const documentIds = new Set(documents.map((document) => document.id));
+  const deckIds = new Set(decks.map((deck) => deck.id));
   const designIds = new Set(generatedDesigns.map((design) => design.id));
 
   return collectReferencedArtifacts(text, baseUrl).filter((ref) => {
     if (ref.kind === "document") return !documentIds.has(ref.id);
+    if (ref.kind === "deck") return !deckIds.has(ref.id);
     return !designIds.has(ref.id);
   });
 }
@@ -288,20 +328,25 @@ function findUnverifiedArtifactReferences(
 function formatUnverifiedArtifactMessage(
   refs: ReferencedArtifact[],
   documents: CreatedDocumentArtifact[],
+  decks: CreatedDeckArtifact[],
   generatedDesigns: GeneratedDesignArtifact[],
   baseUrl: string | undefined,
 ): string {
   const hasOnlyDesigns = refs.every((ref) => ref.kind === "design");
   const hasOnlyDocuments = refs.every((ref) => ref.kind === "document");
+  const hasOnlyDecks = refs.every((ref) => ref.kind === "deck");
   const label = hasOnlyDesigns
     ? "design URL"
     : hasOnlyDocuments
       ? "document URL"
-      : "artifact URL";
+      : hasOnlyDecks
+        ? "deck URL"
+        : "artifact URL";
   const plural = refs.length === 1 ? label : `${label}s`;
   const message = `I could not verify the ${plural} in the final answer against a successful artifact action, so I cannot return it.`;
   const verifiedLines = [
     ...documents.map((document) => formatDocumentLine(document, baseUrl)),
+    ...decks.map((deck) => formatDeckLine(deck, baseUrl)),
     ...generatedDesigns.map((design) => formatDesignLine(design, baseUrl)),
   ];
 
@@ -316,7 +361,7 @@ export function appendA2AArtifactLinks(
   options: A2AArtifactResponseOptions = {},
 ): string {
   const baseUrl = normalizeBaseUrl(options.baseUrl);
-  const { documents, designShells, generatedDesigns } =
+  const { documents, decks, designShells, generatedDesigns } =
     collectArtifacts(toolResults);
   const generatedDesignIds = new Set(
     generatedDesigns.map((design) => design.id),
@@ -343,12 +388,14 @@ export function appendA2AArtifactLinks(
     text,
     baseUrl,
     documents,
+    decks,
     generatedDesigns,
   );
   if (unverifiedRefs.length > 0) {
     return formatUnverifiedArtifactMessage(
       unverifiedRefs,
       documents,
+      decks,
       generatedDesigns,
       baseUrl,
     );
@@ -359,6 +406,12 @@ export function appendA2AArtifactLinks(
     const path = `/page/${document.id}`;
     if (!responseAlreadyMentionsPath(text, path)) {
       missingLines.push(formatDocumentLine(document, baseUrl));
+    }
+  }
+  for (const deck of decks) {
+    const path = `/deck/${deck.id}`;
+    if (!responseAlreadyMentionsPath(text, path)) {
+      missingLines.push(formatDeckLine(deck, baseUrl));
     }
   }
   for (const design of generatedDesigns) {

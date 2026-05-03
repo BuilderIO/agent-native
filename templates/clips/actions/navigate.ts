@@ -8,6 +8,8 @@
  * Usage:
  *   pnpm action navigate --view=library
  *   pnpm action navigate --view=recording --recordingId=<id>
+ *   pnpm action navigate --view=meeting --meetingId=<id>
+ *   pnpm action navigate --view=dictate
  *   pnpm action navigate --view=space --spaceId=<id>
  *   pnpm action navigate --path=/r/rec_abc
  */
@@ -24,6 +26,9 @@ const Views = [
   "trash",
   "record",
   "recording",
+  "meetings",
+  "meeting",
+  "dictate",
   "share",
   "embed",
   "insights",
@@ -40,6 +45,13 @@ export default defineAction({
       .string()
       .optional()
       .describe("Recording id — for view=recording or view=insights"),
+    meetingId: z.string().optional().describe("Meeting id — for view=meeting"),
+    dictationId: z
+      .string()
+      .optional()
+      .describe(
+        "Dictation id — for view=dictate if a specific dictation is open",
+      ),
     spaceId: z.string().optional().describe("Space id — for view=space"),
     folderId: z
       .string()
@@ -68,6 +80,8 @@ export default defineAction({
     const nav: Record<string, string> = {};
     if (args.view) nav.view = args.view;
     if (args.recordingId) nav.recordingId = args.recordingId;
+    if (args.meetingId) nav.meetingId = args.meetingId;
+    if (args.dictationId) nav.dictationId = args.dictationId;
     if (args.spaceId) nav.spaceId = args.spaceId;
     if (args.folderId) nav.folderId = args.folderId;
     if (args.shareId) nav.shareId = args.shareId;
@@ -76,7 +90,15 @@ export default defineAction({
     await writeAppState("navigate", nav);
     const target =
       args.path ||
-      [args.view, args.recordingId, args.spaceId, args.folderId, args.shareId]
+      [
+        args.view,
+        args.recordingId,
+        args.meetingId,
+        args.dictationId,
+        args.spaceId,
+        args.folderId,
+        args.shareId,
+      ]
         .filter(Boolean)
         .join(":");
     return `Navigating to ${target}`;

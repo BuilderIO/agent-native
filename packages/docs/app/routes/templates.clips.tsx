@@ -4,26 +4,26 @@ import { templates, trackEvent } from "../components/TemplateCard";
 
 export const meta = () => [
   {
-    title: "Agent-Native Clips — Open Source Async Screen Recording",
+    title: "Agent-Native Clips — Open-Source Loom + Granola + Wisprflow",
   },
   {
     name: "description",
     content:
-      "Record your screen, camera, and audio with one click. Get auto-transcripts, instant share links, and AI-powered summaries. Open source async screen recording — own your recordings, own your data.",
+      "Screen recording, calendar-synced meeting notes, and Fn-hold voice dictation in one app you own. Auto-transcripts, AI summaries, and shareable links — open source alternative to Loom, Granola, and Wisprflow.",
   },
   {
     property: "og:title",
-    content: "Agent-Native Clips — Open Source Async Screen Recording",
+    content: "Agent-Native Clips — Open-Source Loom + Granola + Wisprflow",
   },
   {
     property: "og:description",
     content:
-      "Record screen, camera, and audio. Auto-transcripts, AI summaries, and shareable links — built on an agent you own.",
+      "Screen recordings, meeting notes from your calendar, and push-to-talk voice dictation — all transcribed, summarized, and yours to own.",
   },
   {
     name: "keywords",
     content:
-      "screen recording, async video, open source screen recorder, AI transcripts, AI video summaries, agent-native clips, screen capture, video messaging, async communication, shareable video links",
+      "screen recording, async video, open source screen recorder, AI transcripts, AI video summaries, agent-native clips, meeting notes, meeting recorder, granola alternative, wisprflow alternative, loom alternative, voice dictation, voice to text, push to talk dictation, calendar sync, action items, transcription, video messaging, async communication, shareable video links",
   },
 ];
 
@@ -119,13 +119,14 @@ export default function ClipsTemplate() {
             </div>
 
             <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
-              The open-source alternative to Loom
+              The open-source alternative to Loom, Granola, and Wisprflow
             </h1>
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
-              Record screen, camera, and audio in one click. Get
-              auto-transcripts, AI summaries, and a shareable link — all backed
-              by an agent you own. No vendor lock-in, no per-seat fees.
+              One-click screen recording, calendar-synced meeting notes with AI
+              summaries and action items, and Fn-hold voice dictation — all in
+              one app, all transcribed, all yours. No vendor lock-in, no
+              per-seat fees.
             </p>
 
             <div className="mb-8 flex flex-wrap items-center gap-3">
@@ -175,10 +176,10 @@ export default function ClipsTemplate() {
       <section className="border-t border-[var(--docs-border)] py-16">
         <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-4">
           {[
-            { number: "1-click", label: "Record" },
-            { number: "Auto", label: "Transcripts" },
-            { number: "AI", label: "Summaries" },
-            { number: "∞", label: "Storage" },
+            { number: "1-click", label: "Screen Record" },
+            { number: "Auto", label: "Meeting Notes" },
+            { number: "Hold-to", label: "Dictate" },
+            { number: "AI", label: "Everything" },
           ].map((stat) => (
             <div key={stat.label} className="bg-[var(--bg)] p-6 text-center">
               <div className="mb-1 text-2xl font-bold text-[var(--docs-accent)]">
@@ -198,8 +199,8 @@ export default function ClipsTemplate() {
           What you can do
         </h2>
         <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          Everything you need to record, share, and search async video — without
-          the subscription.
+          Three capture surfaces, one app, one library — without the
+          subscription stack.
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -218,10 +219,13 @@ export default function ClipsTemplate() {
                 <circle cx="12" cy="12" r="3" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">One-Click Recording</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              One-Click Screen Recording
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Capture screen, camera, and microphone in a single take. Pause,
-              resume, and trim before publishing.
+              Loom-style. Capture screen, camera, and microphone in a single
+              take. Pause, resume, trim, and share with a link the moment you
+              stop.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -244,8 +248,8 @@ export default function ClipsTemplate() {
             </div>
             <h3 className="mb-1 text-sm font-semibold">Auto Transcripts</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Every recording gets a full transcript. Click any line to jump to
-              that moment in the video.
+              Every screen recording, meeting, and dictation gets a full
+              transcript. Click any line to jump to that moment.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -265,10 +269,13 @@ export default function ClipsTemplate() {
                 <line x1="12" y1="2" x2="12" y2="15" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">Instant Share Links</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              Calendar-Synced Meeting Notes
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Get a link the moment you stop recording. Public, password-gated,
-              or scoped to your team.
+              Granola-style. Connect your calendar, hit record on any meeting,
+              and get a live transcript plus AI summary, bullet notes, and
+              action items the moment it ends.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -286,10 +293,13 @@ export default function ClipsTemplate() {
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">AI Summaries</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              Push-to-Talk Dictation
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              The agent watches every clip, pulls action items, generates
-              chapters, and answers questions about the content.
+              Wisprflow-style. Hold Fn anywhere on your machine, speak, and the
+              cleaned-up text lands in whatever app you're in. Every dictation
+              kept in a searchable history.
             </p>
           </div>
         </div>
@@ -303,8 +313,9 @@ export default function ClipsTemplate() {
               Searchable Video Library
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              Every clip is indexed by transcript. Search across your whole
-              library by what was said, not just by title.
+              Screen recordings, meeting transcripts, and dictations all indexed
+              together. Search across your whole library by what was said, not
+              just by title.
             </p>
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -446,7 +457,7 @@ export default function ClipsTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Summarize my walkthrough from yesterday"
+                "Pull action items from today's standup"
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -462,7 +473,7 @@ export default function ClipsTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Find the clip where I demoed onboarding"
+                "Find the dictation where I described the launch plan"
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -478,7 +489,7 @@ export default function ClipsTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Draft a follow-up email from this recording"
+                "Draft a follow-up email from this meeting"
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -494,7 +505,7 @@ export default function ClipsTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Pull every action item from this week's clips"
+                "Pull every action item from this week's meetings"
               </li>
             </ul>
           </div>
@@ -512,19 +523,19 @@ export default function ClipsTemplate() {
               <div>
                 <span className="text-[var(--docs-accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
-                  pnpm action summarize --clip "demo walkthrough"
+                  pnpm action finalize-meeting --id today-standup
                 </span>
               </div>
               <div>
                 <span className="text-[var(--docs-accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
-                  pnpm action search-clips --query "pricing"
+                  pnpm action list-dictations --since 7d
                 </span>
               </div>
               <div>
                 <span className="text-[var(--docs-accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
-                  pnpm action extract-actions --since 7d
+                  pnpm action search --query "pricing"
                 </span>
               </div>
             </div>
@@ -543,10 +554,13 @@ export default function ClipsTemplate() {
               <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  Closed SaaS Recorders
+                  Loom
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  OS Screen Capture
+                  Granola
+                </th>
+                <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
+                  Wisprflow
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
                   Agent-Native Clips
@@ -556,40 +570,58 @@ export default function ClipsTemplate() {
             <tbody className="text-[var(--fg-secondary)]">
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Auto transcripts
+                  Screen recording
                 </td>
-                <td className="px-5 py-3">Yes (paid tier)</td>
+                <td className="px-5 py-3">Yes</td>
                 <td className="px-5 py-3">No</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  Yes, every recording
-                </td>
+                <td className="px-5 py-3">No</td>
+                <td className="px-5 py-3 text-[var(--fg)]">Yes</td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  AI summaries
+                  Calendar-synced meeting notes
+                </td>
+                <td className="px-5 py-3">No</td>
+                <td className="px-5 py-3">Yes</td>
+                <td className="px-5 py-3">No</td>
+                <td className="px-5 py-3 text-[var(--fg)]">Yes</td>
+              </tr>
+              <tr className="border-b border-[var(--docs-border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">
+                  Push-to-talk dictation
+                </td>
+                <td className="px-5 py-3">No</td>
+                <td className="px-5 py-3">No</td>
+                <td className="px-5 py-3">Yes</td>
+                <td className="px-5 py-3 text-[var(--fg)]">Yes</td>
+              </tr>
+              <tr className="border-b border-[var(--docs-border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">
+                  AI summaries &amp; action items
                 </td>
                 <td className="px-5 py-3">Limited</td>
-                <td className="px-5 py-3">None</td>
+                <td className="px-5 py-3">Yes</td>
+                <td className="px-5 py-3">N/A</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
                   Full agent: chapters, actions, Q&amp;A
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Sharing
+                  Agent edits transcripts &amp; code
                 </td>
-                <td className="px-5 py-3">Vendor-hosted links</td>
-                <td className="px-5 py-3">Manual upload</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  Your domain, your player
-                </td>
+                <td className="px-5 py-3">No</td>
+                <td className="px-5 py-3">No</td>
+                <td className="px-5 py-3">No</td>
+                <td className="px-5 py-3 text-[var(--fg)]">Yes</td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Data ownership
                 </td>
                 <td className="px-5 py-3">Vendor's storage</td>
-                <td className="px-5 py-3">Local files</td>
+                <td className="px-5 py-3">Vendor's storage</td>
+                <td className="px-5 py-3">Vendor's cloud</td>
                 <td className="px-5 py-3 text-[var(--fg)]">You own the code</td>
               </tr>
               <tr>
@@ -597,7 +629,8 @@ export default function ClipsTemplate() {
                   Pricing
                 </td>
                 <td className="px-5 py-3">$15-30/mo per user</td>
-                <td className="px-5 py-3">Free</td>
+                <td className="px-5 py-3">$18-25/mo per user</td>
+                <td className="px-5 py-3">$12-15/mo per user</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
                   Free &amp; open source
                 </td>

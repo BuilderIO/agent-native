@@ -31,6 +31,13 @@ export interface VoiceProvidersStatus {
   gemini: boolean;
   openai: boolean;
   groq: boolean;
+  /**
+   * Google Speech-to-Text realtime streaming is BYOK-only for v1. This only
+   * reports whether a service-account credential is configured; the actual
+   * stream belongs on a dedicated WebSocket -> StreamingRecognize path, not on
+   * the batch transcribe route.
+   */
+  googleRealtime: boolean;
   /** Always true — the Web Speech API is available in WebKit-based clients. */
   browser: true;
   /**
@@ -91,10 +98,11 @@ export function createVoiceProvidersStatusHandler() {
       builder = false;
     }
 
-    const [gemini, openai, groq] = await Promise.all([
+    const [gemini, openai, groq, googleRealtime] = await Promise.all([
       hasKey("GEMINI_API_KEY"),
       hasKey("OPENAI_API_KEY"),
       hasKey("GROQ_API_KEY"),
+      hasKey("GOOGLE_APPLICATION_CREDENTIALS"),
     ]);
 
     const status: VoiceProvidersStatus = {
@@ -102,6 +110,7 @@ export function createVoiceProvidersStatusHandler() {
       gemini,
       openai,
       groq,
+      googleRealtime,
       browser: true,
       native: true,
     };

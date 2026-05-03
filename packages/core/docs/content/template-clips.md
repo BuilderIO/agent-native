@@ -1,19 +1,21 @@
 ---
 title: "Clips"
-description: "Record your screen, get an AI-generated title, summary, and chapter markers automatically, and search across every recording you've ever made."
+description: "Async screen recording (Loom-style), calendar-synced meeting notes (Granola-style), and push-to-talk voice dictation (Wisprflow-style) — all transcribed, summarized, and searchable in one app you own."
 ---
 
 # Clips
 
-A screen-recording app where the agent does the post-production work for you. Record your screen, and Clips transcribes it, suggests a title and summary, builds chapter markers, and tags the content automatically. Ask "find the clip where we discussed the rollout plan" and the agent searches across every transcript you've ever made.
+A capture-everything app: screen recordings (Loom-style), meeting notes from your calendar (Granola-style), and Fn-hold voice dictation (Wisprflow-style). The agent transcribes, titles, summarizes, and indexes all of it — then lets you ask "find the clip where we discussed the rollout plan" and searches across every transcript you've ever made.
 
-Think along the lines of products that record short async videos for your team — but the agent is a first-class editor, and the recordings are yours, not a SaaS vendor's.
+Think along the lines of Loom + Granola + Wisprflow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's.
 
 ## What you can do with it
 
 - **Record your screen** with a built-in recorder, webcam overlay, audio capture, and pause/trim.
+- **Capture meetings from your calendar.** Connect Google Calendar, see upcoming meetings in the sidebar, and hit record on any one. You get a live transcript plus AI summary, bullet notes, and action items the moment it ends.
+- **Push-to-talk dictation.** Hold Fn on your machine, speak, and the cleaned-up text drops into whatever app you're using. Every dictation is kept in a searchable history with originals and AI-cleaned versions side by side.
 - **Get an auto-generated title, summary, and chapter markers** for every recording — the agent fills them in and keeps them current.
-- **Search across every transcript** with full-text search. "Find the clip where we discussed the rollout plan."
+- **Search across every transcript** — screen recordings, meetings, and dictations all in one library. "Find the clip where we discussed the rollout plan."
 - **Share clips** with per-clip permissions (public, team, private). Link tracking and threaded comments work too.
 - **Smart library views.** Group by project, filter by speaker, auto-tag based on content.
 - **Edit the transcript through chat.** "Fix the mis-transcribed word at 1:42." "Pull three quotes for a blog post." The agent edits the transcript and the UI updates live.
@@ -43,7 +45,8 @@ Clips is a larger template with a native recorder (it ships a desktop companion 
 Clips is a full cloneable SaaS — fork it and ask the agent to extend it. Some examples:
 
 - "Add a filler-word removal button that strips ums and uhs from the transcript and re-stitches the video."
-- "Auto-post a new clip to Slack #eng-demos whenever I finish a recording." (Connect Slack first via [Messaging](/docs/messaging).)
+- "Auto-post my standup notes to Slack #eng whenever a meeting ends." (Connect Slack first via [Messaging](/docs/messaging).)
+- "Add a hotkey that drops the last dictation into Linear as a new ticket."
 - "Group the library by project — detect the project from the first words of each transcript."
 - "Add a 'Generate blog post from this clip' button that drafts a post from the transcript and saves it as a draft."
 - "Let viewers leave timestamped reactions on a shared clip."
