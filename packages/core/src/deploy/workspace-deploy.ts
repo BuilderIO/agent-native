@@ -23,14 +23,25 @@ export type WorkspaceDeployPreset = "cloudflare_pages" | "netlify";
 
 const NETLIFY_WORKSPACE_STATIC_DIR = "_workspace_static";
 const NETLIFY_PUBLIC_ASSET_EXTENSIONS = new Set([
-  "svg",
-  "json",
-  "webmanifest",
+  "avif",
+  "css",
+  "gif",
   "ico",
-  "png",
-  "jpg",
   "jpeg",
+  "jpg",
+  "js",
+  "json",
+  "map",
+  "mp4",
+  "pdf",
+  "png",
+  "svg",
+  "txt",
+  "wasm",
+  "webm",
+  "webmanifest",
   "webp",
+  "xml",
 ]);
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_DIR = ".agent-native";

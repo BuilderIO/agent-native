@@ -247,6 +247,8 @@ describe("workspace deploy", () => {
     );
     expect(dispatchServer).toContain('"/dispatch/assets/*"');
     expect(dispatchServer).toContain('"/dispatch/favicon.svg"');
+    expect(dispatchServer).toContain('"/dispatch/manifest.json"');
+    expect(dispatchServer).toContain('"/dispatch/robots.txt"');
     expect(dispatchServer).toContain('"/dispatch/site.webmanifest"');
     expect(dispatchServer).not.toContain('"/dispatch/*.json"');
     expect(dispatchServer).not.toContain('"/dispatch/*.svg"');
@@ -267,7 +269,9 @@ describe("workspace deploy", () => {
     expect(starterServer).toContain('path: ["/starter","/starter/*"]');
     expect(starterServer).toContain("normalizeBasePathArgs");
     expect(starterServer).toContain('"/starter/assets/*"');
+    expect(starterServer).toContain('"/starter/feed.xml"');
     expect(starterServer).toContain('"/starter/favicon.svg"');
+    expect(starterServer).toContain('"/starter/icon-192.png"');
     expect(starterServer).toContain('"/starter/site.webmanifest"');
     expect(starterServer).not.toContain('"/starter/*.json"');
     expect(starterServer).not.toContain('"/starter/*.webmanifest"');
@@ -327,6 +331,21 @@ describe("workspace deploy", () => {
     );
     expect(redirects).toContain(
       "/dispatch/favicon.svg /_workspace_static/dispatch/favicon.svg 200",
+    );
+    expect(redirects).toContain(
+      "/dispatch/manifest.json /_workspace_static/dispatch/manifest.json 200",
+    );
+    expect(redirects).toContain(
+      "/dispatch/robots.txt /_workspace_static/dispatch/robots.txt 200",
+    );
+    expect(redirects).toContain(
+      "/starter/feed.xml /_workspace_static/starter/feed.xml 200",
+    );
+    expect(redirects).toContain(
+      "/starter/icon-192.png /_workspace_static/starter/icon-192.png 200",
+    );
+    expect(redirects).toContain(
+      "/starter/poster.avif /_workspace_static/starter/poster.avif 200",
     );
     expect(redirects).toContain(
       "/starter/site.webmanifest /_workspace_static/starter/site.webmanifest 200",
@@ -488,6 +507,12 @@ function writeAppBuildOutput(workspaceRoot: string, app: string): void {
     path.join(appDir, "dist", app, "favicon.svg"),
     "<svg></svg>",
   );
+  fs.writeFileSync(path.join(appDir, "dist", app, "favicon.ico"), "");
+  fs.writeFileSync(path.join(appDir, "dist", app, "feed.xml"), "<feed />");
+  fs.writeFileSync(path.join(appDir, "dist", app, "icon-192.png"), "");
+  fs.writeFileSync(path.join(appDir, "dist", app, "manifest.json"), "{}");
+  fs.writeFileSync(path.join(appDir, "dist", app, "poster.avif"), "");
+  fs.writeFileSync(path.join(appDir, "dist", app, "robots.txt"), "");
   fs.writeFileSync(path.join(appDir, "dist", app, "site.webmanifest"), "{}");
   fs.mkdirSync(path.join(appDir, "dist", app, app, "assets"), {
     recursive: true,
