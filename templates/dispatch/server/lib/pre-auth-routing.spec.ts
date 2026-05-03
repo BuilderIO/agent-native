@@ -46,6 +46,20 @@ describe("dispatch pre-auth routing", () => {
     expect(rootDispatchRedirect("/dispatch/tools/tool-123/", "")).toBeNull();
   });
 
+  it("allows React Router manifest patch requests through the mounted dispatch path", () => {
+    useDispatchBasePath();
+
+    expect(
+      rootDispatchRedirect(
+        "/dispatch/__manifest",
+        "?paths=%2Fdispatch%2Foverview",
+      ),
+    ).toBeNull();
+    expect(
+      rootDispatchRedirect("/__manifest", "?paths=%2Fdispatch%2Foverview"),
+    ).toBeNull();
+  });
+
   it("still redirects root dispatch aliases to the mounted overview route", () => {
     useDispatchBasePath();
 
