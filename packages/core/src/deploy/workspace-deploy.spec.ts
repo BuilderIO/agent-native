@@ -370,6 +370,20 @@ describe("workspace deploy", () => {
     });
   });
 
+  it("rejects app ids that conflict with reserved workspace routes", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "login");
+
+    await expect(
+      runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=netlify", "--build-only"],
+        execFile: execFile as typeof execFileSync,
+      }),
+    ).rejects.toThrow(/reserved workspace routes/);
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
   it("routes root framework requests to Dispatch for Cloudflare workspaces", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");

@@ -26,6 +26,7 @@ const RESCHEDULE_DELAY_MS = 5_000;
 const MAX_PRE_CLAIM_WAIT_MS = RESCHEDULE_DELAY_MS + 5_000;
 const POLL_INTERVAL_MS = 2_000;
 const PROCESSOR_WAIT_MS = 20_000;
+const PLATFORM_SEND_TIMEOUT_MS = 12_000;
 const DISPATCH_SETTLE_WAIT_MS = 2_000;
 
 export async function dispatchA2AContinuation(
@@ -205,10 +206,14 @@ async function processClaimedContinuation(
   }
 
   try {
-    await adapter.sendResponse(
-      adapter.formatAgentResponse(text),
-      continuation.incoming,
-      { placeholderRef: continuation.placeholderRef ?? undefined },
+    await withTimeout(
+      adapter.sendResponse(
+        adapter.formatAgentResponse(text),
+        continuation.incoming,
+        { placeholderRef: continuation.placeholderRef ?? undefined },
+      ),
+      PLATFORM_SEND_TIMEOUT_MS,
+      `${continuation.platform} response delivery timed out`,
     );
     await completeA2AContinuation(continuation.id);
   } catch (err) {
@@ -248,10 +253,14 @@ async function notifyAndFailA2AContinuation(
 ): Promise<void> {
   const message = formatContinuationFailureMessage(continuation, reason);
   try {
-    await adapter.sendResponse(
-      adapter.formatAgentResponse(message),
-      continuation.incoming,
-      { placeholderRef: continuation.placeholderRef ?? undefined },
+    await withTimeout(
+      adapter.sendResponse(
+        adapter.formatAgentResponse(message),
+        continuation.incoming,
+        { placeholderRef: continuation.placeholderRef ?? undefined },
+      ),
+      PLATFORM_SEND_TIMEOUT_MS,
+      `${continuation.platform} failure notification timed out`,
     );
   } catch (err) {
     console.error(
@@ -284,6 +293,24 @@ function isRemoteWorkExpired(continuation: A2AContinuation): boolean {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function sanitizeFailureReason(reason: string): string {
