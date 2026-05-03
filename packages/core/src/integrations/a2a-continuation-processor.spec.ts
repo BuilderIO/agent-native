@@ -103,6 +103,9 @@ describe("A2A continuation processor", () => {
     getA2AContinuationMock.mockImplementation(async (id: string) =>
       continuation({ id, status: "pending" }),
     );
+    completeA2AContinuationMock.mockResolvedValue(undefined);
+    failA2AContinuationMock.mockResolvedValue(undefined);
+    rescheduleA2AContinuationMock.mockResolvedValue(undefined);
     claimA2AContinuationDeliveryMock.mockImplementation(async (id: string) =>
       continuation({ id, status: "delivering" }),
     );
@@ -208,6 +211,34 @@ describe("A2A continuation processor", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("does not redeliver when completion fails after the platform accepts the response", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const sendResponse = vi.fn(async () => undefined);
+    claimA2AContinuationMock.mockResolvedValueOnce(continuation());
+    completeA2AContinuationMock
+      .mockRejectedValueOnce(new Error("db unavailable"))
+      .mockRejectedValueOnce(new Error("db unavailable"))
+      .mockRejectedValueOnce(new Error("db unavailable"));
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(sendResponse).toHaveBeenCalledTimes(1);
+    expect(completeA2AContinuationMock).toHaveBeenCalledTimes(3);
+    expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
+    expect(failA2AContinuationMock).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("marking it completed failed"),
+      expect.any(Error),
+    );
+  });
+
   it("does not post completed text when another processor already claimed delivery", async () => {
     const sendResponse = vi.fn(async () => undefined);
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());
@@ -220,6 +251,30 @@ describe("A2A continuation processor", () => {
     });
 
     expect(claimA2AContinuationDeliveryMock).toHaveBeenCalledWith("cont-1");
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(completeA2AContinuationMock).not.toHaveBeenCalled();
+    expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
+    expect(failA2AContinuationMock).not.toHaveBeenCalled();
+  });
+
+  it("does not redeliver a continuation that is already in delivery", async () => {
+    const sendResponse = vi.fn(async () => undefined);
+    getA2AContinuationMock.mockResolvedValueOnce(
+      continuation({
+        status: "delivering",
+        updatedAt: Date.now() - 6 * 60_000,
+      }),
+    );
+    claimA2AContinuationMock.mockResolvedValueOnce(null);
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(claimA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+    expect(getTaskMock).not.toHaveBeenCalled();
     expect(sendResponse).not.toHaveBeenCalled();
     expect(completeA2AContinuationMock).not.toHaveBeenCalled();
     expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();

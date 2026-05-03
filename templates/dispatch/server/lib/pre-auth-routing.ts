@@ -23,6 +23,17 @@ const DISPATCH_PAGE_PATHS = new Set([
   "/team",
 ]);
 
+const DISPATCH_ROOT_ALIASES = new Map<string, string>([
+  ...Array.from(DISPATCH_PAGE_PATHS, (path) => [path, path] as const),
+  ["/approval", "/approval"],
+  ["/tools", "/tools"],
+  ["/apps/new-app", "/new-app"],
+]);
+
+const MOUNTED_DISPATCH_ALIASES = new Map<string, string>([
+  ["/apps/new-app", "/new-app"],
+]);
+
 function isDispatchPagePath(pathname: string): boolean {
   if (DISPATCH_PAGE_PATHS.has(pathname)) return true;
   if (pathname === "/approval" || pathname === "/tools") return true;
@@ -95,6 +106,13 @@ export function rootDispatchRedirect(
 
   if (pathname.startsWith(`${basePath}/`)) {
     const dispatchPath = pathname.slice(basePath.length);
+    const mountedAlias = MOUNTED_DISPATCH_ALIASES.get(dispatchPath);
+    if (mountedAlias) {
+      return new Response(null, {
+        status: 302,
+        headers: { Location: `${basePath}${mountedAlias}${search}` },
+      });
+    }
     if (
       isDispatchPagePath(dispatchPath) ||
       isDispatchAssetOrFrameworkPath(dispatchPath)
@@ -104,10 +122,11 @@ export function rootDispatchRedirect(
     return dispatchNotFoundResponse();
   }
 
-  if (DISPATCH_PAGE_PATHS.has(pathname)) {
+  const rootAlias = DISPATCH_ROOT_ALIASES.get(pathname);
+  if (rootAlias) {
     return new Response(null, {
       status: 302,
-      headers: { Location: `${basePath}${pathname}${search}` },
+      headers: { Location: `${basePath}${rootAlias}${search}` },
     });
   }
 

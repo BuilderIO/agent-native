@@ -30,6 +30,7 @@ const PROCESSOR_WAIT_MS = 20_000;
 const POLL_REQUEST_TIMEOUT_MS = 25_000;
 const PLATFORM_SEND_TIMEOUT_MS = 12_000;
 const DISPATCH_SETTLE_WAIT_MS = 2_000;
+const COMPLETE_AFTER_DELIVERY_ATTEMPTS = 3;
 
 export async function dispatchA2AContinuation(
   continuationId: string,
@@ -304,7 +305,6 @@ async function deliverAndCompleteA2AContinuation(
       PLATFORM_SEND_TIMEOUT_MS,
       `${deliveryContinuation.platform} response delivery timed out`,
     );
-    await completeA2AContinuation(deliveryContinuation.id);
   } catch (err) {
     if (deliveryContinuation.attempts >= MAX_ATTEMPTS) {
       await failA2AContinuation(
@@ -318,7 +318,30 @@ async function deliverAndCompleteA2AContinuation(
       RESCHEDULE_DELAY_MS,
     );
     await redispatchContinuation(deliveryContinuation.id);
+    return;
   }
+
+  await completeAfterSuccessfulDelivery(deliveryContinuation);
+}
+
+async function completeAfterSuccessfulDelivery(
+  continuation: A2AContinuation,
+): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < COMPLETE_AFTER_DELIVERY_ATTEMPTS; attempt++) {
+    try {
+      await completeA2AContinuation(continuation.id);
+      return;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  console.error(
+    `[integrations] ${continuation.platform} accepted A2A continuation ${continuation.id}, ` +
+      "but marking it completed failed. Leaving it in delivering for stale-delivery recovery.",
+    lastError,
+  );
 }
 
 function formatContinuationFailureMessage(

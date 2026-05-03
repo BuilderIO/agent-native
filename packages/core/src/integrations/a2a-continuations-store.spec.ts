@@ -121,13 +121,78 @@ describe("A2A continuations store", () => {
     await expect(claimA2AContinuationDelivery("cont-1")).resolves.toBeNull();
   });
 
-  it("allows stale delivering continuations to be reclaimed for retry", async () => {
+  it("does not reclaim stale delivering continuations for retry", async () => {
     const { claimA2AContinuation } = await loadStore();
     executeMock.mockImplementation(
       async (query: string | { sql: string; args?: unknown[] }) => {
         const sql = querySql(query);
-        const args = queryArgs(query);
         if (sql.includes("UPDATE integration_a2a_continuations")) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        if (
+          sql.includes(
+            "SELECT * FROM integration_a2a_continuations WHERE id = ?",
+          )
+        ) {
+          throw new Error("stale delivering claim should not fetch");
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+    );
+
+    const claimed = await claimA2AContinuation("cont-1");
+
+    expect(claimed).toBeNull();
+    const updateCall = executeMock.mock.calls.find(([query]) =>
+      querySql(query).includes(
+        "SET status = ?, attempts = attempts + 1, updated_at = ?",
+      ),
+    );
+    expect(updateCall).toBeDefined();
+    expect(querySql(updateCall![0])).toContain("status = 'processing'");
+    expect(querySql(updateCall![0])).not.toContain("delivering");
+  });
+
+  it("recovers stale delivering continuations as completed during due sweeps", async () => {
+    const { claimDueA2AContinuations } = await loadStore();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+
+    await expect(claimDueA2AContinuations()).resolves.toEqual([]);
+
+    const recoveryCall = executeMock.mock.calls.find(([query]) => {
+      const sql = querySql(query);
+      return (
+        sql.includes("UPDATE integration_a2a_continuations") &&
+        sql.includes("completed_at = COALESCE")
+      );
+    });
+    expect(recoveryCall?.[0]).toEqual(
+      expect.objectContaining({
+        sql: expect.stringContaining("WHERE status = 'delivering'"),
+        args: [
+          "completed",
+          expect.any(Number),
+          expect.any(Number),
+          expect.any(Number),
+        ],
+      }),
+    );
+  });
+
+  it("returns each due continuation once from a retry sweep", async () => {
+    const { claimDueA2AContinuations } = await loadStore();
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        const args = queryArgs(query);
+        if (sql.includes("SELECT id FROM integration_a2a_continuations")) {
+          return { rows: [{ id: "cont-1" }], rowsAffected: 0 };
+        }
+        if (
+          sql.includes(
+            "SET status = ?, attempts = attempts + 1, updated_at = ?",
+          )
+        ) {
           return { rows: [], rowsAffected: 1 };
         }
         if (
@@ -150,17 +215,8 @@ describe("A2A continuations store", () => {
       },
     );
 
-    const claimed = await claimA2AContinuation("cont-1");
+    const claimed = await claimDueA2AContinuations();
 
-    expect(claimed?.status).toBe("processing");
-    const updateCall = executeMock.mock.calls.find(([query]) =>
-      querySql(query).includes(
-        "SET status = ?, attempts = attempts + 1, updated_at = ?",
-      ),
-    );
-    expect(updateCall).toBeDefined();
-    expect(querySql(updateCall![0])).toContain(
-      "status IN ('processing', 'delivering')",
-    );
+    expect(claimed.map((continuation) => continuation.id)).toEqual(["cont-1"]);
   });
 });

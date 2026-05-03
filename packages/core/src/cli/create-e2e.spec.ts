@@ -57,6 +57,22 @@ function allDeps(pkg: Record<string, any>): Record<string, string> {
   };
 }
 
+function readAllTextFiles(dir: string): string {
+  const chunks: string[] = [];
+
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, entry.name);
+    if (entry.isSymbolicLink()) continue;
+    if (entry.isDirectory()) {
+      chunks.push(readAllTextFiles(p));
+      continue;
+    }
+    chunks.push(fs.readFileSync(p, "utf-8"));
+  }
+
+  return chunks.join("\n");
+}
+
 /* ─────────────────────────────────────────────────────────────────────────
  * Standalone scaffold with a real template
  * ───────────────────────────────────────────────────────────────────────── */
@@ -321,6 +337,35 @@ describe("workspace scaffold defaults", () => {
     ).toBe(false);
   });
 
+  it("creates root AGENTS.md and CLAUDE.md for workspace-level agents", async () => {
+    const wsDir = path.join(tmpDir, "my-ws");
+    await _scaffoldWorkspaceRoot(wsDir, "my-ws");
+
+    const agentsPath = path.join(wsDir, "AGENTS.md");
+    const claudePath = path.join(wsDir, "CLAUDE.md");
+    const agents = fs.readFileSync(agentsPath, "utf-8");
+
+    expect(agents).toContain("My Ws Workspace Instructions");
+    expect(agents).toContain("WORKSPACE_ORG_NAME");
+    expect(fs.existsSync(claudePath)).toBe(true);
+
+    const claudeStat = fs.lstatSync(claudePath);
+    if (claudeStat.isSymbolicLink()) {
+      expect(fs.readlinkSync(claudePath)).toBe("AGENTS.md");
+    } else {
+      expect(fs.readFileSync(claudePath, "utf-8")).toBe(agents);
+    }
+  });
+
+  it("keeps the generic workspace scaffold free of company-specific example identities", async () => {
+    const wsDir = path.join(tmpDir, "my-ws");
+    await _scaffoldWorkspaceRoot(wsDir, "my-ws");
+
+    const generated = readAllTextFiles(wsDir);
+    expect(generated).not.toMatch(/builder\.io/i);
+    expect(generated).not.toMatch(/steve@builder\.io/i);
+  });
+
   it("scaffolds root Netlify config for unified workspace deploys", async () => {
     const wsDir = path.join(tmpDir, "my-ws");
     await _scaffoldWorkspaceRoot(wsDir, "my-ws");
@@ -406,6 +451,8 @@ describe("Netlify scaffold rewrite", () => {
     expectRedirect("/apps", "/dispatch/apps", 302);
     expectRedirect("/apps/new-app", "/dispatch/new-app", 302);
     expectRedirect("/new-app", "/dispatch/new-app", 302);
+    expectRedirect("/approval", "/dispatch/approval", 302);
+    expectRedirect("/tools", "/dispatch/tools", 302);
     expect(netlify).not.toContain('from = "/dispatch/*"');
     expect(netlify).not.toContain('to = "/.netlify/functions/server"');
     expect(netlify).not.toContain("force = true");
@@ -460,6 +507,8 @@ describe("Netlify scaffold rewrite", () => {
     expect(netlify).toContain('  VITE_APP_BASE_PATH = "/starter"');
     expect(netlify).not.toContain('  to = "/dispatch/apps"');
     expect(netlify).not.toContain('  to = "/dispatch/new-app"');
+    expect(netlify).not.toContain('  to = "/dispatch/approval"');
+    expect(netlify).not.toContain('  to = "/dispatch/tools"');
     expect(netlify).not.toContain('  from = "/dispatch/*"');
   });
 

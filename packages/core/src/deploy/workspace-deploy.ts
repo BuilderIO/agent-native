@@ -18,6 +18,7 @@ import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { findWorkspaceRoot } from "../scripts/utils.js";
+import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js";
 
 export type WorkspaceDeployPreset = "cloudflare_pages" | "netlify";
 
@@ -244,6 +245,9 @@ function writeCloudflareRoutingManifest(distDir: string, apps: string[]): void {
   if (apps.includes("dispatch")) {
     include.push("/_agent-native/*");
     include.push("/.well-known/*");
+    include.push(
+      ...DISPATCH_WORKSPACE_ROOT_REDIRECTS.map(([from]) => `/${from}`),
+    );
     if (dispatchFaviconAsset) include.push("/favicon.ico");
   }
   const routes = {
@@ -275,13 +279,19 @@ function writeCloudflareRoutingManifest(distDir: string, apps: string[]): void {
     ? `    if (pathname === "/favicon.ico") return Response.redirect(new URL("/dispatch/${dispatchFaviconAsset}", request.url).toString(), 302);
 `
     : "";
+  const dispatchRootAliasRoutes = apps.includes("dispatch")
+    ? DISPATCH_WORKSPACE_ROOT_REDIRECTS.map(
+        ([from, to]) =>
+          `    if (pathname === "/${from}") return Response.redirect(new URL("/dispatch/${to}" + search, request.url).toString(), 302);`,
+      ).join("\n") + "\n"
+    : "";
 
   const worker = `${imports}
 
 export default {
   async fetch(request, env, ctx) {
-    const { pathname } = new URL(request.url);
-${dispatchRootFrameworkRoutes}${dispatchRootFaviconRoute}${dispatch}
+    const { pathname, search } = new URL(request.url);
+${dispatchRootFrameworkRoutes}${dispatchRootFaviconRoute}${dispatchRootAliasRoutes}${dispatch}
     if (pathname === "/") {
       return Response.redirect(new URL("${cloudflareRootRedirectPath(apps)}", request.url).toString(), 302);
     }
@@ -361,25 +371,6 @@ function workspaceAppAssetExists(
     path.join(distDir, app, asset),
   ].some((candidate) => fs.existsSync(candidate));
 }
-
-const DISPATCH_WORKSPACE_ROOT_REDIRECTS = [
-  ["overview", "overview"],
-  ["login", "login"],
-  ["signup", "signup"],
-  ["apps", "apps"],
-  ["apps/new-app", "new-app"],
-  ["new-app", "new-app"],
-  ["vault", "vault"],
-  ["integrations", "integrations"],
-  ["agents", "agents"],
-  ["workspace", "workspace"],
-  ["messaging", "messaging"],
-  ["destinations", "destinations"],
-  ["identities", "identities"],
-  ["approvals", "approvals"],
-  ["audit", "audit"],
-  ["team", "team"],
-];
 
 const RESERVED_WORKSPACE_APP_IDS = new Set([
   "_agent-native",

@@ -84,6 +84,39 @@ async function fetchJson(url: string, init?: RequestInit): Promise<any> {
   return data;
 }
 
+function buildNewWorkspaceAppPrompt(input: {
+  appId: string;
+  prompt: string;
+  template: string;
+  selectedKeys: string[];
+}): string {
+  const keyList = input.selectedKeys.join(", ");
+  const grantRequest = keyList
+    ? `Requested Dispatch vault key grants for this app: ${keyList}`
+    : `Requested Dispatch vault key grants for this app: none`;
+
+  return [
+    `Create a new agent-native app in this workspace.`,
+    ``,
+    `App name: ${input.appId}`,
+    `Template to start from: ${input.template}`,
+    `User prompt: ${input.prompt.trim()}`,
+    grantRequest,
+    ``,
+    `Use the workspace app layout: create it under apps/${input.appId}, mount it at /${input.appId}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
+    keyList
+      ? `After the app exists, grant the selected Dispatch vault keys to appId "${input.appId}" and sync them once the app server is available. Treat these as requested grants, not active grants before creation succeeds.`
+      : `Do not grant any Dispatch vault keys unless the user asks later.`,
+    ``,
+    `App readiness requirements before handing off:`,
+    `- Update the workspace app registry metadata for "${input.appId}" (workspace-apps.json or .agent-native/workspace-apps.json, whichever this workspace uses) so Dispatch lists the app at /${input.appId} after merge/deploy.`,
+    `- Update the app manifest/package/deploy metadata needed by the existing workspace deployment model; do not leave the app relying only on local discovery.`,
+    `- Verify the app's agent card/A2A metadata is ready so Dispatch can discover and delegate to the app after deployment.`,
+    `- Include a final verification note covering the registry entry, manifest/deploy metadata, and agent-card readiness.`,
+    `When it is ready, start or update the workspace dev server and navigate the user to /${input.appId}.`,
+  ].join("\n");
+}
+
 export function NewWorkspaceAppFlow({
   sourceApp = "starter",
   className = "",
@@ -157,44 +190,12 @@ export function NewWorkspaceAppFlow({
       : "Ctrl";
 
   function buildMessage(): string {
-    const keyList = selectedSecrets.map((s) => s.credentialKey).join(", ");
-    return [
-      `Create a new agent-native app in this workspace.`,
-      ``,
-      `App name: ${safeAppName}`,
-      `Template to start from: ${template}`,
-      `User prompt: ${prompt.trim()}`,
-      keyList
-        ? `Dispatch vault keys selected for this app: ${keyList}`
-        : `Dispatch vault keys selected for this app: none`,
-      ``,
-      `Use the workspace app layout: create it under apps/${safeAppName}, mount it at /${safeAppName}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
-      keyList
-        ? `Grant the selected Dispatch vault keys to appId "${safeAppName}" and sync them once the app server is available.`
-        : `Do not grant any Dispatch vault keys unless the user asks later.`,
-      `When it is ready, start or update the dev server and navigate the user to /${safeAppName}.`,
-    ].join("\n");
-  }
-
-  async function grantSelectedSecrets(safeAppName: string) {
-    if (selectedSecretIds.length === 0) return;
-    try {
-      await fetchJson(
-        actionUrl(effectiveDispatchBasePath, "grant-vault-secrets-to-app"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            appId: safeAppName,
-            secretIds: selectedSecretIds,
-          }),
-        },
-      );
-    } catch (err: any) {
-      setStatusMessage(
-        `The app request was prepared, but Dispatch grants could not be saved yet: ${err?.message || "unknown error"}`,
-      );
-    }
+    return buildNewWorkspaceAppPrompt({
+      appId: safeAppName,
+      prompt,
+      template,
+      selectedKeys: selectedSecrets.map((s) => s.credentialKey),
+    });
   }
 
   async function submit() {
@@ -210,8 +211,6 @@ export function NewWorkspaceAppFlow({
     setBranchUrl(null);
 
     try {
-      await grantSelectedSecrets(safeAppName);
-
       if (isInBuilderFrame()) {
         sendToAgentChat({ message, submit: true, type: "code" });
         setStatusMessage("Sent to Builder chat.");
@@ -229,7 +228,6 @@ export function NewWorkspaceAppFlow({
               appId: safeAppName,
               template,
               secretIds: selectedSecretIds,
-              preparedPrompt: message,
             }),
           },
         );
@@ -420,8 +418,8 @@ export function NewWorkspaceAppFlow({
                         </span>
                         <span className="block truncate text-xs text-muted-foreground/70">
                           {selected
-                            ? "Will be granted to this app"
-                            : "Click to grant"}
+                            ? "Will be requested for this app"
+                            : "Click to request"}
                         </span>
                       </span>
                     </button>
