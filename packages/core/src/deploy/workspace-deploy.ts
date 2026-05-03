@@ -286,6 +286,8 @@ function netlifyAssetRedirectsFor(app: string): string[] {
 
 const DISPATCH_WORKSPACE_ROOT_REDIRECTS = [
   ["overview", "overview"],
+  ["login", "login"],
+  ["signup", "signup"],
   ["apps", "apps"],
   ["new-app", "new-app"],
   ["vault", "vault"],
