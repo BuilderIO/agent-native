@@ -24,8 +24,11 @@ const PROCESSOR_PATH = `${FRAMEWORK_ROUTE_PREFIX}/integrations/process-a2a-conti
 const TERMINAL_STATES = new Set(["completed", "failed", "canceled"]);
 const MAX_ATTEMPTS = 6;
 const MAX_REMOTE_WORK_MS = 10 * 60_000;
-const RESCHEDULE_DELAY_MS = 5_000;
-const MAX_PRE_CLAIM_WAIT_MS = RESCHEDULE_DELAY_MS + 5_000;
+// Do not chain immediate self-dispatches for long-running remote A2A tasks.
+// Netlify and similar hosts can reject repeated same-site self-invocations
+// with loop-protection responses. The integration retry job sweeps due rows.
+const RESCHEDULE_DELAY_MS = 60_000;
+const MAX_PRE_CLAIM_WAIT_MS = 10_000;
 const POLL_INTERVAL_MS = 2_000;
 const PROCESSOR_WAIT_MS = 20_000;
 const POLL_REQUEST_TIMEOUT_MS = 25_000;
@@ -172,7 +175,6 @@ async function processClaimedContinuation(
         return;
       }
       await rescheduleA2AContinuation(continuation.id, RESCHEDULE_DELAY_MS);
-      await redispatchContinuation(continuation.id);
       return;
     }
     if (continuation.attempts >= MAX_ATTEMPTS) {
@@ -184,7 +186,6 @@ async function processClaimedContinuation(
       return;
     }
     await rescheduleA2AContinuation(continuation.id, RESCHEDULE_DELAY_MS);
-    await redispatchContinuation(continuation.id);
     return;
   }
 
@@ -213,7 +214,6 @@ async function processClaimedContinuation(
       return;
     }
     await rescheduleA2AContinuation(continuation.id, RESCHEDULE_DELAY_MS);
-    await redispatchContinuation(continuation.id);
     return;
   }
 
@@ -254,7 +254,9 @@ async function waitForContinuationDue(
   const waitMs = continuation.nextCheckAt - Date.now();
   if (waitMs <= 0) return true;
 
-  await sleep(Math.min(waitMs, MAX_PRE_CLAIM_WAIT_MS));
+  if (waitMs > MAX_PRE_CLAIM_WAIT_MS) return false;
+
+  await sleep(waitMs);
   return true;
 }
 
@@ -324,7 +326,6 @@ async function deliverAndCompleteA2AContinuation(
       deliveryContinuation.id,
       RESCHEDULE_DELAY_MS,
     );
-    await redispatchContinuation(deliveryContinuation.id);
     return;
   }
 
@@ -373,7 +374,7 @@ function isRemoteWorkExpired(continuation: A2AContinuation): boolean {
 function isTransientA2APollError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   if (err.name === "AbortError") return true;
-  return /operation was aborted|aborted|timed out|timeout|Invalid or expired A2A token|A2A request failed \(401\)/i.test(
+  return /operation was aborted|aborted|timed out|timeout|Invalid or expired A2A token|A2A request failed \((?:401|508)\)/i.test(
     err.message,
   );
 }
@@ -416,15 +417,6 @@ function sanitizeFailureReason(reason: string): string {
     withoutEnvNames.slice(0, 500) ||
     "the downstream agent returned an empty error"
   );
-}
-
-async function redispatchContinuation(continuationId: string): Promise<void> {
-  await dispatchA2AContinuation(continuationId).catch((err) => {
-    console.error(
-      `[integrations] Failed to redispatch A2A continuation ${continuationId}:`,
-      err,
-    );
-  });
 }
 
 async function signContinuationToken(
