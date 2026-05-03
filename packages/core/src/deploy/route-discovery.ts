@@ -123,12 +123,19 @@ export async function discoverPlugins(cwd: string): Promise<string[]> {
     if (!fs.existsSync(pluginsDir)) return [];
     return fs
       .readdirSync(pluginsDir)
-      .filter((f) => f.endsWith(".ts") || f.endsWith(".js"))
+      .filter(isRuntimeSourceFile)
       .sort()
       .map((f) => path.join(pluginsDir, f));
   } catch {
     return []; // Edge runtime — no filesystem
   }
+}
+
+function isRuntimeSourceFile(filename: string): boolean {
+  if (!/\.(ts|js)$/.test(filename)) return false;
+  if (/\.d\.ts$/.test(filename)) return false;
+  if (/\.(test|spec)\.(ts|js)$/.test(filename)) return false;
+  return true;
 }
 
 /**
@@ -255,7 +262,7 @@ export async function getMissingDefaultPlugins(cwd: string): Promise<string[]> {
       fs.existsSync(pluginsDir)
         ? fs
             .readdirSync(pluginsDir)
-            .filter((f) => f.endsWith(".ts") || f.endsWith(".js"))
+            .filter(isRuntimeSourceFile)
             .map((f) => path.basename(f, path.extname(f)))
         : [],
     );

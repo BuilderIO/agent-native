@@ -32,6 +32,7 @@ import {
   getWorkspaceCoreExports,
   type WorkspaceCoreExports,
 } from "./workspace-core.js";
+import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
@@ -418,6 +419,8 @@ export default {
  *     assets/           (static client assets)
  */
 async function buildCloudflarePages() {
+  generateActionRegistryForProject(cwd);
+
   const buildDir = path.join(cwd, "build");
   const clientDir = path.join(buildDir, "client");
   const serverDir = path.join(buildDir, "server");
@@ -1057,6 +1060,13 @@ function createDanglingOptionalDepStubs() {
 async function buildWithNitro() {
   console.log(`[deploy] Building for preset "${preset}" via Nitro...`);
   const appBasePath = normalizeConfiguredAppBasePath();
+
+  // Nitro runs its own server build after the React Router/Vite build. The
+  // template's agent-chat plugin imports .generated/actions-registry.ts so the
+  // serverless bundle has static imports for every domain action. Regenerate
+  // here as well so deploy builds are not coupled to a previous Vite run or to
+  // ignored local .generated files being present.
+  generateActionRegistryForProject(cwd);
 
   // Work around pnpm + nitro:externals (nf3) bug where dangling symlinks for
   // platform-specific optional deps cause realpath ENOENT during file tracing.

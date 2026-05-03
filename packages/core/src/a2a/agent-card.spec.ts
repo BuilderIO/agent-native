@@ -1,8 +1,22 @@
-import { afterEach, describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { generateAgentCard } from "./agent-card.js";
 import type { A2AConfig } from "./types.js";
 
 describe("generateAgentCard", () => {
+  beforeEach(() => {
+    vi.stubEnv("A2A_SECRET", "");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("NETLIFY_LOCAL", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("CF_PAGES", "");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("RENDER", "");
+    vi.stubEnv("FLY_APP_NAME", "");
+    vi.stubEnv("K_SERVICE", "");
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
   });
@@ -81,6 +95,32 @@ describe("generateAgentCard", () => {
     expect(card.security).toBeUndefined();
   });
 
+  it("advertises JWT bearer auth when A2A_SECRET is configured", () => {
+    vi.stubEnv("A2A_SECRET", "shared-secret");
+    const card = generateAgentCard(baseConfig, "https://example.com");
+    expect(card.securitySchemes).toEqual({
+      jwtBearer: {
+        type: "http",
+        scheme: "bearer",
+        bearerFormat: "JWT",
+      },
+    });
+    expect(card.security).toEqual([{ jwtBearer: [] }]);
+  });
+
+  it("advertises JWT bearer auth on hosted runtimes", () => {
+    vi.stubEnv("NETLIFY", "true");
+    const card = generateAgentCard(baseConfig, "https://example.com");
+    expect(card.securitySchemes).toEqual({
+      jwtBearer: {
+        type: "http",
+        scheme: "bearer",
+        bearerFormat: "JWT",
+      },
+    });
+    expect(card.security).toEqual([{ jwtBearer: [] }]);
+  });
+
   it("includes security schemes when apiKeyEnv is set", () => {
     const card = generateAgentCard(
       { ...baseConfig, apiKeyEnv: "MY_API_KEY" },
@@ -90,5 +130,22 @@ describe("generateAgentCard", () => {
       apiKey: { type: "http", scheme: "bearer" },
     });
     expect(card.security).toEqual([{ apiKey: [] }]);
+  });
+
+  it("advertises JWT and legacy API key auth as alternatives when both are configured", () => {
+    vi.stubEnv("A2A_SECRET", "shared-secret");
+    const card = generateAgentCard(
+      { ...baseConfig, apiKeyEnv: "MY_API_KEY" },
+      "https://example.com",
+    );
+    expect(card.securitySchemes).toEqual({
+      jwtBearer: {
+        type: "http",
+        scheme: "bearer",
+        bearerFormat: "JWT",
+      },
+      apiKey: { type: "http", scheme: "bearer" },
+    });
+    expect(card.security).toEqual([{ jwtBearer: [] }, { apiKey: [] }]);
   });
 });

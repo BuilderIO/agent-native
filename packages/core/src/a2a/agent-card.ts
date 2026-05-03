@@ -1,5 +1,6 @@
 import type { A2AConfig, AgentCard } from "./types.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+import { shouldAdvertiseJwtA2AAuth } from "./auth-policy.js";
 
 export function generateAgentCard(
   config: A2AConfig,
@@ -20,24 +21,32 @@ export function generateAgentCard(
     skills: config.skills,
   };
 
-  // Advertise JWT-based A2A identity when A2A_SECRET is configured
-  if (process.env.A2A_SECRET) {
-    card.securitySchemes = {
-      jwtBearer: {
-        type: "http",
-        scheme: "bearer",
-        bearerFormat: "JWT",
-      },
+  const securitySchemes: NonNullable<AgentCard["securitySchemes"]> = {};
+  const security: NonNullable<AgentCard["security"]> = [];
+
+  // Hosted production deployments require JWT-capable A2A even before card
+  // generation can prove whether auth will use the shared A2A_SECRET or an
+  // org-scoped secret from SQL.
+  if (shouldAdvertiseJwtA2AAuth()) {
+    securitySchemes.jwtBearer = {
+      type: "http",
+      scheme: "bearer",
+      bearerFormat: "JWT",
     };
-    card.security = [{ jwtBearer: [] }];
-  } else if (config.apiKeyEnv) {
-    card.securitySchemes = {
-      apiKey: {
-        type: "http",
-        scheme: "bearer",
-      },
+    security.push({ jwtBearer: [] });
+  }
+
+  if (config.apiKeyEnv) {
+    securitySchemes.apiKey = {
+      type: "http",
+      scheme: "bearer",
     };
-    card.security = [{ apiKey: [] }];
+    security.push({ apiKey: [] });
+  }
+
+  if (security.length > 0) {
+    card.securitySchemes = securitySchemes;
+    card.security = security;
   }
 
   return card;

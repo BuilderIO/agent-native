@@ -52,6 +52,7 @@ async function ensureTable(): Promise<void> {
 export type A2AContinuationStatus =
   | "pending"
   | "processing"
+  | "delivering"
   | "completed"
   | "failed";
 
@@ -213,12 +214,12 @@ export async function claimA2AContinuation(
       ? `UPDATE integration_a2a_continuations
            SET status = ?, attempts = attempts + 1, updated_at = ?
          WHERE id = ?
-           AND (status = 'pending' OR (status = 'processing' AND updated_at <= ?))
+           AND (status = 'pending' OR (status IN ('processing', 'delivering') AND updated_at <= ?))
          RETURNING *`
       : `UPDATE integration_a2a_continuations
            SET status = ?, attempts = attempts + 1, updated_at = ?
          WHERE id = ?
-           AND (status = 'pending' OR (status = 'processing' AND updated_at <= ?))`,
+           AND (status = 'pending' OR (status IN ('processing', 'delivering') AND updated_at <= ?))`,
     args: ["processing", now, id, processingCutoff],
   });
   const rows = result.rows ?? [];
@@ -243,7 +244,7 @@ export async function claimDueA2AContinuations(
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
           SET status = ?, next_check_at = ?, updated_at = ?
-          WHERE status = 'processing' AND updated_at <= ?`,
+          WHERE status IN ('processing', 'delivering') AND updated_at <= ?`,
     args: ["pending", now, now, now - 5 * 60 * 1000],
   });
   const { rows } = await client.execute({
@@ -261,6 +262,36 @@ export async function claimDueA2AContinuations(
   return claimed;
 }
 
+export async function claimA2AContinuationDelivery(
+  id: string,
+): Promise<A2AContinuation | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const now = Date.now();
+  const result = await client.execute({
+    sql: isPostgres()
+      ? `UPDATE integration_a2a_continuations
+           SET status = ?, updated_at = ?
+         WHERE id = ? AND status = 'processing'
+         RETURNING *`
+      : `UPDATE integration_a2a_continuations
+           SET status = ?, updated_at = ?
+         WHERE id = ? AND status = 'processing'`,
+    args: ["delivering", now, id],
+  });
+  const rows = result.rows ?? [];
+  if (isPostgres()) {
+    return rows[0]
+      ? rowToContinuation(rows[0] as Record<string, unknown>)
+      : null;
+  }
+  const affected = (result as any)?.rowsAffected ?? (result as any)?.rowCount;
+  if (affected === 0) return null;
+  const fetched = await getA2AContinuation(id);
+  if (!fetched || fetched.status !== "delivering") return null;
+  return fetched;
+}
+
 export async function rescheduleA2AContinuation(
   id: string,
   delayMs: number,
@@ -271,7 +302,7 @@ export async function rescheduleA2AContinuation(
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
           SET status = ?, next_check_at = ?, updated_at = ?
-          WHERE id = ? AND status = 'processing'`,
+          WHERE id = ? AND status IN ('processing', 'delivering')`,
     args: ["pending", now + delayMs, now, id],
   });
 }

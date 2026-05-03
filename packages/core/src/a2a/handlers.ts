@@ -22,6 +22,10 @@ import {
 import { agentChat } from "../shared/agent-chat.js";
 import { signInternalToken } from "../integrations/internal-token.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+import {
+  hasConfiguredA2ASecret,
+  isA2AProductionRuntime,
+} from "./auth-policy.js";
 
 // Inlined to avoid pulling the entire core-routes-plugin (and its h3
 // transitive deps) into the a2a/handlers test boundary. Must stay in sync
@@ -458,9 +462,9 @@ async function handleSend(
     // with the lack of caller identity here would let any unauthenticated
     // attacker queue and trigger handler runs. In production, require some
     // form of auth so the verifiedEmail is bound to the task.
-    const hasA2ASecret = !!process.env.A2A_SECRET;
+    const hasA2ASecret = hasConfiguredA2ASecret();
     const hasApiKey = !!(config.apiKeyEnv && process.env[config.apiKeyEnv]);
-    if (process.env.NODE_ENV === "production" && !hasA2ASecret && !hasApiKey) {
+    if (isA2AProductionRuntime() && !hasA2ASecret && !hasApiKey) {
       return {
         ...jsonRpcError(
           0,
@@ -704,9 +708,9 @@ function authorizeTaskAccess(
 ): JsonRpcResponse | null {
   const verifiedEmail =
     (event?.context?.__a2aVerifiedEmail as string | undefined) ?? null;
-  const hasA2ASecret = !!process.env.A2A_SECRET;
+  const hasA2ASecret = hasConfiguredA2ASecret();
   const hasApiKey = !!(config.apiKeyEnv && process.env[config.apiKeyEnv]);
-  const inProduction = process.env.NODE_ENV === "production";
+  const inProduction = isA2AProductionRuntime();
 
   if (inProduction && !hasA2ASecret && !hasApiKey) {
     // No way to authenticate the caller in production — refuse access.

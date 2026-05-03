@@ -463,6 +463,52 @@ describe("handleJsonRpc", () => {
     );
   });
 
+  it("refuses async message/send on hosted runtimes without A2A auth config", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousNetlify = process.env.NETLIFY;
+    const previousNetlifyLocal = process.env.NETLIFY_LOCAL;
+    const previousA2ASecret = process.env.A2A_SECRET;
+    try {
+      process.env.NODE_ENV = "development";
+      process.env.NETLIFY = "true";
+      delete process.env.NETLIFY_LOCAL;
+      delete process.env.A2A_SECRET;
+
+      const event = mockEvent();
+      const result = await handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "message/send",
+          params: {
+            async: true,
+            message: {
+              role: "user",
+              parts: [{ type: "text", text: "go" }],
+            },
+          },
+        },
+        event,
+        customHandler,
+      );
+
+      expect(result.error).toMatchObject({
+        code: -32001,
+        message:
+          "A2A async mode is not available — A2A_SECRET or apiKeyEnv must be configured.",
+      });
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousNetlify === undefined) delete process.env.NETLIFY;
+      else process.env.NETLIFY = previousNetlify;
+      if (previousNetlifyLocal === undefined) delete process.env.NETLIFY_LOCAL;
+      else process.env.NETLIFY_LOCAL = previousNetlifyLocal;
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
   it("passes the processor H3 event through async handler context", async () => {
     let processorEvent: any;
     const eventAwareConfig: A2AConfig = {

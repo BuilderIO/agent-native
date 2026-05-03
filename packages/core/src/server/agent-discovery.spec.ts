@@ -105,6 +105,40 @@ describe("agent discovery", () => {
     expect(ids).toContain("custom-qa");
   });
 
+  it("discovers legacy agents/*.json remote-agent resources", async () => {
+    resourceListAccessibleMock.mockImplementation(
+      async (_owner: string, prefix: string) => {
+        if (prefix === "agents/") {
+          return [{ id: "legacy-resource", path: "agents/external-qa.json" }];
+        }
+        return [];
+      },
+    );
+    resourceGetMock.mockResolvedValue({
+      id: "legacy-resource",
+      content: JSON.stringify({
+        name: "External QA",
+        url: "https://qa.example.com",
+      }),
+    });
+
+    const agents = await discoverAgents("dispatch");
+
+    expect(resourceListAccessibleMock).toHaveBeenCalledWith(
+      "dev@example.test",
+      "remote-agents/",
+    );
+    expect(resourceListAccessibleMock).toHaveBeenCalledWith(
+      "dev@example.test",
+      "agents/",
+    );
+    expect(agents.find((agent) => agent.id === "external-qa")).toMatchObject({
+      id: "external-qa",
+      name: "External QA",
+      url: "https://qa.example.com",
+    });
+  });
+
   it("discovers sibling workspace apps from the workspace manifest", async () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
