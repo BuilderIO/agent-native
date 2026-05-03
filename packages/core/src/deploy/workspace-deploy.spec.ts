@@ -260,10 +260,12 @@ describe("workspace deploy", () => {
     expect(redirects).toContain(
       "/starter/:file.webmanifest /_workspace_static/starter/:file.webmanifest 200",
     );
+    expect(redirects).toContain(
+      "/_agent-native/* /.netlify/functions/dispatch-server 200",
+    );
     expect(redirects).toContain("/ /dispatch/overview 302");
     expect(redirects).toContain("/dispatch /dispatch/overview 302");
     expect(redirects).toContain("/apps /dispatch/apps 302");
-    expect(redirects).not.toContain("/.netlify/functions/");
     expect(redirects).not.toMatch(/^\/dispatch\/\* .* 200$/m);
     expect(redirects).not.toMatch(/^\/starter .* 200$/m);
     expect(redirects).not.toMatch(/^\/starter\/\* .* 200$/m);
@@ -298,6 +300,61 @@ describe("workspace deploy", () => {
       APP_BASE_PATH: "/mail",
       VITE_APP_BASE_PATH: "/mail",
     });
+  });
+
+  it("routes root framework requests to Dispatch for Cloudflare workspaces", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "starter");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "cloudflare_pages",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const routes = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, "dist", "_routes.json"), "utf-8"),
+    ) as { include: string[] };
+    expect(routes.include).toContain("/_agent-native/*");
+    expect(routes.include).toContain("/dispatch/*");
+    expect(routes.include).toContain("/starter/*");
+
+    const worker = fs.readFileSync(
+      path.join(tmpDir, "dist", "_worker.js"),
+      "utf-8",
+    );
+    expect(worker).toContain(
+      'if (pathname === "/_agent-native" || pathname.startsWith("/_agent-native/")) return app_dispatch.fetch(request, env, ctx);',
+    );
+    expect(worker).toContain(
+      'if (pathname === "/dispatch" || pathname.startsWith("/dispatch/")) return app_dispatch.fetch(request, env, ctx);',
+    );
+    expect(worker).not.toContain(
+      'new Request(new URL("/dispatch/_agent-native',
+    );
+  });
+
+  it("does not claim root framework requests without Dispatch", async () => {
+    makeWorkspaceApp(tmpDir, "starter");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "cloudflare_pages",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const routes = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, "dist", "_routes.json"), "utf-8"),
+    ) as { include: string[] };
+    expect(routes.include).not.toContain("/_agent-native/*");
+
+    const worker = fs.readFileSync(
+      path.join(tmpDir, "dist", "_worker.js"),
+      "utf-8",
+    );
+    expect(worker).not.toContain('pathname === "/_agent-native"');
   });
 });
 
