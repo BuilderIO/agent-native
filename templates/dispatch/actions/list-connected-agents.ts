@@ -10,7 +10,10 @@ import {
   resourceListAccessible,
   SHARED_OWNER,
 } from "@agent-native/core/resources/store";
-import { parseRemoteAgentManifest } from "@agent-native/core/resources/metadata";
+import {
+  REMOTE_AGENT_RESOURCE_PREFIXES,
+  parseRemoteAgentManifest,
+} from "@agent-native/core/resources/metadata";
 
 export default defineAction({
   description:
@@ -24,13 +27,21 @@ export default defineAction({
     );
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
-    const resources = await resourceListAccessible(
-      ownerEmail,
-      "remote-agents/",
-    );
+    const resources: Array<{ id: string; path: string; owner: string }> = [];
+    for (const prefix of [...REMOTE_AGENT_RESOURCE_PREFIXES].reverse()) {
+      resources.push(...(await resourceListAccessible(ownerEmail, prefix)));
+    }
     const customById = new Map<
       string,
-      { resourceId: string; path: string; scope: "shared" | "personal" }
+      {
+        resourceId: string;
+        path: string;
+        scope: "shared" | "personal";
+        name: string;
+        description: string;
+        url: string;
+        color: string;
+      }
     >();
 
     // Only treat a resource as a "custom" agent if its id is not a builtin.
@@ -47,10 +58,14 @@ export default defineAction({
         resourceId: resource.id,
         path: resource.path,
         scope: resource.owner === SHARED_OWNER ? "shared" : "personal",
+        name: manifest.name,
+        description: manifest.description || "",
+        url: manifest.url,
+        color: manifest.color || "#6B7280",
       });
     }
 
-    return discovered.map((agent) => {
+    const connected = discovered.map((agent) => {
       const custom = customById.get(agent.id);
       const isBuiltin = builtinIds.has(agent.id);
       return {
@@ -61,5 +76,23 @@ export default defineAction({
         scope: custom?.scope,
       };
     });
+
+    const discoveredIds = new Set(connected.map((agent) => agent.id));
+    for (const [id, custom] of customById) {
+      if (discoveredIds.has(id)) continue;
+      connected.push({
+        id,
+        name: custom.name,
+        description: custom.description,
+        url: custom.url,
+        color: custom.color,
+        source: "custom",
+        resourceId: custom.resourceId,
+        path: custom.path,
+        scope: custom.scope,
+      });
+    }
+
+    return connected;
   },
 });

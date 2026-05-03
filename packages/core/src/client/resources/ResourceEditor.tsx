@@ -15,6 +15,7 @@ import { agentNativePath } from "../api-path.js";
 import type { Resource } from "./use-resources.js";
 import {
   type ParsedFrontmatter,
+  getRemoteAgentIdFromPath,
   getFrontmatterValue,
   isCustomAgentPath,
   isRemoteAgentPath,
@@ -960,9 +961,7 @@ function parseRemoteAgentContent(
   content: string,
   path: string,
 ): RemoteAgentFormValue {
-  const fallbackId = path
-    .replace(/^remote-agents\//, "")
-    .replace(/\.json$/, "");
+  const fallbackId = getRemoteAgentIdFromPath(path);
   try {
     const data = JSON.parse(content || "{}");
     return {

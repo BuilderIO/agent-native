@@ -1,4 +1,9 @@
 import { agentNativePath } from "../api-path.js";
+import {
+  getRemoteAgentIdFromPath,
+  isRemoteAgentPath,
+  remoteAgentResourcePath,
+} from "../../resources/metadata.js";
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   IconPlus,
@@ -227,8 +232,7 @@ export function AgentsSection() {
       if (!res.ok) return;
       const data = await res.json();
       const agentResources = (data.resources ?? []).filter(
-        (r: { path: string }) =>
-          r.path.startsWith("remote-agents/") && r.path.endsWith(".json"),
+        (r: { path: string }) => isRemoteAgentPath(r.path),
       );
       const parsed = await Promise.all(
         agentResources.map(async (r: { id: string; path: string }) => {
@@ -280,7 +284,7 @@ export function AgentsSection() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          path: `remote-agents/${id}.json`,
+          path: remoteAgentResourcePath(id),
           content: agentJson,
           shared: true,
         }),
@@ -295,10 +299,7 @@ export function AgentsSection() {
   const handleSave = async (agent: AgentInfo) => {
     const agentJson = JSON.stringify(
       {
-        id: agent.path
-          .replace("remote-agents/", "")
-          .replace("agents/", "")
-          .replace(".json", ""),
+        id: getRemoteAgentIdFromPath(agent.path),
         name: agent.name,
         description: agent.description || undefined,
         url: agent.url,

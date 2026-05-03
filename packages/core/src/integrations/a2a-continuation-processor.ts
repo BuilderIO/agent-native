@@ -10,6 +10,7 @@ import {
 } from "../agent/engine/credential-errors.js";
 import {
   claimA2AContinuation,
+  claimA2AContinuationDelivery,
   claimDueA2AContinuations,
   completeA2AContinuation,
   failA2AContinuation,
@@ -219,27 +220,35 @@ async function processClaimedContinuation(
     return;
   }
 
+  const deliveryContinuation = await claimA2AContinuationDelivery(
+    continuation.id,
+  );
+  if (!deliveryContinuation) return;
+
   try {
     await withTimeout(
       adapter.sendResponse(
         adapter.formatAgentResponse(text),
-        continuation.incoming,
-        { placeholderRef: continuation.placeholderRef ?? undefined },
+        deliveryContinuation.incoming,
+        { placeholderRef: deliveryContinuation.placeholderRef ?? undefined },
       ),
       PLATFORM_SEND_TIMEOUT_MS,
-      `${continuation.platform} response delivery timed out`,
+      `${deliveryContinuation.platform} response delivery timed out`,
     );
-    await completeA2AContinuation(continuation.id);
+    await completeA2AContinuation(deliveryContinuation.id);
   } catch (err) {
-    if (continuation.attempts >= MAX_ATTEMPTS) {
+    if (deliveryContinuation.attempts >= MAX_ATTEMPTS) {
       await failA2AContinuation(
-        continuation.id,
+        deliveryContinuation.id,
         err instanceof Error ? err.message : String(err),
       );
       return;
     }
-    await rescheduleA2AContinuation(continuation.id, RESCHEDULE_DELAY_MS);
-    await redispatchContinuation(continuation.id);
+    await rescheduleA2AContinuation(
+      deliveryContinuation.id,
+      RESCHEDULE_DELAY_MS,
+    );
+    await redispatchContinuation(deliveryContinuation.id);
   }
 }
 
@@ -265,25 +274,33 @@ async function notifyAndFailA2AContinuation(
   adapter: PlatformAdapter,
   reason: string,
 ): Promise<void> {
-  const message = formatContinuationFailureMessage(continuation, reason);
+  const deliveryContinuation = await claimA2AContinuationDelivery(
+    continuation.id,
+  );
+  if (!deliveryContinuation) return;
+
+  const message = formatContinuationFailureMessage(
+    deliveryContinuation,
+    reason,
+  );
   try {
     await withTimeout(
       adapter.sendResponse(
         adapter.formatAgentResponse(message),
-        continuation.incoming,
-        { placeholderRef: continuation.placeholderRef ?? undefined },
+        deliveryContinuation.incoming,
+        { placeholderRef: deliveryContinuation.placeholderRef ?? undefined },
       ),
       PLATFORM_SEND_TIMEOUT_MS,
-      `${continuation.platform} failure notification timed out`,
+      `${deliveryContinuation.platform} failure notification timed out`,
     );
   } catch (err) {
     console.error(
-      `[integrations] Failed to notify ${continuation.platform} about failed A2A continuation ${continuation.id}:`,
+      `[integrations] Failed to notify ${deliveryContinuation.platform} about failed A2A continuation ${deliveryContinuation.id}:`,
       err,
     );
   }
 
-  await failA2AContinuation(continuation.id, reason);
+  await failA2AContinuation(deliveryContinuation.id, reason);
 }
 
 function formatContinuationFailureMessage(
