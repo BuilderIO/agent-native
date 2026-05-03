@@ -36,7 +36,7 @@ import { signInternalToken } from "./internal-token.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 
-const PROCESSOR_DISPATCH_SETTLE_WAIT_MS = 2_000;
+const PROCESSOR_DISPATCH_SETTLE_WAIT_MS = 1_500;
 
 /**
  * Build a stable per-event dedup key from the incoming message. The same
