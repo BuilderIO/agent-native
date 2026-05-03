@@ -198,6 +198,7 @@ export function App() {
   );
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
   const [signInPending, setSignInPending] = useState(false);
+  const [signInError, setSignInError] = useState<string | null>(null);
   // Ref-based lock so two fast clicks cannot both enter signInExternal()
   // (state updates are async; refs are synchronous).
   const signInInflightRef = useRef(false);
@@ -283,7 +284,15 @@ export function App() {
       }
     }
 
+    function finishWithError(message: string) {
+      stopPolling();
+      signInInflightRef.current = false;
+      setSignInPending(false);
+      setSignInError(message);
+    }
+
     try {
+      setSignInError(null);
       const flowId =
         crypto.randomUUID?.() ||
         Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -305,6 +314,7 @@ export function App() {
         try {
           const xr = await fetch(
             `${base}/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
+            { credentials: "include" },
           );
           if (!xr.ok) {
             if (Date.now() - start > TIMEOUT_MS) {
@@ -315,6 +325,14 @@ export function App() {
             return;
           }
           const xd = await xr.json();
+          if (xd?.error) {
+            finishWithError(
+              typeof xd.error === "string"
+                ? xd.error
+                : "Google sign-in failed. Please try again.",
+            );
+            return;
+          }
           if (xd?.token) {
             stopPolling();
             // Establish the session cookie in the Tauri WebView's cookie jar.
@@ -324,17 +342,18 @@ export function App() {
             );
             signInInflightRef.current = false;
             setSignInPending(false);
-            await checkAuth();
+            const ok = await checkAuth();
+            if (!ok) {
+              setSignInError(
+                "Google sign-in completed, but Clips could not save the session. Please try again.",
+              );
+            }
           } else if (Date.now() - start > TIMEOUT_MS) {
-            stopPolling();
-            signInInflightRef.current = false;
-            setSignInPending(false);
+            finishWithError("Google sign-in timed out. Please try again.");
           }
         } catch {
           if (Date.now() - start > TIMEOUT_MS) {
-            stopPolling();
-            signInInflightRef.current = false;
-            setSignInPending(false);
+            finishWithError("Google sign-in timed out. Please try again.");
           }
         }
       }, 1500);
@@ -342,6 +361,11 @@ export function App() {
       console.error("[clips-tray] signInExternal failed:", err);
       signInInflightRef.current = false;
       setSignInPending(false);
+      setSignInError(
+        err instanceof Error
+          ? err.message
+          : "Could not open Google sign-in. Please try again.",
+      );
     }
   }
 
@@ -1088,19 +1112,26 @@ export function App() {
                 }
                 signInInflightRef.current = false;
                 setSignInPending(false);
+                setSignInError(null);
               }}
             >
               Cancel
             </button>
           </div>
         ) : (
-          <SignInForm
-            serverUrl={serverUrl}
-            onSignedIn={async () => {
-              await checkAuth();
-            }}
-            onUseBrowser={signInExternal}
-          />
+          <>
+            {signInError ? (
+              <div className="error-banner">{signInError}</div>
+            ) : null}
+            <SignInForm
+              serverUrl={serverUrl}
+              onSignedIn={async () => {
+                setSignInError(null);
+                await checkAuth();
+              }}
+              onUseBrowser={signInExternal}
+            />
+          </>
         )}
         <div className="footer">
           <a className="footer-link" onClick={() => setShowSettings(true)}>

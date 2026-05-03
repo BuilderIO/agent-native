@@ -5,6 +5,8 @@ description: "Claude-Code-level customization per user — skills, memory, instr
 
 # Workspace
 
+> **See also:** Deploying multiple apps as one workspace? See [Multi-App Workspaces](/docs/multi-app-workspace). Governance, branching, and CODEOWNERS? See [Workspace Governance](/docs/workspace-management).
+
 Every agent-native app ships with a **workspace**: the customization layer that makes the agent yours. It contains team instructions (`AGENTS.md`), per-user memory (`learnings.md`), skills the agent pulls in on demand, custom sub-agents, scheduled jobs, and connected MCP servers — everything you'd expect from a Claude Code / Codex setup.
 
 The twist: **it's SQL rows, not filesystem files.** Each user gets their own workspace stored in the database. There's no dev-box to spin up, no container per user, no files to mount. A multi-tenant SaaS can give every user a fully-customizable agent for essentially free, because all of it is rows — personal memory, personal MCP servers, personal skills, personal sub-agents — and the shared codebase hosts all of them at once.

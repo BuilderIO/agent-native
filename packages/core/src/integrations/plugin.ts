@@ -1,7 +1,10 @@
 import { defineEventHandler, setResponseStatus, getMethod } from "h3";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
-import { getH3App } from "../server/framework-request-handler.js";
+import {
+  getH3App,
+  markDefaultPluginProvided,
+} from "../server/framework-request-handler.js";
 import type {
   PlatformAdapter,
   IntegrationsPluginOptions,
@@ -175,6 +178,7 @@ export function createIntegrationsPlugin(
   options?: IntegrationsPluginOptions,
 ): NitroPluginDef {
   return async (nitroApp: any) => {
+    markDefaultPluginProvided(nitroApp, "integrations");
     const adapters = options?.adapters ?? getDefaultAdapters();
     const adapterMap = new Map<string, PlatformAdapter>();
     for (const adapter of adapters) {

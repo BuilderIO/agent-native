@@ -18,6 +18,7 @@ import {
 import {
   awaitBootstrap,
   getH3App,
+  markDefaultPluginProvided,
 } from "../server/framework-request-handler.js";
 import { appStateGet, appStatePut } from "../application-state/store.js";
 import { getSession, DEV_MODE_USER_EMAIL } from "../server/auth.js";
@@ -133,6 +134,7 @@ export function createOnboardingPlugin(
   options: OnboardingPluginOptions = {},
 ): NitroPluginDef {
   return async (nitroApp: any) => {
+    markDefaultPluginProvided(nitroApp, "onboarding");
     await awaitBootstrap(nitroApp);
 
     if (!options.skipDefaultSteps) {

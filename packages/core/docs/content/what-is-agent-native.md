@@ -177,5 +177,7 @@ One action, four surfaces: the agent calls it as a tool, the UI calls it as a ty
 - [**Getting Started**](/docs) — pick a template and run it
 - [**Key Concepts**](/docs/key-concepts) — the architecture: SQL, actions, polling sync, context awareness, portability
 - [**Cloneable SaaS**](/docs/cloneable-saas) — templates as complete products you own
-- [**Workspace**](/docs/workspace) — the per-user customization layer (skills, memory, instructions, MCP)
+- [**Workspace**](/docs/workspace) — the per-user customization layer (skills, memory, instructions, MCP) backed by SQL, not files
+- [**Dispatch**](/docs/dispatch) — the workspace control plane: secrets vault, Slack/email inbox, cross-app delegation
+- [**Tools**](/docs/tools) — sandboxed mini-apps the agent creates instantly without code changes
 - [**Drop-in Agent**](/docs/drop-in-agent) — mount `<AgentPanel>` into any React app

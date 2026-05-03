@@ -1,3 +1,8 @@
+---
+title: "Onboarding & API Keys"
+description: "Setup checklist for first-run configuration — API keys, OAuth, and provider connections"
+---
+
 # Onboarding
 
 When you first open an app built on the agent-native framework, you'll see a
@@ -33,7 +38,7 @@ behind a picker or disclosure when a step has several equivalent providers.
   OAuth provider, or email provider, paste the value(s), click **Save**.
   Secret fields use a password input so the value isn't shown on screen. Saved
   values go into your local `.env` (or workspace settings) — see
-  [Secrets](/docs/secrets) for where they live.
+  [Security](/docs/security) for where they live.
 - **Open a link** — some steps point to a sign-in page or docs. Click
   **Continue** and finish the flow in the new tab.
 - **Ask the agent** — a few steps offer a "Let the agent set it up" option.
@@ -174,6 +179,6 @@ function MySidebar() {
 ```
 
 For background on where step values are stored and how secrets are handled,
-see [Secrets](/docs/secrets). For end-user messaging touchpoints (invitations,
+see [Security](/docs/security). For end-user messaging touchpoints (invitations,
 password resets) that depend on the **Email delivery** step, see
 [Messaging](/docs/messaging).

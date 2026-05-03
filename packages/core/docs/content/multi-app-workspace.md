@@ -1,9 +1,11 @@
 ---
-title: "Multi-App Workspace"
+title: "Multi-App Workspaces"
 description: "Host many agent-native apps in one monorepo with shared auth, RBAC, instructions, skills, components, and credentials."
 ---
 
-# Multi-App Workspace
+# Multi-App Workspaces
+
+> For what a workspace _is_ — the customization layer, AGENTS.md, learnings.md, skills, custom agents — see [Workspace](/docs/workspace). This page is about the **deployment shape**: hosting many agent-native apps in one monorepo with shared auth, components, and a unified deploy.
 
 When vibe-coding an internal tool takes an afternoon, you don't stop at one. A team ends up with a CRM, a support inbox, a dashboard, a recruiting tracker, an ops console — ten small apps, each scaffolded independently. That's great until you need to change something in all of them.
 
@@ -239,3 +241,9 @@ The workspace pattern is intentionally narrow. A few things it deliberately does
 - **Encrypted credential vault.** Shared credentials live in the `settings` table as plain text today. Rotate responsibly.
 - **Publishing shared code to private npm.** The shared package is `workspace:*` only; multi-repo sharing via a private registry is doable but not scaffolded.
 - **Opinionated component library.** `packages/shared` is where _you_ put shared components. The framework doesn't force shadcn/ui or any other system into that slot.
+
+## See also {#see-also}
+
+- [Workspace](/docs/workspace) — the customization layer (AGENTS.md, learnings.md, skills, custom agents) every app in the workspace shares.
+- [Workspace Governance](/docs/workspace-management) — branching, CODEOWNERS, PR review across many apps in one repo.
+- [Dispatch](/docs/dispatch) — the runtime control plane that typically lives inside a multi-app workspace as the secrets vault, integration catalog, and approvals hub.

@@ -195,5 +195,5 @@ Automations can chain off this — e.g. _"if a critical notification fires, also
 ## What's next
 
 - [**Automations**](/docs/automations) — the most common caller of `notify()`
-- [**Secrets**](/docs/security) — the `${keys.NAME}` substitution that powers the webhook channel
+- [**Security**](/docs/security) — the `${keys.NAME}` substitution that powers the webhook channel
 - [**Server plugins**](/docs/server) — where custom channels are registered at startup

@@ -127,6 +127,27 @@ describe("mountA2A auth", () => {
     expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
   });
 
+  it("requires a bearer token on hosted runtimes when A2A_SECRET is configured", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.NODE_ENV = "development";
+    process.env.NETLIFY = "true";
+    const handler = await mountedA2AHandler(config);
+
+    const event = postEvent({});
+    const response = await handler(event);
+
+    expect(event._status).toBe(401);
+    expect(response).toEqual({
+      jsonrpc: "2.0",
+      id: null,
+      error: {
+        code: -32001,
+        message: "Authentication required",
+      },
+    });
+    expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid bearer tokens before tasks/get can report a lookup miss", async () => {
     delete process.env.A2A_SECRET;
     process.env.NODE_ENV = "development";

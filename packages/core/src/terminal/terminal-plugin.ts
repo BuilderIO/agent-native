@@ -1,4 +1,7 @@
-import { getH3App } from "../server/framework-request-handler.js";
+import {
+  getH3App,
+  markDefaultPluginProvided,
+} from "../server/framework-request-handler.js";
 import { isNodeRuntime } from "../shared/runtime.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -76,6 +79,7 @@ let _frameDetectedLogged = false;
 
 export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
   return async (nitroApp: any) => {
+    markDefaultPluginProvided(nitroApp, "terminal");
     // Terminal requires Node.js (PTY, child_process) — skip on edge runtimes
     if (!isNodeRuntime()) return;
 

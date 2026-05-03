@@ -262,6 +262,22 @@ Never use Node-specific APIs (`fs`, `child_process`, `path`) in server routes or
 
 Never assume a persistent server process. Serverless and edge environments are stateless — no in-memory caches, no long-lived connections. Use the SQL database for all state.
 
+## Workspace {#workspace}
+
+Every user gets a personal **workspace** — instructions, skills, memory, custom sub-agents, scheduled jobs, and connected MCP servers — all stored in SQL rather than files. That makes Claude-Code-level customization viable inside multi-tenant SaaS without spinning up a container per user. See [Workspace](/docs/workspace).
+
+## Dispatch {#dispatch}
+
+**Dispatch** is the workspace control plane: a central inbox for Slack/email/Telegram, a shared secrets vault, scheduled jobs, and an orchestrator agent that delegates domain work to specialist apps over A2A. Run it alongside your domain apps when you have more than one. See [Dispatch](/docs/dispatch).
+
+## Tools {#tools}
+
+**Tools** are sandboxed mini-apps the agent can create at runtime — Alpine.js HTML rendered inside an iframe, with built-in helpers for persistent storage (`toolData`), calling app actions (`appAction`), and proxied external APIs (`toolFetch`). No source-code changes, no schema migrations. See [Tools](/docs/tools).
+
+## A2A {#a2a}
+
+Agent-to-agent (**A2A**) is how apps in the same workspace discover and call each other. Each app publishes an agent card with skill metadata; other agents can invoke its actions over JSON-RPC. Same-origin deploys skip JWT; cross-origin uses a shared secret. See [A2A Protocol](/docs/a2a-protocol).
+
 ## Deep dives {#deep-dives}
 
 For detailed guidance on specific patterns:
