@@ -318,6 +318,64 @@ describe("server/auth", () => {
       expect(result).toBeUndefined();
     });
 
+    it("serves mounted login and signup pages from the framework guard", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+      delete process.env.AUTH_MODE;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => null,
+        loginHtml: "<!doctype html><title>QA login</title>",
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      for (const path of ["/dispatch/login", "/dispatch/signup"]) {
+        const result = await guard(createMockEvent({ path }));
+
+        expect(result).toBeInstanceOf(Response);
+        expect((result as Response).status).toBe(200);
+        expect(await (result as Response).text()).toContain("QA login");
+      }
+    });
+
+    it("redirects mounted login and signup pages when a session already exists", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+      delete process.env.AUTH_MODE;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => ({ email: "qa+local@example.com" }),
+        loginHtml: "<!doctype html><title>QA login</title>",
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      for (const path of ["/dispatch/login", "/dispatch/signup"]) {
+        const result = await guard(createMockEvent({ path }));
+
+        expect(result).toBeInstanceOf(Response);
+        expect((result as Response).status).toBe(302);
+        expect((result as Response).headers.get("location")).toBe("/dispatch");
+      }
+    });
+
     it("allows app-state request-source headers in CORS preflight responses", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
