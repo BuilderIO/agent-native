@@ -1,4 +1,5 @@
 node_modules/
+.netlify/
 dist/
 build/
 apps/*/dist/

@@ -274,6 +274,22 @@ describe("workspace scaffold defaults", () => {
     ).toBe(false);
   });
 
+  it("scaffolds root Netlify config for unified workspace deploys", async () => {
+    const wsDir = path.join(tmpDir, "my-ws");
+    await _scaffoldWorkspaceRoot(wsDir, "my-ws");
+
+    const netlify = fs.readFileSync(path.join(wsDir, "netlify.toml"), "utf-8");
+    expect(netlify).toContain(
+      "pnpm exec agent-native deploy --preset netlify --build-only",
+    );
+    expect(netlify).toContain('publish = "dist"');
+    expect(netlify).toContain('functions = ".netlify/functions-internal"');
+    expect(netlify).toContain('NITRO_PRESET = "netlify"');
+
+    const gitignore = fs.readFileSync(path.join(wsDir, ".gitignore"), "utf-8");
+    expect(gitignore).toContain(".netlify/");
+  });
+
   it("does not copy generated Vercel output or legacy Claude settings", async () => {
     const wsDir = await (async () => {
       const targetDir = path.join(tmpDir, "my-ws");

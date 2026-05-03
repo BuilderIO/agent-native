@@ -201,7 +201,7 @@ agent-native deploy
 # https://your-agents.com/forms/*      → apps/forms
 ```
 
-Each app is built with `APP_BASE_PATH=/<name>` and emitted into `dist/<name>/`. A dispatcher worker at `dist/_worker.js` routes each path to the matching app, and a `_routes.json` manifest tells Cloudflare Pages which paths to treat as dynamic.
+Each app is built with `APP_BASE_PATH=/<name>` and `VITE_APP_BASE_PATH=/<name>` and emitted into `dist/<name>/`. Cloudflare Pages is the default preset and uses a dispatcher worker at `dist/_worker.js` plus `_routes.json`. Netlify is also supported with `agent-native deploy --preset netlify`; it emits app functions under `.netlify/functions-internal/<app>-server` and generated redirects that leave static assets unforced so the CDN serves files first.
 
 Being on the **same origin** is where the real payoff lives:
 
@@ -213,6 +213,12 @@ Publish the `dist/` output:
 
 ```bash
 wrangler pages deploy dist
+```
+
+For Netlify, generated workspaces already include a root `netlify.toml`. Existing workspaces can use:
+
+```bash
+agent-native deploy --preset netlify --build-only
 ```
 
 ### Per-app independent deploy
