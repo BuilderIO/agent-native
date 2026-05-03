@@ -185,7 +185,9 @@ describe("workspace deploy", () => {
     expect(dispatchServer).toContain("Object.assign(processRef.env");
     expect(dispatchServer).toContain("APP_BASE_PATH: basePath");
     expect(dispatchServer).toContain('await import("./main.mjs")');
-    expect(dispatchServer).toContain('path: "/dispatch/*"');
+    expect(dispatchServer).toContain(
+      'path: ["/_agent-native/*","/dispatch/*"]',
+    );
     expect(dispatchServer).toContain('"/dispatch/assets/*"');
     expect(dispatchServer).toContain('"/dispatch/*.svg"');
     expect(dispatchServer).toContain('"/.netlify/*"');
