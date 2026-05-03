@@ -11,19 +11,7 @@ import {
 import path from "path";
 import { agentEnv } from "../shared/agent-env.js";
 import { readBody } from "../server/h3-helpers.js";
-import { isDevEnvironment } from "./auth.js";
-import { isLocalDatabase } from "../db/client.js";
-
-/**
- * Mirror of `isEnvVarWriteAllowed` in core-routes-plugin.ts. See the comment
- * there — env vars are deployment-wide globals and writes from authenticated
- * users would let one tenant overwrite shared Stripe / OpenAI / Sentry keys
- * for every other tenant on shared-DB hosted templates.
- */
-function isEnvVarWriteAllowed(): boolean {
-  if (process.env.AGENT_NATIVE_ALLOW_ENV_VAR_WRITES === "1") return true;
-  return isDevEnvironment() && isLocalDatabase();
-}
+import { isEnvVarWriteAllowed } from "./env-var-writes.js";
 
 export interface EnvKeyConfig {
   /** Environment variable name (e.g. "HUBSPOT_ACCESS_TOKEN") */

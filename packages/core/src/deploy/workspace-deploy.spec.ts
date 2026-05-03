@@ -8,8 +8,12 @@ import { runWorkspaceDeploy } from "./workspace-deploy.js";
 
 let tmpDir: string;
 let previousAppBasePath: string | undefined;
+let previousA2ASecret: string | undefined;
+let previousCfPages: string | undefined;
 let previousDatabaseUrl: string | undefined;
 let previousUnpooledDatabaseUrl: string | undefined;
+let previousNetlify: string | undefined;
+let previousNetlifyLocal: string | undefined;
 let previousNitroPreset: string | undefined;
 let previousViteAppBasePath: string | undefined;
 let previousWorkspaceAppsJson: string | undefined;
@@ -24,14 +28,22 @@ beforeEach(() => {
     return Buffer.from("");
   }) as typeof execFileSync);
   previousAppBasePath = process.env.APP_BASE_PATH;
+  previousA2ASecret = process.env.A2A_SECRET;
+  previousCfPages = process.env.CF_PAGES;
   previousDatabaseUrl = process.env.DATABASE_URL;
   previousUnpooledDatabaseUrl = process.env.NETLIFY_DATABASE_URL_UNPOOLED;
+  previousNetlify = process.env.NETLIFY;
+  previousNetlifyLocal = process.env.NETLIFY_LOCAL;
   previousNitroPreset = process.env.NITRO_PRESET;
   previousViteAppBasePath = process.env.VITE_APP_BASE_PATH;
   previousWorkspaceAppsJson = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
   delete process.env.APP_BASE_PATH;
+  delete process.env.A2A_SECRET;
+  delete process.env.CF_PAGES;
   delete process.env.DATABASE_URL;
   delete process.env.NETLIFY_DATABASE_URL_UNPOOLED;
+  delete process.env.NETLIFY;
+  delete process.env.NETLIFY_LOCAL;
   delete process.env.NITRO_PRESET;
   delete process.env.VITE_APP_BASE_PATH;
   delete process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
@@ -39,8 +51,12 @@ beforeEach(() => {
 
 afterEach(() => {
   restoreEnv("APP_BASE_PATH", previousAppBasePath);
+  restoreEnv("A2A_SECRET", previousA2ASecret);
+  restoreEnv("CF_PAGES", previousCfPages);
   restoreEnv("DATABASE_URL", previousDatabaseUrl);
   restoreEnv("NETLIFY_DATABASE_URL_UNPOOLED", previousUnpooledDatabaseUrl);
+  restoreEnv("NETLIFY", previousNetlify);
+  restoreEnv("NETLIFY_LOCAL", previousNetlifyLocal);
   restoreEnv("NITRO_PRESET", previousNitroPreset);
   restoreEnv("VITE_APP_BASE_PATH", previousViteAppBasePath);
   restoreEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", previousWorkspaceAppsJson);
@@ -398,6 +414,78 @@ describe("workspace deploy", () => {
       APP_BASE_PATH: "/mail",
       VITE_APP_BASE_PATH: "/mail",
     });
+  });
+
+  it("allows local build-only deploy checks without A2A_SECRET", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    expect(execFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires A2A_SECRET for hosted Netlify workspace deploy builds", async () => {
+    process.env.NETLIFY = "true";
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await expect(
+      runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "netlify",
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      }),
+    ).rejects.toThrow(/A2A_SECRET is required/);
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it("requires A2A_SECRET for hosted Cloudflare workspace deploy builds", async () => {
+    process.env.CF_PAGES = "1";
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await expect(
+      runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "cloudflare_pages",
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      }),
+    ).rejects.toThrow(/A2A_SECRET is required/);
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it("requires A2A_SECRET for publish-oriented workspace deploys", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await expect(
+      runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "netlify",
+        buildOnly: false,
+        execFile: execFile as typeof execFileSync,
+      }),
+    ).rejects.toThrow(/A2A_SECRET is required/);
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it("continues production workspace deploys when A2A_SECRET is configured", async () => {
+    process.env.NETLIFY = "true";
+    process.env.A2A_SECRET = "secret";
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    expect(execFile).toHaveBeenCalledTimes(1);
   });
 
   it("writes workspace app URLs and preserves explicit manifest URLs", async () => {

@@ -7,6 +7,7 @@ import {
   callAgent,
   signA2AToken,
 } from "../a2a/client.js";
+import { A2A_CONTINUATION_QUEUED_MARKER } from "../integrations/a2a-continuation-marker.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -229,8 +230,7 @@ export async function run(
             apiKey,
           );
           if (queued) {
-            responseText = `The ${agent.name} agent is still working. I will update this thread with the final result when it finishes.`;
-            emitNewText(responseText);
+            responseText = `${A2A_CONTINUATION_QUEUED_MARKER}\nThe ${agent.name} agent is still working. Do not send an interim reply to the user; the final result will be posted to the originating integration thread automatically.`;
           } else {
             const reason = pollErr?.message ?? "unknown error";
             responseText = `The ${agent.name} agent is taking longer than expected and didn't reply in time. (${reason})`;
