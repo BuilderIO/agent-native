@@ -29,16 +29,21 @@ export class A2ATaskTimeoutError extends Error {
 /**
  * Sign a JWT for A2A cross-app identity verification.
  *
- * Uses A2A_SECRET as an HMAC key. The token contains the caller's email
- * as `sub`, so the receiving app can verify who's calling.
+ * Uses an org-level secret by default for direct org-secret workflows. Callers
+ * that are doing ordinary hosted cross-app delegation can set
+ * `preferGlobalSecret` so deployments with a shared A2A_SECRET don't depend on
+ * every app database having an identical org row. The token contains the
+ * caller's email as `sub`, so the receiving app can verify who's calling.
  */
 export async function signA2AToken(
   email: string,
   orgDomain?: string,
   orgSecret?: string,
-  options?: { expiresIn?: string | number },
+  options?: { expiresIn?: string | number; preferGlobalSecret?: boolean },
 ): Promise<string> {
-  const secret = orgSecret || process.env.A2A_SECRET;
+  const secret = options?.preferGlobalSecret
+    ? process.env.A2A_SECRET || orgSecret
+    : orgSecret || process.env.A2A_SECRET;
   if (!secret) {
     throw new Error(
       "No A2A secret available. Set an org-level A2A secret in Team settings, " +
@@ -464,6 +469,7 @@ export async function callAgent(
         opts.userEmail,
         opts.orgDomain,
         opts.orgSecret,
+        { preferGlobalSecret: true },
       );
     } catch {
       // Fall back to unsigned call

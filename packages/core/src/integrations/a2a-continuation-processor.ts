@@ -365,10 +365,27 @@ async function redispatchContinuation(continuationId: string): Promise<void> {
 async function signContinuationToken(
   continuation: A2AContinuation,
 ): Promise<string | undefined> {
-  if (continuation.a2aAuthToken !== null) {
-    return continuation.a2aAuthToken || undefined;
+  if (continuation.a2aAuthToken === "") {
+    return undefined;
   }
 
+  const storedToken = continuation.a2aAuthToken;
+  if (storedToken && !isLikelyJwt(storedToken)) return storedToken;
+
+  const freshToken = await signFreshContinuationToken(continuation);
+  if (freshToken) return freshToken;
+  if (!storedToken) return undefined;
+
+  // Older continuations may have persisted the initial short-lived JWT. Avoid
+  // replaying it forever after expiry; opaque legacy bearer keys can still be
+  // reused because we cannot re-mint those.
+  if (isLikelyJwt(storedToken)) return undefined;
+  return storedToken;
+}
+
+async function signFreshContinuationToken(
+  continuation: A2AContinuation,
+): Promise<string | undefined> {
   let orgDomain: string | undefined;
   let orgSecret: string | undefined;
   if (continuation.orgId) {
@@ -387,10 +404,15 @@ async function signContinuationToken(
   try {
     return await signA2AToken(continuation.ownerEmail, orgDomain, orgSecret, {
       expiresIn: "30m",
+      preferGlobalSecret: true,
     });
   } catch {
     return undefined;
   }
+}
+
+function isLikelyJwt(token: string): boolean {
+  return token.split(".").length === 3;
 }
 
 function extractTaskText(task: Task): string {

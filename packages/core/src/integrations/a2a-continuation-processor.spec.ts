@@ -90,9 +90,14 @@ function adapter(sendResponse = vi.fn(async () => undefined)): PlatformAdapter {
 }
 
 describe("A2A continuation processor", () => {
+  const originalEnv = { ...process.env };
+
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.APP_URL = "https://dispatch.agent-native.test";
+    process.env = {
+      ...originalEnv,
+      APP_URL: "https://dispatch.agent-native.test",
+    };
     getA2AContinuationMock.mockImplementation(async (id: string) =>
       continuation({ id, status: "pending" }),
     );
@@ -116,6 +121,7 @@ describe("A2A continuation processor", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    process.env = originalEnv;
   });
 
   it("dispatches without aborting a long-running processor request", async () => {
@@ -197,10 +203,10 @@ describe("A2A continuation processor", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("reuses the original A2A bearer token stored on the continuation", async () => {
+  it("reuses opaque bearer tokens stored on the continuation", async () => {
     const sendResponse = vi.fn(async () => undefined);
     claimA2AContinuationMock.mockResolvedValueOnce(
-      continuation({ a2aAuthToken: "original-a2a-token" }),
+      continuation({ a2aAuthToken: "original-opaque-a2a-token" }),
     );
     const { processA2AContinuationById } =
       await import("./a2a-continuation-processor.js");
@@ -211,10 +217,37 @@ describe("A2A continuation processor", () => {
 
     expect(A2AClientMock).toHaveBeenCalledWith(
       "https://slides.agent-native.test",
-      "original-a2a-token",
+      "original-opaque-a2a-token",
       { requestTimeoutMs: 25_000 },
     );
     expect(signA2ATokenMock).not.toHaveBeenCalled();
+    expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+  });
+
+  it("re-signs instead of replaying a stored A2A JWT", async () => {
+    process.env.A2A_SECRET = "shared-a2a-secret";
+    const sendResponse = vi.fn(async () => undefined);
+    claimA2AContinuationMock.mockResolvedValueOnce(
+      continuation({ a2aAuthToken: "old.jwt.token" }),
+    );
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(signA2ATokenMock).toHaveBeenCalledWith(
+      "alice+qa@agent-native.test",
+      undefined,
+      undefined,
+      { expiresIn: "30m", preferGlobalSecret: true },
+    );
+    expect(A2AClientMock).toHaveBeenCalledWith(
+      "https://slides.agent-native.test",
+      "signed-a2a-token",
+      { requestTimeoutMs: 25_000 },
+    );
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
   });
 

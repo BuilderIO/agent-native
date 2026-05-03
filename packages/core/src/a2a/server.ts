@@ -42,6 +42,15 @@ interface A2ATokenPayload {
   orgDomain: string | null;
 }
 
+function addSecretCandidate(
+  candidates: string[],
+  secret: string | undefined,
+): void {
+  const trimmed = secret?.trim();
+  if (!trimmed || candidates.includes(trimmed)) return;
+  candidates.push(trimmed);
+}
+
 /**
  * Resolve the audience (`aud`) value to expect in an inbound JWT. We use the
  * receiver's app URL — it's the natural identifier of "who this token was
@@ -87,23 +96,23 @@ async function verifyA2AToken(
     // Malformed token — fall through to global secret attempt
   }
 
-  // Step 2: Look up the org's A2A secret by domain
-  let secret: string | undefined;
+  // Step 2: Build a small, ordered set of candidate secrets. Tokens minted by
+  // current callers prefer the shared A2A_SECRET; older callers may still use
+  // an org-level secret. Try both without logging or reflecting secret details.
+  const candidateSecrets: string[] = [];
+  addSecretCandidate(candidateSecrets, process.env.A2A_SECRET);
   if (orgDomainHint) {
     try {
       const { getA2ASecretByDomain } = await import("../org/context.js");
       const orgSecret = await getA2ASecretByDomain(orgDomainHint);
-      if (orgSecret) secret = orgSecret;
+      addSecretCandidate(candidateSecrets, orgSecret);
     } catch {
       // DB not ready or column doesn't exist yet — fall through
     }
   }
+  if (candidateSecrets.length === 0) return { email: null, orgDomain: null };
 
-  // Step 3: Fall back to global A2A_SECRET
-  if (!secret) secret = process.env.A2A_SECRET;
-  if (!secret) return { email: null, orgDomain: null };
-
-  // Step 4: Verify JWT with the resolved secret.
+  // Step 3: Verify JWT with the candidate secrets.
   //
   // - `audience`: passed only when the token carries an `aud` claim
   //   (backward-compat: tokens minted by older `signA2AToken` versions
@@ -131,18 +140,25 @@ async function verifyA2AToken(
     ) {
       verifyOptions.issuer = unverifiedPayload.iss;
     }
-    const { payload } = await jose.jwtVerify(
-      token,
-      new TextEncoder().encode(secret),
-      verifyOptions,
-    );
-    return {
-      email: (payload.sub as string) ?? null,
-      orgDomain: (payload.org_domain as string) ?? null,
-    };
+    for (const secret of candidateSecrets) {
+      try {
+        const { payload } = await jose.jwtVerify(
+          token,
+          new TextEncoder().encode(secret),
+          verifyOptions,
+        );
+        return {
+          email: (payload.sub as string) ?? null,
+          orgDomain: (payload.org_domain as string) ?? null,
+        };
+      } catch {
+        // Try the next candidate without leaking which secret failed.
+      }
+    }
   } catch {
-    return { email: null, orgDomain: null };
+    // Keep malformed option construction indistinguishable from auth failure.
   }
+  return { email: null, orgDomain: null };
 }
 
 /**
