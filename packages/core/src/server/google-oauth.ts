@@ -137,6 +137,46 @@ export function getAppUrl(event: H3Event, path = "/"): string {
   return `${getOrigin(event)}${getAppBasePath()}${cleanPath}`;
 }
 
+function getOriginalRequestPath(event: H3Event): string {
+  const mountedPathname = (event as any).context?._mountedPathname;
+  if (typeof mountedPathname === "string" && mountedPathname) {
+    return mountedPathname;
+  }
+
+  const urlPathname = (event as any).url?.pathname;
+  if (typeof urlPathname === "string" && urlPathname) return urlPathname;
+
+  const nodeUrl = event.node?.req?.url;
+  if (typeof nodeUrl === "string" && nodeUrl) {
+    const queryStart = nodeUrl.indexOf("?");
+    return queryStart >= 0 ? nodeUrl.slice(0, queryStart) : nodeUrl;
+  }
+
+  const eventPath = (event as any).path;
+  if (typeof eventPath === "string" && eventPath) {
+    const queryStart = eventPath.indexOf("?");
+    return queryStart >= 0 ? eventPath.slice(0, queryStart) : eventPath;
+  }
+
+  return "/";
+}
+
+function isRequestUnderAppBasePath(event: H3Event): boolean {
+  const basePath = getAppBasePath();
+  if (!basePath) return false;
+  const requestPath = getOriginalRequestPath(event);
+  return (
+    requestPath === `${basePath}/_agent-native` ||
+    requestPath.startsWith(`${basePath}/_agent-native/`)
+  );
+}
+
+function getDefaultOAuthRedirectUrl(event: H3Event, path: string): string {
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  const basePath = isRequestUnderAppBasePath(event) ? getAppBasePath() : "";
+  return `${getOrigin(event)}${basePath}${cleanPath}`;
+}
+
 // ─── redirect_uri Allowlist ──────────────────────────────────────────────────
 
 /**
@@ -184,10 +224,18 @@ export function isAllowedOAuthRedirectUri(
   }
   if (url.protocol !== expectedUrl.protocol) return false;
   if (url.host !== expectedUrl.host) return false;
-  // Must live under the framework's namespace.
+  // Must live under the framework's namespace. Workspace deploys can route
+  // root /_agent-native/* to Dispatch even when Dispatch itself is mounted at
+  // /dispatch, but app-prefixed requests should not be able to swap their
+  // callback to that root namespace.
   const basePath = getAppBasePath();
-  const required = `${basePath}/_agent-native/`;
-  if (!url.pathname.startsWith(required)) return false;
+  const allowedPrefixes =
+    basePath && isRequestUnderAppBasePath(event)
+      ? [`${basePath}/_agent-native/`]
+      : ["/_agent-native/"];
+  if (!allowedPrefixes.some((prefix) => url.pathname.startsWith(prefix))) {
+    return false;
+  }
   return true;
 }
 
@@ -213,7 +261,7 @@ export function resolveOAuthRedirectUri(
   if (typeof supplied === "string" && supplied.length > 0) {
     return isAllowedOAuthRedirectUri(supplied, event) ? supplied : null;
   }
-  return getAppUrl(event, defaultPath);
+  return getDefaultOAuthRedirectUrl(event, defaultPath);
 }
 
 // ─── OAuth State ─────────────────────────────────────────────────────────────
