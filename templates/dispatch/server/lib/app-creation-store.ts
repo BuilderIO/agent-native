@@ -86,6 +86,20 @@ function workspaceAppUrl(appPath: string): string | null {
   }
 }
 
+function workspaceAppLink(
+  appPath: string,
+  explicitUrl?: unknown,
+): string | null {
+  const urlValue = typeof explicitUrl === "string" ? explicitUrl.trim() : "";
+  if (!urlValue) return workspaceAppUrl(appPath);
+  if (urlValue.startsWith("/")) return workspaceAppUrl(urlValue) ?? urlValue;
+  try {
+    return new URL(urlValue).toString();
+  } catch {
+    return urlValue;
+  }
+}
+
 function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
   const rawApps = Array.isArray(parsed?.apps)
     ? parsed.apps
@@ -109,7 +123,7 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
         description:
           typeof entry.description === "string" ? entry.description : "",
         path: pathValue,
-        url: workspaceAppUrl(pathValue),
+        url: workspaceAppLink(pathValue, entry.url),
         isDispatch:
           typeof entry.isDispatch === "boolean"
             ? entry.isDispatch
