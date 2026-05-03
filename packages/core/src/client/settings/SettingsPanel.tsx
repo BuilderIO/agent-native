@@ -161,7 +161,6 @@ function SettingsSelect({
 // refresh inline (no hard reload — that was racing with nitro's env-runner
 // restart and hitting React Router's error boundary).
 function DisconnectBuilderButton() {
-  console.log("[DBG] DisconnectBuilderButton render v2", new Date().toISOString());
   const { status } = useBuilderStatus();
   const [phase, setPhase] = useState<"idle" | "armed" | "busy">("idle");
   const [err, setErr] = useState<string | null>(null);
