@@ -860,10 +860,16 @@ ${
     try {
       var params = new URLSearchParams(location.search);
       var qp = params.get('tab');
+      var path = location.pathname;
+      while (path.length > 1 && path.charAt(path.length - 1) === '/') path = path.slice(0, -1);
       if (qp === 'login' || qp === 'signup') {
         initial = qp;
       } else if (params.has('verified')) {
         initial = 'login';
+      } else if (path === '/login' || path.endsWith('/login')) {
+        initial = 'login';
+      } else if (path === '/signup' || path.endsWith('/signup')) {
+        initial = 'signup';
       } else {
         var stored = localStorage.getItem(TAB_STORAGE_KEY);
         if (stored === 'login' || stored === 'signup') initial = stored;

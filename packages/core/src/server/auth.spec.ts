@@ -1000,6 +1000,15 @@ describe("server/auth", () => {
       expect(html).toContain('src="/dispatch/agent-native-icon-dark.svg"');
       expect(html).not.toContain('src="/agent-native-icon-dark.svg"');
     });
+
+    it("defaults the active tab from the login or signup path", async () => {
+      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const html = getOnboardingHtml();
+
+      expect(html).toContain("var path = location.pathname");
+      expect(html).toContain("path === '/login' || path.endsWith('/login')");
+      expect(html).toContain("path === '/signup' || path.endsWith('/signup')");
+    });
   });
 
   describe("onboarding signup verification flow", () => {

@@ -18,6 +18,7 @@ import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 const BOOTSTRAPPED = new WeakSet<object>();
 const IN_BOOTSTRAP = new WeakSet<object>();
 const FRAMEWORK_PREFIX = "/_agent-native";
+const WELL_KNOWN_PREFIX = "/.well-known";
 const APP_SHIM_KEY = "_agentNativeH3Shim";
 const BOOTSTRAP_PROMISE_KEY = "_agentNativeBootstrapPromise";
 const PLUGIN_READY_KEY = "_agentNativePluginReadyPromise";
@@ -39,6 +40,13 @@ function pathMatchesPrefix(reqPath: string, prefix: string): boolean {
   return reqPath === prefix || reqPath.startsWith(prefix + "/");
 }
 
+function supportsAppBasePathMount(path: string): boolean {
+  return (
+    pathMatchesPrefix(path, FRAMEWORK_PREFIX) ||
+    pathMatchesPrefix(path, WELL_KNOWN_PREFIX)
+  );
+}
+
 function resolveMountMatch(
   reqPath: string,
   path: string,
@@ -48,7 +56,7 @@ function resolveMountMatch(
   }
 
   const appBasePath = getAppBasePath();
-  if (!appBasePath || !path.startsWith(FRAMEWORK_PREFIX)) return null;
+  if (!appBasePath || !supportsAppBasePathMount(path)) return null;
 
   const prefixedPath = `${appBasePath}${path}`;
   if (!pathMatchesPrefix(reqPath, prefixedPath)) return null;

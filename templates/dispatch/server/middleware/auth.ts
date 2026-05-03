@@ -10,6 +10,63 @@
 import { defineEventHandler } from "h3";
 import { runAuthGuard } from "@agent-native/core/server";
 
+function normalizeBasePath(value?: string): string {
+  if (!value || value === "/") return "";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "/") return "";
+  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+}
+
+function rootDispatchRedirect(
+  pathname: string,
+  search: string,
+): Response | null {
+  const basePath = normalizeBasePath(
+    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
+  );
+  if (!basePath) return null;
+
+  if (pathname === "/_agent-native" || pathname.startsWith("/_agent-native/")) {
+    return null;
+  }
+
+  if (pathname === "/") {
+    return new Response(null, {
+      status: 302,
+      headers: { Location: `${basePath}/${search}` },
+    });
+  }
+
+  if (pathname === basePath) {
+    return new Response(null, {
+      status: 301,
+      headers: { Location: `${basePath}/${search}` },
+    });
+  }
+
+  if (pathname === `${basePath}/`) {
+    return new Response(null, {
+      status: 302,
+      headers: { Location: `${basePath}/overview${search}` },
+    });
+  }
+
+  if (pathname.startsWith(`${basePath}/`)) {
+    return null;
+  }
+
+  return new Response("Reserved for workspace app routes", {
+    status: 404,
+    headers: { "content-type": "text/plain; charset=utf-8" },
+  });
+}
+
 export default defineEventHandler(async (event) => {
+  const redirectOrReserved = rootDispatchRedirect(
+    event.url.pathname,
+    event.url.search,
+  );
+  if (redirectOrReserved) return redirectOrReserved;
+
   return runAuthGuard(event);
 });

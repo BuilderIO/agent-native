@@ -1,7 +1,11 @@
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { agentNativePath } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  appBasePath,
+  appPath,
+} from "@agent-native/core/client";
 
 export interface NavigationState {
   view: string;
@@ -17,7 +21,7 @@ export function useNavigationState() {
   useEffect(() => {
     const state: NavigationState = {
       view: resolveView(location.pathname),
-      path: location.pathname,
+      path: appPath(location.pathname),
     };
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
@@ -58,10 +62,20 @@ export function useNavigationState() {
     const cmd = navCommand as NavigationState;
 
     // Navigate to a specific path or resolve view name to path
-    const path = cmd.path || resolvePath(cmd.view) || "/overview";
+    const path = routerPath(cmd.path || resolvePath(cmd.view) || "/overview");
     navigate(path);
     qc.setQueryData(["navigate-command"], null);
   }, [navCommand, navigate, qc]);
+}
+
+function routerPath(path: string): string {
+  const basePath = appBasePath();
+  if (!basePath) return path;
+  if (path === basePath) return "/";
+  if (path.startsWith(`${basePath}/`)) {
+    return path.slice(basePath.length) || "/";
+  }
+  return path;
 }
 
 function resolveView(pathname: string): string {
