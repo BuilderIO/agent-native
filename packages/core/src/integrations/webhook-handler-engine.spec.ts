@@ -700,6 +700,57 @@ describe("integration webhook handler engine resolution", () => {
     );
   });
 
+  it("guards recoverable A2A artifact fallbacks before sending Slack-style replies", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const previousAppUrl = process.env.APP_URL;
+    process.env.APP_URL = "https://dispatch.agent-native.com";
+    const sendResponse = vi.fn();
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_start",
+        tool: "call-agent",
+        input: { agent: "design", message: "make a launch card" },
+      });
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result:
+          "The agent is still working on the full response, but these verified artifacts already exist:\n\n" +
+          "Artifacts:\n" +
+          "- Design: https://design.agent-native.com/design/design-empty (ID: design-empty, 0 files)",
+      });
+    });
+
+    try {
+      await processIntegrationTask(
+        pendingTask({ id: "task-recoverable-a2a-empty-design" }),
+        {
+          adapter: createAdapter(sendResponse),
+          systemPrompt: "system",
+          actions: {},
+          model: "claude-sonnet-4-6",
+          apiKey: "",
+          ownerEmail: "dispatch+qa@integration.local",
+        },
+      );
+    } finally {
+      if (previousAppUrl === undefined) {
+        delete process.env.APP_URL;
+      } else {
+        process.env.APP_URL = previousAppUrl;
+      }
+    }
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("could not verify the design URL"),
+      }),
+      expect.any(Object),
+      expect.objectContaining({ placeholderRef: undefined }),
+    );
+    expect(sendResponse.mock.calls[0][0].text).not.toContain("design-empty");
+  });
+
   it("does not fall back to unmarked A2A tool URLs when no final text is emitted", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const sendResponse = vi.fn();

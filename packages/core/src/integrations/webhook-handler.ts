@@ -569,7 +569,6 @@ async function processIncomingMessage(
       async (completedRun: ActiveRun) => {
         try {
           const queuedA2AContinuation = hasQueuedA2AContinuation(completedRun);
-          let usedRecoverableA2AArtifactToolResult = false;
           let responseText = collectFinalResponseTextFromAgentEvents(
             completedRun.events.map((runEvent) => runEvent.event),
             { fallbackToPreToolText: !queuedA2AContinuation },
@@ -579,7 +578,6 @@ async function processIncomingMessage(
               extractRecoverableA2AArtifactToolResult(completedRun);
             if (recoverableA2AArtifactText) {
               responseText = recoverableA2AArtifactText;
-              usedRecoverableA2AArtifactToolResult = true;
             }
           }
 
@@ -625,7 +623,7 @@ async function processIncomingMessage(
           // preview card.
           const baseUrl = process.env.APP_URL || process.env.URL || "";
           const appBaseUrl = baseUrl ? withConfiguredAppBasePath(baseUrl) : "";
-          if (!suppressPlatformReply && !usedRecoverableA2AArtifactToolResult) {
+          if (!suppressPlatformReply) {
             responseText = appendA2AArtifactLinks(
               responseText,
               collectToolResultSummaries(completedRun),
