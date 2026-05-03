@@ -100,6 +100,7 @@ async function readSettingsRecord(): Promise<Record<string, any>> {
 
 function workspaceAppUrl(appPath: string): string | null {
   const base =
+    process.env.WORKSPACE_GATEWAY_URL ||
     process.env.APP_URL ||
     process.env.URL ||
     process.env.DEPLOY_URL ||
@@ -517,8 +518,10 @@ function buildWorkspaceAppPrompt(input: {
         : "Do not grant or request any Dispatch vault keys unless the user asks later.",
       "",
       "Branch readiness requirements before handing off:",
-      `- Update the workspace app registry metadata for "${appId}" (workspace-apps.json or .agent-native/workspace-apps.json, whichever this workspace uses) so Dispatch lists the app at /${appId} after merge/deploy.`,
-      "- Update the app manifest/package/deploy metadata needed by the existing workspace deployment model; do not leave the branch relying only on local discovery.",
+      `- Create apps/${appId} with package.json displayName/description/scripts/dependencies matching the workspace conventions.`,
+      "- Do not add or update workspace-apps.json or .agent-native/workspace-apps.json unless the app needs an explicit external URL override; the root deploy generates the workspace app registry from apps/* and deploy metadata.",
+      "- Update pnpm-lock.yaml when adding or changing dependencies so Netlify can install the branch reliably.",
+      "- Update the app manifest/package/deploy metadata needed by the existing workspace deployment model; do not leave the branch relying only on uncommitted local state.",
       "- Verify the app's agent card/A2A metadata is ready so Dispatch can discover and delegate to the app after deployment.",
       "- Include a final verification note covering the registry entry, manifest/deploy metadata, and agent-card readiness.",
       `When it is ready, start or update the workspace dev server and navigate the user to /${appId}.`,

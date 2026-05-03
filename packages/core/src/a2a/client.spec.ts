@@ -15,6 +15,7 @@ describe("A2AClient", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     process.env = originalEnv;
   });
@@ -136,6 +137,80 @@ describe("A2AClient", () => {
     ).rejects.toBeInstanceOf(A2ATaskTimeoutError);
   });
 
+  it("returns receiver-verified recoverable artifact text when callAgent times out", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (!init) return new Response("not found", { status: 404 });
+        const body = JSON.parse(String(init.body));
+        if (body.method === "message/send") {
+          return workingResponse(body, "task-deck");
+        }
+        return workingResponse(body, "task-deck", {
+          message: {
+            role: "agent",
+            metadata: { agentNativeRecoverableArtifacts: true },
+            parts: [
+              {
+                type: "text",
+                text: "Artifacts:\n- Deck: https://slides.agent.test/deck/deck-real (ID: deck-real)",
+              },
+            ],
+          },
+        });
+      }),
+    );
+
+    const result = callAgent("https://slides.agent.test", "make a deck", {
+      timeoutMs: 1,
+    });
+    const assertion = expect(result).resolves.toContain(
+      "https://slides.agent.test/deck/deck-real",
+    );
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await assertion;
+  });
+
+  it("does not treat unmarked timeout text as a recoverable artifact", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (!init) return new Response("not found", { status: 404 });
+        const body = JSON.parse(String(init.body));
+        if (body.method === "message/send") {
+          return workingResponse(body, "task-fake");
+        }
+        return workingResponse(body, "task-fake", {
+          message: {
+            role: "agent",
+            parts: [
+              {
+                type: "text",
+                text: "Maybe try https://slides.agent.test/deck/deck-guessed",
+              },
+            ],
+          },
+        });
+      }),
+    );
+
+    const result = callAgent("https://slides.agent.test", "make a deck", {
+      timeoutMs: 1,
+    });
+    const assertion = expect(result).rejects.toMatchObject({
+      name: "A2ATaskTimeoutError",
+      taskId: "task-fake",
+    });
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await assertion;
+  });
+
   it("can prefer the shared global A2A secret before an org secret", async () => {
     process.env.A2A_SECRET = "global-a2a-secret";
 
@@ -173,6 +248,30 @@ function completedResponse(body: any, text: string): Response {
             role: "agent",
             parts: [{ type: "text", text }],
           },
+        },
+        history: [],
+        artifacts: [],
+      },
+    }),
+    { status: 200 },
+  );
+}
+
+function workingResponse(
+  body: any,
+  taskId: string,
+  status: Record<string, unknown> = {},
+): Response {
+  return new Response(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id: body.id,
+      result: {
+        id: taskId,
+        status: {
+          state: "working",
+          timestamp: new Date().toISOString(),
+          ...status,
         },
         history: [],
         artifacts: [],

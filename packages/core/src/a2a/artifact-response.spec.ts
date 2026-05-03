@@ -212,6 +212,61 @@ describe("appendA2AArtifactLinks", () => {
     );
   });
 
+  it("blocks unverified production Design URLs even when the caller is another app", () => {
+    const text = appendA2AArtifactLinks(
+      "The Design agent returned https://design.agent-native.com/design/us1sfMEZNWUQZHDldxoFA",
+      [],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the design URL");
+    expect(text).toContain("saved app data");
+    expect(text).not.toContain("us1sfMEZNWUQZHDldxoFA");
+    expect(text).not.toContain("https://design.agent-native.com/design/");
+  });
+
+  it("allows verified production Slides URLs when a successful deck action returned the same artifact", () => {
+    const text = appendA2AArtifactLinks(
+      "Deck ready: https://slides.agent-native.com/deck/deck_123",
+      [
+        {
+          tool: "create-deck",
+          result: JSON.stringify({
+            id: "deck_123",
+            slideCount: 1,
+            url: "https://slides.agent-native.com/deck/deck_123",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toBe(
+      "Deck ready: https://slides.agent-native.com/deck/deck_123",
+    );
+  });
+
+  it("allows verified production Content URLs when a successful document action returned the same artifact", () => {
+    const text = appendA2AArtifactLinks(
+      "Document ready: https://content.agent-native.com/page/doc_123",
+      [
+        {
+          tool: "create-document",
+          result: JSON.stringify({
+            id: "doc_123",
+            title: "Launch Brief",
+            url: "https://content.agent-native.com/page/doc_123",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toBe(
+      "Document ready: https://content.agent-native.com/page/doc_123",
+    );
+  });
+
   it("blocks generic shell-only design success even when the model omitted the id", () => {
     const text = appendA2AArtifactLinks(
       "Done.",

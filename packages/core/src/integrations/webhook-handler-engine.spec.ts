@@ -661,6 +661,80 @@ describe("integration webhook handler engine resolution", () => {
     );
   });
 
+  it("sends verified recoverable A2A artifact tool results when no final text is emitted", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const sendResponse = vi.fn();
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_start",
+        tool: "call-agent",
+        input: { agent: "slides", message: "make a launch deck" },
+      });
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result:
+          "The agent is still working on the full response, but these verified artifacts already exist:\n\n" +
+          "Artifacts:\n" +
+          "- Deck: https://slides.agent.test/deck/deck-real (ID: deck-real)",
+      });
+    });
+
+    await processIntegrationTask(pendingTask({ id: "task-recoverable-a2a" }), {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: "dispatch+qa@integration.local",
+    });
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining(
+          "https://slides.agent.test/deck/deck-real",
+        ),
+      }),
+      expect.any(Object),
+      expect.objectContaining({ placeholderRef: undefined }),
+    );
+  });
+
+  it("does not fall back to unmarked A2A tool URLs when no final text is emitted", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const sendResponse = vi.fn();
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_start",
+        tool: "call-agent",
+        input: { agent: "slides", message: "make a launch deck" },
+      });
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result: "Maybe try https://slides.agent.test/deck/deck-guessed",
+      });
+    });
+
+    await processIntegrationTask(pendingTask({ id: "task-unmarked-a2a" }), {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: "dispatch+qa@integration.local",
+    });
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "(No response)",
+      }),
+      expect.any(Object),
+      expect.objectContaining({ placeholderRef: undefined }),
+    );
+    expect(sendResponse.mock.calls[0][0].text).not.toContain("deck-guessed");
+  });
+
   it("does not send hallucinated local design URLs to Slack-style integrations", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const previousAppUrl = process.env.APP_URL;
@@ -699,6 +773,54 @@ describe("integration webhook handler engine resolution", () => {
     );
     expect(sendResponse.mock.calls[0][0].text).not.toContain(
       "DSyLeIdyBc9p_drm40Tfp",
+    );
+  });
+
+  it("does not relay unverified production Design URLs from Dispatch Slack replies", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const previousAppUrl = process.env.APP_URL;
+    process.env.APP_URL = "https://dispatch.agent-native.com";
+    const sendResponse = vi.fn();
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "text",
+        text: "The Design agent returned https://design.agent-native.com/design/us1sfMEZNWUQZHDldxoFA",
+      });
+    });
+
+    try {
+      await processIntegrationTask(
+        pendingTask({ id: "task-cross-app-false-design" }),
+        {
+          adapter: createAdapter(sendResponse),
+          systemPrompt: "system",
+          actions: {},
+          model: "claude-sonnet-4-6",
+          apiKey: "",
+          ownerEmail: "dispatch+qa@integration.local",
+        },
+      );
+    } finally {
+      if (previousAppUrl === undefined) {
+        delete process.env.APP_URL;
+      } else {
+        process.env.APP_URL = previousAppUrl;
+      }
+    }
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("could not verify the design URL"),
+      }),
+      expect.any(Object),
+      expect.objectContaining({ placeholderRef: undefined }),
+    );
+    expect(sendResponse.mock.calls[0][0].text).toContain("saved app data");
+    expect(sendResponse.mock.calls[0][0].text).not.toContain(
+      "us1sfMEZNWUQZHDldxoFA",
+    );
+    expect(sendResponse.mock.calls[0][0].text).not.toContain(
+      "https://design.agent-native.com/design/",
     );
   });
 
