@@ -53,10 +53,10 @@ Or pass `query` as a query parameter.
 
 ## Table Placeholders
 
-| Placeholder   | Resolves To                                 |
-| ------------- | ------------------------------------------- |
-| `@events`     | `<project_id>.metrics.events`               |
-| `@app_events` | `<project_id>.analytics.events_partitioned` |
+| Placeholder   | Resolves To                                                                                  |
+| ------------- | -------------------------------------------------------------------------------------------- |
+| `@events`     | `<project_id>.metrics.events`                                                                |
+| `@app_events` | Configured application events table; defaults to `<project_id>.analytics.events_partitioned` |
 
 ## SQL Validation
 

@@ -1,8 +1,9 @@
-# analytics.events_partitioned
+# Application Events BigQuery Table
 
-BigQuery table for **app-level events** (signups, pageViews, interactions, agent chat, etc.).
+BigQuery table for **app-level events** (signups, page views, interactions, agent chat, etc.).
 
-**Full path**: `<project_id>.analytics.events_partitioned`
+**Default full path**: `<project_id>.analytics.events_partitioned`
+**Override**: set `ANALYTICS_BIGQUERY_EVENTS_TABLE` to `dataset.table` or `project.dataset.table`
 **Query-metrics placeholder**: `@app_events`
 
 ## Columns

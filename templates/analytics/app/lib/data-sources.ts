@@ -144,7 +144,11 @@ export const dataSources: DataSource[] = [
     description: "Query your data warehouse directly with SQL",
     category: "analytics",
     icon: IconDatabase,
-    envKeys: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "BIGQUERY_PROJECT_ID"],
+    envKeys: [
+      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+      "BIGQUERY_PROJECT_ID",
+      "ANALYTICS_BIGQUERY_EVENTS_TABLE",
+    ],
     docsUrl: "https://cloud.google.com/bigquery/docs",
     walkthroughSteps: [
       {
@@ -184,6 +188,15 @@ export const dataSources: DataSource[] = [
         inputKey: "BIGQUERY_PROJECT_ID",
         inputLabel: "Project ID",
         inputPlaceholder: "my-project-123",
+        inputType: "text",
+      },
+      {
+        title: "Optional: set the application events table",
+        description:
+          "Used for first-party event examples and Explorer event discovery. Leave blank to use analytics.events_partitioned in the project above.",
+        inputKey: "ANALYTICS_BIGQUERY_EVENTS_TABLE",
+        inputLabel: "Events Table",
+        inputPlaceholder: "analytics.events_partitioned",
         inputType: "text",
       },
     ],

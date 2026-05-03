@@ -225,6 +225,12 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 
 ### Creating & Editing Slides
 
+#### Factual Claims in Generated Decks
+
+Do not invent factual numbers, metrics, URLs, source attributions, customer names, dates, success rates, benchmarks, or case-study results when generating or editing slides. Only include concrete factual claims when the user supplied them in the prompt/context or you fetched them with an action/tool.
+
+If a metric or source would make the slide stronger but is not available, use qualitative language ("early signal", "strong coverage", "improving reliability"), a visible placeholder like `[metric TBD]`, or a clearly labeled draft assumption such as `Draft assumption: validate with QA data`. This is especially important for requests that arrive through Slack, Dispatch, or A2A, where the caller may only see the final deck URL and not any caveats in chat.
+
 **Default flow — build a deck slide-by-slide (PREFERRED):**
 
 1. If a deck is already open (check `<current-screen>` for `deckId`), skip to step 3.
@@ -318,13 +324,13 @@ ${process.env.APP_URL}/deck/<deckId>
 
 The URL pattern is `/deck/<id>` (singular `deck`). If `process.env.APP_URL` isn't set, fall back to `https://slides.agent-native.com/deck/<id>` for the prod app.
 
-**Examples — good vs bad replies for "Create a 3-slide deck about Builder.io. Reply with just the URL.":**
+**Examples — good vs bad replies for "Create a 3-slide deck about Acme Analytics. Reply with just the URL.":**
 
-|     |                                                                                                                                                                       |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ❌  | "I'll create a 3-slide deck about Builder.io! Slide 1 — What is Builder.io? Slide 2 — Key features. Slide 3 — Get started." (no URL — caller has nothing to point to) |
-| ❌  | "Created at `/deck/deck-123`" (relative path — caller's host won't resolve it)                                                                                        |
-| ✅  | "https://slides.agent-native.com/deck/deck-1777482594025-d7x2x" (verbatim, fully-qualified, just the URL the user asked for)                                          |
+|     |                                                                                                                                                                               |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ❌  | "I'll create a 3-slide deck about Acme Analytics! Slide 1 — What is Acme Analytics? Slide 2 — Key features. Slide 3 — Get started." (no URL — caller has nothing to point to) |
+| ❌  | "Created at `/deck/deck-123`" (relative path — caller's host won't resolve it)                                                                                                |
+| ✅  | "https://slides.agent-native.com/deck/deck-1777482594025-d7x2x" (verbatim, fully-qualified, just the URL the user asked for)                                                  |
 
 Same rule for `/deck/<id>/present` (presentation mode), `/share/<token>` (share link), and any other URL the caller might need.
 
@@ -470,6 +476,8 @@ Every slide `content` is HTML. The slide renderer provides the black background 
 ```
 
 ### Metrics / Stats Slide
+
+Use this layout only when the metric values are supplied by the user or retrieved with a tool/action. If values are unknown, replace numeric examples like `42%` and `10x` with placeholders (`[metric TBD]`) or qualitative labels; never turn a plausible example into a factual claim.
 
 ```html
 <div
@@ -625,7 +633,7 @@ The app delegates complex operations to the agent chat via `sendToAgentChat()`. 
 
 ## Content Generation: Positioning & Messaging
 
-When generating outbound content (deck slides, marketing copy), consult **`data/builder-positioning.md`** for messaging pillars, personas, competitive positioning, and customer evidence.
+When generating outbound content (deck slides, marketing copy), use only the audience, positioning, source material, and proof points provided by the user or retrieved with actions/tools. The bundled template data is generic and must not be treated as vendor-specific positioning.
 
 ## Skills (for code editing only)
 
