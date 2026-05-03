@@ -1,13 +1,15 @@
 import type { A2AConfig, AgentCard } from "./types.js";
+import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 
 export function generateAgentCard(
   config: A2AConfig,
   baseUrl: string,
 ): AgentCard {
+  const scopedUrl = withConfiguredAppBasePath(baseUrl);
   const card: AgentCard = {
     name: config.name,
     description: config.description,
-    url: baseUrl,
+    url: scopedUrl,
     version: config.version ?? "1.0.0",
     protocolVersion: "0.3",
     capabilities: {

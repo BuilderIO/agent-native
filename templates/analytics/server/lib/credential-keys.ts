@@ -22,6 +22,11 @@ export const credentialKeys: CredentialKeyConfig[] = [
     label: "BigQuery Project ID",
     required: false,
   },
+  {
+    key: "ANALYTICS_BIGQUERY_EVENTS_TABLE",
+    label: "BigQuery Events Table",
+    required: false,
+  },
   // Amplitude
   { key: "AMPLITUDE_API_KEY", label: "Amplitude API Key", required: false },
   {

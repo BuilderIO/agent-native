@@ -1,8 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { generateAgentCard } from "./agent-card.js";
 import type { A2AConfig } from "./types.js";
 
 describe("generateAgentCard", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   const baseConfig: A2AConfig = {
     name: "Test Agent",
     description: "A test agent",
@@ -22,6 +26,21 @@ describe("generateAgentCard", () => {
     expect(card.url).toBe("https://example.com");
     expect(card.protocolVersion).toBe("0.3");
     expect(card.skills).toHaveLength(1);
+  });
+
+  it("includes APP_BASE_PATH in the advertised app URL", () => {
+    vi.stubEnv("APP_BASE_PATH", "/starter");
+    const card = generateAgentCard(baseConfig, "https://workspace.example.com");
+    expect(card.url).toBe("https://workspace.example.com/starter");
+  });
+
+  it("does not duplicate APP_BASE_PATH when the base URL is already scoped", () => {
+    vi.stubEnv("APP_BASE_PATH", "/starter");
+    const card = generateAgentCard(
+      baseConfig,
+      "https://workspace.example.com/starter",
+    );
+    expect(card.url).toBe("https://workspace.example.com/starter");
   });
 
   it("defaults version to 1.0.0", () => {
