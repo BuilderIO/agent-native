@@ -70,9 +70,10 @@ export function CanvasEditor({
         <UserNotesBlock value={userNotesMd} onChange={onUserNotesChange} />
 
         {/* Divider only when there's both user notes and AI content */}
-        {userNotesMd && (summaryMd || bullets.length > 0 || actionItems.length > 0) && (
-          <div className="h-px bg-border/60" />
-        )}
+        {userNotesMd &&
+          (summaryMd || bullets.length > 0 || actionItems.length > 0) && (
+            <div className="h-px bg-border/60" />
+          )}
 
         {/* AI summary — muted gray */}
         {summaryMd && (
@@ -282,11 +283,7 @@ function AiBulletsBlock({
               <span className="flex-1">{b}</span>
             </div>
           );
-          return (
-            <li key={i}>
-              {renderBullet ? renderBullet(b, i) : content}
-            </li>
-          );
+          return <li key={i}>{renderBullet ? renderBullet(b, i) : content}</li>;
         })}
       </ul>
     </div>

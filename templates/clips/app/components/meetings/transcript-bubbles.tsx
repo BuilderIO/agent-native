@@ -164,7 +164,10 @@ export function TranscriptBubbles({
                           tabIndex={clickable ? 0 : -1}
                           onClick={() => clickable && onSeek(seg.startMs)}
                           onKeyDown={(e) => {
-                            if (clickable && (e.key === "Enter" || e.key === " ")) {
+                            if (
+                              clickable &&
+                              (e.key === "Enter" || e.key === " ")
+                            ) {
                               e.preventDefault();
                               onSeek(seg.startMs);
                             }

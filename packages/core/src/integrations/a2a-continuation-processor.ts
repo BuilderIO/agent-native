@@ -230,36 +230,7 @@ async function processClaimedContinuation(
     return;
   }
 
-  const deliveryContinuation = await claimA2AContinuationDelivery(
-    continuation.id,
-  );
-  if (!deliveryContinuation) return;
-
-  try {
-    await withTimeout(
-      adapter.sendResponse(
-        adapter.formatAgentResponse(text),
-        deliveryContinuation.incoming,
-        { placeholderRef: deliveryContinuation.placeholderRef ?? undefined },
-      ),
-      PLATFORM_SEND_TIMEOUT_MS,
-      `${deliveryContinuation.platform} response delivery timed out`,
-    );
-    await completeA2AContinuation(deliveryContinuation.id);
-  } catch (err) {
-    if (deliveryContinuation.attempts >= MAX_ATTEMPTS) {
-      await failA2AContinuation(
-        deliveryContinuation.id,
-        err instanceof Error ? err.message : String(err),
-      );
-      return;
-    }
-    await rescheduleA2AContinuation(
-      deliveryContinuation.id,
-      RESCHEDULE_DELAY_MS,
-    );
-    await redispatchContinuation(deliveryContinuation.id);
-  }
+  await deliverAndCompleteA2AContinuation(continuation, adapter, text);
 }
 
 async function waitForContinuationDue(
@@ -311,6 +282,43 @@ async function notifyAndFailA2AContinuation(
   }
 
   await failA2AContinuation(deliveryContinuation.id, reason);
+}
+
+async function deliverAndCompleteA2AContinuation(
+  continuation: A2AContinuation,
+  adapter: PlatformAdapter,
+  text: string,
+): Promise<void> {
+  const deliveryContinuation = await claimA2AContinuationDelivery(
+    continuation.id,
+  );
+  if (!deliveryContinuation) return;
+
+  try {
+    await withTimeout(
+      adapter.sendResponse(
+        adapter.formatAgentResponse(text),
+        deliveryContinuation.incoming,
+        { placeholderRef: deliveryContinuation.placeholderRef ?? undefined },
+      ),
+      PLATFORM_SEND_TIMEOUT_MS,
+      `${deliveryContinuation.platform} response delivery timed out`,
+    );
+    await completeA2AContinuation(deliveryContinuation.id);
+  } catch (err) {
+    if (deliveryContinuation.attempts >= MAX_ATTEMPTS) {
+      await failA2AContinuation(
+        deliveryContinuation.id,
+        err instanceof Error ? err.message : String(err),
+      );
+      return;
+    }
+    await rescheduleA2AContinuation(
+      deliveryContinuation.id,
+      RESCHEDULE_DELAY_MS,
+    );
+    await redispatchContinuation(deliveryContinuation.id);
+  }
 }
 
 function formatContinuationFailureMessage(

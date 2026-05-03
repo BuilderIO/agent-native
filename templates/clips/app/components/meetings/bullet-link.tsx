@@ -85,9 +85,8 @@ const STOPWORDS = new Set<string>([
 ]);
 
 function tokenize(s: string): string[] {
-  return (s.toLowerCase().match(/[a-z0-9']+/g) ?? []).filter(
-    (t) => t.length > 2 && !STOPWORDS.has(t),
-  );
+  const matches: string[] = s.toLowerCase().match(/[a-z0-9']+/g) ?? [];
+  return matches.filter((t) => t.length > 2 && !STOPWORDS.has(t));
 }
 
 /**
