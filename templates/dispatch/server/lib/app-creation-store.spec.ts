@@ -379,6 +379,49 @@ describe("startWorkspaceAppCreation", () => {
     expect(apps[0]).not.toHaveProperty("a2aEndpointUrl");
   });
 
+  it("probes agent cards by default for action calls and lets UI polling opt out", async () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [
+        {
+          id: "dispatch",
+          name: "Dispatch",
+          path: "/dispatch",
+          isDispatch: true,
+        },
+      ],
+    });
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        name: "Dispatch Agent",
+        url: "https://workspace.example.test/dispatch/_agent-native/a2a",
+        skills: [],
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const action = (await import("../../actions/list-workspace-apps.js"))
+      .default;
+
+    const apps = await action.run({});
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(apps[0]).toMatchObject({
+      agentCardReachable: true,
+      a2aEndpointUrl:
+        "https://workspace.example.test/dispatch/_agent-native/a2a",
+    });
+
+    fetchMock.mockClear();
+    const appsWithoutCards = await action.run({
+      includeAgentCards: "false",
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(appsWithoutCards[0]).not.toHaveProperty("agentCardUrl");
+    expect(appsWithoutCards[0]).not.toHaveProperty("a2aEndpointUrl");
+  });
+
   it("optionally probes ready app agent cards and returns A2A metadata", async () => {
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
       apps: [

@@ -48,7 +48,7 @@ export function meta() {
 export default function AppsRoute() {
   const { data: apps = [] } = useActionQuery(
     "list-workspace-apps",
-    {},
+    { includeAgentCards: false },
     {
       refetchInterval: 2_000,
     },

@@ -35,7 +35,7 @@ export default function WorkspaceAppRoute() {
   const { appId } = useParams();
   const { data: apps = [], isLoading } = useActionQuery(
     "list-workspace-apps",
-    {},
+    { includeAgentCards: false },
     {
       refetchInterval: 2_000,
     },
