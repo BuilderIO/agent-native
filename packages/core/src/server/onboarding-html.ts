@@ -576,9 +576,11 @@ ${marketingPanelHtml}
 <div class="card">
   <h1 id="heading">Welcome</h1>
   <p class="subtitle" id="subtitle">Create an account to get started</p>
-  <p class="upgrade-note" id="upgrade-note">
-    You started this flow from <code>local@localhost</code>. Continue signing in to upgrade this workspace to a real account and migrate your local data. If you want to cancel that and keep using local mode, use the secondary button below.
-  </p>
+  <p
+    class="upgrade-note"
+    id="upgrade-note"
+    data-upgrade-copy="Continue signing in to attach this app to your account and migrate local data."
+  ></p>
 
 ${
   showGoogle
@@ -685,6 +687,21 @@ ${
       var n = document.getElementById('local-note');
       if (n) n.classList.add('show');
     }
+  })();
+  (function revealUpgradeNote() {
+    var shouldShow = false;
+    try {
+      var params = new URLSearchParams(location.search);
+      shouldShow = params.get('signin') === '1' || params.get('upgrade-from-local') === '1';
+    } catch(e) {}
+    if (!shouldShow) {
+      try { shouldShow = localStorage.getItem('an_migrate_from_local') === '1'; } catch(e) {}
+    }
+    if (!shouldShow) return;
+    var n = document.getElementById('upgrade-note');
+    if (!n) return;
+    n.textContent = n.getAttribute('data-upgrade-copy') || 'Continue signing in to migrate local data.';
+    n.classList.add('show');
   })();
 ${
   googleOnly
