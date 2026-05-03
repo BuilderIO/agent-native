@@ -83,6 +83,9 @@ describe("workspace deploy", () => {
       ),
     ).toBe(false);
     expect(
+      fs.existsSync(path.join(tmpDir, "dist", "dispatch", "dispatch")),
+    ).toBe(false);
+    expect(
       fs.existsSync(
         path.join(
           tmpDir,
@@ -244,6 +247,13 @@ function writeAppBuildOutput(workspaceRoot: string, app: string): void {
   });
   fs.writeFileSync(
     path.join(appDir, "dist", app, "assets", "app.js"),
+    "export {};",
+  );
+  fs.mkdirSync(path.join(appDir, "dist", app, app, "assets"), {
+    recursive: true,
+  });
+  fs.writeFileSync(
+    path.join(appDir, "dist", app, app, "assets", "duplicate.js"),
     "export {};",
   );
   fs.writeFileSync(

@@ -168,6 +168,10 @@ function moveAppBuildIntoDist(
     const target = path.join(distDir, app);
     fs.mkdirSync(target, { recursive: true });
     copyDir(staticSrc, target);
+    // Nitro/Vite mounted builds can contain a nested copy of public assets at
+    // dist/<app>/<app>/...; the workspace root already supplies the outer
+    // mount path, so keeping it would publish duplicate /<app>/<app> URLs.
+    fs.rmSync(path.join(target, app), { recursive: true, force: true });
     copyNetlifyFunctionIntoWorkspace(workspaceRoot, app);
   } else {
     const target = path.join(distDir, app);
