@@ -30,19 +30,38 @@
 use tauri::AppHandle;
 
 #[tauri::command]
-pub async fn native_speech_start(
-    app: AppHandle,
-    locale: Option<String>,
-    contextual_strings: Option<Vec<String>>,
-) -> Result<(), String> {
+pub async fn native_speech_start(app: AppHandle, locale: Option<String>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        macos::native_speech_start_impl(app, locale, contextual_strings).await
+        // contextual_strings (personal vocabulary) is staged separately via
+        // `native_speech_set_vocabulary` so this command's 2-arg signature
+        // can stay stable for `system_audio.rs`'s 2-arg call site (which
+        // doesn't run dictation, so vocabulary doesn't apply there).
+        macos::native_speech_start_impl(app, locale).await
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (app, locale, contextual_strings);
+        let _ = (app, locale);
         Err("Native speech recognition is only supported on macOS.".into())
+    }
+}
+
+/// Stage the personal-vocabulary list for the NEXT `native_speech_start`
+/// call. The list is consumed once and cleared so a subsequent dictation
+/// without a vocab refresh starts from a clean slate. Best-effort: passing
+/// an empty list (or never calling this) just means no `contextualStrings`
+/// bias is applied.
+#[tauri::command]
+pub async fn native_speech_set_vocabulary(strings: Vec<String>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::set_pending_vocabulary(strings);
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = strings;
+        Ok(())
     }
 }
 
