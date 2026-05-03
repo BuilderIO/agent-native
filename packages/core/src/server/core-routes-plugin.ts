@@ -1,4 +1,8 @@
-import { getH3App, awaitBootstrap } from "./framework-request-handler.js";
+import {
+  getH3App,
+  awaitBootstrap,
+  markDefaultPluginProvided,
+} from "./framework-request-handler.js";
 import {
   defineEventHandler,
   setResponseStatus,
@@ -173,6 +177,7 @@ export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
   return async (nitroApp: any) => {
+    markDefaultPluginProvided(nitroApp, "core-routes");
     // No-op when called from inside the bootstrap (auto-mount path).
     // Otherwise wait so other default plugins finish mounting first.
     await awaitBootstrap(nitroApp);

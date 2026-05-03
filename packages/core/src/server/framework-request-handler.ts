@@ -22,6 +22,7 @@ const WELL_KNOWN_PREFIX = "/.well-known";
 const APP_SHIM_KEY = "_agentNativeH3Shim";
 const BOOTSTRAP_PROMISE_KEY = "_agentNativeBootstrapPromise";
 const PLUGIN_READY_KEY = "_agentNativePluginReadyPromise";
+const PROVIDED_PLUGIN_STEMS_KEY = "_agentNativeProvidedPluginStems";
 
 function normalizeAppBasePath(value: string | undefined): string {
   if (!value || value === "/") return "";
@@ -73,6 +74,26 @@ function resolveMountMatch(
 export interface H3AppShim {
   use(path: string, handler: EventHandler): void;
   use(handler: EventHandler): void;
+}
+
+/**
+ * Mark a default plugin slot as supplied by the app/template before the
+ * framework default bootstrap runs.
+ *
+ * Bundled serverless functions often don't have the original
+ * `server/plugins/*.ts` tree on disk at runtime, so filesystem route discovery
+ * can falsely conclude a template plugin is missing. Explicit plugin factories
+ * call this synchronously before awaiting bootstrap so the framework does not
+ * auto-mount a generic default over the app's custom implementation.
+ */
+export function markDefaultPluginProvided(nitroApp: any, stem: string): void {
+  if (!nitroApp || !stem) return;
+  const existing = nitroApp[PROVIDED_PLUGIN_STEMS_KEY] as
+    | Set<string>
+    | undefined;
+  const provided = existing ?? new Set<string>();
+  provided.add(stem);
+  nitroApp[PROVIDED_PLUGIN_STEMS_KEY] = provided;
 }
 
 /**
@@ -358,7 +379,13 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
   IN_BOOTSTRAP.add(nitroApp);
   try {
     const cwd = process.cwd();
-    const missing = await getMissingDefaultPlugins(cwd);
+    const discoveredMissing = await getMissingDefaultPlugins(cwd);
+    const provided = nitroApp[PROVIDED_PLUGIN_STEMS_KEY] as
+      | Set<string>
+      | undefined;
+    const missing = provided
+      ? discoveredMissing.filter((stem) => !provided.has(stem))
+      : discoveredMissing;
     if (missing.length === 0) return;
 
     // Lazy import to avoid circular dependency at module load time

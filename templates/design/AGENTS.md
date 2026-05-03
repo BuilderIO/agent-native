@@ -388,6 +388,7 @@ When a request arrives from Slack, Dispatch, or any other app via A2A, the calle
 3. Immediately persist at least one complete, self-contained HTML/JSX file with `generate-design` — never by writing directly to design tables.
 4. Verify the saved result with `get-design` or the `generate-design` return value. A design is ready only when `files.length > 0` and an `index.html` or other renderable HTML/JSX file exists.
 5. Only then reply with the design ID and the full URL/path for `/design/<id>`. Never report a `create-design` ID or URL as success before `generate-design` succeeds; that is only an empty shell.
+6. If `create-design`, `generate-design`, or `get-design` fails, say that the artifact could not be created or verified. Do not invent a replacement ID, slug, or URL.
 
 ### Phase 1 — Ask before generating (when ambiguous)
 

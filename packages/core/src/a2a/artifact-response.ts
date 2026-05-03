@@ -22,6 +22,13 @@ interface GeneratedDesignArtifact {
   fileCount: number;
 }
 
+type ReferencedArtifactKind = "design" | "document";
+
+interface ReferencedArtifact {
+  kind: ReferencedArtifactKind;
+  id: string;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -79,6 +86,33 @@ function responseAlreadyWarnsIncompleteDesign(text: string): boolean {
   );
 }
 
+function isRenderableDesignFile(value: unknown): boolean {
+  const file = asRecord(value);
+  if (!file) return false;
+
+  const filename = stringValue(file.filename);
+  const fileType = stringValue(file.fileType);
+  const hasRenderableType =
+    fileType === "html" ||
+    fileType === "jsx" ||
+    filename?.endsWith(".html") ||
+    filename?.endsWith(".jsx");
+  if (!hasRenderableType) return false;
+
+  return typeof file.content !== "string" || file.content.trim().length > 0;
+}
+
+function countRenderableDesignFiles(files: unknown): number {
+  if (!Array.isArray(files)) return 0;
+  return files.filter(isRenderableDesignFile).length;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
 function collectArtifacts(results: A2AToolResultSummary[]): {
   documents: CreatedDocumentArtifact[];
   designShells: CreatedDesignShell[];
@@ -92,7 +126,11 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
     const parsed = parseToolResultJson(toolResult.result);
     if (!parsed) continue;
 
-    if (toolResult.tool === "create-document") {
+    if (
+      toolResult.tool === "create-document" ||
+      toolResult.tool === "get-document" ||
+      toolResult.tool === "update-document"
+    ) {
       const id = stringValue(parsed.id);
       if (id) {
         documents.set(id, { id, title: stringValue(parsed.title) });
@@ -108,6 +146,24 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
       continue;
     }
 
+    if (toolResult.tool === "get-design") {
+      const id = stringValue(parsed.id);
+      if (!id) continue;
+
+      const renderableFileCount = countRenderableDesignFiles(parsed.files);
+      if (renderableFileCount > 0) {
+        generatedDesigns.set(id, {
+          id,
+          fileCount: Array.isArray(parsed.files)
+            ? parsed.files.length
+            : renderableFileCount,
+        });
+      } else {
+        designShells.set(id, { id, title: stringValue(parsed.title) });
+      }
+      continue;
+    }
+
     if (toolResult.tool === "generate-design") {
       const id = stringValue(parsed.designId);
       if (!id) continue;
@@ -115,11 +171,7 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
       const savedFiles = Array.isArray(parsed.savedFiles)
         ? parsed.savedFiles
         : [];
-      const rawFileCount = parsed.fileCount;
-      const fileCount =
-        typeof rawFileCount === "number" && Number.isFinite(rawFileCount)
-          ? rawFileCount
-          : savedFiles.length;
+      const fileCount = numberValue(parsed.fileCount) ?? savedFiles.length;
 
       if (fileCount > 0) {
         generatedDesigns.set(id, { id, fileCount });
@@ -141,6 +193,14 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
           id,
           fileCount: (previous?.fileCount ?? 0) + 1,
         });
+      }
+    }
+
+    if (toolResult.tool === "duplicate-design") {
+      const id = stringValue(parsed.id);
+      const fileCount = numberValue(parsed.fileCount);
+      if (id && fileCount && fileCount > 0) {
+        generatedDesigns.set(id, { id, fileCount });
       }
     }
   }
@@ -178,6 +238,78 @@ function formatIncompleteDesignMessage(shells: CreatedDesignShell[]): string {
   );
 }
 
+function collectReferencedArtifacts(
+  text: string,
+  baseUrl: string | undefined,
+): ReferencedArtifact[] {
+  const refs = new Map<string, ReferencedArtifact>();
+  const baseOrigin = safeOrigin(baseUrl);
+  const artifactUrlPattern =
+    /(?:(https?:\/\/[^/\s<>()]+))?(?:\/[^\s<>()]*)?\/(design|page)\/([A-Za-z0-9_-]+)/g;
+
+  for (const match of text.matchAll(artifactUrlPattern)) {
+    const origin = safeOrigin(match[1]);
+    if (origin && baseOrigin && origin !== baseOrigin) continue;
+
+    const route = match[2];
+    const id = match[3];
+    const kind: ReferencedArtifactKind =
+      route === "design" ? "design" : "document";
+    refs.set(`${kind}:${id}`, { kind, id });
+  }
+
+  return [...refs.values()];
+}
+
+function safeOrigin(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    return new URL(url).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function findUnverifiedArtifactReferences(
+  text: string,
+  baseUrl: string | undefined,
+  documents: CreatedDocumentArtifact[],
+  generatedDesigns: GeneratedDesignArtifact[],
+): ReferencedArtifact[] {
+  const documentIds = new Set(documents.map((document) => document.id));
+  const designIds = new Set(generatedDesigns.map((design) => design.id));
+
+  return collectReferencedArtifacts(text, baseUrl).filter((ref) => {
+    if (ref.kind === "document") return !documentIds.has(ref.id);
+    return !designIds.has(ref.id);
+  });
+}
+
+function formatUnverifiedArtifactMessage(
+  refs: ReferencedArtifact[],
+  documents: CreatedDocumentArtifact[],
+  generatedDesigns: GeneratedDesignArtifact[],
+  baseUrl: string | undefined,
+): string {
+  const hasOnlyDesigns = refs.every((ref) => ref.kind === "design");
+  const hasOnlyDocuments = refs.every((ref) => ref.kind === "document");
+  const label = hasOnlyDesigns
+    ? "design URL"
+    : hasOnlyDocuments
+      ? "document URL"
+      : "artifact URL";
+  const plural = refs.length === 1 ? label : `${label}s`;
+  const message = `I could not verify the ${plural} in the final answer against a successful artifact action, so I cannot return it.`;
+  const verifiedLines = [
+    ...documents.map((document) => formatDocumentLine(document, baseUrl)),
+    ...generatedDesigns.map((design) => formatDesignLine(design, baseUrl)),
+  ];
+
+  return verifiedLines.length > 0
+    ? `${message}\n\nArtifacts:\n${verifiedLines.join("\n")}`
+    : message;
+}
+
 export function appendA2AArtifactLinks(
   responseText: string,
   toolResults: A2AToolResultSummary[],
@@ -205,6 +337,21 @@ export function appendA2AArtifactLinks(
       /\b(?:done|created|ready|here(?:'s| is)|complete|finished)\b/i.test(text))
   ) {
     return formatIncompleteDesignMessage(incompleteShells);
+  }
+
+  const unverifiedRefs = findUnverifiedArtifactReferences(
+    text,
+    baseUrl,
+    documents,
+    generatedDesigns,
+  );
+  if (unverifiedRefs.length > 0) {
+    return formatUnverifiedArtifactMessage(
+      unverifiedRefs,
+      documents,
+      generatedDesigns,
+      baseUrl,
+    );
   }
 
   const missingLines: string[] = [];

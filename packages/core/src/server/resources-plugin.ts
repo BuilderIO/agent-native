@@ -1,4 +1,7 @@
-import { getH3App } from "./framework-request-handler.js";
+import {
+  getH3App,
+  markDefaultPluginProvided,
+} from "./framework-request-handler.js";
 import { defineEventHandler, setResponseStatus, getMethod } from "h3";
 import {
   handleListResources,
@@ -26,6 +29,7 @@ type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
  */
 export function createResourcesPlugin(): NitroPluginDef {
   return async (nitroApp: any) => {
+    markDefaultPluginProvided(nitroApp, "resources");
     // Mount specific sub-routes BEFORE the catch-all
 
     getH3App(nitroApp).use(

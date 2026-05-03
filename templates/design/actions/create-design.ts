@@ -12,7 +12,12 @@ export default defineAction({
   description:
     "Create a new empty design project shell. This is not a renderable artifact by itself; call generate-design with at least one HTML/JSX file before reporting a design URL as ready.",
   schema: z.object({
-    id: z.string().optional().describe("Optional ID (generated if omitted)"),
+    id: z
+      .string()
+      .optional()
+      .describe(
+        "Optional pre-generated UI ID. Agents should omit this and use the ID returned by the successful action.",
+      ),
     title: z.string().describe("Design project title"),
     description: z
       .string()
