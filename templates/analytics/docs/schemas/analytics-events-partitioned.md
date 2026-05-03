@@ -14,14 +14,14 @@ BigQuery table for **app-level events** (signups, pageViews, interactions, agent
 | `data`           | STRING    | JSON blob with all tracked properties (see below)                       |
 | `timestamp`      | TIMESTAMP | Event timestamp                                                         |
 | `url`            | STRING    | Full URL where event occurred                                           |
-| `organizationId` | STRING    | Builder organization/space ID                                           |
+| `organizationId` | STRING    | Organization, account, or workspace ID supplied by the event producer   |
 | `sessionId`      | STRING    | User session identifier                                                 |
-| `userId`         | STRING    | Firebase user ID                                                        |
+| `userId`         | STRING    | Application user ID                                                     |
 | `visitorId`      | STRING    | Persistent visitor cookie ID                                            |
 | `type`           | STRING    | Sub-type of event (e.g. `content`, `button`)                            |
-| `kind`           | STRING    | Organization kind (e.g. `cms`, `shopify`)                               |
-| `modelName`      | STRING    | Builder model name if applicable                                        |
-| `modelId`        | STRING    | Builder model ID if applicable                                          |
+| `kind`           | STRING    | Optional organization/account kind                                      |
+| `modelName`      | STRING    | Content/model name supplied by the event producer, if applicable        |
+| `modelId`        | STRING    | Content/model ID supplied by the event producer, if applicable          |
 | `createdDate`    | TIMESTAMP | Partition column — always filter on this                                |
 
 ## Partitioning
@@ -35,13 +35,13 @@ The `data` column is a JSON string containing all properties from `track.functio
 | JSON Path                       | Type    | Description                    |
 | ------------------------------- | ------- | ------------------------------ |
 | `data.userEmail`                | STRING  | User's email address           |
-| `data.organizationId`           | STRING  | Org/space ID                   |
+| `data.organizationId`           | STRING  | Organization/account ID        |
 | `data.rootOrganizationId`       | STRING  | Parent org ID                  |
 | `data.rootOrgName`              | STRING  | Parent org name                |
-| `data.kind`                     | STRING  | `cms` or `shopify`             |
-| `data.userId`                   | STRING  | Firebase UID                   |
+| `data.kind`                     | STRING  | Workspace/account kind         |
+| `data.userId`                   | STRING  | Application user ID            |
 | `data.userLoggedIn`             | BOOLEAN | Whether user was logged in     |
-| `data.accountType`              | STRING  | `shopify` or `cms`             |
+| `data.accountType`              | STRING  | Account type                   |
 | `data.browser`                  | STRING  | Browser name                   |
 | `data.browserVersion`           | STRING  | Browser version                |
 | `data.os`                       | STRING  | Operating system               |
@@ -59,7 +59,7 @@ The `data` column is a JSON string containing all properties from `track.functio
 | `data.isEnterpriseCompany`      | BOOLEAN | Enterprise flag                |
 | `data.appEnvironment`           | STRING  | `web`, `vscode`, or `electron` |
 | `data.featureFlags`             | STRING  | JSON of active feature flags   |
-| `data.app`                      | STRING  | Always `app`                   |
+| `data.app`                      | STRING  | App identifier                 |
 | `data.host`                     | STRING  | Hostname                       |
 | `data.url`                      | STRING  | Full page URL                  |
 

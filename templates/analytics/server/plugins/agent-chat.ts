@@ -15,7 +15,7 @@ const DATA_DICT_PREFIX = "data-dict-";
 /**
  * Render the data-dictionary entries available to this request as a
  * compact prompt block. Lets the agent pick the right table / column
- * names up front instead of hallucinating them and hitting a BigQuery
+ * names up front instead of hallucinating them and hitting a data-source
  * error after save. Only includes fields that are actually useful for
  * SQL generation (metric / definition / table / columnsUsed / query
  * template / gotchas) — the full entry is still fetchable via
@@ -44,9 +44,9 @@ function renderDataDictionary(entries: Array<Record<string, unknown>>): string {
   if (!lines.length) return "";
   return (
     "<data-dictionary>\n" +
-    "Canonical metric/table/column definitions for this workspace. " +
-    "Use the table and column names below verbatim when writing SQL — they are what actually exist in BigQuery. " +
-    "If the metric you need isn't here, call `list-data-dictionary` / `save-data-dictionary-entry` before guessing.\n\n" +
+    "Canonical metric/table/column definitions for this organization. " +
+    "Use the data source, table, and column names below verbatim when querying configured sources. " +
+    "If the metric you need isn't here, call `list-data-dictionary` / `save-data-dictionary-entry`, inspect configured schemas, or ask the user before guessing.\n\n" +
     lines.join("\n") +
     "\n</data-dictionary>"
   );
@@ -59,32 +59,29 @@ export default createAgentChatPlugin({
     return ctx.orgId;
   },
   extraContext: async (event) => {
-    // Always inject the warehouse-tool reminder, even if the data-dictionary
-    // lookup throws. Katya hit a recurring issue where the agent hallucinated
-    // that `bigquery` wasn't registered (Slack #product-agent-native-feedback,
-    // 2026-04-27 + 2026-04-30) — in reality the tool is always present and
-    // either succeeds, returns a structured credentials-missing payload, or
-    // returns a BigQuery API error. None of those are "tool not registered".
-    const toolAssertion =
-      "<warehouse-tools>\n" +
-      "Your native tool registry ALWAYS includes `bigquery(sql)` for warehouse queries (dbt_analytics.*, dbt_mart.*, builder-3b0a2.*, etc.) plus `ga4-report`, `hubspot-deals`, `hubspot-metrics`, `hubspot-pipelines`, `amplitude-events`, `posthog-events`, `mixpanel-events`, `jira`, `jira-search`, `jira-analytics`, `pylon-issues`, `gong-calls`, `apollo-search`, `commonroom-members`, `github-prs`, `sentry`, `grafana`, `gcloud`, `stripe`, `slack-messages`, `notion-page`, `data-source-status`, and `seo-*`. Do NOT tell the user that any of these are unregistered or unavailable in your session — they are part of every analytics deploy. " +
+    // Always inject source guidance, even if the data-dictionary lookup throws.
+    // The generic template can ship provider actions without every deployment
+    // having credentials or workspace-specific schemas configured.
+    const sourceGuidance =
+      "<data-source-guidance>\n" +
+      "Use configured data sources and actions only. Call `data-source-status` when you need to know which providers are connected, and treat provider actions as unavailable for analysis if they return missing credentials, permission, syntax, quota, or network errors. " +
       'If `bigquery` returns `{ error: "bigquery_not_configured", message, settingsPath }`, surface that message and the settings path to the user. ' +
-      "If it returns a BigQuery API error (unknown column, permission, syntax), show that error and offer to fix the SQL. " +
-      "Never substitute fabricated numbers for a failed query.\n" +
-      "</warehouse-tools>";
+      "For schema questions, prefer data-dictionary entries and configured warehouse schemas over assumptions. " +
+      "Never substitute fabricated numbers for a failed query or unavailable provider.\n" +
+      "</data-source-guidance>";
 
     try {
       const scope = await resolveSettingsScope(event);
       const all = await listScopedSettingRecords(scope, DATA_DICT_PREFIX);
       const entries = Object.values(all) as Array<Record<string, unknown>>;
       const dict = renderDataDictionary(entries);
-      return dict ? `${toolAssertion}\n\n${dict}` : toolAssertion;
+      return dict ? `${sourceGuidance}\n\n${dict}` : sourceGuidance;
     } catch (err) {
       console.warn(
         "[analytics] data dictionary context failed:",
         err instanceof Error ? err.message : err,
       );
-      return toolAssertion;
+      return sourceGuidance;
     }
   },
   mentionProviders: {
