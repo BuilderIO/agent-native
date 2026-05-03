@@ -32,6 +32,13 @@ export interface RemoteAgentManifest {
   color?: string;
 }
 
+export const REMOTE_AGENT_RESOURCE_PREFIX = "remote-agents/";
+export const LEGACY_REMOTE_AGENT_RESOURCE_PREFIX = "agents/";
+export const REMOTE_AGENT_RESOURCE_PREFIXES = [
+  REMOTE_AGENT_RESOURCE_PREFIX,
+  LEGACY_REMOTE_AGENT_RESOURCE_PREFIX,
+] as const;
+
 function normalizeFrontmatterValue(value: string): string {
   const trimmed = value.trim();
   if (
@@ -141,7 +148,22 @@ export function isCustomAgentPath(path: string): boolean {
 }
 
 export function isRemoteAgentPath(path: string): boolean {
-  return path.startsWith("remote-agents/") && path.endsWith(".json");
+  return (
+    path.endsWith(".json") &&
+    REMOTE_AGENT_RESOURCE_PREFIXES.some((prefix) => path.startsWith(prefix))
+  );
+}
+
+export function getRemoteAgentIdFromPath(path: string): string {
+  const prefix = REMOTE_AGENT_RESOURCE_PREFIXES.find((candidate) =>
+    path.startsWith(candidate),
+  );
+  const withoutPrefix = prefix ? path.slice(prefix.length) : path;
+  return withoutPrefix.replace(/\.json$/, "");
+}
+
+export function remoteAgentResourcePath(id: string): string {
+  return `${REMOTE_AGENT_RESOURCE_PREFIX}${id}.json`;
 }
 
 export function getResourceKind(path: string): ResourceKind {
@@ -196,8 +218,7 @@ export function parseRemoteAgentManifest(
   if (!isRemoteAgentPath(path)) return null;
   try {
     const data = JSON.parse(content);
-    const id =
-      data.id || path.replace(/^remote-agents\//, "").replace(/\.json$/, "");
+    const id = data.id || getRemoteAgentIdFromPath(path);
     if (!data.url) return null;
     return {
       id,

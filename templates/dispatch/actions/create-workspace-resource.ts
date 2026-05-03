@@ -14,13 +14,11 @@ export default defineAction({
     path: z
       .string()
       .describe(
-        'Resource path, e.g. "skills/designer.md" or "agents/researcher.md"',
+        'Resource path, e.g. "skills/designer.md", "agents/researcher.md", or "remote-agents/researcher.json"',
       ),
     content: z
       .string()
-      .describe(
-        "Full resource content (markdown with optional YAML frontmatter)",
-      ),
+      .describe("Full resource content (markdown or remote-agent JSON)"),
     scope: z
       .enum(["all", "selected"])
       .describe(

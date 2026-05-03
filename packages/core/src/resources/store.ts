@@ -330,7 +330,8 @@ async function _doEnsureTable(): Promise<void> {
         });
       } catch {
         // Skip if destination path already exists (unique constraint) —
-        // we'll leave the old row in place; it'll be ignored by readers.
+        // we'll leave the old row in place; readers accept both paths and
+        // canonical remote-agents/ entries win when both exist.
       }
     }
   } catch {

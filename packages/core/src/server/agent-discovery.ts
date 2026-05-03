@@ -95,11 +95,17 @@ export async function discoverAgents(
     const isDevMode =
       typeof process !== "undefined" && process.env?.NODE_ENV !== "production";
 
-    const resources = isDevMode
-      ? await resourceListAccessible(DEV_MODE_USER_EMAIL, "remote-agents/")
-      : await resourceList(SHARED_OWNER, "remote-agents/");
-    const { parseRemoteAgentManifest } =
+    const { parseRemoteAgentManifest, REMOTE_AGENT_RESOURCE_PREFIXES } =
       await import("../resources/metadata.js");
+
+    const resources: Array<{ id: string; path: string }> = [];
+    for (const prefix of [...REMOTE_AGENT_RESOURCE_PREFIXES].reverse()) {
+      resources.push(
+        ...(isDevMode
+          ? await resourceListAccessible(DEV_MODE_USER_EMAIL, prefix)
+          : await resourceList(SHARED_OWNER, prefix)),
+      );
+    }
 
     for (const r of resources) {
       if (!r.path.endsWith(".json")) continue;

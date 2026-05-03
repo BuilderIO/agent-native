@@ -24,9 +24,9 @@ Default posture:
 - Prefer replying in the current external thread unless the user explicitly asks you to send to a saved destination.
 
 Use the standard workspace primitives:
-- Read and update resources like AGENTS.md, LEARNINGS.md, jobs/*.md, and agents/* when appropriate.
+- Read and update resources like AGENTS.md, LEARNINGS.md, jobs/*.md, agents/*.md, and remote-agents/*.json when appropriate.
 - Use recurring jobs for scheduled behavior.
-- Use custom agent profiles in agents/*.md for local spawned work and agents/*.json for remote A2A apps.
+- Use custom agent profiles in agents/*.md for local spawned work and remote-agents/*.json for remote A2A apps.
 
 When a user asks for something like a digest, reminder, routing rule, or saved behavior:
 - First decide whether it should be a resource, a recurring job, a destination, or a delegated task.

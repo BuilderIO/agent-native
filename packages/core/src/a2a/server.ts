@@ -15,6 +15,10 @@ import {
   extractBearerToken,
   verifyInternalToken,
 } from "../integrations/internal-token.js";
+import {
+  hasConfiguredA2ASecret,
+  isA2AProductionRuntime,
+} from "./auth-policy.js";
 
 /**
  * One-time warning when A2A is running unauthenticated in development. We
@@ -77,11 +81,9 @@ function expectedJwtAudience(event: any | undefined): string | undefined {
 }
 
 async function verifyA2AToken(
-  authHeader: string,
+  token: string,
   event: any | undefined,
 ): Promise<A2ATokenPayload> {
-  const token = authHeader.replace("Bearer ", "");
-
   // Step 1: Peek at JWT claims WITHOUT verification to get org_domain.
   // This is safe because we only use org_domain to look up the secret,
   // then verify the full JWT with that secret. If someone forges a JWT
@@ -248,14 +250,14 @@ export function mountA2A(
       // of logs / a share link could otherwise force-replay it). In
       // development, a missing secret is permitted so local templates work
       // out of the box, but we log a one-time warning so operators notice.
-      if (process.env.A2A_SECRET) {
+      if (hasConfiguredA2ASecret()) {
         const auth = getRequestHeader(event, "authorization");
         const tok = extractBearerToken(auth);
         if (!verifyInternalToken(taskId, tok)) {
           setResponseStatus(event, 401);
           return { error: "Invalid or expired processor token" };
         }
-      } else if (process.env.NODE_ENV === "production") {
+      } else if (isA2AProductionRuntime()) {
         setResponseStatus(event, 503);
         return {
           error:
@@ -294,6 +296,7 @@ export function mountA2A(
       if (sub.startsWith("_process-task")) return;
 
       const authHeader = getRequestHeader(event, "authorization");
+      const bearerToken = extractBearerToken(authHeader);
       let verifiedCallerEmail: string | null = null;
       let verifiedOrgDomain: string | null = null;
       let legacyApiKeyAuthenticated = false;
@@ -304,12 +307,12 @@ export function mountA2A(
       // in production — return 503 with a clear message instead of running
       // the agent loop unauthenticated. In development, log a one-time
       // warning but allow so local templates work out of the box.
-      const hasA2ASecret = !!process.env.A2A_SECRET;
+      const hasA2ASecret = hasConfiguredA2ASecret();
       const hasApiKey = !!(config.apiKeyEnv && process.env[config.apiKeyEnv]);
 
       // Try JWT verification first (org-level or global A2A_SECRET-based identity)
-      if (authHeader?.startsWith("Bearer ")) {
-        const tokenPayload = await verifyA2AToken(authHeader, event);
+      if (bearerToken) {
+        const tokenPayload = await verifyA2AToken(bearerToken, event);
         verifiedCallerEmail = tokenPayload.email;
         verifiedOrgDomain = tokenPayload.orgDomain;
         bearerTokenRejectedByJwt = !verifiedCallerEmail;
@@ -319,7 +322,7 @@ export function mountA2A(
       if (!verifiedCallerEmail && config.apiKeyEnv) {
         const expectedKey = process.env[config.apiKeyEnv];
         if (expectedKey) {
-          if (!authHeader || !authHeader.startsWith("Bearer ")) {
+          if (!bearerToken) {
             setResponseStatus(event, 401);
             return {
               jsonrpc: "2.0",
@@ -327,8 +330,7 @@ export function mountA2A(
               error: { code: -32001, message: "Authentication required" },
             };
           }
-          const token = authHeader.slice(7);
-          if (token !== expectedKey) {
+          if (bearerToken !== expectedKey) {
             setResponseStatus(event, 401);
             return {
               jsonrpc: "2.0",
@@ -341,9 +343,11 @@ export function mountA2A(
       }
 
       if (!verifiedCallerEmail && !legacyApiKeyAuthenticated) {
-        // If a global secret exists and JWT verification failed, reject after
-        // giving the legacy exact-match apiKeyEnv path a chance to succeed.
-        if (bearerTokenRejectedByJwt && process.env.A2A_SECRET) {
+        // Any supplied bearer token that failed JWT verification is an auth
+        // failure after the legacy exact-match apiKeyEnv path has had a
+        // chance to succeed. Do not let bad tokens fall through to tasks/get
+        // and get reported as lookup misses.
+        if (bearerTokenRejectedByJwt) {
           setResponseStatus(event, 401);
           return {
             jsonrpc: "2.0",
@@ -356,7 +360,7 @@ export function mountA2A(
         }
 
         if (!hasA2ASecret && !hasApiKey) {
-          if (process.env.NODE_ENV === "production") {
+          if (isA2AProductionRuntime()) {
             setResponseStatus(event, 503);
             return {
               jsonrpc: "2.0",

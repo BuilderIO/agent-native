@@ -31,12 +31,13 @@ Read both personal and shared copies of these when they exist:
 2. `LEARNINGS.md`
 3. `jobs/`
 4. `agents/`
+5. `remote-agents/`
 
 Use resources for:
 
 - Long-term memory and operating instructions
 - Specialized local sub-agent profiles in `agents/*.md`
-- Remote agent definitions in `agents/*.json`
+- Remote agent definitions in `remote-agents/*.json` (legacy `agents/*.json` is still readable)
 - Recurring automations in `jobs/*.md`
 
 ## Navigation State

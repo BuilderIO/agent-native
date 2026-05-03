@@ -126,6 +126,70 @@ describe("mountA2A auth", () => {
     expect(event._status).toBeUndefined();
     expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
   });
+
+  it("rejects invalid bearer tokens before tasks/get can report a lookup miss", async () => {
+    delete process.env.A2A_SECRET;
+    process.env.NODE_ENV = "development";
+    const handler = await mountedA2AHandler(config);
+
+    const event = postEvent({ authorization: "Bearer not-a-valid-token" });
+    const response = await handler(event);
+
+    expect(event._status).toBe(401);
+    expect(response).toEqual({
+      jsonrpc: "2.0",
+      id: null,
+      error: {
+        code: -32001,
+        message: "Invalid or expired A2A token",
+      },
+    });
+    expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+  });
+
+  it("treats hosted Netlify runtime as production for missing A2A auth", async () => {
+    delete process.env.A2A_SECRET;
+    process.env.NODE_ENV = "development";
+    process.env.NETLIFY = "true";
+    const handler = await mountedA2AHandler(config);
+
+    const event = postEvent({});
+    const response = await handler(event);
+
+    expect(event._status).toBe(503);
+    expect(response).toEqual({
+      jsonrpc: "2.0",
+      id: null,
+      error: {
+        code: -32001,
+        message:
+          "A2A authentication not configured. Set A2A_SECRET (preferred) or configure apiKeyEnv to accept inbound A2A traffic.",
+      },
+    });
+    expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+  });
+
+  it("treats hosted Netlify runtime as production for unsigned async processors", async () => {
+    delete process.env.A2A_SECRET;
+    process.env.NODE_ENV = "development";
+    process.env.NETLIFY = "true";
+    const handler = await mountedA2AProcessorHandler(config);
+
+    const event = {
+      method: "POST",
+      headers: {},
+      path: "/",
+      context: {},
+      body: { taskId: "task-1" },
+    };
+    const response = await handler(event);
+
+    expect(event._status).toBe(503);
+    expect(response).toEqual({
+      error:
+        "A2A processor not configured — set A2A_SECRET on this deployment to enable async A2A.",
+    });
+  });
 });
 
 async function mountedA2AHandler(
@@ -136,6 +200,19 @@ async function mountedA2AHandler(
   mountA2A(app, config);
   const route = app.routes.find((entry) => entry.path === "/_agent-native/a2a");
   if (!route) throw new Error("A2A route was not mounted");
+  return route.handler;
+}
+
+async function mountedA2AProcessorHandler(
+  config: A2AConfig,
+): Promise<(event: any) => any> {
+  const { mountA2A } = await import("./server.js");
+  const app = { routes: [] as Array<{ path: string; handler: any }> };
+  mountA2A(app, config);
+  const route = app.routes.find(
+    (entry) => entry.path === "/_agent-native/a2a/_process-task",
+  );
+  if (!route) throw new Error("A2A processor route was not mounted");
   return route.handler;
 }
 
