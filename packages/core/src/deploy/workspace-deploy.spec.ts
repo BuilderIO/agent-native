@@ -362,6 +362,7 @@ describe("workspace deploy", () => {
     expect(redirects).toContain("/login /dispatch/login 302");
     expect(redirects).toContain("/signup /dispatch/signup 302");
     expect(redirects).toContain("/apps /dispatch/apps 302");
+    expect(redirects).toContain("/apps/new-app /dispatch/new-app 302");
     expect(redirects).toContain("/new-app /dispatch/new-app 302");
     expect(redirects).not.toMatch(/^\/dispatch\/\* .* 200$/m);
     expect(redirects).not.toMatch(/^\/starter .* 200$/m);
