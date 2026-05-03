@@ -828,6 +828,13 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Internal processor endpoint for deferred A2A continuations created by
+    // integration tasks. It uses the same HMAC internal-token scheme as the
+    // primary integration processor, so it must bypass cookie/session auth.
+    if (p === "/_agent-native/integrations/process-a2a-continuation") {
+      return;
+    }
+
     // A2A endpoint verifies authenticity via JWT signed with the org's A2A
     // secret (or the global A2A_SECRET fallback), not via session cookies.
     if (p === "/_agent-native/a2a") {

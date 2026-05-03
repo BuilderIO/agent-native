@@ -3,6 +3,7 @@ import type { A2AContinuation } from "./a2a-continuations-store.js";
 import type { PlatformAdapter } from "./types.js";
 
 const claimA2AContinuationMock = vi.hoisted(() => vi.fn());
+const claimA2AContinuationDeliveryMock = vi.hoisted(() => vi.fn());
 const completeA2AContinuationMock = vi.hoisted(() => vi.fn());
 const failA2AContinuationMock = vi.hoisted(() => vi.fn());
 const getA2AContinuationMock = vi.hoisted(() => vi.fn());
@@ -19,6 +20,7 @@ const A2AClientMock = vi.hoisted(() =>
 
 vi.mock("./a2a-continuations-store.js", () => ({
   claimA2AContinuation: claimA2AContinuationMock,
+  claimA2AContinuationDelivery: claimA2AContinuationDeliveryMock,
   claimDueA2AContinuations: vi.fn(async () => []),
   completeA2AContinuation: completeA2AContinuationMock,
   failA2AContinuation: failA2AContinuationMock,
@@ -100,6 +102,9 @@ describe("A2A continuation processor", () => {
     };
     getA2AContinuationMock.mockImplementation(async (id: string) =>
       continuation({ id, status: "pending" }),
+    );
+    claimA2AContinuationDeliveryMock.mockImplementation(async (id: string) =>
+      continuation({ id, status: "delivering" }),
     );
     vi.stubGlobal(
       "fetch",
@@ -201,6 +206,24 @@ describe("A2A continuation processor", () => {
     );
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not post completed text when another processor already claimed delivery", async () => {
+    const sendResponse = vi.fn(async () => undefined);
+    claimA2AContinuationMock.mockResolvedValueOnce(continuation());
+    claimA2AContinuationDeliveryMock.mockResolvedValueOnce(null);
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(claimA2AContinuationDeliveryMock).toHaveBeenCalledWith("cont-1");
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(completeA2AContinuationMock).not.toHaveBeenCalled();
+    expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
+    expect(failA2AContinuationMock).not.toHaveBeenCalled();
   });
 
   it("reuses opaque bearer tokens stored on the continuation", async () => {

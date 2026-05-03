@@ -23,6 +23,7 @@ import {
 } from "./store.js";
 import {
   getResourceKind,
+  isRemoteAgentPath,
   parseCustomAgentProfile,
   parseRemoteAgentManifest,
   parseSkillMetadata,
@@ -271,10 +272,7 @@ async function enrichTreeNodes(nodes: TreeNode[]): Promise<void> {
             undefined;
         }
 
-        if (
-          node.resource.path.startsWith("remote-agents/") &&
-          node.resource.path.endsWith(".json")
-        ) {
+        if (isRemoteAgentPath(node.resource.path)) {
           node.remoteAgentMeta =
             parseRemoteAgentManifest(full.content, node.resource.path) ??
             undefined;
