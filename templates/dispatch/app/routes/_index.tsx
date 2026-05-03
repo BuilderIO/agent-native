@@ -1,4 +1,5 @@
 import { redirect, type LoaderFunctionArgs } from "react-router";
+import { appPath } from "@agent-native/core/client";
 import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
@@ -26,7 +27,7 @@ export function meta() {
  */
 function buildTarget(request: Request): string {
   const url = new URL(request.url);
-  return `/overview${url.search}${url.hash}`;
+  return appPath(`/overview${url.search}${url.hash}`);
 }
 
 export function loader({ request }: LoaderFunctionArgs) {
