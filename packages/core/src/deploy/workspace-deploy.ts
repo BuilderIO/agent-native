@@ -312,7 +312,9 @@ function patchNetlifyFunctionEntry(functionDir: string, app: string): void {
 
   const basePath = `/${app}`;
   const pathConfig =
-    app === "dispatch" ? `${basePath}/*` : [basePath, `${basePath}/*`];
+    app === "dispatch"
+      ? ["/_agent-native/*", `${basePath}/*`]
+      : [basePath, `${basePath}/*`];
   const normalizeBasePathHelper =
     app === "dispatch"
       ? ""
