@@ -986,6 +986,20 @@ describe("server/auth", () => {
       expect(html).not.toContain("window.open(data.url");
       expect(html).not.toContain("Waiting for sign-in");
     });
+
+    it("renders marketing assets under APP_BASE_PATH", async () => {
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const html = getOnboardingHtml({
+        marketing: {
+          appName: "Dispatch",
+          tagline: "Coordinate the workspace",
+        },
+      });
+
+      expect(html).toContain('src="/dispatch/agent-native-icon-dark.svg"');
+      expect(html).not.toContain('src="/agent-native-icon-dark.svg"');
+    });
   });
 
   describe("onboarding signup verification flow", () => {
@@ -1063,6 +1077,113 @@ describe("server/auth", () => {
       expect(getAppUrl(event, "/_agent-native/google/callback")).toBe(
         "https://app.example.test/docs/_agent-native/google/callback",
       );
+    });
+  });
+
+  describe("resolveOAuthRedirectUri", () => {
+    it("defaults root workspace framework-route requests to the root callback", async () => {
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/_agent-native/google/auth-url",
+        headers: {
+          host: "agent-workspace.builder.io",
+          "x-forwarded-proto": "https",
+        },
+      });
+
+      expect(resolveOAuthRedirectUri(event)).toBe(
+        "https://agent-workspace.builder.io/_agent-native/google/callback",
+      );
+    });
+
+    it("defaults app-base framework-route requests to the app-base callback", async () => {
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/dispatch/_agent-native/google/auth-url",
+        headers: {
+          host: "agent-workspace.builder.io",
+          "x-forwarded-proto": "https",
+        },
+      });
+
+      expect(resolveOAuthRedirectUri(event)).toBe(
+        "https://agent-workspace.builder.io/dispatch/_agent-native/google/callback",
+      );
+    });
+
+    it("allows same-origin root and app-base framework redirect overrides", async () => {
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
+      const headers = {
+        host: "agent-workspace.builder.io",
+        "x-forwarded-proto": "https",
+      };
+
+      expect(
+        resolveOAuthRedirectUri(
+          createMockEvent({
+            path: "/_agent-native/google/auth-url",
+            headers,
+            query: {
+              redirect_uri:
+                "https://agent-workspace.builder.io/_agent-native/google/callback",
+            },
+          }),
+        ),
+      ).toBe(
+        "https://agent-workspace.builder.io/_agent-native/google/callback",
+      );
+      expect(
+        resolveOAuthRedirectUri(
+          createMockEvent({
+            path: "/dispatch/_agent-native/google/auth-url",
+            headers,
+            query: {
+              redirect_uri:
+                "https://agent-workspace.builder.io/dispatch/_agent-native/google/callback",
+            },
+          }),
+        ),
+      ).toBe(
+        "https://agent-workspace.builder.io/dispatch/_agent-native/google/callback",
+      );
+    });
+
+    it("rejects cross-origin redirect overrides", async () => {
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/_agent-native/google/auth-url",
+        headers: {
+          host: "agent-workspace.builder.io",
+          "x-forwarded-proto": "https",
+        },
+        query: {
+          redirect_uri: "https://evil.example/_agent-native/google/callback",
+        },
+      });
+
+      expect(resolveOAuthRedirectUri(event)).toBeNull();
+    });
+
+    it("rejects root redirect overrides from app-base framework-route requests", async () => {
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/dispatch/_agent-native/google/auth-url",
+        headers: {
+          host: "agent-workspace.builder.io",
+          "x-forwarded-proto": "https",
+        },
+        query: {
+          redirect_uri:
+            "https://agent-workspace.builder.io/_agent-native/google/callback",
+        },
+      });
+
+      expect(resolveOAuthRedirectUri(event)).toBeNull();
     });
   });
 });
