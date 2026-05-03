@@ -12,6 +12,7 @@ import { agentNativePath, appBasePath } from "./api-path.js";
 import { sendToAgentChat } from "./agent-chat.js";
 import { isInBuilderFrame } from "./builder-frame.js";
 import { useDevMode } from "./use-dev-mode.js";
+import { getWorkspaceAppIdValidationError } from "../shared/workspace-app-id.js";
 
 export interface VaultSecretOption {
   id: string;
@@ -140,8 +141,15 @@ export function NewWorkspaceAppFlow({
     selectedSecretIds.length === 0
       ? "No keys selected"
       : `${selectedSecretIds.length} key${selectedSecretIds.length === 1 ? "" : "s"} selected`;
+  const hasAppNameCandidate =
+    appName.trim().length > 0 || prompt.trim().length > 0;
+  const safeAppName = slugify(appName) || titleFromPrompt(prompt);
+  const appNameError = hasAppNameCandidate
+    ? getWorkspaceAppIdValidationError(safeAppName)
+    : null;
 
-  const canSubmit = prompt.trim().length > 0 && slugify(appName).length > 0;
+  const canSubmit =
+    prompt.trim().length > 0 && safeAppName.length > 0 && !appNameError;
   const submitShortcut =
     typeof navigator !== "undefined" &&
     /Mac|iPhone|iPad/.test(navigator.userAgent)
@@ -149,7 +157,6 @@ export function NewWorkspaceAppFlow({
       : "Ctrl";
 
   function buildMessage(): string {
-    const safeAppName = slugify(appName) || titleFromPrompt(prompt);
     const keyList = selectedSecrets.map((s) => s.credentialKey).join(", ");
     return [
       `Create a new agent-native app in this workspace.`,
@@ -192,7 +199,11 @@ export function NewWorkspaceAppFlow({
 
   async function submit() {
     if (!canSubmit || isSubmitting) return;
-    const safeAppName = slugify(appName) || titleFromPrompt(prompt);
+    const validationError = getWorkspaceAppIdValidationError(safeAppName);
+    if (validationError) {
+      setStatusMessage(validationError);
+      return;
+    }
     const message = buildMessage();
     setIsSubmitting(true);
     setStatusMessage(null);
@@ -288,8 +299,15 @@ export function NewWorkspaceAppFlow({
                   value={appName}
                   onChange={(e) => setAppName(slugify(e.target.value))}
                   placeholder="customer-health"
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring"
+                  className={`h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-ring ${
+                    appNameError ? "border-destructive" : "border-input"
+                  }`}
                 />
+                {appNameError ? (
+                  <span className="block text-xs text-destructive">
+                    {appNameError}
+                  </span>
+                ) : null}
               </label>
               <label className="block space-y-2">
                 <span className="text-xs font-medium text-muted-foreground">

@@ -7,6 +7,7 @@ import {
   resolveBuilderCredentials,
   runBuilderAgent,
 } from "@agent-native/core/server";
+import { assertValidWorkspaceAppId } from "@agent-native/core/shared";
 import {
   currentOrgId,
   currentOwnerEmail,
@@ -348,12 +349,13 @@ export async function startWorkspaceAppCreation(input: {
   secretIds?: string[];
   preparedPrompt?: string | null;
 }) {
-  const settings = await getAppCreationSettings();
   const initial = buildWorkspaceAppPrompt({
     prompt: input.prompt,
     appId: input.appId,
     template: input.template,
   });
+  assertValidWorkspaceAppId(initial.appId);
+  const settings = await getAppCreationSettings();
   const selectedKeys = input.secretIds?.length
     ? (await listSecrets())
         .filter((secret) => input.secretIds?.includes(secret.id))

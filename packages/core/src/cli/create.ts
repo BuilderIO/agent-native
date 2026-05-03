@@ -5,6 +5,10 @@ import { execFileSync } from "child_process";
 import { setupAgentSymlinks } from "./setup-agents.js";
 import { workspacifyApp, parseWorkspaceScope } from "./workspacify.js";
 import {
+  DISPATCH_WORKSPACE_ROOT_REDIRECTS,
+  getWorkspaceAppIdValidationError,
+} from "../shared/workspace-app-id.js";
+import {
   coreTemplates,
   getTemplate,
   allTemplateNames,
@@ -980,46 +984,13 @@ function rewriteCoreDependencyVersions(projectDir: string): void {
   } catch {}
 }
 
-const DISPATCH_WORKSPACE_ROOT_REDIRECTS = [
-  ["overview", "overview"],
-  ["login", "login"],
-  ["signup", "signup"],
-  ["apps", "apps"],
-  ["apps/new-app", "new-app"],
-  ["new-app", "new-app"],
-  ["vault", "vault"],
-  ["integrations", "integrations"],
-  ["agents", "agents"],
-  ["workspace", "workspace"],
-  ["messaging", "messaging"],
-  ["destinations", "destinations"],
-  ["identities", "identities"],
-  ["approvals", "approvals"],
-  ["audit", "audit"],
-  ["team", "team"],
-];
-
-const RESERVED_WORKSPACE_APP_NAMES = new Set([
-  "_agent-native",
-  "_workspace_static",
-  "netlify",
-  ...DISPATCH_WORKSPACE_ROOT_REDIRECTS.map(([from]) => from),
-]);
-
 function validateWorkspaceAppName(
   appName: string,
   clack: typeof import("@clack/prompts"),
 ): void {
-  if (!/^[a-z][a-z0-9-]*$/.test(appName)) {
-    clack.cancel(
-      `Invalid app name "${appName}". Use lowercase letters, numbers, and hyphens.`,
-    );
-    process.exit(1);
-  }
-  if (RESERVED_WORKSPACE_APP_NAMES.has(appName)) {
-    clack.cancel(
-      `App name "${appName}" conflicts with a reserved workspace route. Choose a different name.`,
-    );
+  const error = getWorkspaceAppIdValidationError(appName);
+  if (error) {
+    clack.cancel(error);
     process.exit(1);
   }
 }
