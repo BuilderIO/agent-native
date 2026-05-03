@@ -4,6 +4,7 @@ import {
   useActionQuery,
   isInAgentEmbed,
   postNavigate,
+  appPath,
 } from "@agent-native/core/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -125,7 +126,7 @@ export default function ApprovalPreviewRoute() {
               size="sm"
               variant="outline"
               className="mt-4 gap-1.5"
-              onClick={() => postNavigate("/approvals")}
+              onClick={() => postNavigate(appPath("/approvals"))}
             >
               <IconArrowUpRight size={14} />
               View all approvals
@@ -229,7 +230,7 @@ export default function ApprovalPreviewRoute() {
               size="sm"
               variant="ghost"
               className="gap-1.5 text-muted-foreground"
-              onClick={() => postNavigate("/approvals")}
+              onClick={() => postNavigate(appPath("/approvals"))}
             >
               <IconArrowUpRight size={14} />
               Open in app

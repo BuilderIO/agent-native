@@ -100,6 +100,26 @@ describe("framework request handler", () => {
     });
   });
 
+  it("dispatches well-known routes under APP_BASE_PATH", async () => {
+    process.env.APP_BASE_PATH = "/starter";
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp).use("/.well-known/agent-card.json", (event: any) => ({
+      mountPrefix: event.context._mountPrefix,
+      mountedPathname: event.context._mountedPathname,
+      pathname: event.url.pathname,
+      path: event.path,
+    }));
+
+    await expect(
+      dispatch(nitroApp, "/starter/.well-known/agent-card.json"),
+    ).resolves.toEqual({
+      mountPrefix: "/starter/.well-known/agent-card.json",
+      mountedPathname: "/starter/.well-known/agent-card.json",
+      pathname: "/",
+      path: "/",
+    });
+  });
+
   it("does not treat similar non-prefixed paths as framework routes", async () => {
     process.env.APP_BASE_PATH = "/docs";
     const nitroApp = createNitroApp();
