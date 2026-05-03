@@ -283,6 +283,7 @@ async function scaffoldOneAppIntoWorkspace(
   templateName: string,
   clack: typeof import("@clack/prompts"),
 ): Promise<void> {
+  validateWorkspaceAppName(appName, clack);
   const appsDir = path.join(workspace.workspaceRoot, "apps");
   fs.mkdirSync(appsDir, { recursive: true });
   const appDir = path.join(appsDir, appName);
@@ -974,6 +975,8 @@ function rewriteCoreDependencyVersions(projectDir: string): void {
 
 const DISPATCH_WORKSPACE_ROOT_REDIRECTS = [
   ["overview", "overview"],
+  ["login", "login"],
+  ["signup", "signup"],
   ["vault", "vault"],
   ["integrations", "integrations"],
   ["agents", "agents"],
@@ -985,6 +988,31 @@ const DISPATCH_WORKSPACE_ROOT_REDIRECTS = [
   ["audit", "audit"],
   ["team", "team"],
 ];
+
+const RESERVED_WORKSPACE_APP_NAMES = new Set([
+  "_agent-native",
+  "_workspace_static",
+  "netlify",
+  ...DISPATCH_WORKSPACE_ROOT_REDIRECTS.map(([from]) => from),
+]);
+
+function validateWorkspaceAppName(
+  appName: string,
+  clack: typeof import("@clack/prompts"),
+): void {
+  if (!/^[a-z][a-z0-9-]*$/.test(appName)) {
+    clack.cancel(
+      `Invalid app name "${appName}". Use lowercase letters, numbers, and hyphens.`,
+    );
+    process.exit(1);
+  }
+  if (RESERVED_WORKSPACE_APP_NAMES.has(appName)) {
+    clack.cancel(
+      `App name "${appName}" conflicts with a reserved workspace route. Choose a different name.`,
+    );
+    process.exit(1);
+  }
+}
 
 function upsertTomlBuildEnvironment(
   content: string,

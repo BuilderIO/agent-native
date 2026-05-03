@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { TEMPLATES, visibleTemplates } from "../cli/templates-meta.js";
 
 export interface DiscoveredAgent {
@@ -40,6 +43,18 @@ const HIDDEN_FIRST_PARTY_AGENT_IDS = new Set(
     (template) => template.name,
   ),
 );
+
+const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
+const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
+
+interface WorkspaceAppManifestEntry {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  url?: string | null;
+  isDispatch?: boolean;
+}
 
 /**
  * Get built-in agents (static, no DB). Used as fallback and for seeding.
@@ -127,6 +142,12 @@ export async function discoverAgents(
     // Resources not available — use built-ins only
   }
 
+  // Overlay sibling workspace apps last so same-origin workspaces prefer the
+  // app mounted in this workspace over the public template with the same id.
+  for (const agent of discoverWorkspaceAgents(selfAppId)) {
+    agentsById.set(agent.id, agent);
+  }
+
   return Array.from(agentsById.values());
 }
 
@@ -153,6 +174,205 @@ function resolveAgentUrl(app: AgentEntry): string {
     return app.devUrl || `http://localhost:${app.devPort}`;
   }
   return app.url;
+}
+
+function readJson(file: string): any {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function findWorkspaceRoot(startDir = process.cwd()): string | null {
+  let dir = path.resolve(startDir);
+  for (let i = 0; i < 20; i++) {
+    const pkg = readJson(path.join(dir, "package.json"));
+    if (typeof pkg?.["agent-native"]?.workspaceCore === "string") {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+function titleCase(value: string): string {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function parseWorkspaceAppsManifest(
+  parsed: any,
+): WorkspaceAppManifestEntry[] | null {
+  const rawApps = Array.isArray(parsed?.apps)
+    ? parsed.apps
+    : Array.isArray(parsed)
+      ? parsed
+      : null;
+  if (!rawApps) return null;
+
+  const apps = rawApps
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const id = typeof entry.id === "string" ? entry.id.trim() : "";
+      const pathValue = typeof entry.path === "string" ? entry.path.trim() : "";
+      if (!id || !pathValue.startsWith("/")) return null;
+      return {
+        id,
+        name:
+          typeof entry.name === "string" && entry.name.trim()
+            ? entry.name.trim()
+            : titleCase(id),
+        description:
+          typeof entry.description === "string" ? entry.description : "",
+        path: pathValue,
+        url:
+          typeof entry.url === "string" && entry.url.trim()
+            ? entry.url.trim()
+            : null,
+        isDispatch:
+          typeof entry.isDispatch === "boolean"
+            ? entry.isDispatch
+            : id === "dispatch",
+      } satisfies WorkspaceAppManifestEntry;
+    })
+    .filter((app): app is WorkspaceAppManifestEntry => !!app)
+    .sort((a, b) => {
+      if (a.id === "dispatch") return -1;
+      if (b.id === "dispatch") return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+  return apps.length ? apps : null;
+}
+
+function readWorkspaceAppsFromEnv(): WorkspaceAppManifestEntry[] | null {
+  const raw = process.env[WORKSPACE_APPS_ENV_KEY];
+  if (!raw) return null;
+  try {
+    return parseWorkspaceAppsManifest(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+function workspaceAppsManifestCandidates(): string[] {
+  const candidates: string[] = [];
+  try {
+    candidates.push(
+      path.join(process.cwd(), ".agent-native", WORKSPACE_APPS_MANIFEST_FILE),
+      path.join(process.cwd(), WORKSPACE_APPS_MANIFEST_FILE),
+    );
+  } catch {
+    // Some edge runtimes do not expose process.cwd().
+  }
+  try {
+    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    candidates.push(
+      path.join(moduleDir, ".agent-native", WORKSPACE_APPS_MANIFEST_FILE),
+      path.join(moduleDir, WORKSPACE_APPS_MANIFEST_FILE),
+    );
+  } catch {
+    // Some edge runtimes expose non-file module URLs. The env manifest still
+    // works there, so skip file-relative candidates.
+  }
+  return candidates;
+}
+
+function readWorkspaceAppsFromManifestFile():
+  | WorkspaceAppManifestEntry[]
+  | null {
+  for (const file of workspaceAppsManifestCandidates()) {
+    if (!fs.existsSync(file)) continue;
+    const apps = parseWorkspaceAppsManifest(readJson(file));
+    if (apps) return apps;
+  }
+  return null;
+}
+
+function readWorkspaceAppsFromFilesystem(): WorkspaceAppManifestEntry[] | null {
+  const workspaceRoot = findWorkspaceRoot();
+  if (!workspaceRoot) return null;
+  const appsDir = path.join(workspaceRoot, "apps");
+  if (!fs.existsSync(appsDir)) return null;
+
+  const apps = fs
+    .readdirSync(appsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry): WorkspaceAppManifestEntry | null => {
+      const appDir = path.join(appsDir, entry.name);
+      const pkg = readJson(path.join(appDir, "package.json"));
+      if (!pkg) return null;
+      return {
+        id: entry.name,
+        name: pkg.displayName || titleCase(entry.name),
+        description: pkg.description || "",
+        path: `/${entry.name}`,
+        isDispatch: entry.name === "dispatch",
+      } satisfies WorkspaceAppManifestEntry;
+    })
+    .filter((app): app is WorkspaceAppManifestEntry => !!app)
+    .sort((a, b) => {
+      if (a.id === "dispatch") return -1;
+      if (b.id === "dispatch") return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+  return apps.length ? apps : null;
+}
+
+function workspaceBaseUrl(): string | null {
+  return (
+    process.env.WORKSPACE_GATEWAY_URL ||
+    process.env.APP_URL ||
+    process.env.URL ||
+    process.env.DEPLOY_URL ||
+    process.env.BETTER_AUTH_URL ||
+    null
+  );
+}
+
+function workspaceAppUrl(app: WorkspaceAppManifestEntry): string | null {
+  if (app.url) return app.url;
+  const base = workspaceBaseUrl();
+  if (!base) return null;
+  try {
+    return new URL(app.path, `${base.replace(/\/$/, "")}/`).toString();
+  } catch {
+    return null;
+  }
+}
+
+function discoverWorkspaceAgents(selfAppId?: string): DiscoveredAgent[] {
+  const workspaceApps =
+    readWorkspaceAppsFromEnv() ??
+    readWorkspaceAppsFromManifestFile() ??
+    readWorkspaceAppsFromFilesystem();
+  if (!workspaceApps) return [];
+
+  return workspaceApps
+    .filter((app) => app.id !== selfAppId)
+    .map((app) => {
+      const url = workspaceAppUrl(app);
+      if (!url) return null;
+      const builtin = BUILTIN_AGENTS.find((agent) => agent.id === app.id);
+      return {
+        id: app.id,
+        name: app.name,
+        description:
+          app.description ||
+          builtin?.description ||
+          `Workspace app mounted at ${app.path}`,
+        url,
+        color: builtin?.color || "#6B7280",
+      } satisfies DiscoveredAgent;
+    })
+    .filter((agent): agent is DiscoveredAgent => !!agent);
 }
 
 /**
