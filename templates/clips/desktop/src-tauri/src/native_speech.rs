@@ -30,14 +30,18 @@
 use tauri::AppHandle;
 
 #[tauri::command]
-pub async fn native_speech_start(app: AppHandle, locale: Option<String>) -> Result<(), String> {
+pub async fn native_speech_start(
+    app: AppHandle,
+    locale: Option<String>,
+    contextual_strings: Option<Vec<String>>,
+) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        macos::native_speech_start_impl(app, locale).await
+        macos::native_speech_start_impl(app, locale, contextual_strings).await
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (app, locale);
+        let _ = (app, locale, contextual_strings);
         Err("Native speech recognition is only supported on macOS.".into())
     }
 }
@@ -77,7 +81,7 @@ pub(crate) mod macos {
     use objc2::rc::Retained;
     use objc2::{AnyThread, ClassType};
     use objc2_avf_audio::{AVAudioEngine, AVAudioPCMBuffer, AVAudioTime};
-    use objc2_foundation::{NSError, NSLocale, NSString};
+    use objc2_foundation::{NSArray, NSError, NSLocale, NSString};
     use objc2_speech::{
         SFSpeechAudioBufferRecognitionRequest, SFSpeechRecognitionResult, SFSpeechRecognitionTask,
         SFSpeechRecognizer, SFSpeechRecognizerAuthorizationStatus,
@@ -312,6 +316,7 @@ pub(crate) mod macos {
     pub async fn native_speech_start_impl(
         app: AppHandle,
         locale: Option<String>,
+        contextual_strings: Option<Vec<String>>,
     ) -> Result<(), String> {
         // Cancel any prior session first — there's only one mic tap per input
         // node, and we want a deterministic state going in.
@@ -337,6 +342,23 @@ pub(crate) mod macos {
         unsafe {
             request.setShouldReportPartialResults(true);
             request.setAddsPunctuation(true);
+            // Personal-vocabulary bias: if the renderer passed any learned
+            // terms (from `clips_vocabulary` via list-vocabulary), feed
+            // them into SFSpeechRecognizer's `contextualStrings` so the
+            // recognizer prefers the user's spelling. SAFETY:
+            // `NSMutableArray::new()` returns a freshly retained empty
+            // array; we add NSString instances cloned from owned Rust
+            // strings, then pass the resulting array to the setter which
+            // retains it for the lifetime of the request.
+            if let Some(strings) = contextual_strings.as_ref() {
+                if !strings.is_empty() {
+                    let ns_strings: Vec<Retained<NSString>> =
+                        strings.iter().map(|s| NSString::from_str(s)).collect();
+                    let refs: Vec<&NSString> = ns_strings.iter().map(|s| &**s).collect();
+                    let arr: Retained<NSArray<NSString>> = NSArray::from_slice(&refs);
+                    request.setContextualStrings(&arr);
+                }
+            }
         }
 
         // Spin up the engine and grab its input node + native format.

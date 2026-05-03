@@ -29,6 +29,8 @@ import {
 } from "@/components/meetings/transcript-bubbles";
 import { BulletLink } from "@/components/meetings/bullet-link";
 import { CanvasEditor } from "@/components/meetings/canvas-editor";
+import { AutoRecordPrompt } from "@/components/meetings/auto-record-prompt";
+import { QuickAskSidebar } from "@/components/meetings/quick-ask-sidebar";
 
 export function meta() {
   return [{ title: "Meeting · Clips" }];
@@ -277,6 +279,7 @@ export default function MeetingDetailRoute() {
 
   const updateMeeting = useActionMutation<any, any>("update-meeting");
   const finalize = useActionMutation<any, any>("finalize-meeting");
+  const startRecording = useActionMutation<any, any>("start-meeting-recording");
   const [notesJustArrived, setNotesJustArrived] = useState(false);
   const previousHasNotesRef = useRef(false);
   const autoFinalizedRef = useRef(false);
@@ -506,6 +509,17 @@ export default function MeetingDetailRoute() {
         </div>
       </PageHeader>
 
+      <AutoRecordPrompt
+        scheduledStart={meeting.scheduledStart}
+        actualStart={meeting.actualStart}
+        disabled={startRecording.isPending}
+        onStart={() => {
+          if (startRecording.isPending) return;
+          patchCachedMeeting({ actualStart: new Date().toISOString() });
+          startRecording.mutate({ meetingId: meeting.id });
+        }}
+      />
+
       {finalize.isError && (
         <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           {(finalize.error as Error)?.message ||
@@ -626,6 +640,12 @@ export default function MeetingDetailRoute() {
           />
         </div>
       </div>
+
+      <QuickAskSidebar
+        meetingId={meeting.id}
+        meetingTitle={meeting.title}
+        segments={segments}
+      />
     </div>
   );
 }
