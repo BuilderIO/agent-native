@@ -153,6 +153,131 @@ describe("slackAdapter", () => {
     ).toBe(true);
   });
 
+  it("does not send whitespace-only Slack replies", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const deliveryUrls: string[] = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        deliveryUrls.push(String(url));
+        return Promise.resolve(new Response(JSON.stringify({ ok: true })));
+      }),
+    );
+
+    await slackAdapter().sendResponse(
+      { text: " \n\t ", platformContext: {} },
+      {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "ask starter",
+        timestamp: 1,
+        platformContext: { channelId: "C123", threadTs: "123.456" },
+      },
+    );
+
+    expect(
+      deliveryUrls.some(
+        (url) =>
+          url.includes("chat.postMessage") || url.includes("chat.update"),
+      ),
+    ).toBe(false);
+  });
+
+  it("drops blank Slack chunks and still sends non-empty content", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const deliveryBodies: any[] = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (String(url).includes("chat.postMessage")) {
+          deliveryBodies.push(JSON.parse(String(init?.body ?? "{}")));
+        }
+        return Promise.resolve(new Response(JSON.stringify({ ok: true })));
+      }),
+    );
+
+    await slackAdapter().sendResponse(
+      {
+        text: `${" ".repeat(4001)}Deck: https://example.com/decks/qa`,
+        platformContext: {},
+      },
+      {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "ask slides",
+        timestamp: 1,
+        platformContext: { channelId: "C123", threadTs: "123.456" },
+      },
+    );
+
+    expect(deliveryBodies).toHaveLength(1);
+    expect(deliveryBodies[0].text).toBe("Deck: https://example.com/decks/qa");
+  });
+
+  it("does not send whitespace-only proactive Slack messages", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const deliveryUrls: string[] = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        deliveryUrls.push(String(url));
+        return Promise.resolve(new Response(JSON.stringify({ ok: true })));
+      }),
+    );
+
+    await slackAdapter().sendMessageToTarget?.(
+      { text: "\n\n ", platformContext: {} },
+      { platform: "slack", destination: "C123" },
+    );
+
+    expect(deliveryUrls.some((url) => url.includes("chat.postMessage"))).toBe(
+      false,
+    );
+  });
+
+  it("keeps block-rich Slack replies when fallback text is blank", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const deliveryBodies: any[] = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (String(url).includes("chat.postMessage")) {
+          deliveryBodies.push(JSON.parse(String(init?.body ?? "{}")));
+        }
+        return Promise.resolve(new Response(JSON.stringify({ ok: true })));
+      }),
+    );
+
+    const blocks = [
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: "Deck is ready." },
+      },
+    ];
+
+    await slackAdapter().sendResponse(
+      {
+        text: " ",
+        platformContext: { blocks },
+      },
+      {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "ask slides",
+        timestamp: 1,
+        platformContext: { channelId: "C123", threadTs: "123.456" },
+      },
+    );
+
+    expect(deliveryBodies).toHaveLength(1);
+    expect(deliveryBodies[0].text).toBe("Response");
+    expect(deliveryBodies[0].blocks).toEqual(blocks);
+  });
+
   it("splits Slack section blocks by UTF-8 bytes, not JS character length", async () => {
     process.env.SLACK_BOT_TOKEN = "xoxb-test";
     const deliveryBodies: any[] = [];
