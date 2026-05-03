@@ -1,4 +1,5 @@
 import { A2AClient, signA2AToken } from "../a2a/client.js";
+import { appendA2AArtifactLinks } from "../a2a/artifact-response.js";
 import type { Task } from "../a2a/types.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
@@ -193,7 +194,10 @@ async function processClaimedContinuation(
       await deliverAndCompleteA2AContinuation(
         continuation,
         adapter,
-        expandRelativeUrls(recoverableArtifactText, continuation.agentUrl),
+        formatContinuationArtifactText(
+          recoverableArtifactText,
+          continuation.agentUrl,
+        ),
       );
       return;
     }
@@ -221,7 +225,10 @@ async function processClaimedContinuation(
     return;
   }
 
-  const text = expandRelativeUrls(extractTaskText(task), continuation.agentUrl);
+  const text = formatContinuationArtifactText(
+    extractTaskText(task),
+    continuation.agentUrl,
+  );
   if (!text.trim()) {
     await notifyAndFailA2AContinuation(
       continuation,
@@ -488,6 +495,24 @@ function extractRecoverableArtifactText(task: Task | null): string {
     return "";
   }
   return extractTaskText(task);
+}
+
+function formatContinuationArtifactText(
+  text: string,
+  agentUrl: string,
+): string {
+  const expandedText = expandRelativeUrls(text, agentUrl);
+  return appendA2AArtifactLinks(
+    expandedText,
+    [{ tool: "call-agent", result: expandedText }],
+    { baseUrl: resolveArtifactBaseUrl() },
+  );
+}
+
+function resolveArtifactBaseUrl(): string | undefined {
+  const baseUrl =
+    process.env.APP_URL || process.env.URL || process.env.DEPLOY_URL;
+  return baseUrl ? withConfiguredAppBasePath(baseUrl) : undefined;
 }
 
 function expandRelativeUrls(text: string, agentUrl: string): string {

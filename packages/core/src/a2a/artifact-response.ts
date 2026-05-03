@@ -5,6 +5,7 @@ export interface A2AToolResultSummary {
 
 export interface A2AArtifactResponseOptions {
   baseUrl?: string;
+  includeReferencedArtifacts?: boolean;
 }
 
 interface CreatedDocumentArtifact {
@@ -324,7 +325,9 @@ type DownstreamArtifact =
 function parseDownstreamArtifactBlock(result: string): DownstreamArtifact[] {
   const artifacts: DownstreamArtifact[] = [];
   for (const line of downstreamArtifactLines(result)) {
-    const deck = line.match(/^- Deck:\s+(\S+)\s+\(ID:\s*([A-Za-z0-9_-]+)\)$/);
+    const deck = line.match(
+      /^- Deck(?:\s+"[^"]+")?(?:\s+\([^)]*\))?:\s+(\S+)\s+\(ID:\s*([A-Za-z0-9_-]+)\)$/,
+    );
     if (deck) {
       const id = deck[2];
       if (!artifactUrlReferencesId(deck[1], "deck", id)) continue;
@@ -410,18 +413,17 @@ function parseArtifactReferenceUrl(rawUrl: string): ReferencedArtifact | null {
 
   if (url.protocol !== "http:" && url.protocol !== "https:") return null;
 
-  const match = url.pathname.match(
-    /(?:^|\/)(deck|design|page)\/([A-Za-z0-9_-]+)\/?$/,
-  );
-  if (!match) return null;
+  const path = url.pathname.replace(/\/+$/, "");
+  const deck = path.match(/(?:^|\/)deck\/([A-Za-z0-9_-]+)(?:\/present)?$/);
+  if (deck) return { kind: "deck", id: deck[1] };
 
-  const kind: ReferencedArtifactKind =
-    match[1] === "deck"
-      ? "deck"
-      : match[1] === "design"
-        ? "design"
-        : "document";
-  return { kind, id: match[2] };
+  const design = path.match(/(?:^|\/)design\/([A-Za-z0-9_-]+)$/);
+  if (design) return { kind: "design", id: design[1] };
+
+  const document = path.match(/(?:^|\/)page\/([A-Za-z0-9_-]+)$/);
+  if (document) return { kind: "document", id: document[1] };
+
+  return null;
 }
 
 function formatDocumentLine(
@@ -573,6 +575,8 @@ export function appendA2AArtifactLinks(
   options: A2AArtifactResponseOptions = {},
 ): string {
   const baseUrl = normalizeBaseUrl(options.baseUrl);
+  const includeReferencedArtifacts =
+    options.includeReferencedArtifacts ?? false;
   const { documents, decks, designShells, generatedDesigns } =
     collectArtifacts(toolResults);
   const generatedDesignIds = new Set(
@@ -616,19 +620,28 @@ export function appendA2AArtifactLinks(
   const missingLines: string[] = [];
   for (const document of documents) {
     const path = `/page/${document.id}`;
-    if (!responseAlreadyMentionsPath(text, path)) {
+    if (
+      includeReferencedArtifacts ||
+      !responseAlreadyMentionsPath(text, path)
+    ) {
       missingLines.push(formatDocumentLine(document, baseUrl));
     }
   }
   for (const deck of decks) {
     const path = `/deck/${deck.id}`;
-    if (!responseAlreadyMentionsPath(text, path)) {
+    if (
+      includeReferencedArtifacts ||
+      !responseAlreadyMentionsPath(text, path)
+    ) {
       missingLines.push(formatDeckLine(deck, baseUrl));
     }
   }
   for (const design of generatedDesigns) {
     const path = `/design/${design.id}`;
-    if (!responseAlreadyMentionsPath(text, path)) {
+    if (
+      includeReferencedArtifacts ||
+      !responseAlreadyMentionsPath(text, path)
+    ) {
       missingLines.push(formatDesignLine(design, baseUrl));
     }
   }
