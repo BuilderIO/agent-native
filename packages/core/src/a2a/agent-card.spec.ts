@@ -37,15 +37,17 @@ describe("generateAgentCard", () => {
     const card = generateAgentCard(baseConfig, "https://example.com");
     expect(card.name).toBe("Test Agent");
     expect(card.description).toBe("A test agent");
-    expect(card.url).toBe("https://example.com");
+    expect(card.url).toBe("https://example.com/_agent-native/a2a");
     expect(card.protocolVersion).toBe("0.3");
     expect(card.skills).toHaveLength(1);
   });
 
-  it("includes APP_BASE_PATH in the advertised app URL", () => {
+  it("includes APP_BASE_PATH in the advertised A2A endpoint URL", () => {
     vi.stubEnv("APP_BASE_PATH", "/starter");
     const card = generateAgentCard(baseConfig, "https://workspace.example.com");
-    expect(card.url).toBe("https://workspace.example.com/starter");
+    expect(card.url).toBe(
+      "https://workspace.example.com/starter/_agent-native/a2a",
+    );
   });
 
   it("does not duplicate APP_BASE_PATH when the base URL is already scoped", () => {
@@ -54,7 +56,32 @@ describe("generateAgentCard", () => {
       baseConfig,
       "https://workspace.example.com/starter",
     );
-    expect(card.url).toBe("https://workspace.example.com/starter");
+    expect(card.url).toBe(
+      "https://workspace.example.com/starter/_agent-native/a2a",
+    );
+  });
+
+  it("does not duplicate the A2A endpoint path when already present", () => {
+    vi.stubEnv("APP_BASE_PATH", "/dispatch");
+    const card = generateAgentCard(
+      baseConfig,
+      "https://agent-workspace.builder.io/dispatch/_agent-native/a2a",
+    );
+    expect(card.url).toBe(
+      "https://agent-workspace.builder.io/dispatch/_agent-native/a2a",
+    );
+  });
+
+  it("supports custom mounted A2A route prefixes", () => {
+    vi.stubEnv("APP_BASE_PATH", "/dispatch");
+    const card = generateAgentCard(
+      baseConfig,
+      "https://agent-workspace.builder.io",
+      "/rpc/a2a",
+    );
+    expect(card.url).toBe(
+      "https://agent-workspace.builder.io/dispatch/rpc/a2a",
+    );
   });
 
   it("defaults version to 1.0.0", () => {

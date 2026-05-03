@@ -13,11 +13,13 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { agentNativePath } from "../api-path.js";
 import {
+  IconAlertCircle,
   IconCheck,
   IconChevronDown,
   IconChevronRight,
   IconExternalLink,
   IconLoader2,
+  IconLockOpen,
   IconMicrophone,
 } from "@tabler/icons-react";
 import { useBuilderStatus } from "./useBuilderStatus.js";
@@ -446,6 +448,7 @@ export function VoiceTranscriptionSection() {
             title="Batch"
             subtitle="Universal fallback. Sends audio after recording stops through Builder Gemini, Gemini, Groq, then OpenAI."
           />
+          <SystemAudioStatus />
         </div>
       </div>
 
@@ -784,6 +787,180 @@ function ProviderOption({
         {subtitle && (
           <p className="text-[10px] text-muted-foreground mt-0.5">{subtitle}</p>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Surfaces the desktop app's system-audio capture readiness inside the live
+ * transcription box. Renders nothing in non-Tauri contexts (web users) so the
+ * existing browser-only flow is unaffected. The Rust side
+ * (`templates/clips/desktop/src-tauri/src/system_audio.rs`) returns either a
+ * structured `VersionStatus` via `system_audio_version_status` (preferred,
+ * no error-string parsing) or an unsupported-OS error from
+ * `system_audio_request_permission`. We surface three states:
+ *
+ *  - macOS 13+ + permission granted -> green check ("System audio capture available")
+ *  - macOS < 13                     -> red dot ("...requires macOS 13 or later")
+ *  - permission denied / pending    -> amber + "Open System Settings" affordance
+ */
+type SystemAudioState =
+  | { kind: "loading" }
+  | { kind: "available" }
+  | { kind: "unsupported"; reason: string }
+  | { kind: "denied" };
+
+interface VersionStatusPayload {
+  supported: boolean;
+  os_version: string;
+  reason?: string;
+}
+
+function SystemAudioStatus() {
+  const [state, setState] = useState<SystemAudioState | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (typeof window === "undefined") return;
+    const tauri = (window as unknown as { __TAURI_INTERNALS__?: unknown })
+      .__TAURI_INTERNALS__;
+    if (!tauri) return; // Web users: render nothing.
+    setState({ kind: "loading" });
+    // Dynamic import keeps `@tauri-apps/api` out of the web bundle's static
+    // graph; it is only resolved inside the desktop shell where the dep is
+    // present at build time.
+    // Cast to suppress missing types — `@tauri-apps/api` is a desktop-shell
+    // dep, not a static dep of `packages/core`. Resolves at runtime only when
+    // we're inside Tauri (gated by the `__TAURI_INTERNALS__` check above).
+    (
+      import(/* @vite-ignore */ "@tauri-apps/api/core" as string) as Promise<{
+        invoke: (cmd: string, args?: unknown) => Promise<unknown>;
+      }>
+    )
+      .then(async ({ invoke }) => {
+        try {
+          const status = (await invoke("system_audio_version_status")) as
+            | VersionStatusPayload
+            | undefined;
+          if (cancelled) return;
+          if (status && !status.supported) {
+            setState({
+              kind: "unsupported",
+              reason:
+                status.reason ??
+                `ScreenCaptureKit is unavailable on ${status.os_version}.`,
+            });
+            return;
+          }
+          // Supported — now probe permission. This may prompt; calling it
+          // here matches the original on-mount semantics requested in the
+          // settings flow.
+          try {
+            const granted = (await invoke(
+              "system_audio_request_permission",
+            )) as boolean;
+            if (cancelled) return;
+            setState(granted ? { kind: "available" } : { kind: "denied" });
+          } catch (err) {
+            if (cancelled) return;
+            const msg = String(err ?? "");
+            if (/macOS\s*1[0-2]|requires macOS 13/i.test(msg)) {
+              setState({ kind: "unsupported", reason: msg });
+            } else {
+              setState({ kind: "denied" });
+            }
+          }
+        } catch {
+          // Older desktop builds may not have the new command yet —
+          // fall back to the permission probe.
+          if (cancelled) return;
+          try {
+            const granted = (await invoke(
+              "system_audio_request_permission",
+            )) as boolean;
+            if (cancelled) return;
+            setState(granted ? { kind: "available" } : { kind: "denied" });
+          } catch (err) {
+            if (cancelled) return;
+            const msg = String(err ?? "");
+            if (/macOS|ScreenCaptureKit/i.test(msg)) {
+              setState({ kind: "unsupported", reason: msg });
+            } else {
+              setState({ kind: "denied" });
+            }
+          }
+        }
+      })
+      .catch(() => {
+        // @tauri-apps/api not resolvable -> behave like web.
+        if (!cancelled) setState(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const openPrivacy = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const tauri = (window as unknown as { __TAURI_INTERNALS__?: unknown })
+      .__TAURI_INTERNALS__;
+    if (!tauri) return;
+    // Cast to suppress missing types — `@tauri-apps/api` is a desktop-shell
+    // dep, not a static dep of `packages/core`. Resolves at runtime only when
+    // we're inside Tauri (gated by the `__TAURI_INTERNALS__` check above).
+    (
+      import(/* @vite-ignore */ "@tauri-apps/api/core" as string) as Promise<{
+        invoke: (cmd: string, args?: unknown) => Promise<unknown>;
+      }>
+    )
+      .then(({ invoke }) => invoke("system_audio_open_privacy_settings"))
+      .catch(() => {
+        // Older desktop builds without this command — no-op.
+      });
+  }, []);
+
+  if (!state || state.kind === "loading") return null;
+
+  if (state.kind === "available") {
+    return (
+      <div className="flex items-center gap-1.5 px-0.5 pt-1 text-[10px] text-muted-foreground">
+        <IconCheck size={11} className="text-green-500" />
+        <span>System audio capture available.</span>
+      </div>
+    );
+  }
+
+  if (state.kind === "unsupported") {
+    return (
+      <div className="flex items-center gap-1.5 px-0.5 pt-1 text-[10px] text-muted-foreground">
+        <span
+          className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-red-500"
+          aria-hidden
+        />
+        <span>
+          System audio requires macOS 13 or later — meetings will use mic-only.
+        </span>
+      </div>
+    );
+  }
+
+  // denied
+  return (
+    <div className="flex items-start gap-1.5 px-0.5 pt-1 text-[10px] text-muted-foreground">
+      <IconAlertCircle size={11} className="mt-[1px] shrink-0 text-amber-500" />
+      <div className="flex-1">
+        <span>
+          Grant Screen Recording permission in System Settings -&gt; Privacy.
+        </span>
+        <button
+          type="button"
+          onClick={openPrivacy}
+          className="ml-1 inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+        >
+          <IconLockOpen size={10} />
+          Open System Settings
+        </button>
       </div>
     </div>
   );

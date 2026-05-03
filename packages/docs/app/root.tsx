@@ -180,7 +180,14 @@ export default function Root() {
           {content}
         </AgentSidebar>
       ) : (
-        content
+        // Mirror AgentSidebar's outer layout (h-screen + overflow-hidden shell
+        // with an overflow-auto child) so swapping in the real sidebar after
+        // hydration doesn't shift the scrollbar and re-anchor centered content.
+        <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
+          <div className="flex flex-1 flex-col overflow-auto min-w-0">
+            {content}
+          </div>
+        </div>
       )}
     </QueryClientProvider>
   );

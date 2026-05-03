@@ -24,12 +24,12 @@ const SLACK_API_TIMEOUT_MS = 10_000;
  * Optional env vars:
  * - SLACK_ALLOWED_TEAM_IDS — Comma-separated list of Slack workspace
  *   `team_id` values (e.g. "T012ABCDEF,T034GHIJKL") that this deployment
- *   accepts events from. Strongly recommended in multi-tenant deployments
+ *   accepts events from. Required in production and strongly recommended
  *   to prevent cross-workspace event injection (H1 in the webhook audit):
  *   the global `SLACK_SIGNING_SECRET` is the same key for every workspace
  *   the app is installed to, so without an allowlist any installed
  *   workspace can drive the agent. When unset the adapter accepts events
- *   from any workspace — fine for single-tenant dev, unsafe for prod.
+ *   from any workspace in development, but rejects events in production.
  * - SLACK_ALLOWED_API_APP_IDS — Comma-separated list of Slack app IDs
  *   (`api_app_id`) to additionally pin events to. Useful when the same
  *   signing secret rotation surfaces multiple app installs.
@@ -394,11 +394,11 @@ let _missingAllowlistWarned = false;
  *   `api_app_id` isn't in the list (bot apps can be installed under the
  *   same Slack app id across multiple workspaces — pinning both keeps
  *   the surface tight when team_id allows multiple workspaces).
- * - If neither is set AND `NODE_ENV === "production"`: log a one-time
- *   warning recommending the env var be configured. Continue (preserves
- *   existing behavior to avoid breaking single-tenant prod deployments
- *   that have always run without an allowlist).
- * - If neither is set in dev / single-tenant: accept (current behavior).
+ * - If `SLACK_ALLOWED_TEAM_IDS` is unset/empty in production: reject the
+ *   event. Production must fail closed so any workspace with the shared
+ *   signing secret cannot drive the agent.
+ * - If `SLACK_ALLOWED_TEAM_IDS` is unset/empty in dev / single-tenant: log a
+ *   one-time warning and accept (current local setup behavior).
  *
  * Throws an h3 401 error when an allowlisted-but-mismatched payload is
  * received, which the integrations plugin surfaces to the caller as
@@ -412,6 +412,22 @@ function enforceWorkspaceAllowlist(payload: any): void {
 
   const allowedTeamIds = parseAllowlistEnv("SLACK_ALLOWED_TEAM_IDS");
   const allowedAppIds = parseAllowlistEnv("SLACK_ALLOWED_API_APP_IDS");
+
+  if (!allowedTeamIds) {
+    if (process.env.NODE_ENV === "production") {
+      throw createError({
+        statusCode: 401,
+        statusMessage: "Slack workspace allowlist is not configured",
+      });
+    }
+    if (!_missingAllowlistWarned) {
+      _missingAllowlistWarned = true;
+      console.warn(
+        "[slack] SLACK_ALLOWED_TEAM_IDS not set — accepting events from any workspace whose signature matches SLACK_SIGNING_SECRET. " +
+          "Set SLACK_ALLOWED_TEAM_IDS to a comma-separated list of allowed team_id values before deploying to production.",
+      );
+    }
+  }
 
   if (allowedTeamIds) {
     if (!teamId || !allowedTeamIds.has(teamId)) {
@@ -429,19 +445,6 @@ function enforceWorkspaceAllowlist(payload: any): void {
         statusMessage: "Unrecognized Slack workspace",
       });
     }
-  }
-
-  if (
-    !allowedTeamIds &&
-    !allowedAppIds &&
-    process.env.NODE_ENV === "production" &&
-    !_missingAllowlistWarned
-  ) {
-    _missingAllowlistWarned = true;
-    console.warn(
-      "[slack] SLACK_ALLOWED_TEAM_IDS not set in production — accepting events from any workspace whose signature matches SLACK_SIGNING_SECRET. " +
-        "Set SLACK_ALLOWED_TEAM_IDS to a comma-separated list of allowed team_id values to prevent cross-workspace event injection (H1 in the webhook audit).",
-    );
   }
 }
 

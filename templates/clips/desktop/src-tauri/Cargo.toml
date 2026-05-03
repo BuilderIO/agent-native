@@ -71,6 +71,7 @@ objc2-foundation = { version = "0.3", features = [
   "NSLocale",
   "NSURL",
   "NSValue",
+  "NSProcessInfo",
 ] }
 objc2-speech = { version = "0.3", features = [
   "SFSpeechRecognizer",

@@ -17,6 +17,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
+import { createError } from "h3";
 import { getDb, schema } from "../server/db/index.js";
 import { nanoid } from "../server/lib/recordings.js";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -43,7 +44,14 @@ export default defineAction({
       .describe("How confident this correction is (0..1)"),
   }),
   run: async (args) => {
-    const ownerEmail = (await getRequestUserEmail()) || "local@localhost";
+    const ownerEmail = await getRequestUserEmail();
+    if (!ownerEmail) {
+      throw createError({
+        statusCode: 401,
+        statusMessage: "Authentication required",
+      });
+    }
+
     const db = getDb();
     const term = args.term.trim();
     const replacement = args.replacement.trim();
