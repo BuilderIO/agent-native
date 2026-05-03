@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getH3App } from "./framework-request-handler.js";
+import {
+  getH3App,
+  markDefaultPluginProvided,
+} from "./framework-request-handler.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 
 vi.mock("../deploy/route-discovery.js", () => ({
@@ -143,6 +146,18 @@ describe("framework request handler", () => {
     release();
 
     await expect(pending).resolves.toEqual({ ok: true });
+  });
+
+  it("does not auto-mount a default plugin slot marked as provided at runtime", async () => {
+    const nitroApp = createNitroApp();
+    markDefaultPluginProvided(nitroApp, "agent-chat");
+    vi.mocked(getMissingDefaultPlugins).mockResolvedValueOnce(["agent-chat"]);
+
+    getH3App(nitroApp);
+
+    await expect(
+      dispatch(nitroApp, "/.well-known/agent-card.json"),
+    ).resolves.toEqual({ fellThrough: true });
   });
 
   it("does not treat similar non-prefixed paths as framework routes", async () => {

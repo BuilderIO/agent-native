@@ -41,8 +41,14 @@ import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
 import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
+import {
+  appendA2AArtifactLinks,
+  type A2AToolResultSummary,
+} from "../a2a/artifact-response.js";
 
 const PROCESSOR_DISPATCH_SETTLE_WAIT_MS = 1_500;
+
+type ToolDoneEvent = { type: "tool_done"; tool: string; result: string };
 
 /**
  * Build a stable per-event dedup key from the incoming message. The same
@@ -114,6 +120,15 @@ function explicitEngineName(
 function isMultiTenantDeploy(): boolean {
   if (process.env.NODE_ENV !== "production") return false;
   return !isLocalDatabase();
+}
+
+function collectToolResultSummaries(
+  completedRun: ActiveRun,
+): A2AToolResultSummary[] {
+  return completedRun.events
+    .map((runEvent) => runEvent.event)
+    .filter((event): event is ToolDoneEvent => event.type === "tool_done")
+    .map((event) => ({ tool: event.tool, result: event.result }));
 }
 
 async function resolveIntegrationApiKey(
@@ -601,6 +616,13 @@ async function processIncomingMessage(
           // preview card.
           const baseUrl = process.env.APP_URL || process.env.URL || "";
           const appBaseUrl = baseUrl ? withConfiguredAppBasePath(baseUrl) : "";
+          if (!suppressPlatformReply) {
+            responseText = appendA2AArtifactLinks(
+              responseText,
+              collectToolResultSummaries(completedRun),
+              { baseUrl: appBaseUrl || undefined },
+            );
+          }
           const threadDeepLinkUrl =
             appBaseUrl && threadId
               ? `${appBaseUrl}/?thread=${threadId}`

@@ -108,8 +108,8 @@ export async function run(
   const messageWithHint =
     `${message}\n\n` +
     `[Note: this request comes from another app via A2A. The caller cannot see your local UI, deck list, or navigation — only the literal text you put in your reply. ` +
-    `If you create or reference a deck/document/dashboard, include its FULLY-QUALIFIED URL (e.g. ${agent.url}/deck/<id>) in your reply, not a relative path. ` +
-    `Use only IDs returned by your own actions — never invent slugs or hosts.]`;
+    `If you create or reference a deck/document/design/dashboard, include its FULLY-QUALIFIED URL (e.g. ${agent.url}/deck/<id>) in your reply, not a relative path. ` +
+    `Use only artifact IDs and URL paths returned by successful actions — never invent slugs, IDs, or hosts.]`;
 
   try {
     // If we have a send context, use streaming so the UI shows progressive text

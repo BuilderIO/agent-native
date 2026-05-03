@@ -373,6 +373,16 @@ export function mountA2A(
             };
           }
           warnA2AUnauthOnce();
+        } else if (isA2AProductionRuntime()) {
+          setResponseStatus(event, 401);
+          return {
+            jsonrpc: "2.0",
+            id: null,
+            error: {
+              code: -32001,
+              message: "Authentication required",
+            },
+          };
         }
       }
 

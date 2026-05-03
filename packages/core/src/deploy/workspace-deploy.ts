@@ -234,12 +234,17 @@ function moveAppBuildIntoDist(
  * the workspace dist root so each app is reachable under /<app>/*.
  */
 function writeCloudflareRoutingManifest(distDir: string, apps: string[]): void {
+  const dispatchFaviconAsset = apps.includes("dispatch")
+    ? dispatchRootFaviconAsset(distDir)
+    : null;
   // _routes.json tells Cloudflare which paths are dynamic (Functions) vs
   // static. Mark /<app>/* as include so every app's worker handles its
   // subtree.
   const include = apps.map((a) => `/${a}/*`).concat(["/"]);
   if (apps.includes("dispatch")) {
     include.push("/_agent-native/*");
+    include.push("/.well-known/*");
+    if (dispatchFaviconAsset) include.push("/favicon.ico");
   }
   const routes = {
     version: 1,
@@ -263,7 +268,11 @@ function writeCloudflareRoutingManifest(distDir: string, apps: string[]): void {
     )
     .join("\n");
   const dispatchRootFrameworkRoutes = apps.includes("dispatch")
-    ? `    if (pathname === "/_agent-native" || pathname.startsWith("/_agent-native/")) return ${moduleIdent("dispatch")}.fetch(request, env, ctx);
+    ? `    if (pathname === "/_agent-native" || pathname.startsWith("/_agent-native/") || pathname === "/.well-known" || pathname.startsWith("/.well-known/")) return ${moduleIdent("dispatch")}.fetch(request, env, ctx);
+`
+    : "";
+  const dispatchRootFaviconRoute = dispatchFaviconAsset
+    ? `    if (pathname === "/favicon.ico") return Response.redirect(new URL("/dispatch/${dispatchFaviconAsset}", request.url).toString(), 302);
 `
     : "";
 
@@ -272,7 +281,7 @@ function writeCloudflareRoutingManifest(distDir: string, apps: string[]): void {
 export default {
   async fetch(request, env, ctx) {
     const { pathname } = new URL(request.url);
-${dispatchRootFrameworkRoutes}${dispatch}
+${dispatchRootFrameworkRoutes}${dispatchRootFaviconRoute}${dispatch}
     if (pathname === "/") {
       return Response.redirect(new URL("${cloudflareRootRedirectPath(apps)}", request.url).toString(), 302);
     }
@@ -295,6 +304,11 @@ function writeNetlifyRedirects(distDir: string, apps: string[]): void {
 
   if (apps.includes("dispatch")) {
     lines.push("/_agent-native/* /.netlify/functions/dispatch-server 200");
+    lines.push("/.well-known/* /.netlify/functions/dispatch-server 200");
+    const faviconAsset = dispatchRootFaviconAsset(distDir);
+    if (faviconAsset) {
+      lines.push(`/favicon.ico /dispatch/${faviconAsset} 302`);
+    }
   }
 
   for (const app of apps) {
@@ -327,6 +341,25 @@ function netlifyAssetRedirectsFor(app: string, distDir: string): string[] {
       return `${assetPath} ${to}/${assetName} 200`;
     }),
   ];
+}
+
+function dispatchRootFaviconAsset(distDir: string): string | null {
+  for (const asset of ["favicon.ico", "favicon.svg", "favicon.png"]) {
+    if (workspaceAppAssetExists(distDir, "dispatch", asset)) return asset;
+  }
+  return null;
+}
+
+function workspaceAppAssetExists(
+  distDir: string,
+  app: string,
+  asset: string,
+): boolean {
+  return [
+    path.join(distDir, NETLIFY_WORKSPACE_STATIC_DIR, app, asset),
+    path.join(distDir, app, app, asset),
+    path.join(distDir, app, asset),
+  ].some((candidate) => fs.existsSync(candidate));
 }
 
 const DISPATCH_WORKSPACE_ROOT_REDIRECTS = [
@@ -397,7 +430,7 @@ function patchNetlifyFunctionEntry(
   const basePath = `/${app}`;
   const pathConfig =
     app === "dispatch"
-      ? ["/_agent-native/*", `${basePath}/*`]
+      ? ["/_agent-native/*", "/.well-known/*", `${basePath}/*`]
       : [basePath, `${basePath}/*`];
   const normalizeBasePathHelper =
     app === "dispatch"

@@ -259,7 +259,7 @@ describe("workspace deploy", () => {
     expect(dispatchServer).toContain('\\"path\\":\\"/starter\\"');
     expect(dispatchServer).toContain('await import("./main.mjs")');
     expect(dispatchServer).toContain(
-      'path: ["/_agent-native/*","/dispatch/*"]',
+      'path: ["/_agent-native/*","/.well-known/*","/dispatch/*"]',
     );
     expect(dispatchServer).toContain('"/dispatch/assets/*"');
     expect(dispatchServer).toContain('"/dispatch/favicon.svg"');
@@ -369,10 +369,13 @@ describe("workspace deploy", () => {
     expect(redirects).not.toContain("/:file.json");
     expect(redirects).not.toContain("/:file.svg");
     expect(redirects).not.toContain("/:file.webmanifest");
-    expect(redirects).not.toContain("/.well-known/");
     expect(redirects).toContain(
       "/_agent-native/* /.netlify/functions/dispatch-server 200",
     );
+    expect(redirects).toContain(
+      "/.well-known/* /.netlify/functions/dispatch-server 200",
+    );
+    expect(redirects).toContain("/favicon.ico /dispatch/favicon.ico 302");
     expect(redirects).toContain("/ /dispatch/overview 302");
     expect(redirects).toContain("/dispatch /dispatch/overview 302");
     expect(redirects).toContain("/login /dispatch/login 302");
@@ -585,6 +588,8 @@ describe("workspace deploy", () => {
       fs.readFileSync(path.join(tmpDir, "dist", "_routes.json"), "utf-8"),
     ) as { include: string[] };
     expect(routes.include).toContain("/_agent-native/*");
+    expect(routes.include).toContain("/.well-known/*");
+    expect(routes.include).toContain("/favicon.ico");
     expect(routes.include).toContain("/dispatch/*");
     expect(routes.include).toContain("/starter/*");
 
@@ -596,7 +601,10 @@ describe("workspace deploy", () => {
       'return Response.redirect(new URL("/dispatch/overview", request.url).toString(), 302);',
     );
     expect(worker).toContain(
-      'if (pathname === "/_agent-native" || pathname.startsWith("/_agent-native/")) return app_dispatch.fetch(request, env, ctx);',
+      'if (pathname === "/_agent-native" || pathname.startsWith("/_agent-native/") || pathname === "/.well-known" || pathname.startsWith("/.well-known/")) return app_dispatch.fetch(request, env, ctx);',
+    );
+    expect(worker).toContain(
+      'if (pathname === "/favicon.ico") return Response.redirect(new URL("/dispatch/favicon.ico", request.url).toString(), 302);',
     );
     expect(worker).toContain(
       'if (pathname === "/dispatch" || pathname.startsWith("/dispatch/")) return app_dispatch.fetch(request, env, ctx);',
@@ -620,12 +628,16 @@ describe("workspace deploy", () => {
       fs.readFileSync(path.join(tmpDir, "dist", "_routes.json"), "utf-8"),
     ) as { include: string[] };
     expect(routes.include).not.toContain("/_agent-native/*");
+    expect(routes.include).not.toContain("/.well-known/*");
+    expect(routes.include).not.toContain("/favicon.ico");
 
     const worker = fs.readFileSync(
       path.join(tmpDir, "dist", "_worker.js"),
       "utf-8",
     );
     expect(worker).not.toContain('pathname === "/_agent-native"');
+    expect(worker).not.toContain('pathname === "/.well-known"');
+    expect(worker).not.toContain('pathname === "/favicon.ico"');
   });
 });
 

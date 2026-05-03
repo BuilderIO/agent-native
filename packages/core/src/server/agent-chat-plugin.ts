@@ -6,7 +6,11 @@ import {
   ensureRequestRunContext,
 } from "./request-context.js";
 import { getSetting, putSetting } from "../settings/store.js";
-import { getH3App, trackPluginInit } from "./framework-request-handler.js";
+import {
+  getH3App,
+  markDefaultPluginProvided,
+  trackPluginInit,
+} from "./framework-request-handler.js";
 import {
   createProductionAgentHandler,
   runAgentLoop,
@@ -2106,6 +2110,7 @@ export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
   return (nitroApp: any) => {
+    markDefaultPluginProvided(nitroApp, "agent-chat");
     // Nitro v3 calls plugins synchronously and doesn't await async return
     // values. We track the async init so the framework's readiness gate
     // holds /_agent-native requests until routes are registered.

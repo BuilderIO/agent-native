@@ -660,4 +660,96 @@ describe("integration webhook handler engine resolution", () => {
       expect.objectContaining({ placeholderRef: undefined }),
     );
   });
+
+  it("does not send hallucinated local design URLs to Slack-style integrations", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const previousAppUrl = process.env.APP_URL;
+    process.env.APP_URL = "https://design.agent.test";
+    const sendResponse = vi.fn();
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "text",
+        text: "Done: https://design.agent.test/design/DSyLeIdyBc9p_drm40Tfp",
+      });
+    });
+
+    try {
+      await processIntegrationTask(pendingTask({ id: "task-false-design" }), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      });
+    } finally {
+      if (previousAppUrl === undefined) {
+        delete process.env.APP_URL;
+      } else {
+        process.env.APP_URL = previousAppUrl;
+      }
+    }
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("could not verify the design URL"),
+      }),
+      expect.any(Object),
+      expect.objectContaining({ placeholderRef: undefined }),
+    );
+    expect(sendResponse.mock.calls[0][0].text).not.toContain(
+      "DSyLeIdyBc9p_drm40Tfp",
+    );
+  });
+
+  it("adds real design URLs to Slack-style integration replies after generate-design succeeds", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const previousAppUrl = process.env.APP_URL;
+    process.env.APP_URL = "https://design.agent.test";
+    const sendResponse = vi.fn();
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_done",
+        tool: "create-design",
+        result: JSON.stringify({ id: "design_123", title: "Prototype" }),
+      });
+      send({
+        type: "tool_done",
+        tool: "generate-design",
+        result: JSON.stringify({
+          designId: "design_123",
+          savedFiles: [{ id: "file_1", filename: "index.html" }],
+          fileCount: 1,
+        }),
+      });
+      send({ type: "text", text: "The prototype is ready." });
+    });
+
+    try {
+      await processIntegrationTask(pendingTask({ id: "task-real-design" }), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      });
+    } finally {
+      if (previousAppUrl === undefined) {
+        delete process.env.APP_URL;
+      } else {
+        process.env.APP_URL = previousAppUrl;
+      }
+    }
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining(
+          "https://design.agent.test/design/design_123",
+        ),
+      }),
+      expect.any(Object),
+      expect.objectContaining({ placeholderRef: undefined }),
+    );
+  });
 });
