@@ -241,7 +241,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(appPkg.dependencies?.postgres).toBeDefined();
   });
 
-  it("writes inherited starter auth/chat wrappers so workspace-core plugins can override defaults", async () => {
+  it("writes inherited starter auth/chat wrappers while preserving app identity", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["starter"]);
     const authPlugin = fs.readFileSync(
       path.join(wsDir, "apps", "starter", "server", "plugins", "auth.ts"),
@@ -255,7 +255,9 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(authPlugin).toContain("@my-ws/shared/server");
     expect(authPlugin).toContain("defaultAuthPlugin");
     expect(agentChatPlugin).toContain("@my-ws/shared/server");
-    expect(agentChatPlugin).toContain("defaultAgentChatPlugin");
+    expect(agentChatPlugin).toContain("createWorkspaceAgentChatPlugin");
+    expect(agentChatPlugin).toContain('appId: "starter"');
+    expect(agentChatPlugin).toContain("loadActionsFromStaticRegistry");
   });
 
   it("resolves @agent-native/core at the workspace root for the gateway", async () => {
@@ -289,6 +291,20 @@ describe("workspace add-app scaffold", { timeout: 60000 }, () => {
     expect(root).toContain('app: "crm"');
     expect(root).toContain('template: "starter"');
     expect(root).not.toContain('app: "agent-native-starter"');
+
+    const agentChatPlugin = fs.readFileSync(
+      path.join(
+        tmpDir,
+        "my-ws",
+        "apps",
+        "crm",
+        "server",
+        "plugins",
+        "agent-chat.ts",
+      ),
+      "utf-8",
+    );
+    expect(agentChatPlugin).toContain('appId: "crm"');
   });
 });
 

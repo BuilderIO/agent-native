@@ -128,10 +128,11 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
       fileName: "auth.ts",
       exportName: "defaultAuthPlugin",
     });
-    writeInheritedStarterPlugin(appDir, workspaceCoreName, {
-      fileName: "agent-chat.ts",
-      exportName: "defaultAgentChatPlugin",
-    });
+    writeInheritedStarterAgentChatPlugin(
+      appDir,
+      workspaceCoreName,
+      opts.appName,
+    );
   }
 }
 
@@ -154,6 +155,39 @@ function writeInheritedStarterPlugin(
       'export default typeof workspacePlugin === "function"',
       "  ? workspacePlugin",
       "  : frameworkDefault;",
+      "",
+    ].join("\n"),
+  );
+}
+
+function writeInheritedStarterAgentChatPlugin(
+  appDir: string,
+  workspaceCoreName: string,
+  appId: string,
+): void {
+  const pluginsDir = path.join(appDir, "server", "plugins");
+  fs.mkdirSync(pluginsDir, { recursive: true });
+  const pluginPath = path.join(pluginsDir, "agent-chat.ts");
+  fs.writeFileSync(
+    pluginPath,
+    [
+      `import {`,
+      `  createAgentChatPlugin,`,
+      `  loadActionsFromStaticRegistry,`,
+      `  type AgentChatPluginOptions,`,
+      `} from "@agent-native/core/server";`,
+      `import * as workspaceServer from ${JSON.stringify(`${workspaceCoreName}/server`)};`,
+      `import actionsRegistry from "../../.generated/actions-registry.js";`,
+      "",
+      `const createWorkspaceAgentChatPlugin = (workspaceServer as Record<string, unknown>).createWorkspaceAgentChatPlugin;`,
+      `const options = {`,
+      `  appId: ${JSON.stringify(appId)},`,
+      `  actions: loadActionsFromStaticRegistry(actionsRegistry),`,
+      `} satisfies AgentChatPluginOptions;`,
+      "",
+      `export default typeof createWorkspaceAgentChatPlugin === "function"`,
+      `  ? (createWorkspaceAgentChatPlugin as (options: AgentChatPluginOptions) => unknown)(options)`,
+      `  : createAgentChatPlugin(options);`,
       "",
     ].join("\n"),
   );
