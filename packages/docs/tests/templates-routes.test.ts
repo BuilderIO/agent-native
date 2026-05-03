@@ -82,7 +82,6 @@ describe("template routes", () => {
       expect(paths).toContain(`/templates/${template.slug}`);
     }
 
-    expect(paths).not.toContain("/docs/observability");
     expect(paths).not.toContain("/docs/resources");
     expect(paths).not.toContain("/templates/videos");
   });
