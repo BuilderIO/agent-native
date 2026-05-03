@@ -36,6 +36,7 @@ export async function signA2AToken(
   email: string,
   orgDomain?: string,
   orgSecret?: string,
+  options?: { expiresIn?: string | number },
 ): Promise<string> {
   const secret = orgSecret || process.env.A2A_SECRET;
   if (!secret) {
@@ -57,7 +58,7 @@ export async function signA2AToken(
     .setProtectedHeader({ alg: "HS256" })
     .setIssuer(appUrl)
     .setIssuedAt()
-    .setExpirationTime("15m")
+    .setExpirationTime(options?.expiresIn ?? "15m")
     .sign(new TextEncoder().encode(secret));
 }
 

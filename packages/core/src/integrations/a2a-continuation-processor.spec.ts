@@ -8,6 +8,14 @@ const failA2AContinuationMock = vi.hoisted(() => vi.fn());
 const getA2AContinuationMock = vi.hoisted(() => vi.fn());
 const rescheduleA2AContinuationMock = vi.hoisted(() => vi.fn());
 const getTaskMock = vi.hoisted(() => vi.fn());
+const signA2ATokenMock = vi.hoisted(() =>
+  vi.fn(async () => "signed-a2a-token"),
+);
+const A2AClientMock = vi.hoisted(() =>
+  vi.fn().mockImplementation(function A2AClient() {
+    return { getTask: getTaskMock };
+  }),
+);
 
 vi.mock("./a2a-continuations-store.js", () => ({
   claimA2AContinuation: claimA2AContinuationMock,
@@ -19,10 +27,8 @@ vi.mock("./a2a-continuations-store.js", () => ({
 }));
 
 vi.mock("../a2a/client.js", () => ({
-  A2AClient: vi.fn().mockImplementation(function A2AClient() {
-    return { getTask: getTaskMock };
-  }),
-  signA2AToken: vi.fn(async () => "signed-a2a-token"),
+  A2AClient: A2AClientMock,
+  signA2AToken: signA2ATokenMock,
 }));
 
 vi.mock("./internal-token.js", () => ({
@@ -51,6 +57,7 @@ function continuation(
     agentName: "Slides",
     agentUrl: "https://slides.agent-native.test",
     a2aTaskId: "a2a-task-1",
+    a2aAuthToken: null,
     status: "processing",
     attempts: 1,
     nextCheckAt: 1,
@@ -190,6 +197,48 @@ describe("A2A continuation processor", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("reuses the original A2A bearer token stored on the continuation", async () => {
+    const sendResponse = vi.fn(async () => undefined);
+    claimA2AContinuationMock.mockResolvedValueOnce(
+      continuation({ a2aAuthToken: "original-a2a-token" }),
+    );
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(A2AClientMock).toHaveBeenCalledWith(
+      "https://slides.agent-native.test",
+      "original-a2a-token",
+      { requestTimeoutMs: 25_000 },
+    );
+    expect(signA2ATokenMock).not.toHaveBeenCalled();
+    expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+  });
+
+  it("preserves an originally unsigned A2A call when polling a continuation", async () => {
+    const sendResponse = vi.fn(async () => undefined);
+    claimA2AContinuationMock.mockResolvedValueOnce(
+      continuation({ a2aAuthToken: "" }),
+    );
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(A2AClientMock).toHaveBeenCalledWith(
+      "https://slides.agent-native.test",
+      undefined,
+      { requestTimeoutMs: 25_000 },
+    );
+    expect(signA2ATokenMock).not.toHaveBeenCalled();
+    expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+  });
+
   it("notifies the platform when the remote task fails", async () => {
     const sendResponse = vi.fn(async () => undefined);
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());
@@ -299,6 +348,33 @@ describe("A2A continuation processor", () => {
     );
     getTaskMock.mockRejectedValueOnce(
       new DOMException("This operation was aborted", "AbortError"),
+    );
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(failA2AContinuationMock).not.toHaveBeenCalled();
+    expect(rescheduleA2AContinuationMock).toHaveBeenCalledWith("cont-1", 5_000);
+    expect(fetch).toHaveBeenCalledWith(
+      "https://dispatch.agent-native.test/_agent-native/integrations/process-a2a-continuation",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ continuationId: "cont-1" }),
+      }),
+    );
+  });
+
+  it("treats A2A token rejection during polling as transient until the remote work deadline", async () => {
+    const sendResponse = vi.fn(async () => undefined);
+    claimA2AContinuationMock.mockResolvedValueOnce(continuation());
+    getTaskMock.mockRejectedValueOnce(
+      new Error(
+        'A2A request failed (401): {"error":{"message":"Invalid or expired A2A token"}}',
+      ),
     );
     const { processA2AContinuationById } =
       await import("./a2a-continuation-processor.js");

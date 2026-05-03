@@ -21,6 +21,7 @@ async function ensureTable(): Promise<void> {
           agent_name TEXT NOT NULL,
           agent_url TEXT NOT NULL,
           a2a_task_id TEXT NOT NULL,
+          a2a_auth_token TEXT,
           status TEXT NOT NULL,
           attempts ${intType()} NOT NULL DEFAULT 0,
           next_check_at ${intType()} NOT NULL,
@@ -36,6 +37,13 @@ async function ensureTable(): Promise<void> {
       await client.execute(
         `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_remote_task ON integration_a2a_continuations(integration_task_id, agent_url, a2a_task_id)`,
       );
+      try {
+        await client.execute(
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN a2a_auth_token TEXT`,
+        );
+      } catch {
+        // Column already exists.
+      }
     })();
   }
   return _initPromise;
@@ -59,6 +67,7 @@ export interface A2AContinuation {
   agentName: string;
   agentUrl: string;
   a2aTaskId: string;
+  a2aAuthToken: string | null;
   status: A2AContinuationStatus;
   attempts: number;
   nextCheckAt: number;
@@ -81,6 +90,7 @@ function rowToContinuation(row: Record<string, unknown>): A2AContinuation {
     agentName: row.agent_name as string,
     agentUrl: row.agent_url as string,
     a2aTaskId: row.a2a_task_id as string,
+    a2aAuthToken: (row.a2a_auth_token as string | null) ?? null,
     status: row.status as A2AContinuationStatus,
     attempts: Number(row.attempts ?? 0),
     nextCheckAt: Number(row.next_check_at ?? 0),
@@ -103,6 +113,7 @@ export async function insertA2AContinuation(input: {
   agentName: string;
   agentUrl: string;
   a2aTaskId: string;
+  a2aAuthToken?: string | null;
 }): Promise<A2AContinuation> {
   await ensureTable();
   const client = getDbExec();
@@ -114,9 +125,9 @@ export async function insertA2AContinuation(input: {
     await client.execute({
       sql: `INSERT INTO integration_a2a_continuations
         (id, integration_task_id, platform, external_thread_id, incoming_payload,
-         placeholder_ref, owner_email, org_id, agent_name, agent_url, a2a_task_id,
+         placeholder_ref, owner_email, org_id, agent_name, agent_url, a2a_task_id, a2a_auth_token,
          status, attempts, next_check_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         id,
         input.integrationTaskId,
@@ -129,6 +140,7 @@ export async function insertA2AContinuation(input: {
         input.agentName,
         input.agentUrl,
         input.a2aTaskId,
+        input.a2aAuthToken ?? null,
         "pending",
         0,
         now,
