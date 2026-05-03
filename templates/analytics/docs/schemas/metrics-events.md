@@ -10,7 +10,7 @@ BigQuery table for **content SDK analytics** (impressions, clicks, conversions).
 | Column              | Type      | Description                                      |
 | ------------------- | --------- | ------------------------------------------------ |
 | `TYPE`              | STRING    | Event type: `impression`, `click`, `conversion`  |
-| `CONTENT_ID`        | STRING    | Builder content entry ID                         |
+| `CONTENT_ID`        | STRING    | Content entry ID                                 |
 | `OWNER_ID`          | STRING    | Organization public API key                      |
 | `SESSION_ID`        | STRING    | Visitor session identifier                       |
 | `VISITOR_ID`        | STRING    | Persistent visitor identifier                    |

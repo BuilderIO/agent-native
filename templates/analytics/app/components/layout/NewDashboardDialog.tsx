@@ -28,7 +28,7 @@ export function NewDashboardDialog() {
         "Optional config: { xKey, yKey, yKeys, color, colors, yFormatter ('number'|'currency'|'percent'), description }. " +
         "For first-party analytics, source is 'first-party' and sql may read analytics_events only; do not use db-query for datasource panels. " +
         "First check /_agent-native/env-status to see which data sources are connected. " +
-        "Refer to .builder/skills/<provider>/SKILL.md for SQL patterns and table names. " +
+        "Refer to AGENTS.md, .agents/skills, the data dictionary, and connected data-source instructions for SQL patterns and table names. " +
         "NO code files need to be created — only the dashboard config JSON via the API. " +
         "After saving, the dashboard will be accessible at /adhoc/{id}.",
       submit: true,

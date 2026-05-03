@@ -6,7 +6,7 @@ WITH visitors AS (
   SELECT
     DATE_TRUNC(DATE(created_date), WEEK) AS week,
     COUNT(DISTINCT visitor_id) AS unique_visitors
-  FROM `your-gcp-project-id.dbt_staging_bigquery.all_pageviews`
+  FROM `@project.analytics.pageviews`
   WHERE DATE(created_date) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH) AND CURRENT_DATE()
     AND created_date <= CURRENT_TIMESTAMP()
   GROUP BY week
@@ -15,7 +15,7 @@ signups AS (
   SELECT
     DATE_TRUNC(DATE(user_create_d), WEEK) AS week,
     COUNT(DISTINCT user_id) AS total_signups
-  FROM `your-gcp-project-id.dbt_analytics.product_signups`
+  FROM `@project.analytics.signups`
   WHERE DATE(user_create_d) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH) AND CURRENT_DATE()
     AND user_create_d <= CURRENT_TIMESTAMP()
   GROUP BY week

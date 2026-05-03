@@ -1051,6 +1051,15 @@ function ensureRedirect(
   return content.trimEnd() + "\n" + block + "\n";
 }
 
+function removeRedirect(content: string, from: string): string {
+  const escapedFrom = from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const redirectPattern = new RegExp(
+    `\\n?\\[\\[redirects\\]\\]\\s+from\\s*=\\s*"${escapedFrom}"\\s+to\\s*=\\s*"[^"]*"\\s+status\\s*=\\s*\\d+(?:\\s+force\\s*=\\s*(?:true|false))?`,
+    "gm",
+  );
+  return content.replace(redirectPattern, "").replace(/\n{3,}/g, "\n\n");
+}
+
 function addWorkspaceMountNetlifyConfig(
   content: string,
   appName: string,
@@ -1069,12 +1078,7 @@ function addWorkspaceMountNetlifyConfig(
     for (const [from, to] of DISPATCH_WORKSPACE_ROOT_REDIRECTS) {
       next = ensureRedirect(next, `/${from}`, `/dispatch/${to}`, 302);
     }
-    next = ensureRedirect(
-      next,
-      "/dispatch/*",
-      "/.netlify/functions/server",
-      200,
-    );
+    next = removeRedirect(next, "/dispatch/*");
   }
 
   return next;

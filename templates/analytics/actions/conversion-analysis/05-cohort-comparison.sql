@@ -65,8 +65,8 @@ cohort_metrics AS (
     ) * 100, 1) AS icp_signup_pct
     
   FROM cohort_definitions cd
-  CROSS JOIN `your-gcp-project-id.dbt_staging_bigquery.all_pageviews` pv
-  LEFT JOIN `your-gcp-project-id.dbt_analytics.product_signups` ps
+  CROSS JOIN `@project.analytics.pageviews` pv
+  LEFT JOIN `@project.analytics.signups` ps
     ON pv.visitor_id = ps.user_id
     AND DATE(ps.user_create_d) BETWEEN cd.start_date AND cd.end_date
   LEFT JOIN (
@@ -79,7 +79,7 @@ cohort_metrics AS (
         visitor_id,
         page_type,
         ROW_NUMBER() OVER (PARTITION BY visitor_id ORDER BY created_date ASC) AS rn
-      FROM `your-gcp-project-id.dbt_staging_bigquery.all_pageviews`
+      FROM `@project.analytics.pageviews`
     )
     WHERE rn = 1
   ) fp ON pv.visitor_id = fp.visitor_id
@@ -89,7 +89,7 @@ cohort_metrics AS (
       visitor_id,
       session_id,
       COUNT(*) AS pageviews_per_session
-    FROM `your-gcp-project-id.dbt_staging_bigquery.all_pageviews`
+    FROM `@project.analytics.pageviews`
     GROUP BY visitor_id, session_id
   ) session_pageviews ON pv.visitor_id = session_pageviews.visitor_id
   WHERE DATE(pv.created_date) BETWEEN cd.start_date AND cd.end_date
@@ -139,8 +139,8 @@ temporal_patterns AS (
     COUNT(DISTINCT ps.user_id) AS signups,
     SAFE_DIVIDE(COUNT(DISTINCT ps.user_id), COUNT(DISTINCT pv.visitor_id)) AS conversion_rate
   FROM cohort_definitions cd
-  CROSS JOIN `your-gcp-project-id.dbt_staging_bigquery.all_pageviews` pv
-  LEFT JOIN `your-gcp-project-id.dbt_analytics.product_signups` ps
+  CROSS JOIN `@project.analytics.pageviews` pv
+  LEFT JOIN `@project.analytics.signups` ps
     ON pv.visitor_id = ps.user_id
     AND DATE(ps.user_create_d) BETWEEN cd.start_date AND cd.end_date
   WHERE DATE(pv.created_date) BETWEEN cd.start_date AND cd.end_date

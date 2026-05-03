@@ -201,7 +201,7 @@ function PanelEditorContent({
         `For amplitude panels, sql is a JSON descriptor: {"event":"event name","groupBy":"property","days":30}. ` +
         `For first-party panels, sql is read-only SQL over analytics_events only; use source 'first-party' and do not call db-query for this datasource. ` +
         `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), description, columns, pivot, limit }. ` +
-        `Consult the data dictionary first via \`list-data-dictionary --search <topic>\`, then read the relevant \`.builder/skills/<provider>/SKILL.md\` before writing SQL. ` +
+        `Consult the data dictionary first via \`list-data-dictionary --search <topic>\`, then use AGENTS.md, .agents/skills, and connected data-source instructions before writing SQL. ` +
         `Every BigQuery panel is dry-run validated on save — if columns/tables are wrong the save returns a 400 with the BQ error and you must fix the SQL and retry. ` +
         `After the panel saves, call \`refresh-screen\` so the UI picks up the change.`,
       submit: true,
