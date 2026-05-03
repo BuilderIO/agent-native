@@ -60,7 +60,7 @@ Agents become available for mentioning through several mechanisms:
 
 - **Custom workspace agents** — create agent profiles in the Workspace tab as `agents/*.md`
 - **Auto-discovery** — the framework automatically discovers connected agents running on known ports or configured URLs
-- **Remote manifests** — add connected-agent manifests as `agents/*.json`
+- **Remote manifests** — add connected-agent manifests as `remote-agents/*.json`
 
 ### Custom workspace agents
 
@@ -91,7 +91,7 @@ You can create them from the Workspace tab using:
 Remote A2A agents still use JSON manifests:
 
 ```json
-// agents/analytics.json
+// remote-agents/analytics.json
 {
   "name": "Analytics Agent",
   "url": "https://analytics.example.com",

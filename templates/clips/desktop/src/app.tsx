@@ -266,6 +266,16 @@ export function App() {
     checkAuth();
   }, [checkAuth]);
 
+  // Push the current server URL to the Rust meetings watcher so it can
+  // poll the backend for upcoming events. The watcher no-ops until this
+  // fires — we re-push on every server-url change so a settings tweak
+  // flows through immediately.
+  useEffect(() => {
+    invoke("meetings_watcher_set_server_url", { serverUrl }).catch(() => {
+      // Command may be missing on older builds — best-effort.
+    });
+  }, [serverUrl]);
+
   // OAuth (Google) opens in the system browser — the popover WebView can't
   // share a cookie jar with a separate Tauri WebviewWindow, and the old
   // approach of opening a WebView at the server root produced a blank window.

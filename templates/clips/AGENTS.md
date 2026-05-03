@@ -379,12 +379,22 @@ Auth is automatic and environment-driven:
 
 Use `getSession(event)` server-side and `useSession()` client-side. All per-user scoping uses `getRequestUserEmail()` from `@agent-native/core/server/request-context`.
 
+## Meetings & Wispr
+
+Clips also has a Granola-style **Meetings** tab (`/meetings`) and a **Wispr** tab (`/wispr`):
+
+- **Meetings** lists upcoming + past meetings synced from Google Calendar (or created ad-hoc), with a two-pane detail view: live transcript (left) + AI summary / bullets / per-attendee action items (right). Use `list-meetings`, `get-meeting`, `finalize-meeting`, `connect-calendar`, etc. Navigation state exposes `view: "meetings" | "meeting"` and `meetingId`.
+- **Wispr** is the dictation history: every Hold-Fn or Cmd+Shift+Space dictation is saved as a row, expandable to show original + AI-cleaned text. Use `list-dictations`, `cleanup-dictation`. Navigation state exposes `view: "wispr"` and `dictationId`.
+
+See the `meetings` skill for the full pattern, including the calendar empty-state CTA (mirrors `ConnectBuilderCard`) and the shared Gemini Flash-Lite cleanup pipeline (`cleanup-transcript`).
+
 ## Skills
 
 Read the skill files in `.agents/skills/` for detailed patterns:
 
 | Skill                 | When to read                                                      |
 | --------------------- | ----------------------------------------------------------------- |
+| `meetings`            | Meetings tab, Wispr tab, calendar connect, finalize-meeting       |
 | `recording`           | Before touching MediaRecorder, chunked upload, or permissions     |
 | `video-editing`       | Before modifying `editsJson`, building the editor, or export flow |
 | `ai-video-tools`      | Before adding any AI feature (titles, summaries, chapters, etc.)  |

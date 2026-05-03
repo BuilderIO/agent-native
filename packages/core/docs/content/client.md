@@ -158,7 +158,7 @@ function App() {
 | `queryClient` | `QueryClient?`   | React-query client for cache invalidation                         |
 | `queryKeys`   | `string[]?`      | Query key prefixes to invalidate. Default: `["file", "fileTree"]` |
 | `pollUrl`     | `string?`        | Poll endpoint URL. Default: `"/_agent-native/poll"`               |
-| `onEvent`     | `(data) => void` | Optional callback for each SSE event                              |
+| `onEvent`     | `(data) => void` | Optional callback when a poll detects a newer sync version        |
 
 ## cn(...inputs) {#cn}
 

@@ -13,3 +13,31 @@ registerShareableResource({
   titleColumn: "title",
   getDb,
 });
+
+registerShareableResource({
+  type: "meeting",
+  resourceTable: schema.meetings,
+  sharesTable: schema.meetingShares,
+  displayName: "Meeting",
+  titleColumn: "title",
+  getDb,
+});
+
+registerShareableResource({
+  type: "calendar-account",
+  resourceTable: schema.calendarAccounts,
+  sharesTable: schema.calendarAccountShares,
+  displayName: "Calendar account",
+  titleColumn: "displayName",
+  getDb,
+});
+
+registerShareableResource({
+  type: "dictation",
+  resourceTable: schema.dictations,
+  sharesTable: schema.dictationShares,
+  displayName: "Dictation",
+  // Dictations don't have a meaningful title field — fall back to id.
+  titleColumn: "id",
+  getDb,
+});

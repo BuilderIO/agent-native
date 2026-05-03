@@ -124,7 +124,7 @@ User edits (track values, parameter values, prop overrides, composition settings
 
 The agent always knows which composition you have open. Navigation state (`{ view, compositionId }`) is written to the framework's `application_state` table, and the `view-screen` action returns it plus a hint pointing at `app/remotion/registry.ts`. You don't have to tell the agent which composition you're on — ask it to act on "this one" and it will.
 
-Under the hood the agent calls actions like `navigate`, `create-composition`, `generate-animated-component`, and edits `app/remotion/registry.ts` and `app/remotion/compositions/*.tsx` directly. Every change shows up in the timeline.
+Under the hood the agent calls actions like `navigate`, `save-composition`, and `generate-animated-component`. SQL-backed composition records are created or updated through `save-composition`; code-backed Remotion components still live in `app/remotion/compositions/*.tsx` and are registered in `app/remotion/registry.ts`.
 
 ### Data model
 
@@ -151,10 +151,10 @@ The template folder is `templates/videos/` (the user-facing slug is `video`, but
 
 - `view-screen.ts` — returns current navigation state for the agent.
 - `navigate.ts` — navigate to a composition (`--compositionId <id>`) or the home view (`--view home`).
-- `create-composition.ts` — scaffold a new composition with the standard camera and cursor tracks.
-- `generate-animated-component.ts` — generate a new animated component file with boilerplate.
+- `save-composition.ts` — create or update a SQL-backed composition record.
+- `generate-animated-component.ts` — generate a new Remotion component file with boilerplate.
 - `validate-compositions.ts` — check all registered compositions for structural problems.
-- `list-compositions.ts`, `get-composition.ts`, `update-composition.ts`, `delete-composition.ts`, `save-composition.ts` — CRUD over the SQL table.
+- `list-compositions.ts`, `get-composition.ts`, `update-composition.ts`, `delete-composition.ts` — read, update, and delete SQL-backed composition records.
 
 **Routes** — `templates/videos/app/routes/`
 

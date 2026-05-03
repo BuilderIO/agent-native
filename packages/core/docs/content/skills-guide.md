@@ -53,7 +53,7 @@ Create a skill when:
 Don't create a skill when:
 
 - The guidance already exists in another skill — extend it instead
-- The guidance is a one-off — put it in `AGENTS.md` or `learnings.md` instead
+- The guidance is a one-off — put it in `AGENTS.md` or workspace memory instead
 
 ## Skill format {#skill-format}
 
@@ -110,6 +110,6 @@ Save the file at `.agents/skills/my-skill/SKILL.md`. The directory name should m
 
 > **Skills** — Authored, reusable how-to guides. Apply to every user, invoked on demand when the task matches.
 >
-> **Memory (`learnings.md`)** — Per-user notes the agent writes automatically from corrections and preferences. Loaded every turn.
+> **Memory (`LEARNINGS.md` / `memory/MEMORY.md`)** — Shared project learnings and personal structured memory loaded every turn.
 
-If the knowledge applies to _everyone_ working in the app ("always prefer CTEs over subqueries"), it's a skill. If it's about _this particular user_ ("Steve likes concise answers"), it belongs in `learnings.md` — and the agent will put it there itself the next time you correct it. See [Agent Memory (`learnings.md`)](./resources.md#learnings-md) for the full treatment.
+If the knowledge applies to _everyone_ working in the app ("always prefer CTEs over subqueries"), it's a skill or shared `LEARNINGS.md`. If it's about _this particular user_ ("Steve likes concise answers"), it belongs in `memory/MEMORY.md`. See [Workspace Memory](/docs/workspace#memory) for the full treatment.

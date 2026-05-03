@@ -41,7 +41,7 @@ The framework provides type-safe APIs so you never deal with raw messaging:
 
 1. **Agent chat** — use `sendToAgentChat()` to send messages to the agent
 2. **Generation state** — use `useAgentChatGenerating()` to track when the agent is running
-3. **File watching** — SSE endpoint keeps UI in sync when the agent modifies files
+3. **Polling sync** — database-backed sync keeps UI caches fresh when the agent changes state
 4. **Action system** — `pnpm action <name>` dispatches to callable actions
 
 Your app code is identical regardless of how the agent is provided.

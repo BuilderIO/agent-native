@@ -10,7 +10,7 @@ export const meta = () => [
   {
     name: "description",
     content:
-      "Build, edit, and manage forms with AI. Open source alternative to Typeform and Google Forms. Generate forms from a prompt, customize visually, and let an agent triage submissions and route follow-ups.",
+      "Build, edit, and manage forms with AI. Open source alternative to Typeform and Google Forms. Generate forms from a prompt, customize visually, and route submissions to Slack, Discord, Google Sheets, or webhooks.",
   },
   {
     property: "og:title",
@@ -20,12 +20,12 @@ export const meta = () => [
   {
     property: "og:description",
     content:
-      "Build forms with AI. Generate, customize, and automate submission handling — built on an agent you own.",
+      "Build forms with AI. Generate, customize, publish, and route submissions — built on an agent you own.",
   },
   {
     name: "keywords",
     content:
-      "AI form builder, Typeform alternative, open source Google Forms alternative, AI survey tool, AI form generator, agent-native forms, prompt to form, form automation, AI submission triage, customizable form builder",
+      "AI form builder, Typeform alternative, open source Google Forms alternative, AI survey tool, AI form generator, agent-native forms, prompt to form, form automation, form integrations, customizable form builder",
   },
 ];
 
@@ -126,8 +126,9 @@ export default function FormsTemplate() {
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
               Generate a full form from a prompt, refine fields
-              conversationally, and let the agent triage every submission. Own
-              your data and your workflow — no per-response fees.
+              conversationally, and route submissions to Slack, Discord, Google
+              Sheets, or webhooks. Own your data and your workflow — no
+              per-response fees.
             </p>
 
             <div className="mb-8 flex flex-wrap items-center gap-3">
@@ -186,12 +187,12 @@ export default function FormsTemplate() {
             {
               step: "2",
               title: "Generate",
-              desc: "The agent builds the form — fields, validation, branching logic, and a public page.",
+              desc: "The agent builds the form — fields, validation, options, and a public page.",
             },
             {
               step: "3",
-              title: "Automate",
-              desc: "Submissions flow into SQL. The agent triages, notifies, and routes follow-ups.",
+              title: "Route",
+              desc: "Submissions flow into SQL and can be sent to Slack, Discord, Google Sheets, or a webhook.",
             },
           ].map((s) => (
             <div key={s.step} className="text-center">
@@ -217,17 +218,15 @@ export default function FormsTemplate() {
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">All Field Types</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Text, email, phone, number, select, multi-select, file upload,
-              date/time, rating, signature.
+              Text, email, number, long text, select, multi-select, checkbox,
+              radio, date, rating, and scale.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">
-              Conditional Branching
-            </h3>
+            <h3 className="mb-1 text-sm font-semibold">Visual Field Editing</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Show or hide fields based on prior answers. Skip logic, dynamic
-              routing, multi-page flows.
+              Update labels, placeholders, options, required state, and field
+              order in the editor or by asking the agent.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -238,10 +237,12 @@ export default function FormsTemplate() {
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">AI Submission Triage</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              Submission Integrations
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              The agent reads every submission, tags it, drafts replies, and
-              routes high-priority entries to Slack or email.
+              Send structured submissions to Slack, Discord, Google Sheets, or a
+              webhook when each response arrives.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -272,7 +273,7 @@ export default function FormsTemplate() {
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
               Drag fields, edit labels, set validation. Or just describe the
-              change and the agent applies it on the canvas.
+              change and the agent updates the same form schema.
             </p>
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -338,13 +339,13 @@ export default function FormsTemplate() {
                 "Create a job application form"
               </div>
               <div className="text-[var(--fg-secondary)]">
-                "Add a resume upload field"
+                "Add a required experience level dropdown"
               </div>
               <div className="text-[var(--fg-secondary)]">
                 "Make the email field required"
               </div>
               <div className="text-[var(--fg-secondary)]">
-                "Notify me on Slack for senior applicants"
+                "Post each submission to Slack"
               </div>
             </div>
           </div>
@@ -395,12 +396,12 @@ export default function FormsTemplate() {
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Submission triage
+                  Submission integrations
                 </td>
                 <td className="px-5 py-3">Manual</td>
-                <td className="px-5 py-3">None</td>
+                <td className="px-5 py-3">Limited</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Agent tags, replies, routes
+                  Slack, Discord, Sheets, webhooks
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">

@@ -282,6 +282,190 @@ export const recordingViewers = table("recording_viewers", {
     .default(false),
 });
 
+// -----------------------------------------------------------------------------
+// Meetings (Granola-style) — recording + transcript + AI notes anchored to
+// a calendar event or an ad-hoc meeting block. Composes with the existing
+// `recordings` and `recording_transcripts` tables — a meeting "owns" the
+// recording it captures, but the recording row itself is the source of truth
+// for the audio/video and per-segment transcript.
+//
+// Ownable + shareable so meetings inherit the same per-user / per-org access
+// model as recordings.
+// -----------------------------------------------------------------------------
+
+export const meetings = table("meetings", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id"),
+  // Display fields
+  title: text("title").notNull().default("Untitled meeting"),
+  // ISO timestamps for scheduled span (set when sourced from calendar event)
+  scheduledStart: text("scheduled_start"),
+  scheduledEnd: text("scheduled_end"),
+  // ISO timestamps for actual recording span
+  actualStart: text("actual_start"),
+  actualEnd: text("actual_end"),
+  // Conferencing platform — adhoc means the user just hit record outside any
+  // scheduled meeting (e.g. an in-person huddle).
+  platform: text("platform", {
+    enum: ["zoom", "meet", "teams", "webex", "phone", "adhoc", "other"],
+  })
+    .notNull()
+    .default("adhoc"),
+  joinUrl: text("join_url"),
+  // Optional links to the calendar event that created this meeting and the
+  // recording row that captured it. NULL for ad-hoc meetings before they are
+  // recorded.
+  calendarEventId: text("calendar_event_id"),
+  recordingId: text("recording_id"),
+  // Free-form notes typed during the meeting (the user's "Granola notes pane").
+  userNotesMd: text("user_notes_md").notNull().default(""),
+  // AI cleanup pass results — populated by `finalize-meeting`.
+  transcriptStatus: text("transcript_status", {
+    enum: ["idle", "pending", "ready", "failed"],
+  })
+    .notNull()
+    .default("idle"),
+  summaryMd: text("summary_md").notNull().default(""),
+  // JSON array of `{ text }` bullets.
+  bulletsJson: text("bullets_json").notNull().default("[]"),
+  // JSON array of `{ assigneeEmail?, text, dueDate? }`.
+  actionItemsJson: text("action_items_json").notNull().default("[]"),
+  // Where this meeting originated.
+  source: text("source", {
+    enum: ["calendar", "adhoc", "manual"],
+  })
+    .notNull()
+    .default("adhoc"),
+  // Reminder bookkeeping so the desktop notifier doesn't fire twice.
+  reminderFiredAt: text("reminder_fired_at"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  archivedAt: text("archived_at"),
+  trashedAt: text("trashed_at"),
+  ...ownableColumns(),
+});
+
+export const meetingShares = createSharesTable("meeting_shares");
+
+export const meetingParticipants = table("meeting_participants", {
+  id: text("id").primaryKey(),
+  meetingId: text("meeting_id").notNull(),
+  email: text("email").notNull(),
+  name: text("name"),
+  isOrganizer: integer("is_organizer", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  // ISO timestamp of when the participant actually attended (joined the
+  // recording / spoke). Null until detected.
+  attendedAt: text("attended_at"),
+  createdAt: text("created_at").notNull().default(now()),
+});
+
+export const meetingActionItems = table("meeting_action_items", {
+  id: text("id").primaryKey(),
+  meetingId: text("meeting_id").notNull(),
+  assigneeEmail: text("assignee_email"),
+  text: text("text").notNull(),
+  // ISO date for when the action is due (no time component required).
+  dueDate: text("due_date"),
+  completedAt: text("completed_at"),
+  createdAt: text("created_at").notNull().default(now()),
+});
+
+// -----------------------------------------------------------------------------
+// Calendar accounts + events — connected via OAuth (Google) or EventKit (iCloud).
+// Tokens are NEVER stored in this table; they live in encrypted `app_secrets`.
+// `accessTokenSecretRef` / `refreshTokenSecretRef` are pointers to those keys.
+// -----------------------------------------------------------------------------
+
+export const calendarAccounts = table("calendar_accounts", {
+  id: text("id").primaryKey(),
+  provider: text("provider", {
+    enum: ["google", "icloud", "microsoft"],
+  }).notNull(),
+  // External account identifier (e.g. Google profile id, iCloud user id).
+  externalAccountId: text("external_account_id").notNull(),
+  // Display fields cached from the provider.
+  displayName: text("display_name"),
+  email: text("email"),
+  // Pointer keys for tokens stored in app_secrets — NEVER store tokens here.
+  accessTokenSecretRef: text("access_token_secret_ref"),
+  refreshTokenSecretRef: text("refresh_token_secret_ref"),
+  // ISO timestamp of the last successful sync.
+  lastSyncedAt: text("last_synced_at"),
+  // Most recent sync error message (cleared on success).
+  lastSyncError: text("last_sync_error"),
+  status: text("status", {
+    enum: ["connected", "needs-reauth", "disconnected"],
+  })
+    .notNull()
+    .default("connected"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  ...ownableColumns(),
+});
+
+export const calendarAccountShares = createSharesTable(
+  "calendar_account_shares",
+);
+
+export const calendarEvents = table("calendar_events", {
+  id: text("id").primaryKey(),
+  calendarAccountId: text("calendar_account_id").notNull(),
+  // External event id from the provider (e.g. Google's `event.id`).
+  externalId: text("external_id").notNull(),
+  title: text("title").notNull().default(""),
+  description: text("description").notNull().default(""),
+  // ISO timestamps; using TEXT keeps the column dialect-portable.
+  start: text("start").notNull(),
+  end: text("end").notNull(),
+  organizerEmail: text("organizer_email"),
+  joinUrl: text("join_url"),
+  location: text("location"),
+  // JSON array of `{ email, name?, responseStatus? }`.
+  attendeesJson: text("attendees_json").notNull().default("[]"),
+  // Optional FK to the `meetings` row we created from this event. Lets us
+  // avoid duplicate meeting rows when the calendar refreshes.
+  meetingId: text("meeting_id"),
+  // ISO timestamp from the provider — used so updates don't clobber newer
+  // changes from the source calendar.
+  providerUpdatedAt: text("provider_updated_at"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+// -----------------------------------------------------------------------------
+// Dictations — Wispr-style press-and-hold dictation history. Each row is
+// one full press-and-hold session. Lives separately from `recording_*` so
+// the dictations tab can render fast without scanning the recordings table.
+// -----------------------------------------------------------------------------
+
+export const dictations = table("dictations", {
+  id: text("id").primaryKey(),
+  // Raw transcript text from the live native pipeline.
+  fullText: text("full_text").notNull().default(""),
+  // Optional cleaned-up text from `cleanup-dictation`.
+  cleanedText: text("cleaned_text"),
+  durationMs: integer("duration_ms").notNull().default(0),
+  // Optional uploaded audio URL for replay / re-transcription. Most dictations
+  // are text-only since native recognition runs on-device.
+  audioUrl: text("audio_url"),
+  source: text("source", {
+    enum: ["fn-hold", "cmd-shift-space", "manual", "other"],
+  })
+    .notNull()
+    .default("fn-hold"),
+  // Where the dictation was inserted, if known (e.g. an app bundle id).
+  targetApp: text("target_app"),
+  // ISO start timestamp for sorting / display.
+  startedAt: text("started_at").notNull().default(now()),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  ...ownableColumns(),
+});
+
+export const dictationShares = createSharesTable("dictation_shares");
+
 export const recordingEvents = table("recording_events", {
   id: text("id").primaryKey(),
   recordingId: text("recording_id").notNull(),

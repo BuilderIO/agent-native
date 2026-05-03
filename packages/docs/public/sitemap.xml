@@ -321,11 +321,6 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://agent-native.com/templates/starter</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
     <loc>https://agent-native.com/templates/video</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>

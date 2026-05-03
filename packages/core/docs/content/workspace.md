@@ -7,7 +7,7 @@ description: "Claude-Code-level customization per user — skills, memory, instr
 
 > **See also:** Deploying multiple apps as one workspace? See [Multi-App Workspaces](/docs/multi-app-workspace). Governance, branching, and CODEOWNERS? See [Workspace Governance](/docs/workspace-management).
 
-Every agent-native app ships with a **workspace**: the customization layer that makes the agent yours. It contains team instructions (`AGENTS.md`), per-user memory (`learnings.md`), skills the agent pulls in on demand, custom sub-agents, scheduled jobs, and connected MCP servers — everything you'd expect from a Claude Code / Codex setup.
+Every agent-native app ships with a **workspace**: the customization layer that makes the agent yours. It contains team instructions (`AGENTS.md`), shared learnings (`LEARNINGS.md`), personal structured memory (`memory/MEMORY.md`), skills the agent pulls in on demand, custom sub-agents, scheduled jobs, and connected MCP servers — everything you'd expect from a Claude Code / Codex setup.
 
 The twist: **it's SQL rows, not filesystem files.** Each user gets their own workspace stored in the database. There's no dev-box to spin up, no container per user, no files to mount. A multi-tenant SaaS can give every user a fully-customizable agent for essentially free, because all of it is rows — personal memory, personal MCP servers, personal skills, personal sub-agents — and the shared codebase hosts all of them at once.
 
@@ -17,7 +17,7 @@ The twist: **it's SQL rows, not filesystem files.** Each user gets their own wor
 | One codebase per developer       | One codebase, many users                           |
 | Needs a dev-box or container     | Runs on any serverless/edge host                   |
 | Customization at `~/.claude/`    | Customization per-user, scoped `u:<email>:…`       |
-| Per-project `CLAUDE.md` / skills | Per-app `AGENTS.md` + per-user `learnings.md`      |
+| Per-project `CLAUDE.md` / skills | Per-app `AGENTS.md` + workspace memory resources   |
 | MCP config in a JSON file        | MCP config in JSON _or_ the settings UI, per scope |
 
 Same capabilities. Different economics. See [Cloneable SaaS](/docs/cloneable-saas) for why this matters for SaaS.
@@ -32,19 +32,20 @@ The **Workspace** tab in the agent sidebar is where you and the agent share pers
 - Create files with the `+` menu. Upload with the upload button. Edit inline (visual or code view).
 - **Personal** is just you. **Shared** is your team/org.
 - The agent can read, write, and rename any of these files as part of a conversation.
-- Special files the agent always reads: `AGENTS.md` (team rules) and `learnings.md` (per-user memory the agent auto-updates when you correct it).
+- Special files the agent preloads: shared `AGENTS.md`, shared `LEARNINGS.md`, and personal structured memory at `memory/MEMORY.md`.
 
 ## What goes in here? {#what-goes-in-here}
 
-| File / path                 | What it's for                                                                                                  |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `AGENTS.md` (Shared)        | Team instructions the agent reads every turn — tone, rules, domain context, skill references.                  |
-| `learnings.md` (Personal)   | **Agent memory.** Per-user file the agent auto-writes to on corrections/preferences and auto-reads every turn. |
-| `skills/<name>.md`          | Focused domain guidance the agent pulls in on demand (invoked with `/` slash commands).                        |
-| `agents/<name>.md`          | **Custom agents** — reusable sub-agent profiles the agent can delegate to (invoked with `@` mentions).         |
-| `remote-agents/<name>.json` | A2A manifests for connected remote agents — edited via a form, not raw JSON.                                   |
-| `jobs/<name>.md`            | Scheduled tasks that run on a cron (see the recurring-jobs docs).                                              |
-| Anything else               | Notes, prompts, config, dataset snippets — any text file.                                                      |
+| File / path                 | What it's for                                                                                          |
+| --------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `AGENTS.md` (Shared)        | Team instructions the agent reads every turn — tone, rules, domain context, skill references.          |
+| `LEARNINGS.md` (Shared)     | Shared corrections, conventions, and durable project memory the agent preloads.                        |
+| `memory/MEMORY.md`          | Personal structured memory the chat preloads for the current user.                                     |
+| `skills/<name>.md`          | Focused domain guidance the agent pulls in on demand (invoked with `/` slash commands).                |
+| `agents/<name>.md`          | **Custom agents** — reusable sub-agent profiles the agent can delegate to (invoked with `@` mentions). |
+| `remote-agents/<name>.json` | A2A manifests for connected remote agents — edited via a form, not raw JSON.                           |
+| `jobs/<name>.md`            | Scheduled tasks that run on a cron (see the recurring-jobs docs).                                      |
+| Anything else               | Notes, prompts, config, dataset snippets — any text file.                                              |
 
 ## Overview {#overview}
 
@@ -95,7 +96,7 @@ Change how the agent behaves, in 60 seconds.
 - **Skills** (`+` → **Skill**) — focused how-to files invoked in chat with `/skill-name`.
 - **Agents** (`+` → **Agent**) — reusable sub-agent personas invoked with `@agent-name`.
 - **Scheduled Tasks** (`+` → **Scheduled Task**) — prompts that run on a cron.
-- **learnings.md** — your Personal file the agent auto-updates whenever you correct it.
+- **Memory** — shared `LEARNINGS.md` and personal `memory/MEMORY.md` keep durable context available across conversations.
 
 ## How the Agent Uses Resources {#how-the-agent-uses-resources}
 
@@ -126,11 +127,16 @@ Be concise. Lead with the answer.
 | data-analysis | `skills/data-analysis.md` | BigQuery and data workflows |
 ```
 
-### learnings.md — agent memory {#learnings-md}
+### Memory {#memory}
 
-`learnings.md` is the agent's long-term memory about _you_. It's a **Personal-scope** resource (one per user) that the agent auto-reads at the start of every conversation and auto-writes to whenever it picks up something worth remembering.
+The workspace has two current memory surfaces:
 
-**What gets saved.** When you correct the agent ("no, always use X instead of Y"), share a preference ("I prefer concise answers"), or reveal context ("my team calls this 'the dispatch layer'"), the agent appends the learning to `learnings.md` so it doesn't repeat the mistake or have to re-ask next time. This behavior lives in the framework system prompt (the `capture-learnings` skill spells out the rules for when and how).
+- `LEARNINGS.md` in **Shared** scope for project-wide conventions, corrections, and durable team knowledge.
+- `memory/MEMORY.md` in **Personal** scope for structured memory about the current user.
+
+The resource system also seeds a personal `LEARNINGS.md` for compatibility with older workspaces, but the chat preload path is shared `LEARNINGS.md` plus personal `memory/MEMORY.md`.
+
+**What gets saved.** When you correct the agent ("no, always use X instead of Y"), share a preference ("I prefer concise answers"), or reveal context ("my team calls this 'the dispatch layer'"), the agent can capture that learning so it doesn't repeat the mistake or have to re-ask next time. Project-wide learnings belong in shared `LEARNINGS.md`; user-specific memory belongs under `memory/`. This behavior lives in the framework system prompt and the `capture-learnings` skill spells out the rules for when and how.
 
 **What it looks like.**
 
@@ -152,13 +158,14 @@ Be concise. Lead with the answer.
 
 **Where it fits.**
 
-| Surface        | Scope    | Written by                | Read when                    |
-| -------------- | -------- | ------------------------- | ---------------------------- |
-| `AGENTS.md`    | Shared   | Humans / agent on request | Every turn                   |
-| `learnings.md` | Personal | Agent, automatically      | Every turn                   |
-| `skills/…`     | Shared   | Humans / agent on request | On demand (`/slash` command) |
+| Surface            | Scope    | Written by                | Read when                    |
+| ------------------ | -------- | ------------------------- | ---------------------------- |
+| `AGENTS.md`        | Shared   | Humans / agent on request | Every turn                   |
+| `LEARNINGS.md`     | Shared   | Humans / agent on request | Every turn                   |
+| `memory/MEMORY.md` | Personal | Agent / humans            | Every turn                   |
+| `skills/…`         | Shared   | Humans / agent on request | On demand (`/slash` command) |
 
-Users can edit `learnings.md` directly in the Workspace tab — it's a regular resource. Delete lines the agent got wrong or promote them into `AGENTS.md` if they apply to the whole team.
+Users can edit these memory files directly in the Workspace tab — they're regular resources. Delete lines the agent got wrong, keep personal preferences in `memory/MEMORY.md`, or promote team-wide rules into `AGENTS.md`.
 
 ## Skills {#skills}
 
@@ -222,7 +229,7 @@ Recommended conventions:
 There are two agent types in Workspace:
 
 - **Custom agents** — local profiles in `agents/*.md`, executed inside the current app/runtime
-- **Connected agents** — remote A2A peers described by manifests in `agents/*.json`
+- **Connected agents** — remote A2A peers described by manifests in `remote-agents/*.json` (legacy `agents/*.json` manifests are still recognized)
 
 Use custom agents for delegation within one app. Use connected agents when you need to call another app over A2A.
 
@@ -286,13 +293,13 @@ If no skills are configured, the dropdown shows a hint with a link to these docs
 
 The resource system works identically in both modes. The difference is what additional sources are available for `@` tagging and `/` commands:
 
-| Feature                  | Dev Mode                                                                | Production                                             |
-| ------------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------ |
-| @ tagging                | Codebase files + workspace resources + custom agents + connected agents | Workspace resources + custom agents + connected agents |
-| / slash commands         | .agents/skills/ + resource skills                                       | Resource skills only                                   |
-| Agent file access        | Filesystem + resources                                                  | Resources only                                         |
-| Workspace panel          | Full access                                                             | Full access                                            |
-| AGENTS.md / learnings.md | Available                                                               | Available                                              |
+| Feature            | Dev Mode                                                                | Production                                             |
+| ------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------ |
+| @ tagging          | Codebase files + workspace resources + custom agents + connected agents | Workspace resources + custom agents + connected agents |
+| / slash commands   | .agents/skills/ + resource skills                                       | Resource skills only                                   |
+| Agent file access  | Filesystem + resources                                                  | Resources only                                         |
+| Workspace panel    | Full access                                                             | Full access                                            |
+| AGENTS.md / memory | Available                                                               | Available                                              |
 
 ## Resource API {#resource-api}
 

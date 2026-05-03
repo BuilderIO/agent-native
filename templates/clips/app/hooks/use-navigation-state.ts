@@ -15,7 +15,10 @@ export type ClipsView =
   | "embed"
   | "insights"
   | "notifications"
-  | "settings";
+  | "settings"
+  | "meetings"
+  | "meeting"
+  | "wispr";
 
 export interface NavigationState {
   view: ClipsView;
@@ -25,6 +28,8 @@ export interface NavigationState {
   shareId?: string;
   search?: string;
   path?: string;
+  meetingId?: string;
+  dictationId?: string;
 }
 
 interface NavigateCommand extends Partial<NavigationState> {
@@ -93,6 +98,24 @@ function stateFromLocation(pathname: string, search: string): NavigationState {
     };
   }
 
+  // /meetings and /meetings/:meetingId
+  const meetingMatch = p.match(/^\/meetings(?:\/([^/]+))?$/);
+  if (meetingMatch) {
+    if (meetingMatch[1]) {
+      return { view: "meeting", meetingId: meetingMatch[1] };
+    }
+    return { view: "meetings" };
+  }
+
+  // /wispr (optionally /wispr/:dictationId in the future)
+  const wisprMatch = p.match(/^\/wispr(?:\/([^/]+))?$/);
+  if (wisprMatch) {
+    return {
+      view: "wispr",
+      ...(wisprMatch[1] ? { dictationId: wisprMatch[1] } : {}),
+    };
+  }
+
   if (p === "/spaces") return { view: "spaces" };
   if (p === "/archive") return { view: "archive" };
   if (p === "/trash") return { view: "trash" };
@@ -139,6 +162,12 @@ function pathFromCommand(cmd: NavigateCommand): string {
       return "/notifications";
     case "settings":
       return "/settings";
+    case "meetings":
+      return "/meetings";
+    case "meeting":
+      return cmd.meetingId ? `/meetings/${cmd.meetingId}` : "/meetings";
+    case "wispr":
+      return "/wispr";
     case "library":
     default:
       if (cmd.folderId) return `/library/folder/${cmd.folderId}`;

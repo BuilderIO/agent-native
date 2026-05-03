@@ -5,7 +5,7 @@ description: "Ask analytics questions in plain English, get charts and dashboard
 
 # Analytics
 
-Ask analytics questions in plain English, get charts and dashboards back. The agent connects to BigQuery, GA4, your app database, HubSpot, Jira, and a dozen other sources, writes the SQL for you, validates it, and renders the answer as a chart, table, or saved dashboard panel.
+Ask analytics questions in plain English, get charts and dashboards back. The agent connects to BigQuery, GA4, Amplitude, the built-in first-party event collector, HubSpot, Jira, and a dozen other sources, writes the query for you, validates it, and renders the answer as a chart, table, or saved dashboard panel.
 
 It's an open-source replacement for Amplitude, Mixpanel, and Looker — for teams that want to own the code, the queries, and the data.
 
@@ -26,7 +26,7 @@ When you first open the app:
 
 1. Sign in with Google.
 2. Open the **Data Sources** page from the sidebar.
-3. Each source has a walkthrough — connect the ones you need (start with one, like BigQuery or your app DB).
+3. Each source has a walkthrough — connect the ones you need (start with one, like BigQuery, GA4, Amplitude, or first-party tracking).
 4. Open a new chat with the agent and ask a question: "How many signups did we get last week?"
 
 The first question is enough to confirm the connection works. From there, ask the agent to "save this as a dashboard" or "build a 4-panel overview dashboard for our key metrics."
@@ -62,7 +62,7 @@ The rest of this doc is for anyone forking the Analytics template or extending i
 Create a new Analytics app from the CLI:
 
 ```bash
-npx @agent-native/cli create analytics
+pnpm dlx @agent-native/core create my-analytics --template analytics --standalone
 ```
 
 Local dev:
@@ -73,13 +73,13 @@ pnpm install
 pnpm dev
 ```
 
-The app runs at `http://localhost:3000`. Sign in with Google, then open the **Data Sources** page to connect BigQuery, HubSpot, Jira, and the rest.
+The CLI prints the local dev URL. Sign in with Google, then open the **Data Sources** page to connect BigQuery, GA4, first-party tracking, HubSpot, Jira, and the rest.
 
 ### Key features (technical)
 
 **Natural-language chart generation.** Ask the agent in plain English. It picks the right data source, writes the SQL, validates it against the warehouse, and renders the chart inline in chat or as a saved panel. Chart types: `line`, `area`, `bar`, `metric`, `table`, `pie`.
 
-**Reusable SQL dashboards.** Dashboards are a named config with an array of panels. Each panel has an `id`, `title`, `sql`, `source` (`bigquery` / `app-db` / `ga4`), `chartType`, and `width` (1 or 2 columns). See the full shape in `templates/analytics/app/pages/adhoc/sql-dashboard/types.ts`.
+**Reusable SQL dashboards.** Dashboards are a named config with an array of panels. Each panel has an `id`, `title`, `sql`, `source` (`bigquery` / `ga4` / `amplitude` / `first-party`), `chartType`, and `width` (1 or 2 columns). See the full shape in `templates/analytics/app/pages/adhoc/sql-dashboard/types.ts`.
 
 Dashboards support:
 
@@ -92,7 +92,9 @@ Dashboards support:
 
 **Living data dictionary.** Canonical catalog of metrics — metric name, definition, table, columns, SQL template, known gotchas, owner, and data lag. The agent reads it before writing any SQL, so it uses the real warehouse column names (`hs_is_closed`, not guessed `is_closed`) and knows about caveats like "excludes internal emails". Seeded by asking the agent to import definitions from an existing source (dbt descriptions, a Notion page, a team wiki).
 
-**SQL query explorer.** Direct SQL against BigQuery or the app DB from the **Ad-hoc** view. Useful for iterating on a query before saving it as a dashboard panel.
+**SQL query explorer.** Direct queries against BigQuery and supported analytics backends from the **Ad-hoc** view. Useful for iterating before saving a dashboard panel.
+
+**First-party analytics collector.** Hosted apps can send product and template events to `/track` with a public write key. Query those events through `query-agent-native-analytics` or dashboard panels with `source: "first-party"`.
 
 **Multiple data connectors.** Built-in actions for common sources:
 

@@ -72,7 +72,7 @@ Each template is a complete app with UI, agent actions, database schema, and AI 
 | [Video](/templates/video)           | video editing                                    |
 | [Analytics](/templates/analytics)   | Amplitude, Mixpanel, Looker                      |
 | [Clips](/templates/clips)           | Replaces Loom — screen + camera recording        |
-| [Design](/templates/design)         | Figma, Canva                                     |
+| [Design](/templates/design)         | HTML prototyping studios                         |
 | [Forms](/docs/template-forms)       | Typeform                                         |
 | [Dispatch](/docs/template-dispatch) | Workspace control plane — secrets, routing, jobs |
 | [Starter](/docs/template-starter)   | Minimal scaffold — build from scratch            |

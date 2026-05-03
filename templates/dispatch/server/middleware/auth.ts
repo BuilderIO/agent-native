@@ -48,6 +48,10 @@ function rootDispatchRedirect(
     return null;
   }
 
+  if (pathname === "/.well-known" || pathname.startsWith("/.well-known/")) {
+    return null;
+  }
+
   if (pathname === "/") {
     return new Response(null, {
       status: 302,

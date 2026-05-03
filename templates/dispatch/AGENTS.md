@@ -44,7 +44,7 @@ Use resources for:
 
 The UI writes:
 
-- `navigation.view`: `overview`, `apps`, `new-app`, `vault`, `integrations`, `workspace`, `destinations`, `identities`, `approvals`, `audit`, or `team`
+- `navigation.view`: `overview`, `apps`, `new-app`, `vault`, `integrations`, `messaging`, `workspace`, `destinations`, `identities`, `approvals`, `audit`, or `team`
 - `navigation.path`: current route path
 
 The agent can navigate with:
@@ -54,6 +54,7 @@ The agent can navigate with:
 - `navigate(view="new-app")`
 - `navigate(view="vault")`
 - `navigate(view="integrations")`
+- `navigate(view="messaging")`
 - `navigate(view="workspace")`
 - `navigate(view="destinations")`
 - `navigate(view="identities")`

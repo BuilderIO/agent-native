@@ -52,12 +52,12 @@ import { spawnTask } from "@agent-native/core/server";
 
 const task = await spawnTask({
   description: "Draft an outreach email to this lead",
-  instructions: "Match Steve's voice from learnings.md.",
+  instructions: "Match Steve's voice from memory/MEMORY.md.",
   ownerEmail: user.email,
   systemPrompt: mailAgentSystemPrompt,
   actions: mailActions,
   apiKey: process.env.ANTHROPIC_API_KEY!,
-  parentSend: emit, // SSE emit function for the parent chat stream
+  parentSend: emit, // streaming sender for the parent chat response
 });
 ```
 

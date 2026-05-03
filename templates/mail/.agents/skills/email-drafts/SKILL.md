@@ -1,6 +1,6 @@
 # Email Drafts
 
-Create, edit, and manage email drafts. Each draft is stored as an application state entry keyed `compose-{id}`. The UI watches for changes via SSE and updates the compose panel in real time.
+Create, edit, and manage email drafts. Each draft is stored as an application state entry keyed `compose-{id}`. The UI refreshes through the framework polling/query invalidation path and updates the compose panel automatically.
 
 ## Storage
 
@@ -53,8 +53,8 @@ Do NOT use raw HTML tags — use markdown only.
 
 ## How It Works
 
-1. **Write** `writeAppState("compose-{id}", draft)` — the store emits an SSE event
-2. **UI receives the event** — invalidates the `compose-drafts` React Query cache
+1. **Write** `writeAppState("compose-{id}", draft)` — the shared application state row changes
+2. **UI polling sees the change** — invalidates the `compose-drafts` React Query cache
 3. **Compose panel re-renders** — shows the updated draft as a tab, switches to it if new
 
 The compose panel opens automatically when any compose draft exists. When the last draft is deleted, the panel closes.

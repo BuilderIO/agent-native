@@ -181,6 +181,7 @@ export const TEMPLATES: TemplateMeta[] = [
     defaultMode: "prod",
     alwaysAvailable: true,
     core: true,
+    hidden: true,
   },
   {
     name: "clips",

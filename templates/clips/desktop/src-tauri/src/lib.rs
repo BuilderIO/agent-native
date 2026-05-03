@@ -7,10 +7,16 @@
 mod clips;
 mod config;
 mod debug;
+mod eventkit;
+mod meetings_watcher;
 mod native_speech;
+mod notifications;
+mod recording_indicator;
 mod shortcuts;
 mod state;
+mod system_audio;
 mod tray;
+mod tray_meetings;
 mod util;
 
 use tauri::{Emitter, Manager};
@@ -71,10 +77,25 @@ pub fn run() {
             native_speech::native_speech_start,
             native_speech::native_speech_stop,
             native_speech::native_speech_cancel,
+            // recording indicator (Granola-style pill)
+            recording_indicator::recording_pill_show,
+            recording_indicator::recording_pill_expand,
+            recording_indicator::recording_pill_hide,
+            // notifications
+            notifications::notify_meeting_starting,
+            // meetings watcher (background poller)
+            meetings_watcher::meetings_watcher_set_server_url,
+            // EventKit (iCloud calendar)
+            eventkit::eventkit_request_access,
+            eventkit::eventkit_list_events,
+            // system audio (stubbed — see system_audio.rs)
+            system_audio::system_audio_start,
+            system_audio::system_audio_stop,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .plugin(shortcuts::build_shortcut_plugin().build())
         .manage(TrayAnchor::default())
         .manage(PopoverShownAt::default())
@@ -84,6 +105,7 @@ pub fn run() {
         .manage(DictationActive::default())
         .manage(VoiceWakePopover::default())
         .manage(LastTranscript::default())
+        .manage(meetings_watcher::MeetingsWatcherState::default())
         .setup(|app| {
             // NOTE: we intentionally do NOT call set_activation_policy(Accessory)
             // in dev here. In unbundled dev runs, Accessory mode sometimes
@@ -98,6 +120,12 @@ pub fn run() {
             tray::build_tray(app)?;
             shortcuts::register_shortcuts(app)?;
             shortcuts::install_popover_dismiss_handler(app);
+
+            // Spawn the upcoming-meetings poller. Idempotent — gated by a
+            // OnceLock inside `spawn_watcher`. The frontend wires the
+            // server URL via `meetings_watcher_set_server_url` once the
+            // popover boots.
+            meetings_watcher::spawn_watcher(app.handle().clone());
 
             // Hide the popover on blur so it feels like a real menu-bar popover.
             // The 250ms guard is the important bit — during the tray-click

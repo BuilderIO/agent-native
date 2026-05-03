@@ -5,315 +5,347 @@ description: "How to create and publish your own agent-native app templates."
 
 # Creating Templates
 
-How to build and publish your own agent-native app template.
-
-## Overview {#overview}
-
-Templates are complete, forkable agent-native apps that solve a specific use case. The analytics, content, slides, and video templates that ship with Agent-Native are all built this way. Anyone can create a template and share it with the community.
+Templates are complete, forkable agent-native apps that solve a real workflow. The first-party templates are built with the same framework surface you use: React routes for the UI, Drizzle SQL for data, actions for operations, workspace resources for agent behavior, and polling sync so the agent and UI stay aligned.
 
 A good template:
 
-- Solves a real workflow end-to-end (not a toy demo)
-- Works out of the box with example data
-- Has a comprehensive `AGENTS.md` so the AI agent understands the architecture
-- Includes actions for key operations the agent can call
-- Follows the core rules: data in SQL, all AI through agent chat, actions for operations, real-time sync, agent can modify code
+- Solves one workflow end-to-end, with useful seed data or an empty-state flow.
+- Stores durable state in SQL, not JSON files.
+- Defines app operations as `defineAction()` actions.
+- Exposes navigation and selection through application state.
+- Ships a clear `AGENTS.md` plus focused skills for non-obvious workflows.
+- Registers onboarding steps for required providers and secrets.
+- Works as a standalone app and as part of a multi-app workspace.
 
-## Start from the starter {#start-from-starter}
+## Start from Starter {#start-from-starter}
 
-The fastest way to start is with the built-in starter template:
+Use the CLI-only Starter scaffold when you want a blank app with the framework wiring already in place:
 
 ```bash
-npx @agent-native/core create my-template
+pnpm dlx @agent-native/core create my-template --template starter --standalone
 ```
 
-This scaffolds a minimal agent-native app with the standard directory structure, a working dev server, file watching, SSE, and an example action. Build your template on top of this.
+For a workspace with multiple apps, run the picker and include Starter with any domain templates you want:
 
-## Project structure {#project-structure}
+```bash
+pnpm dlx @agent-native/core create my-platform
+```
 
-Every template follows the same convention:
+Starter gives you auth, the agent sidebar, SQL-backed resources, tools, application state, actions, and polling sync. You add the domain model and product UI.
+
+## Project Structure {#project-structure}
+
+Every template follows the same broad layout:
 
 ```text
 my-template/
-  app/                # React frontend
-    routes/           # File-based page routes (auto-discovered)
-      _index.tsx      # / (home page)
-      settings.tsx    # /settings
-    root.tsx          # App shell — <html>, <head>, <body>, providers
-    entry.client.tsx  # Client hydration entry
-    routes.ts         # Route config — flatRoutes()
-    components/       # UI components
-    components/ui/    # Reusable primitives (shadcn/ui)
-    hooks/            # React hooks
-    lib/utils.ts      # cn() utility
+  app/
+    root.tsx              # HTML shell and providers
+    routes/               # React Router file routes
+    components/           # Template UI
+    hooks/                # UI state and data hooks
 
-  server/             # Nitro API server
-    routes/           # File-based API routes (auto-discovered by Nitro)
-      [...page].get.ts # SSR catch-all (delegates to React Router)
-    plugins/          # Server plugins (startup logic)
-    lib/              # Shared server modules
+  actions/
+    *.ts                  # defineAction operations
 
-  shared/             # Isomorphic types (imported by client & server)
-    api.ts            # Shared interfaces
+  server/
+    db/schema.ts          # Drizzle schema
+    plugins/db.ts         # additive migrations
+    plugins/*.ts          # startup integrations
+    routes/api/*.ts       # custom routes only when actions are not enough
 
-  actions/            # Agent-callable actions
-    run.ts            # Action dispatcher (don't modify)
-    *.ts              # Your actions — one per operation
+  shared/
+    types.ts              # shared client/server types
 
-  data/               # File-based state (watched by SSE)
-    .gitkeep          # Or seed data for the template
+  .agents/skills/
+    <skill>/SKILL.md      # agent guidance for complex workflows
 
-  .agents/skills/     # Agent skills — detailed guidance per topic
-
-  AGENTS.md           # Master agent instructions
-  react-router.config.ts # React Router config (ssr, appDirectory)
-  package.json        # Scripts: dev, build, start, action, typecheck
-  vite.config.ts      # Vite config (React Router + Nitro)
-  tsconfig.json       # TypeScript config
+  AGENTS.md               # template-specific agent instructions
+  package.json
+  react-router.config.ts
+  vite.config.ts
 ```
 
-## Build your client {#build-your-client}
+Do not add a `data/` directory for application state. Durable app data belongs in SQL, and the UI reads it through actions or typed server handlers.
 
-The client uses React Router v7 framework mode with file-based routing. Pages go in `app/routes/`, global providers live in `app/root.tsx`, and React Query handles data fetching.
+## Model Data In SQL {#data-models}
+
+Define domain tables with the framework Drizzle helpers so schemas stay portable across SQLite, Postgres, D1, Turso, Supabase, and Neon:
 
 ```ts
-// app/root.tsx — App shell with providers
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useDbSync } from "@agent-native/core";
+// server/db/schema.ts
+import {
+  table,
+  text,
+  integer,
+  now,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
 
-const queryClient = new QueryClient();
+export const projects = table("projects", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  status: text("status", {
+    enum: ["draft", "active", "archived"],
+  })
+    .notNull()
+    .default("draft"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  ...ownableColumns(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
 
-export function Layout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en">
-      <head>
-        <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <Meta />
-        <Links />
-      </head>
-      <body>
-        {children}
-        <ScrollRestoration />
-        <Scripts />
-      </body>
-    </html>
-  );
-}
-
-export default function Root() {
-  useDbSync({ queryClient, queryKeys: ["items", "projects"] });
-  return (
-    <QueryClientProvider client={queryClient}>
-      <Outlet />
-    </QueryClientProvider>
-  );
-}
+export const projectShares = createSharesTable("project_shares", "project");
 ```
 
-Routes are auto-discovered from `app/routes/` via `flatRoutes()`. Create a file to add a page:
+Schema changes must be additive. Add tables and columns through `runMigrations()` in `server/plugins/db.ts`; never use destructive SQL, `drizzle-kit push`, table renames, or column drops.
 
 ```ts
-// app/routes/_index.tsx → /
-export default function Dashboard() {
-  return <div>Home page</div>;
-}
+// server/plugins/db.ts
+import { runMigrations } from "@agent-native/core/db/migrations";
 
-// app/routes/settings.tsx → /settings
-export default function Settings() {
-  return <div>Settings page</div>;
-}
+export default runMigrations([
+  {
+    id: "001_create_projects",
+    sql: `CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  },
+]);
 ```
 
-The `useDbSync` hook (formerly `useFileWatcher`) polls `/_agent-native/poll` and invalidates react-query caches when data changes. This is how the UI stays in sync when the agent modifies data.
+Use the [Database](/docs/database) and [Security](/docs/security) docs before adding schemas that hold user or org data.
 
-## Add API routes {#add-api-routes}
+## Define Operations As Actions {#actions}
 
-API routes serve data from files and handle mutations. They go in `server/routes/` as file-based routes:
+Actions are the single source of truth for app behavior. The agent calls them as tools, the frontend calls them through hooks or HTTP, and other apps can reach them through MCP/A2A.
 
 ```ts
-// server/routes/api/items/index.get.ts
-import { defineEventHandler } from "h3";
-import { readdir, readFile, mkdir } from "node:fs/promises";
-import path from "node:path";
+// actions/create-project.ts
+import { defineAction } from "@agent-native/core";
+import { getDb } from "@agent-native/core/db";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+import * as schema from "../server/db/schema";
 
-export default defineEventHandler(async () => {
-  const dir = "./data/items";
-  await mkdir(dir, { recursive: true });
-  const files = await readdir(dir);
-  return Promise.all(
-    files
-      .filter((f) => f.endsWith(".json"))
-      .map(async (f) => {
-        const content = await readFile(path.join(dir, f), "utf-8");
-        return JSON.parse(content);
-      }),
-  );
+export default defineAction({
+  description: "Create a project.",
+  schema: z.object({
+    title: z.string().min(1).describe("Project title"),
+  }),
+  run: async ({ title }, ctx) => {
+    const db = getDb();
+    const id = nanoid();
+    await db.insert(schema.projects).values({
+      id,
+      title,
+      ownerEmail: ctx.userEmail,
+      orgId: ctx.orgId,
+    });
+    return { id, title };
+  },
 });
 ```
 
-Each route file exports a default `defineEventHandler`. Both the UI and the agent can create items — the UI via `POST /api/items`, the agent by writing directly to `data/items/`. The SSE watcher ensures both paths trigger UI updates.
+Use `http: { method: "GET" }` or `readOnly: true` for read-only actions. Use `toolCallable: false` for high-blast-radius actions that should not run from sandboxed tools.
 
-## Add actions {#add-actions}
+## Build The UI {#ui}
 
-Actions are the agent's toolbox. Each action handles one operation — fetching data from an API, generating content, processing files, etc:
+Routes live in `app/routes/` and use React Router v7 file routing. Query data through actions or API handlers, and make mutations optimistic by default.
 
-```typescript
-// actions/import-data.ts
-import { parseArgs } from "@agent-native/core";
-import { writeFile, mkdir } from "node:fs/promises";
+```tsx
+import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 
-export default async function importData(args: string[]) {
-  const { url, name } = parseArgs(args);
-  if (!url) {
-    console.error("--url is required");
-    process.exit(1);
-  }
+export default function ProjectsPage() {
+  const { data: projects = [] } = useActionQuery("list-projects", {});
+  const create = useActionMutation("create-project");
 
-  const res = await fetch(url);
-  const data = await res.json();
-
-  const slug = name ?? "imported";
-  await mkdir("./data/imports", { recursive: true });
-  await writeFile(`./data/imports/${slug}.json`, JSON.stringify(data, null, 2));
-  console.log(
-    `Imported ${Array.isArray(data) ? data.length + " records" : "data"} to data/imports/${slug}.json`,
+  return (
+    <button onClick={() => create.mutate({ title: "Launch plan" })}>
+      New project ({projects.length})
+    </button>
   );
 }
 ```
 
-```bash
-# The agent can run this
-pnpm action import-data --url https://api.example.com/data --name users
+Wire polling once near the app shell so React Query caches refresh when the agent, another tab, or an action changes data:
+
+```tsx
+import { useDbSync } from "@agent-native/core/client";
+import { useQueryClient } from "@tanstack/react-query";
+
+export function AppSync() {
+  const queryClient = useQueryClient();
+  useDbSync({ queryClient });
+  return null;
+}
 ```
 
-Scripts should write their output to `data/` — the SSE watcher will notify the UI. Use `console.log` for output the agent can see. Use `console.error` and `process.exit(1)` for errors.
+## Add Application State {#application-state}
 
-## Add data models {#add-data-models}
+Application state is how the agent knows what the user is seeing. At minimum, add:
 
-Seed your template with example data so it works immediately. Put JSON files in `data/` matching the structure your API routes expect:
+- A UI hook that writes `navigation` state when routes, selected records, filters, or editor selections change.
+- A `view-screen` action that reads that state and returns the current screen snapshot.
+- A `navigate` action that writes a one-shot `navigate` command for the UI to consume.
 
-```text
-data/
-  items/
-    example-1.json     # {"id": "example-1", "title": "...", "status": "active"}
-    example-2.json
-  config.json          # App-level config
-  sync-config.json     # (optional) Firestore sync glob patterns
+```ts
+// actions/navigate.ts
+import { defineAction } from "@agent-native/core";
+import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Navigate the UI.",
+  schema: z.object({
+    view: z.enum(["home", "project"]),
+    projectId: z.string().optional(),
+  }),
+  run: async (args) => {
+    await writeAppState("navigate", args);
+    return { ok: true };
+  },
+});
 ```
 
-Keep your data models simple — flat JSON files, one per entity. The agent can grep, read, and modify them. Deeply nested structures or binary formats make it harder for the agent to work with the data.
+See [Context Awareness](/docs/context-awareness) for the full pattern.
 
-## Write AGENTS.md {#write-agents-md}
+## Use API Routes Sparingly {#api-routes}
 
-This is the most important file in your template. `AGENTS.md` tells the AI agent how your app works, what it can and can't do, and how to make changes:
+Prefer actions for app operations. Create custom Nitro routes only for surfaces that cannot be actions cleanly:
+
+- File upload or binary streaming.
+- Public anonymous pages and webhooks.
+- OAuth callbacks and provider-specific protocol handlers.
+- Server-rendered public content.
+
+Custom routes that touch ownable data must call `getSession(event)` and wrap database work in `runWithRequestContext({ userEmail, orgId }, fn)` before using access helpers.
+
+## Write Agent Instructions {#write-agents-md}
+
+`AGENTS.md` is the agent's map of your app. Keep it specific and operational:
 
 ```markdown
-# My Template — Agent-Native App
+# My Template
 
-## Architecture
+## Product Model
 
-This is an **@agent-native/core** application.
+Projects are the top-level resource. They contain tasks and notes.
 
-### Core Principles
+## Navigation State
 
-1. **Data lives in SQL** — All state in SQL via Drizzle ORM.
-2. **All AI through agent chat** — No inline LLM calls.
-3. **Actions for operations** — `pnpm action <name>` for complex work.
-4. **Real-time sync** — Polling keeps UI in sync with agent changes.
-5. **Agent can update code** — Edit components, routes, actions.
+- `navigation.view`: `home` or `project`
+- `navigation.projectId`: selected project when on a project page
 
-### Directory Structure
+## Actions
 
-    app/             # React frontend (file-based routing in app/routes/)
-    server/          # Nitro API server
-    actions/         # Agent-callable actions
-    data/            # File-based state
+| Action           | Purpose                     |
+| ---------------- | --------------------------- |
+| `list-projects`  | List accessible projects    |
+| `create-project` | Create a project            |
+| `update-project` | Rename or archive a project |
 
-### Available Actions
+## Rules
 
-- `pnpm action import-data --url <url>` — Import data from API
-- `pnpm action generate-report --id <id>` — Generate a report
-
-### Data Model
-
-Items are stored as `data/items/<id>.json`:
-
-    { "id": "...", "title": "...", "status": "active" }
-
-### Key Patterns
-
-- API routes in `server/routes/` serve files from `data/`
-- UI delegates AI work via `sendToAgentChat()`
-- Actions write results to `data/` — SSE updates the UI
+- Use `view-screen` before acting on "this project" if the current screen is unclear.
+- Use actions for project changes; do not write raw SQL unless debugging.
+- For shared projects, check access through framework sharing helpers.
 ```
 
-> Code blocks inside `AGENTS.md` would normally be fenced with triple backticks — they're shown as indented code here to keep this outer example readable.
+Update `AGENTS.md` whenever you add a new action, route, state key, or recurring workflow.
 
-Be specific about your data models, available actions, and key patterns. The better your `AGENTS.md`, the better the agent will work with your template.
+## Add Skills {#skills}
 
-## Add skills {#add-skills}
-
-For complex topics that don't fit in `AGENTS.md`, create skills in `.agents/skills/`. Each skill is a Markdown file with detailed guidance for a specific topic:
+Use skills for detailed patterns that would bloat `AGENTS.md`: provider-specific APIs, import/export formats, complex editing flows, or domain terminology.
 
 ```markdown
-# .agents/skills/bigquery/SKILL.md
+---
+name: project-imports
+description: How to import projects from the legacy CSV export.
+---
 
-## BigQuery Integration
+# Project Imports
 
-### Column Reference
+Use this skill when the user uploads a legacy project CSV.
 
-- `event_name` — The event type (string)
-- `event_timestamp` — Microsecond timestamp (int64)
-- `user_pseudo_id` — Anonymous user ID (string)
+## Rules
 
-### Common Queries
-
-...
-
-### Gotchas
-
-- Always use `event_date` partition filter to avoid full table scans
-- Timestamps are in microseconds, not milliseconds
+- Validate required columns before creating rows.
+- Use `create-project` for each project so ownership and sync are correct.
+- Save rejected rows as a note attached to the import summary.
 ```
 
-Skills let you give the agent deep domain knowledge for specific integrations or patterns without bloating your main `AGENTS.md`.
+Store template skills in `.agents/skills/<name>/SKILL.md`. If users should be able to edit the guidance at runtime, surface it through workspace resources as well.
 
-## Onboarding & API keys {#onboarding}
+## Register Setup Steps {#onboarding}
 
-If your template needs API keys or external service configuration, document them in a `.env.example` file:
+If a template needs an API key, OAuth connection, or provider account, register an onboarding step instead of burying the requirement in a README.
 
-```bash
-# .env.example
-BIGQUERY_PROJECT_ID=your-project-id
-STRIPE_SECRET_KEY=sk_live_...
-OPENAI_API_KEY=sk-...
+```ts
+// server/plugins/onboarding.ts
+import { defineNitroPlugin } from "@agent-native/core/server";
+import { registerOnboardingStep } from "@agent-native/core/onboarding";
+
+export default defineNitroPlugin(() => {
+  registerOnboardingStep({
+    id: "github",
+    title: "Connect GitHub",
+    description: "Needed to import repositories and pull requests.",
+    order: 100,
+    methods: [
+      {
+        id: "token",
+        kind: "form",
+        primary: true,
+        label: "Save token",
+        payload: {
+          fields: [
+            { key: "GITHUB_TOKEN", label: "GitHub token", secret: true },
+          ],
+        },
+      },
+    ],
+    isComplete: () => !!process.env.GITHUB_TOKEN,
+  });
+});
 ```
 
-When users fork your template, they copy `.env.example` to `.env` and fill in their own values. Keep the number of required keys minimal — the template should work with example data before any keys are configured.
+See [Onboarding & API Keys](/docs/onboarding).
 
-## Make your template multi-app-workspace ready {#workspace-ready}
+## Make It Workspace-Ready {#workspace-ready}
 
-Templates rarely live in isolation — most users will scaffold yours alongside other apps in a [multi-app workspace](/docs/multi-app-workspace), often coordinated by [Dispatch](/docs/dispatch). Three checkpoints make your template a good citizen:
+Templates should fit naturally into [Multi-App Workspaces](/docs/multi-app-workspace), usually coordinated by [Dispatch](/docs/dispatch).
 
-1. **Mount A2A so other apps can call yours.** Add `mountA2A()` in a server plugin so your actions are reachable over the agent-to-agent protocol. Other apps in the workspace (and Dispatch's orchestrator) discover and invoke them automatically. See [A2A Protocol](/docs/a2a-protocol).
-2. **Publish an agent card with skill metadata.** Your A2A peer exposes a manifest describing what your template does and which actions it offers. Dispatch reads these cards to decide which specialist to route a request to — clear, specific skill descriptions make routing accurate.
-3. **Register secrets through onboarding.** Any third-party API keys your template needs (OpenAI, Stripe, SendGrid, etc.) should be registered via the [onboarding](/docs/onboarding) system. They show up in the workspace setup checklist and the Dispatch secrets vault, instead of forcing every user to hand-edit `.env`.
+Checklist:
 
-Hit those three and your template drops into any workspace cleanly.
+- Mount A2A through the framework agent chat plugin or `mountA2A()` so sibling apps can call your agent.
+- Keep the agent card descriptions specific enough for Dispatch to route work accurately.
+- Register required secrets/onboarding so setup appears in the sidebar and Dispatch can manage shared credentials.
+- Keep cross-cutting instructions in workspace `AGENTS.md` or workspace resources, not copied into every app.
+- Use sharing/access helpers for all ownable resources so org-scoped workspaces stay isolated.
 
-## Publishing {#publishing}
+## Publish A Template {#publishing}
 
-To share your template:
+Before sharing:
 
-1. Push your template to a public GitHub repo
-2. Make sure it works with `pnpm install && pnpm dev`
-3. Include seed data in `data/` so it works without API keys
-4. Write a clear README explaining what the template does and how to configure it
+1. Run `pnpm install`, `pnpm typecheck`, and the template's tests.
+2. Verify it works with no optional provider keys configured.
+3. Check auth, sharing, and two-user data isolation.
+4. Document required env vars and onboarding steps.
+5. Include examples or seed rows through additive migrations, not tracked runtime data files.
 
-Community templates can be shared via GitHub. The agent-native CLI supports creating from any git repo:
+Community templates can be created from a GitHub repo:
 
 ```bash
-npx @agent-native/core create my-app --template github:user/repo
+pnpm dlx @agent-native/core create my-app --template github:user/repo
 ```

@@ -4,28 +4,26 @@ import { templates, trackEvent } from "../components/TemplateCard";
 
 export const meta = () => [
   {
-    title:
-      "Agent-Native Design — Open Source AI Design Tool & Figma Alternative",
+    title: "Agent-Native Design — Open Source AI HTML Prototyping Tool",
   },
   {
     name: "description",
     content:
-      "Create and edit visual designs with AI. Open source alternative to Figma and Canva. Generate layouts from prompts, edit on a real canvas, and refine conversationally with an agent that designs alongside you.",
+      "Create interactive HTML prototypes with AI. Generate Alpine/Tailwind designs from prompts, compare variants, refine with tweak controls, and export HTML, ZIP, or PDF.",
   },
   {
     property: "og:title",
-    content:
-      "Agent-Native Design — Open Source AI Design Tool & Figma Alternative",
+    content: "Agent-Native Design — Open Source AI HTML Prototyping Tool",
   },
   {
     property: "og:description",
     content:
-      "An Agent-native design tool. Generate, edit, and refine designs conversationally — built on an agent you own.",
+      "Generate, refine, preview, and export interactive HTML prototypes — built on an agent you own.",
   },
   {
     name: "keywords",
     content:
-      "AI design tool, AI Figma alternative, open source design tool, Canva alternative, AI graphic design, AI image generation, agent-native design, prompt to design, AI canvas editor, AI vector tool, generative design",
+      "AI design tool, AI HTML prototype, open source design tool, AI UI generator, Alpine Tailwind prototype, agent-native design, prompt to HTML, generative design",
   },
 ];
 
@@ -121,13 +119,13 @@ export default function DesignTemplate() {
             </div>
 
             <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
-              The open-source AI alternative to Figma &amp; Canva
+              The open-source AI HTML prototyping studio
             </h1>
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
-              Generate visuals from a prompt, edit on a real canvas, and refine
-              conversationally. The agent designs with you — and you own every
-              pixel of the source code.
+              Generate interactive Alpine/Tailwind prototypes from a prompt,
+              compare variants, refine with tweak controls, and export real
+              files you own.
             </p>
 
             <div className="mb-8 flex flex-wrap items-center gap-3">
@@ -181,17 +179,17 @@ export default function DesignTemplate() {
             {
               step: "1",
               title: "Describe",
-              desc: "Tell the agent what you're making — a poster, a social post, a product mockup. Attach references.",
+              desc: "Tell the agent what you're making — a landing page, product UI, brand direction, or interactive prototype.",
             },
             {
               step: "2",
               title: "Generate",
-              desc: "The agent lays out elements on the canvas — typography, color, imagery, alignment.",
+              desc: "The agent creates complete self-contained HTML with Tailwind styling and Alpine interactions.",
             },
             {
               step: "3",
               title: "Refine",
-              desc: "Drag, click, and tweak directly. Or just say what you want changed and watch it happen.",
+              desc: "Pick a variant, adjust tweak controls, or ask the agent for copy, layout, color, and interaction changes.",
             },
           ].map((s) => (
             <div key={s.step} className="text-center">
@@ -211,51 +209,51 @@ export default function DesignTemplate() {
           Everything you need
         </h2>
         <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          A full visual editor with an agent that designs alongside you.
+          A prototype studio with an agent that writes and refines the source.
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Real Canvas Editing</h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Click to select, drag to move, resize handles, alignment guides,
-              snapping. Designed to feel like Figma.
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">AI Image Generation</h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Generate hero imagery, illustrations, and textures inline.
-              Reference images for brand-consistent results.
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">
-              Typography &amp; Layout
+              Complete HTML Prototypes
             </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Hundreds of fonts, smart pairings, and auto-layout for cards,
-              grids, and stacks.
+              Generate self-contained Alpine/Tailwind HTML that renders in the
+              preview iframe and can be exported directly.
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-1 text-sm font-semibold">Variant Generation</h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">
+              Start from multiple directions, compare them in the app, and keep
+              refining the strongest design.
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-1 text-sm font-semibold">Tweak Controls</h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">
+              Adjust common design variables visually while the agent handles
+              larger structural and copy changes.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">Conversational Edits</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              "Make the headline bolder", "swap the photo for something darker",
-              "add a CTA button". The agent applies edits on the canvas.
+              "Make the headline bolder", "try a warmer palette", "add a CTA
+              button". The agent updates the underlying HTML.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Brand Kits</h3>
+            <h3 className="mb-1 text-sm font-semibold">Design Systems</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Save colors, fonts, and logos. The agent uses your kit
-              automatically when generating new designs.
+              Save reusable design-system preferences so new generations stay
+              closer to your product language.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">Export Anywhere</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              PNG, SVG, PDF, and copy-paste-ready HTML. Share read-only links
-              for review.
+              Export HTML, ZIP, or PDF from the generated prototype when you're
+              ready to share or hand off.
             </p>
           </div>
         </div>
@@ -265,11 +263,13 @@ export default function DesignTemplate() {
       <section className="border-t border-[var(--docs-border)] py-16">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-xl border border-[var(--docs-border)] p-6">
-            <h3 className="mb-2 text-base font-semibold">Multiplayer Canvas</h3>
+            <h3 className="mb-2 text-base font-semibold">
+              Source-First Preview
+            </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              Live cursors, presence, and real-time edits powered by Yjs CRDTs.
-              The agent participates as a peer — you see what it's doing as it
-              works.
+              The preview is rendered from the same HTML the agent edits and the
+              export uses, so there is less translation between concept and
+              handoff.
             </p>
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -286,7 +286,7 @@ export default function DesignTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Live cursors and selection awareness
+                Iframe preview of the generated prototype
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -302,7 +302,7 @@ export default function DesignTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Watch the agent edit in real time
+                Exportable HTML, ZIP, and PDF artifacts
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -318,7 +318,7 @@ export default function DesignTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Comments anchored to specific elements
+                SQL-backed design records you can fork and extend
               </li>
             </ul>
           </div>
@@ -327,9 +327,8 @@ export default function DesignTemplate() {
               Conversational Refinement
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              The agent edits the canvas in real time. Plain-English
-              instructions become structured changes you can undo, redo, and
-              inspect.
+              The agent edits the prototype source. Plain-English instructions
+              become changes to copy, layout, colors, spacing, and interactions.
             </p>
             <div className="space-y-3 rounded-lg bg-[var(--bg-secondary)] p-4 font-mono text-sm">
               <div className="text-[var(--fg-secondary)]">
@@ -339,7 +338,7 @@ export default function DesignTemplate() {
                 "Try a darker color palette"
               </div>
               <div className="text-[var(--fg-secondary)]">
-                "Resize the logo and center it"
+                "Make the hero layout more editorial"
               </div>
               <div className="text-[var(--fg-secondary)]">
                 "Generate three variations of this"
@@ -360,10 +359,10 @@ export default function DesignTemplate() {
               <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  Figma / Canva
+                  Static mockup tools
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  AI Image Generators
+                  One-shot generators
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
                   Agent-Native Design
@@ -375,17 +374,17 @@ export default function DesignTemplate() {
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Visual editor
                 </td>
-                <td className="px-5 py-3">Yes</td>
-                <td className="px-5 py-3">None</td>
+                <td className="px-5 py-3">Visual-first</td>
+                <td className="px-5 py-3">Prompt-first</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Visual + agent + code
+                  Agent + preview + code
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   AI generation
                 </td>
-                <td className="px-5 py-3">Plugin add-ons</td>
+                <td className="px-5 py-3">Limited / plugins</td>
                 <td className="px-5 py-3">One-shot prompt</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
                   Iterative, conversational
@@ -395,10 +394,10 @@ export default function DesignTemplate() {
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Editable output
                 </td>
-                <td className="px-5 py-3">Yes</td>
-                <td className="px-5 py-3">Flat raster</td>
+                <td className="px-5 py-3">Tool-native file</td>
+                <td className="px-5 py-3">Often static</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Full layered canvas
+                  Complete HTML/CSS/JS
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
@@ -430,8 +429,8 @@ export default function DesignTemplate() {
           Get started in minutes
         </h2>
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          Fork the template and start designing with an agent that actually
-          understands your brand.
+          Fork the template and start generating interactive prototypes with an
+          agent that edits the source.
         </p>
         <div className="flex items-center justify-center gap-4">
           <Link

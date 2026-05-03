@@ -186,7 +186,7 @@ export default function SlidesTemplate() {
             {
               step: "3",
               title: "Refine",
-              desc: "Edit visually, conversationally, or in code. Changes appear instantly via SSE.",
+              desc: "Edit visually, conversationally, or in code. Changes appear through polling sync.",
             },
           ].map((s) => (
             <div key={s.step} className="text-center">
@@ -325,8 +325,8 @@ export default function SlidesTemplate() {
               Conversational Refinement
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              The agent edits slides in real time. Changes appear instantly via
-              SSE.
+              The agent edits slides directly, and the UI refreshes through
+              polling sync.
             </p>
             <div className="space-y-3 rounded-lg bg-[var(--bg-secondary)] p-4 font-mono text-sm">
               <div className="text-[var(--fg-secondary)]">
