@@ -885,6 +885,23 @@ function createAuthGuardFn(): (
       });
     }
 
+    // Auth entry pages are framework-owned pages, not app routes. When a user
+    // already has a session (including AUTH_MODE=local), redirect them back to
+    // the mounted app instead of letting React Router try to render /login.
+    if (p === "/login" || p === "/signup") {
+      const session = await getSession(event);
+      if (session) {
+        return new Response("", {
+          status: 302,
+          headers: { Location: getAppBasePath() || "/" },
+        });
+      }
+      return new Response(loginHtml, {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
     // Skip static assets (Vite chunks, fonts, images, etc.)
     if (
       p.startsWith("/assets/") ||
