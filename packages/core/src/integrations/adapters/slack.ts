@@ -220,8 +220,15 @@ export function slackAdapter(): PlatformAdapter {
       // Block-rich path: split text into chunks but render the FIRST chunk as
       // blocks (so we keep the in-place edit + button) and any overflow as
       // plain follow-up posts. The vast majority of replies fit in one block.
-      const chunks = splitMessage(message.text, SLACK_MAX_LENGTH);
-      const firstChunk = chunks[0] ?? "";
+      const chunks = splitNonEmptyMessage(message.text, SLACK_MAX_LENGTH);
+      const hasProvidedBlocks = Array.isArray(blocks) && blocks.length > 0;
+      const firstChunk = chunks[0] ?? (hasProvidedBlocks ? "Response" : "");
+      if (!firstChunk) {
+        if (threadTs) {
+          setSlackAssistantStatus(token, channelId, threadTs, "");
+        }
+        return;
+      }
       const restChunks = chunks.slice(1);
 
       const finalBlocks =
@@ -296,7 +303,8 @@ export function slackAdapter(): PlatformAdapter {
         return;
       }
 
-      const chunks = splitMessage(message.text, SLACK_MAX_LENGTH);
+      const chunks = splitNonEmptyMessage(message.text, SLACK_MAX_LENGTH);
+      if (chunks.length === 0) return;
       for (const chunk of chunks) {
         const body: Record<string, unknown> = {
           channel: target.destination,
@@ -517,6 +525,13 @@ function splitMessage(text: string, maxLength: number): string[] {
   return chunks;
 }
 
+/** Split a message and drop chunks Slack would render as blank messages. */
+function splitNonEmptyMessage(text: string, maxLength: number): string[] {
+  return splitMessage(text, maxLength).filter(
+    (chunk) => chunk.trim().length > 0,
+  );
+}
+
 /** Hard cap on input length we feed to the regex-based mrkdwn converter.
  *  L2 in the webhook audit: `\*\*(.+?)\*\*` with the `s` flag on a long
  *  string of asterisks can exhibit super-linear backtracking. Slack
@@ -622,6 +637,16 @@ async function postFresh(
   threadTs: string | undefined,
   body: Record<string, unknown>,
 ): Promise<void> {
+  const hasBlocks =
+    Array.isArray(body.blocks) && (body.blocks as unknown[]).length > 0;
+  if (
+    typeof body.text === "string" &&
+    body.text.trim().length === 0 &&
+    !hasBlocks
+  ) {
+    return;
+  }
+
   const payload: Record<string, unknown> = {
     ...body,
     channel: channelId,
