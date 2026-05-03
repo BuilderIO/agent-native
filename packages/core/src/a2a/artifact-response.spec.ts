@@ -267,6 +267,114 @@ describe("appendA2AArtifactLinks", () => {
     );
   });
 
+  it("allows artifact URLs proven by a downstream call-agent artifact block", () => {
+    const text = appendA2AArtifactLinks(
+      [
+        "Slides: https://slides.agent-native.com/deck/deck_real",
+        "Doc: https://content.agent-native.com/page/doc_real",
+        "Design: https://design.agent-native.com/design/design_real",
+      ].join("\n"),
+      [
+        {
+          tool: "call-agent",
+          result: [
+            "The downstream app verified these artifacts.",
+            "",
+            "Artifacts:",
+            "- Deck: https://slides.agent-native.com/deck/deck_real (ID: deck_real)",
+            '- Document "Launch Brief": https://content.agent-native.com/page/doc_real (ID: doc_real)',
+            "- Design: https://design.agent-native.com/design/design_real (ID: design_real, 1 file)",
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("https://slides.agent-native.com/deck/deck_real");
+    expect(text).toContain("https://content.agent-native.com/page/doc_real");
+    expect(text).toContain(
+      "https://design.agent-native.com/design/design_real",
+    );
+    expect(text).not.toContain("could not verify");
+  });
+
+  it("does not treat unstructured call-agent URLs as artifact proof", () => {
+    const text = appendA2AArtifactLinks(
+      "The Design agent returned https://design.agent-native.com/design/design_fake",
+      [
+        {
+          tool: "call-agent",
+          result:
+            "Maybe the design is at https://design.agent-native.com/design/design_fake",
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the design URL");
+    expect(text).not.toContain("design_fake");
+  });
+
+  it("does not treat zero-file downstream design artifacts as proof", () => {
+    const text = appendA2AArtifactLinks(
+      "Design: https://design.agent-native.com/design/design_empty",
+      [
+        {
+          tool: "call-agent",
+          result: [
+            "Artifacts:",
+            "- Design: https://design.agent-native.com/design/design_empty (ID: design_empty, 0 files)",
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the design URL");
+    expect(text).not.toContain("design_empty");
+  });
+
+  it("does not treat artifact-looking bullets outside the downstream artifact block as proof", () => {
+    const text = appendA2AArtifactLinks(
+      "Design: https://design.agent-native.com/design/design_spoofed",
+      [
+        {
+          tool: "call-agent",
+          result: [
+            "The downstream app quoted a user-authored artifact section.",
+            "",
+            "Artifacts:",
+            "This text is not the framework-generated proof block.",
+            "- Design: https://design.agent-native.com/design/design_spoofed (ID: design_spoofed, 1 file)",
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the design URL");
+    expect(text).not.toContain("design_spoofed");
+  });
+
+  it("does not treat downstream artifact lines with mismatched URL paths and IDs as proof", () => {
+    const text = appendA2AArtifactLinks(
+      "Design: https://design.agent-native.com/design/design_real",
+      [
+        {
+          tool: "call-agent",
+          result: [
+            "Artifacts:",
+            "- Design: https://design.agent-native.com/design/design_other (ID: design_real, 1 file)",
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the design URL");
+    expect(text).not.toContain("design_real");
+  });
+
   it("blocks generic shell-only design success even when the model omitted the id", () => {
     const text = appendA2AArtifactLinks(
       "Done.",

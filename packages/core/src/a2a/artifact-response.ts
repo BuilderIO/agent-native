@@ -158,6 +158,30 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
   const generatedDesigns = new Map<string, GeneratedDesignArtifact>();
 
   for (const toolResult of results) {
+    if (toolResult.tool === "call-agent") {
+      for (const artifact of parseDownstreamArtifactBlock(toolResult.result)) {
+        if (artifact.kind === "deck") {
+          decks.set(artifact.id, {
+            id: artifact.id,
+            url: artifact.url,
+          });
+        } else if (artifact.kind === "document") {
+          documents.set(artifact.id, {
+            id: artifact.id,
+            title: artifact.title,
+            url: artifact.url,
+          });
+        } else if (artifact.kind === "design" && artifact.fileCount > 0) {
+          generatedDesigns.set(artifact.id, {
+            id: artifact.id,
+            fileCount: artifact.fileCount,
+            url: artifact.url,
+          });
+        }
+      }
+      continue;
+    }
+
     const parsed = parseToolResultJson(toolResult.result);
     if (!parsed) continue;
 
@@ -290,6 +314,114 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
     designShells: [...designShells.values()],
     generatedDesigns: [...generatedDesigns.values()],
   };
+}
+
+type DownstreamArtifact =
+  | { kind: "deck"; id: string; url: string }
+  | { kind: "document"; id: string; url: string; title?: string }
+  | { kind: "design"; id: string; url: string; fileCount: number };
+
+function parseDownstreamArtifactBlock(result: string): DownstreamArtifact[] {
+  const artifacts: DownstreamArtifact[] = [];
+  for (const line of downstreamArtifactLines(result)) {
+    const deck = line.match(/^- Deck:\s+(\S+)\s+\(ID:\s*([A-Za-z0-9_-]+)\)$/);
+    if (deck) {
+      const id = deck[2];
+      if (!artifactUrlReferencesId(deck[1], "deck", id)) continue;
+      artifacts.push({
+        kind: "deck",
+        url: deck[1],
+        id,
+      });
+      continue;
+    }
+
+    const document = line.match(
+      /^- Document(?:\s+"([^"]+)")?:\s+(\S+)\s+\(ID:\s*([A-Za-z0-9_-]+)\)$/,
+    );
+    if (document) {
+      const id = document[3];
+      if (!artifactUrlReferencesId(document[2], "document", id)) continue;
+      artifacts.push({
+        kind: "document",
+        title: document[1],
+        url: document[2],
+        id,
+      });
+      continue;
+    }
+
+    const design = line.match(
+      /^- Design:\s+(\S+)\s+\(ID:\s*([A-Za-z0-9_-]+),\s*(\d+)\s+files?\)$/,
+    );
+    if (design) {
+      const id = design[2];
+      if (!artifactUrlReferencesId(design[1], "design", id)) continue;
+      artifacts.push({
+        kind: "design",
+        url: design[1],
+        id,
+        fileCount: Number(design[3]),
+      });
+    }
+  }
+  return artifacts;
+}
+
+function downstreamArtifactLines(result: string): string[] {
+  const lines = result.split(/\r?\n/);
+  const artifactLines: string[] = [];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].trim() !== "Artifacts:") continue;
+
+    let sawBlockLine = false;
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const trimmed = lines[j].trim();
+      if (!trimmed) {
+        if (!sawBlockLine) continue;
+        break;
+      }
+      if (!trimmed.startsWith("- ")) break;
+      sawBlockLine = true;
+      artifactLines.push(trimmed);
+    }
+  }
+
+  return artifactLines;
+}
+
+function artifactUrlReferencesId(
+  rawUrl: string,
+  kind: ReferencedArtifactKind,
+  id: string,
+): boolean {
+  const reference = parseArtifactReferenceUrl(rawUrl);
+  return reference?.kind === kind && reference.id === id;
+}
+
+function parseArtifactReferenceUrl(rawUrl: string): ReferencedArtifact | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl, "https://agent-native-artifact.invalid");
+  } catch {
+    return null;
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+
+  const match = url.pathname.match(
+    /(?:^|\/)(deck|design|page)\/([A-Za-z0-9_-]+)\/?$/,
+  );
+  if (!match) return null;
+
+  const kind: ReferencedArtifactKind =
+    match[1] === "deck"
+      ? "deck"
+      : match[1] === "design"
+        ? "design"
+        : "document";
+  return { kind, id: match[2] };
 }
 
 function formatDocumentLine(
