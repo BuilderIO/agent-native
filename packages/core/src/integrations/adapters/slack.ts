@@ -12,6 +12,7 @@ import { getIntegrationConfig } from "../config-store.js";
 
 /** Slack's max message length */
 const SLACK_MAX_LENGTH = 4000;
+const SLACK_SECTION_TEXT_MAX_LENGTH = 3000;
 const SLACK_API_TIMEOUT_MS = 10_000;
 
 /**
@@ -472,24 +473,43 @@ async function readRawBodyCached(event: H3Event): Promise<string> {
   return raw;
 }
 
-/** Split a message into chunks that fit within the platform's limit */
+function utf8ByteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+function prefixWithinUtf8ByteLimit(text: string, maxLength: number): string {
+  let bytes = 0;
+  let end = 0;
+  for (const char of text) {
+    const nextBytes = utf8ByteLength(char);
+    if (bytes + nextBytes > maxLength) break;
+    bytes += nextBytes;
+    end += char.length;
+  }
+  return text.slice(0, end || 1);
+}
+
+/** Split a message into chunks that fit within the platform's byte limit. */
 function splitMessage(text: string, maxLength: number): string[] {
-  if (text.length <= maxLength) return [text];
+  if (utf8ByteLength(text) <= maxLength) return [text];
   const chunks: string[] = [];
   let remaining = text;
   while (remaining.length > 0) {
-    if (remaining.length <= maxLength) {
+    if (utf8ByteLength(remaining) <= maxLength) {
       chunks.push(remaining);
       break;
     }
+
+    const prefix = prefixWithinUtf8ByteLimit(remaining, maxLength);
+
     // Try to split at a newline
-    let splitIdx = remaining.lastIndexOf("\n", maxLength);
+    let splitIdx = prefix.lastIndexOf("\n");
     if (splitIdx <= 0) {
       // Try to split at a space
-      splitIdx = remaining.lastIndexOf(" ", maxLength);
+      splitIdx = prefix.lastIndexOf(" ");
     }
     if (splitIdx <= 0) {
-      splitIdx = maxLength;
+      splitIdx = prefix.length;
     }
     chunks.push(remaining.slice(0, splitIdx));
     remaining = remaining.slice(splitIdx).trimStart();
@@ -568,12 +588,14 @@ function buildResponseBlocks(
   text: string,
   opts: { threadDeepLinkUrl?: string },
 ): unknown[] {
-  const blocks: any[] = [
-    {
-      type: "section",
-      text: { type: "mrkdwn", text: text || "_(no response)_" },
-    },
-  ];
+  const sectionChunks = splitMessage(
+    text || "_(no response)_",
+    SLACK_SECTION_TEXT_MAX_LENGTH,
+  );
+  const blocks: any[] = sectionChunks.map((chunk) => ({
+    type: "section",
+    text: { type: "mrkdwn", text: chunk },
+  }));
   if (opts.threadDeepLinkUrl) {
     blocks.push({
       type: "actions",
