@@ -4,6 +4,10 @@ import {
   markDefaultPluginProvided,
 } from "./framework-request-handler.js";
 import {
+  getAllowedCorsOrigin,
+  readCorsAllowedOrigins,
+} from "./cors-origins.js";
+import {
   defineEventHandler,
   setResponseStatus,
   setResponseHeader,
@@ -291,13 +295,7 @@ export function createCoreRoutesPlugin(
     // requests against the template's server at a different port. We echo
     // the exact origin + Allow-Credentials so same-site localhost ports
     // can cross-send cookies.
-    const allowlist = (process.env.CORS_ALLOWED_ORIGINS ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const isProduction = process.env.NODE_ENV === "production";
-    const LOCALHOST_RE =
-      /^https?:\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/;
+    const allowlist = readCorsAllowedOrigins();
     getH3App(nitroApp).use(
       defineEventHandler((event) => {
         const pathname = stripAppBasePath(
@@ -317,23 +315,11 @@ export function createCoreRoutesPlugin(
         // first allowlist entry — that previously echoed `Access-Control-
         // Allow-Origin: <unrelated-allowed-origin>` for disallowed callers,
         // which is permissive enough that some clients followed through.
-        let allowedOrigin: string | null = null;
-        if (origin) {
-          if (allowlist.length > 0) {
-            if (allowlist.includes(origin)) allowedOrigin = origin;
-          } else {
-            // No allowlist configured. In production we only allow
-            // localhost-style origins (desktop tray dev usage); in dev we
-            // allow any origin echo. This prevents a fresh deploy without
-            // CORS_ALLOWED_ORIGINS from accepting credentialed requests
-            // from any origin.
-            if (isProduction) {
-              if (LOCALHOST_RE.test(origin)) allowedOrigin = origin;
-            } else {
-              if (LOCALHOST_RE.test(origin)) allowedOrigin = origin;
-            }
-          }
-        }
+        const allowedOrigin = getAllowedCorsOrigin(origin, {
+          allowedOrigins: allowlist,
+          allowAnyOriginWhenNoAllowlist: false,
+          allowLocalhostWhenNoAllowlist: true,
+        });
 
         // Reject preflights from disallowed cross-origin callers BEFORE
         // returning 204. Previously the OPTIONS short-circuit returned 204

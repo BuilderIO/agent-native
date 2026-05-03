@@ -51,6 +51,14 @@ Common next steps:
 - **Build a brand-new template from scratch** — see [Creating Templates](/docs/creating-templates) for the full Vite, Tailwind, and TypeScript setup.
 - **Understand the architecture** — see [Key Concepts](/docs/key-concepts) for how SQL, actions, polling sync, and context awareness fit together.
 
+## What's next {#next-steps}
+
+Once your app is running, the most common next steps are:
+
+- **Connect Slack or email** so you can message your agent from anywhere — see [Messaging](/docs/messaging).
+- **Set up Dispatch as your central inbox** to triage messages and orchestrate across multiple apps — see [Dispatch](/docs/dispatch).
+- **Customize via Workspace** — edit instructions, skills, memory, and connect MCP servers per user — see [Workspace](/docs/workspace).
+
 ## Templates {#templates}
 
 Each template is a complete app with UI, agent actions, database schema, and AI instructions ready to go:

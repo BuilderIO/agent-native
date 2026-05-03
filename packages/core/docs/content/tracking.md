@@ -1,5 +1,5 @@
 ---
-title: "Analytics Tracking"
+title: "Tracking & Analytics"
 description: "Server-side analytics with pluggable providers — PostHog, Mixpanel, Amplitude, or custom webhook"
 ---
 

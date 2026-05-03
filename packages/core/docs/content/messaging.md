@@ -7,7 +7,7 @@ description: "Talk to your agent from Slack, email, Telegram, or WhatsApp — sa
 
 Connect your agent to Slack, email, Telegram, or WhatsApp so you can chat with it from the apps you already use. It's the same agent — same memory, same tools, same threads — just reachable from more places.
 
-> **Using the Dispatch template?** All of this is wired up for you in **Settings → Messaging**. Click to connect each platform — you don't need to read the rest of this page unless you're customizing or building your own template. See [Dispatch](/docs/template-dispatch).
+> **Using the Dispatch template?** All of this is wired up for you in **Settings → Messaging**. Click to connect each platform — you don't need to read the rest of this page unless you're customizing or building your own template. See [Dispatch](/docs/dispatch) or the [Dispatch template reference](/docs/template-dispatch).
 
 ## What you can do {#what-you-can-do}
 
@@ -168,7 +168,7 @@ Email is the most powerful integration — your agent gets its own address, repl
 
 ## Use Dispatch as your agent's central inbox {#dispatch}
 
-If you're running multiple agent-native apps (mail, calendar, analytics, etc.), the recommended pattern is to set up messaging on the **[Dispatch template](/docs/template-dispatch)** and let it route work to your domain apps over [A2A](/docs/a2a-protocol).
+If you're running multiple agent-native apps (mail, calendar, analytics, etc.), the recommended pattern is to set up messaging on **[Dispatch](/docs/dispatch)** (see also the [template reference](/docs/template-dispatch)) and let it route work to your domain apps over [A2A](/docs/a2a-protocol).
 
 Why this is nice:
 
@@ -186,19 +186,37 @@ Everything below is the technical reference. If you've finished the setup steps 
 
 ### How it works {#how-it-works}
 
-Each platform talks to your app via a standard HTTP webhook:
+Inbound platform webhooks use a cross-platform SQL-queue pattern so they work on every serverless host (Netlify, Vercel, Cloudflare Workers, Fly, Render, Node) without relying on platform-specific background-execution APIs.
 
-1. A user sends a message on Slack/Telegram/WhatsApp/email.
-2. The platform `POST`s to `/_agent-native/integrations/<platform>/webhook`.
-3. The integrations plugin verifies the signature, parses the message, and maps it to an internal conversation thread.
-4. The agent runs the same pipeline as the web chat — same system prompt, same actions, same tools.
-5. The response is posted back to the platform in the same thread.
+1. The platform `POST`s to `/_agent-native/integrations/<platform>/webhook`. The handler verifies the signature, parses the payload into an `IncomingMessage`, and **inserts a row into `integration_pending_tasks`** with `status='pending'`.
+2. The handler fires a fire-and-forget `POST /_agent-native/integrations/process-task` and returns `200` immediately, well inside Slack's 3-second SLA.
+3. The processor endpoint runs in a **fresh function execution** with its own full timeout budget. It atomically claims the task (`pending` → `processing` via `claimPendingTask`), runs the agent loop, posts the reply through the adapter, and marks the task `completed`.
+4. A recurring retry job (`startPendingTasksRetryJob`, every 60s) sweeps tasks stuck in `pending` >90s or `processing` >5min and re-fires the processor. Capped at 3 attempts, then marked `failed`.
 
 ```text
-User → Platform webhook → Verify → Parse → Agent runs → Response posted back
+Platform → /webhook → verify + parse → INSERT pending task ──► return 200
+                                                  │
+                                                  └─ fetch /process-task (fire-and-forget)
+                                                                │
+                                                  fresh exec ──► claim → agent loop → adapter.sendResponse → completed
+
+   (every 60s) retry job: sweep stuck tasks → re-fire /process-task (≤3 attempts)
 ```
 
-No polling, no long-lived connections. Inbound and outbound conversations live in the same SQL thread, so you can continue a Slack DM from the web UI or vice versa.
+Inbound and outbound conversations live in the same SQL thread, so you can continue a Slack DM from the web UI or vice versa.
+
+#### Why this pattern (and not the platform-native shortcuts) {#why-this-pattern}
+
+Serverless functions freeze the moment the response is sent. Anything still running — including a fire-and-forget Promise, a deferred LLM call, or an in-flight tool — gets killed mid-execution. The only way to keep an agent loop alive is to start a **new** function execution for it, which is what the self-fired `/process-task` POST does.
+
+Do NOT use any of these alternatives:
+
+- **Netlify Background Functions** — Netlify-only, requires a `-background.ts` filename suffix, breaks on every other host.
+- **Cloudflare `event.waitUntil()`** — CF Workers only, not portable.
+- **Vercel `after()` / Fluid** — Vercel-only, gated behind specific runtimes.
+- **Naked fire-and-forget Promises after `return`** — silently killed when the function freezes; no error in the logs, the user just never gets a reply.
+
+The SQL-queue + self-webhook + retry-job combination is the only thing that works identically on every supported host. The retry job is the safety net — never assume the initial dispatch flushed before the function froze.
 
 ### The integrations plugin {#plugin}
 
@@ -259,7 +277,7 @@ External threads appear in the web UI alongside web-originated threads, tagged w
 
 Every incoming webhook is signature-verified before processing:
 
-- **Slack** — HMAC-SHA256 of the body using `SLACK_SIGNING_SECRET`, checked against the `X-Slack-Signature` header.
+- **Slack** — HMAC-SHA256 of the body using `SLACK_SIGNING_SECRET`, checked against the `X-Slack-Signature` header. The first time you save a Request URL in Slack's Event Subscriptions panel, Slack POSTs a `url_verification` challenge to it; the framework's adapter detects this and replies with the `challenge` value automatically, so the URL flips green in Slack without any extra work on your end.
 - **Telegram** — secret token set when registering the webhook.
 - **WhatsApp** — Meta's verification challenge (using `WHATSAPP_VERIFY_TOKEN`) plus payload signature.
 - **Email** — Svix-style signature verification when `EMAIL_INBOUND_WEBHOOK_SECRET` is set (Resend and SendGrid both use this format). If the secret is unset, the webhook is accepted but a warning is logged.
@@ -317,8 +335,22 @@ export default createIntegrationsPlugin({
 
 Reference implementations live in `packages/core/src/integrations/adapters/` (`slack.ts`, `telegram.ts`, `whatsapp.ts`, `email.ts`) — the email adapter is the most complete example, including signature verification, threading, rate limiting, and HTML rendering.
 
+### Reliability via Dispatch + A2A continuations {#reliability}
+
+When [Dispatch](/docs/dispatch) delegates a request to another app over [A2A](/docs/a2a-protocol#continuations), the continuation-recovery flow guarantees the user gets a Slack/email reply even if the downstream agent crashes mid-execution. The original webhook task stays in `processing` until the continuation either resolves or the retry sweep marks it stuck; either way, the platform thread gets a final reply rather than going silent.
+
+This means a multi-app workspace fronted by Dispatch is more resilient than a single template wired to messaging directly — failures in any one downstream app degrade to a graceful error message instead of a dropped reply. See [A2A continuations](/docs/a2a-protocol#continuations) for the full delivery-guarantee story.
+
+### Common pitfalls {#pitfalls}
+
+- **Don't double-read the request body.** h3 v2's body stream is consume-once: if you call `readBody(event)` after the framework has already parsed `event.node.req.body` (or vice versa), the second read hangs the request indefinitely. This shows up most often with Resend and SendGrid — both stream the inbound payload and the dangling read never resolves, the platform times out, and the webhook gets retried until it dedups. If you wrap the framework's webhook handler in your own middleware, pass the already-parsed `IncomingMessage` via the `incoming` option rather than letting the handler re-parse.
+- **Don't run agent loops inside the webhook handler.** The handler must enqueue and return — the agent loop runs in the processor's fresh execution. Putting it inline guarantees serverless freeze kills the run.
+- **Don't rely on dedup memory across cold starts.** The dedup key lives in the SQL `(platform, external_event_key)` unique index, not an in-process Map. If you replace the queue, keep the SQL-level dedup or duplicate Slack retries will trigger duplicate agent runs.
+- **Keep the self-webhook URL reachable.** The processor URL is built from `APP_URL` / `URL` / `DEPLOY_URL` / `BETTER_AUTH_URL`, falling back to the inbound request headers. On preview deploys with rewritten hostnames, set one of these explicitly or the dispatch will hit a 404.
+
 ### See also {#see-also}
 
-- [Dispatch template](/docs/template-dispatch) — recommended central inbox for multi-app workspaces
-- [A2A Protocol](/docs/a2a-protocol) — how Dispatch delegates work to other agents
+- [Dispatch](/docs/dispatch) — concept overview for using a central inbox across apps
+- [Dispatch template reference](/docs/template-dispatch) — recommended central inbox for multi-app workspaces
+- [A2A Protocol](/docs/a2a-protocol) — how Dispatch delegates work to other agents, including continuation recovery
 - [Agent Mentions](/docs/agent-mentions) — `@`-mentioning agents inside the web chat
