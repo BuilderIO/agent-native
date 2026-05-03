@@ -336,12 +336,11 @@ function collectReferencedArtifacts(
 
   for (const match of text.matchAll(artifactUrlPattern)) {
     const origin = safeOrigin(match[1]);
-    if (origin && baseOrigin && origin !== baseOrigin) continue;
-
     const route = match[2];
     const id = match[3];
     const kind: ReferencedArtifactKind =
       route === "deck" ? "deck" : route === "design" ? "design" : "document";
+    if (!shouldValidateArtifactReference(origin, baseOrigin, kind)) continue;
     refs.set(`${kind}:${id}`, { kind, id });
   }
 
@@ -355,6 +354,37 @@ function safeOrigin(url: string | undefined): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+const KNOWN_AGENT_NATIVE_ARTIFACT_HOSTS: Record<
+  ReferencedArtifactKind,
+  ReadonlySet<string>
+> = {
+  deck: new Set(["slides.agent-native.com"]),
+  design: new Set(["design.agent-native.com"]),
+  document: new Set(["content.agent-native.com"]),
+};
+
+function safeHostnameFromOrigin(
+  origin: string | undefined,
+): string | undefined {
+  if (!origin) return undefined;
+  try {
+    return new URL(origin).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+function shouldValidateArtifactReference(
+  origin: string | undefined,
+  baseOrigin: string | undefined,
+  kind: ReferencedArtifactKind,
+): boolean {
+  if (!origin || !baseOrigin || origin === baseOrigin) return true;
+
+  const hostname = safeHostnameFromOrigin(origin);
+  return !!hostname && KNOWN_AGENT_NATIVE_ARTIFACT_HOSTS[kind].has(hostname);
 }
 
 function findUnverifiedArtifactReferences(
@@ -393,7 +423,7 @@ function formatUnverifiedArtifactMessage(
         ? "deck URL"
         : "artifact URL";
   const plural = refs.length === 1 ? label : `${label}s`;
-  const message = `I could not verify the ${plural} in the final answer against a successful artifact action, so I cannot return it.`;
+  const message = `I could not verify the ${plural} in the final answer against a successful artifact action that saved app data, so I cannot return it.`;
   const verifiedLines = [
     ...documents.map((document) => formatDocumentLine(document, baseUrl)),
     ...decks.map((deck) => formatDeckLine(deck, baseUrl)),

@@ -70,7 +70,7 @@ export default defineAction({
       const isBuiltin = builtinIds.has(agent.id);
       return {
         ...agent,
-        source: isBuiltin ? "builtin" : custom ? "custom" : "builtin",
+        source: isBuiltin ? "builtin" : custom ? "custom" : "workspace",
         resourceId: custom?.resourceId,
         path: custom?.path,
         scope: custom?.scope,

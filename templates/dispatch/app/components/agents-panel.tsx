@@ -21,7 +21,7 @@ export interface ConnectedAgent {
   description: string;
   url: string;
   color: string;
-  source: "builtin" | "custom";
+  source: "builtin" | "custom" | "workspace";
   resourceId?: string;
   path?: string;
   scope?: "shared" | "personal";
@@ -41,6 +41,9 @@ export function AgentsPanel({
   const nameRef = useRef<HTMLInputElement>(null);
 
   const customAgents = agents.filter((agent) => agent.source === "custom");
+  const workspaceAgents = agents.filter(
+    (agent) => agent.source === "workspace",
+  );
   const builtinAgents = agents.filter((agent) => agent.source === "builtin");
 
   const handleAdd = async () => {
@@ -129,6 +132,34 @@ export function AgentsPanel({
               Added in this workspace
             </div>
             <div className="mt-2 space-y-2">
+              {workspaceAgents.map((agent) => (
+                <div
+                  key={agent.id}
+                  className="flex items-start justify-between gap-3 rounded-xl border bg-muted/30 px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-foreground">
+                      {agent.name}
+                    </div>
+                    {agent.description ? (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {agent.description}
+                      </div>
+                    ) : null}
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      <a
+                        href={agent.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 hover:text-foreground"
+                      >
+                        {agent.url}
+                        <IconExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              ))}
               {customAgents.map((agent) => (
                 <div
                   key={agent.id}
@@ -183,7 +214,7 @@ export function AgentsPanel({
                   </AlertDialog>
                 </div>
               ))}
-              {customAgents.length === 0 && (
+              {workspaceAgents.length === 0 && customAgents.length === 0 && (
                 <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
                   No extra agents added yet.
                 </div>

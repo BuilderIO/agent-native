@@ -494,11 +494,19 @@ export async function callAgent(
 
   let task: Task;
   if (useAsync) {
-    task = await client.sendAndWait(message, {
-      contextId: opts?.contextId,
-      metadata,
-      timeoutMs: opts?.timeoutMs,
-    });
+    try {
+      task = await client.sendAndWait(message, {
+        contextId: opts?.contextId,
+        metadata,
+        timeoutMs: opts?.timeoutMs,
+      });
+    } catch (err) {
+      if (err instanceof A2ATaskTimeoutError) {
+        const recoverableText = extractRecoverableArtifactText(err.lastTask);
+        if (recoverableText) return recoverableText;
+      }
+      throw err;
+    }
   } else {
     task = await client.send(message, {
       contextId: opts?.contextId,
@@ -516,4 +524,18 @@ export async function callAgent(
   }
 
   return "";
+}
+
+function extractRecoverableArtifactText(task: Task): string {
+  if (!task.status.message?.metadata?.agentNativeRecoverableArtifacts) {
+    return "";
+  }
+  return extractMessageText(task.status.message);
+}
+
+function extractMessageText(message: Message): string {
+  return message.parts
+    .filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => p.text)
+    .join("\n");
 }

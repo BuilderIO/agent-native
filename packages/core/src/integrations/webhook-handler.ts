@@ -569,10 +569,19 @@ async function processIncomingMessage(
       async (completedRun: ActiveRun) => {
         try {
           const queuedA2AContinuation = hasQueuedA2AContinuation(completedRun);
+          let usedRecoverableA2AArtifactToolResult = false;
           let responseText = collectFinalResponseTextFromAgentEvents(
             completedRun.events.map((runEvent) => runEvent.event),
             { fallbackToPreToolText: !queuedA2AContinuation },
           );
+          if (!queuedA2AContinuation && !responseText.trim()) {
+            const recoverableA2AArtifactText =
+              extractRecoverableA2AArtifactToolResult(completedRun);
+            if (recoverableA2AArtifactText) {
+              responseText = recoverableA2AArtifactText;
+              usedRecoverableA2AArtifactToolResult = true;
+            }
+          }
 
           const suppressPlatformReply =
             queuedA2AContinuation &&
@@ -616,7 +625,7 @@ async function processIncomingMessage(
           // preview card.
           const baseUrl = process.env.APP_URL || process.env.URL || "";
           const appBaseUrl = baseUrl ? withConfiguredAppBasePath(baseUrl) : "";
-          if (!suppressPlatformReply) {
+          if (!suppressPlatformReply && !usedRecoverableA2AArtifactToolResult) {
             responseText = appendA2AArtifactLinks(
               responseText,
               collectToolResultSummaries(completedRun),
@@ -675,6 +684,24 @@ function hasQueuedA2AContinuation(completedRun: ActiveRun): boolean {
       String(event.result ?? "").includes(A2A_CONTINUATION_QUEUED_MARKER)
     );
   });
+}
+
+function extractRecoverableA2AArtifactToolResult(
+  completedRun: ActiveRun,
+): string | null {
+  for (let i = completedRun.events.length - 1; i >= 0; i--) {
+    const event = completedRun.events[i].event;
+    if (event.type !== "tool_done" || event.tool !== "call-agent") continue;
+
+    const result = String(event.result ?? "").trim();
+    if (
+      result.includes("verified artifacts already exist") &&
+      result.includes("\nArtifacts:\n")
+    ) {
+      return result;
+    }
+  }
+  return null;
 }
 
 function isQueuedA2AContinuationDeferral(text: string): boolean {
