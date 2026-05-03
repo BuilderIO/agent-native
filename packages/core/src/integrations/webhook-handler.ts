@@ -36,6 +36,8 @@ import { signInternalToken } from "./internal-token.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 
+const PROCESSOR_DISPATCH_SETTLE_WAIT_MS = 2_000;
+
 /**
  * Build a stable per-event dedup key from the incoming message. The same
  * key is computed for every retry of the same event from the platform —
@@ -312,8 +314,9 @@ async function enqueueAndDispatch(
   // Lambda, when we return immediately, the runtime can freeze the function
   // before the outbound TCP handshake even starts, which leaves the dispatch
   // request stuck waiting for the 60s retry-sweep job. Race the fetch
-  // against a short timer so the request gets at least ~250ms to leave the
-  // box; the trade-off is at most ~250ms of added webhook latency.
+  // against a short timer so the request gets a reasonable chance to leave
+  // the box; the trade-off is at most a couple seconds of added webhook
+  // latency, still inside Slack's timeout window.
   const dispatchPromise = fetch(processUrl, {
     method: "POST",
     headers,
@@ -323,7 +326,9 @@ async function enqueueAndDispatch(
   });
   await Promise.race([
     dispatchPromise,
-    new Promise<void>((resolve) => setTimeout(resolve, 250)),
+    new Promise<void>((resolve) =>
+      setTimeout(resolve, PROCESSOR_DISPATCH_SETTLE_WAIT_MS),
+    ),
   ]);
 }
 
