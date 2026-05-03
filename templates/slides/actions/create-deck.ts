@@ -10,6 +10,7 @@ import {
 } from "@agent-native/core/server/request-context";
 import { notifyClients } from "../server/handlers/decks.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import { getDeckUrl } from "./_app-url.js";
 
 const SlideSchema = z.object({
   id: z.string().describe("Unique slide ID, e.g. 'slide-1'"),
@@ -63,7 +64,6 @@ export default defineAction({
   run: async ({ title, slides, deckId, aspectRatio }) => {
     const db = getDb();
     const now = new Date().toISOString();
-    const appUrl = process.env.APP_URL || "https://slides.agent-native.com";
 
     if (deckId) {
       // Update existing deck — requires editor access.
@@ -92,7 +92,7 @@ export default defineAction({
         id: deckId,
         title,
         slideCount: slides.length,
-        url: `${appUrl}/deck/${deckId}`,
+        url: getDeckUrl(deckId),
       };
     }
 
@@ -124,7 +124,7 @@ export default defineAction({
       id,
       title,
       slideCount: slides.length,
-      url: `${appUrl}/deck/${id}`,
+      url: getDeckUrl(id),
     };
   },
 });

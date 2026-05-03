@@ -316,13 +316,13 @@ Read (`get-deck`, `list-decks`, `view-screen`) admits rows the current user owns
 
 When this agent is called via A2A (e.g. dispatch asking "make a deck about X"), the caller is in a different app and **cannot see your local UI state, navigation, or deck list**. They only see the text you put in your reply.
 
-**After creating or modifying a deck, always include the canonical deck URL in your reply text — fully-qualified, never a relative path:**
+**After creating or modifying a deck, always include the canonical deck URL in your reply text — fully-qualified, never a relative path. Prefer the `url` returned by the deck action.**
 
 ```
-${process.env.APP_URL}/deck/<deckId>
+<configured app URL>/deck/<deckId>
 ```
 
-The URL pattern is `/deck/<id>` (singular `deck`). If `process.env.APP_URL` isn't set, fall back to `https://slides.agent-native.com/deck/<id>` for the prod app.
+The URL pattern is `/deck/<id>` (singular `deck`). If constructing a URL manually, use the configured app URL for this running app, including any workspace mount path such as `APP_BASE_PATH=/slides`. Do not drop the base path when the Slides app is hosted inside a workspace.
 
 **Examples — good vs bad replies for "Create a 3-slide deck about Acme Analytics. Reply with just the URL.":**
 
@@ -330,7 +330,7 @@ The URL pattern is `/deck/<id>` (singular `deck`). If `process.env.APP_URL` isn'
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ❌  | "I'll create a 3-slide deck about Acme Analytics! Slide 1 — What is Acme Analytics? Slide 2 — Key features. Slide 3 — Get started." (no URL — caller has nothing to point to) |
 | ❌  | "Created at `/deck/deck-123`" (relative path — caller's host won't resolve it)                                                                                                |
-| ✅  | "https://slides.agent-native.com/deck/deck-1777482594025-d7x2x" (verbatim, fully-qualified, just the URL the user asked for)                                                  |
+| ✅  | "https://workspace.example.com/slides/deck/deck-1777482594025-d7x2x" (verbatim, fully-qualified, just the URL the user asked for)                                             |
 
 Same rule for `/deck/<id>/present` (presentation mode), `/share/<token>` (share link), and any other URL the caller might need.
 
