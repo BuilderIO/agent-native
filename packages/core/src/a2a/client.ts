@@ -64,7 +64,8 @@ export async function signA2AToken(
 export class A2AClient {
   private baseUrl: string;
   private apiKey?: string;
-  private a2aPath = "/_agent-native/a2a";
+  private endpointCandidates: string[] = [];
+  private endpointResolved = false;
   private requestTimeoutMs?: number;
 
   constructor(
@@ -72,7 +73,13 @@ export class A2AClient {
     apiKey?: string,
     options?: { requestTimeoutMs?: number },
   ) {
-    this.baseUrl = baseUrl.replace(/\/$/, "");
+    const normalized = baseUrl.replace(/\/$/, "");
+    const explicitEndpoint = splitExplicitA2AEndpoint(normalized);
+    this.baseUrl = explicitEndpoint?.baseUrl ?? normalized;
+    if (explicitEndpoint) {
+      this.endpointCandidates = [explicitEndpoint.endpointUrl];
+      this.endpointResolved = true;
+    }
     this.apiKey = apiKey;
     this.requestTimeoutMs = options?.requestTimeoutMs;
   }
@@ -82,13 +89,24 @@ export class A2AClient {
    * Agent-native apps use /_agent-native/a2a, external agents may use /a2a.
    */
   async resolveEndpoint(): Promise<void> {
-    try {
-      const res = await fetch(`${this.baseUrl}/_agent-native/a2a`, {
-        method: "OPTIONS",
-      });
-      if (res.status !== 404) return; // /_agent-native/a2a exists
-    } catch {}
-    this.a2aPath = "/a2a"; // Fallback for external A2A servers
+    await this.ensureEndpointCandidates();
+    if (this.endpointCandidates.length <= 1) return;
+
+    for (const endpoint of this.endpointCandidates) {
+      try {
+        const res = await fetch(endpoint, { method: "OPTIONS" });
+        if (res.status !== 404 && res.status !== 405) {
+          this.endpointCandidates = [endpoint];
+          return;
+        }
+        if (res.status === 405) {
+          this.endpointCandidates = [endpoint];
+          return;
+        }
+      } catch {
+        // Try the next candidate.
+      }
+    }
   }
 
   private headers(): Record<string, string> {
@@ -110,37 +128,30 @@ export class A2AClient {
       params,
     };
 
-    const url = `${this.baseUrl}${this.a2aPath}`;
-    console.log(`[A2A Client] POST ${url} method=${method}`);
-    const startTime = Date.now();
-    const controller = this.requestTimeoutMs
-      ? new AbortController()
-      : undefined;
-    const timer =
-      controller && this.requestTimeoutMs
-        ? setTimeout(() => controller.abort(), this.requestTimeoutMs)
-        : undefined;
-    let res!: Response;
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: this.headers(),
-        body: JSON.stringify(body),
-        signal: controller?.signal,
-      });
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-    console.log(
-      `[A2A Client] Response: ${res.status} in ${Date.now() - startTime}ms`,
-    );
+    await this.ensureEndpointCandidates();
+    let lastError: Error | null = null;
 
-    if (!res.ok) {
+    for (const url of this.endpointCandidates) {
+      console.log(`[A2A Client] POST ${url} method=${method}`);
+      const startTime = Date.now();
+      const res = await this.postJson(url, body);
+      console.log(
+        `[A2A Client] Response: ${res.status} in ${Date.now() - startTime}ms`,
+      );
+
+      if (res.ok) {
+        this.endpointCandidates = [url];
+        return res.json() as Promise<JsonRpcResponse>;
+      }
+
       const text = await res.text();
-      throw new Error(`A2A request failed (${res.status}): ${text}`);
+      lastError = new Error(`A2A request failed (${res.status}): ${text}`);
+      if (!shouldTryNextEndpoint(res.status)) {
+        throw lastError;
+      }
     }
 
-    return res.json() as Promise<JsonRpcResponse>;
+    throw lastError ?? new Error("No A2A endpoint candidates available");
   }
 
   async getAgentCard(): Promise<AgentCard> {
@@ -261,15 +272,21 @@ export class A2AClient {
       },
     };
 
-    const res = await fetch(`${this.baseUrl}${this.a2aPath}`, {
-      method: "POST",
-      headers: this.headers(),
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
+    await this.ensureEndpointCandidates();
+    let res: Response | null = null;
+    let lastError: Error | null = null;
+    for (const candidate of this.endpointCandidates) {
+      res = await this.postJson(candidate, body);
+      if (res.ok) {
+        this.endpointCandidates = [candidate];
+        break;
+      }
       const text = await res.text();
-      throw new Error(`A2A stream failed (${res.status}): ${text}`);
+      lastError = new Error(`A2A stream failed (${res.status}): ${text}`);
+      if (!shouldTryNextEndpoint(res.status)) throw lastError;
+    }
+    if (!res?.ok) {
+      throw lastError ?? new Error("No A2A endpoint candidates available");
     }
 
     const reader = res.body?.getReader();
@@ -303,6 +320,108 @@ export class A2AClient {
       }
     }
   }
+
+  private async ensureEndpointCandidates(): Promise<void> {
+    if (this.endpointResolved) return;
+    this.endpointResolved = true;
+
+    const candidates: string[] = [];
+    addDefaultEndpointCandidates(candidates, this.baseUrl);
+
+    try {
+      const card = await this.getAgentCard();
+      const cardUrl = normalizeUrl(card.url, this.baseUrl);
+      if (cardUrl) {
+        const explicitEndpoint = splitExplicitA2AEndpoint(cardUrl);
+        if (explicitEndpoint) {
+          candidates.unshift(explicitEndpoint.endpointUrl);
+        } else {
+          addDefaultEndpointCandidates(candidates, cardUrl);
+        }
+      }
+    } catch {
+      // Agent cards are discovery hints. Fall back to conventional endpoints.
+    }
+
+    this.endpointCandidates = unique(candidates);
+  }
+
+  private async postJson(url: string, body: JsonRpcRequest): Promise<Response> {
+    const controller = this.requestTimeoutMs
+      ? new AbortController()
+      : undefined;
+    const timer =
+      controller && this.requestTimeoutMs
+        ? setTimeout(() => controller.abort(), this.requestTimeoutMs)
+        : undefined;
+    try {
+      return await fetch(url, {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify(body),
+        signal: controller?.signal,
+      });
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+}
+
+function splitExplicitA2AEndpoint(
+  url: string,
+): { baseUrl: string; endpointUrl: string } | null {
+  try {
+    const parsed = new URL(url);
+    const pathname = parsed.pathname.replace(/\/$/, "");
+    if (pathname.endsWith("/_agent-native/a2a")) {
+      parsed.pathname = pathname.slice(0, -"/_agent-native/a2a".length) || "/";
+      parsed.search = "";
+      parsed.hash = "";
+      return {
+        baseUrl: parsed.toString().replace(/\/$/, ""),
+        endpointUrl: url,
+      };
+    }
+    if (pathname.endsWith("/a2a")) {
+      parsed.pathname = pathname.slice(0, -"/a2a".length) || "/";
+      parsed.search = "";
+      parsed.hash = "";
+      return {
+        baseUrl: parsed.toString().replace(/\/$/, ""),
+        endpointUrl: url,
+      };
+    }
+  } catch {
+    // Relative or invalid URLs are handled by the caller's normal fetch path.
+  }
+  return null;
+}
+
+function addDefaultEndpointCandidates(candidates: string[], baseUrl: string) {
+  const base = baseUrl.replace(/\/$/, "");
+  candidates.push(`${base}/_agent-native/a2a`, `${base}/a2a`);
+}
+
+function normalizeUrl(
+  value: string | undefined,
+  baseUrl: string,
+): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value, `${baseUrl.replace(/\/$/, "")}/`)
+      .toString()
+      .replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
+function shouldTryNextEndpoint(status: number): boolean {
+  return status === 404 || status === 405;
+}
+
+function unique(values: string[]): string[] {
+  return Array.from(new Set(values));
 }
 
 /**

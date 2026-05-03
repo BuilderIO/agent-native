@@ -151,6 +151,29 @@ describe("agent discovery", () => {
       url: "https://workspace.example.test/mail",
     });
   });
+
+  it("uses explicit workspace manifest URLs without falling back to built-ins", async () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [
+        {
+          id: "mail",
+          name: "Workspace Mail",
+          description: "Custom workspace mail app",
+          path: "/mail",
+          url: "https://mail.workspace.example.test/",
+        },
+      ],
+    });
+
+    const agents = await discoverAgents("dispatch");
+    expect(agents.find((agent) => agent.id === "mail")).toMatchObject({
+      id: "mail",
+      name: "Workspace Mail",
+      description: "Custom workspace mail app",
+      url: "https://mail.workspace.example.test/",
+    });
+  });
 });
 
 function restoreEnv(name: string, value: string | undefined): void {

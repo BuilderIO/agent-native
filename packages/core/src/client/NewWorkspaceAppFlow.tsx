@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   IconArrowUpRight,
   IconCheck,
+  IconChevronDown,
   IconCode,
   IconKey,
   IconLoader2,
@@ -135,6 +136,10 @@ export function NewWorkspaceAppFlow({
     () => secrets.filter((secret) => selectedSecretIds.includes(secret.id)),
     [secrets, selectedSecretIds],
   );
+  const selectedSecretLabel =
+    selectedSecretIds.length === 0
+      ? "No keys selected"
+      : `${selectedSecretIds.length} key${selectedSecretIds.length === 1 ? "" : "s"} selected`;
 
   const canSubmit = prompt.trim().length > 0 && slugify(appName).length > 0;
   const submitShortcut =
@@ -345,9 +350,14 @@ export function NewWorkspaceAppFlow({
 
         <aside className="rounded-lg border border-border bg-card">
           <div className="border-b border-border px-4 py-3">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <IconKey className="h-4 w-4" />
-              Dispatch keys
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <IconKey className="h-4 w-4" />
+                Dispatch keys
+              </div>
+              <span className="shrink-0 rounded border border-border bg-background/40 px-2 py-0.5 text-[11px] text-muted-foreground">
+                {selectedSecretLabel}
+              </span>
             </div>
           </div>
           <div className="max-h-[440px] space-y-2 overflow-y-auto p-3">
@@ -363,35 +373,53 @@ export function NewWorkspaceAppFlow({
               secrets.map((secret) => {
                 const selected = selectedSecretIds.includes(secret.id);
                 return (
-                  <button
+                  <div
                     key={secret.id}
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() => toggleSecret(secret.id)}
-                    className={`group flex w-full items-start gap-3 rounded-md border px-3 py-2 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 ${
+                    className={`group rounded-md border text-sm transition ${
                       selected
-                        ? "border-ring/60 bg-muted/70 text-foreground"
-                        : "border-border bg-background/30 text-foreground hover:border-muted-foreground/40 hover:bg-accent/45"
+                        ? "border-primary/45 bg-primary/5 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.08)]"
+                        : "border-border bg-background/25 text-foreground hover:border-muted-foreground/40 hover:bg-accent/35"
                     }`}
                   >
-                    <span
-                      className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition ${
-                        selected
-                          ? "border-ring bg-background text-foreground"
-                          : "border-muted-foreground/35 text-transparent group-hover:border-muted-foreground/60"
-                      }`}
+                    <button
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => toggleSecret(secret.id)}
+                      className="flex w-full items-start gap-3 rounded-md px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                     >
-                      {selected ? <IconCheck className="h-3 w-3" /> : null}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium">
-                        {secret.credentialKey}
+                      <span
+                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition ${
+                          selected
+                            ? "border-primary/60 bg-primary/10 text-primary"
+                            : "border-muted-foreground/35 text-transparent group-hover:border-muted-foreground/60"
+                        }`}
+                      >
+                        {selected ? <IconCheck className="h-3 w-3" /> : null}
                       </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {secret.provider || secret.name}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">
+                          {secret.credentialKey}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground/70">
+                          {selected
+                            ? "Will be granted to this app"
+                            : "Click to grant"}
+                        </span>
                       </span>
-                    </span>
-                  </button>
+                    </button>
+                    <details className="group/details border-t border-border/60 px-3 py-1.5 text-xs text-muted-foreground/75 open:bg-background/10">
+                      <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] hover:text-muted-foreground [&::-webkit-details-marker]:hidden">
+                        <IconChevronDown className="h-3 w-3 transition-transform group-open/details:rotate-180" />
+                        Details
+                      </summary>
+                      <div className="mt-1.5 space-y-1 pb-0.5 pl-4">
+                        <div className="truncate">
+                          Provider: {secret.provider || "Not specified"}
+                        </div>
+                        <div className="truncate">Name: {secret.name}</div>
+                      </div>
+                    </details>
+                  </div>
                 );
               })
             )}
