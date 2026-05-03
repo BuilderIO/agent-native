@@ -20,6 +20,8 @@ const SETTINGS_KEY = "dispatch-app-creation-settings";
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const MAX_PENDING_APPS = 50;
+const AGENT_CARD_PATH = "/.well-known/agent-card.json";
+const AGENT_CARD_FETCH_TIMEOUT_MS = 1_500;
 
 export interface WorkspaceAppSummary {
   id: string;
@@ -33,6 +35,15 @@ export interface WorkspaceAppSummary {
   builderUrl?: string | null;
   branchName?: string | null;
   createdAt?: string | null;
+  agentCardUrl?: string | null;
+  agentCardReachable?: boolean;
+  a2aEndpointUrl?: string | null;
+  agentName?: string | null;
+  agentSkillsCount?: number | null;
+}
+
+export interface ListWorkspaceAppsOptions {
+  includeAgentCards?: boolean;
 }
 
 export interface AppCreationSettings {
@@ -252,6 +263,123 @@ async function appendPendingWorkspaceApps(
   return [...apps, ...pendingApps].sort(sortWorkspaceApps);
 }
 
+function agentCardUrlForApp(appUrl: string | null): string | null {
+  if (!appUrl) return null;
+  const trimmed = appUrl.replace(/\/+$/, "");
+  if (!trimmed) return null;
+  try {
+    return new URL(`${trimmed}${AGENT_CARD_PATH}`).toString();
+  } catch {
+    return `${trimmed}${AGENT_CARD_PATH}`;
+  }
+}
+
+function stringField(
+  record: Record<string, unknown>,
+  key: string,
+): string | null {
+  const value = record[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function numberOfSkills(card: Record<string, unknown>): number | null {
+  return Array.isArray(card.skills) ? card.skills.length : null;
+}
+
+async function fetchAgentCardMetadata(
+  app: WorkspaceAppSummary,
+): Promise<
+  Pick<
+    WorkspaceAppSummary,
+    | "agentCardUrl"
+    | "agentCardReachable"
+    | "a2aEndpointUrl"
+    | "agentName"
+    | "agentSkillsCount"
+  >
+> {
+  const agentCardUrl = agentCardUrlForApp(app.url);
+  if (!agentCardUrl) {
+    return {
+      agentCardUrl: null,
+      agentCardReachable: false,
+      a2aEndpointUrl: null,
+      agentName: null,
+      agentSkillsCount: null,
+    };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    AGENT_CARD_FETCH_TIMEOUT_MS,
+  );
+
+  try {
+    const response = await fetch(agentCardUrl, {
+      headers: { accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return {
+        agentCardUrl,
+        agentCardReachable: false,
+        a2aEndpointUrl: null,
+        agentName: null,
+        agentSkillsCount: null,
+      };
+    }
+
+    const parsed = await response.json().catch(() => null);
+    const card =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    if (!card) {
+      return {
+        agentCardUrl,
+        agentCardReachable: false,
+        a2aEndpointUrl: null,
+        agentName: null,
+        agentSkillsCount: null,
+      };
+    }
+
+    return {
+      agentCardUrl,
+      agentCardReachable: true,
+      a2aEndpointUrl:
+        stringField(card, "url") ?? stringField(card, "endpointUrl"),
+      agentName: stringField(card, "name"),
+      agentSkillsCount: numberOfSkills(card),
+    };
+  } catch {
+    return {
+      agentCardUrl,
+      agentCardReachable: false,
+      a2aEndpointUrl: null,
+      agentName: null,
+      agentSkillsCount: null,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function maybeIncludeAgentCards(
+  apps: WorkspaceAppSummary[],
+  options: ListWorkspaceAppsOptions,
+): Promise<WorkspaceAppSummary[]> {
+  if (!options.includeAgentCards) return apps;
+  return Promise.all(
+    apps.map(async (app) => {
+      if (app.status === "pending") return app;
+      const metadata = await fetchAgentCardMetadata(app);
+      return { ...app, ...metadata };
+    }),
+  );
+}
+
 async function recordPendingWorkspaceApp(input: {
   appId: string;
   projectId: string | null;
@@ -347,28 +475,43 @@ export function getEnvBuilderProjectId(): string | null {
   );
 }
 
-export async function listWorkspaceApps(): Promise<WorkspaceAppSummary[]> {
+export async function listWorkspaceApps(
+  options: ListWorkspaceAppsOptions = {},
+): Promise<WorkspaceAppSummary[]> {
   const manifestApps =
     readWorkspaceAppsFromEnv() ?? readWorkspaceAppsFromManifestFile();
-  if (manifestApps) return appendPendingWorkspaceApps(manifestApps);
+  if (manifestApps) {
+    return maybeIncludeAgentCards(
+      await appendPendingWorkspaceApps(manifestApps),
+      options,
+    );
+  }
 
   const workspaceRoot = findWorkspaceRoot();
   if (!workspaceRoot) {
-    return appendPendingWorkspaceApps([
-      {
-        id: "dispatch",
-        name: "Dispatch",
-        description: "Workspace control plane",
-        path: "/dispatch",
-        url: workspaceAppUrl("/dispatch"),
-        isDispatch: true,
-        status: "ready",
-      },
-    ]);
+    return maybeIncludeAgentCards(
+      await appendPendingWorkspaceApps([
+        {
+          id: "dispatch",
+          name: "Dispatch",
+          description: "Workspace control plane",
+          path: "/dispatch",
+          url: workspaceAppUrl("/dispatch"),
+          isDispatch: true,
+          status: "ready",
+        },
+      ]),
+      options,
+    );
   }
 
   const appsDir = path.join(workspaceRoot, "apps");
-  if (!fs.existsSync(appsDir)) return appendPendingWorkspaceApps([]);
+  if (!fs.existsSync(appsDir)) {
+    return maybeIncludeAgentCards(
+      await appendPendingWorkspaceApps([]),
+      options,
+    );
+  }
 
   const apps = fs
     .readdirSync(appsDir, { withFileTypes: true })
@@ -389,7 +532,10 @@ export async function listWorkspaceApps(): Promise<WorkspaceAppSummary[]> {
     })
     .filter((app): app is WorkspaceAppSummary => !!app)
     .sort(sortWorkspaceApps);
-  return appendPendingWorkspaceApps(apps);
+  return maybeIncludeAgentCards(
+    await appendPendingWorkspaceApps(apps),
+    options,
+  );
 }
 
 export async function getAppCreationSettings(): Promise<AppCreationSettings> {
