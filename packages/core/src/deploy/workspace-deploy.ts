@@ -52,6 +52,7 @@ interface WorkspaceAppManifestEntry {
   name: string;
   description: string;
   path: string;
+  url?: string;
   isDispatch: boolean;
 }
 
@@ -547,15 +548,22 @@ function readWorkspaceAppManifest(
   workspaceRoot: string,
   apps: string[],
 ): WorkspaceAppManifestEntry[] {
+  const explicitApps = readExistingWorkspaceAppManifest(workspaceRoot);
+
   return apps
     .map((app) => {
       const appDir = path.join(workspaceRoot, "apps", app);
       const pkg = readPackageJson(path.join(appDir, "package.json"));
+      const appPath = `/${app}`;
+      const explicit = explicitApps.get(app);
+      const url =
+        normalizeWorkspaceAppUrl(explicit?.url) ?? workspaceAppUrl(appPath);
       return {
         id: app,
         name: pkg?.displayName || titleCase(app),
         description: pkg?.description || "",
-        path: `/${app}`,
+        path: appPath,
+        ...(url ? { url } : {}),
         isDispatch: app === "dispatch",
       };
     })
@@ -564,6 +572,99 @@ function readWorkspaceAppManifest(
       if (b.id === "dispatch") return 1;
       return a.name.localeCompare(b.name);
     });
+}
+
+function readExistingWorkspaceAppManifest(
+  workspaceRoot: string,
+): Map<string, { url?: string }> {
+  const fromEnv = parseWorkspaceAppsJson(process.env[WORKSPACE_APPS_ENV_KEY]);
+  const fromFile =
+    readWorkspaceAppsFromFile(
+      path.join(
+        workspaceRoot,
+        WORKSPACE_APPS_MANIFEST_DIR,
+        WORKSPACE_APPS_MANIFEST_FILE,
+      ),
+    ) ??
+    readWorkspaceAppsFromFile(
+      path.join(workspaceRoot, WORKSPACE_APPS_MANIFEST_FILE),
+    );
+  const apps = fromEnv ?? fromFile ?? [];
+  return new Map(apps.map((app) => [app.id, app]));
+}
+
+function parseWorkspaceAppsJson(
+  raw: string | undefined,
+): Array<{ id: string; url?: string }> | null {
+  if (!raw) return null;
+  try {
+    return parseWorkspaceAppsManifest(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+function readWorkspaceAppsFromFile(
+  file: string,
+): Array<{ id: string; url?: string }> | null {
+  if (!fs.existsSync(file)) return null;
+  return parseWorkspaceAppsManifest(readPackageJson(file));
+}
+
+function parseWorkspaceAppsManifest(
+  parsed: any,
+): Array<{ id: string; url?: string }> | null {
+  const rawApps = Array.isArray(parsed?.apps)
+    ? parsed.apps
+    : Array.isArray(parsed)
+      ? parsed
+      : null;
+  if (!rawApps) return null;
+
+  const apps = rawApps
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const id = typeof entry.id === "string" ? entry.id.trim() : "";
+      if (!id) return null;
+      const url = normalizeWorkspaceAppUrl(entry.url);
+      return {
+        id,
+        ...(url ? { url } : {}),
+      };
+    })
+    .filter((app): app is { id: string; url?: string } => !!app);
+
+  return apps.length ? apps : null;
+}
+
+function workspaceBaseUrl(): string | null {
+  return (
+    process.env.WORKSPACE_GATEWAY_URL ||
+    process.env.APP_URL ||
+    process.env.URL ||
+    process.env.DEPLOY_URL ||
+    process.env.BETTER_AUTH_URL ||
+    null
+  );
+}
+
+function workspaceAppUrl(appPath: string): string | undefined {
+  const base = workspaceBaseUrl();
+  if (!base) return undefined;
+  try {
+    return new URL(appPath, `${base.replace(/\/$/, "")}/`).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeWorkspaceAppUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  try {
+    return new URL(value.trim()).toString().replace(/\/$/, "");
+  } catch {
+    return undefined;
+  }
 }
 
 function readPackageJson(file: string): Record<string, any> | null {

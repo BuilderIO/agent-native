@@ -399,6 +399,74 @@ describe("workspace deploy", () => {
     });
   });
 
+  it("writes workspace app URLs and preserves explicit manifest URLs", async () => {
+    process.env.APP_URL = "https://workspace.example.test/dispatch";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [
+        {
+          id: "mail",
+          path: "/mail",
+          url: "https://mail.custom.example.test/",
+        },
+      ],
+    });
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "mail");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const dispatchCall = buildCallForApp("dispatch");
+    expect(
+      JSON.parse(dispatchCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]"),
+    ).toEqual([
+      {
+        id: "dispatch",
+        name: "Dispatch",
+        description: "",
+        path: "/dispatch",
+        url: "https://workspace.example.test/dispatch",
+        isDispatch: true,
+      },
+      {
+        id: "mail",
+        name: "Mail",
+        description: "",
+        path: "/mail",
+        url: "https://mail.custom.example.test",
+        isDispatch: false,
+      },
+    ]);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          tmpDir,
+          ".netlify",
+          "functions-internal",
+          "mail-server",
+          ".agent-native",
+          "workspace-apps.json",
+        ),
+        "utf-8",
+      ),
+    );
+    expect(
+      manifest.apps.map((app: { id: string; url: string }) => [
+        app.id,
+        app.url,
+      ]),
+    ).toEqual([
+      ["dispatch", "https://workspace.example.test/dispatch"],
+      ["mail", "https://mail.custom.example.test"],
+    ]);
+  });
+
   it("rejects app ids that conflict with reserved workspace routes", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "login");

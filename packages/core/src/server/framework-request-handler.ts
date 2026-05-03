@@ -117,13 +117,15 @@ export function getH3App(nitroApp: any): H3AppShim {
 
     // Readiness gate: Nitro v3 doesn't await async plugins, so routes
     // registered inside an async plugin may not exist when the first
-    // request arrives. This middleware holds /_agent-native requests
-    // until all tracked plugin inits complete.
-    registerMiddleware(nitroApp, FRAMEWORK_PREFIX, (async (event: H3Event) => {
-      await awaitPluginsReady(nitroApp);
+    // request arrives. These middleware entries hold framework routes
+    // until default-plugin bootstrap and tracked plugin inits complete.
+    const readinessGate = (async (event: H3Event) => {
+      await awaitFrameworkRoutesReady(nitroApp);
       // Fall through — the actual route handler runs next.
       return undefined;
-    }) as EventHandler);
+    }) as EventHandler;
+    registerMiddleware(nitroApp, FRAMEWORK_PREFIX, readinessGate);
+    registerMiddleware(nitroApp, WELL_KNOWN_PREFIX, readinessGate);
   }
 
   return shim;
@@ -147,6 +149,20 @@ export async function awaitBootstrap(nitroApp: any): Promise<void> {
   getH3App(nitroApp);
   const promise = nitroApp[BOOTSTRAP_PROMISE_KEY];
   if (promise) await promise;
+}
+
+/**
+ * Wait until framework routes are safe to dispatch.
+ *
+ * Request-time gates must wait for both phases:
+ *   1. default-plugin bootstrap, which discovers and starts missing plugins
+ *   2. async plugin init promises, which register routes such as A2A cards
+ */
+async function awaitFrameworkRoutesReady(nitroApp: any): Promise<void> {
+  if (!nitroApp) return;
+  const bootstrapPromise = nitroApp[BOOTSTRAP_PROMISE_KEY];
+  if (bootstrapPromise) await bootstrapPromise;
+  await awaitPluginsReady(nitroApp);
 }
 
 /**

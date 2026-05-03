@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getH3App } from "./framework-request-handler.js";
+import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -118,6 +119,30 @@ describe("framework request handler", () => {
       pathname: "/",
       path: "/",
     });
+  });
+
+  it("waits for default plugin bootstrap before app-scoped well-known routes fall through", async () => {
+    process.env.APP_BASE_PATH = "/starter";
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const nitroApp = createNitroApp();
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await ready;
+      getH3App(nitroApp).use("/.well-known/agent-card.json", () => ({
+        ok: true,
+      }));
+      return [];
+    });
+
+    getH3App(nitroApp);
+    const pending = dispatch(nitroApp, "/starter/.well-known/agent-card.json");
+    await Promise.resolve();
+
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
   });
 
   it("does not treat similar non-prefixed paths as framework routes", async () => {

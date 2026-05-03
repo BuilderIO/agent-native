@@ -26,6 +26,7 @@ const RESCHEDULE_DELAY_MS = 5_000;
 const MAX_PRE_CLAIM_WAIT_MS = RESCHEDULE_DELAY_MS + 5_000;
 const POLL_INTERVAL_MS = 2_000;
 const PROCESSOR_WAIT_MS = 20_000;
+const POLL_REQUEST_TIMEOUT_MS = 25_000;
 const PLATFORM_SEND_TIMEOUT_MS = 12_000;
 const DISPATCH_SETTLE_WAIT_MS = 2_000;
 
@@ -146,7 +147,7 @@ async function processClaimedContinuation(
   const client = new A2AClient(
     continuation.agentUrl,
     await signContinuationToken(continuation),
-    { requestTimeoutMs: 10_000 },
+    { requestTimeoutMs: POLL_REQUEST_TIMEOUT_MS },
   );
   const deadline = Date.now() + PROCESSOR_WAIT_MS;
   let task: Task | null = null;
@@ -158,6 +159,19 @@ async function processClaimedContinuation(
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     }
   } catch (err) {
+    if (isTransientA2APollError(err)) {
+      if (isRemoteWorkExpired(continuation)) {
+        await notifyAndFailA2AContinuation(
+          continuation,
+          adapter,
+          remotePollTimeoutReason(continuation),
+        );
+        return;
+      }
+      await rescheduleA2AContinuation(continuation.id, RESCHEDULE_DELAY_MS);
+      await redispatchContinuation(continuation.id);
+      return;
+    }
     if (continuation.attempts >= MAX_ATTEMPTS) {
       await notifyAndFailA2AContinuation(
         continuation,
@@ -289,6 +303,18 @@ function formatContinuationFailureMessage(
 
 function isRemoteWorkExpired(continuation: A2AContinuation): boolean {
   return Date.now() - continuation.createdAt >= MAX_REMOTE_WORK_MS;
+}
+
+function isTransientA2APollError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.name === "AbortError") return true;
+  return /operation was aborted|aborted|timed out|timeout/i.test(err.message);
+}
+
+function remotePollTimeoutReason(continuation: A2AContinuation): string {
+  return `Timed out polling the ${continuation.agentName} A2A task ${continuation.a2aTaskId} after ${Math.round(
+    MAX_REMOTE_WORK_MS / 60_000,
+  )} minutes. The downstream agent did not return a final result.`;
 }
 
 function sleep(ms: number): Promise<void> {
