@@ -974,8 +974,6 @@ function rewriteCoreDependencyVersions(projectDir: string): void {
 
 const DISPATCH_WORKSPACE_ROOT_REDIRECTS = [
   ["overview", "overview"],
-  ["apps", "apps"],
-  ["new-app", "new-app"],
   ["vault", "vault"],
   ["integrations", "integrations"],
   ["agents", "agents"],
