@@ -15,7 +15,7 @@ WITH first_pageviews AS (
       page_type,
       sub_page_type,
       ROW_NUMBER() OVER (PARTITION BY visitor_id ORDER BY created_date ASC) AS rn
-    FROM `your-gcp-project-id.dbt_staging_bigquery.all_pageviews`
+    FROM `@project.analytics.pageviews`
     WHERE DATE(created_date) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH) AND CURRENT_DATE()
       AND created_date <= CURRENT_TIMESTAMP()
   )
@@ -34,7 +34,7 @@ signups_by_landing AS (
     DATE_TRUNC(DATE(s.user_create_d), WEEK) AS week,
     fp.landing_page_type,
     COUNT(DISTINCT s.user_id) AS total_signups
-  FROM `your-gcp-project-id.dbt_analytics.product_signups` s
+  FROM `@project.analytics.signups` s
   INNER JOIN first_pageviews fp ON s.user_id = fp.visitor_id
   WHERE DATE(s.user_create_d) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH) AND CURRENT_DATE()
     AND s.user_create_d <= CURRENT_TIMESTAMP()

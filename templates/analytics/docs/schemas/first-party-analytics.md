@@ -37,7 +37,7 @@ Single-event body:
 {
   "publicKey": "anpk_...",
   "event": "click template",
-  "userId": "steve@builder.io",
+  "userId": "user@example.com",
   "anonymousId": "anon_123",
   "sessionId": "session_123",
   "timestamp": "2026-05-01T12:00:00.000Z",

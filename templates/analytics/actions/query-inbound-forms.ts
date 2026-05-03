@@ -3,7 +3,8 @@ import { z } from "zod";
 import { runQuery } from "../server/lib/bigquery";
 
 export default defineAction({
-  description: "Query inbound sales/demo form submissions from BigQuery.",
+  description:
+    "Query inbound sales/demo form submissions from a configured warehouse form-submissions table.",
   schema: z.object({}),
   http: false,
   run: async () => {
@@ -16,7 +17,7 @@ SELECT
   COUNT(*) as submission_count,
   MIN(form_fill_date) as earliest_submission,
   MAX(form_fill_date) as latest_submission
-FROM \`.dbt_intermediate.hubspot_form_submissions\`
+FROM \`@project.crm.form_submissions\`
 WHERE form_name IS NOT NULL
   AND (
     LOWER(form_name) LIKE '%sales%'
