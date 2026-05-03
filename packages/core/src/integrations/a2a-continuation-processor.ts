@@ -5,6 +5,10 @@ import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import { signInternalToken } from "./internal-token.js";
 import type { PlatformAdapter } from "./types.js";
 import {
+  formatLlmCredentialErrorMessage,
+  isLlmCredentialError,
+} from "../agent/engine/credential-errors.js";
+import {
   claimA2AContinuation,
   claimDueA2AContinuations,
   completeA2AContinuation,
@@ -264,26 +268,14 @@ function formatContinuationFailureMessage(
   reason: string,
 ): string {
   if (isLlmCredentialError(reason)) {
-    return `The ${continuation.agentName} agent could not finish this request because that app needs an LLM connection. Connect Builder.io or another LLM provider for the ${continuation.agentName} app, then try again.`;
+    return formatLlmCredentialErrorMessage({
+      agentName: continuation.agentName,
+    });
   }
 
   return `The ${continuation.agentName} agent could not finish this request: ${sanitizeFailureReason(
     reason,
   )}`;
-}
-
-function isLlmCredentialError(reason: string): boolean {
-  return (
-    /(?:ANTHROPIC|OPENAI|GOOGLE|GEMINI|MISTRAL|GROQ|TOGETHER|XAI|PERPLEXITY|FIREWORKS|DEEPSEEK)_[A-Z0-9_]*API_KEY/i.test(
-      reason,
-    ) ||
-    /(?:api key|llm|model provider).*(?:missing|not set|not configured|required)/i.test(
-      reason,
-    ) ||
-    /(?:missing|not set|not configured|required).*(?:api key|llm|model provider)/i.test(
-      reason,
-    )
-  );
 }
 
 function isRemoteWorkExpired(continuation: A2AContinuation): boolean {

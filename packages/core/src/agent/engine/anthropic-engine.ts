@@ -22,6 +22,10 @@ import {
 } from "./translate-anthropic.js";
 import { readDeployCredentialEnv } from "../../server/credential-provider.js";
 import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "./credential-errors.js";
 
 export const ANTHROPIC_CAPABILITIES: EngineCapabilities = {
   thinking: true,
@@ -205,7 +209,8 @@ export function createAnthropicEngine(
         yield {
           type: "stop" as const,
           reason: "error" as const,
-          error: "ANTHROPIC_API_KEY is not set",
+          error: LLM_MISSING_CREDENTIALS_MESSAGE,
+          errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
         };
       },
     };

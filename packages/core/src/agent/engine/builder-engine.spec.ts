@@ -99,7 +99,8 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("missing_credentials");
-    expect(stop?.error).toContain("BUILDER_PRIVATE_KEY");
+    expect(stop?.error).toContain("Connect an LLM provider or Builder");
+    expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
   });
 
   it("short-circuits with missing-credentials when resolveBuilderAuthHeader returns null", async () => {
