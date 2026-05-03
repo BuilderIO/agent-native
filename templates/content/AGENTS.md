@@ -67,6 +67,10 @@ Views: `list` (document tree), `editor` (viewing/editing a document).
 
 **Always use `pnpm action <name>` for all operations.** Never use `curl`, raw HTTP requests, or `db-exec` with raw SQL for document operations.
 
+### Cross-App A2A / Slack Artifact Rule
+
+When a request arrives from Slack, Dispatch, or another app via A2A, the caller cannot see Content's local UI or navigation state. After creating or updating a document, reply with the concrete document ID and URL/path only after the action succeeds. Use `/page/<id>` for private app documents (or `/p/<id>` only for documents you explicitly made public). Never say a document is ready without including the exact ID or URL/path returned by the action.
+
 **Running actions from the frame:** The terminal cwd is the framework root. Always `cd` to this template's root before running any action:
 
 ```bash

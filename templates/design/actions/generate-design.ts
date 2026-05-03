@@ -15,24 +15,27 @@ export default defineAction({
     "Save generated design content to a design project. " +
     "The agent calls this after generating HTML/CSS/JSX content to persist it " +
     "as files in the design project. Creates or updates files as needed. " +
-    "Returns the saved files for iframe rendering.",
+    "Returns the saved files and design URL path for iframe rendering. " +
+    "Do not report a design as ready until this action succeeds.",
   schema: z.object({
     designId: z.string().describe("Design project ID to save content to"),
     prompt: z.string().describe("The generation prompt (stored for reference)"),
     files: z
       .preprocess(
         (v) => (typeof v === "string" ? JSON.parse(v) : v),
-        z.array(
-          z.object({
-            filename: z.string().describe("Filename (e.g. 'index.html')"),
-            content: z.string().describe("File content"),
-            fileType: z
-              .enum(["html", "css", "jsx", "asset"])
-              .optional()
-              .default("html")
-              .describe("Type of file"),
-          }),
-        ),
+        z
+          .array(
+            z.object({
+              filename: z.string().describe("Filename (e.g. 'index.html')"),
+              content: z.string().min(1).describe("File content"),
+              fileType: z
+                .enum(["html", "css", "jsx", "asset"])
+                .optional()
+                .default("html")
+                .describe("Type of file"),
+            }),
+          )
+          .min(1),
       )
       .describe("Array of files to create/update in the design project"),
     designSystemId: z
@@ -106,6 +109,19 @@ export default defineAction({
           `Invalid filename "${file.filename}": path traversal not allowed`,
         );
       }
+    }
+
+    const hasRenderableFile = files.some((file) => {
+      const fileType = file.fileType ?? "html";
+      return (
+        (fileType === "html" || fileType === "jsx") &&
+        file.content.trim().length > 0
+      );
+    });
+    if (!hasRenderableFile) {
+      throw new Error(
+        "generate-design requires at least one non-empty HTML or JSX file before the design can be reported as ready",
+      );
     }
 
     const savedFiles: Array<{
@@ -215,6 +231,8 @@ export default defineAction({
 
     return {
       designId,
+      urlPath: `/design/${designId}`,
+      renderable: true,
       savedFiles,
       fileCount: savedFiles.length,
     };
