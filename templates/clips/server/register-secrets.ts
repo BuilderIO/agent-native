@@ -93,6 +93,38 @@ registerRequiredSecret({
   },
 });
 
+// ── Google Calendar OAuth (for the Meetings feature) ──────────────────
+// These are deploy-level OAuth client credentials (one client id/secret per
+// deployment, not per user). Per-user access/refresh tokens land in
+// `app_secrets` after the OAuth dance via the framework OAuth pattern;
+// `calendar_accounts` only stores pointer keys to those secrets.
+//
+// Scope is `workspace` so they appear once per deploy in the settings UI
+// (matches how the Calls / Recall / Calendar templates register Google OAuth
+// app credentials).
+
+registerRequiredSecret({
+  key: "GOOGLE_CALENDAR_CLIENT_ID",
+  label: "Google Calendar Client ID",
+  description:
+    "OAuth client id for the Meetings feature's Google Calendar integration. Create a Web Application credential at https://console.cloud.google.com/apis/credentials with the Calendar readonly scope, then paste the client id here.",
+  docsUrl: "https://console.cloud.google.com/apis/credentials",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "GOOGLE_CALENDAR_CLIENT_SECRET",
+  label: "Google Calendar Client Secret",
+  description:
+    "OAuth client secret matching GOOGLE_CALENDAR_CLIENT_ID. Required for the Meetings feature to fetch upcoming events from Google Calendar.",
+  docsUrl: "https://console.cloud.google.com/apis/credentials",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+});
+
 registerRequiredSecret({
   key: "OPENAI_API_KEY",
   label: "OpenAI API Key",

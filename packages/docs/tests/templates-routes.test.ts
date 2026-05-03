@@ -27,6 +27,12 @@ describe("template routes", () => {
         } as unknown as Parameters<typeof loader>[0]),
       ).not.toThrow();
     }
+
+    expect(() =>
+      loader({
+        params: { slug: "starter" },
+      } as unknown as Parameters<typeof loader>[0]),
+    ).toThrow(expect.objectContaining({ status: 404 }));
   });
 
   it("keeps docs sidebar template links aligned with the public catalog", () => {
@@ -38,9 +44,9 @@ describe("template routes", () => {
     const sidebarTemplatePaths = navTemplateSection!.items.map(
       (item) => item.to,
     );
-    const catalogTemplatePaths = templates
-      .filter((template) => template.slug !== "starter")
-      .map((template) => `/templates/${template.slug}`);
+    const catalogTemplatePaths = templates.map(
+      (template) => `/templates/${template.slug}`,
+    );
 
     // Every catalog template must be reachable from the sidebar — the sidebar
     // is allowed to have additional entries for templates that don't yet have
@@ -83,6 +89,7 @@ describe("template routes", () => {
     }
 
     expect(paths).not.toContain("/docs/resources");
+    expect(paths).not.toContain("/templates/starter");
     expect(paths).not.toContain("/templates/videos");
   });
 });

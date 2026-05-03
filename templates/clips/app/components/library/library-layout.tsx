@@ -3,6 +3,8 @@ import { NavLink, useLocation, useParams } from "react-router";
 import {
   IconInbox,
   IconArchive,
+  IconCalendar,
+  IconMicrophone2,
   IconTrash,
   IconUsersGroup,
   IconFolderPlus,
@@ -107,6 +109,18 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       label: "Spaces",
       icon: IconUsersGroup,
       match: (p) => p.startsWith("/spaces"),
+    },
+    {
+      to: "/meetings",
+      label: "Meetings",
+      icon: IconCalendar,
+      match: (p) => p.startsWith("/meetings"),
+    },
+    {
+      to: "/wispr",
+      label: "Wispr",
+      icon: IconMicrophone2,
+      match: (p) => p.startsWith("/wispr"),
     },
     {
       to: "/archive",

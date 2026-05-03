@@ -88,7 +88,7 @@ export const templates = [
     cliCommand: "npx @agent-native/core create my-forms-app --template forms",
     demoUrl: "https://forms.agent-native.com",
     description:
-      "Agent-native form builder. Generate forms from a prompt, branch logic with the agent, and own every response in your own database.",
+      "Agent-native form builder. Generate forms from a prompt, edit fields visually or conversationally, and send submissions to Slack, Discord, Google Sheets, or webhooks.",
     color: "#06B6D4",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190c3fabd51f4c1bba5aa4e091ad4e9b?format=webp&width=800",
@@ -108,11 +108,11 @@ export const templates = [
   {
     name: "Design",
     slug: "design",
-    replaces: "Replaces or augments Figma, Canva",
+    replaces: "Replaces or augments design prototyping tools",
     cliCommand: "npx @agent-native/core create my-design-app --template design",
     demoUrl: "https://design.agent-native.com",
     description:
-      "Agent-native design tool. Create and edit visual designs by prompt or by hand, with the agent as your co-designer.",
+      "Agent-native HTML prototyping studio. Generate interactive Alpine/Tailwind designs, compare variants, refine live tweak controls, and export the result.",
     color: "#F472B6",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=800",
@@ -133,20 +133,11 @@ export const templates = [
   // ── DO NOT add new templates here directly. ──
   // The public-facing template list is the strict allow-list defined in
   // `packages/shared-app-config/templates.ts` (the entries with
-  // `hidden: false`). To surface a new template on the homepage, first
-  // flip its `hidden` flag in that file. The CI guard
+  // `hidden: false`, excluding the CLI-only starter scaffold). To surface
+  // a new template on the homepage, first flip its `hidden` flag in that
+  // file. The CI guard
   // `scripts/guard-template-list.mjs` enforces this — adding a slug here
   // that isn't in the allow-list will fail the build.
-  {
-    name: "Starter",
-    slug: "starter",
-    replaces: "Blank agent-native app scaffold",
-    cliCommand:
-      "npx @agent-native/core create my-starter-app --template starter",
-    description:
-      "Minimal app scaffold with shared SQL state, actions, navigation state, tools, settings, and the agent sidebar ready for custom product development.",
-    color: "#64748b",
-  },
 ];
 
 export type Template = (typeof templates)[number];

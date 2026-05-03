@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -7,6 +8,41 @@ interface NotificationData {
   title: string;
   subtitle: string;
   meetingId: string;
+  joinUrl?: string | null;
+}
+
+interface StartRecordingPayload {
+  meetingId: string;
+  joinUrl?: string | null;
+}
+
+const STORAGE_KEY = "clips:server-url";
+
+function getServerUrl(): string | null {
+  try {
+    const v = localStorage.getItem(STORAGE_KEY);
+    if (v && v.trim()) return v.replace(/\/+$/, "");
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+async function callStartMeetingRecording(meetingId: string): Promise<void> {
+  const base = getServerUrl();
+  if (!base) {
+    return;
+  }
+  try {
+    await fetch(`${base}/_agent-native/actions/start-meeting-recording`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ meetingId }),
+    });
+  } catch (err) {
+    console.error("[clips-tray] start-meeting-recording fetch failed:", err);
+  }
 }
 
 /**
@@ -56,6 +92,28 @@ export function MeetingNotification() {
       }),
     );
 
+    // The Rust meetings_watcher (and the notifications module) fire
+    // `meetings:start-recording` when the user accepts a meeting reminder
+    // — wire it directly to the start-meeting-recording action and
+    // surface the recording pill.
+    trackListen(
+      listen<StartRecordingPayload>("meetings:start-recording", (ev) => {
+        const { meetingId, joinUrl } = ev.payload;
+        if (!meetingId) return;
+        callStartMeetingRecording(meetingId).catch(() => {});
+        invoke("recording_pill_show", {
+          meetingId,
+          mode: "meeting",
+        }).catch(() => {});
+        if (joinUrl) {
+          // Opening the join URL is a separate side effect — leave it to
+          // the host integration so it can use tauri-plugin-shell with
+          // the right capabilities.
+          emit("meetings:open-join-url", { joinUrl }).catch(() => {});
+        }
+      }),
+    );
+
     return () => {
       stopped = true;
       if (dismissTimer) clearTimeout(dismissTimer);
@@ -79,6 +137,11 @@ export function MeetingNotification() {
   function takeNotes() {
     if (!data) return;
     emit("meetings:take-notes", { meetingId: data.meetingId }).catch(() => {});
+    callStartMeetingRecording(data.meetingId).catch(() => {});
+    invoke("recording_pill_show", {
+      meetingId: data.meetingId,
+      mode: "meeting",
+    }).catch(() => {});
     dismiss();
   }
 

@@ -109,8 +109,8 @@ const visibleWithoutProdUrl = templates
   .map((template) => template.name);
 assert.deepEqual(
   visibleWithoutProdUrl,
-  ["starter"],
-  "starter should be the only visible template without a production URL",
+  [],
+  "all public templates should have a production URL; starter is CLI-only",
 );
 
 const appWebview = read(
@@ -187,17 +187,17 @@ const devElectronDryRun = execFileSync(
 );
 assert.match(
   devElectronDryRun,
-  /Dry run: mail, forms, electron/,
+  /Dry run: mail, forms, frame, electron/,
   "dev-electron dry-run must print the planned app set",
 );
 assert.match(
   devElectronDryRun,
-  /mail: PORT=8085 pnpm --dir templates\/mail exec vite/,
+  /mail: APP_NAME=mail PORT=8085 pnpm --dir templates\/mail exec vite/,
   "dev-electron dry-run must print the mail dev command",
 );
 assert.match(
   devElectronDryRun,
-  /forms: PORT=8084 pnpm --dir templates\/forms exec vite/,
+  /forms: APP_NAME=forms PORT=8084 pnpm --dir templates\/forms exec vite/,
   "dev-electron dry-run must print the forms dev command",
 );
 assert.doesNotMatch(

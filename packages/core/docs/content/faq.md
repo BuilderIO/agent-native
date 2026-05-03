@@ -67,7 +67,7 @@ The framework ships with production-ready templates you can use as daily drivers
 - **[Video](/templates/video)** — video composition with Remotion
 - **[Analytics](/templates/analytics)** — data platform (like Amplitude/Mixpanel)
 - **[Clips](/templates/clips)** — async screen + camera recording (replaces Loom)
-- **[Design](/templates/design)** — agent-native design tool (like Figma/Canva)
+- **[Design](/templates/design)** — agent-native HTML prototyping studio
 - **[Forms](/templates/forms)** — form builder (like Typeform)
 - **[Dispatch](/templates/dispatch)** — workspace control plane: shared secrets, integrations, jobs
 
@@ -123,7 +123,7 @@ Anywhere. The server runs on Nitro, which compiles to any deployment target: Nod
 
 ### Why polling instead of WebSockets? {#why-polling-not-websockets}
 
-Polling works in every deployment environment — including serverless, edge, and container platforms where persistent connections aren't available. The framework polls every 2 seconds using a lightweight version counter. When changes are detected, React Query caches are invalidated and components re-render. It's simple, reliable, and universal. SSE is also supported as an alternative.
+Polling works in every deployment environment — including serverless, edge, and container platforms where persistent connections aren't available. The framework polls every 2 seconds using a lightweight version counter. When changes are detected, React Query caches are invalidated and components re-render. It's simple, reliable, and universal.
 
 ### Why can't the UI call an LLM directly? {#why-no-inline-llm-calls}
 

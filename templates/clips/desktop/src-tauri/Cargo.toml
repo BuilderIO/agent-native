@@ -35,9 +35,23 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# Native macOS / cross-platform desktop notifications. v2.3.x is the
+# current latest at the time of writing (verified via `cargo search
+# tauri-plugin-notification`). Powers the Granola-style "Meeting starting
+# in N min — Join + Record" banners.
+tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 url = "2"
+# Used by meetings_watcher.rs to poll the backend on a background tokio
+# task. Tauri 2 already pulls reqwest in transitively, but we declare it
+# here so the `json` feature is available regardless of dep resolution.
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "json",
+] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "sync"] }
+chrono = { version = "0.4", features = ["serde"] }
 
 # macOS-only: raw Objective-C messaging so we can flip NSWindow's sharingType
 # to NSWindowSharingNone and hide every overlay window (popover, bubble,
@@ -77,6 +91,11 @@ objc2-avf-audio = { version = "0.3", features = [
   "block2",
 ] }
 block2 = "0.6"
+# NOTE: We hand-roll the few EventKit selectors we need via raw `objc2`
+# msg_send! in `eventkit.rs` rather than depending on the `objc2-event-kit`
+# crate. Its API surface drifts between minor 0.3.x releases (and not
+# every version exposes `EKEventStore::eventsMatchingPredicate`); the
+# slice we need is small enough that hand-rolling is more durable.
 
 [profile.release]
 panic = "abort"

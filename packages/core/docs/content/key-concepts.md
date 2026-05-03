@@ -46,7 +46,7 @@ Six rules govern the architecture:
 Adopting the framework is valuable mostly because of what you stop having to build. The moment your app follows the six rules, you inherit:
 
 - **One action = four surfaces.** Every action defined with `defineAction()` is simultaneously an agent tool, a typesafe frontend mutation (`useActionMutation("name")`), an HTTP endpoint at `/_agent-native/actions/:name`, and an MCP tool (when MCP is enabled). External agents can call it over [A2A](/docs/a2a-protocol) too. One implementation, four consumers.
-- **A full workspace per user.** Skills, memory (`learnings.md`), `AGENTS.md`, custom sub-agents, scheduled jobs, connected MCP servers — all SQL-backed, per-user, no dev-box required. See [Workspace](/docs/workspace).
+- **A full workspace per user.** Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, connected MCP servers — all SQL-backed, no dev-box required. See [Workspace](/docs/workspace).
 - **Drop-in React components.** `<AgentPanel />` and `<AgentSidebar />` render chat + workspace anywhere in your app. See [Drop-in Agent](/docs/drop-in-agent).
 - **Live sync between agent and UI.** A 2-second poll invalidates React Query caches whenever the agent writes to the DB. No WebSockets, no serverless-unfriendly long-lived connections. See [Polling Sync](#polling-sync) below.
 - **Auth, orgs, RBAC.** Better Auth with orgs/members/roles is wired in for every template. See [Authentication](/docs/authentication).

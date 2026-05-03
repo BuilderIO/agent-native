@@ -38,6 +38,7 @@ async function retypeBooleanColumnsOnPostgres(): Promise<void> {
     ["recording_comments", "resolved", false],
     ["recording_viewers", "counted_view", false],
     ["recording_viewers", "cta_clicked", false],
+    ["meeting_participants", "is_organizer", false],
   ];
   for (const [table, column, defaultTrue] of alters) {
     try {
@@ -317,6 +318,163 @@ const migrations = runMigrations(
       default_visibility TEXT NOT NULL DEFAULT 'private',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    // ---------------------------------------------------------------------------
+    // Meetings (Granola-style) — additive only.
+    // ---------------------------------------------------------------------------
+    {
+      version: 17,
+      sql: `CREATE TABLE IF NOT EXISTS meetings (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT,
+      title TEXT NOT NULL DEFAULT 'Untitled meeting',
+      scheduled_start TEXT,
+      scheduled_end TEXT,
+      actual_start TEXT,
+      actual_end TEXT,
+      platform TEXT NOT NULL DEFAULT 'adhoc',
+      join_url TEXT,
+      calendar_event_id TEXT,
+      recording_id TEXT,
+      user_notes_md TEXT NOT NULL DEFAULT '',
+      transcript_status TEXT NOT NULL DEFAULT 'idle',
+      summary_md TEXT NOT NULL DEFAULT '',
+      bullets_json TEXT NOT NULL DEFAULT '[]',
+      action_items_json TEXT NOT NULL DEFAULT '[]',
+      source TEXT NOT NULL DEFAULT 'adhoc',
+      reminder_fired_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      archived_at TEXT,
+      trashed_at TEXT,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    )`,
+    },
+    {
+      version: 18,
+      sql: `CREATE TABLE IF NOT EXISTS meeting_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 19,
+      sql: `CREATE TABLE IF NOT EXISTS meeting_participants (
+      id TEXT PRIMARY KEY,
+      meeting_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      name TEXT,
+      is_organizer BOOLEAN NOT NULL DEFAULT FALSE,
+      attended_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 20,
+      sql: `CREATE TABLE IF NOT EXISTS meeting_action_items (
+      id TEXT PRIMARY KEY,
+      meeting_id TEXT NOT NULL,
+      assignee_email TEXT,
+      text TEXT NOT NULL,
+      due_date TEXT,
+      completed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    // ---------------------------------------------------------------------------
+    // Calendar accounts + events
+    // ---------------------------------------------------------------------------
+    {
+      version: 21,
+      sql: `CREATE TABLE IF NOT EXISTS calendar_accounts (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL,
+      external_account_id TEXT NOT NULL,
+      display_name TEXT,
+      email TEXT,
+      access_token_secret_ref TEXT,
+      refresh_token_secret_ref TEXT,
+      last_synced_at TEXT,
+      last_sync_error TEXT,
+      status TEXT NOT NULL DEFAULT 'connected',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    )`,
+    },
+    {
+      version: 22,
+      sql: `CREATE TABLE IF NOT EXISTS calendar_account_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 23,
+      sql: `CREATE TABLE IF NOT EXISTS calendar_events (
+      id TEXT PRIMARY KEY,
+      calendar_account_id TEXT NOT NULL,
+      external_id TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      start TEXT NOT NULL,
+      "end" TEXT NOT NULL,
+      organizer_email TEXT,
+      join_url TEXT,
+      location TEXT,
+      attendees_json TEXT NOT NULL DEFAULT '[]',
+      meeting_id TEXT,
+      provider_updated_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    // ---------------------------------------------------------------------------
+    // Dictations (Wispr-style press-and-hold history)
+    // ---------------------------------------------------------------------------
+    {
+      version: 24,
+      sql: `CREATE TABLE IF NOT EXISTS dictations (
+      id TEXT PRIMARY KEY,
+      full_text TEXT NOT NULL DEFAULT '',
+      cleaned_text TEXT,
+      duration_ms INTEGER NOT NULL DEFAULT 0,
+      audio_url TEXT,
+      source TEXT NOT NULL DEFAULT 'fn-hold',
+      target_app TEXT,
+      started_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    )`,
+    },
+    {
+      version: 25,
+      sql: `CREATE TABLE IF NOT EXISTS dictation_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
     },
   ],
