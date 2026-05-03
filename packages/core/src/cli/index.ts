@@ -440,6 +440,9 @@ Options:
                                 (mail,calendar,analytics,...) — or
                                 github:user/repo for community templates
   --standalone                  Scaffold a single standalone app (no workspace)
+  --preset <name>               Workspace deploy preset:
+                                cloudflare_pages (default) or netlify
+  --build-only                  Build workspace deploy artifacts without publishing
 
 Feedback:  ${FEEDBACK_URL}
 Bugs:      ${BUGS_URL}`);
