@@ -15,10 +15,14 @@
 //! | `native_speech_stop`   | Stop audio, let the in-flight final result land.       |
 //! | `native_speech_cancel` | Stop audio + cancel the task (no final result).        |
 //!
-//! Events emitted on the AppHandle:
-//!   - `voice:partial-transcript` `{ text: String }` — interim hypotheses
-//!   - `voice:final-transcript`   `{ text: String }` — only when `result.isFinal`
-//!   - `voice:speech-error`       `{ error: String }` — any failure
+//! Events emitted on the AppHandle. `source` is always `"mic"` for this
+//! module — the parallel system-audio recognizer in `system_audio.rs`
+//! emits the same event names with `source: "system"` so the renderer
+//! can label which side of a meeting spoke.
+//!
+//!   - `voice:partial-transcript` `{ text: String, source: "mic" }` — interim hypotheses
+//!   - `voice:final-transcript`   `{ text: String, source: "mic" }` — only when `result.isFinal`
+//!   - `voice:speech-error`       `{ error: String, source: "mic" }` — any failure
 //!
 //! All ObjC interop is `unsafe` by definition; the comments above each block
 //! call out the soundness argument.
@@ -65,7 +69,7 @@ pub async fn native_speech_cancel(app: AppHandle) -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
-mod macos {
+pub(crate) mod macos {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
 
@@ -120,16 +124,62 @@ mod macos {
     #[derive(Serialize, Clone)]
     struct PartialPayload {
         text: String,
+        /// Always `"mic"` for this module — the parallel system-audio
+        /// recognizer in `system_audio.rs` emits `"system"` so the renderer
+        /// can label which side spoke.
+        source: &'static str,
     }
 
     #[derive(Serialize, Clone)]
     struct FinalPayload {
         text: String,
+        source: &'static str,
     }
 
     #[derive(Serialize, Clone)]
     struct ErrorPayload {
         error: String,
+        source: &'static str,
+    }
+
+    #[derive(Serialize, Clone)]
+    pub(crate) struct AudioLevelPayload {
+        pub level: f32,
+        pub source: &'static str,
+    }
+
+    /// Cheap peak-magnitude meter over channel 0 of a PCM buffer. Returns a
+    /// value in `0..=1`. Used by both the mic tap (here) and the system-audio
+    /// tap (in `system_audio.rs`) to drive the dual-stream waveform.
+    pub(crate) fn peak_level_for_pcm(buf: &AVAudioPCMBuffer) -> f32 {
+        // SAFETY: AVAudioPCMBuffer with float format exposes `floatChannelData`
+        // as a pointer to `channelCount` pointers, each pointing at
+        // `frameLength` floats. We only read channel 0, bounded by the
+        // engine-reported frame length.
+        unsafe {
+            let frames = buf.frameLength() as usize;
+            if frames == 0 {
+                return 0.0;
+            }
+            let channels_ptr = buf.floatChannelData();
+            if channels_ptr.is_null() {
+                return 0.0;
+            }
+            let ch0 = (*channels_ptr).as_ptr();
+            let slice = std::slice::from_raw_parts(ch0, frames);
+            let mut peak: f32 = 0.0;
+            // Sample sparsely — we don't need every frame for a meter.
+            let step = (frames / 64).max(1);
+            let mut i = 0;
+            while i < frames {
+                let v = slice[i].abs();
+                if v > peak {
+                    peak = v;
+                }
+                i += step;
+            }
+            peak.min(1.0)
+        }
     }
 
     /// Block synchronously until the system has a definitive authorization
@@ -309,13 +359,31 @@ mod macos {
         // by `Block_copy`).
         {
             let request_for_tap = request.clone();
+            let app_for_level = app.clone();
+            // Throttle level emission to ~25 Hz so we don't drown the
+            // renderer in events. The audio thread fires this block every
+            // ~22 ms at 48k/1024-frame buffers, so emitting on every other
+            // tick is plenty for the waveform animation.
+            let level_tick = std::sync::atomic::AtomicU32::new(0);
+            let level_tick = std::sync::Arc::new(level_tick);
             let tap_block = StackBlock::new(
                 move |buffer: std::ptr::NonNull<AVAudioPCMBuffer>,
                       _when: std::ptr::NonNull<AVAudioTime>| {
                     // SAFETY: `buffer` is provided by the audio engine and
                     // is valid for the duration of the call.
+                    let buf = unsafe { buffer.as_ref() };
                     unsafe {
-                        request_for_tap.appendAudioPCMBuffer(buffer.as_ref());
+                        request_for_tap.appendAudioPCMBuffer(buf);
+                    }
+                    // Cheap RMS over channel 0 for the waveform — emit every
+                    // 2nd buffer so the bus stays below 25 Hz.
+                    let n = level_tick.fetch_add(1, Ordering::Relaxed);
+                    if n % 2 == 0 {
+                        let level = peak_level_for_pcm(buf);
+                        let _ = app_for_level.emit(
+                            "voice:audio-level",
+                            AudioLevelPayload { level, source: "mic" },
+                        );
                     }
                 },
             )
@@ -376,8 +444,10 @@ mod macos {
                         // this callback.
                         let err = unsafe { &*error_ptr };
                         let msg = ns_error_message(err);
-                        let _ =
-                            app_for_handler.emit("voice:speech-error", ErrorPayload { error: msg });
+                        let _ = app_for_handler.emit(
+                            "voice:speech-error",
+                            ErrorPayload { error: msg, source: "mic" },
+                        );
                     }
                     clear_session_slot();
                     return;
@@ -397,11 +467,16 @@ mod macos {
                 let text = formatted.to_string();
                 let is_final = unsafe { result.isFinal() };
                 if is_final {
-                    let _ = app_for_handler.emit("voice:final-transcript", FinalPayload { text });
+                    let _ = app_for_handler.emit(
+                        "voice:final-transcript",
+                        FinalPayload { text, source: "mic" },
+                    );
                     clear_session_slot();
                 } else if !stopped {
-                    let _ =
-                        app_for_handler.emit("voice:partial-transcript", PartialPayload { text });
+                    let _ = app_for_handler.emit(
+                        "voice:partial-transcript",
+                        PartialPayload { text, source: "mic" },
+                    );
                 }
             },
         );

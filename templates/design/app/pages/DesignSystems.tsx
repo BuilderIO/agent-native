@@ -14,6 +14,10 @@ import {
 } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@/components/layout/HeaderActions";
 
 interface DesignSystem {
   id: string;
@@ -86,22 +90,22 @@ export default function DesignSystems() {
     }
   };
 
+  useSetPageTitle("Design Systems");
+
+  useSetHeaderActions(
+    <Button
+      size="sm"
+      onClick={() => navigate("/design-systems/setup")}
+      className="cursor-pointer"
+    >
+      <IconPlus className="w-3.5 h-3.5" />
+      New Design System
+    </Button>,
+  );
+
   return (
     <div className="flex-1 overflow-y-auto">
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-lg font-semibold text-foreground">
-            Design Systems
-          </h1>
-          <Button
-            size="sm"
-            onClick={() => navigate("/design-systems/setup")}
-            className="cursor-pointer"
-          >
-            <IconPlus className="w-3.5 h-3.5" />
-            New Design System
-          </Button>
-        </div>
         {isLoading ? (
           <LoadingSkeleton />
         ) : designSystems.length === 0 ? (

@@ -6,7 +6,10 @@ import DeckCard from "@/components/deck/DeckCard";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
-import { useSetHeaderActions } from "@/components/layout/HeaderActions";
+import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@/components/layout/HeaderActions";
 import { agentNativePath } from "@agent-native/core/client";
 import {
   AlertDialog,
@@ -108,6 +111,8 @@ export default function Index() {
     },
     [duplicating, navigate],
   );
+
+  useSetPageTitle("Decks");
 
   // Inject "New Deck" into the global header actions slot.
   useSetHeaderActions(

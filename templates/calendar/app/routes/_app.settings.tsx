@@ -1,5 +1,7 @@
+import { useMemo } from "react";
 import Settings from "@/pages/Settings";
 import { Spinner } from "@/components/ui/spinner";
+import { useAppHeaderControls } from "@/components/layout/AppLayout";
 
 export function meta() {
   return [{ title: "Settings — Calendar" }];
@@ -14,5 +16,16 @@ export function HydrateFallback() {
 }
 
 export default function SettingsRoute() {
+  const controls = useMemo(
+    () => ({
+      left: (
+        <h1 className="text-lg font-semibold tracking-tight truncate">
+          Settings
+        </h1>
+      ),
+    }),
+    [],
+  );
+  useAppHeaderControls(controls);
   return <Settings />;
 }

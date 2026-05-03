@@ -5,7 +5,7 @@ import {
   IconStrikethrough,
   IconCode,
   IconLink,
-  IconWand,
+  IconPencil,
   IconLoader2,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
@@ -318,7 +318,7 @@ export function ComposeBubbleToolbar({
             title="AI Assist"
             className="p-1.5 rounded transition-colors text-gray-300 hover:bg-gray-700 hover:text-white"
           >
-            <IconWand size={14} strokeWidth={2.5} />
+            <IconPencil size={14} strokeWidth={2.5} />
           </button>
         </div>
       )}

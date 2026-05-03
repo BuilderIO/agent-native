@@ -7,7 +7,7 @@ export function meta() {
     {
       name: "description",
       content:
-        "Your AI agent titles, summarizes, and chapters your screen recordings while you keep working.",
+        "Screen recording, meeting notes, and voice dictation — all transcribed, summarized, and searchable. The open-source alternative to Loom, Granola, and Wisprflow.",
     },
   ];
 }

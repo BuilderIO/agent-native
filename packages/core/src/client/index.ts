@@ -14,6 +14,11 @@ export {
 } from "./api-path.js";
 export { useSendToAgentChat } from "./use-send-to-agent-chat.js";
 export {
+  useChatModels,
+  type UseChatModelsResult,
+  type EngineModelGroup,
+} from "./use-chat-models.js";
+export {
   CodeRequiredDialog,
   type CodeRequiredDialogProps,
 } from "./components/CodeRequiredDialog.js";

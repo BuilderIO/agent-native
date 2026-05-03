@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
-  IconWand,
+  IconPhoto,
   IconFolderOpen,
   IconUpload,
   IconSearch,
@@ -81,7 +81,7 @@ export default function ImageOverlay({
         }}
         className="image-overlay-btn"
       >
-        <IconWand className="w-3.5 h-3.5 text-[#609FF8]" />
+        <IconPhoto className="w-3.5 h-3.5 text-[#609FF8]" />
         Generate
       </button>
       <button

@@ -67,6 +67,32 @@ export default defineAction({
       .where(eq(schema.recordingCtas.recordingId, args.recordingId))
       .orderBy(asc(schema.recordingCtas.createdAt));
 
+    // Reverse-lookup: if a meeting captured this recording, surface it so the
+    // player can show a "From meeting: <title>" badge linking back to the
+    // meeting detail page. We don't need an FK on recordings — the meetings
+    // table already points at recording_id.
+    let meeting: { id: string; title: string } | null = null;
+    try {
+      const [linkedMeeting] = await db
+        .select({
+          id: schema.meetings.id,
+          title: schema.meetings.title,
+        })
+        .from(schema.meetings)
+        .where(eq(schema.meetings.recordingId, args.recordingId))
+        .limit(1);
+      if (linkedMeeting) {
+        meeting = { id: linkedMeeting.id, title: linkedMeeting.title };
+      }
+    } catch (err) {
+      // Best-effort — a missing meetings table on a fresh install shouldn't
+      // break the player.
+      console.warn(
+        "[get-recording-player-data] meeting lookup failed:",
+        (err as Error)?.message ?? err,
+      );
+    }
+
     let chapters: { startMs: number; title: string }[] = [];
     try {
       const parsed = JSON.parse(rec.chaptersJson ?? "[]");
@@ -187,6 +213,7 @@ export default defineAction({
         color: c.color,
         placement: c.placement,
       })),
+      meeting,
     };
   },
 });

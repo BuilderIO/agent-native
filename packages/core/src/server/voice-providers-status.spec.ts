@@ -1,9 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.fn();
 const mockReadAppSecret = vi.fn();
 const mockResolveCredential = vi.fn();
 const mockResolveHasBuilderPrivateKey = vi.fn();
+const mockGetOrgContext = vi.fn();
+const mockResolveGoogleRealtimeCredentials = vi.fn();
 
 let lastStatus = 200;
 
@@ -32,6 +34,19 @@ vi.mock("./credential-provider.js", () => ({
     mockResolveHasBuilderPrivateKey(...args),
 }));
 
+vi.mock("../org/context.js", () => ({
+  getOrgContext: (...args: any[]) => mockGetOrgContext(...args),
+}));
+
+vi.mock("./request-context.js", () => ({
+  runWithRequestContext: (_ctx: any, fn: () => unknown) => fn(),
+}));
+
+vi.mock("./google-realtime-session.js", () => ({
+  resolveGoogleRealtimeCredentials: (...args: any[]) =>
+    mockResolveGoogleRealtimeCredentials(...args),
+}));
+
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 
 function event(method = "GET") {
@@ -39,13 +54,26 @@ function event(method = "GET") {
 }
 
 describe("voice providers status route", () => {
+  const originalGoogleCredsEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+
   beforeEach(() => {
     vi.clearAllMocks();
     lastStatus = 200;
+    delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
     mockGetSession.mockResolvedValue({ email: "voice+qa@example.com" });
     mockReadAppSecret.mockResolvedValue(null);
     mockResolveCredential.mockResolvedValue(undefined);
     mockResolveHasBuilderPrivateKey.mockResolvedValue(false);
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-123" });
+    mockResolveGoogleRealtimeCredentials.mockResolvedValue(null);
+  });
+
+  afterEach(() => {
+    if (originalGoogleCredsEnv === undefined) {
+      delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    } else {
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = originalGoogleCredsEnv;
+    }
   });
 
   it("reports user secrets and fallback credentials without returning key material", async () => {
@@ -54,9 +82,10 @@ describe("voice providers status route", () => {
       key === "OPENAI_API_KEY" ? { value: "sk-openai-secret" } : null,
     );
     mockResolveCredential.mockImplementation(async (key: string) =>
-      key === "GROQ_API_KEY" || key === "GOOGLE_APPLICATION_CREDENTIALS"
-        ? "configured-secret"
-        : undefined,
+      key === "GROQ_API_KEY" ? "configured-secret" : undefined,
+    );
+    mockResolveGoogleRealtimeCredentials.mockResolvedValue(
+      '{"type":"service_account"}',
     );
 
     const handler = createVoiceProvidersStatusHandler();
@@ -95,6 +124,34 @@ describe("voice providers status route", () => {
     expect(mockReadAppSecret).not.toHaveBeenCalled();
     expect(mockResolveCredential).toHaveBeenCalledWith("GEMINI_API_KEY", {
       userEmail: undefined,
+    });
+  });
+
+  it("reports deploy-managed Google credentials only when they resolve cleanly", async () => {
+    mockResolveGoogleRealtimeCredentials.mockResolvedValue(
+      '{"type":"service_account"}',
+    );
+
+    const handler = createVoiceProvidersStatusHandler();
+    const result = await handler(event());
+
+    expect(result).toMatchObject({
+      googleRealtime: true,
+      openai: false,
+      groq: false,
+    });
+  });
+
+  it("suppresses Google realtime when the configured credential path is unreadable", async () => {
+    mockResolveGoogleRealtimeCredentials.mockRejectedValue(
+      new Error("unreadable"),
+    );
+
+    const handler = createVoiceProvidersStatusHandler();
+    const result = await handler(event());
+
+    expect(result).toMatchObject({
+      googleRealtime: false,
     });
   });
 

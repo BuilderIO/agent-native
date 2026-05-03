@@ -19,3 +19,9 @@
 ## View-counting rule
 
 - A view counts only when the viewer watches **≥ 5 seconds**, OR **≥ 75%** of the video, OR **scrubs to the end**. Creators' own views don't count.
+
+## Meetings & Dictate
+
+- When a user says **"meeting"** they mean a Meetings tab entry, not a Clips recording — _unless_ the recording is linked to a meeting (i.e. `recordings.meeting_id` is non-null), in which case both interpretations are valid and worth mentioning.
+- When suggesting how to enable transcript improvements (cleanup, summary, action items), **lead with Builder.io Connect** — it's the easiest path and requires no key. Mention BYOK API keys (Gemini / Groq / OpenAI) only as a secondary fallback.
+- **Per-attendee action items require attendees to actually speak in the recorded audio.** With mic + system audio capture (Meetings default) both sides are heard and tagged by source. With mic-only capture (and all Dictate dictations), remote attendees may be silent in the transcript — call this out before promising attendee-level coverage.

@@ -12,7 +12,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNotNull, isNull, lte } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -30,6 +30,8 @@ interface NavigationState {
   shareId?: string;
   search?: string;
   path?: string;
+  meetingId?: string;
+  dictationId?: string;
 }
 
 function mapRecording(r: any) {
@@ -186,6 +188,191 @@ async function fetchSpaces(organizationId: string | null) {
   }));
 }
 
+function safeJsonArray<T>(raw: string | null | undefined): T[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchUpcomingMeetings() {
+  const db = getDb();
+  const nowIso = new Date().toISOString();
+  const sevenDaysOut = new Date(
+    Date.now() + 7 * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  const rows = await db
+    .select()
+    .from(schema.meetings)
+    .where(
+      and(
+        accessFilter(schema.meetings, schema.meetingShares),
+        isNull(schema.meetings.trashedAt),
+        isNotNull(schema.meetings.scheduledStart),
+        gte(schema.meetings.scheduledStart, nowIso),
+        lte(schema.meetings.scheduledStart, sevenDaysOut),
+      ),
+    )
+    .orderBy(asc(schema.meetings.scheduledStart))
+    .limit(10);
+  // Pre-fetch participants for all upcoming meetings so the agent can see
+  // attendees without a follow-up call. Cheap: top 10 meetings.
+  const ids = rows.map((m) => m.id);
+  const participantsByMeeting = new Map<
+    string,
+    Array<{ email: string; name: string | null }>
+  >();
+  if (ids.length) {
+    for (const id of ids) {
+      const ps = await db
+        .select({
+          email: schema.meetingParticipants.email,
+          name: schema.meetingParticipants.name,
+        })
+        .from(schema.meetingParticipants)
+        .where(eq(schema.meetingParticipants.meetingId, id));
+      participantsByMeeting.set(id, ps);
+    }
+  }
+  return rows.map((m) => ({
+    id: m.id,
+    title: m.title,
+    scheduledStart: m.scheduledStart,
+    scheduledEnd: m.scheduledEnd,
+    platform: m.platform,
+    joinUrl: m.joinUrl,
+    transcriptStatus: m.transcriptStatus,
+    attendees: participantsByMeeting.get(m.id) ?? [],
+  }));
+}
+
+async function fetchMeetingDetail(meetingId: string) {
+  const db = getDb();
+  const [meeting] = await db
+    .select()
+    .from(schema.meetings)
+    .where(
+      and(
+        eq(schema.meetings.id, meetingId),
+        accessFilter(schema.meetings, schema.meetingShares),
+      ),
+    )
+    .limit(1);
+  if (!meeting) return null;
+
+  const participants = await db
+    .select()
+    .from(schema.meetingParticipants)
+    .where(eq(schema.meetingParticipants.meetingId, meetingId));
+
+  const actionItems = await db
+    .select()
+    .from(schema.meetingActionItems)
+    .where(eq(schema.meetingActionItems.meetingId, meetingId));
+
+  let recording: { id: string; title: string } | null = null;
+  let transcriptSnippet: string | null = null;
+  if (meeting.recordingId) {
+    const [rec] = await db
+      .select({
+        id: schema.recordings.id,
+        title: schema.recordings.title,
+      })
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, meeting.recordingId))
+      .limit(1);
+    recording = rec ?? null;
+    const [tr] = await db
+      .select({ fullText: schema.recordingTranscripts.fullText })
+      .from(schema.recordingTranscripts)
+      .where(eq(schema.recordingTranscripts.recordingId, meeting.recordingId))
+      .limit(1);
+    if (tr?.fullText) {
+      transcriptSnippet = tr.fullText.slice(0, 2000);
+    }
+  }
+
+  return {
+    meeting: {
+      id: meeting.id,
+      title: meeting.title,
+      scheduledStart: meeting.scheduledStart,
+      scheduledEnd: meeting.scheduledEnd,
+      actualStart: meeting.actualStart,
+      actualEnd: meeting.actualEnd,
+      platform: meeting.platform,
+      joinUrl: meeting.joinUrl,
+      source: meeting.source,
+      userNotesMd: meeting.userNotesMd,
+      transcriptStatus: meeting.transcriptStatus,
+      summaryMd: meeting.summaryMd,
+      bullets: safeJsonArray<{ text: string }>(meeting.bulletsJson),
+    },
+    participants: participants.map((p) => ({
+      email: p.email,
+      name: p.name,
+      isOrganizer: Boolean(p.isOrganizer),
+      attendedAt: p.attendedAt,
+    })),
+    actionItems: actionItems.map((a) => ({
+      id: a.id,
+      assigneeEmail: a.assigneeEmail,
+      text: a.text,
+      dueDate: a.dueDate,
+      completedAt: a.completedAt,
+    })),
+    recording,
+    transcriptSnippet,
+  };
+}
+
+async function fetchRecentDictations() {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(schema.dictations)
+    .where(accessFilter(schema.dictations, schema.dictationShares))
+    .orderBy(desc(schema.dictations.startedAt))
+    .limit(10);
+  return rows.map((d) => ({
+    id: d.id,
+    startedAt: d.startedAt,
+    durationMs: d.durationMs,
+    source: d.source,
+    targetApp: d.targetApp,
+    // First 200 chars only — the list view doesn't need the full body.
+    preview: (d.fullText ?? "").slice(0, 200),
+    hasCleanedText: Boolean(d.cleanedText),
+  }));
+}
+
+async function fetchDictationDetail(dictationId: string) {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(schema.dictations)
+    .where(
+      and(
+        eq(schema.dictations.id, dictationId),
+        accessFilter(schema.dictations, schema.dictationShares),
+      ),
+    )
+    .limit(1);
+  if (!row) return null;
+  return {
+    id: row.id,
+    startedAt: row.startedAt,
+    durationMs: row.durationMs,
+    source: row.source,
+    targetApp: row.targetApp,
+    fullText: row.fullText,
+    cleanedText: row.cleanedText,
+  };
+}
+
 async function fetchShare(shareId: string) {
   const db = getDb();
   const [row] = await db
@@ -271,6 +458,26 @@ export default defineAction({
         if (nav.shareId) {
           const share = await fetchShare(nav.shareId);
           if (share) screen.share = share;
+        }
+        break;
+      }
+      case "meetings": {
+        screen.meetings = await fetchUpcomingMeetings();
+        break;
+      }
+      case "meeting": {
+        if (nav.meetingId) {
+          const detail = await fetchMeetingDetail(nav.meetingId);
+          if (detail) screen.meeting = detail;
+        }
+        break;
+      }
+      case "dictate": {
+        if (nav.dictationId) {
+          const detail = await fetchDictationDetail(nav.dictationId);
+          if (detail) screen.dictation = detail;
+        } else {
+          screen.dictations = await fetchRecentDictations();
         }
         break;
       }

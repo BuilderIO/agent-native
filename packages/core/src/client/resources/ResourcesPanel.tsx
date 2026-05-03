@@ -4,7 +4,7 @@ import {
   IconPlus,
   IconUpload,
   IconArrowLeft,
-  IconWand,
+  IconPencil,
   IconBulb,
   IconBolt,
   IconTrash,
@@ -680,7 +680,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
                   onClick={() => setView("agent-prompt")}
                   className="flex w-full items-start gap-2 rounded-md border border-border px-3 py-2 text-left hover:bg-accent/40"
                 >
-                  <IconWand className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <IconPencil className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <div>
                     <div className="text-[12px] font-medium text-foreground">
                       Describe It

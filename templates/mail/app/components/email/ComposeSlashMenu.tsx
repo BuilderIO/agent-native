@@ -10,7 +10,7 @@ import {
   IconCode,
   IconQuote,
   IconMinus,
-  IconWand,
+  IconPencil,
   IconPhoto,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
@@ -112,7 +112,7 @@ function createCommands(onGenerate: () => void): CommandItem[] {
     {
       title: "Generate",
       description: "AI-assisted writing",
-      icon: IconWand,
+      icon: IconPencil,
       category: "ai",
       action: (_editor) => {
         onGenerate();

@@ -290,11 +290,21 @@ function shapeResult(
       actionItems: Array.isArray(parsed.actionItems)
         ? parsed.actionItems
             .filter((a) => a && typeof a.text === "string" && a.text.trim())
-            .map((a) => ({
-              text: (a.text ?? "").trim(),
-              ...(a.assigneeEmail ? { assigneeEmail: a.assigneeEmail } : {}),
-              ...(a.dueDate ? { dueDate: a.dueDate } : {}),
-            }))
+            .map((a) => {
+              // assigneeEmail must be a non-empty string that looks like an
+              // email; everything else (null, "", "unknown", display name)
+              // collapses to undefined so the downstream UI shows "unassigned".
+              const rawEmail =
+                typeof a.assigneeEmail === "string"
+                  ? a.assigneeEmail.trim()
+                  : "";
+              const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail);
+              return {
+                text: (a.text ?? "").trim(),
+                ...(isEmail ? { assigneeEmail: rawEmail } : {}),
+                ...(a.dueDate ? { dueDate: a.dueDate } : {}),
+              };
+            })
         : [],
       provider,
     };
@@ -353,12 +363,16 @@ function buildPrompt({
   "summaryMd": string,            // 2–4 sentence overview in markdown
   "bullets": Array<{ "text": string }>,   // 3–8 key points, one fact per bullet
   "actionItems": Array<{
-    "assigneeEmail"?: string,     // omit if unknown
-    "text": string,               // the action, written as an imperative
-    "dueDate"?: string            // ISO date if mentioned
+    "assigneeEmail": string | null, // attendee email (must match one of the attendees provided in <context>) — set to null when the owner is unclear
+    "text": string,                 // the action, written as an imperative
+    "dueDate"?: string              // ISO date if explicitly mentioned
   }>
 }
-Do not invent attendees or commitments that aren't in the transcript.${langHint}`,
-    user: `Summarize this meeting and extract action items as JSON:${ctxBlock}\n\n<transcript>\n${transcript}\n</transcript>`,
+Rules for action items:
+- Attribute each action item to a specific attendee whenever the transcript makes the owner clear (e.g. "I'll send the deck", "Alice will follow up").
+- The "assigneeEmail" MUST be one of the attendee emails listed in the <context> block above — do not invent emails or use display names.
+- If an action item's owner is unclear, set "assigneeEmail" to null rather than guessing.
+- Do not invent attendees, commitments, or due dates that aren't in the transcript.${langHint}`,
+    user: `Summarize this meeting and extract action items as JSON. Use the attendee list in <context> to attribute owners:${ctxBlock}\n\n<transcript>\n${transcript}\n</transcript>`,
   };
 }

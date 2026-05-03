@@ -28,6 +28,7 @@ const appsFilter = flagValue("--apps")
   .filter(Boolean);
 const skipDocs = argv.includes("--no-docs");
 const skipFrame = argv.includes("--no-frame");
+const includeDesktop = argv.includes("--desktop");
 
 // Import the app config to get stable ports. Ports live in templates.ts
 // (the single source of truth for template metadata); shared-app-config/index.ts
@@ -186,6 +187,12 @@ if (!skipFrame) {
 if (!skipDocs) {
   names.push("docs");
   commands.push(`pnpm --filter @agent-native/docs dev`);
+}
+
+// Desktop tray (Tauri)
+if (includeDesktop) {
+  names.push("tray");
+  commands.push("pnpm --filter clips-desktop dev");
 }
 
 const concurrentlyBin = path.resolve(

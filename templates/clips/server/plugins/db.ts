@@ -558,6 +558,26 @@ const migrations = runMigrations(
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
     },
+    // -------------------------------------------------------------------------
+    // Indices for hot list-query paths on meetings + dictations. Additive only;
+    // CREATE INDEX IF NOT EXISTS works on both SQLite and Postgres.
+    // -------------------------------------------------------------------------
+    {
+      version: 30,
+      sql: `CREATE INDEX IF NOT EXISTS clips_meetings_owner_email_idx ON clips_meetings (owner_email)`,
+    },
+    {
+      version: 31,
+      sql: `CREATE INDEX IF NOT EXISTS clips_meetings_scheduled_start_idx ON clips_meetings (scheduled_start)`,
+    },
+    {
+      version: 32,
+      sql: `CREATE INDEX IF NOT EXISTS clips_meetings_reminder_fired_at_idx ON clips_meetings (reminder_fired_at)`,
+    },
+    {
+      version: 33,
+      sql: `CREATE INDEX IF NOT EXISTS clips_dictations_owner_started_idx ON clips_dictations (owner_email, started_at)`,
+    },
   ],
   { table: "clips_migrations" },
 );
@@ -1259,6 +1279,19 @@ export default async (nitroApp: any): Promise<void> => {
       clipId: z.string(),
       viewerEmail: z.string().nullable().optional(),
       viewedAt: z.string(),
+    }) as any,
+  });
+
+  registerEvent({
+    name: "calendar-synced",
+    description:
+      "Fires once per calendar account at the end of a successful sync-calendars run. Useful for UI toasts and downstream automations.",
+    payloadSchema: z.object({
+      accountId: z.string(),
+      ownerEmail: z.string().nullable().optional(),
+      eventCount: z.number(),
+      meetingsCreated: z.number(),
+      syncedAt: z.string(),
     }) as any,
   });
 };

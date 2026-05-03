@@ -149,8 +149,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 export function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const hasEmbeddedAgentChat =
-    location.pathname === "/" || location.pathname === "/overview";
 
   if (CHROMELESS_PATHS.some((path) => location.pathname === path)) {
     return <>{children}</>;
@@ -158,10 +156,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
   const appContent = (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
-      <Header
-        onOpenMobile={() => setMobileOpen(true)}
-        showAgentToggle={!hasEmbeddedAgentChat}
-      />
+      <Header onOpenMobile={() => setMobileOpen(true)} />
       <InvitationBanner />
       <main className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">
@@ -193,18 +188,14 @@ export function Layout({ children }: { children: ReactNode }) {
           </SheetContent>
         </Sheet>
 
-        {hasEmbeddedAgentChat ? (
-          appContent
-        ) : (
-          <AgentSidebar
-            position="right"
-            defaultOpen={false}
-            emptyStateText="Create apps, grant keys, and route work across the workspace."
-            suggestions={SIDEBAR_SUGGESTIONS}
-          >
-            {appContent}
-          </AgentSidebar>
-        )}
+        <AgentSidebar
+          position="right"
+          defaultOpen={false}
+          emptyStateText="Create apps, grant keys, and route work across the workspace."
+          suggestions={SIDEBAR_SUGGESTIONS}
+        >
+          {appContent}
+        </AgentSidebar>
       </div>
     </HeaderActionsProvider>
   );

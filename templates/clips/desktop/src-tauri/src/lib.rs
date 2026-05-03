@@ -81,16 +81,21 @@ pub fn run() {
             recording_indicator::recording_pill_show,
             recording_indicator::recording_pill_expand,
             recording_indicator::recording_pill_hide,
+            recording_indicator::recording_pill_save_position,
             // notifications
             notifications::notify_meeting_starting,
             // meetings watcher (background poller)
             meetings_watcher::meetings_watcher_set_server_url,
+            meetings_watcher::meetings_watcher_set_session,
             // EventKit (iCloud calendar)
             eventkit::eventkit_request_access,
             eventkit::eventkit_list_events,
-            // system audio (stubbed — see system_audio.rs)
+            // system audio (ScreenCaptureKit — see system_audio.rs)
+            system_audio::system_audio_request_permission,
             system_audio::system_audio_start,
             system_audio::system_audio_stop,
+            system_audio::meeting_audio_start,
+            system_audio::meeting_audio_stop,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())

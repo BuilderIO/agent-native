@@ -87,6 +87,16 @@ export default defineAction({
       .limit(args.limit)
       .offset(args.offset);
 
-    return { meetings: rows };
+    // Add a derived `summaryPreview` (first ~100 chars of summaryMd) so the
+    // Granola-style cards can render a one-liner without re-parsing markdown.
+    const meetings = rows.map((m) => {
+      const summary = (m.summaryMd ?? "").trim();
+      const preview = summary
+        ? summary.replace(/\s+/g, " ").slice(0, 100)
+        : null;
+      return { ...m, summaryPreview: preview };
+    });
+
+    return { meetings };
   },
 });

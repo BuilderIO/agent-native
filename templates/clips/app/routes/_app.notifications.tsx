@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { IconBell, IconSend } from "@tabler/icons-react";
+import { IconSend } from "@tabler/icons-react";
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -11,6 +11,7 @@ import {
   type NotificationItem,
   type NotificationKind,
 } from "@/components/workspace/notifications-list";
+import { PageHeader } from "@/components/library/page-header";
 
 export function meta() {
   return [{ title: "Notifications · Clips" }];
@@ -76,74 +77,73 @@ export default function NotificationsRoute() {
   }
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <div className="flex items-center justify-between gap-4 mb-4">
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <IconBell className="size-6 text-primary" />
-            Notifications
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Comments, reactions, mentions, and shares on your recordings in the
-            last 30 days.
-          </p>
+    <>
+      <PageHeader>
+        <h1 className="text-base font-semibold tracking-tight truncate">
+          Notifications
+        </h1>
+      </PageHeader>
+      <div className="p-6 max-w-3xl mx-auto">
+        <p className="text-sm text-muted-foreground mb-4">
+          Comments, reactions, mentions, and shares on your recordings in the
+          last 30 days.
+        </p>
+
+        <Tabs value={filter} onValueChange={(v) => setFilter(v as any)}>
+          <TabsList>
+            <TabsTrigger value="all">All</TabsTrigger>
+            <TabsTrigger value="comment">Comments</TabsTrigger>
+            <TabsTrigger value="reaction">Reactions</TabsTrigger>
+            <TabsTrigger value="mention">Mentions</TabsTrigger>
+            <TabsTrigger value="share">Shares</TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        <div className="mt-4">
+          {isLoading ? (
+            <div className="py-16 text-center text-sm text-muted-foreground">
+              Loading…
+            </div>
+          ) : (
+            <NotificationsList items={filtered} onReply={setReplyFor} />
+          )}
         </div>
+
+        {replyFor ? (
+          <div className="mt-6 rounded-md border bg-muted/30 p-3">
+            <div className="text-xs text-muted-foreground mb-1.5">
+              Reply to {replyFor.authorEmail} on{" "}
+              <span className="font-medium text-foreground">
+                {replyFor.recordingTitle}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                placeholder="Write a reply…"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendReply();
+                  }
+                }}
+                autoFocus
+              />
+              <Button
+                onClick={handleSendReply}
+                disabled={!replyText.trim() || addComment.isPending}
+                className="bg-primary hover:bg-primary/90"
+              >
+                <IconSend className="size-4" />
+              </Button>
+              <Button variant="ghost" onClick={() => setReplyFor(null)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
-
-      <Tabs value={filter} onValueChange={(v) => setFilter(v as any)}>
-        <TabsList>
-          <TabsTrigger value="all">All</TabsTrigger>
-          <TabsTrigger value="comment">Comments</TabsTrigger>
-          <TabsTrigger value="reaction">Reactions</TabsTrigger>
-          <TabsTrigger value="mention">Mentions</TabsTrigger>
-          <TabsTrigger value="share">Shares</TabsTrigger>
-        </TabsList>
-      </Tabs>
-
-      <div className="mt-4">
-        {isLoading ? (
-          <div className="py-16 text-center text-sm text-muted-foreground">
-            Loading…
-          </div>
-        ) : (
-          <NotificationsList items={filtered} onReply={setReplyFor} />
-        )}
-      </div>
-
-      {replyFor ? (
-        <div className="mt-6 rounded-md border bg-muted/30 p-3">
-          <div className="text-xs text-muted-foreground mb-1.5">
-            Reply to {replyFor.authorEmail} on{" "}
-            <span className="font-medium text-foreground">
-              {replyFor.recordingTitle}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Input
-              value={replyText}
-              onChange={(e) => setReplyText(e.target.value)}
-              placeholder="Write a reply…"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendReply();
-                }
-              }}
-              autoFocus
-            />
-            <Button
-              onClick={handleSendReply}
-              disabled={!replyText.trim() || addComment.isPending}
-              className="bg-primary hover:bg-primary/90"
-            >
-              <IconSend className="size-4" />
-            </Button>
-            <Button variant="ghost" onClick={() => setReplyFor(null)}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : null}
-    </div>
+    </>
   );
 }

@@ -12,6 +12,8 @@ function useGlobalSequenceShortcuts() {
     const sequences: { keys: string[]; path: string }[] = [
       { keys: ["g", "l"], path: "/library" },
       { keys: ["g", "s"], path: "/spaces" },
+      { keys: ["g", "m"], path: "/meetings" },
+      { keys: ["g", "d"], path: "/dictate" },
       { keys: ["g", "a"], path: "/archive" },
       { keys: ["g", "t"], path: "/trash" },
     ];

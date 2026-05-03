@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
-  MultiTabAssistantChat,
+  AssistantChat,
+  sendToAgentChat,
   useActionQuery,
+  useChatModels,
   agentNativePath,
 } from "@agent-native/core/client";
 import {
@@ -14,11 +16,12 @@ import {
   IconInfoCircle,
   IconKey,
   IconListCheck,
-  IconNetwork,
+  IconRocket,
   IconPlugConnected,
   IconShieldCheck,
   type IconProps,
 } from "@tabler/icons-react";
+import { CreateAppPopover } from "@/components/create-app-popover";
 import { DispatchShell } from "@/components/dispatch-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -69,6 +72,10 @@ interface WorkspaceAppSummary {
   path: string;
   url?: string | null;
   isDispatch: boolean;
+  status?: "ready" | "pending";
+  statusLabel?: string;
+  builderUrl?: string | null;
+  branchName?: string | null;
 }
 
 const HOME_CHAT_SUGGESTIONS = [
@@ -78,13 +85,60 @@ const HOME_CHAT_SUGGESTIONS = [
 ];
 
 function HomeChatPanel() {
+  const {
+    availableModels,
+    defaultModel,
+    selectedModel,
+    selectedEngine,
+    selectedEffort,
+    onModelChange,
+    onEffortChange,
+  } = useChatModels();
+
+  const send = (message: string) => {
+    sendToAgentChat({
+      message,
+      submit: true,
+      newTab: true,
+      model: selectedModel || undefined,
+    });
+  };
+
   return (
-    <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
-      <div className="h-[620px] min-h-[460px] max-h-[calc(100vh-7rem)]">
-        <MultiTabAssistantChat
-          emptyStateText="What should your apps do next?"
-          suggestions={HOME_CHAT_SUGGESTIONS}
+    <section className="px-2 py-6 sm:py-10">
+      <div className="mx-auto w-full max-w-2xl space-y-5">
+        <h1 className="text-center text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+          What should your apps do next?
+        </h1>
+        <AssistantChat
+          composerOnly
+          showHeader={false}
+          composerPlaceholder="Message agent…"
+          selectedModel={selectedModel}
+          selectedEngine={selectedEngine}
+          selectedEffort={selectedEffort}
+          defaultModel={defaultModel}
+          availableModels={availableModels}
+          onModelChange={onModelChange}
+          onEffortChange={onEffortChange}
+          onSubmitOverride={(text) => {
+            const trimmed = text.trim();
+            if (!trimmed) return;
+            send(trimmed);
+          }}
         />
+        <div className="flex flex-wrap justify-center gap-2">
+          {HOME_CHAT_SUGGESTIONS.map((suggestion) => (
+            <button
+              key={suggestion}
+              type="button"
+              onClick={() => send(suggestion)}
+              className="cursor-pointer rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition hover:border-foreground/30 hover:text-foreground"
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -115,7 +169,8 @@ function WorkspaceAppsSection({
   apps: WorkspaceAppSummary[];
   isLoading: boolean;
 }) {
-  const visibleApps = apps.slice(0, 6);
+  const filteredApps = apps.filter((app) => !app.isDispatch);
+  const visibleApps = filteredApps.slice(0, 6);
   const showSkeletons = isLoading && visibleApps.length === 0;
 
   return (
@@ -148,17 +203,28 @@ function WorkspaceAppsSection({
               >
                 <div className="flex h-full items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
                       <h3 className="truncate text-sm font-semibold text-foreground">
                         {app.name}
                       </h3>
-                      {app.isDispatch ? (
-                        <Badge variant="secondary">Control plane</Badge>
+                      {app.status === "pending" ? (
+                        <Badge
+                          variant="outline"
+                          className="shrink-0 gap-1 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                        >
+                          <IconClockHour4 size={12} />
+                          Building
+                        </Badge>
                       ) : null}
                     </div>
                     <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
                       {app.path}
                     </p>
+                    {app.status === "pending" && app.branchName ? (
+                      <p className="mt-1 truncate text-xs text-muted-foreground">
+                        Branch: {app.branchName}
+                      </p>
+                    ) : null}
                     {app.description ? (
                       <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                         {app.description}
@@ -173,11 +239,7 @@ function WorkspaceAppsSection({
               </a>
             ))}
 
-        {!showSkeletons && visibleApps.length === 0 ? (
-          <div className="flex min-h-32 items-center justify-center rounded-lg border border-dashed bg-card p-4 text-sm text-muted-foreground sm:col-span-2 xl:col-span-3">
-            No workspace apps found.
-          </div>
-        ) : null}
+        {!showSkeletons ? <CreateAppPopover /> : null}
       </div>
     </section>
   );
@@ -551,7 +613,7 @@ export default function OverviewRoute() {
       {hasIncompleteSteps && (
         <section className="space-y-3">
           <div className="flex items-center gap-2">
-            <IconNetwork size={16} className="text-muted-foreground" />
+            <IconRocket size={16} className="text-muted-foreground" />
             <h2 className="text-sm font-semibold text-foreground">
               Getting started
             </h2>
