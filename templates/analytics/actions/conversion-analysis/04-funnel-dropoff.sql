@@ -38,11 +38,11 @@ funnel_data AS (
     COUNT(DISTINCT ps.user_id) AS stage5_completed_signup
     
   FROM time_periods tp
-  CROSS JOIN `your-gcp-project-id.dbt_staging_bigquery.all_pageviews` pv
-  LEFT JOIN `your-gcp-project-id.amplitude.EVENTS_182198` ae 
+  CROSS JOIN `@project.analytics.pageviews` pv
+  LEFT JOIN `@project.product_events.events` ae
     ON pv.visitor_id = ae.user_id
     AND DATE(ae.event_time) BETWEEN tp.start_date AND tp.end_date
-  LEFT JOIN `your-gcp-project-id.dbt_analytics.product_signups` ps
+  LEFT JOIN `@project.analytics.signups` ps
     ON pv.visitor_id = ps.user_id
     AND DATE(ps.user_create_d) BETWEEN tp.start_date AND tp.end_date
   WHERE DATE(pv.created_date) BETWEEN tp.start_date AND tp.end_date
@@ -106,8 +106,8 @@ simple_funnel AS (
     COUNT(DISTINCT CASE WHEN pv.page_type = 'signup' THEN pv.visitor_id END) AS visited_signup_page,
     COUNT(DISTINCT ps.user_id) AS completed_signups
   FROM time_periods tp
-  CROSS JOIN `your-gcp-project-id.dbt_staging_bigquery.all_pageviews` pv
-  LEFT JOIN `your-gcp-project-id.dbt_analytics.product_signups` ps
+  CROSS JOIN `@project.analytics.pageviews` pv
+  LEFT JOIN `@project.analytics.signups` ps
     ON pv.visitor_id = ps.user_id
     AND DATE(ps.user_create_d) BETWEEN tp.start_date AND tp.end_date
   WHERE DATE(pv.created_date) BETWEEN tp.start_date AND tp.end_date

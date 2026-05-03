@@ -72,18 +72,59 @@ describe("workspace deploy", () => {
     });
 
     expect(
-      fs.existsSync(path.join(tmpDir, "dist", "dispatch", "assets", "app.js")),
-    ).toBe(true);
-    expect(
-      fs.existsSync(path.join(tmpDir, "dist", "starter", "assets", "app.js")),
+      fs.existsSync(
+        path.join(
+          tmpDir,
+          "dist",
+          "_workspace_static",
+          "dispatch",
+          "assets",
+          "app.js",
+        ),
+      ),
     ).toBe(true);
     expect(
       fs.existsSync(
-        path.join(tmpDir, "dist", "dispatch", "dispatch", "assets", "app.js"),
+        path.join(
+          tmpDir,
+          "dist",
+          "_workspace_static",
+          "starter",
+          "assets",
+          "app.js",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          tmpDir,
+          "dist",
+          "_workspace_static",
+          "starter",
+          "favicon.svg",
+        ),
+      ),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, "dist", "dispatch"))).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, "dist", "starter"))).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          tmpDir,
+          "dist",
+          "_workspace_static",
+          "dispatch",
+          "dispatch",
+          "assets",
+          "app.js",
+        ),
       ),
     ).toBe(false);
     expect(
-      fs.existsSync(path.join(tmpDir, "dist", "dispatch", "dispatch")),
+      fs.existsSync(
+        path.join(tmpDir, "dist", "_workspace_static", "dispatch", "dispatch"),
+      ),
     ).toBe(false);
     expect(
       fs.existsSync(
@@ -145,6 +186,27 @@ describe("workspace deploy", () => {
     expect(dispatchServer).toContain("APP_BASE_PATH: basePath");
     expect(dispatchServer).toContain('await import("./main.mjs")');
     expect(dispatchServer).toContain('path: "/dispatch/*"');
+    expect(dispatchServer).toContain('"/dispatch/assets/*"');
+    expect(dispatchServer).toContain('"/dispatch/*.svg"');
+    expect(dispatchServer).toContain('"/.netlify/*"');
+    expect(dispatchServer).toContain("preferStatic: false");
+    expect(dispatchServer).not.toContain("normalizeBasePathArgs");
+
+    const starterServer = fs.readFileSync(
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "starter-server",
+        "starter-server.mjs",
+      ),
+      "utf-8",
+    );
+    expect(starterServer).toContain('path: ["/starter","/starter/*"]');
+    expect(starterServer).toContain("normalizeBasePathArgs");
+    expect(starterServer).toContain('"/starter/assets/*"');
+    expect(starterServer).toContain('"/starter/*.webmanifest"');
+    expect(starterServer).toContain("preferStatic: false");
 
     const dispatchModule = await import(
       `${
@@ -165,16 +227,44 @@ describe("workspace deploy", () => {
     expect(process.env.APP_BASE_PATH).toBe("/dispatch");
     expect(process.env.VITE_APP_BASE_PATH).toBe("/dispatch");
 
+    const starterModule = await import(
+      `${
+        pathToFileURL(
+          path.join(
+            tmpDir,
+            ".netlify",
+            "functions-internal",
+            "starter-server",
+            "starter-server.mjs",
+          ),
+        ).href
+      }?t=${Date.now()}-starter`
+    );
+    const starterResponse = await starterModule.default(
+      new Request("https://example.test/starter"),
+    );
+    expect(await starterResponse.text()).toBe("https://example.test/starter//");
+
     const redirects = fs.readFileSync(
       path.join(tmpDir, "dist", "_redirects"),
       "utf-8",
+    );
+    expect(redirects).toContain(
+      "/dispatch/assets/* /_workspace_static/dispatch/assets/:splat 200",
+    );
+    expect(redirects).toContain(
+      "/dispatch/:file.svg /_workspace_static/dispatch/:file.svg 200",
+    );
+    expect(redirects).toContain(
+      "/starter/:file.webmanifest /_workspace_static/starter/:file.webmanifest 200",
     );
     expect(redirects).toContain("/ /dispatch/overview 302");
     expect(redirects).toContain("/dispatch /dispatch/overview 302");
     expect(redirects).toContain("/apps /dispatch/apps 302");
     expect(redirects).not.toContain("/.netlify/functions/");
-    expect(redirects).not.toContain("/dispatch/*");
-    expect(redirects).not.toContain("/starter/*");
+    expect(redirects).not.toMatch(/^\/dispatch\/\* .* 200$/m);
+    expect(redirects).not.toMatch(/^\/starter .* 200$/m);
+    expect(redirects).not.toMatch(/^\/starter\/\* .* 200$/m);
     expect(redirects).not.toContain("!");
     expect(redirects).not.toMatch(
       /^\/\* \/.netlify\/functions\/dispatch-server 200$/m,
@@ -243,6 +333,11 @@ function writeAppBuildOutput(workspaceRoot: string, app: string): void {
     path.join(appDir, "dist", app, "assets", "app.js"),
     "export {};",
   );
+  fs.writeFileSync(
+    path.join(appDir, "dist", app, "favicon.svg"),
+    "<svg></svg>",
+  );
+  fs.writeFileSync(path.join(appDir, "dist", app, "site.webmanifest"), "{}");
   fs.mkdirSync(path.join(appDir, "dist", app, app, "assets"), {
     recursive: true,
   });
@@ -252,7 +347,7 @@ function writeAppBuildOutput(workspaceRoot: string, app: string): void {
   );
   fs.writeFileSync(
     path.join(appDir, ".netlify", "functions-internal", "server", "main.mjs"),
-    "export default async function handler() { return new Response('ok'); }\n",
+    "export default async function handler(request) { return new Response(request?.url ?? 'ok'); }\n",
   );
   fs.writeFileSync(
     path.join(appDir, ".netlify", "functions-internal", "server", "server.mjs"),

@@ -37,40 +37,7 @@ async function resolveTablePlaceholder(
   return sql
     .replace(/@app_events/gi, `\`${appEventsTable}\``)
     .replace(/`@project\./g, `\`${projectId}.`)
-    .replace(/\b@project\./g, `${projectId}.`)
-    .replace(/`your-gcp-project-id\./g, `\`${projectId}.`)
-    .replace(/\byour-gcp-project-id\./g, `${projectId}.`);
-}
-
-/**
- * Filter out dbt_dev schema from queries.
- * Adds a WHERE clause to exclude tables from dbt_dev schema.
- */
-function filterDevSchema(sql: string): string {
-  // Add global filter to exclude dbt_dev schema tables
-  // This works by wrapping queries that reference schema metadata
-  // For most queries, we'll add a comment to track this filter
-
-  // Skip if already has dbt_dev filter
-  if (sql.includes("dbt_dev") || sql.includes("DBT_DEV")) {
-    return sql;
-  }
-
-  // For INFORMATION_SCHEMA queries, add schema exclusion
-  if (sql.includes("INFORMATION_SCHEMA")) {
-    // Add WHERE clause to exclude dbt_dev schema if not already present
-    if (!sql.toLowerCase().includes("where")) {
-      sql = sql.replace(
-        /FROM\s+`([^`]+)\.INFORMATION_SCHEMA/gi,
-        "FROM `$1.INFORMATION_SCHEMA` WHERE table_schema != 'dbt_dev'",
-      );
-    } else {
-      sql = sql.replace(/WHERE\s+/gi, "WHERE table_schema != 'dbt_dev' AND ");
-    }
-  }
-
-  // Add comment to track that dev schema filtering is enabled
-  return `-- Excluding dbt_dev schema\n${sql}`;
+    .replace(/\b@project\./g, `${projectId}.`);
 }
 
 // --- Query cache ---
@@ -270,8 +237,7 @@ function rowsToObjects(
  */
 export async function dryRunQuery(sql: string): Promise<string | null> {
   const { projectId } = await getProjectInfo();
-  let resolvedSql = await resolveTablePlaceholder(sql, projectId);
-  resolvedSql = filterDevSchema(resolvedSql);
+  const resolvedSql = await resolveTablePlaceholder(sql, projectId);
 
   const token = await getAccessToken();
   const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
@@ -307,8 +273,7 @@ export async function dryRunQuery(sql: string): Promise<string | null> {
 
 export async function runQuery(sql: string): Promise<QueryResult> {
   const { projectId, cacheScope } = await getProjectInfo();
-  let resolvedSql = await resolveTablePlaceholder(sql, projectId);
-  resolvedSql = filterDevSchema(resolvedSql);
+  const resolvedSql = await resolveTablePlaceholder(sql, projectId);
 
   const cacheKey = getCacheKey(resolvedSql, projectId, cacheScope);
   const l1Hit = getL1(cacheKey);

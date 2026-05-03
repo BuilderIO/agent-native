@@ -39,8 +39,8 @@ shared/                   # Types shared between client & server
 docs/                     # Documentation and accumulated knowledge
 └── learnings.md          # Cross-cutting patterns, customer data, user prefs
 
-.builder/skills/          # Provider-specific knowledge (one per integration)
-└── <provider>/SKILL.md   # Connection, functions, scripts, gotchas
+.agents/skills/           # Agent guidance for app patterns and integrations
+└── <skill>/SKILL.md      # Connection, functions, scripts, gotchas
 ```
 
 Path aliases: `@/*` → `app/`, `@shared/*` → `shared/`

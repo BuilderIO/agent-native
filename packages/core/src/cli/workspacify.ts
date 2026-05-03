@@ -10,8 +10,9 @@
  *        inherits shared plugins/skills/AGENTS.md via the three-layer model.
  *   2. Removes files that only make sense in standalone apps
  *      (`learnings.defaults.md`, etc.).
- *   3. Removes starter's stock auth/chat wrappers so the workspace core can
- *      own those inherited plugin slots.
+ *   3. Replaces starter's stock auth/chat wrappers with inherited wrappers so
+ *      the workspace core can own those plugin slots while framework defaults
+ *      still mount when the workspace core is empty.
  *   4. Leaves app source code untouched. The three-layer framework
  *      auto-discovers workspace-core via `agent-native.workspaceCore` in the
  *      workspace root package.json — no per-app wiring needed.
@@ -123,11 +124,39 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
   }
 
   if ((opts.templateName ?? opts.appName) === "starter") {
-    for (const plugin of ["auth.ts", "agent-chat.ts"]) {
-      const pluginPath = path.join(appDir, "server", "plugins", plugin);
-      if (fs.existsSync(pluginPath)) fs.unlinkSync(pluginPath);
-    }
+    writeInheritedStarterPlugin(appDir, workspaceCoreName, {
+      fileName: "auth.ts",
+      exportName: "defaultAuthPlugin",
+    });
+    writeInheritedStarterPlugin(appDir, workspaceCoreName, {
+      fileName: "agent-chat.ts",
+      exportName: "defaultAgentChatPlugin",
+    });
   }
+}
+
+function writeInheritedStarterPlugin(
+  appDir: string,
+  workspaceCoreName: string,
+  opts: { fileName: string; exportName: string },
+): void {
+  const pluginsDir = path.join(appDir, "server", "plugins");
+  fs.mkdirSync(pluginsDir, { recursive: true });
+  const pluginPath = path.join(pluginsDir, opts.fileName);
+  fs.writeFileSync(
+    pluginPath,
+    [
+      `import { ${opts.exportName} as frameworkDefault } from "@agent-native/core/server";`,
+      `import * as workspaceServer from ${JSON.stringify(`${workspaceCoreName}/server`)};`,
+      "",
+      `const workspacePlugin = (workspaceServer as Record<string, unknown>).${opts.exportName};`,
+      "",
+      'export default typeof workspacePlugin === "function"',
+      "  ? workspacePlugin",
+      "  : frameworkDefault;",
+      "",
+    ].join("\n"),
+  );
 }
 
 /**

@@ -3,7 +3,8 @@ import { z } from "zod";
 import { runQuery } from "../server/lib/bigquery";
 
 export default defineAction({
-  description: "Query onboarding-related events from Amplitude via BigQuery.",
+  description:
+    "Query onboarding-related product analytics events from BigQuery.",
   schema: z.object({
     days: z.coerce
       .number()
@@ -22,7 +23,7 @@ SELECT
   MIN(event_time) as first_seen,
   MAX(event_time) as last_seen
 FROM
-  \`.amplitude.EVENTS_182198\`
+  \`@project.product_events.events\`
 WHERE
   event_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL ${days} DAY)
   AND event_type IS NOT NULL

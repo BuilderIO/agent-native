@@ -4,7 +4,7 @@ import { runQuery } from "../server/lib/bigquery";
 
 export default defineAction({
   description:
-    "Query the BigQuery data warehouse. Always-available native tool — call this directly for any `dbt_analytics.*`, `dbt_mart.*`, or other warehouse table. Pass standard SQL via the `sql` arg. Do NOT use `db-query` for warehouse data (it only reaches the app's own SQL database). If credentials aren't configured, this returns a clear error with the settings path — surface that to the user; never claim the tool is missing or unregistered.",
+    "Query the user-configured BigQuery data warehouse. Use this for warehouse tables and views from connected analytics sources. Pass standard SQL via the `sql` arg. Do NOT use `db-query` for warehouse data (it only reaches the app's own SQL database). If credentials aren't configured, this returns a clear error with the settings path — surface that to the user.",
   schema: z.object({
     sql: z.string().describe("SQL query to execute"),
   }),

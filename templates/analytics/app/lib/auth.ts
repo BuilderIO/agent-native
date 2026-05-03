@@ -4,7 +4,7 @@
 
 import type { AuthSession } from "@agent-native/core";
 
-export type BuilderAuth = AuthSession;
+export type AnalyticsAuth = AuthSession;
 
 export async function getIdToken(): Promise<string | null> {
   return null;

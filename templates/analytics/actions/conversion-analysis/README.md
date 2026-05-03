@@ -427,7 +427,7 @@ After identifying the root cause, you can create a permanent dashboard:
 
 ## Table Schemas Reference
 
-### dbt_staging_bigquery.all_pageviews
+### analytics.pageviews
 
 - `created_date` (TIMESTAMP) - pageview timestamp
 - `visitor_id` (STRING) - unique visitor identifier
@@ -436,7 +436,7 @@ After identifying the root cause, you can create a permanent dashboard:
 - `first_touch_channel` (STRING) - organic, paid, direct, referral, etc.
 - `initial_utm_source/medium/campaign` - attribution parameters
 
-### dbt_analytics.product_signups
+### analytics.signups
 
 - `user_id` (STRING) - unique user identifier
 - `user_create_d` (TIMESTAMP) - signup timestamp
@@ -444,7 +444,7 @@ After identifying the root cause, you can create a permanent dashboard:
 - `channel` (STRING) - signup attribution channel
 - `icp_flag` (STRING) - 'ICP' or 'Not ICP'
 
-### amplitude.EVENTS_182198
+### product_events.events
 
 - `event_type` (STRING) - event name
 - `event_time` (TIMESTAMP)

@@ -19,7 +19,7 @@ WITH tracking_quality AS (
     ROUND(SAFE_DIVIDE(COUNTIF(session_id IS NULL), COUNT(*)) * 100, 2) AS null_session_pct,
     ROUND(SAFE_DIVIDE(COUNTIF(page_type IS NULL), COUNT(*)) * 100, 2) AS null_page_type_pct
     
-  FROM `your-gcp-project-id.dbt_staging_bigquery.all_pageviews`
+  FROM `@project.analytics.pageviews`
   WHERE DATE(created_date) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH) AND CURRENT_DATE()
     AND created_date <= CURRENT_TIMESTAMP()
   GROUP BY week
@@ -64,7 +64,7 @@ WITH utm_coverage AS (
       COUNT(DISTINCT visitor_id)
     ) * 100, 1) AS channel_coverage_pct
     
-  FROM `your-gcp-project-id.dbt_staging_bigquery.all_pageviews`
+  FROM `@project.analytics.pageviews`
   WHERE DATE(created_date) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH) AND CURRENT_DATE()
     AND created_date <= CURRENT_TIMESTAMP()
   GROUP BY week
@@ -89,7 +89,7 @@ WITH signup_comparison AS (
   SELECT
     DATE_TRUNC(DATE(user_create_d), WEEK) AS week,
     COUNT(DISTINCT user_id) AS signups_in_product_table
-  FROM `your-gcp-project-id.dbt_analytics.product_signups`
+  FROM `@project.analytics.signups`
   WHERE DATE(user_create_d) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH) AND CURRENT_DATE()
     AND user_create_d <= CURRENT_TIMESTAMP()
   GROUP BY week
@@ -98,7 +98,7 @@ amplitude_signups AS (
   SELECT
     DATE_TRUNC(DATE(event_time), WEEK) AS week,
     COUNT(DISTINCT user_id) AS signups_in_amplitude
-  FROM `your-gcp-project-id.amplitude.EVENTS_182198`
+  FROM `@project.product_events.events`
   WHERE event_type = 'account signup'
     AND DATE(event_time) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH) AND CURRENT_DATE()
     AND event_time <= CURRENT_TIMESTAMP()
@@ -130,7 +130,7 @@ WITH weekly_traffic AS (
     DATE_TRUNC(DATE(created_date), WEEK) AS week,
     COUNT(DISTINCT visitor_id) AS unique_visitors,
     COUNT(*) AS total_pageviews
-  FROM `your-gcp-project-id.dbt_staging_bigquery.all_pageviews`
+  FROM `@project.analytics.pageviews`
   WHERE DATE(created_date) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH) AND CURRENT_DATE()
     AND created_date <= CURRENT_TIMESTAMP()
   GROUP BY week
@@ -181,8 +181,8 @@ WITH signup_attribution_check AS (
       COUNT(DISTINCT ps.user_id)
     ) * 100, 1) AS match_rate_pct
     
-  FROM `your-gcp-project-id.dbt_analytics.product_signups` ps
-  LEFT JOIN `your-gcp-project-id.dbt_staging_bigquery.all_pageviews` pv
+  FROM `@project.analytics.signups` ps
+  LEFT JOIN `@project.analytics.pageviews` pv
     ON ps.user_id = pv.visitor_id
     AND DATE(pv.created_date) <= DATE(ps.user_create_d)  -- Pageview before or on signup date
   WHERE DATE(ps.user_create_d) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH) AND CURRENT_DATE()

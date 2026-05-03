@@ -213,25 +213,21 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(appPkg.dependencies?.postgres).toBeDefined();
   });
 
-  it("removes starter auth/chat wrappers so workspace-core plugins mount", async () => {
+  it("writes inherited starter auth/chat wrappers so workspace-core plugins can override defaults", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["starter"]);
-    expect(
-      fs.existsSync(
-        path.join(wsDir, "apps", "starter", "server", "plugins", "auth.ts"),
-      ),
-    ).toBe(false);
-    expect(
-      fs.existsSync(
-        path.join(
-          wsDir,
-          "apps",
-          "starter",
-          "server",
-          "plugins",
-          "agent-chat.ts",
-        ),
-      ),
-    ).toBe(false);
+    const authPlugin = fs.readFileSync(
+      path.join(wsDir, "apps", "starter", "server", "plugins", "auth.ts"),
+      "utf-8",
+    );
+    const agentChatPlugin = fs.readFileSync(
+      path.join(wsDir, "apps", "starter", "server", "plugins", "agent-chat.ts"),
+      "utf-8",
+    );
+
+    expect(authPlugin).toContain("@my-ws/shared/server");
+    expect(authPlugin).toContain("defaultAuthPlugin");
+    expect(agentChatPlugin).toContain("@my-ws/shared/server");
+    expect(agentChatPlugin).toContain("defaultAgentChatPlugin");
   });
 
   it("resolves @agent-native/core at the workspace root for the gateway", async () => {
@@ -370,7 +366,8 @@ describe("Netlify scaffold rewrite", () => {
     expectRedirect("/dispatch", "/dispatch/overview", 302);
     expectRedirect("/apps", "/dispatch/apps", 302);
     expectRedirect("/new-app", "/dispatch/new-app", 302);
-    expectRedirect("/dispatch/*", "/.netlify/functions/server", 200);
+    expect(netlify).not.toContain('from = "/dispatch/*"');
+    expect(netlify).not.toContain('to = "/.netlify/functions/server"');
     expect(netlify).not.toContain("force = true");
   });
 
@@ -456,7 +453,8 @@ describe("Netlify scaffold rewrite", () => {
     expect(netlify).toContain('  from = "/"');
     expect(netlify).toContain('  to = "/dispatch/overview"');
     expect(netlify).not.toContain('  to = "/dispatch/"');
-    expect(netlify).toContain('  from = "/dispatch/*"');
+    expect(netlify).not.toContain('  from = "/dispatch/*"');
+    expect(netlify).not.toContain('  to = "/.netlify/functions/server"');
     expect(netlify).not.toContain("force = true");
   });
 });
