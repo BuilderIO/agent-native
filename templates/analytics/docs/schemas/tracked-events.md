@@ -1,6 +1,6 @@
 # Tracked Events Catalog
 
-Events tracked by `track.function.ts` in the web app, stored in `analytics.events_partitioned`.
+Events tracked by application instrumentation and stored in the configured application events table. The default BigQuery table is `analytics.events_partitioned`; deployments can override it with `ANALYTICS_BIGQUERY_EVENTS_TABLE`.
 
 ## Event Categories (`event` column)
 
@@ -31,9 +31,9 @@ Events tracked by `track.function.ts` in the web app, stored in `analytics.event
 - `content published` — Content entry published
 - `content created` — New content entry created
 
-### Page Views
+### Traffic
 
-- `pageView` events with `url` showing which app pages are visited
+- `pageView` or `pageview` events with `url` showing which app pages are visited, when the configured event source records page traffic
 
 ## Data Properties (in the `data` JSON blob)
 

@@ -10,19 +10,68 @@ import { getDbExec } from "@agent-native/core/db";
 async function getProjectInfo(): Promise<{
   projectId: string;
   cacheScope: string;
+  appEventsTable: BigQueryTableRef;
 }> {
   const ctx = requireRequestCredentialContext("BIGQUERY_PROJECT_ID");
   const projectId = await resolveCredential("BIGQUERY_PROJECT_ID", ctx);
   if (!projectId) throw new Error("BIGQUERY_PROJECT_ID not configured");
-  return { projectId, cacheScope: cacheScopeForContext(ctx) };
-}
-
-async function getProjectId(): Promise<string> {
-  return (await getProjectInfo()).projectId;
+  return {
+    projectId,
+    cacheScope: cacheScopeForContext(ctx),
+    appEventsTable: await getAppEventsTable(projectId, ctx),
+  };
 }
 
 function cacheScopeForContext(ctx: CredentialContext): string {
   return ctx.orgId ? `o:${ctx.orgId}` : `u:${ctx.userEmail}`;
+}
+
+export interface BigQueryTableRef {
+  projectId: string;
+  datasetId: string;
+  tableId: string;
+  fullyQualified: string;
+}
+
+function parseBigQueryTableRef(
+  raw: string | null | undefined,
+  fallbackProjectId: string,
+): BigQueryTableRef {
+  const value = raw?.trim().replace(/^`|`$/g, "");
+  const parts = value ? value.split(".") : [];
+  const [projectId, datasetId, tableId] =
+    parts.length === 3
+      ? parts
+      : parts.length === 2
+        ? [fallbackProjectId, parts[0], parts[1]]
+        : [fallbackProjectId, "analytics", "events_partitioned"];
+
+  if (
+    !/^[A-Za-z][A-Za-z0-9-]{4,61}[A-Za-z0-9]$/.test(projectId) ||
+    !/^[A-Za-z_][A-Za-z0-9_]*$/.test(datasetId) ||
+    !/^[A-Za-z_][A-Za-z0-9_]*$/.test(tableId)
+  ) {
+    throw new Error(
+      "ANALYTICS_BIGQUERY_EVENTS_TABLE must be dataset.table or project.dataset.table",
+    );
+  }
+
+  return {
+    projectId,
+    datasetId,
+    tableId,
+    fullyQualified: `${projectId}.${datasetId}.${tableId}`,
+  };
+}
+
+export async function getAppEventsTable(
+  fallbackProjectId: string,
+  ctx: CredentialContext,
+): Promise<BigQueryTableRef> {
+  const configured =
+    (await resolveCredential("ANALYTICS_BIGQUERY_EVENTS_TABLE", ctx)) ||
+    (await resolveCredential("BIGQUERY_APP_EVENTS_TABLE", ctx));
+  return parseBigQueryTableRef(configured, fallbackProjectId);
 }
 
 /**
@@ -31,11 +80,28 @@ function cacheScopeForContext(ctx: CredentialContext): string {
 async function resolveTablePlaceholder(
   sql: string,
   projectId?: string,
+  appEventsTable?: BigQueryTableRef,
 ): Promise<string> {
-  projectId ??= await getProjectId();
-  const appEventsTable = `${projectId}.analytics.events_partitioned`;
+  if (!projectId || !appEventsTable) {
+    const info = await getProjectInfo();
+    projectId ??= info.projectId;
+    appEventsTable ??= info.appEventsTable;
+  }
+  const quotedAppEventsTable = `\`${appEventsTable.fullyQualified}\``;
   return sql
-    .replace(/@app_events/gi, `\`${appEventsTable}\``)
+    .replace(/`?@app_events`?/gi, quotedAppEventsTable)
+    .replace(
+      /`?@project\.analytics\.events_partitioned`?/gi,
+      quotedAppEventsTable,
+    )
+    .replace(
+      /`?[A-Za-z][A-Za-z0-9-]{4,61}[A-Za-z0-9]\.analytics\.events_partitioned`?/gi,
+      quotedAppEventsTable,
+    )
+    .replace(
+      /(^|[^A-Za-z0-9_.-])`?analytics\.events_partitioned`?/gi,
+      (_match, prefix: string) => `${prefix}${quotedAppEventsTable}`,
+    )
     .replace(/`@project\./g, `\`${projectId}.`)
     .replace(/\b@project\./g, `${projectId}.`);
 }
@@ -236,8 +302,12 @@ function rowsToObjects(
  * string suitable for bubbling back to the agent.
  */
 export async function dryRunQuery(sql: string): Promise<string | null> {
-  const { projectId } = await getProjectInfo();
-  const resolvedSql = await resolveTablePlaceholder(sql, projectId);
+  const { projectId, appEventsTable } = await getProjectInfo();
+  const resolvedSql = await resolveTablePlaceholder(
+    sql,
+    projectId,
+    appEventsTable,
+  );
 
   const token = await getAccessToken();
   const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
@@ -272,8 +342,12 @@ export async function dryRunQuery(sql: string): Promise<string | null> {
 }
 
 export async function runQuery(sql: string): Promise<QueryResult> {
-  const { projectId, cacheScope } = await getProjectInfo();
-  const resolvedSql = await resolveTablePlaceholder(sql, projectId);
+  const { projectId, cacheScope, appEventsTable } = await getProjectInfo();
+  const resolvedSql = await resolveTablePlaceholder(
+    sql,
+    projectId,
+    appEventsTable,
+  );
 
   const cacheKey = getCacheKey(resolvedSql, projectId, cacheScope);
   const l1Hit = getL1(cacheKey);

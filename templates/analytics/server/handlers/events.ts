@@ -2,12 +2,13 @@ import { defineEventHandler, setResponseStatus } from "h3";
 import { getAccessToken } from "../lib/gcloud";
 import { resolveCredential } from "../lib/credentials";
 import { withRequestContextFromEvent } from "../lib/credentials";
+import { getAppEventsTable } from "../lib/bigquery";
 import { readBody } from "@agent-native/core/server";
 
 /**
  * POST /api/events/track
  *
- * Logs custom events to BigQuery events_partitioned table.
+ * Logs custom events to the configured BigQuery events table.
  * Used for tracking metric views, user actions, etc.
  */
 export const handleTrackEvent = defineEventHandler(async (event) => {
@@ -53,15 +54,18 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
         resolveCredential("BIGQUERY_PROJECT_ID", ctx),
       ]);
       if (!credentials || !projectId) return null;
-      const token = await getAccessToken();
-      return { token, projectId };
+      const [token, table] = await Promise.all([
+        getAccessToken(),
+        getAppEventsTable(projectId, ctx),
+      ]);
+      return { token, table };
     });
 
     if (ctxResult) {
-      const { token, projectId } = ctxResult;
+      const { token, table } = ctxResult;
       // Fire and forget — don't block the response on the BigQuery insert.
       fetch(
-        `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets/analytics/tables/events_partitioned/insertAll`,
+        `https://bigquery.googleapis.com/bigquery/v2/projects/${table.projectId}/datasets/${table.datasetId}/tables/${table.tableId}/insertAll`,
         {
           method: "POST",
           headers: {
