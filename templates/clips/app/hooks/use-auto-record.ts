@@ -26,7 +26,12 @@ export interface AutoRecordState {
   /** Wall-clock ms remaining until scheduledStart (negative when past). */
   msToScheduled: number;
   /** Human-readable reason, useful for tracing. */
-  reason: "before" | "in-window" | "after-grace" | "already-started" | "no-time";
+  reason:
+    | "before"
+    | "in-window"
+    | "after-grace"
+    | "already-started"
+    | "no-time";
 }
 
 interface AutoRecordInput {

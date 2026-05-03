@@ -27,6 +27,7 @@
 //!     position so the next show reopens at the same spot.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
 use tauri::{
@@ -38,6 +39,13 @@ use crate::util::{build_overlay_url, primary_monitor_physical_size, set_capture_
 
 const PILL_LABEL: &str = "recording-pill";
 
+/// Detached-mode flag. Toggled from JS via `recording_pill_set_detached` —
+/// the renderer flips it when the main app loses focus. We store it as a
+/// process-global atomic so `anchored_rect` can pick the right anchor +
+/// dimensions on subsequent expand/show without the caller having to thread
+/// it through every command.
+static PILL_DETACHED: AtomicBool = AtomicBool::new(false);
+
 /// Granola-fidelity collapsed dimensions (logical px). The expanded form
 /// stretches to fit the live-transcript area.
 const PILL_W_LOGICAL: u32 = 280;
@@ -46,6 +54,14 @@ const PILL_H_LOGICAL: u32 = 44;
 const PILL_H_EXPANDED_LOGICAL: u32 = 340;
 /// Bottom margin from the screen edge, logical px. Granola uses ~24.
 const PILL_BOTTOM_MARGIN_LOGICAL: u32 = 24;
+
+/// Detached / "floating" mode dimensions — anchored top-right of the primary
+/// monitor when the user focuses another app. Smaller footprint so it
+/// doesn't block content; matches the spec from `wispr-ux.md` round-3.
+const PILL_DETACHED_W_LOGICAL: u32 = 180;
+const PILL_DETACHED_H_LOGICAL: u32 = 40;
+const PILL_DETACHED_TOP_MARGIN_LOGICAL: u32 = 24;
+const PILL_DETACHED_RIGHT_MARGIN_LOGICAL: u32 = 24;
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -69,6 +85,40 @@ fn pill_position_path(app: &AppHandle) -> Option<PathBuf> {
         return None;
     }
     Some(dir.join("pill-position.json"))
+}
+
+fn pill_detached_position_path(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_data_dir().ok()?;
+    if std::fs::create_dir_all(&dir).is_err() {
+        return None;
+    }
+    Some(dir.join("pill-position-detached.json"))
+}
+
+fn load_detached_position(app: &AppHandle) -> Option<(i32, i32)> {
+    let path = pill_detached_position_path(app)?;
+    let bytes = std::fs::read(&path).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let x = value.get("x")?.as_i64()? as i32;
+    let y = value.get("y")?.as_i64()? as i32;
+    Some((x, y))
+}
+
+fn save_detached_position_to_disk(app: &AppHandle, x: i32, y: i32) {
+    let Some(path) = pill_detached_position_path(app) else {
+        return;
+    };
+    let body = match serde_json::to_vec(&serde_json::json!({ "x": x, "y": y })) {
+        Ok(b) => b,
+        Err(_) => return,
+    };
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, &body).is_err() {
+        return;
+    }
+    if std::fs::rename(&tmp, &path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
 }
 
 fn load_pill_position(app: &AppHandle) -> Option<(i32, i32)> {
@@ -111,19 +161,31 @@ fn default_bottom_center(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
 
 fn pill_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
     let scale = scale_factor(app);
-    let w_log = if expanded {
-        PILL_W_EXPANDED_LOGICAL
+    let detached = PILL_DETACHED.load(Ordering::Relaxed);
+    // Detached mode ignores the `expanded` flag — the floating pill is a
+    // fixed compact size that stays out of the way; users pop it back open
+    // by clicking the drag handle (which un-detaches first).
+    let (w_log, h_log) = if detached {
+        (PILL_DETACHED_W_LOGICAL, PILL_DETACHED_H_LOGICAL)
+    } else if expanded {
+        (PILL_W_EXPANDED_LOGICAL, PILL_H_EXPANDED_LOGICAL)
     } else {
-        PILL_W_LOGICAL
-    };
-    let h_log = if expanded {
-        PILL_H_EXPANDED_LOGICAL
-    } else {
-        PILL_H_LOGICAL
+        (PILL_W_LOGICAL, PILL_H_LOGICAL)
     };
     let w = (w_log as f64 * scale) as u32;
     let h = (h_log as f64 * scale) as u32;
     (w, h)
+}
+
+/// Default top-right anchor (physical px) for detached mode.
+fn default_top_right(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
+    let scale = scale_factor(app);
+    let top_margin = (PILL_DETACHED_TOP_MARGIN_LOGICAL as f64 * scale) as i32;
+    let right_margin = (PILL_DETACHED_RIGHT_MARGIN_LOGICAL as f64 * scale) as i32;
+    let (mw, _mh) = primary_monitor_physical_size(app).unwrap_or((2880, 1800));
+    let x = (mw as i32 - w as i32 - right_margin).max(0);
+    let y = top_margin.max(0);
+    (x, y)
 }
 
 /// Compute the pill's anchored rect. Honors a user-saved position if one
@@ -140,6 +202,18 @@ fn anchored_rect(
     let (mw, mh) = primary_monitor_physical_size(app).unwrap_or((2880, 1800));
     let max_x = (mw as i32 - w as i32).max(0);
     let max_y = (mh as i32 - h as i32).max(0);
+
+    // Detached mode has its own persisted position file so the user can
+    // drag the floating pill anywhere on the right edge / corner without
+    // disturbing the bottom-center anchored position they prefer when the
+    // main app is in front.
+    if PILL_DETACHED.load(Ordering::Relaxed) {
+        let (x, y) = match load_detached_position(app) {
+            Some((sx, sy)) => (sx.clamp(0, max_x), sy.clamp(0, max_y)),
+            None => default_top_right(app, w, h),
+        };
+        return (w, h, x, y);
+    }
 
     if let Some((px, py, prev_w, prev_h)) = previous_position {
         // Re-anchor on expand/collapse: keep the bottom-center of the pill

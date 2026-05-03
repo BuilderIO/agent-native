@@ -18,10 +18,7 @@ import { useEffect, useState } from "react";
 import { IconClock, IconPlayerRecord, IconX } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import {
-  useAutoFireCountdown,
-  useAutoRecord,
-} from "@/hooks/use-auto-record";
+import { useAutoFireCountdown, useAutoRecord } from "@/hooks/use-auto-record";
 
 interface AutoRecordPromptProps {
   scheduledStart?: string | null;
