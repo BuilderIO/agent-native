@@ -47,6 +47,8 @@ function isDispatchPagePath(pathname: string): boolean {
 
 function isDispatchAssetOrFrameworkPath(pathname: string): boolean {
   return (
+    pathname === "/__manifest" ||
+    pathname.startsWith("/__manifest/") ||
     pathname === "/_agent-native" ||
     pathname.startsWith("/_agent-native/") ||
     pathname === "/.well-known" ||
@@ -82,6 +84,8 @@ export function rootDispatchRedirect(
   if (!basePath) return null;
 
   if (
+    normalizedPathname === "/__manifest" ||
+    normalizedPathname.startsWith("/__manifest/") ||
     normalizedPathname === "/_agent-native" ||
     normalizedPathname.startsWith("/_agent-native/")
   ) {
