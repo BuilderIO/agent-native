@@ -1721,6 +1721,10 @@ export function createProductionAgentHandler(
                     );
                   }
                 }
+                responseText =
+                  userFacingLlmCredentialError(responseText, {
+                    agentName: ref.name,
+                  }) ?? responseText;
 
                 send({
                   type: "agent_call",

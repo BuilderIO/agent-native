@@ -48,7 +48,9 @@ export default defineAction({
       navigation?.view === "apps" ||
       navigation?.view === "new-app"
     ) {
-      screen.workspaceApps = await listWorkspaceApps();
+      screen.workspaceApps = await listWorkspaceApps({
+        includeAgentCards: true,
+      });
     }
     if (navigation?.view === "vault" || navigation?.view === "new-app") {
       const [secrets, grants, requests] = await Promise.all([

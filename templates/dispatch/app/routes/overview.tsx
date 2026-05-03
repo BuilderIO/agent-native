@@ -499,7 +499,7 @@ export default function OverviewRoute() {
   const { data: connectedAgents } = useActionQuery("list-connected-agents", {});
   const { data: workspaceApps = [], isLoading: appsLoading } = useActionQuery(
     "list-workspace-apps",
-    {},
+    { includeAgentCards: false },
     {
       refetchInterval: 2_000,
     },
