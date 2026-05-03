@@ -1,9 +1,11 @@
 /**
  * GET /api/auth/google-calendar
  *
- * Initiates the Google Calendar OAuth flow. Returns a JSON `{ url }`
- * payload that the frontend (or `connect-calendar` action) opens in a
- * popup or redirects to. Pass `?redirect=1` to 302 directly to Google.
+ * Initiates the Google Calendar OAuth flow. By default 302-redirects to
+ * Google — that's what a popup or direct browser nav expects. Pass
+ * `?json=1` to instead return a JSON `{ url }` payload (used internally
+ * by the `connect-calendar` action when the caller wants the URL without
+ * a redirect).
  *
  * Token storage policy: tokens are NEVER stored on this row. The callback
  * persists access + refresh tokens in `app_secrets` (per-user scope) and
@@ -104,8 +106,11 @@ export default defineEventHandler(async (event: H3Event) => {
     });
     const url = `${GOOGLE_AUTH_URL}?${params.toString()}`;
 
-    if (q.redirect === "1") return sendRedirect(event, url, 302);
-    return { url };
+    // Default: 302 redirect — the natural behavior for a browser hitting
+    // this route (popup, direct nav, etc.). Only return JSON when the
+    // caller explicitly wants the URL string.
+    if (q.json === "1") return { url };
+    return sendRedirect(event, url, 302);
   } catch (err: any) {
     setResponseStatus(event, 500);
     return { error: err?.message ?? "Unknown error" };

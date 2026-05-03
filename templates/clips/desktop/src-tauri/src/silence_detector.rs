@@ -30,6 +30,7 @@
 //! Each `voice:audio-level` event carries `{ level: f32, source: "mic"|"system" }`.
 //! We keep a per-source `last_loud_at: Instant`. On every level event:
 //!   - if `level >= silence_threshold` -> reset `last_loud_at = now()`.
+//!
 //! A 5-second supervisor task ticks; on each tick, if **all known sources**
 //! have `now - last_loud_at > silence_duration`, fire `meetings:silence-stop`
 //! exactly once and clear the active flag.
@@ -41,7 +42,7 @@
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Listener, Manager};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -78,12 +79,6 @@ fn default_call_ended_ms() -> u64 {
 }
 fn default_true() -> bool {
     true
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct AudioLevel {
-    level: f32,
-    source: String,
 }
 
 #[derive(Debug)]

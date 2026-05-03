@@ -28,11 +28,6 @@ export default defineAction({
       .max(100)
       .optional()
       .describe("Dispatch vault secret IDs to grant to the app"),
-    preparedPrompt: z
-      .string()
-      .optional()
-      .nullable()
-      .describe("Fully prepared code-agent prompt, if already built by the UI"),
   }),
   run: async (args) => startWorkspaceAppCreation(args),
 });

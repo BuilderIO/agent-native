@@ -90,6 +90,15 @@ function createRenderer() {
     return `<img src="${escapeHtml(token.href)}" alt="${escapeHtml(token.text)}"${title}>`;
   };
 
+  // Wrap code blocks in `.code-block` from the start so that the post-hydration
+  // shiki swap only replaces the inner <pre> — no margin / structure change.
+  renderer.code = function ({ text, lang }: Tokens.Code) {
+    const langClass = lang
+      ? ` class="language-${escapeHtml(lang)}"`
+      : ` class="language-text"`;
+    return `<div class="code-block group relative"><pre><code${langClass}>${escapeHtml(text)}</code></pre></div>\n`;
+  };
+
   renderer.heading = function (
     this: RendererThis,
     { tokens, depth }: Tokens.Heading,
@@ -139,7 +148,9 @@ export default function MarkdownRenderer({ markdown }: Props) {
     setHighlightedHtml(null);
 
     async function highlightCodeBlocks(html: string) {
-      // Find all <pre><code class="language-xxx">...</code></pre> blocks
+      // Match the inner <pre><code class="language-xxx">...</code></pre> emitted
+      // by `renderer.code`. The surrounding `<div class="code-block">` wrapper
+      // stays put — we only swap the <pre> contents so margins don't shift.
       const codeBlockPattern =
         /<pre><code class="language-([\w-]+)">([\s\S]*?)<\/code><\/pre>/g;
       const matches: {
@@ -188,14 +199,14 @@ export default function MarkdownRenderer({ markdown }: Props) {
         }),
       );
 
-      // Replace code blocks with highlighted versions
+      // Replace inner <pre> only — the `.code-block` wrapper from the renderer
+      // already lives in the markup, so we don't add another one.
       let result = html;
-      // Replace from end to preserve indices
       for (let i = highlighted.length - 1; i >= 0; i--) {
         const h = highlighted[i];
         result =
           result.slice(0, h.index) +
-          `<div class="code-block group relative">${h.html}</div>` +
+          h.html +
           result.slice(h.index + h.full.length);
       }
 

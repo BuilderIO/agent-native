@@ -63,6 +63,42 @@ describe("mountA2A auth", () => {
     process.env = originalEnv;
   });
 
+  it("advertises the mounted JSON-RPC endpoint in the agent card", async () => {
+    process.env.APP_BASE_PATH = "/dispatch";
+    const handler = await mountedAgentCardHandler(config);
+
+    const response = await handler({
+      method: "GET",
+      headers: {
+        host: "agent-workspace.builder.io",
+        "x-forwarded-proto": "https",
+      },
+      path: "/",
+      context: {},
+    });
+
+    expect(response.url).toBe(
+      "https://agent-workspace.builder.io/dispatch/_agent-native/a2a",
+    );
+  });
+
+  it("advertises custom mounted A2A route prefixes in the agent card", async () => {
+    process.env.APP_BASE_PATH = "/workspace";
+    const handler = await mountedAgentCardHandler(config, "/rpc");
+
+    const response = await handler({
+      method: "GET",
+      headers: {
+        host: "agent.example",
+        "x-forwarded-proto": "https",
+      },
+      path: "/",
+      context: {},
+    });
+
+    expect(response.url).toBe("https://agent.example/workspace/rpc/a2a");
+  });
+
   it("allows legacy apiKeyEnv bearer auth even when A2A_SECRET is configured", async () => {
     process.env.A2A_SECRET = "jwt-secret";
     process.env.LEGACY_A2A_KEY = "legacy-key";
@@ -212,6 +248,20 @@ describe("mountA2A auth", () => {
     });
   });
 });
+
+async function mountedAgentCardHandler(
+  config: A2AConfig,
+  routePrefix?: string,
+): Promise<(event: any) => any> {
+  const { mountA2A } = await import("./server.js");
+  const app = { routes: [] as Array<{ path: string; handler: any }> };
+  mountA2A(app, config, routePrefix);
+  const route = app.routes.find(
+    (entry) => entry.path === "/.well-known/agent-card.json",
+  );
+  if (!route) throw new Error("A2A agent card route was not mounted");
+  return route.handler;
+}
 
 async function mountedA2AHandler(
   config: A2AConfig,

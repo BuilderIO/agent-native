@@ -4,6 +4,7 @@
 //! toggles it. Pressing Cmd/Ctrl+Shift+L also toggles it. The popover itself
 //! is served by the Vite-built React UI (see `../dist`).
 
+mod accessibility;
 mod clips;
 mod config;
 mod debug;
@@ -93,8 +94,14 @@ pub fn run() {
             // EventKit (iCloud calendar)
             eventkit::eventkit_request_access,
             eventkit::eventkit_list_events,
+            // Accessibility (read focused field text for personal-vocabulary auto-learn)
+            accessibility::read_focused_field_text,
+            accessibility::accessibility_check_permission,
+            accessibility::accessibility_request_permission,
             // system audio (ScreenCaptureKit — see system_audio.rs)
             system_audio::system_audio_request_permission,
+            system_audio::system_audio_version_status,
+            system_audio::system_audio_open_privacy_settings,
             system_audio::system_audio_start,
             system_audio::system_audio_stop,
             system_audio::meeting_audio_start,

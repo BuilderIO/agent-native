@@ -8,6 +8,8 @@
     <string>Clips uses your microphone to record audio with screen recordings.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Clips uses speech recognition for on-device voice dictation.</string>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>Clips uses Accessibility to learn your preferred spellings from edits you make right after dictating, so future dictations get them right.</string>
     <key>CFBundleIconName</key>
     <string>agent-native</string>
 </dict>
