@@ -12,6 +12,7 @@ import { getIntegrationConfig } from "../config-store.js";
 
 /** Slack's max message length */
 const SLACK_MAX_LENGTH = 4000;
+const SLACK_API_TIMEOUT_MS = 10_000;
 
 /**
  * Create a Slack platform adapter.
@@ -241,7 +242,7 @@ export function slackAdapter(): PlatformAdapter {
       try {
         if (placeholderRef) {
           // Replace the "thinking…" placeholder in place.
-          const res = await fetch("https://slack.com/api/chat.update", {
+          const res = await slackApiFetch("https://slack.com/api/chat.update", {
             method: "POST",
             headers: {
               Authorization: `Bearer ${token}`,
@@ -303,14 +304,17 @@ export function slackAdapter(): PlatformAdapter {
         if (target.threadRef) body.thread_ts = target.threadRef;
 
         try {
-          const res = await fetch("https://slack.com/api/chat.postMessage", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
+          const res = await slackApiFetch(
+            "https://slack.com/api/chat.postMessage",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(body),
             },
-            body: JSON.stringify(body),
-          });
+          );
           const data = (await res.json()) as { ok: boolean; error?: string };
           if (!data.ok) {
             throw new Error(data.error || "chat.postMessage failed");
@@ -537,7 +541,7 @@ function setSlackAssistantStatus(
   threadTs: string,
   status: string,
 ): void {
-  fetch("https://slack.com/api/assistant.threads.setStatus", {
+  slackApiFetch("https://slack.com/api/assistant.threads.setStatus", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -598,7 +602,7 @@ async function postFresh(
     channel: channelId,
   };
   if (threadTs && !payload.thread_ts) payload.thread_ts = threadTs;
-  const res = await fetch("https://slack.com/api/chat.postMessage", {
+  const res = await slackApiFetch("https://slack.com/api/chat.postMessage", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -610,5 +614,24 @@ async function postFresh(
   if (!data.ok) {
     console.error("[slack] chat.postMessage error:", data.error);
     throw new Error(data.error || "chat.postMessage failed");
+  }
+}
+
+async function slackApiFetch(
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  const controller =
+    typeof AbortController !== "undefined" ? new AbortController() : undefined;
+  const timer = controller
+    ? setTimeout(() => controller.abort(), SLACK_API_TIMEOUT_MS)
+    : undefined;
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller?.signal ?? init.signal,
+    });
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
