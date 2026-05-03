@@ -214,7 +214,11 @@ export function mountA2A(
         return !id.startsWith("mcp__user_") && !id.startsWith("mcp__org_");
       });
 
-      return generateAgentCard({ ...config, skills: filteredSkills }, baseUrl);
+      return generateAgentCard(
+        { ...config, skills: filteredSkills },
+        baseUrl,
+        `${routePrefix}/a2a`,
+      );
     }),
   );
 

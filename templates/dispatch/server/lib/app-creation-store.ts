@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { getSetting, putSetting } from "@agent-native/core/settings";
 import {
   getBuilderBranchProjectId,
+  isIntegrationCallerRequest,
   resolveBuilderCredentials,
   runBuilderAgent,
 } from "@agent-native/core/server";
@@ -461,6 +462,30 @@ function isLocalAppCreationRuntime(): boolean {
   return true;
 }
 
+function isSyntheticIntegrationOwner(ownerEmail: string): boolean {
+  return (
+    ownerEmail.startsWith("integration@") ||
+    ownerEmail.endsWith("@integration.local")
+  );
+}
+
+function remoteAppCreationAuthorization():
+  | { ok: true }
+  | { ok: false; message: string } {
+  const ownerEmail = currentOwnerEmail();
+  if (!isSyntheticIntegrationOwner(ownerEmail)) return { ok: true };
+
+  const source = isIntegrationCallerRequest()
+    ? "Messaging-triggered"
+    : "Synthetic integration";
+  return {
+    ok: false,
+    message:
+      `${source} app creation needs a trusted Dispatch owner before Builder can start a branch. ` +
+      "Link the Slack identity to a Dispatch user with /link, configure DISPATCH_DEFAULT_OWNER_EMAIL for this Slack workspace, or start the app from Dispatch while signed in.",
+  };
+}
+
 function buildWorkspaceAppPrompt(input: {
   prompt: string;
   appId?: string | null;
@@ -490,6 +515,12 @@ function buildWorkspaceAppPrompt(input: {
       selectedKeys.length
         ? `Grant the selected Dispatch vault keys to appId "${appId}" and sync them once the app server is available.`
         : "Do not grant any Dispatch vault keys unless the user asks later.",
+      "",
+      "Branch readiness requirements before handing off:",
+      `- Update the workspace app registry metadata for "${appId}" (workspace-apps.json or .agent-native/workspace-apps.json, whichever this workspace uses) so Dispatch lists the app at /${appId} after merge/deploy.`,
+      "- Update the app manifest/package/deploy metadata needed by the existing workspace deployment model; do not leave the branch relying only on local discovery.",
+      "- Verify the app's agent card/A2A metadata is ready so Dispatch can discover and delegate to the app after deployment.",
+      "- Include a final verification note covering the registry entry, manifest/deploy metadata, and agent-card readiness.",
       `When it is ready, start or update the workspace dev server and navigate the user to /${appId}.`,
     ].join("\n"),
   };
@@ -500,7 +531,6 @@ export async function startWorkspaceAppCreation(input: {
   appId?: string | null;
   template?: string | null;
   secretIds?: string[];
-  preparedPrompt?: string | null;
 }) {
   const initial = buildWorkspaceAppPrompt({
     prompt: input.prompt,
@@ -508,7 +538,19 @@ export async function startWorkspaceAppCreation(input: {
     template: input.template,
   });
   assertValidWorkspaceAppId(initial.appId);
-  const settings = await getAppCreationSettings();
+  const isLocal = isLocalAppCreationRuntime();
+
+  if (!isLocal) {
+    const authorization = remoteAppCreationAuthorization();
+    if (authorization.ok === false) {
+      return {
+        mode: "builder-unavailable",
+        appId: initial.appId,
+        message: authorization.message,
+      };
+    }
+  }
+
   const selectedKeys = input.secretIds?.length
     ? (await listSecrets())
         .filter((secret) => input.secretIds?.includes(secret.id))
@@ -520,8 +562,7 @@ export async function startWorkspaceAppCreation(input: {
     template: input.template,
     selectedKeys,
   });
-  const prompt = input.preparedPrompt || built.prompt;
-  const isLocal = isLocalAppCreationRuntime();
+  const prompt = built.prompt;
 
   if (isLocal) {
     if (input.secretIds?.length) {
@@ -535,6 +576,8 @@ export async function startWorkspaceAppCreation(input: {
         "Use the local code agent to create this app in the workspace, then open it from /dispatch/apps.",
     };
   }
+
+  const settings = await getAppCreationSettings();
 
   if (!settings.builderProjectId) {
     return {

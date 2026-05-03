@@ -1,11 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { slackAdapter } from "./slack.js";
 
+const originalNodeEnv = process.env.NODE_ENV;
+
 describe("slackAdapter", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    process.env.NODE_ENV = originalNodeEnv;
     delete process.env.SLACK_BOT_TOKEN;
+    delete process.env.SLACK_ALLOWED_TEAM_IDS;
+    delete process.env.SLACK_ALLOWED_API_APP_IDS;
   });
 
   it("answers Slack URL verification with the raw challenge string", async () => {
@@ -32,6 +38,48 @@ describe("slackAdapter", () => {
 
     expect(formatted.text).toBe(
       "<https://slides.agent-native.com/deck/deck-qa>",
+    );
+  });
+
+  it("rejects Slack events in production when the team allowlist is missing", async () => {
+    process.env.NODE_ENV = "production";
+
+    await expect(
+      slackAdapter().parseIncomingMessage(slackEvent({ team_id: "T999" })),
+    ).rejects.toMatchObject({
+      statusCode: 401,
+      statusMessage: "Slack workspace allowlist is not configured",
+    });
+  });
+
+  it("rejects Slack events in production when the team allowlist is empty", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.SLACK_ALLOWED_TEAM_IDS = " , ";
+
+    await expect(
+      slackAdapter().parseIncomingMessage(slackEvent({ team_id: "T999" })),
+    ).rejects.toMatchObject({
+      statusCode: 401,
+      statusMessage: "Slack workspace allowlist is not configured",
+    });
+  });
+
+  it("keeps accepting Slack events without a team allowlist outside production", async () => {
+    process.env.NODE_ENV = "development";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const parsed = await slackAdapter().parseIncomingMessage(
+      slackEvent({ team_id: "T999" }),
+    );
+
+    expect(parsed).toMatchObject({
+      platform: "slack",
+      externalThreadId: "C123:123.456",
+      text: "ship it",
+      senderId: "U123",
+    });
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("SLACK_ALLOWED_TEAM_IDS not set"),
     );
   });
 
@@ -71,3 +119,24 @@ describe("slackAdapter", () => {
     expect(deliverySignal?.aborted).toBe(true);
   });
 });
+
+function slackEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    context: {
+      __rawBody: JSON.stringify({
+        type: "event_callback",
+        team_id: "T123",
+        api_app_id: "A123",
+        event_id: "Ev123",
+        event: {
+          type: "message",
+          channel: "C123",
+          user: "U123",
+          text: "<@BOT> ship it",
+          ts: "123.456",
+        },
+        ...overrides,
+      }),
+    },
+  } as any;
+}

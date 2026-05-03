@@ -5,6 +5,8 @@ const putSettingMock = vi.hoisted(() => vi.fn());
 const runBuilderAgentMock = vi.hoisted(() => vi.fn());
 const grantSecretsToAppMock = vi.hoisted(() => vi.fn());
 const listSecretsMock = vi.hoisted(() => vi.fn());
+const isIntegrationCallerRequestMock = vi.hoisted(() => vi.fn());
+const currentOwnerEmailMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
 const originalWorkspaceAppsJson = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
 const originalAppUrl = process.env.APP_URL;
@@ -16,13 +18,14 @@ vi.mock("@agent-native/core/settings", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   getBuilderBranchProjectId: vi.fn(() => null),
+  isIntegrationCallerRequest: isIntegrationCallerRequestMock,
   resolveBuilderCredentials: vi.fn(async () => null),
   runBuilderAgent: runBuilderAgentMock,
 }));
 
 vi.mock("./dispatch-store.js", () => ({
   currentOrgId: vi.fn(() => null),
-  currentOwnerEmail: vi.fn(() => "dispatch-test@example.com"),
+  currentOwnerEmail: currentOwnerEmailMock,
   recordAudit: vi.fn(),
 }));
 
@@ -39,12 +42,16 @@ describe("startWorkspaceAppCreation", () => {
     runBuilderAgentMock.mockReset();
     grantSecretsToAppMock.mockReset();
     listSecretsMock.mockReset();
+    isIntegrationCallerRequestMock.mockReset();
+    currentOwnerEmailMock.mockReset();
     getSettingMock.mockResolvedValue({ builderProjectId: "builder-project" });
     runBuilderAgentMock.mockResolvedValue({
       branchName: "branch",
       url: "https://builder.io/branch",
       status: "started",
     });
+    isIntegrationCallerRequestMock.mockReturnValue(false);
+    currentOwnerEmailMock.mockReturnValue("dispatch-test@example.com");
     process.env.NODE_ENV = "production";
     process.env.APP_URL = "https://workspace.example.test";
   });
@@ -79,6 +86,16 @@ describe("startWorkspaceAppCreation", () => {
     expect(grantSecretsToAppMock).not.toHaveBeenCalled();
   });
 
+  it("does not expose preparedPrompt in the app creation action schema", async () => {
+    const action = (
+      await import("../../actions/start-workspace-app-creation.js")
+    ).default;
+
+    expect(action.tool.parameters.properties).not.toHaveProperty(
+      "preparedPrompt",
+    );
+  });
+
   it("tracks Builder-created apps as pending until the workspace manifest includes them", async () => {
     const { startWorkspaceAppCreation } =
       await import("./app-creation-store.js");
@@ -109,6 +126,65 @@ describe("startWorkspaceAppCreation", () => {
         ],
       }),
     );
+    expect(runBuilderAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining("Branch readiness requirements"),
+      }),
+    );
+    const builderPrompt = runBuilderAgentMock.mock.calls[0]?.[0]?.prompt;
+    expect(builderPrompt).toContain(
+      "workspace-apps.json or .agent-native/workspace-apps.json",
+    );
+    expect(builderPrompt).toContain("manifest/package/deploy metadata");
+    expect(builderPrompt).toContain("agent card/A2A metadata");
+  });
+
+  it("blocks remote Builder starts for synthetic integration owners", async () => {
+    currentOwnerEmailMock.mockReturnValue(
+      "dispatch+abc123def4567890@integration.local",
+    );
+    isIntegrationCallerRequestMock.mockReturnValue(true);
+
+    const { startWorkspaceAppCreation } =
+      await import("./app-creation-store.js");
+
+    const result = await startWorkspaceAppCreation({
+      prompt: "make a QA dashboard",
+      appId: "qa-dashboard",
+    });
+
+    expect(result).toMatchObject({
+      mode: "builder-unavailable",
+      appId: "qa-dashboard",
+      message: expect.stringContaining("needs a trusted Dispatch owner"),
+    });
+    expect(getSettingMock).not.toHaveBeenCalled();
+    expect(runBuilderAgentMock).not.toHaveBeenCalled();
+    expect(grantSecretsToAppMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps local dev app creation ergonomic for synthetic integration owners", async () => {
+    process.env.NODE_ENV = "development";
+    currentOwnerEmailMock.mockReturnValue(
+      "dispatch+abc123def4567890@integration.local",
+    );
+    isIntegrationCallerRequestMock.mockReturnValue(true);
+
+    const { startWorkspaceAppCreation } =
+      await import("./app-creation-store.js");
+
+    const result = await startWorkspaceAppCreation({
+      prompt: "make a QA dashboard",
+      appId: "qa-dashboard",
+    });
+
+    expect(result).toMatchObject({
+      mode: "local-agent",
+      appId: "qa-dashboard",
+      prompt: expect.stringContaining("Branch readiness requirements"),
+    });
+    expect(getSettingMock).not.toHaveBeenCalled();
+    expect(runBuilderAgentMock).not.toHaveBeenCalled();
   });
 
   it("lists pending Builder apps without duplicating apps that are already ready", async () => {
