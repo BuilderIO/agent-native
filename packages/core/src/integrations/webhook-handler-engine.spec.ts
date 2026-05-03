@@ -115,6 +115,39 @@ function createAdapter(sendResponse = vi.fn()): PlatformAdapter {
   };
 }
 
+function pendingTask(
+  overrides: Partial<PendingTask> & { payload?: PendingTask["payload"] } = {},
+): PendingTask {
+  const id = overrides.id ?? "task-qa";
+  return {
+    id,
+    platform: "fake",
+    externalEventKey: `fake:${id}:1001`,
+    externalThreadId: "thread-qa",
+    payload:
+      overrides.payload ??
+      JSON.stringify({
+        incoming: {
+          platform: "fake",
+          externalThreadId: "thread-qa",
+          text: "hello from slack",
+          senderName: "QA User",
+          platformContext: { channel: "C123" },
+          timestamp: 1001,
+        },
+      }),
+    ownerEmail: "dispatch+qa@integration.local",
+    orgId: "org-qa",
+    status: "processing",
+    attempts: 1,
+    errorMessage: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    completedAt: null,
+    ...overrides,
+  };
+}
+
 describe("integration webhook handler engine resolution", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -500,6 +533,129 @@ describe("integration webhook handler engine resolution", () => {
           externalThreadId: "thread-4",
         }),
       }),
+    );
+  });
+
+  it("suppresses stale A2A continuation deferral replies", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { A2A_CONTINUATION_QUEUED_MARKER } =
+      await import("./a2a-continuation-marker.js");
+    const sendResponse = vi.fn();
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_start",
+        tool: "call-agent",
+        input: { agent: "analytics", message: "count pageviews" },
+      });
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result: `${A2A_CONTINUATION_QUEUED_MARKER}\nThe Analytics agent is still working.`,
+      });
+      send({
+        type: "text",
+        text: "Here is the relay from the Analytics agent. It is still processing and will post the result back to this thread when complete.",
+      });
+    });
+
+    await processIntegrationTask(pendingTask({ id: "task-continuation" }), {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: "dispatch+qa@integration.local",
+    });
+
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(updateThreadDataMock).toHaveBeenCalled();
+  });
+
+  it("suppresses alternate A2A continuation deferral wording", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { A2A_CONTINUATION_QUEUED_MARKER } =
+      await import("./a2a-continuation-marker.js");
+    const sendResponse = vi.fn();
+    const deferrals = [
+      "",
+      A2A_CONTINUATION_QUEUED_MARKER,
+      "The Analytics answer will show up here shortly.",
+      "I will relay from the Analytics agent when the result is ready.",
+    ];
+
+    for (const [index, text] of deferrals.entries()) {
+      runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+        send({
+          type: "tool_start",
+          tool: "call-agent",
+          input: { agent: "analytics", message: "count pageviews" },
+        });
+        send({
+          type: "tool_done",
+          tool: "call-agent",
+          result: `${A2A_CONTINUATION_QUEUED_MARKER}\nThe Analytics agent is still working.`,
+        });
+        if (text) {
+          send({
+            type: "text",
+            text,
+          });
+        }
+      });
+
+      await processIntegrationTask(
+        pendingTask({ id: `task-continuation-wording-${index}` }),
+        {
+          adapter: createAdapter(sendResponse),
+          systemPrompt: "system",
+          actions: {},
+          model: "claude-sonnet-4-6",
+          apiKey: "",
+          ownerEmail: "dispatch+qa@integration.local",
+        },
+      );
+    }
+
+    expect(sendResponse).not.toHaveBeenCalled();
+  });
+
+  it("still sends real final text after an A2A continuation marker", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { A2A_CONTINUATION_QUEUED_MARKER } =
+      await import("./a2a-continuation-marker.js");
+    const sendResponse = vi.fn();
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_start",
+        tool: "call-agent",
+        input: { agent: "analytics", message: "count pageviews" },
+      });
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result: `${A2A_CONTINUATION_QUEUED_MARKER}\nThe Analytics agent is still working.`,
+      });
+      send({
+        type: "text",
+        text: "371 pageview events were recorded in the requested window.",
+      });
+    });
+
+    await processIntegrationTask(pendingTask({ id: "task-final" }), {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: "dispatch+qa@integration.local",
+    });
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "371 pageview events were recorded in the requested window.",
+      }),
+      expect.any(Object),
+      expect.objectContaining({ placeholderRef: undefined }),
     );
   });
 });

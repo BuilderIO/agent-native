@@ -40,8 +40,7 @@ import {
   putUserSetting,
   deleteUserSetting,
 } from "../settings/user-settings.js";
-import { getSession, isDevEnvironment, DEV_MODE_USER_EMAIL } from "./auth.js";
-import { isLocalDatabase } from "../db/client.js";
+import { getSession, DEV_MODE_USER_EMAIL } from "./auth.js";
 import { getOrigin } from "./google-oauth.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { listOnboardingSteps } from "../onboarding/registry.js";
@@ -82,6 +81,7 @@ import {
   isStoredEngineUsable,
 } from "../agent/engine/registry.js";
 import { getOrgContext } from "../org/context.js";
+import { isEnvVarWriteAllowed } from "./env-var-writes.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -89,26 +89,6 @@ import { getOrgContext } from "../org/context.js";
  * collisions with template-specific `/api/*` routes.
  */
 export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
-
-/**
- * Whether deployment-wide `process.env` writes (and rehydration from the
- * unscoped `persisted-env-vars` settings row) are safe on this deployment.
- *
- * Allowed only when:
- *   - we're running against a local SQLite-only database in a development
- *     environment (no shared-tenant exposure), OR
- *   - the operator has explicitly opted in via
- *     `AGENT_NATIVE_ALLOW_ENV_VAR_WRITES=1` (single-tenant self-hosted).
- *
- * On any hosted multi-tenant deploy this returns false: env vars are
- * deployment-wide globals and one tenant could otherwise overwrite Stripe /
- * OpenAI / Sentry keys for every other tenant. Per-org credentials must use
- * the per-user/org `app_secrets` store via `saveCredential()` instead.
- */
-function isEnvVarWriteAllowed(): boolean {
-  if (process.env.AGENT_NATIVE_ALLOW_ENV_VAR_WRITES === "1") return true;
-  return isDevEnvironment() && isLocalDatabase();
-}
 
 function trackBuilderLifecycle(
   name: string,
