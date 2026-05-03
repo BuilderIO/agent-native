@@ -241,14 +241,14 @@ export async function claimDueA2AContinuations(
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
-  // Once a continuation reaches delivery, the platform may already have
-  // accepted the final response. Recover stale delivery claims by closing them
-  // out instead of risking a duplicate final reply.
+  // If a processor dies while holding a delivery claim, retry the final send.
+  // The stale cutoff preserves the in-flight delivery guard while keeping
+  // final integration replies at-least-once.
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
-          SET status = ?, completed_at = COALESCE(completed_at, ?), updated_at = ?
+          SET status = ?, next_check_at = ?, updated_at = ?
           WHERE status = 'delivering' AND updated_at <= ?`,
-    args: ["completed", now, now, now - 5 * 60 * 1000],
+    args: ["pending", now, now, now - 5 * 60 * 1000],
   });
   await client.execute({
     sql: `UPDATE integration_a2a_continuations

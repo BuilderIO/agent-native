@@ -8,6 +8,7 @@
     "build": "agent-native build",
     "start": "agent-native start",
     "typecheck": "agent-native typecheck",
+    "test": "vitest --run --root ../.. --dir server/lib",
     "action": "agent-native action",
     "script": "agent-native script"
   },

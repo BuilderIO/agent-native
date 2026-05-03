@@ -211,7 +211,7 @@ describe("A2A continuation processor", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("does not redeliver when completion fails after the platform accepts the response", async () => {
+  it("leaves completion failures in delivery for stale retry recovery", async () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
@@ -257,12 +257,12 @@ describe("A2A continuation processor", () => {
     expect(failA2AContinuationMock).not.toHaveBeenCalled();
   });
 
-  it("does not redeliver a continuation that is already in delivery", async () => {
+  it("does not bypass the store claim for an in-flight delivery", async () => {
     const sendResponse = vi.fn(async () => undefined);
     getA2AContinuationMock.mockResolvedValueOnce(
       continuation({
         status: "delivering",
-        updatedAt: Date.now() - 6 * 60_000,
+        updatedAt: Date.now(),
       }),
     );
     claimA2AContinuationMock.mockResolvedValueOnce(null);

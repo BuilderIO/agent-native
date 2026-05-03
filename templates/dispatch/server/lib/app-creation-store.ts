@@ -14,7 +14,7 @@ import {
   currentOwnerEmail,
   recordAudit,
 } from "./dispatch-store.js";
-import { grantSecretsToApp, listSecrets } from "./vault-store.js";
+import { createRequest, listSecrets } from "./vault-store.js";
 
 const SETTINGS_KEY = "dispatch-app-creation-settings";
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
@@ -513,8 +513,8 @@ function buildWorkspaceAppPrompt(input: {
       "",
       `Use the workspace app layout: create it under apps/${appId}, mount it at /${appId}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
       selectedKeys.length
-        ? `Grant the selected Dispatch vault keys to appId "${appId}" and sync them once the app server is available.`
-        : "Do not grant any Dispatch vault keys unless the user asks later.",
+        ? `Dispatch will create pending vault requests for the selected keys for appId "${appId}" after this app creation request is accepted. Do not grant or sync vault keys directly from the app-creation branch.`
+        : "Do not grant or request any Dispatch vault keys unless the user asks later.",
       "",
       "Branch readiness requirements before handing off:",
       `- Update the workspace app registry metadata for "${appId}" (workspace-apps.json or .agent-native/workspace-apps.json, whichever this workspace uses) so Dispatch lists the app at /${appId} after merge/deploy.`,
@@ -524,6 +524,24 @@ function buildWorkspaceAppPrompt(input: {
       `When it is ready, start or update the workspace dev server and navigate the user to /${appId}.`,
     ].join("\n"),
   };
+}
+
+async function requestSelectedVaultKeys(input: {
+  appId: string;
+  selectedKeys: string[];
+}) {
+  if (input.selectedKeys.length === 0) return;
+  await Promise.allSettled(
+    input.selectedKeys.map((credentialKey) =>
+      Promise.resolve().then(() =>
+        createRequest({
+          appId: input.appId,
+          credentialKey,
+          reason: `Requested during workspace app creation for ${input.appId}.`,
+        }),
+      ),
+    ),
+  );
 }
 
 export async function startWorkspaceAppCreation(input: {
@@ -565,9 +583,10 @@ export async function startWorkspaceAppCreation(input: {
   const prompt = built.prompt;
 
   if (isLocal) {
-    if (input.secretIds?.length) {
-      await grantSecretsToApp(input.secretIds, initial.appId);
-    }
+    await requestSelectedVaultKeys({
+      appId: built.appId,
+      selectedKeys,
+    });
     return {
       mode: "local-agent",
       appId: built.appId,
@@ -615,15 +634,16 @@ export async function startWorkspaceAppCreation(input: {
     };
   }
 
-  if (input.secretIds?.length) {
-    await grantSecretsToApp(input.secretIds, built.appId);
-  }
-
   await recordPendingWorkspaceApp({
     appId: built.appId,
     projectId: settings.builderProjectId,
     branchName: result.branchName,
     builderUrl: result.url,
+  });
+
+  await requestSelectedVaultKeys({
+    appId: built.appId,
+    selectedKeys,
   });
 
   return {

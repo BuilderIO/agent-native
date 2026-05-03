@@ -121,7 +121,7 @@ describe("A2A continuations store", () => {
     await expect(claimA2AContinuationDelivery("cont-1")).resolves.toBeNull();
   });
 
-  it("does not reclaim stale delivering continuations for retry", async () => {
+  it("does not claim delivering continuations before stale recovery makes them pending", async () => {
     const { claimA2AContinuation } = await loadStore();
     executeMock.mockImplementation(
       async (query: string | { sql: string; args?: unknown[] }) => {
@@ -134,7 +134,7 @@ describe("A2A continuations store", () => {
             "SELECT * FROM integration_a2a_continuations WHERE id = ?",
           )
         ) {
-          throw new Error("stale delivering claim should not fetch");
+          throw new Error("delivering claim should not fetch");
         }
         return { rows: [], rowsAffected: 0 };
       },
@@ -153,7 +153,7 @@ describe("A2A continuations store", () => {
     expect(querySql(updateCall![0])).not.toContain("delivering");
   });
 
-  it("recovers stale delivering continuations as completed during due sweeps", async () => {
+  it("recovers stale delivering continuations as retryable pending during due sweeps", async () => {
     const { claimDueA2AContinuations } = await loadStore();
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
 
@@ -163,20 +163,22 @@ describe("A2A continuations store", () => {
       const sql = querySql(query);
       return (
         sql.includes("UPDATE integration_a2a_continuations") &&
-        sql.includes("completed_at = COALESCE")
+        sql.includes("WHERE status = 'delivering'")
       );
     });
     expect(recoveryCall?.[0]).toEqual(
       expect.objectContaining({
         sql: expect.stringContaining("WHERE status = 'delivering'"),
         args: [
-          "completed",
+          "pending",
           expect.any(Number),
           expect.any(Number),
           expect.any(Number),
         ],
       }),
     );
+    expect(querySql(recoveryCall![0])).toContain("next_check_at = ?");
+    expect(querySql(recoveryCall![0])).not.toContain("completed_at");
   });
 
   it("returns each due continuation once from a retry sweep", async () => {
