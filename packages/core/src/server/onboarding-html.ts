@@ -593,8 +593,8 @@ ${marketingStyles}
 <body${hasMarketing ? ' class="has-marketing"' : ""}>
 ${marketingPanelHtml}
 <div class="card">
-  <h1 id="heading">Welcome</h1>
-  <p class="subtitle" id="subtitle">Create an account to get started</p>
+  <h1 id="heading">${googleOnly ? "Sign in" : "Welcome"}</h1>
+  <p class="subtitle" id="subtitle">${googleOnly ? "Use your workspace Google account to continue" : "Create an account to get started"}</p>
   <p
     class="upgrade-note"
     id="upgrade-note"
