@@ -29,17 +29,19 @@ Every raw number, record, sequence ID, or underlying value you present MUST orig
 
 **Why this matters:** Users make business decisions based on the data you present. Fabricated data is not a helpful approximation — it is actively harmful. Admitting "I can't get that right now" is always the right answer when you cannot query the actual source.
 
-## TOOL AVAILABILITY — DO NOT GASLIGHT YOURSELF
+## DATA SOURCES AND TOOL RESULTS
 
-Your warehouse query tool is named `bigquery` and is **always registered** in this app's agent runtime — it is a first-class native tool, not an MCP add-on, and ships with every analytics deploy. The same is true for `ga4-report`, `hubspot-deals`, `amplitude-events`, `posthog-events`, `mixpanel-events`, `jira`, `jira-search`, `jira-analytics`, `pylon-issues`, `gong-calls`, `apollo-search`, `commonroom-members`, `github-prs`, `sentry`, `grafana`, `gcloud`, `stripe`, `slack-messages`, `notion-page`, `seo-top-keywords`, `seo-page-keywords`, `seo-blog-pages`, and the dashboard / data-dictionary / analysis actions listed below.
+Use configured data sources and actions. The generic analytics template can include provider actions even when a deployment has not connected credentials, granted permissions, or provided a warehouse schema for that provider.
 
-**Never tell the user "the bigquery tool is not registered" or "I can't see the BigQuery execution tool" or "it may be a configuration issue with this agent session".** Those statements are false. If you reached for `bigquery` and got back a tool-result that looks like an error, the failure is one of:
+When source availability is unclear, call `data-source-status` and inspect existing dashboards, data-dictionary entries, and user/org resources before choosing a source. If multiple configured sources could answer the question, ask one concise clarification.
 
-- **Credentials not configured** — the action returns a structured `{ error: "bigquery_not_configured", message, settingsPath }` payload. Surface that message verbatim to the user and point them at Settings → Data sources.
-- **SQL error** (unknown column, syntax, permission) — the BigQuery API returns the message in the error string. Show it to the user and offer to fix the SQL.
+If a provider action returns an error:
+
+- **Credentials not configured** — surface the action's message and settings path when provided, and point the user at Settings → Data sources.
+- **Query/API error** (unknown table, unknown column, syntax, permission) — show the actual error and offer to fix the query or use another configured source.
 - **Quota / network blip** — say so and offer to retry.
 
-If, despite the above, you genuinely cannot find `bigquery` in your tool list, the correct response is to **call it anyway and report the actual tool-result back to the user** — not to invent a "the tool isn't registered" excuse. The runtime returns a clear "Unknown tool" error if a tool truly doesn't exist; absence of that error means the tool ran.
+Never claim that a provider is connected until a status check or successful action result proves it. Never fabricate numbers to cover for an unavailable provider or failed query.
 
 **Core philosophy:** The agent and UI have full parity. Everything the user can see, the agent can see via `view-screen`. Everything the user can do, the agent can do via actions. The agent is always context-aware — it knows what the user is looking at before acting.
 
@@ -76,20 +78,11 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 - **real-time-sync** — Real-time UI sync via SSE (DB change events)
 - **frontend-design** — Build distinctive, production-grade UI
 
-### Provider Skills (`.builder/skills/`)
+### Provider Skills
 
-Provider-specific knowledge is in `.builder/skills/<provider>/SKILL.md`. **Always read the relevant skill before querying a provider.** Skills contain connection details, table names, column mappings, auth, and gotchas.
+Provider-specific knowledge may be added as skills in `.agents/skills/<provider>/SKILL.md`. Read the relevant skill when it exists before querying that provider. Skills should contain connection details, table names, column mappings, auth, and gotchas for the configured deployment.
 
-```
-.builder/skills/
-  bigquery/     github/     hubspot/      jira/
-  sentry/       grafana/    gcloud/       pylon/
-  gong/         apollo/     dataforseo/   slack/
-  notion/       commonroom/ charts/       learn/
-  stripe/       dbt/
-```
-
-Skills should be **continuously improved**. When you discover a new gotcha or pattern, update the relevant SKILL.md directly.
+Skills should be **continuously improved**. When you discover a new reusable gotcha or pattern, update the relevant SKILL.md directly.
 
 For code editing and development guidance, read `DEVELOPING.md`.
 
@@ -219,7 +212,7 @@ To override the default org plugin (e.g. to add custom validation or extra handl
 | `BETTER_AUTH_URL`                     | Auth — `https://analytics.agent-native.com`      |
 | `GOOGLE_CLIENT_ID`                    | Google sign-in (OAuth 2.0 Client ID, NOT the SA) |
 | `GOOGLE_CLIENT_SECRET`                | Google sign-in                                   |
-| `BIGQUERY_PROJECT_ID`                 | BigQuery panels — e.g. `builder-3b0a2`           |
+| `BIGQUERY_PROJECT_ID`                 | BigQuery panels — configured GCP project ID      |
 | `GOOGLE_APPLICATION_CREDENTIALS_JSON` | BigQuery service-account JSON (single line)      |
 | `ANTHROPIC_API_KEY`                   | Agent chat                                       |
 
@@ -306,7 +299,7 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 | `seo-page-keywords`            | `--url`                     | Keywords for a specific page                                                                                                                             |
 | `seo-blog-pages`               |                             | Blog page SEO metrics                                                                                                                                    |
 | `ga4-report`                   | `--metrics`, `--dimensions` | Google Analytics reports                                                                                                                                 |
-| `bigquery`                     | `--sql`                     | Ad-hoc BigQuery queries (**also available as a native callable agent tool** — call it directly; don't use HTTP workarounds)                              |
+| `bigquery`                     | `--sql`                     | Ad-hoc BigQuery queries when BigQuery is configured. Surface missing-credential or API errors; never invent warehouse data                               |
 | `query-agent-native-analytics` | `--sql`                     | Query first-party `analytics_events` recorded via `/track`, including pageviews, traffic, events, and app/template usage collected by this analytics app |
 | `create-analytics-public-key`  | `[--name <label>]`          | Generate a public write key for hosted apps to send events to `analytics.agent-native.com/track`                                                         |
 | `list-analytics-public-keys`   |                             | List active/revoked first-party analytics write keys                                                                                                     |
@@ -318,13 +311,12 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 | `twitter-tweets`               |                             | Tweet engagement                                                                                                                                         |
 | `generate-chart`               | `--type`, `--data`          | Generate inline charts for chat                                                                                                                          |
 | `top-amplitude-events`         | `[--days N]`                | Top 20 Amplitude events by count from BigQuery (default 90 days)                                                                                         |
-| `bigquery-table-info`          |                             | Return embedded BigQuery table schema reference (no network call)                                                                                        |
+| `bigquery-table-info`          |                             | Explain how to find configured BigQuery table and column metadata                                                                                        |
 | `content-calendar`             |                             | Get all entries from the Notion content calendar                                                                                                         |
 | `content-calendar-schema`      |                             | Return content calendar field schema                                                                                                                     |
 | `notion-page`                  | `--pageId`                  | Read a Notion page's title and blocks                                                                                                                    |
 | `check-form-schema`            |                             | Show the inbound forms table schema in the app database                                                                                                  |
 | `query-inbound-forms`          | `[--limit N]`               | Query inbound form submissions from the app database                                                                                                     |
-| `check-contact-signup`         |                             | Check contacts with signup timestamps from BigQuery dim_hs_contacts                                                                                      |
 | `onboarding-events`            | `[--days N]`                | Onboarding funnel events from BigQuery                                                                                                                   |
 
 ### Action-Specific Filtering
@@ -340,7 +332,7 @@ pnpm action commonroom-members --query="enterprise" --limit=10
 | User request                        | What to do                                                                     |
 | ----------------------------------- | ------------------------------------------------------------------------------ |
 | "What am I looking at?"             | `view-screen`                                                                  |
-| "Show weekly signup trends"         | Query BigQuery, generate chart, present in chat                                |
+| "Show weekly signup trends"         | Use the configured signup source, generate chart, present in chat              |
 | "Create a dashboard for X"          | Write config to `dashboard-{id}`, navigate to it                               |
 | "How many open bugs?"               | `jira-search --jql="issuetype = Bug AND resolution = Unresolved"`              |
 | "Find deals over $50k"              | `hubspot-deals --grep="50000" --fields=dealname,amount,stageLabel`             |
@@ -387,7 +379,7 @@ Prefer (1) for answering a user's in-chat question; prefer (2) when the chart is
 ## Learnings & Skills (MANDATORY)
 
 1. **ALWAYS read `AGENTS.md` and `LEARNINGS.md` resources first (both scopes).** Non-negotiable.
-2. **Read the relevant `.builder/skills/<provider>/SKILL.md`** before querying any provider.
+2. **Read the relevant provider skill in `.agents/skills/`** when one exists before querying that provider.
 3. **Update skills directly** when you discover new gotchas or patterns.
 4. **Learn from corrections** — capture in the relevant skill or LEARNINGS.md resource.
 

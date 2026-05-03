@@ -5,5 +5,6 @@ import {
 import actionsRegistry from "../../.generated/actions-registry.js";
 
 export default createAgentChatPlugin({
+  appId: "design",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
 });

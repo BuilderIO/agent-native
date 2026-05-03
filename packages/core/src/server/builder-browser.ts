@@ -157,26 +157,20 @@ export function getBuilderApiHost(): string {
   );
 }
 
-export const DEFAULT_BUILDER_BRANCH_PROJECT_ID =
-  "274d28fec94b48f2b2d68f2274d390eb";
-
-export function getBuilderBranchProjectId(): string {
-  return (
+function getConfiguredBuilderBranchProjectId(): string | undefined {
+  const projectId =
     process.env.DISPATCH_BUILDER_PROJECT_ID ||
     process.env.BUILDER_BRANCH_PROJECT_ID ||
-    process.env.BUILDER_PROJECT_ID ||
-    DEFAULT_BUILDER_BRANCH_PROJECT_ID
-  );
+    process.env.BUILDER_PROJECT_ID;
+  return projectId?.trim() || undefined;
+}
+
+export function getBuilderBranchProjectId(): string {
+  return getConfiguredBuilderBranchProjectId() || "";
 }
 
 export function isBuilderBranchingEnabled(): boolean {
-  return !!(
-    process.env.ENABLE_BUILDER === "true" ||
-    process.env.ENABLE_BUILDER === "1" ||
-    process.env.DISPATCH_BUILDER_PROJECT_ID ||
-    process.env.BUILDER_BRANCH_PROJECT_ID ||
-    process.env.BUILDER_PROJECT_ID
-  );
+  return !!getConfiguredBuilderBranchProjectId();
 }
 
 /**
@@ -228,10 +222,7 @@ export function getBuilderBrowserConnectUrl(origin: string): string {
 }
 
 export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
-  const branchProjectId =
-    process.env.DISPATCH_BUILDER_PROJECT_ID ||
-    process.env.BUILDER_BRANCH_PROJECT_ID ||
-    process.env.BUILDER_PROJECT_ID;
+  const branchProjectId = getConfiguredBuilderBranchProjectId();
   const envManaged = !!process.env.BUILDER_PRIVATE_KEY;
   return {
     configured: !!(
@@ -491,6 +482,12 @@ export async function runBuilderAgent(
   if (!args.prompt || !args.prompt.trim()) {
     throw new Error("prompt is required");
   }
+  const projectId = args.projectId?.trim();
+  if (!projectId) {
+    throw new Error(
+      "Builder project ID is not configured. Set DISPATCH_BUILDER_PROJECT_ID, BUILDER_BRANCH_PROJECT_ID, or BUILDER_PROJECT_ID.",
+    );
+  }
   const builderUserId = args.userId || creds.userId || undefined;
   const builderUserEmail = builderUserId ? undefined : args.userEmail;
   if (!builderUserEmail && !builderUserId) {
@@ -502,8 +499,8 @@ export async function runBuilderAgent(
 
   const body: Record<string, unknown> = {
     userMessage: { userPrompt: args.prompt },
+    projectId,
   };
-  if (args.projectId) body.projectId = args.projectId;
   if (args.branchName) body.branchName = args.branchName;
   if (builderUserEmail) body.userEmail = builderUserEmail;
   if (builderUserId) body.userId = builderUserId;

@@ -9,7 +9,7 @@ import { seedFromText } from "@agent-native/core/collab";
 export default defineAction({
   description:
     "Add a new file to a design project. Validates that the design exists and " +
-    "the user has editor access. Returns the new file's ID and filename.",
+    "the user has editor access. Returns the new file's ID, filename, and design URL path when the file is renderable.",
   schema: z.object({
     designId: z.string().describe("Design project ID to add the file to"),
     filename: z.string().describe("Filename (e.g. 'index.html', 'styles.css')"),
@@ -55,6 +55,18 @@ export default defineAction({
       .set({ updatedAt: now })
       .where(eq(schema.designs.id, designId));
 
-    return { id, filename, fileType };
+    const resolvedFileType = fileType ?? "html";
+    const renderable =
+      (resolvedFileType === "html" || resolvedFileType === "jsx") &&
+      content.trim().length > 0;
+
+    return {
+      id,
+      designId,
+      filename,
+      fileType: resolvedFileType,
+      renderable,
+      urlPath: renderable ? `/design/${designId}` : null,
+    };
   },
 });

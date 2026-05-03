@@ -16,7 +16,8 @@
     "@assistant-ui/react-markdown": "^0.12.6",
     "@tabler/icons-react": "^3.40.0",
     "h3": "^2.0.1-rc.20",
-    "isbot": "^5"
+    "isbot": "^5",
+    "postgres": "^3.4.9"
   },
   "devDependencies": {
     "@react-router/dev": "^7.13.1",

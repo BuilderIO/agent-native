@@ -3,7 +3,9 @@ import {
   buildBuilderCliAuthUrl,
   BUILDER_CALLBACK_PATH,
   BUILDER_STATE_PARAM,
+  getBuilderBranchProjectId,
   getBuilderBrowserConnectUrl,
+  isBuilderBranchingEnabled,
   runBuilderAgent,
   signBuilderCallbackState,
   verifyBuilderCallbackState,
@@ -262,7 +264,45 @@ describe("Builder callback CSRF state", () => {
     });
   });
 
+  describe("Builder branch project configuration", () => {
+    it("does not default to a workspace-specific project id", () => {
+      delete process.env.DISPATCH_BUILDER_PROJECT_ID;
+      delete process.env.BUILDER_BRANCH_PROJECT_ID;
+      delete process.env.BUILDER_PROJECT_ID;
+      process.env.ENABLE_BUILDER = "true";
+
+      expect(getBuilderBranchProjectId()).toBe("");
+      expect(isBuilderBranchingEnabled()).toBe(false);
+    });
+
+    it("enables branch creation when a project id is explicitly configured", () => {
+      delete process.env.DISPATCH_BUILDER_PROJECT_ID;
+      delete process.env.BUILDER_PROJECT_ID;
+      process.env.BUILDER_BRANCH_PROJECT_ID = " project-123 ";
+
+      expect(getBuilderBranchProjectId()).toBe("project-123");
+      expect(isBuilderBranchingEnabled()).toBe(true);
+    });
+  });
+
   describe("runBuilderAgent", () => {
+    it("requires an explicit Builder project id", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_USER_ID = "builder-user-123";
+
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await expect(
+        runBuilderAgent({
+          prompt: "Create an app",
+          userEmail: "dispatch+slack@integration.local",
+        }),
+      ).rejects.toThrow("Builder project ID is not configured");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
     it("uses the configured Builder user id instead of caller email", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-test";
       process.env.BUILDER_PUBLIC_KEY = "pub-test";

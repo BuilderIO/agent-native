@@ -93,6 +93,12 @@ describe("standalone scaffold — starter template", { timeout: 60000 }, () => {
       }
     }
   });
+
+  it("includes the Postgres runtime for hosted SQL databases", async () => {
+    await createApp("test-app", { template: "starter" });
+    const pkg = readPkg(path.join(tmpDir, "test-app"));
+    expect(pkg.dependencies?.postgres).toBeDefined();
+  });
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -197,6 +203,14 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["starter"]);
     const appPkg = readPkg(path.join(wsDir, "apps", "starter"));
     expect(appPkg.dependencies["@my-ws/shared"]).toBe("workspace:*");
+  });
+
+  it("includes the Postgres runtime at the workspace root and in apps", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["starter"]);
+    const rootPkg = readPkg(wsDir);
+    const appPkg = readPkg(path.join(wsDir, "apps", "starter"));
+    expect(rootPkg.dependencies?.postgres).toBeDefined();
+    expect(appPkg.dependencies?.postgres).toBeDefined();
   });
 
   it("removes starter auth/chat wrappers so workspace-core plugins mount", async () => {

@@ -16,6 +16,7 @@ const __dirname = path.dirname(__filename);
 
 const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
+const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
 
 /**
  * Move "starter" to the top of the list so it lines up with clack's default
@@ -625,6 +626,9 @@ function postProcessStandalone(name: string, targetDir: string): void {
       // Ensure pnpm.onlyBuiltDependencies is set so native packages
       // (better-sqlite3, esbuild, node-pty) compile their postinstall scripts
       // under pnpm 10+ without prompting for `pnpm approve-builds`.
+      pkg.dependencies = pkg.dependencies ?? {};
+      pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
+
       const requiredBuilt = ["better-sqlite3", "esbuild", "node-pty"];
       if (!pkg.pnpm || typeof pkg.pnpm !== "object") {
         pkg.pnpm = {};

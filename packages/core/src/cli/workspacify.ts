@@ -22,6 +22,8 @@
 import fs from "fs";
 import path from "path";
 
+const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
+
 export interface WorkspacifyOptions {
   /** Target app directory (already populated with the copied template) */
   appDir: string;
@@ -70,6 +72,10 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
       // Ensure the dependency on the workspace shared package is present.
       pkg.dependencies = pkg.dependencies ?? {};
       pkg.dependencies[workspaceCoreName] = "workspace:*";
+      // Core loads postgres-js lazily when DATABASE_URL points at Postgres.
+      // Add the runtime package to workspace apps so production bundles do
+      // not fail only after a hosted Postgres database is configured.
+      pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       // pnpm build-script approvals belong at the workspace root. Leaving the
       // template's per-app setting in place makes pnpm warn on every install.
       if (pkg.pnpm && typeof pkg.pnpm === "object") {

@@ -80,6 +80,8 @@ import nodePath from "node:path";
 import { readBody } from "./h3-helpers.js";
 import { getBuilderBrowserConnectUrl } from "./builder-browser.js";
 import { captureCliOutput } from "./cli-capture.js";
+import { withConfiguredAppBasePath } from "./app-base-path.js";
+import { appendA2AArtifactLinks } from "../a2a/artifact-response.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
 // This avoids require() which bundlers convert to createRequire(import.meta.url)
@@ -119,6 +121,23 @@ function wrapCliScript(
       return captureCliOutput(() => cliDefault(cliArgs));
     },
   };
+}
+
+function resolveArtifactBaseUrl(event: any | undefined): string | undefined {
+  const fromEnv =
+    process.env.APP_URL ||
+    process.env.URL ||
+    process.env.DEPLOY_URL ||
+    process.env.BETTER_AUTH_URL;
+  if (fromEnv) return withConfiguredAppBasePath(String(fromEnv));
+
+  try {
+    const proto = getHeader(event, "x-forwarded-proto") || "https";
+    const host = getHeader(event, "host");
+    if (host) return withConfiguredAppBasePath(`${proto}://${host}`);
+  } catch {}
+
+  return undefined;
 }
 
 /**
@@ -2732,6 +2751,7 @@ export function createAgentChatPlugin(
 
           // Run the SAME agent loop, collect text events, yield as A2A messages
           let accumulatedText = "";
+          const a2aToolResults: Array<{ tool: string; result: string }> = [];
           const controller = new AbortController();
 
           console.log(
@@ -2750,6 +2770,11 @@ export function createAgentChatPlugin(
                 accumulatedText += event.text;
               } else if (event.type === "tool_start") {
                 console.log(`[A2A] Tool call: ${event.tool}`);
+              } else if (event.type === "tool_done") {
+                a2aToolResults.push({
+                  tool: event.tool,
+                  result: event.result,
+                });
               } else if (event.type === "error") {
                 console.error(`[A2A] Error: ${event.error}`);
               } else if (event.type === "done") {
@@ -2765,13 +2790,19 @@ export function createAgentChatPlugin(
             `[A2A] Loop complete. Text: ${accumulatedText.slice(0, 100)}...`,
           );
 
+          const finalText = appendA2AArtifactLinks(
+            accumulatedText,
+            a2aToolResults,
+            { baseUrl: resolveArtifactBaseUrl(context.event) },
+          );
+
           // Yield the final accumulated text
           yield {
             role: "agent" as const,
             parts: [
               {
                 type: "text" as const,
-                text: accumulatedText || "(no response)",
+                text: finalText || "(no response)",
               },
             ],
           };

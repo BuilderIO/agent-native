@@ -112,6 +112,7 @@ export default defineAction({
 
     return {
       id: doc.id,
+      urlPath: `/page/${doc.id}`,
       parentId: doc.parentId,
       title: doc.title,
       content: doc.content,
