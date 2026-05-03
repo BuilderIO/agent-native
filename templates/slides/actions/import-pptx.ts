@@ -13,6 +13,7 @@ import { parsePptx } from "../server/handlers/import/pptx-parser.js";
 import { convertToSlideHtml } from "../server/handlers/import/html-converter.js";
 import fs from "fs";
 import { resolveUserUploadedFile } from "./_uploaded-files.js";
+import { getDeckUrl } from "./_app-url.js";
 
 export default defineAction({
   description:
@@ -85,14 +86,13 @@ export default defineAction({
         source: "import-pptx",
       });
 
-      const appUrl = process.env.APP_URL || "https://slides.agent-native.com";
       return {
         id: deckId,
         title: deckTitle,
         slideCount: slides.length,
         theme: presentation.theme,
         imported: true,
-        url: `${appUrl}/deck/${deckId}`,
+        url: getDeckUrl(deckId),
       };
     }
 
@@ -116,14 +116,13 @@ export default defineAction({
     notifyClients(id);
     await writeAppState("refresh-signal", { ts: now, source: "import-pptx" });
 
-    const appUrl = process.env.APP_URL || "https://slides.agent-native.com";
     return {
       id,
       title: deckTitle,
       slideCount: slides.length,
       theme: presentation.theme,
       imported: true,
-      url: `${appUrl}/deck/${id}`,
+      url: getDeckUrl(id),
     };
   },
 });
