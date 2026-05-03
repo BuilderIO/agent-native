@@ -206,7 +206,7 @@ export async function claimPendingTask(
 
   // Conditional update: only flip if currently pending. Failed tasks are
   // terminal unless an explicit retry path resets them to pending first.
-  const { rows } = await client.execute({
+  const result = await client.execute({
     sql: isPostgres()
       ? `UPDATE integration_pending_tasks
          SET status = ?, attempts = attempts + 1, updated_at = ?
@@ -217,6 +217,7 @@ export async function claimPendingTask(
          WHERE id = ? AND status = 'pending'`,
     args: ["processing", now, id],
   });
+  const rows = result.rows ?? [];
 
   if (isPostgres()) {
     if (rows.length === 0) return null;
@@ -225,6 +226,10 @@ export async function claimPendingTask(
 
   // SQLite: no RETURNING, so re-read after the update. Confirm we actually
   // moved it into 'processing' (vs. lost the race).
+  const affected =
+    (result as { rowsAffected?: number; rowCount?: number }).rowsAffected ??
+    (result as { rowsAffected?: number; rowCount?: number }).rowCount;
+  if (affected === 0) return null;
   const fetched = await getPendingTask(id);
   if (!fetched || fetched.status !== "processing") return null;
   return fetched;
