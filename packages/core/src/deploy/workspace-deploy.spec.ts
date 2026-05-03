@@ -172,15 +172,9 @@ describe("workspace deploy", () => {
     expect(redirects).toContain("/ /dispatch/overview 302");
     expect(redirects).toContain("/dispatch /dispatch/overview 302");
     expect(redirects).toContain("/apps /dispatch/apps 302");
-    expect(redirects).toContain(
-      "/dispatch/* /.netlify/functions/dispatch-server 200",
-    );
-    expect(redirects).toContain(
-      "/starter /.netlify/functions/starter-server 200",
-    );
-    expect(redirects).toContain(
-      "/starter/* /.netlify/functions/starter-server 200",
-    );
+    expect(redirects).not.toContain("/.netlify/functions/");
+    expect(redirects).not.toContain("/dispatch/*");
+    expect(redirects).not.toContain("/starter/*");
     expect(redirects).not.toContain("!");
     expect(redirects).not.toMatch(
       /^\/\* \/.netlify\/functions\/dispatch-server 200$/m,
