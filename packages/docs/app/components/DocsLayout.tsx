@@ -43,7 +43,7 @@ export default function DocsLayout({
   }, [children]);
 
   return (
-    <div className="mx-auto flex max-w-[1440px] px-0 lg:px-6">
+    <div className="mx-auto flex max-w-[1600px] px-0 lg:px-6">
       <DocsSidebar />
       <main className="min-w-0 flex-1 border-0 border-[var(--docs-border)] px-4 pb-16 pt-0 sm:px-6 lg:border-x lg:px-12 lg:pt-8">
         <MobileDocsNav />

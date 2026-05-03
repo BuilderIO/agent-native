@@ -41,17 +41,76 @@
 //!   - `voice:speech-error`       `{ error, source: "system" }`
 //!   - `voice:audio-level`        `{ level, source: "system" }`
 
+use serde::Serialize;
 use tauri::AppHandle;
+
+/// Structured macOS version status for the renderer. Returned by
+/// `system_audio_version_status` so the Settings UI can display the right
+/// affordance without having to parse error strings.
+#[derive(Serialize, Clone, Debug)]
+pub struct VersionStatus {
+    /// `true` if the OS supports ScreenCaptureKit audio capture (macOS 13+
+    /// on Apple silicon / Intel; non-macOS hosts always report `false`).
+    pub supported: bool,
+    /// Human-readable OS version, e.g. `"macOS 14.5"`. On non-macOS hosts
+    /// this is the bare platform string (e.g. `"linux"`, `"windows"`).
+    pub os_version: String,
+    /// Optional reason when `supported = false`. Filled in when the host is
+    /// macOS but below 13, or non-macOS.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[tauri::command]
+pub fn system_audio_version_status() -> VersionStatus {
+    #[cfg(target_os = "macos")]
+    {
+        macos::version_status()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        VersionStatus {
+            supported: false,
+            os_version: std::env::consts::OS.to_string(),
+            reason: Some("System audio capture is only supported on macOS.".into()),
+        }
+    }
+}
 
 #[tauri::command]
 pub async fn system_audio_request_permission() -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
+        // Fail fast on macOS < 13 so the renderer can surface the right
+        // affordance instead of silently falling back to mic-only.
+        let status = macos::version_status();
+        if !status.supported {
+            return Err(status.reason.unwrap_or_else(|| {
+                format!(
+                    "ScreenCaptureKit is unavailable on this macOS version ({}).",
+                    status.os_version
+                )
+            }));
+        }
         macos::request_screen_capture_access().await
     }
     #[cfg(not(target_os = "macos"))]
     {
         Err("System audio capture is only supported on macOS.".into())
+    }
+}
+
+/// Open the macOS Screen Recording privacy pane so the user can grant
+/// permission. No-op on other platforms.
+#[tauri::command]
+pub fn system_audio_open_privacy_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::open_screen_recording_settings()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(())
     }
 }
 
@@ -123,7 +182,7 @@ mod macos {
     use objc2::rc::Retained;
     use objc2::AnyThread;
     use objc2_avf_audio::{AVAudioFormat, AVAudioPCMBuffer};
-    use objc2_foundation::{NSError, NSLocale, NSString};
+    use objc2_foundation::{NSError, NSLocale, NSProcessInfo, NSString};
     use objc2_speech::{
         SFSpeechAudioBufferRecognitionRequest, SFSpeechRecognitionResult, SFSpeechRecognitionTask,
         SFSpeechRecognizer,
@@ -151,6 +210,54 @@ mod macos {
     extern "C" {
         fn CGPreflightScreenCaptureAccess() -> bool;
         fn CGRequestScreenCaptureAccess() -> bool;
+    }
+
+    /// Runtime OS version probe. ScreenCaptureKit's audio-capture API
+    /// (`SCStreamConfiguration::with_captures_audio`) requires macOS 13
+    /// (Ventura) or later. Build-time feature gating in the
+    /// `screencapturekit` crate (`macos_13_0`) only ensures the API is
+    /// linked — at runtime we still need to confirm the host kernel
+    /// supports it before we attempt to call into SCK.
+    pub fn version_status() -> super::VersionStatus {
+        // SAFETY: `processInfo` is a singleton; `operatingSystemVersion`
+        // returns a plain struct of i64s.
+        let info = NSProcessInfo::processInfo();
+        let v = info.operatingSystemVersion();
+        let os_version = format!(
+            "macOS {}.{}.{}",
+            v.majorVersion, v.minorVersion, v.patchVersion
+        );
+        if v.majorVersion >= 13 {
+            super::VersionStatus {
+                supported: true,
+                os_version,
+                reason: None,
+            }
+        } else {
+            super::VersionStatus {
+                supported: false,
+                reason: Some(format!(
+                    "ScreenCaptureKit is unavailable on macOS {} — requires macOS 13 or later.",
+                    v.majorVersion
+                )),
+                os_version,
+            }
+        }
+    }
+
+    /// Best-effort open of the macOS Screen Recording privacy pane. We
+    /// `open` the well-known pref URL via `osascript` to avoid pulling in
+    /// extra crates; if the URL scheme changes in a future macOS this
+    /// silently no-ops, which is the correct fallback (the user can still
+    /// open System Settings manually).
+    pub fn open_screen_recording_settings() -> Result<(), String> {
+        use std::process::Command;
+        let url = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
+        Command::new("open")
+            .arg(url)
+            .status()
+            .map_err(|e| format!("failed to open System Settings: {e}"))?;
+        Ok(())
     }
 
     pub async fn request_screen_capture_access() -> Result<bool, String> {
