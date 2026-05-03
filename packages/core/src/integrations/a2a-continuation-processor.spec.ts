@@ -292,6 +292,61 @@ describe("A2A continuation processor", () => {
     );
   });
 
+  it("treats aborted task polling as transient until the remote work deadline", async () => {
+    const sendResponse = vi.fn(async () => undefined);
+    claimA2AContinuationMock.mockResolvedValueOnce(
+      continuation({ attempts: 99 }),
+    );
+    getTaskMock.mockRejectedValueOnce(
+      new DOMException("This operation was aborted", "AbortError"),
+    );
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(failA2AContinuationMock).not.toHaveBeenCalled();
+    expect(rescheduleA2AContinuationMock).toHaveBeenCalledWith("cont-1", 5_000);
+    expect(fetch).toHaveBeenCalledWith(
+      "https://dispatch.agent-native.test/_agent-native/integrations/process-a2a-continuation",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ continuationId: "cont-1" }),
+      }),
+    );
+  });
+
+  it("reports a friendly timeout when task polling aborts after the remote work deadline", async () => {
+    const sendResponse = vi.fn(async () => undefined);
+    claimA2AContinuationMock.mockResolvedValueOnce(
+      continuation({ attempts: 99, createdAt: Date.now() - 10 * 60_000 - 1 }),
+    );
+    getTaskMock.mockRejectedValueOnce(
+      new DOMException("This operation was aborted", "AbortError"),
+    );
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    const sentText = vi.mocked(sendResponse).mock.calls[0]?.[0].text ?? "";
+    expect(sentText).toContain(
+      "The Slides agent could not finish this request: Timed out polling the Slides A2A task a2a-task-1 after 10 minutes",
+    );
+    expect(sentText).not.toContain("This operation was aborted");
+    expect(failA2AContinuationMock).toHaveBeenCalledWith(
+      "cont-1",
+      expect.stringContaining(
+        "Timed out polling the Slides A2A task a2a-task-1 after 10 minutes",
+      ),
+    );
+  });
+
   it("waits until a redispatched continuation is due before claiming it", async () => {
     vi.useFakeTimers();
     const dueAt = Date.now() + 5_000;
