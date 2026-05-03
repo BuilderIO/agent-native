@@ -30,8 +30,8 @@ const MAX_REMOTE_WORK_MS = 10 * 60_000;
 const RESCHEDULE_DELAY_MS = 60_000;
 const MAX_PRE_CLAIM_WAIT_MS = 10_000;
 const POLL_INTERVAL_MS = 2_000;
-const PROCESSOR_WAIT_MS = 20_000;
-const POLL_REQUEST_TIMEOUT_MS = 25_000;
+const PROCESSOR_WAIT_MS = 10_000;
+const POLL_REQUEST_TIMEOUT_MS = 8_000;
 const PLATFORM_SEND_TIMEOUT_MS = 12_000;
 const DISPATCH_SETTLE_WAIT_MS = 2_000;
 const COMPLETE_AFTER_DELIVERY_ATTEMPTS = 3;
@@ -166,11 +166,11 @@ async function processClaimedContinuation(
     }
   } catch (err) {
     if (isTransientA2APollError(err)) {
-      if (isRemoteWorkExpired(continuation)) {
+      if (shouldStopPollingRemoteTask(continuation)) {
         await notifyAndFailA2AContinuation(
           continuation,
           adapter,
-          remotePollTimeoutReason(continuation),
+          remotePollFailureReason(continuation),
         );
         return;
       }
@@ -203,13 +203,11 @@ async function processClaimedContinuation(
       return;
     }
 
-    if (isRemoteWorkExpired(continuation)) {
+    if (shouldStopPollingRemoteTask(continuation)) {
       await notifyAndFailA2AContinuation(
         continuation,
         adapter,
-        `Remote A2A task ${continuation.a2aTaskId} did not complete within ${Math.round(
-          MAX_REMOTE_WORK_MS / 60_000,
-        )} minutes`,
+        remotePollFailureReason(continuation),
       );
       return;
     }
@@ -371,6 +369,12 @@ function isRemoteWorkExpired(continuation: A2AContinuation): boolean {
   return Date.now() - continuation.createdAt >= MAX_REMOTE_WORK_MS;
 }
 
+function shouldStopPollingRemoteTask(continuation: A2AContinuation): boolean {
+  return (
+    continuation.attempts >= MAX_ATTEMPTS || isRemoteWorkExpired(continuation)
+  );
+}
+
 function isTransientA2APollError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   if (err.name === "AbortError") return true;
@@ -379,10 +383,14 @@ function isTransientA2APollError(err: unknown): boolean {
   );
 }
 
-function remotePollTimeoutReason(continuation: A2AContinuation): string {
-  return `Timed out polling the ${continuation.agentName} A2A task ${continuation.a2aTaskId} after ${Math.round(
-    MAX_REMOTE_WORK_MS / 60_000,
-  )} minutes. The downstream agent did not return a final result.`;
+function remotePollFailureReason(continuation: A2AContinuation): string {
+  if (isRemoteWorkExpired(continuation)) {
+    return `Timed out polling the ${continuation.agentName} A2A task ${continuation.a2aTaskId} after ${Math.round(
+      MAX_REMOTE_WORK_MS / 60_000,
+    )} minutes. The downstream agent did not return a final result.`;
+  }
+
+  return `Timed out polling the ${continuation.agentName} A2A task ${continuation.a2aTaskId} after ${MAX_ATTEMPTS} attempts. The downstream agent did not return a final result.`;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -509,9 +517,25 @@ function resolveArtifactBaseUrl(): string | undefined {
 
 function expandRelativeUrls(text: string, agentUrl: string): string {
   if (!text || !agentUrl) return text;
-  const base = agentUrl.replace(/\/$/, "");
+  const base = publicAgentBaseUrl(agentUrl);
   return text.replace(
     /(^|[\s(\[<"'`])(\/[a-z0-9_-][a-z0-9_/?&=%#.,:-]*)/gi,
     (_match, lead, path) => `${lead}${base}${path}`,
   );
+}
+
+function publicAgentBaseUrl(agentUrl: string): string {
+  try {
+    const url = new URL(agentUrl);
+    const routeIndex = url.pathname.indexOf(FRAMEWORK_ROUTE_PREFIX);
+    url.pathname =
+      routeIndex >= 0
+        ? url.pathname.slice(0, routeIndex) || "/"
+        : url.pathname.replace(/\/+$/, "") || "/";
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return agentUrl.replace(/\/$/, "");
+  }
 }

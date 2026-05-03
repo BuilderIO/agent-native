@@ -149,6 +149,81 @@ describe("startWorkspaceAppCreation", () => {
     expect(builderPrompt).toContain("agent card/A2A metadata");
   });
 
+  it("does not record pending apps when Builder returns a blank branchName", async () => {
+    runBuilderAgentMock.mockResolvedValue({
+      branchName: "",
+      url: "https://builder.io/branch",
+      status: "started",
+    });
+    const { startWorkspaceAppCreation } =
+      await import("./app-creation-store.js");
+
+    const result = await startWorkspaceAppCreation({
+      prompt: "make a QA dashboard",
+      appId: "qa-dashboard",
+    });
+
+    expect(result).toMatchObject({
+      mode: "builder-unavailable",
+      appId: "qa-dashboard",
+      message: expect.stringContaining(
+        "Builder app creation returned a blank branchName",
+      ),
+    });
+    expect(putSettingMock).not.toHaveBeenCalled();
+    expect(createRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("does not record pending apps when Builder returns a malformed branch URL", async () => {
+    runBuilderAgentMock.mockResolvedValue({
+      branchName: "branch",
+      url: "not a builder branch url",
+      status: "started",
+    });
+    const { startWorkspaceAppCreation } =
+      await import("./app-creation-store.js");
+
+    const result = await startWorkspaceAppCreation({
+      prompt: "make a QA dashboard",
+      appId: "qa-dashboard",
+    });
+
+    expect(result).toMatchObject({
+      mode: "builder-unavailable",
+      appId: "qa-dashboard",
+      message: expect.stringContaining(
+        "Builder app creation returned a malformed url",
+      ),
+    });
+    expect(putSettingMock).not.toHaveBeenCalled();
+    expect(createRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("does not record pending apps when Builder returns a non-Builder branch URL", async () => {
+    runBuilderAgentMock.mockResolvedValue({
+      branchName: "branch",
+      url: "https://example.com/branch",
+      status: "started",
+    });
+    const { startWorkspaceAppCreation } =
+      await import("./app-creation-store.js");
+
+    const result = await startWorkspaceAppCreation({
+      prompt: "make a QA dashboard",
+      appId: "qa-dashboard",
+    });
+
+    expect(result).toMatchObject({
+      mode: "builder-unavailable",
+      appId: "qa-dashboard",
+      message: expect.stringContaining(
+        "Builder app creation returned a non-Builder url",
+      ),
+    });
+    expect(putSettingMock).not.toHaveBeenCalled();
+    expect(createRequestMock).not.toHaveBeenCalled();
+  });
+
   it("blocks remote Builder starts for synthetic integration owners", async () => {
     currentOwnerEmailMock.mockReturnValue(
       "dispatch+abc123def4567890@integration.local",

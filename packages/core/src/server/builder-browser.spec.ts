@@ -332,5 +332,92 @@ describe("Builder callback CSRF state", () => {
       expect(body.userId).toBe("builder-user-123");
       expect(body.userEmail).toBeUndefined();
     });
+
+    it("rejects a blank branchName from Builder instead of returning an unusable run", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_USER_ID = "builder-user-123";
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              branchName: " ",
+              projectId: "project-123",
+              url: "https://builder.io/app/projects/project-123/branch/qa",
+              status: "processing",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        ),
+      );
+
+      await expect(
+        runBuilderAgent({
+          prompt: "Create an app",
+          projectId: "project-123",
+          userEmail: "dispatch+slack@integration.local",
+        }),
+      ).rejects.toThrow("Builder agent run returned a blank branchName");
+    });
+
+    it("rejects a malformed Builder branch URL instead of returning it", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_USER_ID = "builder-user-123";
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              branchName: "qa-branch",
+              projectId: "project-123",
+              url: "not a url",
+              status: "processing",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        ),
+      );
+
+      await expect(
+        runBuilderAgent({
+          prompt: "Create an app",
+          projectId: "project-123",
+          userEmail: "dispatch+slack@integration.local",
+        }),
+      ).rejects.toThrow("Builder agent run returned a malformed url");
+    });
+
+    it("rejects a non-Builder branch URL instead of returning it", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_USER_ID = "builder-user-123";
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              branchName: "qa-branch",
+              projectId: "project-123",
+              url: "https://example.com/branch",
+              status: "processing",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        ),
+      );
+
+      await expect(
+        runBuilderAgent({
+          prompt: "Create an app",
+          projectId: "project-123",
+          userEmail: "dispatch+slack@integration.local",
+        }),
+      ).rejects.toThrow("Builder agent run returned a non-Builder url");
+    });
   });
 });

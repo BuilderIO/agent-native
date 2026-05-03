@@ -44,6 +44,9 @@ describe("integration pending task store", () => {
           ],
         };
       }
+      if (sql.includes("UPDATE integration_pending_tasks")) {
+        return { rows: [], rowsAffected: 1 };
+      }
       return { rows: [] };
     });
 
@@ -65,6 +68,9 @@ describe("integration pending task store", () => {
     const { claimPendingTask } = await loadStore();
     executeMock.mockImplementation(async (query: string | { sql: string }) => {
       const sql = typeof query === "string" ? query : query.sql;
+      if (sql.includes("UPDATE integration_pending_tasks")) {
+        return { rows: [], rowsAffected: 0 };
+      }
       if (sql.includes("SELECT id, platform")) {
         return {
           rows: [
@@ -89,6 +95,45 @@ describe("integration pending task store", () => {
     });
 
     await expect(claimPendingTask("task-failed")).resolves.toBeNull();
+  });
+
+  it("returns null when a SQLite claim loses the conditional update race", async () => {
+    const { claimPendingTask } = await loadStore();
+    executeMock.mockImplementation(async (query: string | { sql: string }) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (sql.includes("UPDATE integration_pending_tasks")) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (sql.includes("SELECT id, platform")) {
+        return {
+          rows: [
+            {
+              id: "task-raced",
+              platform: "slack",
+              external_thread_id: "thread-1",
+              payload: "{}",
+              owner_email: "alice+qa@agent-native.test",
+              org_id: null,
+              status: "processing",
+              attempts: 1,
+              error_message: null,
+              created_at: 1,
+              updated_at: 2,
+              completed_at: null,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    await expect(claimPendingTask("task-raced")).resolves.toBeNull();
+
+    const selectCall = executeMock.mock.calls.find(([query]) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      return sql.includes("SELECT id, platform");
+    });
+    expect(selectCall).toBeUndefined();
   });
 
   it("does not claim failed tasks on the Postgres RETURNING path", async () => {
