@@ -410,4 +410,29 @@ describe("A2A continuation processor", () => {
     );
     expect(completeA2AContinuationMock).not.toHaveBeenCalled();
   });
+
+  it("reschedules and redispatches when the platform send hangs", async () => {
+    vi.useFakeTimers();
+    const sendResponse = vi.fn(() => new Promise<void>(() => {}));
+    claimA2AContinuationMock.mockResolvedValueOnce(continuation());
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    const processing = processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    await vi.advanceTimersByTimeAsync(12_000);
+    await processing;
+
+    expect(rescheduleA2AContinuationMock).toHaveBeenCalledWith("cont-1", 5_000);
+    expect(fetch).toHaveBeenCalledWith(
+      "https://dispatch.agent-native.test/_agent-native/integrations/process-a2a-continuation",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ continuationId: "cont-1" }),
+      }),
+    );
+    expect(completeA2AContinuationMock).not.toHaveBeenCalled();
+  });
 });

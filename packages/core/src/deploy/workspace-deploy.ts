@@ -83,6 +83,7 @@ export async function runWorkspaceDeploy(
       `Workspace has no apps. Run \`agent-native add-app\` to add one.`,
     );
   }
+  assertNoReservedWorkspaceAppIds(apps);
   const workspaceApps = readWorkspaceAppManifest(workspaceRoot, apps);
 
   const preset = resolvePreset(opts.preset, rawArgs);
@@ -321,6 +322,23 @@ const DISPATCH_WORKSPACE_ROOT_REDIRECTS = [
   ["audit", "audit"],
   ["team", "team"],
 ];
+
+const RESERVED_WORKSPACE_APP_IDS = new Set([
+  "_agent-native",
+  "_workspace_static",
+  "netlify",
+  ...DISPATCH_WORKSPACE_ROOT_REDIRECTS.map(([from]) => from),
+]);
+
+function assertNoReservedWorkspaceAppIds(apps: string[]): void {
+  const conflicts = apps.filter(
+    (app) => app !== "dispatch" && RESERVED_WORKSPACE_APP_IDS.has(app),
+  );
+  if (conflicts.length === 0) return;
+  throw new Error(
+    `Workspace app id ${conflicts.map((id) => `"${id}"`).join(", ")} conflicts with reserved workspace routes. Choose a different app id.`,
+  );
+}
 
 function copyNetlifyFunctionIntoWorkspace(
   workspaceRoot: string,

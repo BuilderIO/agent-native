@@ -1,7 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { slackAdapter } from "./slack.js";
 
 describe("slackAdapter", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    delete process.env.SLACK_BOT_TOKEN;
+  });
+
   it("answers Slack URL verification with the raw challenge string", async () => {
     const adapter = slackAdapter();
     const event = {
@@ -27,5 +33,41 @@ describe("slackAdapter", () => {
     expect(formatted.text).toBe(
       "<https://slides.agent-native.com/deck/deck-qa>",
     );
+  });
+
+  it("aborts hung Slack delivery requests", async () => {
+    vi.useFakeTimers();
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    let deliverySignal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (String(url).includes("assistant.threads.setStatus")) {
+          return Promise.resolve(new Response(JSON.stringify({ ok: true })));
+        }
+        deliverySignal = init?.signal ?? undefined;
+        return new Promise<Response>((resolve) => {
+          init?.signal?.addEventListener("abort", () => {
+            resolve(new Response(JSON.stringify({ ok: true })));
+          });
+        });
+      }),
+    );
+
+    const delivery = slackAdapter().sendResponse(
+      { text: "done", platformContext: {} },
+      {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "make a deck",
+        timestamp: 1,
+        platformContext: { channelId: "C123", threadTs: "123.456" },
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    await delivery;
+
+    expect(deliverySignal?.aborted).toBe(true);
   });
 });
