@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   discoverAgents,
   getBuiltinAgents,
+  shouldIncludeRemoteAgentManifest,
 } from "@agent-native/core/server/agent-discovery";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import {
@@ -53,6 +54,7 @@ export default defineAction({
       if (!full) continue;
       const manifest = parseRemoteAgentManifest(full.content, resource.path);
       if (!manifest) continue;
+      if (!shouldIncludeRemoteAgentManifest(manifest, "dispatch")) continue;
       if (builtinIds.has(manifest.id)) continue;
       customById.set(manifest.id, {
         resourceId: resource.id,

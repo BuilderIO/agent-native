@@ -3,6 +3,7 @@ import {
   BUILTIN_AGENTS_FOR_SEEDING,
   discoverAgents,
   getBuiltinAgents,
+  shouldIncludeRemoteAgentManifest,
 } from "./agent-discovery.js";
 import { visibleTemplates } from "../cli/templates-meta.js";
 
@@ -63,6 +64,18 @@ describe("agent discovery", () => {
     expect(ids).not.toContain("voice");
   });
 
+  it("exposes the remote-agent visibility predicate used by list views", () => {
+    expect(
+      shouldIncludeRemoteAgentManifest({ id: "dispatch" }, "dispatch"),
+    ).toBe(false);
+    expect(shouldIncludeRemoteAgentManifest({ id: "issues" }, "dispatch")).toBe(
+      false,
+    );
+    expect(
+      shouldIncludeRemoteAgentManifest({ id: "custom-qa" }, "dispatch"),
+    ).toBe(true);
+  });
+
   it("seeds built-in remote agents with production URLs only", () => {
     for (const agent of BUILTIN_AGENTS_FOR_SEEDING) {
       expect(agent.url).toMatch(/^https:\/\/.+\.agent-native\.com$/);
@@ -73,12 +86,18 @@ describe("agent discovery", () => {
 
   it("ignores stale hidden first-party remote-agent resources", async () => {
     resourceListAccessibleMock.mockResolvedValue([
+      { id: "dispatch-resource", path: "remote-agents/dispatch.json" },
       { id: "issues-resource", path: "remote-agents/issues.json" },
       { id: "recruiting-resource", path: "remote-agents/recruiting.json" },
       { id: "custom-resource", path: "remote-agents/custom-qa.json" },
     ]);
     resourceGetMock.mockImplementation(async (id: string) => {
       const contentById: Record<string, string> = {
+        "dispatch-resource": JSON.stringify({
+          id: "dispatch",
+          name: "Dispatch",
+          url: "https://dispatch.agent-native.com",
+        }),
         "issues-resource": JSON.stringify({
           id: "issues",
           name: "Issues",
@@ -100,6 +119,7 @@ describe("agent discovery", () => {
 
     const ids = (await discoverAgents("dispatch")).map((agent) => agent.id);
 
+    expect(ids).not.toContain("dispatch");
     expect(ids).not.toContain("issues");
     expect(ids).not.toContain("recruiting");
     expect(ids).toContain("custom-qa");

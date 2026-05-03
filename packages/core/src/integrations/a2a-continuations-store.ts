@@ -3,6 +3,7 @@ import type { IncomingMessage } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
 const PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
+const PROCESSING_NEXT_CHECK_STALE_AFTER_MS = 60 * 1000;
 
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
@@ -227,18 +228,31 @@ export async function claimA2AContinuation(
   const client = getDbExec();
   const now = Date.now();
   const processingCutoff = now - PROCESSING_STUCK_AFTER_MS;
+  const staleNextCheckCutoff = now - PROCESSING_NEXT_CHECK_STALE_AFTER_MS;
   const result = await client.execute({
     sql: isPostgres()
       ? `UPDATE integration_a2a_continuations
            SET status = ?, attempts = attempts + 1, updated_at = ?
          WHERE id = ?
-           AND (status = 'pending' OR (status = 'processing' AND updated_at <= ?))
+           AND (
+             status = 'pending'
+             OR (
+               status = 'processing'
+               AND (updated_at <= ? OR next_check_at <= ?)
+             )
+           )
          RETURNING *`
       : `UPDATE integration_a2a_continuations
            SET status = ?, attempts = attempts + 1, updated_at = ?
          WHERE id = ?
-           AND (status = 'pending' OR (status = 'processing' AND updated_at <= ?))`,
-    args: ["processing", now, id, processingCutoff],
+           AND (
+             status = 'pending'
+             OR (
+               status = 'processing'
+               AND (updated_at <= ? OR next_check_at <= ?)
+             )
+           )`,
+    args: ["processing", now, id, processingCutoff, staleNextCheckCutoff],
   });
   const rows = result.rows ?? [];
   if (isPostgres()) {
@@ -259,6 +273,8 @@ export async function claimDueA2AContinuations(
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
+  const processingCutoff = now - PROCESSING_STUCK_AFTER_MS;
+  const staleNextCheckCutoff = now - PROCESSING_NEXT_CHECK_STALE_AFTER_MS;
   // If a processor dies while holding a delivery claim, retry the final send.
   // The stale cutoff preserves the in-flight delivery guard while keeping
   // final integration replies at-least-once.
@@ -271,8 +287,9 @@ export async function claimDueA2AContinuations(
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
           SET status = ?, next_check_at = ?, updated_at = ?
-          WHERE status = 'processing' AND updated_at <= ?`,
-    args: ["pending", now, now, now - 5 * 60 * 1000],
+          WHERE status = 'processing'
+            AND (updated_at <= ? OR next_check_at <= ?)`,
+    args: ["pending", now, now, processingCutoff, staleNextCheckCutoff],
   });
   const { rows } = await client.execute({
     sql: `SELECT id FROM integration_a2a_continuations

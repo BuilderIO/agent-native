@@ -56,6 +56,20 @@ interface WorkspaceAppManifestEntry {
   isDispatch?: boolean;
 }
 
+export function shouldIncludeRemoteAgentManifest(
+  manifest: { id?: string | null },
+  selfAppId?: string,
+): boolean {
+  const id = manifest.id?.trim();
+  if (!id) return false;
+  const normalizedId = id.toLowerCase();
+  const normalizedSelfAppId = selfAppId?.trim().toLowerCase();
+  if (normalizedSelfAppId && normalizedId === normalizedSelfAppId) {
+    return false;
+  }
+  return !HIDDEN_FIRST_PARTY_AGENT_IDS.has(normalizedId);
+}
+
 /**
  * Get built-in agents (static, no DB). Used as fallback and for seeding.
  */
@@ -113,8 +127,8 @@ export async function discoverAgents(
         const full = await resourceGet(r.id);
         if (!full) continue;
         const manifest = parseRemoteAgentManifest(full.content, r.path);
-        if (!manifest || manifest.id === selfAppId) continue;
-        if (HIDDEN_FIRST_PARTY_AGENT_IDS.has(manifest.id)) continue;
+        if (!manifest || !shouldIncludeRemoteAgentManifest(manifest, selfAppId))
+          continue;
 
         // If the resource override carries a localhost URL but we're running
         // in production (e.g. a stale dev-time seed got promoted to the prod

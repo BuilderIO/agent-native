@@ -1,3 +1,7 @@
+import { installRouteChunkRecovery } from "./route-chunk-recovery.js";
+
+installRouteChunkRecovery();
+
 export {
   sendToAgentChat,
   generateTabId,
@@ -102,6 +106,7 @@ export {
 } from "./PoweredByBadge.js";
 export { FeedbackButton, type FeedbackButtonProps } from "./FeedbackButton.js";
 export { ErrorBoundary } from "./ErrorBoundary.js";
+export { installRouteChunkRecovery } from "./route-chunk-recovery.js";
 export { ClientOnly } from "./ClientOnly.js";
 export { DefaultSpinner } from "./DefaultSpinner.js";
 export { AgentTerminal, type AgentTerminalProps } from "./terminal/index.js";
