@@ -32,6 +32,17 @@ const NETLIFY_PUBLIC_ASSET_EXTENSIONS = [
   "jpeg",
   "webp",
 ];
+const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
+const WORKSPACE_APPS_MANIFEST_DIR = ".agent-native";
+const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
+
+interface WorkspaceAppManifestEntry {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  isDispatch: boolean;
+}
 
 export interface WorkspaceDeployOptions {
   args?: string[];
@@ -72,6 +83,7 @@ export async function runWorkspaceDeploy(
       `Workspace has no apps. Run \`agent-native add-app\` to add one.`,
     );
   }
+  const workspaceApps = readWorkspaceAppManifest(workspaceRoot, apps);
 
   const preset = resolvePreset(opts.preset, rawArgs);
   const distDir = path.join(workspaceRoot, "dist");
@@ -90,9 +102,16 @@ export async function runWorkspaceDeploy(
 
   const execFile = opts.execFile ?? execFileSync;
   for (const app of apps) {
-    buildOneApp(workspaceRoot, app, preset, execFile);
-    moveAppBuildIntoDist(workspaceRoot, app, distDir, preset);
+    buildOneApp(workspaceRoot, app, preset, execFile, workspaceApps);
+    moveAppBuildIntoDist(workspaceRoot, app, distDir, preset, workspaceApps);
   }
+  writeWorkspaceAppManifests(
+    workspaceRoot,
+    distDir,
+    apps,
+    workspaceApps,
+    preset,
+  );
 
   if (preset === "netlify") {
     writeNetlifyRedirects(distDir, apps);
@@ -126,6 +145,7 @@ function buildOneApp(
   app: string,
   preset: WorkspaceDeployPreset,
   execFile: typeof execFileSync,
+  workspaceApps: WorkspaceAppManifestEntry[],
 ): void {
   const appDir = path.join(workspaceRoot, "apps", app);
   const env: NodeJS.ProcessEnv = {
@@ -133,6 +153,7 @@ function buildOneApp(
     NITRO_PRESET: preset,
     APP_BASE_PATH: `/${app}`,
     VITE_APP_BASE_PATH: `/${app}`,
+    [WORKSPACE_APPS_ENV_KEY]: JSON.stringify(workspaceApps),
   };
 
   if (preset === "netlify" && appUsesNetlifyUnpooledDatabaseUrl(appDir)) {
@@ -160,6 +181,7 @@ function moveAppBuildIntoDist(
   app: string,
   distDir: string,
   preset: WorkspaceDeployPreset,
+  workspaceApps: WorkspaceAppManifestEntry[],
 ): void {
   const appDir = path.join(workspaceRoot, "apps", app);
   // Resolve the per-app build output: prefer dist/ (standard), fall back to
@@ -184,7 +206,7 @@ function moveAppBuildIntoDist(
     // dist/<app>/<app>/...; the workspace root already supplies the outer
     // mount path, so keeping it would publish duplicate /<app>/<app> URLs.
     fs.rmSync(path.join(target, app), { recursive: true, force: true });
-    copyNetlifyFunctionIntoWorkspace(workspaceRoot, app);
+    copyNetlifyFunctionIntoWorkspace(workspaceRoot, app, workspaceApps);
   } else {
     const target = path.join(distDir, app);
     fs.mkdirSync(target, { recursive: true });
@@ -305,6 +327,7 @@ const DISPATCH_WORKSPACE_ROOT_REDIRECTS = [
 function copyNetlifyFunctionIntoWorkspace(
   workspaceRoot: string,
   app: string,
+  workspaceApps: WorkspaceAppManifestEntry[],
 ): void {
   const appDir = path.join(workspaceRoot, "apps", app);
   const src = path.join(appDir, ".netlify", "functions-internal", "server");
@@ -317,10 +340,14 @@ function copyNetlifyFunctionIntoWorkspace(
   const dest = path.join(netlifyFunctionsDir(workspaceRoot), `${app}-server`);
   fs.rmSync(dest, { recursive: true, force: true });
   copyDir(src, dest);
-  patchNetlifyFunctionEntry(dest, app);
+  patchNetlifyFunctionEntry(dest, app, workspaceApps);
 }
 
-function patchNetlifyFunctionEntry(functionDir: string, app: string): void {
+function patchNetlifyFunctionEntry(
+  functionDir: string,
+  app: string,
+  workspaceApps: WorkspaceAppManifestEntry[],
+): void {
   const serverPath = path.join(functionDir, "server.mjs");
   if (!fs.existsSync(serverPath)) return;
 
@@ -356,6 +383,7 @@ function setBasePathEnv() {
   Object.assign(processRef.env, {
     APP_BASE_PATH: basePath,
     VITE_APP_BASE_PATH: basePath,
+    ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
 }
 
@@ -418,6 +446,86 @@ function appUsesNetlifyUnpooledDatabaseUrl(appDir: string): boolean {
   } catch {
     return false;
   }
+}
+
+function writeWorkspaceAppManifests(
+  workspaceRoot: string,
+  distDir: string,
+  apps: string[],
+  workspaceApps: WorkspaceAppManifestEntry[],
+  preset: WorkspaceDeployPreset,
+): void {
+  const manifest = JSON.stringify(
+    {
+      version: 1,
+      apps: workspaceApps,
+    },
+    null,
+    2,
+  );
+
+  const targets =
+    preset === "netlify"
+      ? apps.map((app) =>
+          path.join(
+            netlifyFunctionsDir(workspaceRoot),
+            `${app}-server`,
+            WORKSPACE_APPS_MANIFEST_DIR,
+            WORKSPACE_APPS_MANIFEST_FILE,
+          ),
+        )
+      : apps.map((app) =>
+          path.join(
+            distDir,
+            app,
+            WORKSPACE_APPS_MANIFEST_DIR,
+            WORKSPACE_APPS_MANIFEST_FILE,
+          ),
+        );
+
+  for (const target of targets) {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, `${manifest}\n`);
+  }
+}
+
+function readWorkspaceAppManifest(
+  workspaceRoot: string,
+  apps: string[],
+): WorkspaceAppManifestEntry[] {
+  return apps
+    .map((app) => {
+      const appDir = path.join(workspaceRoot, "apps", app);
+      const pkg = readPackageJson(path.join(appDir, "package.json"));
+      return {
+        id: app,
+        name: pkg?.displayName || titleCase(app),
+        description: pkg?.description || "",
+        path: `/${app}`,
+        isDispatch: app === "dispatch",
+      };
+    })
+    .sort((a, b) => {
+      if (a.id === "dispatch") return -1;
+      if (b.id === "dispatch") return 1;
+      return a.name.localeCompare(b.name);
+    });
+}
+
+function readPackageJson(file: string): Record<string, any> | null {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function titleCase(value: string): string {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function parsePresetArg(args: string[]): WorkspaceDeployPreset | null {
