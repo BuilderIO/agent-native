@@ -9,7 +9,10 @@ import { ComponentLibrarySidebar } from "@/components/ComponentLibrarySidebar";
 import { libraryComponents } from "@/remotion/componentRegistry";
 import { CurrentElementProvider } from "@/contexts/CurrentElementContext";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { useSetHeaderActions } from "@/components/layout/HeaderActions";
+import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@/components/layout/HeaderActions";
 
 export default function ComponentLibrary() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -70,6 +73,8 @@ export default function ComponentLibrary() {
       setSearchParams(newParams, { replace: true });
     }
   }, []);
+
+  useSetPageTitle("Components");
 
   useSetHeaderActions(
     <button

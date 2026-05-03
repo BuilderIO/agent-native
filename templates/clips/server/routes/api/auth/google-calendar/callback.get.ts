@@ -78,8 +78,8 @@ export default defineEventHandler(async (event: H3Event) => {
         );
       }
 
-      const clientId = process.env.GOOGLE_CALENDAR_CLIENT_ID;
-      const clientSecret = process.env.GOOGLE_CALENDAR_CLIENT_SECRET;
+      const clientId = process.env.GOOGLE_CLIENT_ID;
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
       if (!clientId || !clientSecret) {
         return oauthErrorPage(
           "Google Calendar OAuth is not configured (missing client id/secret).",

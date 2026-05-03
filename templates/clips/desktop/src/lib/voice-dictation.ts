@@ -1,6 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 
+import { applyBacktrack } from "./backtrack";
+import {
+  configureVocabularyClient,
+  loadVocabulary,
+  recordPasteForLearn,
+} from "./personal-vocabulary";
+
 export type VoiceShortcutPreference =
   | "fn"
   | "cmd-shift-space"
@@ -671,7 +678,23 @@ export function installDesktopVoiceDictation(
       }
     }
     if (target.cancelled || disposed) return "";
+    // Wispr-style backtrack: apply "scratch that" / "delete word" / new-line
+    // edits AND punctuation-by-name *before* the cleanup-pass-massaged text
+    // hits the focused field. Pure / fail-soft — if the regex blows up we
+    // log and paste the raw text.
+    try {
+      text = applyBacktrack(text) || text;
+    } catch (err) {
+      console.warn("[voice-dictation] backtrack failed, pasting raw:", err);
+    }
     await invoke("complete_voice_dictation", { text });
+    // Wispr-style auto-learn: snapshot the field for ~10s post-paste; any
+    // single-word user edit becomes a persisted vocabulary entry.
+    try {
+      recordPasteForLearn(text);
+    } catch (err) {
+      console.warn("[voice-dictation] vocab learn-monitor failed:", err);
+    }
     emit("voice:partial-transcript", { text }).catch(() => {});
     if (target.cleanupProvider) setFlowState("idle");
     return text;
@@ -886,10 +909,21 @@ export function installDesktopVoiceDictation(
       startInFlight = false;
       startSyntheticMeter(next);
       try {
+        // Bias the recognizer toward the user's learned vocabulary. Stage
+        // the list via a separate command so the public 2-arg signature of
+        // `native_speech_start` stays compatible with the meeting-capture
+        // call site in system_audio.rs. Best-effort — if the load failed
+        // we just stage an empty list and the recognizer behaves as before.
+        const contextualStrings = await loadVocabulary().catch(() => []);
+        await invoke("native_speech_set_vocabulary", {
+          strings: contextualStrings,
+        }).catch(() => {});
         await invoke("native_speech_start", {
           locale: navigator.language || "en-US",
         });
-        console.log("[voice-dictation] native_speech_start ok");
+        console.log(
+          `[voice-dictation] native_speech_start ok (vocab=${contextualStrings.length})`,
+        );
       } catch (err) {
         console.error("[voice-dictation] native_speech_start failed:", err);
         if (session === next) session = null;
@@ -1507,6 +1541,34 @@ export function installDesktopVoiceDictation(
   // press doesn't pay a round-trip latency to figure out which provider
   // to use.
   refreshProviderStatus({ logFailures: false }).catch(() => {});
+  // Configure the vocabulary client + warm its cache so the first Fn press
+  // can pass `contextualStrings` to SFSpeechRecognizer without a round-trip.
+  configureVocabularyClient(serverUrl);
+  loadVocabulary().catch(() => {});
+
+  // Detachable pill on focus blur (Wispr / Granola round-3). When the main
+  // app window loses focus to another macOS app, flip the pill into its
+  // floating top-right detached mode (smaller, drag-handle visible). On
+  // refocus, flip back. We filter to the `main` / `popover` windows so we
+  // don't react to the pill window's own focus changes (which would cause
+  // an infinite ping-pong).
+  interface FocusEventPayload {
+    windowLabel?: string;
+  }
+  const isMainWindow = (label?: string) =>
+    label === "main" || label === "popover";
+  listen<FocusEventPayload>("tauri://blur", (ev) => {
+    if (!isMainWindow(ev.windowLabel)) return;
+    invoke("recording_pill_set_detached", { detached: true }).catch(() => {});
+  })
+    .then((u) => unlistens.push(u))
+    .catch(() => {});
+  listen<FocusEventPayload>("tauri://focus", (ev) => {
+    if (!isMainWindow(ev.windowLabel)) return;
+    invoke("recording_pill_set_detached", { detached: false }).catch(() => {});
+  })
+    .then((u) => unlistens.push(u))
+    .catch(() => {});
 
   // Native (SFSpeechRecognizer) event subscriptions. These are always
   // installed — the events only fire when the Rust side has an active

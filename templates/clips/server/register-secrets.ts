@@ -152,7 +152,7 @@ registerRequiredSecret({
 // app credentials).
 
 registerRequiredSecret({
-  key: "GOOGLE_CALENDAR_CLIENT_ID",
+  key: "GOOGLE_CLIENT_ID",
   label: "Google Calendar Client ID",
   description:
     "OAuth client id for the Meetings feature's Google Calendar integration. Create a Web Application credential at https://console.cloud.google.com/apis/credentials with the Calendar readonly scope, then paste the client id here.",
@@ -163,10 +163,10 @@ registerRequiredSecret({
 });
 
 registerRequiredSecret({
-  key: "GOOGLE_CALENDAR_CLIENT_SECRET",
+  key: "GOOGLE_CLIENT_SECRET",
   label: "Google Calendar Client Secret",
   description:
-    "OAuth client secret matching GOOGLE_CALENDAR_CLIENT_ID. Required for the Meetings feature to fetch upcoming events from Google Calendar.",
+    "OAuth client secret matching GOOGLE_CLIENT_ID. Required for the Meetings feature to fetch upcoming events from Google Calendar.",
   docsUrl: "https://console.cloud.google.com/apis/credentials",
   scope: "workspace",
   kind: "api-key",

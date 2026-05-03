@@ -346,6 +346,8 @@ All standard CRUD (list, get, create, update) goes through `/_agent-native/actio
 | `G then S`            | Go to Spaces                                 |
 | `G then A`            | Go to Archive                                |
 | `G then T`            | Go to Trash                                  |
+| `G then M`            | Go to Meetings                               |
+| `G then D`            | Go to Dictate                                |
 
 ## UI Components
 
@@ -386,26 +388,33 @@ Clips has a **Meetings** tab (`/meetings`) and a **Dictate** tab (`/dictate`):
 - **Meetings** lists upcoming + past meetings synced from Google Calendar (or created ad-hoc), with a two-pane detail view: live transcript (left) + AI summary / bullets / per-attendee action items (right). Use `list-meetings`, `get-meeting`, `finalize-meeting`, `connect-calendar`, etc. Navigation state exposes `view: "meetings" | "meeting"` and `meetingId`.
 - **Dictate** is the press-and-hold dictation history: every Hold-Fn or Cmd+Shift+Space dictation is saved as a row, expandable to show original + AI-cleaned text. Use `list-dictations`, `cleanup-dictation`. Navigation state exposes `view: "dictate"` and `dictationId`.
 
-See the `meetings` skill for the full pattern, including the calendar empty-state CTA (mirrors `ConnectBuilderCard`) and the shared Gemini Flash-Lite cleanup pipeline (`cleanup-transcript`).
+**Audio capture: mic + system, tagged.** Meeting capture records two streams (`mic` and `system`) and tags every transcript segment with its `source`, so per-attendee action items can attribute speech to remote attendees. Mic-only recordings make remote attendees silent — call this out whenever the user expects coverage of people on the other end of a Zoom/Meet/Teams call. Dictations are mic-only by design.
+
+**Bidirectional recording↔meeting link.** A meeting recording sets `meetings.recordingId` AND `recordings.meeting_id`, so a recording opened from the Library can also be recognized as a meeting (and vice versa). When a recording row's `meeting_id` is non-null, both the Clips and Meetings answers are valid.
+
+**Calendar reminders fire 5 minutes before the meeting starts.** The desktop tray (`src-tauri/`) is the consumer; the recurring job in `server/plugins/calendar-jobs.ts` keeps `calendar_events` fresh. Agents do not need to schedule reminders manually.
+
+See the `meetings` skill for the full pattern (Granola design ref, view-screen shape, agent-callable flows) and the `dictate` skill for the press-and-hold UX (Wispr design ref, Hold-Fn ownership, cleanup pipeline). The shared Gemini Flash-Lite cleanup pipeline (`cleanup-transcript`) leads with **Builder.io Connect (primary)** and falls back to **BYOK Gemini (secondary)**. Cleanup does not route to Groq or OpenAI — those are transcription providers, not cleanup providers.
 
 ## Skills
 
 Read the skill files in `.agents/skills/` for detailed patterns:
 
-| Skill                 | When to read                                                      |
-| --------------------- | ----------------------------------------------------------------- |
-| `meetings`            | Meetings tab, Dictate tab, calendar connect, finalize-meeting     |
-| `recording`           | Before touching MediaRecorder, chunked upload, or permissions     |
-| `video-editing`       | Before modifying `editsJson`, building the editor, or export flow |
-| `ai-video-tools`      | Before adding any AI feature (titles, summaries, chapters, etc.)  |
-| `video-sharing`       | Before wiring share links, passwords, expiry, or embeds           |
-| `sharing`             | Framework-wide sharing primitives (already wired for recordings)  |
-| `storing-data`        | Before adding a new table or application-state key                |
-| `real-time-sync`      | When wiring new query invalidations or debugging stale UI         |
-| `delegate-to-agent`   | Before adding any LLM call                                        |
-| `actions`             | Before creating a new action                                      |
-| `self-modifying-code` | Before editing components, routes, or styles                      |
-| `frontend-design`     | Before building or restyling any UI                               |
+| Skill                 | When to read                                                            |
+| --------------------- | ----------------------------------------------------------------------- |
+| `meetings`            | Meetings tab, calendar connect, finalize-meeting, attendee action items |
+| `dictate`             | Dictate tab, Hold-Fn / Cmd+Shift+Space history, dictation cleanup       |
+| `recording`           | Before touching MediaRecorder, chunked upload, or permissions           |
+| `video-editing`       | Before modifying `editsJson`, building the editor, or export flow       |
+| `ai-video-tools`      | Before adding any AI feature (titles, summaries, chapters, etc.)        |
+| `video-sharing`       | Before wiring share links, passwords, expiry, or embeds                 |
+| `sharing`             | Framework-wide sharing primitives (already wired for recordings)        |
+| `storing-data`        | Before adding a new table or application-state key                      |
+| `real-time-sync`      | When wiring new query invalidations or debugging stale UI               |
+| `delegate-to-agent`   | Before adding any LLM call                                              |
+| `actions`             | Before creating a new action                                            |
+| `self-modifying-code` | Before editing components, routes, or styles                            |
+| `frontend-design`     | Before building or restyling any UI                                     |
 
 ## Development
 

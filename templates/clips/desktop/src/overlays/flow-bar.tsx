@@ -170,7 +170,14 @@ export function FlowBar() {
   return (
     <div className="flow-bar-root">
       {showTranscript && (
-        <div className="flow-bar-transcript">{partialTranscript}</div>
+        <div className="flow-bar-transcript">
+          {/* <bdi> + unicode-bidi: plaintext (in CSS) keeps Latin text
+              in its natural LTR order while the parent's direction:rtl
+              clips overflow from the visual left. Without this, the
+              last few characters of the newest words were being pushed
+              past the visible right edge by bidi reordering. */}
+          <bdi>{partialTranscript}</bdi>
+        </div>
       )}
       {/* Pill is ALWAYS mounted — when state goes idle we fade the
           opacity to 0 (see CSS) instead of removing it from the DOM,

@@ -47,7 +47,7 @@ is still written for old clients and batch provider preferences:
 | Value             | Meaning                                                        | Needs key                    |
 | ----------------- | -------------------------------------------------------------- | ---------------------------- |
 | `mac-native`      | Native macOS/Tauri speech path; web clients normalize to browser-native where needed | No                           |
-| `google-realtime` | Future dedicated WebSocket → Google Speech-to-Text gRPC `StreamingRecognize` path | `GOOGLE_APPLICATION_CREDENTIALS` |
+| `google-realtime` | Dedicated WebSocket → Google Speech-to-Text gRPC `StreamingRecognize` path | `GOOGLE_APPLICATION_CREDENTIALS` |
 | `batch`           | Upload audio after stop through the existing batch route       | Builder/Gemini/Groq/OpenAI depending on fallback |
 | `auto` provider   | Existing batch fallback chain                                  | Any configured batch provider |
 | `builder-gemini`  | Builder Gemini Flash-Lite batch/cleanup preference             | Builder.io account connected |
@@ -63,7 +63,8 @@ Default behavior:
   assume the shared React settings default to it.
 - Old stored `builder` values are treated as `builder-gemini`.
 - Old stored `browser` values are treated as `mac-native`.
-- Saved `google-realtime` preferences must not hit `/_agent-native/transcribe-voice`; until the streaming endpoint exists, clients should fall back safely rather than trying to retrofit streaming into the batch route.
+- Saved `google-realtime` preferences must never hit `/_agent-native/transcribe-voice`. They go through the dedicated session bridge `POST /_agent-native/transcribe-stream/session`, which mints an opaque ai-services websocket session and keeps the Google service-account JSON off the client.
+- In the current bridge, the Google option is only actually ready when both the user's `GOOGLE_APPLICATION_CREDENTIALS` secret exists and Builder is connected, because the framework mints the managed ai-services session with Builder auth before streaming begins.
 
 ## Where the pieces live
 
@@ -82,9 +83,10 @@ Default behavior:
 ## Key resolution (server)
 
 `transcribe-voice.ts` is batch-only. Do not add realtime streaming to this
-route. Google Speech-to-Text realtime needs a dedicated audio-frame protocol:
-client audio frames → WebSocket → Google gRPC `StreamingRecognize` → partial /
-final transcript events. Use the canonical docs URL:
+route. Google Speech-to-Text realtime uses a dedicated audio-frame protocol:
+client audio frames → `/_agent-native/transcribe-stream/session` →
+ai-services WebSocket → Google gRPC `StreamingRecognize` → partial / final
+transcript events. Use the canonical docs URL:
 https://cloud.google.com/speech-to-text/v2/docs/streaming-recognize
 
 Batch routing is based on the user's provider preference:

@@ -397,6 +397,50 @@ describe("A2A continuation processor", () => {
     );
   });
 
+  it("delivers a verified recoverable artifact from a still-working remote task", async () => {
+    vi.useFakeTimers();
+    const sendResponse = vi.fn(async () => undefined);
+    claimA2AContinuationMock.mockResolvedValueOnce(continuation());
+    getTaskMock.mockResolvedValue({
+      id: "a2a-task-1",
+      status: {
+        state: "working",
+        message: {
+          role: "agent",
+          metadata: { agentNativeRecoverableArtifacts: true },
+          parts: [
+            {
+              type: "text",
+              text: "Artifacts:\n- Deck: /deck/deck-qa (ID: deck-qa)",
+            },
+          ],
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    const processing = processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+    await vi.advanceTimersByTimeAsync(20_000);
+    await processing;
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining(
+          "https://slides.agent-native.test/deck/deck-qa",
+        ),
+      }),
+      expect.any(Object),
+      { placeholderRef: undefined },
+    );
+    expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+    expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
+    expect(failA2AContinuationMock).not.toHaveBeenCalled();
+  });
+
   it("treats aborted task polling as transient until the remote work deadline", async () => {
     const sendResponse = vi.fn(async () => undefined);
     claimA2AContinuationMock.mockResolvedValueOnce(

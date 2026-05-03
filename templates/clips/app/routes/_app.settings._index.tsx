@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { IconSettings, IconUser } from "@tabler/icons-react";
+import { IconUser } from "@tabler/icons-react";
 import { useSession, agentNativePath } from "@agent-native/core/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageHeader } from "@/components/library/page-header";
 import {
   Select,
   SelectContent,
@@ -98,106 +99,107 @@ export default function SettingsIndexRoute() {
   }
 
   return (
-    <div className="p-6 max-w-2xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <IconSettings className="size-6 text-primary" />
+    <>
+      <PageHeader>
+        <h1 className="text-base font-semibold tracking-tight truncate">
           Settings
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">
+      </PageHeader>
+      <div className="p-6 max-w-2xl mx-auto space-y-6">
+        <p className="text-sm text-muted-foreground">
           Your personal preferences — scoped to this account.
         </p>
-      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <IconUser className="size-4 text-primary" />
-            Profile
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" value={email} readOnly disabled />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="display-name">Display name</Label>
-            <Input
-              id="display-name"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Your name"
-              disabled={loading}
-            />
-          </div>
-        </CardContent>
-      </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <IconUser className="size-4 text-primary" />
+              Profile
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="email">Email</Label>
+              <Input id="email" value={email} readOnly disabled />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="display-name">Display name</Label>
+              <Input
+                id="display-name"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="Your name"
+                disabled={loading}
+              />
+            </div>
+          </CardContent>
+        </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Playback</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="speed">Default playback speed</Label>
-            <Select
-              value={defaultSpeed}
-              onValueChange={setDefaultSpeed}
-              disabled={loading}
-            >
-              <SelectTrigger id="speed" className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SPEEDS.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s}×
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Applied automatically when you open a recording.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Notifications</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between">
-            <div>
-              <Label htmlFor="email-notif" className="cursor-pointer">
-                Email notifications
-              </Label>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Get an email when someone comments, reacts, or shares a
-                recording with you.
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Playback</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="speed">Default playback speed</Label>
+              <Select
+                value={defaultSpeed}
+                onValueChange={setDefaultSpeed}
+                disabled={loading}
+              >
+                <SelectTrigger id="speed" className="w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SPEEDS.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}×
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Applied automatically when you open a recording.
               </p>
             </div>
-            <Switch
-              id="email-notif"
-              checked={emailNotifications}
-              onCheckedChange={setEmailNotifications}
-              disabled={loading}
-            />
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
 
-      <div className="flex justify-end">
-        <Button
-          onClick={handleSave}
-          disabled={loading || saving}
-          className="bg-primary hover:bg-primary/90"
-        >
-          {saving ? "Saving…" : "Save changes"}
-        </Button>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Notifications</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="email-notif" className="cursor-pointer">
+                  Email notifications
+                </Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Get an email when someone comments, reacts, or shares a
+                  recording with you.
+                </p>
+              </div>
+              <Switch
+                id="email-notif"
+                checked={emailNotifications}
+                onCheckedChange={setEmailNotifications}
+                disabled={loading}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex justify-end">
+          <Button
+            onClick={handleSave}
+            disabled={loading || saving}
+            className="bg-primary hover:bg-primary/90"
+          >
+            {saving ? "Saving…" : "Save changes"}
+          </Button>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

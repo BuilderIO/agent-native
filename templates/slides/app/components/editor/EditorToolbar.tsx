@@ -16,7 +16,7 @@ import {
   IconPencil,
   IconTransform,
   IconMessage,
-  IconWand,
+  IconBolt,
   IconAdjustments,
   IconPencilPlus,
   IconPin,
@@ -535,7 +535,7 @@ graph TD
           title="Element animations"
           aria-label="Element animations"
         >
-          <IconWand className="w-3.5 h-3.5" />
+          <IconBolt className="w-3.5 h-3.5" />
         </button>
       )}
 

@@ -489,9 +489,11 @@ dependencies = [
  "core-graphics",
  "objc2",
  "objc2-avf-audio",
+ "objc2-core-audio-types",
  "objc2-foundation",
  "objc2-speech",
  "reqwest 0.12.28",
+ "screencapturekit",
  "serde",
  "serde_json",
  "tauri",
@@ -3691,6 +3693,12 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "screencapturekit"
+version = "1.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99b732b2db50b25cfbcb171e1b7abda06e77873aeef493e635eb209482fdd149"
 
 [[package]]
 name = "security-framework"

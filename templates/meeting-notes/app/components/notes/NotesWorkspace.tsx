@@ -15,7 +15,6 @@ import {
   IconSearch,
   IconTemplate,
   IconUsers,
-  IconWand,
 } from "@tabler/icons-react";
 
 type MeetingStatus = "scheduled" | "recording" | "enhancing" | "done";
@@ -507,7 +506,6 @@ export function MeetingDetailPage({ meetingId }: { meetingId: string }) {
               onClick={queueEnhancement}
               className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-foreground px-3 text-sm font-medium text-background hover:opacity-90"
             >
-              <IconWand size={16} />
               Enhance notes
             </button>
           </div>

@@ -66,7 +66,6 @@ const PROVIDER_STATUS_URL = agentNativePath(
 );
 const DEFAULT_TRANSCRIPTION_MODE: TranscriptionMode = "batch";
 const DEFAULT_BATCH_PROVIDER: Provider = "auto";
-const GOOGLE_REALTIME_STREAMING_ENABLED = false;
 
 function isProvider(value: unknown): value is Provider {
   return (
@@ -133,6 +132,11 @@ export function VoiceTranscriptionSection() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [cleanupEnabled, setCleanupEnabled] = useState<boolean | null>(null);
   const { status: builderStatus } = useBuilderStatus();
+  const builderRealtimeReady =
+    !!builderStatus?.privateKeyConfigured &&
+    !!builderStatus?.publicKeyConfigured;
+  const googleRealtimeReady =
+    !!googleRealtimeConfigured && builderRealtimeReady;
 
   // Read cleanup pref (default: true if Builder is connected).
   useEffect(() => {
@@ -310,12 +314,13 @@ export function VoiceTranscriptionSection() {
 
   const chooseSource = (next: TranscriptionMode) => {
     if (next === transcriptionMode) return;
-    if (
-      next === "google-realtime" &&
-      (!googleRealtimeConfigured || !GOOGLE_REALTIME_STREAMING_ENABLED)
-    ) {
+    if (next === "google-realtime" && !googleRealtimeReady) {
       setShowAdvanced(true);
-      focusKey("GOOGLE_APPLICATION_CREDENTIALS");
+      if (!googleRealtimeConfigured) {
+        focusKey("GOOGLE_APPLICATION_CREDENTIALS");
+      } else if (!builderRealtimeReady) {
+        openBuilderConnect();
+      }
       return;
     }
     const previous = { transcriptionMode, provider, instructions };
@@ -323,6 +328,15 @@ export function VoiceTranscriptionSection() {
     setTranscriptionMode(next);
     setProvider(nextProvider);
     void persist(next, nextProvider, instructions, previous);
+  };
+
+  const openBuilderConnect = () => {
+    if (typeof window === "undefined") return;
+    const url = new URL(
+      agentNativePath("/_agent-native/builder/connect"),
+      window.location.origin,
+    ).href;
+    window.open(url, "_blank", "noopener,noreferrer,width=600,height=700");
   };
 
   const chooseBatchProvider = (next: Provider) => {
@@ -382,21 +396,33 @@ export function VoiceTranscriptionSection() {
             id="google-realtime"
             selected={transcriptionMode === "google-realtime"}
             onSelect={() => chooseSource("google-realtime")}
-            disabled={
-              !googleRealtimeConfigured || !GOOGLE_REALTIME_STREAMING_ENABLED
-            }
-            title="Google Realtime (coming soon)"
+            disabled={!googleRealtimeReady}
+            title="Google Realtime"
             subtitle={
-              googleRealtimeConfigured
-                ? "Credential detected. The streaming WebSocket path is not enabled yet, so keep using Mac Native or Batch."
-                : "BYOK only for v1. Configure Google service account before selecting this source."
+              googleRealtimeReady
+                ? "BYOK only for v1. Streams live partials and finals through Google Speech-to-Text."
+                : googleRealtimeConfigured
+                  ? "Google credentials are set. Connect Builder completely to mint the managed realtime session."
+                  : "BYOK only for v1. Configure Google service account before selecting this source."
             }
             rightSlot={
-              googleRealtimeConfigured ? (
+              googleRealtimeReady ? (
                 <span className="flex items-center gap-1 text-[10px] text-green-500">
                   <IconCheck size={10} />
-                  Credential set
+                  Ready
                 </span>
+              ) : googleRealtimeConfigured ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openBuilderConnect();
+                  }}
+                  className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                >
+                  Connect Builder.io
+                  <IconExternalLink size={10} />
+                </button>
               ) : (
                 <button
                   type="button"
@@ -440,9 +466,10 @@ export function VoiceTranscriptionSection() {
             role="switch"
             aria-checked={!!cleanupEnabled}
             onClick={() => toggleCleanup(!cleanupEnabled)}
+            // Theme tokens; streaming agent owns layout.
             className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
               cleanupEnabled
-                ? "bg-[#625DF5]"
+                ? "bg-primary"
                 : "bg-muted-foreground/30 hover:bg-muted-foreground/50"
             }`}
           >
@@ -489,18 +516,32 @@ export function VoiceTranscriptionSection() {
               id="google-service-account"
               selected={transcriptionMode === "google-realtime"}
               onSelect={() => chooseSource("google-realtime")}
-              disabled={
-                !googleRealtimeConfigured || !GOOGLE_REALTIME_STREAMING_ENABLED
-              }
+              disabled={!googleRealtimeReady}
               title="Google Speech-to-Text service account"
-              subtitle="Service-account JSON for the future WebSocket to Google StreamingRecognize path. Saved credentials are detected now; streaming is still coming soon."
+              subtitle={
+                googleRealtimeConfigured
+                  ? "Service-account JSON is set. Connect Builder to mint the managed realtime WebSocket session."
+                  : "Service-account JSON for the dedicated realtime WebSocket to Google StreamingRecognize."
+              }
               rightSlot={
                 googleRealtimeConfigured ===
-                null ? null : googleRealtimeConfigured ? (
+                null ? null : googleRealtimeReady ? (
                   <span className="flex items-center gap-1 text-[10px] text-green-500">
                     <IconCheck size={10} />
-                    Credential set
+                    Ready
                   </span>
+                ) : googleRealtimeConfigured ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openBuilderConnect();
+                    }}
+                    className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
+                  >
+                    Connect Builder.io
+                    <IconExternalLink size={10} />
+                  </button>
                 ) : (
                   <button
                     type="button"
@@ -549,15 +590,7 @@ export function VoiceTranscriptionSection() {
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      const url = new URL(
-                        agentNativePath("/_agent-native/builder/connect"),
-                        window.location.origin,
-                      ).href;
-                      window.open(
-                        url,
-                        "_blank",
-                        "noopener,noreferrer,width=600,height=700",
-                      );
+                      openBuilderConnect();
                     }}
                     className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
                   >
@@ -725,21 +758,22 @@ function ProviderOption({
       onKeyDown={onKeyDown}
       aria-pressed={selected}
       aria-disabled={disabled || undefined}
+      // Theme tokens; streaming agent owns layout.
       className={`w-full text-left rounded-md border px-2.5 py-2 flex items-start gap-2 ${
         selected
-          ? "border-[#625DF5] bg-[#625DF5]/10"
+          ? "border-primary bg-primary/10"
           : "border-border bg-accent/30 hover:bg-accent/50"
       } ${disabled ? "opacity-60 cursor-not-allowed" : ""}`}
     >
       <span
         className={`mt-[2px] shrink-0 flex h-3.5 w-3.5 items-center justify-center rounded-full border ${
           selected
-            ? "border-[#625DF5] bg-[#625DF5]"
+            ? "border-primary bg-primary"
             : "border-muted-foreground/40 bg-background"
         }`}
       >
         {selected && (
-          <span className="h-1.5 w-1.5 rounded-full bg-background" />
+          <span className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />
         )}
       </span>
       <div className="min-w-0 flex-1">

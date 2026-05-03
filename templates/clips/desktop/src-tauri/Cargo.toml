@@ -88,9 +88,21 @@ objc2-avf-audio = { version = "0.3", features = [
   "AVAudioNode",
   "AVAudioBuffer",
   "AVAudioSession",
+  "AVAudioTypes",
   "block2",
+  "objc2-core-audio-types",
 ] }
 block2 = "0.6"
+# System-audio capture via Apple's ScreenCaptureKit (macOS 13+). Powers the
+# Meetings tab's "transcribe the OTHER party" path — the mic recognizer in
+# `native_speech.rs` only catches the local user, so we run a parallel
+# SFSpeechRecognizer over the speaker stream that SCK's audio tap exposes.
+# v1.5.4 is the current latest at the time of writing (verified via
+# `cargo info screencapturekit`).
+screencapturekit = { version = "1.5.4", features = ["macos_13_0"] }
+# AudioBufferList type so we can hand SCK's CMSampleBuffer audio bytes to
+# AVAudioPCMBuffer for the speech recognizer.
+objc2-core-audio-types = "0.3"
 # NOTE: We hand-roll the few EventKit selectors we need via raw `objc2`
 # msg_send! in `eventkit.rs` rather than depending on the `objc2-event-kit`
 # crate. Its API surface drifts between minor 0.3.x releases (and not
