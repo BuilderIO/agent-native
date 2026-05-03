@@ -63,6 +63,54 @@ registerRequiredSecret({
 });
 
 registerRequiredSecret({
+  key: "GOOGLE_APPLICATION_CREDENTIALS",
+  label: "Google Speech-to-Text service account",
+  description:
+    "Service-account JSON for future Google realtime Speech-to-Text streaming. Builder.io Connect does not proxy streaming audio. When configured as an environment variable, this may be a filesystem path supported by Google client libraries.",
+  docsUrl:
+    "https://cloud.google.com/speech-to-text/v2/docs/streaming-recognize",
+  scope: "user",
+  kind: "api-key",
+  required: false,
+  validator: async (value) => {
+    if (!value) return true;
+    if (typeof value !== "string" || !value.trim()) {
+      return { ok: false, error: "Paste the service-account JSON." };
+    }
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return {
+        ok: false,
+        error:
+          "Service-account credentials must be JSON when saved in settings. Use an env var path only for deploy/runtime configuration.",
+      };
+    }
+    if ("web" in parsed || "installed" in parsed) {
+      return {
+        ok: false,
+        error:
+          "This looks like an OAuth client credential, not a service account key. Create a service account key JSON in Google Cloud Console.",
+      };
+    }
+    if (
+      parsed.type !== "service_account" ||
+      typeof parsed.project_id !== "string" ||
+      typeof parsed.client_email !== "string" ||
+      typeof parsed.private_key !== "string"
+    ) {
+      return {
+        ok: false,
+        error:
+          'Invalid service-account JSON: expected "type", "project_id", "client_email", and "private_key".',
+      };
+    }
+    return true;
+  },
+});
+
+registerRequiredSecret({
   key: "GROQ_API_KEY",
   label: "Groq API Key (recommended)",
   description:

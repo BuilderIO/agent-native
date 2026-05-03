@@ -161,15 +161,11 @@ function SettingsSelect({
 // refresh inline (no hard reload — that was racing with nitro's env-runner
 // restart and hitting React Router's error boundary).
 function DisconnectBuilderButton() {
+  console.log("[DBG] DisconnectBuilderButton render v2", new Date().toISOString());
   const { status } = useBuilderStatus();
   const [phase, setPhase] = useState<"idle" | "armed" | "busy">("idle");
   const [err, setErr] = useState<string | null>(null);
   const armedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Env-managed: Builder identity comes from the deploy-level
-  // BUILDER_PRIVATE_KEY. Disconnection is operator-controlled (rotate / unset
-  // the env var); the per-user disconnect endpoint refuses with 409.
-  if (status?.envManaged) return null;
 
   const clearArmedTimer = useCallback(() => {
     if (armedTimerRef.current) {
@@ -256,6 +252,13 @@ function DisconnectBuilderButton() {
     clearArmedTimer();
     setPhase("idle");
   }, [clearArmedTimer]);
+
+  // Env-managed: Builder identity comes from the deploy-level
+  // BUILDER_PRIVATE_KEY. Disconnection is operator-controlled (rotate / unset
+  // the env var); the per-user disconnect endpoint refuses with 409. The
+  // early return MUST come after every hook above to satisfy rules-of-hooks
+  // (status?.envManaged transitions undefined → boolean as the fetch resolves).
+  if (status?.envManaged) return null;
 
   if (phase === "armed") {
     return (

@@ -1,14 +1,14 @@
 ---
 name: meetings
 description: >-
-  Granola-style meetings in Clips — calendar-synced upcoming meetings,
+  Calendar-synced meetings in Clips — upcoming meetings,
   live transcripts, and AI summary/bullets/action items. Also covers the
-  Wispr dictation history tab. Use when listing meetings, opening a
+  Dictate dictation history tab. Use when listing meetings, opening a
   meeting detail, finalizing notes, or working with past Fn-hold
   dictations.
 ---
 
-# Meetings + Wispr
+# Meetings + Dictate
 
 ## When to use
 
@@ -18,7 +18,7 @@ Reach for this skill any time the user asks about a meeting, calendar event, or 
 - Opening a single meeting detail with transcript + AI notes (`/meetings/:id`).
 - Generating notes (summary + bullets + action items) for a finished meeting.
 - Connecting Google Calendar (and later iCloud).
-- Browsing past Wispr dictations (Fn-hold or Cmd+Shift+Space) at `/wispr`.
+- Browsing past Dictate dictations (Fn-hold or Cmd+Shift+Space) at `/dictate`.
 
 ## Data model touched
 
@@ -40,9 +40,9 @@ Reach for this skill any time the user asks about a meeting, calendar event, or 
 | `start-meeting-recording` | Begin native macOS transcript stream                                 |
 | `stop-meeting-recording`  | End the active capture                                               |
 | `finalize-meeting`        | Delegate Gemini Flash-Lite cleanup + summary + bullets + action items |
-| `list-dictations`         | Wispr history                                                        |
+| `list-dictations`         | Dictate history                                                        |
 | `cleanup-dictation`       | Polish a single dictation's text                                     |
-| `cleanup-transcript`      | Shared cleanup pipeline (used by Clips, Meetings, Wispr)             |
+| `cleanup-transcript`      | Shared cleanup pipeline (used by Clips, Meetings, Dictate)             |
 | `connect-calendar`        | Returns OAuth URL for Google Calendar                                |
 | `list-calendar-accounts`  | What's connected                                                     |
 | `sync-calendars`          | Force-refresh `calendar_events`                                      |
@@ -58,7 +58,7 @@ All actions go through `accessFilter` / `assertAccess`. AI work delegates via `s
 | "Open my 3pm call with Alice"                 | Look up via `list-meetings`, then `pnpm action navigate --view=meeting --meetingId=<id>` |
 | "Summarize the standup I just finished"       | `pnpm action finalize-meeting --id=<id>` (delegates to agent for Gemini cleanup)        |
 | "Connect my Google Calendar"                  | `pnpm action connect-calendar --provider=google` then open returned `authUrl`           |
-| "Show me what I dictated yesterday"           | `pnpm action navigate --view=wispr`                                                     |
+| "Show me what I dictated yesterday"           | `pnpm action navigate --view=dictate`                                                     |
 | "Clean up that dictation"                     | `pnpm action cleanup-dictation --id=<id>`                                               |
 
 ## Navigation state
@@ -68,7 +68,7 @@ The app exposes `view`, `meetingId`, and `dictationId` so the agent always knows
 ```json
 { "view": "meetings" }
 { "view": "meeting", "meetingId": "mtg_abc" }
-{ "view": "wispr", "dictationId": "dct_xyz" }
+{ "view": "dictate", "dictationId": "dct_xyz" }
 ```
 
 ## UI conventions (don't break)
@@ -81,6 +81,6 @@ The app exposes `view`, `meetingId`, and `dictationId` so the agent always knows
 
 ## Cleanup pipeline
 
-The `cleanup-transcript` action is the shared Gemini 3.1 Flash-Lite pass for Clips, Meetings, and Wispr. It resolves credentials in this order: Builder.io Connect → user's `GEMINI_API_KEY` → fallback. Tasks: `cleanup` | `title` | `summary+bullets+actions`.
+The `cleanup-transcript` action is the shared Gemini 3.1 Flash-Lite pass for Clips, Meetings, and Dictate. It resolves credentials in this order: Builder.io Connect → user's `GEMINI_API_KEY` → fallback. Tasks: `cleanup` | `title` | `summary+bullets+actions`.
 
 The "Cleanup transcripts with AI" toggle in Settings → Voice & Transcription controls whether finalize calls run automatically (default ON when Builder is connected).

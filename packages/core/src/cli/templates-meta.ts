@@ -186,7 +186,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "clips",
     label: "Clips",
-    hint: "Async screen recording — record, transcribe, share",
+    hint: "Screen recording, meeting notes, and voice dictation — all with AI",
     icon: "ScreenShare",
     color: "#625DF5",
     colorRgb: "98 93 245",

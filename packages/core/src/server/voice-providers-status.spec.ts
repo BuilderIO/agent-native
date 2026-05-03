@@ -54,7 +54,9 @@ describe("voice providers status route", () => {
       key === "OPENAI_API_KEY" ? { value: "sk-openai-secret" } : null,
     );
     mockResolveCredential.mockImplementation(async (key: string) =>
-      key === "GROQ_API_KEY" ? "gsk-groq-secret" : undefined,
+      key === "GROQ_API_KEY" || key === "GOOGLE_APPLICATION_CREDENTIALS"
+        ? "configured-secret"
+        : undefined,
     );
 
     const handler = createVoiceProvidersStatusHandler();
@@ -65,6 +67,7 @@ describe("voice providers status route", () => {
       gemini: false,
       openai: true,
       groq: true,
+      googleRealtime: true,
       browser: true,
       native: true,
     });
@@ -83,7 +86,12 @@ describe("voice providers status route", () => {
     const handler = createVoiceProvidersStatusHandler();
     const result = await handler(event());
 
-    expect(result).toMatchObject({ gemini: true, openai: false, groq: false });
+    expect(result).toMatchObject({
+      gemini: true,
+      openai: false,
+      groq: false,
+      googleRealtime: false,
+    });
     expect(mockReadAppSecret).not.toHaveBeenCalled();
     expect(mockResolveCredential).toHaveBeenCalledWith("GEMINI_API_KEY", {
       userEmail: undefined,

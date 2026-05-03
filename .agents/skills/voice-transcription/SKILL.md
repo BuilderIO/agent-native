@@ -3,16 +3,17 @@ name: voice-transcription
 description: >-
   Framework-wide voice dictation in the agent sidebar composer. Use when
   changing composer microphone UX, the transcribe-voice route, or the
-  Voice Transcription settings section. Covers provider routing (Builder /
-  OpenAI Whisper / browser Web Speech API) and the provider-preference
-  application-state key.
+  Voice Transcription settings section. Covers transcription-source routing,
+  cleanup routing, Google realtime gating, and the voice transcription
+  application-state keys.
 ---
 
 # Voice Transcription
 
 Click-to-toggle microphone inside the sidebar composer turns speech into
-text. Users can pick a provider from Settings → Voice Transcription. The
-feature is available in every template that renders `TiptapComposer`.
+text. Users configure live transcription separately from AI cleanup in
+Settings → Voice Transcription. The feature is available in every template
+that renders `TiptapComposer`.
 
 ## UX rules
 
@@ -30,25 +31,39 @@ feature is available in every template that renders `TiptapComposer`.
   Never use a sparkle or robot icon.
 - **Errors via inline alert or toast, never `window.alert`.**
 
-## Providers
+## Source And Cleanup
 
-| Provider         | Backend                                                         | Quality | Needs key                    |
-| ---------------- | --------------------------------------------------------------- | ------- | ---------------------------- |
-| `builder-gemini` | Native/browser live transcript → Builder Gemini Flash-Lite cleanup (desktop) or Builder audio transcription (web fallback) | High | Builder.io account connected |
-| `builder`        | Legacy alias; normalize to `builder-gemini` in user-facing UI    | High    | Builder.io account connected |
-| `gemini`         | `POST /_agent-native/transcribe-voice` → Google Gemini BYOK     | High    | `GEMINI_API_KEY`             |
-| `groq`           | `POST /_agent-native/transcribe-voice` → Groq Whisper           | High    | `GROQ_API_KEY`               |
-| `openai`         | `POST /_agent-native/transcribe-voice` → OpenAI Whisper         | High    | `OPENAI_API_KEY`             |
-| `browser`        | Web Speech API (`webkitSpeechRecognition`)                      | Low     | No                           |
+Settings must keep these as separate choices:
 
-Selection is persisted in `application_state["voice-transcription-prefs"]`
-as `{ provider: "builder-gemini" | "builder" | "gemini" | "groq" | "openai" | "browser", instructions?: string }`.
-When no preference is saved, Builder-connected users default to
-`builder-gemini`; everyone else defaults to `browser` in the web composer.
-The Clips desktop tray presents the simpler choices **On-device**, **Builder.io**,
-and **Add your own key**; old stored `builder` values are treated as
-`builder-gemini`, and old `auto` values are treated as the best native option
-for the current OS.
+- **Live transcription source**: `mac-native`, `google-realtime`, or `batch`.
+- **AI cleanup**: independent off/on toggle. Cleanup uses Builder Gemini first
+  when Builder.io Connect is configured, then BYOK Gemini (`GEMINI_API_KEY`).
+  Gemini cleanup/title/summary generation is not a live STT source.
+
+`application_state["voice-transcription-prefs"]` stores
+`{ transcriptionMode, provider, instructions }`. The legacy `provider` field
+is still written for old clients and batch provider preferences:
+
+| Value             | Meaning                                                        | Needs key                    |
+| ----------------- | -------------------------------------------------------------- | ---------------------------- |
+| `mac-native`      | Native macOS/Tauri speech path; web clients normalize to browser-native where needed | No                           |
+| `google-realtime` | Future dedicated WebSocket → Google Speech-to-Text gRPC `StreamingRecognize` path | `GOOGLE_APPLICATION_CREDENTIALS` |
+| `batch`           | Upload audio after stop through the existing batch route       | Builder/Gemini/Groq/OpenAI depending on fallback |
+| `auto` provider   | Existing batch fallback chain                                  | Any configured batch provider |
+| `builder-gemini`  | Builder Gemini Flash-Lite batch/cleanup preference             | Builder.io account connected |
+| `gemini`          | Direct Google Gemini BYOK batch/cleanup preference             | `GEMINI_API_KEY`             |
+| `groq`            | Groq Whisper batch preference                                  | `GROQ_API_KEY`               |
+| `openai`          | OpenAI Whisper batch preference                                | `OPENAI_API_KEY`             |
+| `browser`         | Legacy native/browser live speech preference                   | No                           |
+
+Default behavior:
+
+- The shared web settings/composer default to Batch / `auto`.
+- Dedicated macOS Tauri-native surfaces may save `mac-native`, but do not
+  assume the shared React settings default to it.
+- Old stored `builder` values are treated as `builder-gemini`.
+- Old stored `browser` values are treated as `mac-native`.
+- Saved `google-realtime` preferences must not hit `/_agent-native/transcribe-voice`; until the streaming endpoint exists, clients should fall back safely rather than trying to retrofit streaming into the batch route.
 
 ## Where the pieces live
 
@@ -57,7 +72,7 @@ for the current OS.
 | `packages/core/src/client/composer/useVoiceDictation.ts`              | Provider-routing hook (MediaRecorder / Web Speech)  |
 | `packages/core/src/client/composer/VoiceButton.tsx`                   | Mic button + live amplitude + cancel overlay        |
 | `packages/core/src/client/composer/TiptapComposer.tsx`                | Wires the hook, insertion, and keyboard shortcut    |
-| `packages/core/src/client/settings/VoiceTranscriptionSection.tsx`     | Provider radio in sidebar settings                  |
+| `packages/core/src/client/settings/VoiceTranscriptionSection.tsx`     | Live source + cleanup controls in sidebar settings  |
 | `packages/core/src/client/transcription/BuilderTranscriptionCta.tsx`  | CTA shown when Builder account isn't connected      |
 | `packages/core/src/client/transcription/use-live-transcription.ts`    | Web Speech live-transcription hook for recordings   |
 | `packages/core/src/server/transcribe-voice.ts`                        | Route handler (routes to Builder/Gemini/Groq/Whisper) |
@@ -66,7 +81,13 @@ for the current OS.
 
 ## Key resolution (server)
 
-`transcribe-voice.ts` routes based on the user's provider preference:
+`transcribe-voice.ts` is batch-only. Do not add realtime streaming to this
+route. Google Speech-to-Text realtime needs a dedicated audio-frame protocol:
+client audio frames → WebSocket → Google gRPC `StreamingRecognize` → partial /
+final transcript events. Use the canonical docs URL:
+https://cloud.google.com/speech-to-text/v2/docs/streaming-recognize
+
+Batch routing is based on the user's provider preference:
 
 1. If `builder-gemini` and `resolveHasBuilderPrivateKey()` → calls `transcribeWithBuilder({ model: "gemini-3-1-flash-lite" })` via Builder proxy, or uses Builder Gemini Flash-Lite to clean up a live native/browser transcript when the desktop client sends text instead of audio.
 2. If `builder` and `resolveHasBuilderPrivateKey()` → legacy alias; prefer `builder-gemini`.
