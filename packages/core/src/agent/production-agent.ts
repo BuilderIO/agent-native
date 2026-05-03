@@ -486,6 +486,7 @@ function isRetryableError(err: unknown): boolean {
   const msg = err.message.toLowerCase();
   const code =
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
+  if (code === "builder_gateway_timeout") return false;
   return (
     code === "http_502" ||
     code === "http_503" ||

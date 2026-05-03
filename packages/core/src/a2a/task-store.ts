@@ -214,6 +214,34 @@ export async function resetStuckA2ATaskForRetry(
   return affected !== 0;
 }
 
+export async function failStuckA2ATask(
+  id: string,
+  processingCutoff: number,
+  reason: string,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const now = Date.now();
+  const timestamp = new Date().toISOString();
+  const message: Message = {
+    role: "agent",
+    parts: [{ type: "text", text: reason }],
+  };
+  const result = await client.execute({
+    sql: `UPDATE a2a_tasks
+            SET status_state = 'failed',
+                status_message = ?,
+                status_timestamp = ?,
+                updated_at = ?
+          WHERE id = ?
+            AND status_state = 'processing'
+            AND updated_at <= ?`,
+    args: [JSON.stringify(message), timestamp, now, id, processingCutoff],
+  });
+  const affected = (result as any)?.rowsAffected ?? (result as any)?.rowCount;
+  return affected !== 0;
+}
+
 export async function getTask(id: string): Promise<Task | null> {
   await ensureTable();
   const client = getDbExec();

@@ -39,6 +39,7 @@ vi.mock("./task-store.js", () => {
         artifacts: [],
         metadata,
         ownerEmail: ownerEmail ?? null,
+        updatedAt: Date.now(),
       };
       tasks[id] = task;
       return task;
@@ -60,6 +61,7 @@ vi.mock("./task-store.js", () => {
           message: update.message ?? task.status.message,
           timestamp: new Date().toISOString(),
         };
+        task.updatedAt = Date.now();
       }
       if (update.message && task.history) {
         task.history.push(update.message);
@@ -78,6 +80,7 @@ vi.mock("./task-store.js", () => {
         message: task.status.message,
         timestamp: new Date().toISOString(),
       };
+      task.updatedAt = Date.now();
       return task;
     },
     async getA2ATaskDispatchState(id: string) {
@@ -87,13 +90,30 @@ vi.mock("./task-store.js", () => {
         id,
         statusState: task.status.state,
         metadata: task.metadata,
-        updatedAt: Date.now(),
+        updatedAt:
+          typeof task.metadata?.testUpdatedAt === "number"
+            ? task.metadata.testUpdatedAt
+            : task.updatedAt,
       };
     },
     async touchQueuedA2ATaskDispatch() {
       return true;
     },
     async resetStuckA2ATaskForRetry() {
+      return true;
+    },
+    async failStuckA2ATask(id: string, _cutoff: number, reason: string) {
+      const task = tasks[id];
+      if (!task || task.status.state !== "processing") return false;
+      task.status = {
+        state: "failed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: reason }],
+        },
+        timestamp: new Date().toISOString(),
+      };
+      task.updatedAt = Date.now();
       return true;
     },
   };
@@ -461,6 +481,65 @@ describe("handleJsonRpc", () => {
     expect(followup.result.status.message.parts[0].text).toBe(
       "done eventually",
     );
+  });
+
+  it("fails stale processing async tasks instead of rerunning side effects from tasks/get", async () => {
+    let started: (value: unknown) => void = () => {};
+    const startedPromise = new Promise((resolve) => {
+      started = resolve;
+    });
+    const handler = vi.fn(async () => {
+      started(undefined);
+      return new Promise<never>(() => {});
+    });
+    const sideEffectConfig: A2AConfig = {
+      ...customHandler,
+      handler,
+    };
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: {
+            testUpdatedAt: Date.now() - 5 * 60 * 1000 - 1,
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "create something" }],
+          },
+        },
+      },
+      event,
+      sideEffectConfig,
+    );
+    expect(result.error).toBeUndefined();
+    const taskId = result.result.id;
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    void processA2ATaskFromQueue(taskId, sideEffectConfig);
+    await startedPromise;
+
+    const status = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      event,
+      sideEffectConfig,
+    );
+
+    expect(status.error).toBeUndefined();
+    expect(status.result.status.state).toBe("failed");
+    expect(status.result.status.message.parts[0].text).toContain(
+      "async A2A processor timed out",
+    );
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 
   it("refuses async message/send on hosted runtimes without A2A auth config", async () => {

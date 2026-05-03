@@ -67,6 +67,9 @@ export const BUILDER_SUPPORTED_MODELS = [
   "z-ai-glm-5-1",
 ] as const;
 
+const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
+const MAX_BUILDER_GATEWAY_TIMEOUT_MS = 55_000;
+
 // Inherits from agent/default-model.ts — single source of truth so a
 // new model release is a one-line bump.
 import { DEFAULT_MODEL } from "../default-model.js";
@@ -168,58 +171,77 @@ class BuilderEngine implements AgentEngine {
       `[builder-engine] → POST ${gatewayBaseUrl}/messages model=${opts.model} tools=${tools.length} org=${orgLabel}`,
     );
 
-    let response: Response;
-    try {
-      response = await fetch(`${gatewayBaseUrl}/messages`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: authHeader,
-        },
-        body: JSON.stringify(body),
-        signal: opts.abortSignal,
-      });
-    } catch (err) {
-      yield {
-        type: "stop",
-        reason: "error",
-        error: err instanceof Error ? err.message : String(err),
-      };
-      return;
-    }
-
-    console.log(
-      `[builder-engine] ← ${response.status} ${response.statusText} in ${Date.now() - tStart}ms`,
+    const gatewayTimeoutMs = getBuilderGatewayTimeoutMs();
+    const gatewayAbort = createGatewayAbortSignal(
+      opts.abortSignal,
+      gatewayTimeoutMs,
     );
+    try {
+      let response: Response;
+      try {
+        response = await fetch(`${gatewayBaseUrl}/messages`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: authHeader,
+          },
+          body: JSON.stringify(body),
+          signal: gatewayAbort.signal,
+        });
+      } catch (err) {
+        if (gatewayAbort.didTimeout()) {
+          console.warn(
+            `[builder-engine] gateway timed out after ${Date.now() - tStart}ms`,
+          );
+        }
+        yield createBuilderGatewayTimeoutStop(
+          err,
+          gatewayAbort.didTimeout(),
+          gatewayTimeoutMs,
+        );
+        return;
+      }
 
-    if (!response.ok) {
-      yield* emitHttpError(response);
-      return;
+      console.log(
+        `[builder-engine] ← ${response.status} ${response.statusText} in ${Date.now() - tStart}ms`,
+      );
+
+      if (!response.ok) {
+        yield* emitHttpError(response);
+        return;
+      }
+
+      const contentType = response.headers.get("content-type") ?? "";
+      if (contentType.includes("text/html")) {
+        const rawText = await response.text().catch(() => "");
+        yield {
+          type: "stop",
+          reason: "error",
+          error: normalizeGatewayErrorText(rawText, response.status || 502),
+          errorCode: `http_${response.status || 502}`,
+        };
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        yield {
+          type: "stop",
+          reason: "error",
+          error: "Builder gateway response has no body",
+        };
+        return;
+      }
+
+      yield* parseJsonlStream(
+        reader,
+        opts.model,
+        gatewayAbort.didTimeout,
+        gatewayTimeoutMs,
+      );
+    } finally {
+      gatewayAbort.cleanup();
     }
-
-    const contentType = response.headers.get("content-type") ?? "";
-    if (contentType.includes("text/html")) {
-      const rawText = await response.text().catch(() => "");
-      yield {
-        type: "stop",
-        reason: "error",
-        error: normalizeGatewayErrorText(rawText, response.status || 502),
-        errorCode: `http_${response.status || 502}`,
-      };
-      return;
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) {
-      yield {
-        type: "stop",
-        reason: "error",
-        error: "Builder gateway response has no body",
-      };
-      return;
-    }
-
-    yield* parseJsonlStream(reader, opts.model);
   }
 }
 
@@ -329,6 +351,8 @@ async function* readJsonlLines(
 async function* parseJsonlStream(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   model: string,
+  didGatewayTimeout?: () => boolean,
+  gatewayTimeoutMs = DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS,
 ): AsyncIterable<EngineEvent> {
   const parts: EngineContentPart[] = [];
   let pendingText = "";
@@ -495,11 +519,11 @@ async function* parseJsonlStream(
       error: "Builder gateway stream ended without a stop event",
     };
   } catch (err) {
-    yield {
-      type: "stop",
-      reason: "error",
-      error: err instanceof Error ? err.message : String(err),
-    };
+    yield createBuilderGatewayTimeoutStop(
+      err,
+      didGatewayTimeout?.() ?? false,
+      gatewayTimeoutMs,
+    );
   } finally {
     // Release the reader on every exit path — early returns (invalid JSONL,
     // stop event) and generator abandonment both leave the underlying
@@ -548,4 +572,82 @@ export function createBuilderEngine(
   _config: Record<string, unknown> = {},
 ): AgentEngine {
   return new BuilderEngine();
+}
+
+function getBuilderGatewayTimeoutMs(): number {
+  const raw = process.env.AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS;
+  if (!raw) return DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS;
+  }
+  return Math.min(parsed, MAX_BUILDER_GATEWAY_TIMEOUT_MS);
+}
+
+function createGatewayAbortSignal(
+  parentSignal: AbortSignal,
+  timeoutMs: number,
+): {
+  signal: AbortSignal;
+  didTimeout: () => boolean;
+  cleanup: () => void;
+} {
+  const controller = new AbortController();
+  let timedOut = false;
+
+  const abortFromParent = () => {
+    if (!controller.signal.aborted) {
+      controller.abort(parentSignal.reason);
+    }
+  };
+
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    if (!controller.signal.aborted) {
+      controller.abort(new Error("Builder gateway request timed out"));
+    }
+  }, timeoutMs);
+
+  if (parentSignal.aborted) abortFromParent();
+  parentSignal.addEventListener("abort", abortFromParent, { once: true });
+
+  return {
+    signal: controller.signal,
+    didTimeout: () => timedOut,
+    cleanup: () => {
+      clearTimeout(timeout);
+      parentSignal.removeEventListener("abort", abortFromParent);
+    },
+  };
+}
+
+function normalizeBuilderGatewayFetchError(
+  err: unknown,
+  timedOut: boolean,
+  timeoutMs: number,
+): string {
+  if (timedOut) {
+    return `Builder gateway timed out after ${formatTimeoutMs(
+      timeoutMs,
+    )} before the hosting function limit. Please retry; if this keeps happening, reduce the prompt size or try again when the gateway is less busy.`;
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
+function createBuilderGatewayTimeoutStop(
+  err: unknown,
+  timedOut: boolean,
+  timeoutMs: number,
+): EngineEvent {
+  return {
+    type: "stop",
+    reason: "error",
+    error: normalizeBuilderGatewayFetchError(err, timedOut, timeoutMs),
+    ...(timedOut ? { errorCode: "builder_gateway_timeout" } : {}),
+  };
+}
+
+function formatTimeoutMs(timeoutMs: number): string {
+  if (timeoutMs < 1000) return `${timeoutMs}ms`;
+  return `${Math.round(timeoutMs / 1000)}s`;
 }

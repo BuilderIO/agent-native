@@ -11,6 +11,7 @@ const currentOwnerEmailMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
 const originalWorkspaceAppsJson = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
 const originalAppUrl = process.env.APP_URL;
+const originalFetch = globalThis.fetch;
 
 vi.mock("@agent-native/core/settings", () => ({
   getSetting: getSettingMock,
@@ -72,6 +73,10 @@ describe("startWorkspaceAppCreation", () => {
       delete process.env.APP_URL;
     } else {
       process.env.APP_URL = originalAppUrl;
+    }
+    vi.unstubAllGlobals();
+    if (originalFetch) {
+      globalThis.fetch = originalFetch;
     }
   });
 
@@ -350,5 +355,130 @@ describe("startWorkspaceAppCreation", () => {
       url: "https://builder.io/pending",
       branchName: "pending-branch",
     });
+  });
+
+  it("does not probe agent cards unless requested", async () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [
+        {
+          id: "dispatch",
+          name: "Dispatch",
+          path: "/dispatch",
+          isDispatch: true,
+        },
+      ],
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { listWorkspaceApps } = await import("./app-creation-store.js");
+    const apps = await listWorkspaceApps();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(apps[0]).not.toHaveProperty("agentCardUrl");
+    expect(apps[0]).not.toHaveProperty("a2aEndpointUrl");
+  });
+
+  it("optionally probes ready app agent cards and returns A2A metadata", async () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [
+        {
+          id: "dispatch",
+          name: "Dispatch",
+          path: "/dispatch",
+          isDispatch: true,
+        },
+        {
+          id: "starter",
+          name: "Starter",
+          path: "/starter",
+        },
+      ],
+    });
+    const fetchMock = vi.fn(async (url: string) => ({
+      ok: true,
+      json: async () => ({
+        name: url.includes("/starter/") ? "Starter Agent" : "Dispatch Agent",
+        url: url.includes("/starter/")
+          ? "https://workspace.example.test/starter/_agent-native/a2a"
+          : "https://workspace.example.test/dispatch/_agent-native/a2a",
+        skills: url.includes("/starter/") ? [{ id: "draft" }] : [],
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { listWorkspaceApps } = await import("./app-creation-store.js");
+    const apps = await listWorkspaceApps({ includeAgentCards: true });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://workspace.example.test/dispatch/.well-known/agent-card.json",
+      expect.objectContaining({
+        headers: { accept: "application/json" },
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(apps.find((app) => app.id === "starter")).toMatchObject({
+      agentCardUrl:
+        "https://workspace.example.test/starter/.well-known/agent-card.json",
+      agentCardReachable: true,
+      a2aEndpointUrl:
+        "https://workspace.example.test/starter/_agent-native/a2a",
+      agentName: "Starter Agent",
+      agentSkillsCount: 1,
+    });
+  });
+
+  it("reports unreachable agent cards without throwing and skips pending Builder apps", async () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [
+        {
+          id: "dispatch",
+          name: "Dispatch",
+          path: "/dispatch",
+          isDispatch: true,
+        },
+      ],
+    });
+    getSettingMock.mockResolvedValue({
+      pendingApps: [
+        {
+          id: "pending-app",
+          path: "/pending-app",
+          builderUrl: "https://builder.io/pending",
+          branchName: "pending-branch",
+          createdAt: "2026-05-03T00:00:00.000Z",
+          updatedAt: "2026-05-03T00:00:00.000Z",
+        },
+      ],
+    });
+    const fetchMock = vi.fn(async () => {
+      throw new Error("network unavailable");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { listWorkspaceApps } = await import("./app-creation-store.js");
+    const apps = await listWorkspaceApps({ includeAgentCards: true });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://workspace.example.test/dispatch/.well-known/agent-card.json",
+      expect.any(Object),
+    );
+    expect(apps.find((app) => app.id === "dispatch")).toMatchObject({
+      agentCardUrl:
+        "https://workspace.example.test/dispatch/.well-known/agent-card.json",
+      agentCardReachable: false,
+      a2aEndpointUrl: null,
+      agentName: null,
+      agentSkillsCount: null,
+    });
+    expect(apps.find((app) => app.id === "pending-app")).toMatchObject({
+      status: "pending",
+      url: "https://builder.io/pending",
+    });
+    expect(apps.find((app) => app.id === "pending-app")).not.toHaveProperty(
+      "agentCardUrl",
+    );
   });
 });

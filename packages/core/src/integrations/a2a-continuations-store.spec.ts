@@ -58,6 +58,100 @@ describe("A2A continuations store", () => {
     isPostgresMock.mockReturnValue(false);
   });
 
+  it("finds an existing continuation for an integration task", async () => {
+    const { getA2AContinuationForIntegrationTask } = await loadStore();
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        const args = queryArgs(query);
+        if (
+          sql.includes("WHERE integration_task_id = ?") &&
+          sql.includes("ORDER BY created_at ASC")
+        ) {
+          return {
+            rows: [
+              continuationRow({
+                id: "cont-existing",
+                integration_task_id: args[0],
+                created_at: 10,
+              }),
+            ],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+    );
+
+    const continuation =
+      await getA2AContinuationForIntegrationTask("task-existing");
+
+    expect(continuation?.id).toBe("cont-existing");
+    expect(continuation?.integrationTaskId).toBe("task-existing");
+  });
+
+  it("allows multiple downstream continuations for one integration task", async () => {
+    const { insertA2AContinuation } = await loadStore();
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        const args = queryArgs(query);
+        if (
+          sql.trim().startsWith("INSERT INTO integration_a2a_continuations")
+        ) {
+          return { rows: [], rowsAffected: 1 };
+        }
+        if (
+          sql.includes(
+            "SELECT * FROM integration_a2a_continuations WHERE id = ?",
+          )
+        ) {
+          return {
+            rows: [
+              continuationRow({
+                id: args[0],
+                integration_task_id: "task-existing",
+                agent_name: "Analytics",
+                agent_url: "https://analytics.agent-native.test",
+                a2a_task_id: "a2a-task-new",
+              }),
+            ],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+    );
+
+    const continuation = await insertA2AContinuation({
+      integrationTaskId: "task-existing",
+      platform: "slack",
+      externalThreadId: "C123:123.456",
+      incoming: {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "make a deck",
+        platformContext: {},
+        timestamp: 1,
+      },
+      ownerEmail: "alice+qa@agent-native.test",
+      agentName: "Analytics",
+      agentUrl: "https://analytics.agent-native.test",
+      a2aTaskId: "a2a-task-new",
+    });
+
+    expect(continuation.integrationTaskId).toBe("task-existing");
+    expect(continuation.agentName).toBe("Analytics");
+    expect(continuation.a2aTaskId).toBe("a2a-task-new");
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        querySql(query)
+          .trim()
+          .startsWith("INSERT INTO integration_a2a_continuations"),
+      ),
+    ).toBe(true);
+  });
+
   it("atomically marks a processing continuation as delivering before platform send", async () => {
     const { claimA2AContinuationDelivery } = await loadStore();
     executeMock.mockImplementation(
