@@ -24,6 +24,21 @@ function getConnectionLabel(): string {
   return "SQL database";
 }
 
+function normalizeAppBasePath(value: string | undefined): string {
+  if (!value || value === "/") return "";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "/") return "";
+  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+}
+
+function withAppBasePath(path: string): string {
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  const basePath = normalizeAppBasePath(
+    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
+  );
+  return `${basePath}${cleanPath}`;
+}
+
 export interface OnboardingHtmlOptions {
   /**
    * Hide email/password forms and show ONLY the Google sign-in button.
@@ -50,6 +65,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
 
   const marketing = opts.marketing;
   const hasMarketing = !!marketing;
+  const brandMarkSrc = withAppBasePath("/agent-native-icon-dark.svg");
   const esc = (s: string) =>
     s
       .replace(/&/g, "&amp;")
@@ -178,7 +194,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   <div class="marketing-panel">
     <div class="marketing-content">
       <h2 class="app-name">
-        <img class="brand-mark" src="/agent-native-icon-dark.svg" alt="" aria-hidden="true" />
+        <img class="brand-mark" src="${esc(brandMarkSrc)}" alt="" aria-hidden="true" />
         <span>${esc(marketing!.appName)}</span>
       </h2>
       <p class="app-tagline">${esc(marketing!.tagline)}</p>
