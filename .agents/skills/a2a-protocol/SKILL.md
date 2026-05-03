@@ -46,10 +46,14 @@ export default defineNitroPlugin((nitro) => {
 });
 ```
 
-This mounts two endpoints:
+This mounts the agent-native A2A endpoints:
 
 - `GET /.well-known/agent-card.json` — public agent discovery (no auth required)
-- `POST /a2a` — JSON-RPC endpoint (bearer token auth required)
+- `POST /_agent-native/a2a` — primary JSON-RPC endpoint (bearer token auth required)
+
+The client may fall back to `POST /a2a` for external or legacy peers that only
+expose that simple path. New agent-native apps should document and call the
+`/_agent-native/a2a` endpoint.
 
 ## The Config Object
 

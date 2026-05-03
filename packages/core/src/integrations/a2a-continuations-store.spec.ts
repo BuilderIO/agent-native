@@ -247,6 +247,51 @@ describe("A2A continuations store", () => {
     expect(querySql(updateCall![0])).not.toContain("delivering");
   });
 
+  it("can reclaim processing continuations whose next check is stale", async () => {
+    const { claimA2AContinuation } = await loadStore();
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        const args = queryArgs(query);
+        if (
+          sql.includes(
+            "SET status = ?, attempts = attempts + 1, updated_at = ?",
+          )
+        ) {
+          return { rows: [], rowsAffected: 1 };
+        }
+        if (
+          sql.includes(
+            "SELECT * FROM integration_a2a_continuations WHERE id = ?",
+          )
+        ) {
+          return {
+            rows: [
+              continuationRow({
+                id: args[0],
+                status: "processing",
+                attempts: 3,
+              }),
+            ],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+    );
+
+    const claimed = await claimA2AContinuation("cont-1");
+
+    expect(claimed?.id).toBe("cont-1");
+    const updateCall = executeMock.mock.calls.find(([query]) =>
+      querySql(query).includes(
+        "SET status = ?, attempts = attempts + 1, updated_at = ?",
+      ),
+    );
+    expect(querySql(updateCall![0])).toContain("next_check_at <= ?");
+    expect(queryArgs(updateCall![0])).toHaveLength(5);
+  });
+
   it("recovers stale delivering continuations as retryable pending during due sweeps", async () => {
     const { claimDueA2AContinuations } = await loadStore();
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
@@ -273,6 +318,35 @@ describe("A2A continuations store", () => {
     );
     expect(querySql(recoveryCall![0])).toContain("next_check_at = ?");
     expect(querySql(recoveryCall![0])).not.toContain("completed_at");
+  });
+
+  it("recovers processing continuations with stale next checks during due sweeps", async () => {
+    const { claimDueA2AContinuations } = await loadStore();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+
+    await expect(claimDueA2AContinuations()).resolves.toEqual([]);
+
+    const recoveryCall = executeMock.mock.calls.find(([query]) => {
+      const sql = querySql(query);
+      return (
+        sql.includes("UPDATE integration_a2a_continuations") &&
+        sql.includes("WHERE status = 'processing'")
+      );
+    });
+    expect(recoveryCall?.[0]).toEqual(
+      expect.objectContaining({
+        sql: expect.stringContaining("next_check_at <= ?"),
+        args: [
+          "pending",
+          expect.any(Number),
+          expect.any(Number),
+          expect.any(Number),
+          expect.any(Number),
+        ],
+      }),
+    );
+    expect(querySql(recoveryCall![0])).toContain("updated_at <= ?");
+    expect(querySql(recoveryCall![0])).toContain("next_check_at <= ?");
   });
 
   it("returns each due continuation once from a retry sweep", async () => {
