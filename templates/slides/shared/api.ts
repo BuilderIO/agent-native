@@ -8,18 +8,7 @@ export interface DemoResponse {
 
 // --- Default Style References ---
 
-export const DEFAULT_STYLE_REFERENCE_URLS = [
-  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F316cb1fd488249069477dc234092f9d2?format=webp&width=800&height=1200",
-  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd273e90ea8414158ba30bb9800956244?format=webp&width=800&height=1200",
-  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F177545e5bf10405aa2d36e94cbdcec14?format=webp&width=800&height=1200",
-  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb9b6ebd71c0b4854a925b659eafc17c6?format=webp&width=800&height=1200",
-  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F280ea3201b234cdf9408038f95c82145?format=webp&width=800&height=1200",
-  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa5294bbcb5b848029db6294600a7f14f?format=webp&width=800&height=1200",
-  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7cd5efb949424ae2a83c68aaf159e848?format=webp&width=800&height=1200",
-  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5b0a40f909b749fa90c36b323c535f81?format=webp&width=800&height=1200",
-  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Faadcd3f216e444249769e0853994a2ef?format=webp&width=800&height=1200",
-  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3fc375a2cdbd4788a23efef060008821?format=webp&width=800&height=1200",
-];
+export const DEFAULT_STYLE_REFERENCE_URLS: string[] = [];
 
 // --- Image Generation ---
 

@@ -366,8 +366,8 @@ describe("Netlify scaffold rewrite", () => {
     expect(netlify).toContain('  VITE_APP_BASE_PATH = "/dispatch"');
     expectRedirect("/", "/dispatch/overview", 302);
     expectRedirect("/dispatch", "/dispatch/overview", 302);
-    expect(netlify).not.toContain('  from = "/apps"');
-    expect(netlify).not.toContain('  from = "/new-app"');
+    expectRedirect("/apps", "/dispatch/apps", 302);
+    expectRedirect("/new-app", "/dispatch/new-app", 302);
     expect(netlify).not.toContain('from = "/dispatch/*"');
     expect(netlify).not.toContain('to = "/.netlify/functions/server"');
     expect(netlify).not.toContain("force = true");
@@ -421,6 +421,7 @@ describe("Netlify scaffold rewrite", () => {
     expect(netlify).toContain('  APP_BASE_PATH = "/starter"');
     expect(netlify).toContain('  VITE_APP_BASE_PATH = "/starter"');
     expect(netlify).not.toContain('  to = "/dispatch/apps"');
+    expect(netlify).not.toContain('  to = "/dispatch/new-app"');
     expect(netlify).not.toContain('  from = "/dispatch/*"');
   });
 

@@ -223,12 +223,10 @@ async function createDeckOnAPI(deck: Deck): Promise<void> {
   }
 }
 
-const builderLogoSrc = appPath("/assets/builder-logo-white.svg");
-
 const defaultSlideContent: Record<SlideLayout, string> = {
   title: `<div class="fmd-slide" style="padding: 80px 110px; justify-content: space-between;">
   <div>
-    <img src="${builderLogoSrc}" alt="Builder.io" style="height: 28px; width: auto;" />
+    <div style="font-size: 16px; font-weight: 800; color: #fff; letter-spacing: 0; font-family: 'Poppins', sans-serif;">Deck</div>
   </div>
   <div>
     <div style="font-size: 54px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -1px; font-family: 'Poppins', sans-serif;">Presentation Title</div>

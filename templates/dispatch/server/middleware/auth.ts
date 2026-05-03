@@ -17,6 +17,24 @@ function normalizeBasePath(value?: string): string {
   return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
 }
 
+const DISPATCH_PAGE_PATHS = new Set([
+  "/overview",
+  "/login",
+  "/signup",
+  "/apps",
+  "/new-app",
+  "/vault",
+  "/integrations",
+  "/agents",
+  "/workspace",
+  "/messaging",
+  "/destinations",
+  "/identities",
+  "/approvals",
+  "/audit",
+  "/team",
+]);
+
 function rootDispatchRedirect(
   pathname: string,
   search: string,
@@ -33,14 +51,14 @@ function rootDispatchRedirect(
   if (pathname === "/") {
     return new Response(null, {
       status: 302,
-      headers: { Location: `${basePath}/${search}` },
+      headers: { Location: `${basePath}/overview${search}` },
     });
   }
 
   if (pathname === basePath) {
     return new Response(null, {
-      status: 301,
-      headers: { Location: `${basePath}/${search}` },
+      status: 302,
+      headers: { Location: `${basePath}/overview${search}` },
     });
   }
 
@@ -53,6 +71,13 @@ function rootDispatchRedirect(
 
   if (pathname.startsWith(`${basePath}/`)) {
     return null;
+  }
+
+  if (DISPATCH_PAGE_PATHS.has(pathname)) {
+    return new Response(null, {
+      status: 302,
+      headers: { Location: `${basePath}${pathname}${search}` },
+    });
   }
 
   return new Response("Reserved for workspace app routes", {

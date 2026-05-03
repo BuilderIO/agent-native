@@ -63,7 +63,7 @@ export async function generateWithGemini(
 
   if (referenceImages.length > 0) {
     contents.push({
-      text: `You are a world-class visual designer creating assets for Builder.io's brand. Study the ${selectedRefs.length} reference images above — they ARE the brand. Your output must be indistinguishable from these references in style.
+      text: `You are a world-class visual designer creating assets in a specific visual system. Study the ${selectedRefs.length} reference images above; they define the target style. Your output must feel indistinguishable from these references.
 
 CRITICAL STYLE RULES (extract these from the references):
 - **Exact same color palette**: Match the precise dark backgrounds, accent colors, gradients, and glow effects from the references. Do NOT use different blues, purples, or color schemes.
