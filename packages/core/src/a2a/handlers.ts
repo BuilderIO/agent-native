@@ -16,7 +16,7 @@ import {
   updateTask,
   claimA2ATaskForProcessing,
   getA2ATaskDispatchState,
-  resetStuckA2ATaskForRetry,
+  failStuckA2ATask,
   touchQueuedA2ATaskDispatch,
 } from "./task-store.js";
 import { agentChat } from "../shared/agent-chat.js";
@@ -747,19 +747,26 @@ async function handleGet(
   if (!task) {
     return jsonRpcError(0, -32001, "Task not found");
   }
-  await refireStuckAsyncTaskIfNeeded(id, event).catch((err) => {
-    console.error("[a2a] Failed to refire stuck async task:", err);
-  });
+  const taskChanged = await refireStuckAsyncTaskIfNeeded(id, event).catch(
+    (err) => {
+      console.error("[a2a] Failed to refire stuck async task:", err);
+      return false;
+    },
+  );
+  if (taskChanged) {
+    const updated = await getTask(id);
+    if (updated) return jsonRpcResult(0, sanitizeTaskForResponse(updated));
+  }
   return jsonRpcResult(0, sanitizeTaskForResponse(task));
 }
 
 async function refireStuckAsyncTaskIfNeeded(
   taskId: string,
   event: any,
-): Promise<void> {
+): Promise<boolean> {
   const state = await getA2ATaskDispatchState(taskId);
-  if (!state) return;
-  if (!state.metadata?.__a2a_processor) return;
+  if (!state) return false;
+  if (!state.metadata?.__a2a_processor) return false;
 
   const now = Date.now();
   if (
@@ -768,20 +775,27 @@ async function refireStuckAsyncTaskIfNeeded(
   ) {
     if (await touchQueuedA2ATaskDispatch(taskId)) {
       await fireProcessTaskDispatch(event, taskId);
+      return true;
     }
-    return;
+    return false;
   }
 
   if (
     state.statusState === "processing" &&
     state.updatedAt <= now - A2A_PROCESSING_STUCK_AFTER_MS
   ) {
-    const reset = await resetStuckA2ATaskForRetry(
+    // A processor that died mid-handler may have already performed
+    // side-effectful work. Retrying from the top can duplicate artifacts, so
+    // fail deterministically and let the caller issue an intentional retry.
+    const failed = await failStuckA2ATask(
       taskId,
       now - A2A_PROCESSING_STUCK_AFTER_MS,
+      "The async A2A processor timed out before completing. Please retry the request.",
     );
-    if (reset) await fireProcessTaskDispatch(event, taskId);
+    return failed;
   }
+
+  return false;
 }
 
 async function handleCancel(

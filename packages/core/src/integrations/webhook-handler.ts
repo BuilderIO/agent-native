@@ -40,6 +40,7 @@ import { signInternalToken } from "./internal-token.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
+import { getA2AContinuationForIntegrationTask } from "./a2a-continuations-store.js";
 import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
 import {
   appendA2AArtifactLinks,
@@ -401,6 +402,16 @@ export async function processIntegrationTask(
     incoming: IncomingMessage;
     placeholderRef?: string;
   };
+  const existingContinuation = await getA2AContinuationForIntegrationTask(
+    task.id,
+  );
+  if (existingContinuation) {
+    console.log(
+      `[integrations] Skipping integration task ${task.id}; A2A continuation ${existingContinuation.id} already exists`,
+    );
+    return;
+  }
+
   await processIncomingMessage(parsed.incoming, options, {
     taskId: task.id,
     placeholderRef: parsed.placeholderRef,

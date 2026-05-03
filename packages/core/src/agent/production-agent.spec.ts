@@ -411,4 +411,45 @@ describe("runAgentLoop", () => {
       ],
     });
   });
+
+  it("does not retry Builder gateway timeouts inside one serverless run", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "stop",
+          reason: "error",
+          error: "Builder gateway timed out after 45s",
+          errorCode: "builder_gateway_timeout",
+        };
+      },
+    };
+
+    await expect(
+      runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow("Builder gateway timed out after 45s");
+
+    expect(streamCalls).toBe(1);
+  });
 });

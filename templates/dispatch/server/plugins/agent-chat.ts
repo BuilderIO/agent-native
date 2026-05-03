@@ -27,6 +27,7 @@ Use the standard workspace primitives:
 - Read and update resources like AGENTS.md, LEARNINGS.md, jobs/*.md, agents/*.md, and remote-agents/*.json when appropriate.
 - Use recurring jobs for scheduled behavior.
 - Use custom agent profiles in agents/*.md for local spawned work and remote-agents/*.json for remote A2A apps.
+- When answering whether workspace apps expose agent cards or A2A endpoints, call list-workspace-apps with includeAgentCards=true. If you have not requested that probe, absence of agent-card fields means unchecked, not unavailable.
 
 When a user asks for something like a digest, reminder, routing rule, or saved behavior:
 - First decide whether it should be a resource, a recurring job, a destination, or a delegated task.

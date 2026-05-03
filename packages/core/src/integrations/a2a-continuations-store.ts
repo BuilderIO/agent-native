@@ -35,6 +35,9 @@ async function ensureTable(): Promise<void> {
         `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_status_next ON integration_a2a_continuations(status, next_check_at)`,
       );
       await client.execute(
+        `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_integration_task ON integration_a2a_continuations(integration_task_id)`,
+      );
+      await client.execute(
         `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_remote_task ON integration_a2a_continuations(integration_task_id, agent_url, a2a_task_id)`,
       );
       try {
@@ -160,6 +163,21 @@ export async function insertA2AContinuation(input: {
     if (existing) return existing;
     throw err;
   }
+}
+
+export async function getA2AContinuationForIntegrationTask(
+  integrationTaskId: string,
+): Promise<A2AContinuation | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM integration_a2a_continuations
+          WHERE integration_task_id = ?
+          ORDER BY created_at ASC
+          LIMIT 1`,
+    args: [integrationTaskId],
+  });
+  return rows[0] ? rowToContinuation(rows[0] as Record<string, unknown>) : null;
 }
 
 function isDuplicateContinuationError(err: unknown): boolean {
