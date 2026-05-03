@@ -106,6 +106,57 @@ describe("appendA2AArtifactLinks", () => {
     expect(text).not.toContain("Artifacts:");
   });
 
+  it("can include an artifact proof block for already-mentioned verified URLs", () => {
+    const text = appendA2AArtifactLinks(
+      "Deck ready: https://slides.agent-native.com/deck/deck_123",
+      [
+        {
+          tool: "create-deck",
+          result: JSON.stringify({
+            id: "deck_123",
+            slideCount: 1,
+            url: "https://slides.agent-native.com/deck/deck_123",
+          }),
+        },
+      ],
+      {
+        baseUrl: "https://slides.agent-native.com",
+        includeReferencedArtifacts: true,
+      },
+    );
+
+    expect(text).toContain(
+      "Deck ready: https://slides.agent-native.com/deck/deck_123",
+    );
+    expect(text).toContain(
+      "Artifacts:\n- Deck: https://slides.agent-native.com/deck/deck_123 (ID: deck_123)",
+    );
+  });
+
+  it("can include a read-only get-deck proof block when the response already mentions the URL", () => {
+    const text = appendA2AArtifactLinks(
+      "Deck exists: https://slides.agent-native.com/deck/deck_123",
+      [
+        {
+          tool: "get-deck",
+          result: JSON.stringify({
+            id: "deck_123",
+            title: "Builder Workspace Slack QA Deck",
+            slideCount: 7,
+          }),
+        },
+      ],
+      {
+        baseUrl: "https://slides.agent-native.com",
+        includeReferencedArtifacts: true,
+      },
+    );
+
+    expect(text).toContain(
+      "Artifacts:\n- Deck: https://slides.agent-native.com/deck/deck_123 (ID: deck_123)",
+    );
+  });
+
   it("blocks hallucinated deck URLs with no successful deck action", () => {
     const text = appendA2AArtifactLinks(
       "Done: https://slides.agent.test/deck/deck_404",
@@ -296,6 +347,44 @@ describe("appendA2AArtifactLinks", () => {
       "https://design.agent-native.com/design/design_real",
     );
     expect(text).not.toContain("could not verify");
+  });
+
+  it("allows titled downstream deck artifact proof lines", () => {
+    const text = appendA2AArtifactLinks(
+      "Slides: https://slides.agent-native.com/deck/deck_real",
+      [
+        {
+          tool: "call-agent",
+          result: [
+            "Artifacts:",
+            '- Deck "Builder Workspace Slack QA Deck" (7 slides): https://slides.agent-native.com/deck/deck_real (ID: deck_real)',
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toBe("Slides: https://slides.agent-native.com/deck/deck_real");
+  });
+
+  it("allows downstream deck presentation URLs as proof for the deck", () => {
+    const text = appendA2AArtifactLinks(
+      "Slides: https://slides.agent-native.com/deck/deck_real/present",
+      [
+        {
+          tool: "call-agent",
+          result: [
+            "Artifacts:",
+            "- Deck: https://slides.agent-native.com/deck/deck_real/present (ID: deck_real)",
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toBe(
+      "Slides: https://slides.agent-native.com/deck/deck_real/present",
+    );
   });
 
   it("does not treat unstructured call-agent URLs as artifact proof", () => {

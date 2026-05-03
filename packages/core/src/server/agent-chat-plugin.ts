@@ -160,6 +160,7 @@ export function assembleA2AFinalResponse(
   const responseText = collectFinalResponseTextFromAgentEvents(events);
   const finalText = appendA2AArtifactLinks(responseText, [...toolResults], {
     baseUrl: options.baseUrl ?? resolveArtifactBaseUrl(options.event),
+    includeReferencedArtifacts: true,
   });
   return { responseText, finalText };
 }

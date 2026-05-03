@@ -211,6 +211,89 @@ describe("A2A continuation processor", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("blocks unverified completed production artifact URLs before posting continuations", async () => {
+    const sendResponse = vi.fn(async () => undefined);
+    claimA2AContinuationMock.mockResolvedValueOnce(continuation());
+    getTaskMock.mockResolvedValueOnce({
+      id: "a2a-task-1",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: "The Design agent returned https://design.agent-native.com/design/design_fake",
+            },
+          ],
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("could not verify the design URL"),
+      }),
+      expect.any(Object),
+      { placeholderRef: undefined },
+    );
+    expect(sendResponse.mock.calls[0][0].text).not.toContain("design_fake");
+    expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+  });
+
+  it("allows completed continuation artifact URLs with downstream proof blocks", async () => {
+    const sendResponse = vi.fn(async () => undefined);
+    claimA2AContinuationMock.mockResolvedValueOnce(continuation());
+    getTaskMock.mockResolvedValueOnce({
+      id: "a2a-task-1",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: [
+                "Design ready: https://design.agent-native.com/design/design_real",
+                "",
+                "Artifacts:",
+                "- Design: https://design.agent-native.com/design/design_real (ID: design_real, 1 file)",
+              ].join("\n"),
+            },
+          ],
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining(
+          "https://design.agent-native.com/design/design_real",
+        ),
+      }),
+      expect.any(Object),
+      { placeholderRef: undefined },
+    );
+    expect(sendResponse.mock.calls[0][0].text).not.toContain(
+      "could not verify",
+    );
+    expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+  });
+
   it("leaves completion failures in delivery for stale retry recovery", async () => {
     const consoleError = vi
       .spyOn(console, "error")

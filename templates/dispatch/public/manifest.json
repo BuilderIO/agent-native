@@ -1,7 +1,7 @@
 {
-  "name": "Agent Native",
+  "name": "Agent-Native Dispatch",
   "short_name": "Dispatch",
-  "description": "Blank starter template",
+  "description": "Workspace control plane for secrets, integrations, agents, and app creation.",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#111111",
