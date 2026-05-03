@@ -125,7 +125,7 @@ jobs:
             netlify_site: 3f0c2cd2-06cd-4ab8-bfb4-c199430d1dac
     steps:
       - name: Delete Neon branch
-        uses: neondatabase/delete-branch-action@v4
+        uses: neondatabase/delete-branch-action@v3
         with:
           project_id: ${{ matrix.neon_project }}
           branch: preview/pr-${{ github.event.number }}

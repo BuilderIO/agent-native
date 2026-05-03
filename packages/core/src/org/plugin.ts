@@ -9,6 +9,7 @@ import {
   awaitBootstrap,
   getH3App,
   FRAMEWORK_PREFIX,
+  markDefaultPluginProvided,
 } from "../server/framework-request-handler.js";
 import { runMigrations } from "../db/migrations.js";
 import { ORG_MIGRATIONS } from "./migrations.js";
@@ -57,6 +58,7 @@ export function createOrgPlugin(): NitroPluginDef {
   const migrate = runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" });
 
   return async (nitroApp: any) => {
+    markDefaultPluginProvided(nitroApp, "org");
     await awaitBootstrap(nitroApp);
     await migrate(nitroApp);
 

@@ -7,6 +7,7 @@
     "dev": "agent-native dev",
     "build": "agent-native build",
     "start": "agent-native start",
+    "test": "vitest --run",
     "typecheck": "agent-native typecheck",
     "action": "agent-native action",
     "script": "agent-native script"
@@ -84,6 +85,7 @@
     "tsx": "^4.20.3",
     "typescript": "^6.0.3",
     "vaul": "^1.1.2",
-    "vite": "catalog:"
+    "vite": "catalog:",
+    "vitest": "^4.1.5"
   }
 }

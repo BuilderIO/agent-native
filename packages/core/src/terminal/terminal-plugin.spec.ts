@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../server/framework-request-handler.js", () => ({
   getH3App: (app: any) => app,
+  markDefaultPluginProvided: vi.fn(),
 }));
 
 const close = vi.fn();

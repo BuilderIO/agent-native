@@ -60,6 +60,10 @@ import {
 } from "../db/client.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
+import {
+  getAllowedCorsOrigin,
+  readCorsAllowedOrigins,
+} from "./cors-origins.js";
 import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
 import { migrateLocalUserData } from "./local-migration.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -743,21 +747,12 @@ function applyCorsHeaders(event: H3Event): {
   const originRaw = reqHeaders["origin"];
   const origin = Array.isArray(originRaw) ? originRaw[0] : originRaw;
   if (!origin) return { hasOrigin: false, allowed: true };
-  // Dev convenience: always allow localhost origins across ports (Tauri
-  // tray apps, the frame, docs). In prod, the CORS_ALLOWED_ORIGINS env
-  // var is the safe-list.
-  const allowlist = (process.env.CORS_ALLOWED_ORIGINS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const allowed =
-    allowlist.length === 0
-      ? /^(https?|tauri):\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/.test(
-          origin,
-        )
-      : allowlist.includes(origin);
-  if (!allowed) return { hasOrigin: true, allowed: false };
-  setResponseHeader(event, "Access-Control-Allow-Origin", origin);
+  const allowedOrigin = getAllowedCorsOrigin(origin, {
+    allowedOrigins: readCorsAllowedOrigins(),
+    allowLocalhostWhenNoAllowlist: true,
+  });
+  if (!allowedOrigin) return { hasOrigin: true, allowed: false };
+  setResponseHeader(event, "Access-Control-Allow-Origin", allowedOrigin);
   setResponseHeader(event, "Vary", "Origin");
   setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
   setResponseHeader(
