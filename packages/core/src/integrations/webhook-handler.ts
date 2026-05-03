@@ -45,6 +45,7 @@ import {
   appendA2AArtifactLinks,
   type A2AToolResultSummary,
 } from "../a2a/artifact-response.js";
+import { buildRuntimeContextPrompt } from "../agent/runtime-context.js";
 
 const PROCESSOR_DISPATCH_SETTLE_WAIT_MS = 1_500;
 
@@ -424,6 +425,7 @@ async function processIncomingMessage(
     ownerEmail,
     engine: engineOption,
   } = options;
+  const effectiveSystemPrompt = systemPrompt + buildRuntimeContextPrompt();
 
   // Resolve or create internal thread
   let mapping = await getThreadMapping(
@@ -556,7 +558,7 @@ async function processIncomingMessage(
             return runAgentLoop({
               engine,
               model: resolvedModel,
-              systemPrompt,
+              systemPrompt: effectiveSystemPrompt,
               tools,
               messages,
               actions,

@@ -231,6 +231,7 @@ describe("integration webhook handler engine resolution", () => {
       expect.objectContaining({
         engine: expect.objectContaining({ name: "builder" }),
         model: "claude-sonnet-4-6",
+        systemPrompt: expect.stringContaining("<runtime-context>"),
       }),
     );
     expect(sendResponse).toHaveBeenCalledWith(

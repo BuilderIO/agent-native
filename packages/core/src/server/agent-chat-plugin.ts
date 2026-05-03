@@ -94,6 +94,7 @@ import {
 } from "../a2a/artifact-response.js";
 import { updateTaskStatusMessage } from "../a2a/task-store.js";
 import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
+import { buildRuntimeContextPrompt } from "../agent/runtime-context.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
 // This avoids require() which bundlers convert to createRequire(import.meta.url)
@@ -1372,6 +1373,7 @@ const FRAMEWORK_CORE_COMPACT = `
 9. **Never fabricate factual claims** — Do NOT invent numbers, metrics, records, query results, URLs, citations, source attributions, customer names, dates, or success rates. This applies inside generated artifacts too: decks, documents, reports, dashboards, Slack/email replies, and charts must not contain unsupported factual specifics. Only state factual numbers/claims when the user provided them or you retrieved them with an action/tool. If a data source is unavailable (missing credentials, connection error, tool failure), say so clearly and work with what you have. If a specific metric would be useful but is not known, use qualitative wording, placeholders like \`[metric TBD]\`, or clearly labeled draft assumptions instead of plausible-looking facts. Presenting made-up data as real is a critical failure — it is worse than admitting the limitation.
 10. **Never fabricate success from tool errors** — When any tool call returns an error (marked \`isError: true\`, contains "Command failed", "Error:", or non-zero exit output), the operation FAILED. Do NOT synthesize a success narrative or describe what the action "would have" produced. Report the failure verbatim from the tool output. This applies especially to \`shell(command="pnpm action ...")\` calls: if the action threw, it did NOT succeed.
 11. **Find tools when unsure** — Use \`tool-search\` to find the exact action/tool for a capability. It searches the live registry, including connected MCP server tools.
+12. **Relative dates use runtime context** — The \`<runtime-context>\` block gives the authoritative current date/time. Resolve "today", "yesterday", "last week", and similar phrases to explicit calendar dates before querying data or creating artifacts.
 
 ### Resources
 
@@ -1550,6 +1552,7 @@ const FRAMEWORK_CORE = `
 9. **Never fabricate factual claims** — Do NOT invent numbers, metrics, records, query results, URLs, citations, source attributions, customer names, dates, or success rates. This applies inside generated artifacts too: decks, documents, reports, dashboards, Slack/email replies, and charts must not contain unsupported factual specifics. Only state factual numbers/claims when the user provided them or you retrieved them with an action/tool. If a data source is unavailable (missing credentials, connection error, tool failure), say so clearly and work with what you have. If a specific metric would be useful but is not known, use qualitative wording, placeholders like \`[metric TBD]\`, or clearly labeled draft assumptions instead of plausible-looking facts. Presenting made-up data as real is a critical failure — it is worse than admitting the limitation.
 10. **Never fabricate success from tool errors** — When any tool call returns an error (marked \`isError: true\`, contains "Command failed", "Error:", or non-zero exit output), the operation FAILED. Do NOT synthesize a success narrative, format a result table, or describe what the action "would have" produced. Report the failure verbatim from the tool output. This applies especially to \`shell(command="pnpm action ...")\` calls: if the underlying action threw (visible in the error text), the action did NOT succeed — report the error, do not describe a successful outcome.
 11. **Find tools when unsure** — Use \`tool-search\` to find the exact action/tool for a capability. It searches the live registry, including connected MCP server tools added through config, settings, or the MCP hub.
+12. **Relative dates use runtime context** — The \`<runtime-context>\` block gives the authoritative current date/time. Resolve "today", "yesterday", "last week", and similar phrases to explicit calendar dates before querying data or creating artifacts. When answering factual questions, include the exact date or date range you used.
 
 ### Resources
 
@@ -2733,9 +2736,10 @@ export function createAgentChatPlugin(
             ? ""
             : await buildSchemaBlock(owner, devActive);
           const extra = await resolveExtraContext(context.event, owner);
+          const runtimeContext = runtimeContextForEvent(context.event);
           const systemPrompt = devActive
-            ? devPrompt + resources + schemaBlock + extra
-            : basePrompt + resources + schemaBlock + extra;
+            ? devPrompt + runtimeContext + resources + schemaBlock + extra
+            : basePrompt + runtimeContext + resources + schemaBlock + extra;
 
           const model = options?.model ?? DEFAULT_MODEL;
 
@@ -2965,8 +2969,14 @@ export function createAgentChatPlugin(
                 ? DEV_FRAMEWORK_PROMPT_COMPACT
                 : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
           const systemPrompt = devActiveMcp
-            ? mcpDevPrompt + resources + schemaBlock
-            : basePrompt + resources + schemaBlock;
+            ? mcpDevPrompt +
+              buildRuntimeContextPrompt() +
+              resources +
+              schemaBlock
+            : basePrompt +
+              buildRuntimeContextPrompt() +
+              resources +
+              schemaBlock;
 
           let accumulatedText = "";
           const controller = new AbortController();
@@ -3373,12 +3383,26 @@ export function createAgentChatPlugin(
         return prompt;
       };
 
+      const runtimeContextForEvent = (event: any): string => {
+        const tzRaw = getHeader(event, "x-user-timezone");
+        const timezone =
+          typeof tzRaw === "string" &&
+          tzRaw.trim().length > 0 &&
+          tzRaw.trim().length < 64
+            ? tzRaw.trim()
+            : undefined;
+        return buildRuntimeContextPrompt({ timezone });
+      };
+
       const prodHandler = createProductionAgentHandler({
         actions: leanPrompt ? leanActions : prodActions,
         systemPrompt: async (event: any) => {
           const { owner, extra } = await prepareRun(event);
+          const runtimeContext = runtimeContextForEvent(event);
           if (leanPrompt) {
-            return setSystemPromptOnContext(leanBasePrompt + extra);
+            return setSystemPromptOnContext(
+              leanBasePrompt + runtimeContext + extra,
+            );
           }
           const resources = await loadResourcesForPrompt(owner, lazyContext);
           // In lazy context mode, skip embedding the full schema — the agent
@@ -3387,7 +3411,7 @@ export function createAgentChatPlugin(
             ? ""
             : await buildSchemaBlock(owner, false);
           return setSystemPromptOnContext(
-            basePrompt + resources + schemaBlock + extra,
+            basePrompt + runtimeContext + resources + schemaBlock + extra,
           );
         },
         model: options?.model ?? DEFAULT_MODEL,
@@ -3467,15 +3491,18 @@ export function createAgentChatPlugin(
           actions: devActions,
           systemPrompt: async (event: any) => {
             const { owner, extra } = await prepareRun(event);
+            const runtimeContext = runtimeContextForEvent(event);
             if (leanPrompt) {
-              return setSystemPromptOnContext(leanBasePrompt + extra);
+              return setSystemPromptOnContext(
+                leanBasePrompt + runtimeContext + extra,
+              );
             }
             const resources = await loadResourcesForPrompt(owner, lazyContext);
             const schemaBlock = lazyContext
               ? ""
               : await buildSchemaBlock(owner, true);
             return setSystemPromptOnContext(
-              devPrompt + resources + schemaBlock + extra,
+              devPrompt + runtimeContext + resources + schemaBlock + extra,
             );
           },
           model: options?.model,
