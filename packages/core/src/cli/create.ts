@@ -978,6 +978,7 @@ const DISPATCH_WORKSPACE_ROOT_REDIRECTS = [
   ["login", "login"],
   ["signup", "signup"],
   ["apps", "apps"],
+  ["apps/new-app", "new-app"],
   ["new-app", "new-app"],
   ["vault", "vault"],
   ["integrations", "integrations"],
