@@ -463,6 +463,37 @@ export interface RunBuilderAgentResult {
   status: string;
 }
 
+function normalizeBuilderApiString(value: unknown, fieldName: string): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`Builder agent run returned a blank ${fieldName}`);
+  }
+  const trimmed = value.trim();
+  if (/[\u0000-\u001f\u007f]/.test(trimmed)) {
+    throw new Error(`Builder agent run returned a malformed ${fieldName}`);
+  }
+  return trimmed;
+}
+
+function normalizeBuilderBranchUrl(value: unknown): string {
+  const urlString = normalizeBuilderApiString(value, "url");
+  let parsed: URL;
+  try {
+    parsed = new URL(urlString);
+  } catch {
+    throw new Error("Builder agent run returned a malformed url");
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("Builder agent run returned a malformed url");
+  }
+  if (
+    parsed.hostname !== "builder.io" &&
+    !parsed.hostname.endsWith(".builder.io")
+  ) {
+    throw new Error("Builder agent run returned a non-Builder url");
+  }
+  return parsed.toString();
+}
+
 /**
  * POST a prompt to the Builder agents-run API. The Builder agent runs in a
  * cloud sandbox and writes code to a branch; the returned URL opens that
@@ -527,10 +558,16 @@ export async function runBuilderAgent(
   }
 
   return {
-    branchName: String(parsed.branchName ?? ""),
-    projectId: String(parsed.projectId ?? ""),
-    url: String(parsed.url ?? ""),
-    status: String(parsed.status ?? "processing"),
+    branchName: normalizeBuilderApiString(parsed.branchName, "branchName"),
+    projectId:
+      typeof parsed.projectId === "string" && parsed.projectId.trim()
+        ? parsed.projectId.trim()
+        : projectId,
+    url: normalizeBuilderBranchUrl(parsed.url),
+    status:
+      typeof parsed.status === "string" && parsed.status.trim()
+        ? parsed.status.trim()
+        : "processing",
   };
 }
 

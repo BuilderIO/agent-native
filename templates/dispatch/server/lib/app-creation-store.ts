@@ -616,6 +616,56 @@ function isSyntheticIntegrationOwner(ownerEmail: string): boolean {
   );
 }
 
+function normalizeBuilderRunString(value: unknown, fieldName: string): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`Builder app creation returned a blank ${fieldName}`);
+  }
+  const trimmed = value.trim();
+  if (/[\u0000-\u001f\u007f]/.test(trimmed)) {
+    throw new Error(`Builder app creation returned a malformed ${fieldName}`);
+  }
+  return trimmed;
+}
+
+function normalizeBuilderRunUrl(value: unknown): string {
+  const urlString = normalizeBuilderRunString(value, "url");
+  let parsed: URL;
+  try {
+    parsed = new URL(urlString);
+  } catch {
+    throw new Error("Builder app creation returned a malformed url");
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("Builder app creation returned a malformed url");
+  }
+  if (
+    parsed.hostname !== "builder.io" &&
+    !parsed.hostname.endsWith(".builder.io")
+  ) {
+    throw new Error("Builder app creation returned a non-Builder url");
+  }
+  return parsed.toString();
+}
+
+function normalizeBuilderRunResult(result: unknown): {
+  branchName: string;
+  url: string;
+  status: string;
+} {
+  const record =
+    result && typeof result === "object" && !Array.isArray(result)
+      ? (result as Record<string, unknown>)
+      : {};
+  return {
+    branchName: normalizeBuilderRunString(record.branchName, "branchName"),
+    url: normalizeBuilderRunUrl(record.url),
+    status:
+      typeof record.status === "string" && record.status.trim()
+        ? record.status.trim()
+        : "processing",
+  };
+}
+
 function remoteAppCreationAuthorization():
   | { ok: true }
   | { ok: false; message: string } {
@@ -756,17 +806,23 @@ export async function startWorkspaceAppCreation(input: {
     };
   }
 
-  let result;
+  let result: {
+    branchName: string;
+    url: string;
+    status: string;
+  };
   try {
     const builderCreds = await resolveBuilderCredentials().catch(() => null);
     const builderUserId = builderCreds?.userId || undefined;
-    result = await runBuilderAgent({
-      prompt,
-      projectId: settings.builderProjectId,
-      ...(builderUserId
-        ? { userId: builderUserId }
-        : { userEmail: currentOwnerEmail() }),
-    });
+    result = normalizeBuilderRunResult(
+      await runBuilderAgent({
+        prompt,
+        projectId: settings.builderProjectId,
+        ...(builderUserId
+          ? { userId: builderUserId }
+          : { userEmail: currentOwnerEmail() }),
+      }),
+    );
   } catch (err) {
     const detail =
       err instanceof Error && err.message
