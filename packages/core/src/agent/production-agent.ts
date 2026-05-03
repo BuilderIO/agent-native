@@ -27,6 +27,7 @@ import {
   registerBuiltinEngines,
   getStoredModelForEngine,
 } from "./engine/index.js";
+import { userFacingLlmCredentialError } from "./engine/credential-errors.js";
 import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import {
@@ -1610,7 +1611,11 @@ export function createProductionAgentHandler(
                   agent: ref.name,
                   status: "error",
                 });
-                return `<agent-response name="${ref.name}" id="${ref.refId}" type="custom-agent" error="true">\nFailed to run ${ref.name}: ${err?.message}\n</agent-response>`;
+                const message =
+                  userFacingLlmCredentialError(err, {
+                    agentName: ref.name,
+                  }) ?? `Failed to run ${ref.name}: ${err?.message}`;
+                return `<agent-response name="${ref.name}" id="${ref.refId}" type="custom-agent" error="true">\n${message}\n</agent-response>`;
               }
             }),
           );
@@ -1728,7 +1733,11 @@ export function createProductionAgentHandler(
                   agent: ref.name,
                   status: "error",
                 });
-                return `<agent-response name="${ref.name}" id="${ref.refId}" error="true">\nFailed to reach ${ref.name}: ${err?.message}\n</agent-response>`;
+                const message =
+                  userFacingLlmCredentialError(err, {
+                    agentName: ref.name,
+                  }) ?? `Failed to reach ${ref.name}: ${err?.message}`;
+                return `<agent-response name="${ref.name}" id="${ref.refId}" error="true">\n${message}\n</agent-response>`;
               }
             }),
           );

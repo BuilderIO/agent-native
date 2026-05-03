@@ -257,6 +257,51 @@ describe("integration webhook handler engine resolution", () => {
     });
   });
 
+  it("sanitizes missing LLM credential text before sending platform replies", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const sendResponse = vi.fn();
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "text", text: "ANTHROPIC_API_KEY is not set" });
+    });
+    const task: PendingTask = {
+      id: "task-missing-llm",
+      platform: "fake",
+      externalEventKey: "fake:thread-missing-llm:1007",
+      externalThreadId: "thread-missing-llm",
+      payload: JSON.stringify({
+        incoming: {
+          platform: "fake",
+          externalThreadId: "thread-missing-llm",
+          text: "hello from slack",
+          senderName: "QA User",
+          platformContext: { channel: "C123" },
+          timestamp: 1007,
+        },
+      }),
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      status: "processing",
+      attempts: 1,
+      errorMessage: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      completedAt: null,
+    };
+
+    await processIntegrationTask(task, {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: task.ownerEmail,
+    });
+
+    const sentText = vi.mocked(sendResponse).mock.calls[0]?.[0].text ?? "";
+    expect(sentText).toContain("Connect an LLM provider or Builder");
+    expect(sentText).not.toContain("ANTHROPIC_API_KEY");
+  });
+
   it("uses the explicit provider env key when no owner key exists in single-tenant mode", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const sendResponse = vi.fn();

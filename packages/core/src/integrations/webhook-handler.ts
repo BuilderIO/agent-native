@@ -17,6 +17,10 @@ import {
   getStoredModelForEngine,
   resolveEngine,
 } from "../agent/engine/index.js";
+import {
+  formatLlmCredentialErrorMessage,
+  isLlmCredentialError,
+} from "../agent/engine/credential-errors.js";
 import type { AgentEngine } from "../agent/engine/types.js";
 import type { EngineMessage } from "../agent/engine/types.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
@@ -586,7 +590,18 @@ async function processIncomingMessage(
           // Common case: an A2A delegation timed out and the agent loop bailed
           // before generating any user-facing text.
           const runErrored = completedRun.status === "errored";
-          if (!responseText.trim() || runErrored) {
+          const runErrorText = completedRun.events
+            .map((runEvent) =>
+              runEvent.event.type === "error" ? runEvent.event.error : "",
+            )
+            .filter(Boolean)
+            .join("\n");
+          if (
+            isLlmCredentialError(responseText) ||
+            isLlmCredentialError(runErrorText)
+          ) {
+            responseText = formatLlmCredentialErrorMessage();
+          } else if (!responseText.trim() || runErrored) {
             if (runErrored) {
               responseText =
                 (responseText.trim() ? responseText + "\n\n" : "") +

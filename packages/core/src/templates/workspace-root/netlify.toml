@@ -1,8 +1,11 @@
 [build]
-  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && pnpm exec agent-native deploy --preset netlify --build-only"
+  command = "export DATABASE_URL=\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\" && pnpm install && pnpm exec agent-native deploy --preset netlify --build-only"
   publish = "dist"
   functions = ".netlify/functions-internal"
 
 [build.environment]
   NITRO_PRESET = "netlify"
   NPM_CONFIG_PRODUCTION = "false"
+
+[functions."*"]
+  timeout = 60
