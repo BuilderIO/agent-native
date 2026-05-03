@@ -118,6 +118,76 @@ describe("slackAdapter", () => {
 
     expect(deliverySignal?.aborted).toBe(true);
   });
+
+  it("keeps generated Slack section blocks within Block Kit limits", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const deliveryBodies: any[] = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (String(url).includes("chat.postMessage")) {
+          deliveryBodies.push(JSON.parse(String(init?.body ?? "{}")));
+        }
+        return Promise.resolve(new Response(JSON.stringify({ ok: true })));
+      }),
+    );
+
+    await slackAdapter().sendResponse(
+      { text: "a".repeat(3605), platformContext: {} },
+      {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "ask starter",
+        timestamp: 1,
+        platformContext: { channelId: "C123", threadTs: "123.456" },
+      },
+    );
+
+    const sectionBlocks = deliveryBodies[0].blocks.filter(
+      (block: any) => block.type === "section",
+    );
+    expect(sectionBlocks).toHaveLength(2);
+    expect(
+      sectionBlocks.every((block: any) => block.text.text.length <= 3000),
+    ).toBe(true);
+  });
+
+  it("splits Slack section blocks by UTF-8 bytes, not JS character length", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const deliveryBodies: any[] = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (String(url).includes("chat.postMessage")) {
+          deliveryBodies.push(JSON.parse(String(init?.body ?? "{}")));
+        }
+        return Promise.resolve(new Response(JSON.stringify({ ok: true })));
+      }),
+    );
+
+    await slackAdapter().sendResponse(
+      { text: `${"a".repeat(2994)}🗄️`, platformContext: {} },
+      {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "ask starter",
+        timestamp: 1,
+        platformContext: { channelId: "C123", threadTs: "123.456" },
+      },
+    );
+
+    const sectionBlocks = deliveryBodies[0].blocks.filter(
+      (block: any) => block.type === "section",
+    );
+    expect(sectionBlocks.length).toBeGreaterThan(1);
+    expect(
+      sectionBlocks.every(
+        (block: any) => Buffer.byteLength(block.text.text, "utf8") <= 3000,
+      ),
+    ).toBe(true);
+  });
 });
 
 function slackEvent(overrides: Record<string, unknown> = {}) {
