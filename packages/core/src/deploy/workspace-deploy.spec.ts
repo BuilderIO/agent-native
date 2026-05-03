@@ -246,7 +246,10 @@ describe("workspace deploy", () => {
       'path: ["/_agent-native/*","/dispatch/*"]',
     );
     expect(dispatchServer).toContain('"/dispatch/assets/*"');
-    expect(dispatchServer).toContain('"/dispatch/*.svg"');
+    expect(dispatchServer).toContain('"/dispatch/favicon.svg"');
+    expect(dispatchServer).toContain('"/dispatch/site.webmanifest"');
+    expect(dispatchServer).not.toContain('"/dispatch/*.json"');
+    expect(dispatchServer).not.toContain('"/dispatch/*.svg"');
     expect(dispatchServer).toContain('"/.netlify/*"');
     expect(dispatchServer).toContain("preferStatic: false");
     expect(dispatchServer).not.toContain("normalizeBasePathArgs");
@@ -264,7 +267,10 @@ describe("workspace deploy", () => {
     expect(starterServer).toContain('path: ["/starter","/starter/*"]');
     expect(starterServer).toContain("normalizeBasePathArgs");
     expect(starterServer).toContain('"/starter/assets/*"');
-    expect(starterServer).toContain('"/starter/*.webmanifest"');
+    expect(starterServer).toContain('"/starter/favicon.svg"');
+    expect(starterServer).toContain('"/starter/site.webmanifest"');
+    expect(starterServer).not.toContain('"/starter/*.json"');
+    expect(starterServer).not.toContain('"/starter/*.webmanifest"');
     expect(starterServer).toContain("preferStatic: false");
 
     const dispatchModule = await import(
@@ -320,11 +326,15 @@ describe("workspace deploy", () => {
       "/dispatch/assets/* /_workspace_static/dispatch/assets/:splat 200",
     );
     expect(redirects).toContain(
-      "/dispatch/:file.svg /_workspace_static/dispatch/:file.svg 200",
+      "/dispatch/favicon.svg /_workspace_static/dispatch/favicon.svg 200",
     );
     expect(redirects).toContain(
-      "/starter/:file.webmanifest /_workspace_static/starter/:file.webmanifest 200",
+      "/starter/site.webmanifest /_workspace_static/starter/site.webmanifest 200",
     );
+    expect(redirects).not.toContain("/:file.json");
+    expect(redirects).not.toContain("/:file.svg");
+    expect(redirects).not.toContain("/:file.webmanifest");
+    expect(redirects).not.toContain("/.well-known/");
     expect(redirects).toContain(
       "/_agent-native/* /.netlify/functions/dispatch-server 200",
     );
