@@ -58,11 +58,30 @@ import type { Label } from "@shared/types";
 import { toast } from "sonner";
 
 import { AccountFilterContext } from "@/hooks/use-account-filter";
+import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { useQueuedDraftCount } from "@/hooks/use-draft-queue";
 import { appApiPath } from "@/lib/api-path";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 const BARE_ROUTES = new Set(["/email"]);
+
+/**
+ * Routes that render the slim "standard layout" chrome instead of the full
+ * inbox chrome (tabs, search bar, account stack, compose pen, draft queue
+ * badge button, theme toggle, etc.). These pages have their own internal
+ * toolbars and only need a generic h-12 header with the page title + the
+ * AgentToggleButton.
+ */
+function isStandardLayoutPath(pathname: string): boolean {
+  return (
+    pathname === "/settings" ||
+    pathname === "/team" ||
+    pathname === "/draft-queue" ||
+    pathname.startsWith("/draft-queue/") ||
+    pathname === "/tools" ||
+    pathname.startsWith("/tools/")
+  );
+}
 
 /** Extract the trailing segment of a nested label name, e.g. "[Superhuman]/AI/Pitch" → "Pitch" */
 function shortLabelName(name: string): string {
@@ -88,6 +107,10 @@ export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
+  }
+
+  if (isStandardLayoutPath(location.pathname)) {
+    return <StandardLayout>{children}</StandardLayout>;
   }
 
   return <AppLayoutInner>{children}</AppLayoutInner>;
@@ -1371,6 +1394,159 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         />
       </div>
     </AccountFilterContext.Provider>
+  );
+}
+
+// ─── Standard Layout (settings, team, tools, draft-queue) ────────────────────
+
+/**
+ * Slim chrome used on secondary pages. Renders the AgentSidebar with a clean
+ * h-12 header (title + AgentToggleButton + NotificationsBell) instead of the
+ * inbox-specific top bar (tabs, search, account stack, compose pen, etc.).
+ *
+ * Pages can hoist a custom title or right-side actions via
+ * `useSetPageTitle` / `useSetHeaderActions` from `./HeaderActions`.
+ */
+function StandardLayout({ children }: AppLayoutProps) {
+  const isMobile = useIsMobile();
+  const location = useLocation();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const headerTitle = useHeaderTitle();
+  const headerActions = useHeaderActions();
+  const queuedDrafts = useQueuedDraftCount();
+  const view = location.pathname.split("/").filter(Boolean)[0] || "";
+
+  const fallbackTitle = (() => {
+    if (location.pathname === "/settings") return "Settings";
+    if (location.pathname === "/team") return "Team";
+    if (location.pathname.startsWith("/draft-queue")) return "Draft queue";
+    if (location.pathname.startsWith("/tools")) return "Tools";
+    return "Mail";
+  })();
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-background">
+      <AgentSidebar
+        position="right"
+        defaultOpen={!isMobile}
+        emptyStateText="Ask me anything about your emails"
+        suggestions={[
+          "What's in my inbox?",
+          "Summarize my unread emails",
+          "Show me the database schema",
+        ]}
+      >
+        <div className="relative flex flex-1 flex-col overflow-hidden">
+          <header className="relative z-20 flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-3">
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 cursor-pointer"
+              aria-label="Toggle menu"
+              title="Menu"
+            >
+              <IconMenu2 className="h-4 w-4" />
+            </button>
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              {headerTitle ?? (
+                <h1 className="text-lg font-semibold tracking-tight truncate">
+                  {fallbackTitle}
+                </h1>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {headerActions}
+              <NotificationsBell />
+              <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
+            </div>
+          </header>
+
+          {sidebarOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-30 bg-black/20"
+                onClick={() => setSidebarOpen(false)}
+              />
+              <div className="fixed left-0 top-0 bottom-0 z-40 w-64 bg-background/70 backdrop-blur-2xl border-r border-border/30 shadow-2xl overflow-y-auto">
+                <div className="p-4">
+                  <div className="space-y-0.5">
+                    {[
+                      { id: "inbox", label: "Inbox", href: "/inbox" },
+                      { id: "starred", label: "Starred", href: "/starred" },
+                      { id: "snoozed", label: "Snoozed", href: "/snoozed" },
+                      { id: "sent", label: "Sent", href: "/sent" },
+                      {
+                        id: "draft-queue",
+                        label: "Draft queue",
+                        href: "/draft-queue",
+                      },
+                      {
+                        id: "scheduled",
+                        label: "Scheduled",
+                        href: "/scheduled",
+                      },
+                      { id: "drafts", label: "Drafts", href: "/drafts" },
+                      { id: "archive", label: "Done", href: "/archive" },
+                      { id: "trash", label: "Trash", href: "/trash" },
+                    ].map((item) => (
+                      <Link
+                        key={item.id}
+                        to={item.href}
+                        onClick={() => setSidebarOpen(false)}
+                        className={cn(
+                          "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
+                          view === item.id
+                            ? "bg-accent/60 text-foreground font-medium"
+                            : "text-foreground/70 hover:bg-accent/30",
+                        )}
+                      >
+                        <span>{item.label}</span>
+                        {item.id === "draft-queue" &&
+                          queuedDrafts.count > 0 && (
+                            <span className="text-[12px] text-amber-300 tabular-nums">
+                              {queuedDrafts.count}
+                            </span>
+                          )}
+                      </Link>
+                    ))}
+                  </div>
+
+                  <div className="mt-3 pt-1 border-t border-border/20">
+                    <ToolsSidebarSection />
+                  </div>
+
+                  <div className="mt-3 pt-1 border-t border-border/20">
+                    <div className="space-y-0.5">
+                      <Link
+                        to="/settings"
+                        onClick={() => setSidebarOpen(false)}
+                        className={cn(
+                          "flex items-center rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
+                          location.pathname === "/settings"
+                            ? "bg-accent/60 text-foreground font-medium"
+                            : "text-foreground/70 hover:bg-accent/30",
+                        )}
+                      >
+                        Settings
+                      </Link>
+                      <div className="mt-1">
+                        <FeedbackButton />
+                      </div>
+                      <div className="mt-2 px-1">
+                        <OrgSwitcher />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          <InvitationBanner />
+
+          <main className="flex flex-1 overflow-hidden">{children}</main>
+        </div>
+      </AgentSidebar>
+    </div>
   );
 }
 

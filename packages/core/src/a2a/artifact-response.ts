@@ -10,6 +10,7 @@ export interface A2AArtifactResponseOptions {
 interface CreatedDocumentArtifact {
   id: string;
   title?: string;
+  url?: string;
 }
 
 interface CreatedDesignShell {
@@ -20,10 +21,12 @@ interface CreatedDesignShell {
 interface GeneratedDesignArtifact {
   id: string;
   fileCount: number;
+  url?: string;
 }
 
 interface CreatedDeckArtifact {
   id: string;
+  url?: string;
 }
 
 type ReferencedArtifactKind = "deck" | "design" | "document";
@@ -70,6 +73,21 @@ function normalizeBaseUrl(baseUrl: string | undefined): string | undefined {
 function artifactUrl(baseUrl: string | undefined, path: string): string {
   const base = normalizeBaseUrl(baseUrl);
   return base ? `${base}${path}` : path;
+}
+
+function artifactUrlFromResult(
+  parsed: Record<string, unknown>,
+  fallbackPath: string,
+  baseUrl: string | undefined,
+): string {
+  const explicitUrl = stringValue(parsed.url) ?? stringValue(parsed.urlPath);
+  if (!explicitUrl) return artifactUrl(baseUrl, fallbackPath);
+  if (explicitUrl.startsWith("/")) return artifactUrl(baseUrl, explicitUrl);
+  try {
+    return new URL(explicitUrl).toString();
+  } catch {
+    return artifactUrl(baseUrl, fallbackPath);
+  }
 }
 
 function responseAlreadyMentionsPath(text: string, path: string): boolean {
@@ -150,7 +168,11 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
     ) {
       const id = stringValue(parsed.id);
       if (id) {
-        documents.set(id, { id, title: stringValue(parsed.title) });
+        documents.set(id, {
+          id,
+          title: stringValue(parsed.title),
+          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
+        });
       }
       continue;
     }
@@ -162,7 +184,22 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
     ) {
       const id = deckIdValue(parsed);
       if (id && isReadyDeckArtifact(parsed)) {
-        decks.set(id, { id });
+        decks.set(id, {
+          id,
+          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
+        });
+      }
+      continue;
+    }
+
+    if (toolResult.tool === "add-slide") {
+      const id = stringValue(parsed.deckId);
+      const slideCount = numberValue(parsed.slideCount);
+      if (id && slideCount !== undefined && slideCount > 0) {
+        decks.set(id, {
+          id,
+          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
+        });
       }
       continue;
     }
@@ -183,6 +220,7 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
       if (renderableFileCount > 0) {
         generatedDesigns.set(id, {
           id,
+          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
           fileCount: Array.isArray(parsed.files)
             ? parsed.files.length
             : renderableFileCount,
@@ -203,7 +241,11 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
       const fileCount = numberValue(parsed.fileCount) ?? savedFiles.length;
 
       if (fileCount > 0) {
-        generatedDesigns.set(id, { id, fileCount });
+        generatedDesigns.set(id, {
+          id,
+          fileCount,
+          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
+        });
       }
       continue;
     }
@@ -220,6 +262,10 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
         const previous = generatedDesigns.get(id);
         generatedDesigns.set(id, {
           id,
+          url:
+            stringValue(parsed.url) ??
+            stringValue(parsed.urlPath) ??
+            previous?.url,
           fileCount: (previous?.fileCount ?? 0) + 1,
         });
       }
@@ -229,7 +275,11 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
       const id = stringValue(parsed.id);
       const fileCount = numberValue(parsed.fileCount);
       if (id && fileCount && fileCount > 0) {
-        generatedDesigns.set(id, { id, fileCount });
+        generatedDesigns.set(id, {
+          id,
+          fileCount,
+          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
+        });
       }
     }
   }
@@ -247,14 +297,14 @@ function formatDocumentLine(
   baseUrl: string | undefined,
 ): string {
   const label = document.title ? `Document "${document.title}"` : "Document";
-  return `- ${label}: ${artifactUrl(baseUrl, `/page/${document.id}`)} (ID: ${document.id})`;
+  return `- ${label}: ${artifactUrlFromResult({ url: document.url }, `/page/${document.id}`, baseUrl)} (ID: ${document.id})`;
 }
 
 function formatDeckLine(
   deck: CreatedDeckArtifact,
   baseUrl: string | undefined,
 ): string {
-  return `- Deck: ${artifactUrl(baseUrl, `/deck/${deck.id}`)} (ID: ${deck.id})`;
+  return `- Deck: ${artifactUrlFromResult({ url: deck.url }, `/deck/${deck.id}`, baseUrl)} (ID: ${deck.id})`;
 }
 
 function formatDesignLine(
@@ -263,7 +313,7 @@ function formatDesignLine(
 ): string {
   const fileLabel =
     design.fileCount === 1 ? "1 file" : `${design.fileCount} files`;
-  return `- Design: ${artifactUrl(baseUrl, `/design/${design.id}`)} (ID: ${design.id}, ${fileLabel})`;
+  return `- Design: ${artifactUrlFromResult({ url: design.url }, `/design/${design.id}`, baseUrl)} (ID: ${design.id}, ${fileLabel})`;
 }
 
 function formatIncompleteDesignMessage(shells: CreatedDesignShell[]): string {
@@ -424,4 +474,25 @@ export function appendA2AArtifactLinks(
   if (missingLines.length === 0) return text;
   const artifactBlock = `Artifacts:\n${missingLines.join("\n")}`;
   return text ? `${text}\n\n${artifactBlock}` : artifactBlock;
+}
+
+export function buildA2ARecoverableArtifactMessage(
+  toolResults: A2AToolResultSummary[],
+  options: A2AArtifactResponseOptions = {},
+): string | null {
+  const baseUrl = normalizeBaseUrl(options.baseUrl);
+  const { documents, decks, generatedDesigns } = collectArtifacts(toolResults);
+  const lines = [
+    ...documents.map((document) => formatDocumentLine(document, baseUrl)),
+    ...decks.map((deck) => formatDeckLine(deck, baseUrl)),
+    ...generatedDesigns.map((design) => formatDesignLine(design, baseUrl)),
+  ];
+
+  if (lines.length === 0) return null;
+  return [
+    "The agent is still working on the full response, but these verified artifacts already exist:",
+    "",
+    "Artifacts:",
+    ...lines,
+  ].join("\n");
 }

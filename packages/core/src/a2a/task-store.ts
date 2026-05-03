@@ -278,6 +278,25 @@ export async function updateTask(
   return task;
 }
 
+export async function updateTaskStatusMessage(
+  id: string,
+  message: Message,
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  const now = Date.now();
+  const timestamp = new Date().toISOString();
+  await client.execute({
+    sql: `UPDATE a2a_tasks
+            SET status_message = ?,
+                status_timestamp = ?,
+                updated_at = ?
+          WHERE id = ?
+            AND status_state IN ('submitted', 'working', 'processing')`,
+    args: [JSON.stringify(message), timestamp, now, id],
+  });
+}
+
 export async function listTasks(contextId?: string): Promise<Task[]> {
   await ensureTable();
   const client = getDbExec();

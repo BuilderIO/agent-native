@@ -3,10 +3,10 @@ import { Link } from "react-router";
 import {
   IconArrowUp,
   IconArrowUpRight,
+  IconBolt,
   IconBook2,
   IconBrush,
   IconPlus,
-  IconSparkles,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { sendToAgentChat, openAgentSidebar } from "@agent-native/core/client";
@@ -16,6 +16,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
+import { useSetPageTitle } from "@/components/layout/HeaderActions";
 
 export function meta() {
   return [
@@ -37,6 +38,7 @@ export function HydrateFallback() {
 }
 
 export default function IndexPage() {
+  useSetPageTitle("Home");
   const { theme, setTheme } = useTheme();
   const [prompt, setPrompt] = useState("");
   const [startOpen, setStartOpen] = useState(false);
@@ -74,7 +76,7 @@ export default function IndexPage() {
         <div className="w-full max-w-2xl space-y-6">
           <div className="space-y-4 text-center">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-card shadow-sm">
-              <IconSparkles className="h-5 w-5 text-muted-foreground" />
+              <IconBolt className="h-5 w-5 text-muted-foreground" />
             </div>
             <div className="space-y-2">
               <h1 className="text-3xl font-semibold tracking-tight text-foreground">

@@ -25,6 +25,7 @@ import { getSession } from "./auth.js";
 import { resolveHasBuilderPrivateKey } from "./credential-provider.js";
 import { getOrgContext } from "../org/context.js";
 import { runWithRequestContext } from "./request-context.js";
+import { resolveGoogleRealtimeCredentials } from "./google-realtime-session.js";
 
 export interface VoiceProvidersStatus {
   builder: boolean;
@@ -32,10 +33,10 @@ export interface VoiceProvidersStatus {
   openai: boolean;
   groq: boolean;
   /**
-   * Google Speech-to-Text realtime streaming is BYOK-only for v1. This only
-   * reports whether a service-account credential is configured; the actual
-   * stream belongs on a dedicated WebSocket -> StreamingRecognize path, not on
-   * the batch transcribe route.
+   * Google Speech-to-Text realtime streaming is BYOK-only for v1. This reports
+   * whether a service-account credential is configured; the actual stream runs
+   * through the dedicated WebSocket -> StreamingRecognize path, not the batch
+   * transcribe route.
    */
   googleRealtime: boolean;
   /** Always true — the Web Speech API is available in WebKit-based clients. */
@@ -60,6 +61,16 @@ export function createVoiceProvidersStatusHandler() {
 
     async function hasKey(key: string): Promise<boolean> {
       try {
+        if (key === "GOOGLE_APPLICATION_CREDENTIALS") {
+          const orgCtx = session?.email
+            ? await getOrgContext(event).catch(() => null)
+            : null;
+          const resolved = await resolveGoogleRealtimeCredentials({
+            userEmail: session?.email,
+            orgId: orgCtx?.orgId ?? undefined,
+          });
+          return typeof resolved === "string" && resolved.length > 0;
+        }
         const ctx = { userEmail: session?.email };
         if (!session?.email) {
           const v = await resolveCredential(key, ctx);

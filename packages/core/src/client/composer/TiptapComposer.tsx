@@ -25,6 +25,7 @@ import {
   IconPlus,
   IconCheck,
   IconChevronDown,
+  IconChevronRight,
   IconBulb,
   IconClock,
   IconBolt,
@@ -32,8 +33,10 @@ import {
   IconX,
   IconClipboardList,
   IconPencil,
+  IconPlugConnected,
 } from "@tabler/icons-react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import type {
   MentionItem,
   SkillResult,
@@ -405,6 +408,44 @@ function ModelSelector({
   const [open, setOpen] = useState(false);
   const effortOptions = getReasoningEffortOptionsForModel(model);
 
+  // Collapse non-selected families by default. The family containing the
+  // currently-selected model stays expanded so the user sees their pick at
+  // a glance; clicking another family's header expands it inline.
+  const selectedGroupKey = useMemo(() => {
+    const found = engines.find((g) => g.models.includes(model));
+    return found ? `${found.engine}:${found.label}` : null;
+  }, [engines, model]);
+
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set(selectedGroupKey ? [selectedGroupKey] : []),
+  );
+
+  // Reset expansion when the popover re-opens so the picker always lands
+  // on the "selected family expanded, others collapsed" view.
+  useEffect(() => {
+    if (open) {
+      setExpandedGroups(new Set(selectedGroupKey ? [selectedGroupKey] : []));
+    }
+  }, [open, selectedGroupKey]);
+
+  const toggleGroup = useCallback((key: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  // When Builder.io isn't connected, surface a one-click connect path —
+  // it unlocks every model family (Claude, OpenAI, Gemini) without the
+  // user having to paste individual API keys.
+  const builderFlow = useBuilderConnectFlow();
+  const showBuilderCta =
+    builderFlow.hasFetchedStatus &&
+    !builderFlow.configured &&
+    !builderFlow.envManaged;
+
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
       <PopoverPrimitive.Trigger asChild>
@@ -426,21 +467,64 @@ function ModelSelector({
           side="top"
           align="end"
           sideOffset={6}
-          className="w-64 max-h-72 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg z-50 py-1 animate-in fade-in-0 zoom-in-95"
+          className="w-72 max-h-[500px] overflow-y-auto rounded-lg border border-border bg-popover shadow-lg z-50 py-1 animate-in fade-in-0 zoom-in-95"
           style={{ fontSize: 13 }}
         >
+          {showBuilderCta && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  builderFlow.start();
+                }}
+                disabled={builderFlow.connecting}
+                className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-accent/50 disabled:opacity-60"
+              >
+                <IconPlugConnected className="h-4 w-4 shrink-0 mt-0.5 text-blue-500" />
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[12px] font-medium text-foreground">
+                    {builderFlow.connecting
+                      ? "Connecting Builder.io…"
+                      : "Connect Builder.io"}
+                  </span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    Free access to Claude, OpenAI &amp; Gemini
+                  </span>
+                </span>
+              </button>
+              <div className="my-1 border-t border-border" />
+            </>
+          )}
           {engines.map((group) => {
             const models = latestModelsOnly(group.models);
+            const groupKey = `${group.engine}:${group.label}`;
+            const isExpanded = expandedGroups.has(groupKey);
             return (
-              <div key={group.engine}>
-                <div className="flex items-center gap-2 px-3 py-1.5">
-                  <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-                    {group.label}
-                  </span>
+              <div key={groupKey}>
+                <div className="flex items-center hover:bg-accent/30">
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(groupKey)}
+                    className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-left"
+                  >
+                    <IconChevronRight
+                      className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${
+                        isExpanded ? "rotate-90" : ""
+                      }`}
+                    />
+                    <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
+                      {group.label}
+                    </span>
+                    {!isExpanded && groupKey === selectedGroupKey && (
+                      <span className="text-[11px] text-muted-foreground/80 truncate">
+                        {friendlyModelName(model)}
+                      </span>
+                    )}
+                  </button>
                   {!group.configured && (
                     <button
                       type="button"
-                      className="text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer"
+                      className="text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pr-3 py-1.5"
                       onClick={() => {
                         window.dispatchEvent(
                           new CustomEvent("agent-panel:open-settings"),
@@ -452,43 +536,45 @@ function ModelSelector({
                     </button>
                   )}
                 </div>
-                {models.map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => {
-                      if (!group.configured) {
-                        window.dispatchEvent(
-                          new CustomEvent("agent-panel:open-settings"),
-                        );
+                {isExpanded &&
+                  models.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => {
+                        if (!group.configured) {
+                          window.dispatchEvent(
+                            new CustomEvent("agent-panel:open-settings"),
+                          );
+                          setOpen(false);
+                          return;
+                        }
+                        onChange(m, group.engine);
+                        const nextOptions =
+                          getReasoningEffortOptionsForModel(m);
+                        if (
+                          effort !== "auto" &&
+                          nextOptions.length > 0 &&
+                          !nextOptions.includes(effort)
+                        ) {
+                          onEffortChange?.("auto");
+                        }
                         setOpen(false);
-                        return;
-                      }
-                      onChange(m, group.engine);
-                      const nextOptions = getReasoningEffortOptionsForModel(m);
-                      if (
-                        effort !== "auto" &&
-                        nextOptions.length > 0 &&
-                        !nextOptions.includes(effort)
-                      ) {
-                        onEffortChange?.("auto");
-                      }
-                      setOpen(false);
-                    }}
-                    className={`flex w-full items-center gap-3 px-3 py-1.5 text-left ${
-                      group.configured
-                        ? "hover:bg-accent/50"
-                        : "opacity-40 cursor-default"
-                    }`}
-                  >
-                    <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                      {friendlyModelName(m)}
-                    </span>
-                    {m === model && group.configured && (
-                      <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-                    )}
-                  </button>
-                ))}
+                      }}
+                      className={`flex w-full items-center gap-3 pl-7 pr-3 py-1.5 text-left ${
+                        group.configured
+                          ? "hover:bg-accent/50"
+                          : "opacity-40 cursor-default"
+                      }`}
+                    >
+                      <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
+                        {friendlyModelName(m)}
+                      </span>
+                      {m === model && group.configured && (
+                        <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                      )}
+                    </button>
+                  ))}
               </div>
             );
           })}

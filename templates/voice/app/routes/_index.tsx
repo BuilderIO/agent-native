@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  IconBolt,
   IconBook,
   IconChartBar,
   IconCheck,
@@ -9,7 +10,6 @@ import {
   IconPencil,
   IconPlayerRecord,
   IconPlus,
-  IconSparkles,
 } from "@tabler/icons-react";
 import {
   agentNativePath,
@@ -69,7 +69,7 @@ const tabs: Array<{ id: TabId; label: string; icon: typeof IconMicrophone }> = [
   { id: "dictation", label: "Dictation", icon: IconMicrophone },
   { id: "snippets", label: "Snippets", icon: IconPencil },
   { id: "dictionary", label: "Dictionary", icon: IconBook },
-  { id: "styles", label: "Styles", icon: IconSparkles },
+  { id: "styles", label: "Styles", icon: IconBolt },
 ];
 
 const styleLabels: Record<string, string> = {
@@ -456,7 +456,7 @@ export default function Index() {
           )}
 
           {activeTab === "styles" && (
-            <Panel title="Tune style presets" icon={IconSparkles}>
+            <Panel title="Tune style presets" icon={IconBolt}>
               <div className="grid gap-4">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Category">

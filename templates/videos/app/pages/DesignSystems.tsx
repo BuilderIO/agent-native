@@ -4,7 +4,10 @@ import { useDesignSystems } from "@/hooks/use-design-systems";
 import { DesignSystemCard } from "@/components/design-system/DesignSystemCard";
 import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
 import { Button } from "@/components/ui/button";
-import { useSetHeaderActions } from "@/components/layout/HeaderActions";
+import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@/components/layout/HeaderActions";
 import { agentNativePath } from "@agent-native/core/client";
 import type { DesignSystemData } from "../../shared/api";
 
@@ -52,6 +55,8 @@ export default function DesignSystems() {
       return null;
     }
   };
+
+  useSetPageTitle("Design Systems");
 
   useSetHeaderActions(
     <Button

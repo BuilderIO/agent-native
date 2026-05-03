@@ -20,6 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EngagementChart } from "./engagement-chart";
 import { TopVideosTable } from "./top-videos-table";
 import { TopCreatorsTable } from "./top-creators-table";
+import { PageHeader } from "@/components/library/page-header";
 
 interface InsightsResponse {
   organizationId: string | null;
@@ -70,20 +71,14 @@ export function InsightsHub() {
   }, [data?.organizationId]);
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <IconChartBar className="size-6 text-primary" />
-            Insights
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Engagement across your organization over the last {days} days.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+    <>
+      <PageHeader>
+        <h1 className="text-base font-semibold tracking-tight truncate">
+          Insights
+        </h1>
+        <div className="ml-auto flex items-center gap-2">
           <Select value={days} onValueChange={setDays}>
-            <SelectTrigger className="w-36">
+            <SelectTrigger className="h-8 w-36">
               <SelectValue placeholder="Period" />
             </SelectTrigger>
             <SelectContent>
@@ -93,97 +88,102 @@ export function InsightsHub() {
               <SelectItem value="90">Last 90 days</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" asChild>
+          <Button variant="outline" size="sm" className="h-8" asChild>
             <a href={csvUrl} download>
               <IconDownload className="size-4 mr-1.5" />
               Export CSV
             </a>
           </Button>
         </div>
-      </div>
+      </PageHeader>
+      <div className="p-6 max-w-6xl mx-auto space-y-6">
+        <p className="text-sm text-muted-foreground">
+          Engagement across your organization over the last {days} days.
+        </p>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Views" value={totals.views} loading={isLoading} />
-        <StatCard
-          label="Reactions"
-          value={totals.reactions}
-          loading={isLoading}
-        />
-        <StatCard
-          label="Comments"
-          value={totals.comments}
-          loading={isLoading}
-        />
-        <StatCard
-          label="Recordings"
-          value={totals.recordings}
-          loading={isLoading}
-        />
-      </div>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <IconChartLine className="size-4 text-primary" />
-            Engagement trend
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <Skeleton className="h-64 w-full" />
-          ) : (
-            <EngagementChart data={data?.trend ?? []} />
-          )}
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Top videos</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Tabs defaultValue="views">
-              <TabsList>
-                <TabsTrigger value="views">Views</TabsTrigger>
-                <TabsTrigger value="reactions">Reactions</TabsTrigger>
-                <TabsTrigger value="comments">Comments</TabsTrigger>
-              </TabsList>
-              <TabsContent value="views" className="pt-3">
-                <TopVideosTable
-                  rows={data?.topVideos.byViews ?? []}
-                  metricLabel="Views"
-                />
-              </TabsContent>
-              <TabsContent value="reactions" className="pt-3">
-                <TopVideosTable
-                  rows={data?.topVideos.byReactions ?? []}
-                  metricLabel="Reactions"
-                />
-              </TabsContent>
-              <TabsContent value="comments" className="pt-3">
-                <TopVideosTable
-                  rows={data?.topVideos.byComments ?? []}
-                  metricLabel="Comments"
-                />
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StatCard label="Views" value={totals.views} loading={isLoading} />
+          <StatCard
+            label="Reactions"
+            value={totals.reactions}
+            loading={isLoading}
+          />
+          <StatCard
+            label="Comments"
+            value={totals.comments}
+            loading={isLoading}
+          />
+          <StatCard
+            label="Recordings"
+            value={totals.recordings}
+            loading={isLoading}
+          />
+        </div>
 
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
-              <IconUsers className="size-4 text-primary" />
-              Top creators
+              <IconChartLine className="size-4 text-primary" />
+              Engagement trend
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <TopCreatorsTable rows={data?.topCreators ?? []} />
+            {isLoading ? (
+              <Skeleton className="h-64 w-full" />
+            ) : (
+              <EngagementChart data={data?.trend ?? []} />
+            )}
           </CardContent>
         </Card>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Top videos</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="views">
+                <TabsList>
+                  <TabsTrigger value="views">Views</TabsTrigger>
+                  <TabsTrigger value="reactions">Reactions</TabsTrigger>
+                  <TabsTrigger value="comments">Comments</TabsTrigger>
+                </TabsList>
+                <TabsContent value="views" className="pt-3">
+                  <TopVideosTable
+                    rows={data?.topVideos.byViews ?? []}
+                    metricLabel="Views"
+                  />
+                </TabsContent>
+                <TabsContent value="reactions" className="pt-3">
+                  <TopVideosTable
+                    rows={data?.topVideos.byReactions ?? []}
+                    metricLabel="Reactions"
+                  />
+                </TabsContent>
+                <TabsContent value="comments" className="pt-3">
+                  <TopVideosTable
+                    rows={data?.topVideos.byComments ?? []}
+                    metricLabel="Comments"
+                  />
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <IconUsers className="size-4 text-primary" />
+                Top creators
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TopCreatorsTable rows={data?.topCreators ?? []} />
+            </CardContent>
+          </Card>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 

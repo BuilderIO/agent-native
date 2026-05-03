@@ -21,6 +21,8 @@ Reach for this skill any time you touch the recorder: the record button, the in-
 
 Uploads hit the **custom API** routes (`/api/uploads/chunk`, `/api/uploads/complete`) rather than actions, because actions aren't the right tool for binary streaming bodies. See `server-plugins` for why.
 
+Some recordings are linked to a meeting — when `meeting_id` is non-null on the recording row, it was created via `start-meeting-recording` and both the `recording` and `meetings` skills apply. See the `meetings` skill for the bidirectional link.
+
 ## Lifecycle
 
 1. **Intent.** Either the user clicks Record (global `Cmd+Shift+L`) or the agent calls `pnpm action start-recording --mode=screen`. The agent version writes `record-intent` to application state; the UI picks it up and initiates the same flow as a user click.

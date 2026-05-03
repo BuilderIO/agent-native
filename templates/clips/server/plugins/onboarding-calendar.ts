@@ -17,17 +17,32 @@ export default async (): Promise<void> => {
     required: false,
     title: "Connect a calendar",
     description:
-      "Sync upcoming meetings, get a notification a few minutes before, and one-click record + transcribe.",
+      "Optional — you can still record ad-hoc meetings without it. Connecting unlocks: an upcoming-meetings list, one-click record before a meeting starts, and automatic meeting creation from calendar events. Read-only access to Google Calendar; tokens are stored encrypted and scoped per-user.",
+    // `required: false` (above) means this step is dismissable — the framework
+    // onboarding sidebar lets the user skip non-required steps. The "Open
+    // Meetings" deep-link is the secondary path: the connect button lives
+    // inline on the Meetings empty-state card, so we surface that route as a
+    // method too.
     methods: [
       {
         id: "google",
         kind: "link",
         label: "Connect Google Calendar",
         description:
-          "Read-only access to events. Tokens are stored encrypted, scoped per-user.",
+          "Read-only access to your events. Tokens are stored encrypted, scoped per-user.",
         primary: true,
         payload: {
           url: "/api/auth/google-calendar?redirect=1",
+        },
+      },
+      {
+        id: "open-meetings",
+        kind: "link",
+        label: "Open the Meetings tab",
+        description:
+          "Skip the wizard and connect from the Meetings empty-state card. You can also start an ad-hoc meeting from there.",
+        payload: {
+          url: "/meetings",
         },
       },
       {
@@ -50,18 +65,25 @@ export default async (): Promise<void> => {
     ],
     // The completion check is best-effort — the action layer is the source of
     // truth, so we only mark complete when at least one calendar_account row
-    // exists for the user. The framework's onboarding registry calls this on
-    // demand.
-    isComplete: async () => {
+    // exists for the current user. The framework's onboarding registry calls
+    // this on demand and provides the resolved user via context. We swallow
+    // every error so a missing table (pre-migration) or an unauthenticated
+    // request never blocks the rest of the checklist.
+    isComplete: async (ctx) => {
+      const userEmail = ctx?.userEmail;
+      if (!userEmail) return false;
       try {
-        // Lazy import to avoid pulling DB into module init.
+        // Lazy import to avoid pulling DB into module init / breaking SSR
+        // before migrations have run.
         const { db, schema } = await import("../db/index.js" as string).catch(
           () => ({ db: null as any, schema: null as any }),
         );
         if (!db || !schema?.calendarAccounts) return false;
+        const { eq } = await import("drizzle-orm");
         const rows = await db
           .select({ id: schema.calendarAccounts.id })
           .from(schema.calendarAccounts)
+          .where(eq(schema.calendarAccounts.ownerEmail, userEmail))
           .limit(1);
         return rows.length > 0;
       } catch {

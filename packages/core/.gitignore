@@ -1,2 +1,3 @@
 # Runtime data (SQLite, a2a task files, etc.)
 data/
+.tmp-worker-test-*

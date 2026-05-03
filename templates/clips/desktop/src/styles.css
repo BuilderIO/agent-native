@@ -2026,6 +2026,41 @@ button {
   transform: scale(0.96);
 }
 
+.meeting-notification-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.meeting-notification-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.meeting-notification-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.meeting-notification-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: white;
+}
+
+.meeting-notification-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #fca5a5;
+}
+
 .meeting-notification-close {
   position: absolute;
   top: 6px;
@@ -2154,13 +2189,24 @@ button {
   color: rgba(255, 255, 255, 0.92);
   font-size: 12px;
   line-height: 1.35;
-  text-align: right;
+  text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* RTL on the OUTER box so overflow clips from the visual left
+     (older text), keeping the newest characters pinned to the right.
+     `unicode-bidi: plaintext` on the inner <bdi> makes the actual
+     transcript text follow its own (LTR) direction — without it,
+     bidi reordering pushes the last few Latin characters past the
+     visible right edge and they get clipped a few chars short. */
   direction: rtl;
   pointer-events: none;
   animation: flow-bar-in 100ms ease-out;
+}
+
+.flow-bar-transcript > bdi {
+  unicode-bidi: plaintext;
+  direction: ltr;
 }
 
 .flow-bar {

@@ -276,6 +276,72 @@ export function App() {
     });
   }, [serverUrl]);
 
+  // The Rust-side meetings watcher fetches the backend with `reqwest`, which
+  // does NOT inherit the popover WebView's cookie jar. We forward
+  // `document.cookie` to it so the Better Auth session cookie travels along.
+  // Re-push on:
+  //   - boot
+  //   - sign-in / sign-out (signedInAs change)
+  //   - the watcher emitting `meetings:auth-needed` (401) — usually means
+  //     the cookie expired and we need to send a fresh one.
+  useEffect(() => {
+    function pushCookie() {
+      const cookie =
+        typeof document !== "undefined" ? document.cookie || "" : "";
+      invoke("meetings_watcher_set_session", { cookie }).catch(() => {
+        // Older builds may not expose this command yet — best-effort.
+      });
+    }
+    pushCookie();
+    let unlisten: (() => void) | null = null;
+    listen("meetings:auth-needed", () => {
+      console.warn("[clips-popover] meetings:auth-needed — re-pushing cookie");
+      pushCookie();
+    })
+      .then((u) => {
+        unlisten = u;
+      })
+      .catch(() => {});
+    return () => {
+      if (unlisten) {
+        try {
+          unlisten();
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, [signedInAs, serverUrl]);
+
+  // Open meeting join URLs (Zoom / Meet / Teams) when the meeting
+  // notification banner asks. Centralized here so any future surface that
+  // emits `meetings:open-join-url` works the same way.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listen<{ joinUrl?: string | null }>("meetings:open-join-url", (ev) => {
+      const url = ev.payload?.joinUrl;
+      if (!url) return;
+      import("@tauri-apps/plugin-shell")
+        .then(({ open }) => open(url))
+        .catch((err) => {
+          console.error("[clips-popover] open join url failed:", err);
+        });
+    })
+      .then((u) => {
+        unlisten = u;
+      })
+      .catch(() => {});
+    return () => {
+      if (unlisten) {
+        try {
+          unlisten();
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, []);
+
   // OAuth (Google) opens in the system browser — the popover WebView can't
   // share a cookie jar with a separate Tauri WebviewWindow, and the old
   // approach of opening a WebView at the server root produced a blank window.

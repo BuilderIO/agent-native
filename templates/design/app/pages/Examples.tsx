@@ -9,6 +9,7 @@ import {
 } from "@tabler/icons-react";
 import { sendToAgentChat, openAgentSidebar } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
+import { useSetPageTitle } from "@/components/layout/HeaderActions";
 
 const EXAMPLES = [
   {
@@ -56,6 +57,8 @@ const EXAMPLES = [
 ];
 
 export default function Examples() {
+  useSetPageTitle("Examples");
+
   const handleUsePrompt = (prompt: string) => {
     openAgentSidebar();
     sendToAgentChat({ message: prompt });
@@ -65,9 +68,6 @@ export default function Examples() {
     <div className="flex-1 overflow-y-auto">
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
         <div className="mb-8">
-          <h1 className="text-lg font-semibold text-foreground mb-1">
-            Starter Examples
-          </h1>
           <p className="text-sm text-muted-foreground">
             Pick a template to get started quickly, or use it as inspiration for
             your own design.

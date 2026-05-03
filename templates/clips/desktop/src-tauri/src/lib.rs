@@ -13,6 +13,7 @@ mod native_speech;
 mod notifications;
 mod recording_indicator;
 mod shortcuts;
+mod silence_detector;
 mod state;
 mod system_audio;
 mod tray;
@@ -77,20 +78,30 @@ pub fn run() {
             native_speech::native_speech_start,
             native_speech::native_speech_stop,
             native_speech::native_speech_cancel,
+            native_speech::native_speech_set_vocabulary,
             // recording indicator pill
             recording_indicator::recording_pill_show,
             recording_indicator::recording_pill_expand,
             recording_indicator::recording_pill_hide,
+            recording_indicator::recording_pill_save_position,
+            recording_indicator::recording_pill_set_detached,
             // notifications
             notifications::notify_meeting_starting,
             // meetings watcher (background poller)
             meetings_watcher::meetings_watcher_set_server_url,
+            meetings_watcher::meetings_watcher_set_session,
             // EventKit (iCloud calendar)
             eventkit::eventkit_request_access,
             eventkit::eventkit_list_events,
-            // system audio (stubbed — see system_audio.rs)
+            // system audio (ScreenCaptureKit — see system_audio.rs)
+            system_audio::system_audio_request_permission,
             system_audio::system_audio_start,
             system_audio::system_audio_stop,
+            system_audio::meeting_audio_start,
+            system_audio::meeting_audio_stop,
+            // silence detector — Granola-style auto-stop heuristics
+            silence_detector::silence_detector_start,
+            silence_detector::silence_detector_stop,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
@@ -106,6 +117,7 @@ pub fn run() {
         .manage(VoiceWakePopover::default())
         .manage(LastTranscript::default())
         .manage(meetings_watcher::MeetingsWatcherState::default())
+        .manage(silence_detector::DetectorState::default())
         .setup(|app| {
             // NOTE: we intentionally do NOT call set_activation_policy(Accessory)
             // in dev here. In unbundled dev runs, Accessory mode sometimes
@@ -114,7 +126,7 @@ pub fn run() {
             // Info.plist, which is the proper way to get pure menu-bar behavior.
             #[cfg(all(target_os = "macos", not(debug_assertions)))]
             {
-                let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
 
             tray::build_tray(app)?;

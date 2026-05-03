@@ -4,7 +4,7 @@
 //!
 //!   - `eventkit_request_access()` — prompts the user for calendar access
 //!     and returns the granted bool.
-//!   - `eventkit_list_events(within_hours)` — returns Vec<EventKitEvent>
+//!   - `eventkit_list_events(within_hours)` — returns `Vec<EventKitEvent>`
 //!     for events between [now, now + within_hours].
 //!
 //! On non-macOS this module exposes the same command surface but every

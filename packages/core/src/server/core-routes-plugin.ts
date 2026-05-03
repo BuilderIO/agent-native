@@ -70,6 +70,7 @@ import { track } from "../tracking/index.js";
 import { registerBuiltinNotificationChannels } from "../notifications/channels.js";
 import { createNotificationsHandler } from "../notifications/routes.js";
 import { createProgressHandler } from "../progress/routes.js";
+import { createGoogleRealtimeSessionHandler } from "./google-realtime-session.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { runWithRequestContext } from "./request-context.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
@@ -1515,6 +1516,15 @@ export function createCoreRoutesPlugin(
     getH3App(nitroApp).use(
       `${P}/transcribe-voice`,
       createTranscribeVoiceHandler(),
+    );
+
+    // ─── Google realtime transcription session bridge ───────────────
+    // POST /_agent-native/transcribe-stream/session — resolve the user's
+    // Google service-account credential server-side, mint an opaque managed
+    // streaming session in ai-services, and return the websocket URL.
+    getH3App(nitroApp).use(
+      `${P}/transcribe-stream/session`,
+      createGoogleRealtimeSessionHandler(),
     );
 
     // ─── Voice provider status ───────────────────────────────────────

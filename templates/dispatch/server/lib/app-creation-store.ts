@@ -18,6 +18,7 @@ import { grantSecretsToApp, listSecrets } from "./vault-store.js";
 const SETTINGS_KEY = "dispatch-app-creation-settings";
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
+const MAX_PENDING_APPS = 50;
 
 export interface WorkspaceAppSummary {
   id: string;
@@ -26,6 +27,11 @@ export interface WorkspaceAppSummary {
   path: string;
   url: string | null;
   isDispatch: boolean;
+  status?: "ready" | "pending";
+  statusLabel?: string;
+  builderUrl?: string | null;
+  branchName?: string | null;
+  createdAt?: string | null;
 }
 
 export interface AppCreationSettings {
@@ -34,6 +40,18 @@ export interface AppCreationSettings {
   envBuilderProjectId: string | null;
   savedBuilderProjectId: string | null;
   builderBranchingEnabled: boolean;
+}
+
+interface PendingWorkspaceApp {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  builderUrl: string | null;
+  branchName: string | null;
+  projectId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 function readJson(file: string): any {
@@ -70,6 +88,13 @@ function scopedSettingsKey(): string {
   const orgId = currentOrgId();
   if (orgId) return `${SETTINGS_KEY}:org:${orgId}`;
   return `${SETTINGS_KEY}:user:${currentOwnerEmail()}`;
+}
+
+async function readSettingsRecord(): Promise<Record<string, any>> {
+  const raw = await getSetting(scopedSettingsKey()).catch(() => null);
+  return raw && typeof raw === "object" && !Array.isArray(raw)
+    ? (raw as Record<string, any>)
+    : {};
 }
 
 function workspaceAppUrl(appPath: string): string | null {
@@ -110,7 +135,7 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
   if (!rawApps) return null;
 
   const apps = rawApps
-    .map((entry) => {
+    .map((entry): WorkspaceAppSummary | null => {
       if (!entry || typeof entry !== "object") return null;
       const id = typeof entry.id === "string" ? entry.id.trim() : "";
       const pathValue = typeof entry.path === "string" ? entry.path.trim() : "";
@@ -129,16 +154,144 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
           typeof entry.isDispatch === "boolean"
             ? entry.isDispatch
             : id === "dispatch",
+        status: "ready",
       } satisfies WorkspaceAppSummary;
     })
     .filter((app): app is WorkspaceAppSummary => !!app)
-    .sort((a, b) => {
-      if (a.id === "dispatch") return -1;
-      if (b.id === "dispatch") return 1;
-      return a.name.localeCompare(b.name);
-    });
+    .sort(sortWorkspaceApps);
 
   return apps.length ? apps : null;
+}
+
+function sortWorkspaceApps(a: WorkspaceAppSummary, b: WorkspaceAppSummary) {
+  if (a.id === "dispatch") return -1;
+  if (b.id === "dispatch") return 1;
+  if (a.status === "pending" && b.status !== "pending") return 1;
+  if (a.status !== "pending" && b.status === "pending") return -1;
+  return a.name.localeCompare(b.name);
+}
+
+function parsePendingWorkspaceApps(value: unknown): PendingWorkspaceApp[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const record = entry as Record<string, unknown>;
+      const id = typeof record.id === "string" ? record.id.trim() : "";
+      const pathValue =
+        typeof record.path === "string" ? record.path.trim() : "";
+      if (!id || !pathValue.startsWith("/")) return null;
+      const now = new Date().toISOString();
+      return {
+        id,
+        name:
+          typeof record.name === "string" && record.name.trim()
+            ? record.name.trim()
+            : titleCase(id),
+        description:
+          typeof record.description === "string"
+            ? record.description
+            : "Builder is creating this app. The workspace path becomes live after the branch is merged and deployed.",
+        path: pathValue,
+        builderUrl:
+          typeof record.builderUrl === "string" && record.builderUrl.trim()
+            ? record.builderUrl.trim()
+            : null,
+        branchName:
+          typeof record.branchName === "string" && record.branchName.trim()
+            ? record.branchName.trim()
+            : null,
+        projectId:
+          typeof record.projectId === "string" && record.projectId.trim()
+            ? record.projectId.trim()
+            : null,
+        createdAt:
+          typeof record.createdAt === "string" && record.createdAt.trim()
+            ? record.createdAt.trim()
+            : now,
+        updatedAt:
+          typeof record.updatedAt === "string" && record.updatedAt.trim()
+            ? record.updatedAt.trim()
+            : now,
+      } satisfies PendingWorkspaceApp;
+    })
+    .filter((app): app is PendingWorkspaceApp => !!app)
+    .slice(0, MAX_PENDING_APPS);
+}
+
+async function listPendingWorkspaceApps(): Promise<PendingWorkspaceApp[]> {
+  const raw = await readSettingsRecord();
+  return parsePendingWorkspaceApps(raw.pendingApps);
+}
+
+function pendingAppToSummary(app: PendingWorkspaceApp): WorkspaceAppSummary {
+  return {
+    id: app.id,
+    name: app.name,
+    description: app.description,
+    path: app.path,
+    url: app.builderUrl,
+    isDispatch: false,
+    status: "pending",
+    statusLabel: "Building in Builder",
+    builderUrl: app.builderUrl,
+    branchName: app.branchName,
+    createdAt: app.createdAt,
+  };
+}
+
+async function appendPendingWorkspaceApps(
+  apps: WorkspaceAppSummary[],
+): Promise<WorkspaceAppSummary[]> {
+  const readyIds = new Set(apps.map((app) => app.id));
+  const pendingApps = (await listPendingWorkspaceApps())
+    .filter((app) => !readyIds.has(app.id))
+    .map(pendingAppToSummary);
+  return [...apps, ...pendingApps].sort(sortWorkspaceApps);
+}
+
+async function recordPendingWorkspaceApp(input: {
+  appId: string;
+  projectId: string | null;
+  branchName?: string | null;
+  builderUrl?: string | null;
+}) {
+  const now = new Date().toISOString();
+  const raw = await readSettingsRecord();
+  const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
+  const existing = pendingApps.find((app) => app.id === input.appId);
+  const next: PendingWorkspaceApp = {
+    id: input.appId,
+    name: titleCase(input.appId),
+    description:
+      "Builder is creating this app. The workspace path becomes live after the branch is merged and deployed.",
+    path: `/${input.appId}`,
+    builderUrl: input.builderUrl?.trim() || null,
+    branchName: input.branchName?.trim() || null,
+    projectId: input.projectId,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  };
+
+  await putSetting(scopedSettingsKey(), {
+    ...raw,
+    pendingApps: [
+      next,
+      ...pendingApps.filter((app) => app.id !== input.appId),
+    ].slice(0, MAX_PENDING_APPS),
+  });
+
+  await recordAudit({
+    action: "workspace-app.pending",
+    targetType: "workspace-app",
+    targetId: input.appId,
+    summary: "Started Builder branch for workspace app creation",
+    metadata: {
+      builderBranchUrlConfigured: !!next.builderUrl,
+      branchName: next.branchName,
+      projectIdConfigured: !!next.projectId,
+    },
+  });
 }
 
 function readWorkspaceAppsFromEnv(): WorkspaceAppSummary[] | null {
@@ -195,11 +348,11 @@ export function getEnvBuilderProjectId(): string | null {
 export async function listWorkspaceApps(): Promise<WorkspaceAppSummary[]> {
   const manifestApps =
     readWorkspaceAppsFromEnv() ?? readWorkspaceAppsFromManifestFile();
-  if (manifestApps) return manifestApps;
+  if (manifestApps) return appendPendingWorkspaceApps(manifestApps);
 
   const workspaceRoot = findWorkspaceRoot();
   if (!workspaceRoot) {
-    return [
+    return appendPendingWorkspaceApps([
       {
         id: "dispatch",
         name: "Dispatch",
@@ -207,17 +360,18 @@ export async function listWorkspaceApps(): Promise<WorkspaceAppSummary[]> {
         path: "/dispatch",
         url: workspaceAppUrl("/dispatch"),
         isDispatch: true,
+        status: "ready",
       },
-    ];
+    ]);
   }
 
   const appsDir = path.join(workspaceRoot, "apps");
-  if (!fs.existsSync(appsDir)) return [];
+  if (!fs.existsSync(appsDir)) return appendPendingWorkspaceApps([]);
 
-  return fs
+  const apps = fs
     .readdirSync(appsDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
-    .map((entry) => {
+    .map((entry): WorkspaceAppSummary | null => {
       const appDir = path.join(appsDir, entry.name);
       const pkg = readJson(path.join(appDir, "package.json"));
       if (!pkg) return null;
@@ -228,19 +382,17 @@ export async function listWorkspaceApps(): Promise<WorkspaceAppSummary[]> {
         path: `/${entry.name}`,
         url: workspaceAppUrl(`/${entry.name}`),
         isDispatch: entry.name === "dispatch",
+        status: "ready",
       } satisfies WorkspaceAppSummary;
     })
     .filter((app): app is WorkspaceAppSummary => !!app)
-    .sort((a, b) => {
-      if (a.id === "dispatch") return -1;
-      if (b.id === "dispatch") return 1;
-      return a.name.localeCompare(b.name);
-    });
+    .sort(sortWorkspaceApps);
+  return appendPendingWorkspaceApps(apps);
 }
 
 export async function getAppCreationSettings(): Promise<AppCreationSettings> {
   const envBuilderProjectId = getEnvBuilderProjectId();
-  const raw = await getSetting(scopedSettingsKey()).catch(() => null);
+  const raw = await readSettingsRecord();
   const savedBuilderProjectId =
     typeof raw?.builderProjectId === "string" && raw.builderProjectId.trim()
       ? raw.builderProjectId.trim()
@@ -270,7 +422,8 @@ export async function setAppCreationSettings(input: {
   builderProjectId?: string | null;
 }): Promise<AppCreationSettings> {
   const builderProjectId = input.builderProjectId?.trim() || null;
-  await putSetting(scopedSettingsKey(), { builderProjectId });
+  const raw = await readSettingsRecord();
+  await putSetting(scopedSettingsKey(), { ...raw, builderProjectId });
   await recordAudit({
     action: "settings.updated",
     targetType: "dispatch-app-creation-settings",
@@ -423,12 +576,24 @@ export async function startWorkspaceAppCreation(input: {
     await grantSecretsToApp(input.secretIds, built.appId);
   }
 
-  return {
-    mode: "builder",
+  await recordPendingWorkspaceApp({
     appId: built.appId,
     projectId: settings.builderProjectId,
     branchName: result.branchName,
+    builderUrl: result.url,
+  });
+
+  return {
+    mode: "builder",
+    appId: built.appId,
+    path: `/${built.appId}`,
+    projectId: settings.builderProjectId,
+    branchName: result.branchName,
     url: result.url,
+    workspaceUrl: workspaceAppUrl(`/${built.appId}`),
     status: result.status,
+    message:
+      `Builder started a branch for /${built.appId}. Use the Builder branch URL to track creation now. ` +
+      `The workspace path will be live after that branch is merged and the workspace deploy finishes, so it may 404 until then.`,
   };
 }

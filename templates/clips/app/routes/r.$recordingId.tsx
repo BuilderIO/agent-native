@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router";
+import { useParams, useNavigate, NavLink } from "react-router";
 import { toast } from "sonner";
 import {
   IconShare3,
   IconSettings,
   IconArrowLeft,
   IconChevronDown,
+  IconCalendar,
 } from "@tabler/icons-react";
 import {
   useActionQuery,
@@ -457,6 +458,20 @@ export default function RecordingPage() {
           {/* Title + reactions row */}
           <div className="flex items-start gap-3 shrink-0">
             <div className="flex-1 min-w-0">
+              {/* G9 — "From meeting" badge surfaced when this recording is
+                  attached to a meeting (server fix 6 attaches `meeting`). */}
+              {playerDataQ.data?.meeting ? (
+                <NavLink
+                  to={`/meetings/${playerDataQ.data.meeting.id}`}
+                  className="inline-flex items-center gap-1.5 mb-1 rounded-full border border-border bg-accent/40 px-2 py-0.5 text-[11px] text-foreground hover:bg-accent/70 cursor-pointer"
+                >
+                  <IconCalendar className="h-3 w-3" />
+                  <span className="text-muted-foreground">From meeting:</span>
+                  <span className="font-medium truncate max-w-[240px]">
+                    {playerDataQ.data.meeting.title || "Untitled"}
+                  </span>
+                </NavLink>
+              ) : null}
               {isDefaultTitle(recording.title) ? (
                 <Skeleton
                   aria-label="Generating title"

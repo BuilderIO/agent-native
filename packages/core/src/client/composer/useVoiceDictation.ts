@@ -4,6 +4,9 @@
  * Wires voice providers behind a single state machine:
  *   - "auto" / "openai" / "builder" / "builder-gemini" / "gemini" / "groq"
  *     — MediaRecorder → POST /_agent-native/transcribe-voice
+ *   - "google-realtime"
+ *     — MediaRecorder chunks → POST /_agent-native/transcribe-stream/session
+ *       → managed WebSocket → Google Speech-to-Text streaming
  *   - "browser" — Web Speech API (low quality, offline capable)
  *
  * Provider preference lives in application_state under
@@ -22,6 +25,7 @@ export type VoiceProvider =
   | "auto"
   | "openai"
   | "browser"
+  | "google-realtime"
   | "builder-gemini"
   | "builder"
   | "gemini"
@@ -40,11 +44,16 @@ const PREFS_URL = agentNativePath(
   `/_agent-native/application-state/${PREFS_KEY}`,
 );
 const TRANSCRIBE_URL = agentNativePath("/_agent-native/transcribe-voice");
+const GOOGLE_REALTIME_SESSION_URL = agentNativePath(
+  "/_agent-native/transcribe-stream/session",
+);
+const GOOGLE_REALTIME_WS_PROTOCOL = "google-realtime.v1";
 function isVoiceProvider(value: unknown): value is VoiceProvider {
   return (
     value === "auto" ||
     value === "openai" ||
     value === "browser" ||
+    value === "google-realtime" ||
     value === "builder-gemini" ||
     value === "builder" ||
     value === "gemini" ||
@@ -67,11 +76,7 @@ function normalizeProviderForMode(
   provider: VoiceProvider | null,
 ): VoiceProvider | null {
   if (mode === "mac-native") return "browser";
-  // The dedicated Google streaming endpoint is intentionally separate from
-  // the batch transcribe route. Until a client is wired to that WebSocket path,
-  // normalize saved Google realtime prefs to the existing auto batch fallback
-  // instead of trying to retrofit streaming into /transcribe-voice.
-  if (mode === "google-realtime") return "auto";
+  if (mode === "google-realtime") return "google-realtime";
   if (mode === "batch") {
     if (!provider || provider === "browser") return "auto";
     return provider === "builder" ? "builder-gemini" : provider;
@@ -204,6 +209,10 @@ export function useVoiceDictation(
   // Parallel live recognition for OpenAI mode (provides instant preview while MediaRecorder captures)
   const liveSpeechRef = useRef<any>(null);
   const liveTextRef = useRef<string>("");
+  const realtimeSocketRef = useRef<WebSocket | null>(null);
+  const realtimeFinalRef = useRef<string>("");
+  const realtimeInterimRef = useRef<string>("");
+  const realtimeStopTimeoutRef = useRef<number | null>(null);
 
   const mediaRecorderSupported =
     typeof window !== "undefined" &&
@@ -251,12 +260,27 @@ export function useVoiceDictation(
       }
       liveSpeechRef.current = null;
     }
+    if (realtimeSocketRef.current) {
+      const socket = realtimeSocketRef.current;
+      realtimeSocketRef.current = null;
+      try {
+        socket.close();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (realtimeStopTimeoutRef.current) {
+      clearTimeout(realtimeStopTimeoutRef.current);
+      realtimeStopTimeoutRef.current = null;
+    }
     analyserRef.current = null;
     mediaRecorderRef.current = null;
     chunksRef.current = [];
     speechRef.current = null;
     speechTranscriptRef.current = "";
     liveTextRef.current = "";
+    realtimeFinalRef.current = "";
+    realtimeInterimRef.current = "";
     setAmplitude(0);
   }, []);
 
@@ -519,6 +543,220 @@ export function useVoiceDictation(
     recognition.start();
   }, [startMeter, startTimer, teardown, failWith]);
 
+  const startGoogleRealtime = useCallback(async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (cancelledRef.current) {
+      for (const track of stream.getTracks()) track.stop();
+      cancelledRef.current = false;
+      setState("idle");
+      return;
+    }
+
+    const sessionRes = await fetch(GOOGLE_REALTIME_SESSION_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        language:
+          (typeof navigator !== "undefined" && navigator.language) || "en-US",
+      }),
+    });
+    const sessionBody = (await sessionRes
+      .json()
+      .catch(() => ({ error: `HTTP ${sessionRes.status}` }))) as {
+      websocketUrl?: string;
+      websocketProtocol?: string;
+      sessionToken?: string;
+      error?: string;
+    };
+    if (
+      !sessionRes.ok ||
+      !sessionBody.websocketUrl ||
+      !sessionBody.sessionToken
+    ) {
+      for (const track of stream.getTracks()) track.stop();
+      throw new Error(
+        sessionBody.error ||
+          `Could not start Google realtime transcription (${sessionRes.status})`,
+      );
+    }
+    if (cancelledRef.current) {
+      for (const track of stream.getTracks()) track.stop();
+      cancelledRef.current = false;
+      setState("idle");
+      return;
+    }
+
+    mediaStreamRef.current = stream;
+    const mimeType = pickMimeType();
+    const recorder = new MediaRecorder(stream, { mimeType });
+    mediaRecorderRef.current = recorder;
+    realtimeFinalRef.current = "";
+    realtimeInterimRef.current = "";
+
+    let finalized = false;
+    let recorderStarted = false;
+    const finish = (errorMessage?: string) => {
+      if (finalized) return;
+      finalized = true;
+      const finalText = realtimeFinalRef.current.trim();
+      const interimText = realtimeInterimRef.current.trim();
+      const text = [finalText, interimText].filter(Boolean).join(" ").trim();
+      teardown();
+      if (cancelledRef.current) {
+        cancelledRef.current = false;
+        setState("idle");
+        return;
+      }
+      if (text) {
+        onTranscriptRef.current?.(text);
+        setState("idle");
+        return;
+      }
+      if (errorMessage) {
+        failWith(errorMessage);
+        return;
+      }
+      setState("idle");
+    };
+
+    recorder.ondataavailable = async (event) => {
+      if (!event.data || event.data.size === 0) return;
+      const socket = realtimeSocketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      try {
+        socket.send(await event.data.arrayBuffer());
+      } catch (err) {
+        finish((err as Error)?.message ?? "Realtime audio upload failed");
+      }
+    };
+
+    recorder.onstop = () => {
+      const socket = realtimeSocketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        finish();
+        return;
+      }
+      setState("transcribing");
+      try {
+        socket.send(JSON.stringify({ type: "stop" }));
+      } catch {
+        finish();
+        return;
+      }
+      realtimeStopTimeoutRef.current = window.setTimeout(() => {
+        const activeSocket = realtimeSocketRef.current;
+        if (activeSocket?.readyState === WebSocket.OPEN) {
+          try {
+            activeSocket.close();
+          } catch {
+            finish();
+          }
+          return;
+        }
+        finish();
+      }, 10000);
+    };
+
+    const socket = new WebSocket(sessionBody.websocketUrl, [
+      sessionBody.websocketProtocol || GOOGLE_REALTIME_WS_PROTOCOL,
+      sessionBody.sessionToken,
+    ]);
+    socket.binaryType = "arraybuffer";
+    realtimeSocketRef.current = socket;
+
+    socket.onmessage = (event) => {
+      if (cancelledRef.current) {
+        finish();
+        return;
+      }
+      const raw =
+        typeof event.data === "string"
+          ? event.data
+          : event.data instanceof Blob
+            ? null
+            : new TextDecoder().decode(event.data);
+      if (!raw) return;
+      let message:
+        | {
+            type?: string;
+            text?: string;
+            error?: string;
+          }
+        | undefined;
+      try {
+        message = JSON.parse(raw);
+      } catch {
+        return;
+      }
+      if (!message?.type) return;
+      if (message.type === "ready") {
+        if (!recorderStarted) {
+          recorderStarted = true;
+          startMeter(stream);
+          startTimer();
+          setState("recording");
+          recorder.start(100);
+        }
+        return;
+      }
+      if (message.type === "partial") {
+        realtimeInterimRef.current = (message.text ?? "").trim();
+        onLiveUpdateRef.current?.(
+          realtimeFinalRef.current,
+          realtimeInterimRef.current,
+        );
+        return;
+      }
+      if (message.type === "final") {
+        const next = (message.text ?? "").trim();
+        if (next) {
+          realtimeFinalRef.current = [realtimeFinalRef.current.trim(), next]
+            .filter(Boolean)
+            .join(" ");
+        }
+        realtimeInterimRef.current = "";
+        onLiveUpdateRef.current?.(realtimeFinalRef.current, "");
+        return;
+      }
+      if (message.type === "error") {
+        finish(message.error || "Google realtime transcription failed");
+        return;
+      }
+      if (message.type === "end") {
+        finish();
+      }
+    };
+
+    socket.onerror = () => {
+      finish("Google realtime transcription connection failed");
+    };
+
+    socket.onclose = () => {
+      finish();
+    };
+
+    socket.onopen = () => {
+      if (cancelledRef.current) {
+        finish();
+        return;
+      }
+      try {
+        socket.send(
+          JSON.stringify({
+            type: "start",
+            language:
+              (typeof navigator !== "undefined" && navigator.language) ||
+              "en-US",
+            interimResults: true,
+            mimeType,
+          }),
+        );
+      } catch (err) {
+        finish((err as Error)?.message ?? "Could not start realtime stream");
+      }
+    };
+  }, [startMeter, startTimer, teardown, failWith]);
+
   const start = useCallback(async () => {
     if (state === "recording" || state === "starting") return;
     setErrorMessage(null);
@@ -550,22 +788,46 @@ export function useVoiceDictation(
           );
         }
         await startOpenAi(pref, prefs.instructions);
+      } else if (resolvedProvider === "google-realtime") {
+        if (!mediaRecorderSupported) {
+          throw new Error(
+            "Your browser doesn't support audio recording, so Google realtime transcription can't start.",
+          );
+        }
+        await startGoogleRealtime();
       } else {
         await startBrowser();
       }
     } catch (err) {
+      if (cancelledRef.current) {
+        cancelledRef.current = false;
+        teardown();
+        setState("idle");
+        return;
+      }
       const message =
         (err as Error)?.name === "NotAllowedError"
           ? "Microphone permission denied. Enable it in your browser settings."
           : ((err as Error)?.message ?? "Could not start recording");
       failWith(message);
     }
-  }, [state, mediaRecorderSupported, startOpenAi, startBrowser, failWith]);
+  }, [
+    state,
+    mediaRecorderSupported,
+    startOpenAi,
+    startGoogleRealtime,
+    startBrowser,
+    failWith,
+  ]);
 
   const stop = useCallback(() => {
     if (state !== "recording") return;
     cancelledRef.current = false;
-    if (activeProviderRef.current === "openai" && mediaRecorderRef.current) {
+    if (
+      (activeProviderRef.current === "openai" ||
+        activeProviderRef.current === "google-realtime") &&
+      mediaRecorderRef.current
+    ) {
       try {
         mediaRecorderRef.current.stop();
       } catch {
@@ -588,7 +850,11 @@ export function useVoiceDictation(
   const cancel = useCallback(() => {
     if (state !== "recording" && state !== "starting") return;
     cancelledRef.current = true;
-    if (activeProviderRef.current === "openai" && mediaRecorderRef.current) {
+    if (
+      (activeProviderRef.current === "openai" ||
+        activeProviderRef.current === "google-realtime") &&
+      mediaRecorderRef.current
+    ) {
       try {
         mediaRecorderRef.current.stop();
       } catch {

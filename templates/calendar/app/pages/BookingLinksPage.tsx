@@ -732,7 +732,27 @@ export default function BookingLinksPage({
   });
 
   const detailHeaderControls = useMemo(() => {
-    if (!selectedId) return null;
+    if (!selectedId) {
+      return {
+        left: (
+          <h1 className="text-lg font-semibold tracking-tight truncate">
+            Booking links
+          </h1>
+        ),
+        right:
+          activeTab === "links" ? (
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleCreate}
+              className="h-8 gap-2"
+            >
+              <IconPlus className="h-4 w-4" />
+              New booking link
+            </Button>
+          ) : null,
+      };
+    }
     return {
       left: (
         <button
@@ -801,6 +821,7 @@ export default function BookingLinksPage({
     updateBookingLink.isPending,
     hasUnsavedChanges,
     navigate,
+    activeTab,
   ]);
   useAppHeaderControls(detailHeaderControls);
 
@@ -1221,21 +1242,9 @@ export default function BookingLinksPage({
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Booking Links</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Create meeting types with public links and configure your
-            availability.
-          </p>
-        </div>
-        {activeTab === "links" && (
-          <Button onClick={handleCreate} className="gap-2">
-            <IconPlus className="h-4 w-4" />
-            New booking link
-          </Button>
-        )}
-      </div>
+      <p className="text-sm text-muted-foreground">
+        Create meeting types with public links and configure your availability.
+      </p>
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as Tab)}>
         <TabsList>

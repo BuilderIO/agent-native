@@ -172,8 +172,8 @@ export interface ListEventsResponse {
   nextPageToken?: string;
 }
 
-/** List events on a calendar. Throws on non-2xx. */
-export async function listEvents(
+/** Make a single events.list call (one page). Throws on non-2xx. */
+async function listEventsPage(
   args: ListEventsArgs,
 ): Promise<ListEventsResponse> {
   const calId = encodeURIComponent(args.calendarId ?? "primary");
@@ -199,6 +199,40 @@ export async function listEvents(
   return {
     items: json.items ?? [],
     nextPageToken: json.nextPageToken,
+  };
+}
+
+/**
+ * Hard cap on pages to fetch per `listEvents` call — protects against runaway
+ * pagination loops if Google ever returns a stuck `nextPageToken`. With the
+ * default `maxResults=250`, the cap allows up to 1250 events per sync window.
+ */
+const MAX_EVENT_PAGES = 5;
+
+/**
+ * List events on a calendar, transparently following `nextPageToken` until the
+ * page count cap is hit or the server stops returning a token. Throws on
+ * non-2xx. Returns the merged list; `nextPageToken` is only included when the
+ * cap was hit (so callers can decide whether to widen the time window).
+ */
+export async function listEvents(
+  args: ListEventsArgs,
+): Promise<ListEventsResponse> {
+  const merged: CalendarEvent[] = [];
+  let pageToken = args.pageToken;
+  let lastNextToken: string | undefined;
+  for (let page = 0; page < MAX_EVENT_PAGES; page++) {
+    const res = await listEventsPage({ ...args, pageToken });
+    if (res.items?.length) merged.push(...res.items);
+    lastNextToken = res.nextPageToken;
+    if (!lastNextToken) break;
+    pageToken = lastNextToken;
+  }
+  return {
+    items: merged,
+    // Only surface a token if we exited because of the page cap — otherwise the
+    // caller fetched everything available in the requested window.
+    nextPageToken: lastNextToken,
   };
 }
 

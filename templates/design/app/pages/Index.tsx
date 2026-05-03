@@ -34,7 +34,10 @@ import {
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
-import { useSetHeaderActions } from "@/components/layout/HeaderActions";
+import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@/components/layout/HeaderActions";
 
 type ProjectType = "prototype" | "other";
 
@@ -232,9 +235,11 @@ export default function Index() {
     });
   };
 
+  useSetPageTitle("Designs");
+
   useSetHeaderActions(
-    designs.length > 0 ? (
-      <div className="flex items-center gap-3">
+    <div className="flex items-center gap-3">
+      {designs.length > 0 ? (
         <div className="relative">
           <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
           <Input
@@ -244,12 +249,12 @@ export default function Index() {
             className="pl-8 h-8 w-48 bg-accent/50 border-border text-sm text-foreground/90 placeholder:text-muted-foreground/70"
           />
         </div>
-        <Button size="sm" onClick={openNewDesign} className="cursor-pointer">
-          <IconPlus className="w-3.5 h-3.5" />
-          New Design
-        </Button>
-      </div>
-    ) : null,
+      ) : null}
+      <Button size="sm" onClick={openNewDesign} className="cursor-pointer">
+        <IconPlus className="w-3.5 h-3.5" />
+        New Design
+      </Button>
+    </div>,
   );
 
   return (

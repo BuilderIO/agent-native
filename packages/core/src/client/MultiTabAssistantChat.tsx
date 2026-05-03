@@ -431,12 +431,6 @@ export function MultiTabAssistantChat({
           const gemini = builderModels.filter((m: string) =>
             m.startsWith("gemini-"),
           );
-          const other = builderModels.filter(
-            (m: string) =>
-              !m.startsWith("claude-") &&
-              !m.startsWith("gpt-") &&
-              !m.startsWith("gemini-"),
-          );
 
           groups = [
             ...(claude.length
@@ -465,16 +459,6 @@ export function MultiTabAssistantChat({
                     engine: "builder",
                     label: "Gemini",
                     models: gemini,
-                    configured: true,
-                  },
-                ]
-              : []),
-            ...(other.length
-              ? [
-                  {
-                    engine: "builder",
-                    label: "More",
-                    models: other,
                     configured: true,
                   },
                 ]

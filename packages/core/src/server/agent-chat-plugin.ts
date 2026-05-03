@@ -88,9 +88,11 @@ import { captureCliOutput } from "./cli-capture.js";
 import { withConfiguredAppBasePath } from "./app-base-path.js";
 import {
   appendA2AArtifactLinks,
+  buildA2ARecoverableArtifactMessage,
   type A2AArtifactResponseOptions,
   type A2AToolResultSummary,
 } from "../a2a/artifact-response.js";
+import { updateTaskStatusMessage } from "../a2a/task-store.js";
 import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
@@ -2776,6 +2778,7 @@ export function createAgentChatPlugin(
           // event stream so pre-tool narration never leaks as the A2A result.
           const a2aEvents: AgentChatEvent[] = [];
           const a2aToolResults: Array<{ tool: string; result: string }> = [];
+          let lastRecoverableArtifactText = "";
           const controller = new AbortController();
 
           console.log(
@@ -2798,6 +2801,31 @@ export function createAgentChatPlugin(
                   tool: event.tool,
                   result: event.result,
                 });
+                const recoverableArtifactText =
+                  buildA2ARecoverableArtifactMessage(a2aToolResults, {
+                    baseUrl: resolveArtifactBaseUrl(context.event),
+                  });
+                if (
+                  recoverableArtifactText &&
+                  recoverableArtifactText !== lastRecoverableArtifactText
+                ) {
+                  lastRecoverableArtifactText = recoverableArtifactText;
+                  updateTaskStatusMessage(context.taskId, {
+                    role: "agent",
+                    metadata: { agentNativeRecoverableArtifacts: true },
+                    parts: [
+                      {
+                        type: "text",
+                        text: recoverableArtifactText,
+                      },
+                    ],
+                  }).catch((err) => {
+                    console.error(
+                      `[A2A] Failed to persist recoverable artifact message for task ${context.taskId}:`,
+                      err,
+                    );
+                  });
+                }
               } else if (event.type === "error") {
                 console.error(`[A2A] Error: ${event.error}`);
               } else if (event.type === "done") {

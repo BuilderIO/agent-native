@@ -202,9 +202,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           <div className="flex flex-1 flex-col overflow-hidden">
             <header className="flex h-12 items-center justify-between gap-3 border-b border-border px-3 shrink-0">
               <div className="flex min-w-0 flex-1 items-center gap-2">
-                {headerControls ? (
-                  headerControls.left
-                ) : (
+                {headerControls?.left ?? (
                   <div className="flex items-center lg:hidden">
                     <Button
                       variant="ghost"
@@ -219,14 +217,9 @@ export function AppLayout({ children }: AppLayoutProps) {
                 )}
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                {headerControls ? (
-                  headerControls.right
-                ) : (
-                  <>
-                    <NotificationsBell />
-                    <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
-                  </>
-                )}
+                {headerControls?.right}
+                <NotificationsBell />
+                <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
               </div>
             </header>
 

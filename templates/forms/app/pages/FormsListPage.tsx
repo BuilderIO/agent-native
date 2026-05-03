@@ -28,7 +28,10 @@ import {
 } from "@/hooks/use-forms";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
-import { useSetHeaderActions } from "@/components/layout/HeaderActions";
+import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@/components/layout/HeaderActions";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -57,6 +60,8 @@ export function FormsListPage() {
       { onSuccess: (form) => navigate(`/forms/${form.id}`, { replace: true }) },
     );
   }
+
+  useSetPageTitle("Forms");
 
   const headerActions = useMemo(
     () => (

@@ -30,10 +30,10 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
-    const clientId = process.env.GOOGLE_CALENDAR_CLIENT_ID;
+    const clientId = process.env.GOOGLE_CLIENT_ID;
     if (!clientId) {
       throw new Error(
-        "GOOGLE_CALENDAR_CLIENT_ID is not set. Ask the user to configure Google Calendar OAuth credentials in settings.",
+        "GOOGLE_CLIENT_ID is not set. Ask the user to configure Google Calendar OAuth credentials in settings.",
       );
     }
     const userEmail = getRequestUserEmail();

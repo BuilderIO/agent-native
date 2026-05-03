@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { IconWand, IconLoader2, IconPhoto } from "@tabler/icons-react";
+import { IconLoader2, IconPhoto } from "@tabler/icons-react";
 import {
   Dialog,
   DialogContent,
@@ -85,7 +85,6 @@ export default function GenerateSlidesDialog({
       <DialogContent className="bg-card border-border max-w-lg">
         <DialogHeader>
           <DialogTitle className="text-foreground flex items-center gap-2">
-            <IconWand className="w-5 h-5 text-[#609FF8]" />
             Generate Slides with AI
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
@@ -233,10 +232,7 @@ export default function GenerateSlidesDialog({
                 Generating slides...
               </>
             ) : (
-              <>
-                <IconWand className="w-4 h-4" />
-                Generate Slides
-              </>
+              <>Generate Slides</>
             )}
           </button>
         </div>

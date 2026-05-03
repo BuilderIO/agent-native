@@ -34,14 +34,14 @@ import {
 } from "../../../lib/google-calendar-client.js";
 
 export default defineEventHandler(async (event: H3Event) => {
-  const clientId = process.env.GOOGLE_CALENDAR_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CALENDAR_CLIENT_SECRET;
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
     setResponseStatus(event, 422);
     return {
       error: "missing_credentials",
       message:
-        "Google Calendar OAuth is not configured. Set GOOGLE_CALENDAR_CLIENT_ID and GOOGLE_CALENDAR_CLIENT_SECRET in your environment, or paste them in the agent settings.",
+        "Google Calendar OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your environment, or paste them in the agent settings.",
     };
   }
 

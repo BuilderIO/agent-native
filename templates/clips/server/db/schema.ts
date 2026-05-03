@@ -2,6 +2,7 @@ import {
   table,
   text,
   integer,
+  real,
   now,
   ownableColumns,
   createSharesTable,
@@ -465,6 +466,29 @@ export const dictations = table("clips_dictations", {
 });
 
 export const dictationShares = createSharesTable("clips_dictation_shares");
+
+/**
+ * Personal vocabulary — words/phrases the user has corrected post-paste in a
+ * dictation. The renderer monitors the focused field for ~10s after a Wispr
+ * paste; on detected diff, it records a `{term, replacement}` pair here.
+ * Future dictations bias `SFSpeechRecognizer.contextualStrings` toward the
+ * `replacement` so the recognizer prefers the user's preferred spelling.
+ *
+ * Per-user via `ownableColumns()`. Confidence is a 0..1 float that can be
+ * boosted as a term gets reused (`uses_count`).
+ */
+export const vocabulary = table("clips_vocabulary", {
+  id: text("id").primaryKey(),
+  term: text("term").notNull(),
+  replacement: text("replacement").notNull(),
+  confidence: real("confidence").notNull().default(0.5),
+  usesCount: integer("uses_count").notNull().default(1),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  ...ownableColumns(),
+});
+
+export const vocabularyShares = createSharesTable("clips_vocabulary_shares");
 
 export const recordingEvents = table("recording_events", {
   id: text("id").primaryKey(),
