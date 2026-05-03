@@ -383,6 +383,8 @@ describe("workspace deploy", () => {
     expect(redirects).toContain("/apps /dispatch/apps 302");
     expect(redirects).toContain("/apps/new-app /dispatch/new-app 302");
     expect(redirects).toContain("/new-app /dispatch/new-app 302");
+    expect(redirects).toContain("/approval /dispatch/approval 302");
+    expect(redirects).toContain("/tools /dispatch/tools 302");
     expect(redirects).not.toMatch(/^\/dispatch\/\* .* 200$/m);
     expect(redirects).not.toMatch(/^\/starter .* 200$/m);
     expect(redirects).not.toMatch(/^\/starter\/\* .* 200$/m);
@@ -590,6 +592,9 @@ describe("workspace deploy", () => {
     expect(routes.include).toContain("/_agent-native/*");
     expect(routes.include).toContain("/.well-known/*");
     expect(routes.include).toContain("/favicon.ico");
+    expect(routes.include).toContain("/approval");
+    expect(routes.include).toContain("/tools");
+    expect(routes.include).toContain("/apps/new-app");
     expect(routes.include).toContain("/dispatch/*");
     expect(routes.include).toContain("/starter/*");
 
@@ -605,6 +610,15 @@ describe("workspace deploy", () => {
     );
     expect(worker).toContain(
       'if (pathname === "/favicon.ico") return Response.redirect(new URL("/dispatch/favicon.ico", request.url).toString(), 302);',
+    );
+    expect(worker).toContain(
+      'if (pathname === "/approval") return Response.redirect(new URL("/dispatch/approval" + search, request.url).toString(), 302);',
+    );
+    expect(worker).toContain(
+      'if (pathname === "/tools") return Response.redirect(new URL("/dispatch/tools" + search, request.url).toString(), 302);',
+    );
+    expect(worker).toContain(
+      'if (pathname === "/apps/new-app") return Response.redirect(new URL("/dispatch/new-app" + search, request.url).toString(), 302);',
     );
     expect(worker).toContain(
       'if (pathname === "/dispatch" || pathname.startsWith("/dispatch/")) return app_dispatch.fetch(request, env, ctx);',

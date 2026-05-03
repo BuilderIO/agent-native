@@ -37,13 +37,30 @@ the shared package (`@{{APP_NAME}}/shared`).
 
 ```bash
 pnpm install
-cp .env.example .env   # fill in DATABASE_URL, BETTER_AUTH_SECRET, ANTHROPIC_API_KEY
+cp .env.example .env   # fill in DATABASE_URL, BETTER_AUTH_SECRET, and an LLM provider key
+pnpm repair:workspace-org -- --name "Example Co" --domain example.com --owner-email owner@example.com
 pnpm dev               # starts the workspace gateway and opens Dispatch
 ```
 
 The dev gateway serves Dispatch at `/dispatch` and every app at its own path
 such as `/starter`. It watches `apps/`, so newly-created apps are detected and
 started without restarting `pnpm dev`.
+
+## Workspace org identity
+
+Set these root `.env` values before production deploys or when repairing
+cross-app trust:
+
+- `WORKSPACE_ORG_NAME` — the organization name users should see.
+- `WORKSPACE_ORG_DOMAIN` — the bare email/domain claim used for org matching.
+- `WORKSPACE_OWNER_EMAIL` — the owner/admin email to use for bootstrap or
+  integration fallback.
+- `A2A_SECRET` — shared signing secret for cross-app A2A calls.
+
+Run `pnpm repair:workspace-org -- --name "<org>" --domain example.com --owner-email owner@example.com`
+to fill or validate those values without committing secrets. Existing
+organization rows should still be repaired through the app's org settings UI or
+authenticated org routes whenever possible.
 
 ## Adding a new app
 

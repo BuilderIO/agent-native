@@ -229,6 +229,9 @@ async function scaffoldWorkspaceRoot(
 
   // Ensure apps/ exists (even if empty).
   fs.mkdirSync(path.join(targetDir, "apps"), { recursive: true });
+
+  // Root-level agent instructions apply before an agent descends into an app.
+  setupAgentSymlinks(targetDir);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────

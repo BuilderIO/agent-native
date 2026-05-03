@@ -41,7 +41,9 @@ describe("dispatch pre-auth routing", () => {
     expect(rootDispatchRedirect("/dispatch/overview", "")).toBeNull();
     expect(rootDispatchRedirect("/dispatch/approval", "?id=req-1")).toBeNull();
     expect(rootDispatchRedirect("/dispatch/tools", "")).toBeNull();
+    expect(rootDispatchRedirect("/dispatch/tools/", "")).toBeNull();
     expect(rootDispatchRedirect("/dispatch/tools/tool-123", "")).toBeNull();
+    expect(rootDispatchRedirect("/dispatch/tools/tool-123/", "")).toBeNull();
   });
 
   it("still redirects root dispatch aliases to the mounted overview route", () => {
@@ -51,5 +53,36 @@ describe("dispatch pre-auth routing", () => {
 
     expect(response?.status).toBe(302);
     expect(response?.headers.get("location")).toBe("/dispatch/apps?tab=all");
+  });
+
+  it("redirects embedded root aliases to mounted Dispatch routes", () => {
+    useDispatchBasePath();
+
+    const approval = rootDispatchRedirect("/approval", "?id=req-1");
+    const tools = rootDispatchRedirect("/tools", "");
+    const toolsTrailingSlash = rootDispatchRedirect("/tools/", "");
+
+    expect(approval?.status).toBe(302);
+    expect(approval?.headers.get("location")).toBe(
+      "/dispatch/approval?id=req-1",
+    );
+    expect(tools?.status).toBe(302);
+    expect(tools?.headers.get("location")).toBe("/dispatch/tools");
+    expect(toolsTrailingSlash?.status).toBe(302);
+    expect(toolsTrailingSlash?.headers.get("location")).toBe("/dispatch/tools");
+  });
+
+  it("redirects the mounted app-creation alias to the actual route", () => {
+    useDispatchBasePath();
+
+    const response = rootDispatchRedirect(
+      "/dispatch/apps/new-app/",
+      "?from=apps",
+    );
+
+    expect(response?.status).toBe(302);
+    expect(response?.headers.get("location")).toBe(
+      "/dispatch/new-app?from=apps",
+    );
   });
 });

@@ -20,7 +20,9 @@ describe("workspace app id validation", () => {
     for (const appId of [
       "dispatch",
       "apps",
+      "approval",
       "login",
+      "tools",
       "_agent-native",
       "api",
       "auth",

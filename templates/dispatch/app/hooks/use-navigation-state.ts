@@ -85,6 +85,7 @@ function resolveView(pathname: string): string {
   if (pathname.startsWith("/integrations")) return "integrations";
   if (pathname.startsWith("/workspace")) return "workspace";
   if (pathname.startsWith("/agents")) return "agents";
+  if (pathname.startsWith("/messaging")) return "messaging";
   if (pathname.startsWith("/destinations")) return "destinations";
   if (pathname.startsWith("/identities")) return "identities";
   if (pathname.startsWith("/approvals")) return "approvals";
@@ -112,8 +113,9 @@ function resolvePath(view?: string): string | undefined {
       return "/workspace";
     case "agents":
       return "/agents";
-    case "destinations":
     case "messaging":
+      return "/messaging";
+    case "destinations":
     case "routes":
       return "/destinations";
     case "identities":
