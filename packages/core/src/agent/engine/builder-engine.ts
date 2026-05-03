@@ -32,6 +32,10 @@ import {
   normalizeReasoningEffortForModel,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "./credential-errors.js";
 
 export const BUILDER_CAPABILITIES: EngineCapabilities = {
   thinking: true,
@@ -125,8 +129,8 @@ class BuilderEngine implements AgentEngine {
       yield {
         type: "stop",
         reason: "error",
-        error: "BUILDER_PRIVATE_KEY is not set",
-        errorCode: "missing_credentials",
+        error: LLM_MISSING_CREDENTIALS_MESSAGE,
+        errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
       };
       return;
     }

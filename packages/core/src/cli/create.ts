@@ -1102,9 +1102,9 @@ function rewriteNetlifyToml(
         ? `APP_BASE_PATH=/${appName} VITE_APP_BASE_PATH=/${appName} NITRO_PRESET=netlify pnpm --filter ${appName} build`
         : "NITRO_PRESET=netlify pnpm build";
     const databaseSetup =
-      "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL}";
+      'export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\"';
     const buildDatabasePrefix = usesUnpooledDatabase
-      ? "DATABASE_URL=${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL} "
+      ? 'DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" '
       : "";
     const command = `${databaseSetup} && ${buildDatabasePrefix}${buildCommand}`;
     const publishPath = mode === "workspace" ? `apps/${appName}/dist` : "dist";

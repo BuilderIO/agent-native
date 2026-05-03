@@ -290,11 +290,13 @@ describe("workspace scaffold defaults", () => {
 
     const netlify = fs.readFileSync(path.join(wsDir, "netlify.toml"), "utf-8");
     expect(netlify).toContain(
-      "pnpm exec agent-native deploy --preset netlify --build-only",
+      'export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && pnpm install && pnpm exec agent-native deploy --preset netlify --build-only',
     );
     expect(netlify).toContain('publish = "dist"');
     expect(netlify).toContain('functions = ".netlify/functions-internal"');
     expect(netlify).toContain('NITRO_PRESET = "netlify"');
+    expect(netlify).toContain('[functions."*"]');
+    expect(netlify).toContain("  timeout = 60");
 
     const gitignore = fs.readFileSync(path.join(wsDir, ".gitignore"), "utf-8");
     expect(gitignore).toContain(".netlify/");
@@ -353,7 +355,7 @@ describe("Netlify scaffold rewrite", () => {
     };
 
     expect(netlify).toContain(
-      'command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && APP_BASE_PATH=/dispatch VITE_APP_BASE_PATH=/dispatch NITRO_PRESET=netlify pnpm --filter dispatch build"',
+      'command = "export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && APP_BASE_PATH=/dispatch VITE_APP_BASE_PATH=/dispatch NITRO_PRESET=netlify pnpm --filter dispatch build"',
     );
     expect(netlify).not.toContain("pnpm install");
     expect(netlify).toContain('publish = "apps/dispatch/dist"');
@@ -389,7 +391,7 @@ describe("Netlify scaffold rewrite", () => {
 
     const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
     expect(netlify).toContain(
-      'command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && DATABASE_URL=${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL} NITRO_PRESET=netlify pnpm build"',
+      'command = "export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" NITRO_PRESET=netlify pnpm build"',
     );
     expect(netlify).not.toContain("pnpm install");
     expect(netlify).toContain('publish = "dist"');
@@ -414,7 +416,7 @@ describe("Netlify scaffold rewrite", () => {
 
     const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
     expect(netlify).toContain(
-      'command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && APP_BASE_PATH=/starter VITE_APP_BASE_PATH=/starter NITRO_PRESET=netlify pnpm --filter starter build"',
+      'command = "export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && APP_BASE_PATH=/starter VITE_APP_BASE_PATH=/starter NITRO_PRESET=netlify pnpm --filter starter build"',
     );
     expect(netlify).toContain('  APP_BASE_PATH = "/starter"');
     expect(netlify).toContain('  VITE_APP_BASE_PATH = "/starter"');
