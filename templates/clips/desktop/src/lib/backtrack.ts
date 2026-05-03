@@ -43,7 +43,8 @@ const NEW_PARAGRAPH_PHRASES = ["new paragraph"];
 // Filler that may precede a backtrack phrase. We allow a leading
 // "um, ", "uh, ", "okay, " etc. so a natural utterance like
 // "um, scratch that, let's say tomorrow" still triggers.
-const LEADING_FILLER = /(?:^|[,. ]\s*)(?:um[,.]?|uh[,.]?|hmm[,.]?|okay[,.]?|like[,.]?)\s*/gi;
+const LEADING_FILLER =
+  /(?:^|[,. ]\s*)(?:um[,.]?|uh[,.]?|hmm[,.]?|okay[,.]?|like[,.]?)\s*/gi;
 
 const PUNCTUATION_BY_NAME: Array<[RegExp, string]> = [
   [/\b(period|full stop)\b/gi, "."],

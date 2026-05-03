@@ -78,6 +78,7 @@ pub fn run() {
             native_speech::native_speech_start,
             native_speech::native_speech_stop,
             native_speech::native_speech_cancel,
+            native_speech::native_speech_set_vocabulary,
             // recording indicator pill
             recording_indicator::recording_pill_show,
             recording_indicator::recording_pill_expand,

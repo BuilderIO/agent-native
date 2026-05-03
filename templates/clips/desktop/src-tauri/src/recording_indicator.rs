@@ -178,7 +178,7 @@ fn pill_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
 }
 
 /// Default top-right anchor (physical px) for detached mode.
-fn default_top_right(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
+fn default_top_right(app: &AppHandle, w: u32, _h: u32) -> (i32, i32) {
     let scale = scale_factor(app);
     let top_margin = (PILL_DETACHED_TOP_MARGIN_LOGICAL as f64 * scale) as i32;
     let right_margin = (PILL_DETACHED_RIGHT_MARGIN_LOGICAL as f64 * scale) as i32;

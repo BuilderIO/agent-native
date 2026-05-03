@@ -332,11 +332,35 @@ pub(crate) mod macos {
         }
     }
 
+    /// Pending personal-vocabulary list staged by
+    /// `native_speech_set_vocabulary`. Consumed (taken) by the next
+    /// `native_speech_start_impl` call.
+    fn pending_vocabulary_slot() -> &'static Mutex<Vec<String>> {
+        static SLOT: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+        SLOT.get_or_init(|| Mutex::new(Vec::new()))
+    }
+
+    pub fn set_pending_vocabulary(strings: Vec<String>) {
+        if let Ok(mut slot) = pending_vocabulary_slot().lock() {
+            *slot = strings;
+        }
+    }
+
+    fn take_pending_vocabulary() -> Vec<String> {
+        pending_vocabulary_slot()
+            .lock()
+            .map(|mut s| std::mem::take(&mut *s))
+            .unwrap_or_default()
+    }
+
     pub async fn native_speech_start_impl(
         app: AppHandle,
         locale: Option<String>,
-        contextual_strings: Option<Vec<String>>,
     ) -> Result<(), String> {
+        let contextual_strings: Option<Vec<String>> = {
+            let v = take_pending_vocabulary();
+            if v.is_empty() { None } else { Some(v) }
+        };
         // Cancel any prior session first — there's only one mic tap per input
         // node, and we want a deterministic state going in.
         {
