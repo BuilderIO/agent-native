@@ -24,6 +24,8 @@ import { cn } from "../utils.js";
 import { TiptapComposer, type TiptapComposerHandle } from "./TiptapComposer.js";
 import type { Reference } from "./types.js";
 import { useChatModels } from "../use-chat-models.js";
+import { isPastedTextAttachmentName } from "./pasted-text.js";
+import { PastedTextChip } from "./PastedTextChip.js";
 
 /**
  * Files the user attached via the "+" button in PromptComposer. The host owns
@@ -45,11 +47,11 @@ export interface PromptComposerProps {
   className?: string;
   /** Forwarded to TiptapComposer for draft persistence. */
   draftScope?: string;
-  /** Show the model selector (default: false). */
+  /** Show the model selector (default: true). */
   showModelSelector?: boolean;
   /** Show the voice dictation button (default: true). */
   voiceEnabled?: boolean;
-  /** Show file upload controls and pass submitted files to onSubmit. */
+  /** Show file upload controls and pass submitted files to onSubmit (default: true). */
   attachmentsEnabled?: boolean;
   /** Imperative handle for focusing the composer. */
   composerRef?: Ref<TiptapComposerHandle>;
@@ -123,6 +125,10 @@ function AttachmentChip({
     [src],
   );
 
+  if (isPastedTextAttachmentName(attachment.name)) {
+    return <PastedTextChip attachment={attachment} onRemove={onRemove} />;
+  }
+
   if (src) {
     return (
       <div className="group relative h-16 w-16 overflow-hidden rounded-lg border border-border/70 bg-muted/50">
@@ -193,9 +199,9 @@ function PromptComposerInner({
   autoFocus,
   className,
   draftScope,
-  showModelSelector,
+  showModelSelector = true,
   voiceEnabled = true,
-  attachmentsEnabled = false,
+  attachmentsEnabled = true,
   composerRef,
 }: PromptComposerProps) {
   const localRef = useRef<TiptapComposerHandle>(null);

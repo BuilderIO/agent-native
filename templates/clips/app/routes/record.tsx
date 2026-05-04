@@ -300,6 +300,27 @@ export default function RecordRoute() {
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Could not start recording";
+        // If the recording row was created before the failure (i.e. media
+        // acquisition failed *after* create-recording), trash it so it
+        // doesn't sit in the library forever in 'uploading' status. This
+        // is the bug that produced "stuck UPLOADING" cards from failed
+        // record attempts.
+        const orphan = pendingRef.current;
+        if (orphan?.id) {
+          fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: orphan.id }),
+          }).catch(() => {});
+        }
+        // Release any tracks the engine grabbed before failing.
+        try {
+          await engineRef.current?.cancel();
+        } catch {
+          // ignore
+        }
+        pendingRef.current = null;
+        engineRef.current = null;
         setError(message);
         setUiState("error");
         if (
@@ -311,6 +332,181 @@ export default function RecordRoute() {
       }
     },
     [],
+  );
+
+  // -------------------------------------------------------------------------
+  // Upload a local video file as a Clip.
+  // Reads metadata via a hidden <video>, creates the recording row, then
+  // streams the file to /api/uploads/:id/chunk in 5MB slices (the chunk
+  // route caps at 6MB) with isFinal=1 on the last slice. Mirrors the
+  // recorder's upload pipeline so finalize-recording handles it identically.
+  // -------------------------------------------------------------------------
+  const UPLOAD_CHUNK_BYTES = 5 * 1024 * 1024; // 5 MiB; chunk route allows up to 6.
+
+  const probeVideoMetadata = useCallback(
+    (
+      file: File,
+    ): Promise<{ durationMs: number; width: number; height: number }> => {
+      return new Promise((resolve) => {
+        const url = URL.createObjectURL(file);
+        const video = document.createElement("video");
+        video.preload = "metadata";
+        video.muted = true;
+        const cleanup = () => {
+          URL.revokeObjectURL(url);
+        };
+        video.onloadedmetadata = () => {
+          resolve({
+            durationMs: Math.round((video.duration || 0) * 1000),
+            width: video.videoWidth || 0,
+            height: video.videoHeight || 0,
+          });
+          cleanup();
+        };
+        video.onerror = () => {
+          resolve({ durationMs: 0, width: 0, height: 0 });
+          cleanup();
+        };
+        video.src = url;
+      });
+    },
+    [],
+  );
+
+  const uploadFile = useCallback(
+    async (file: File) => {
+      setError(null);
+      setUiState("uploading");
+
+      const acceptedMime = new Set([
+        "video/mp4",
+        "video/webm",
+        "video/quicktime",
+      ]);
+      const baseType = (file.type || "").split(";")[0]?.trim().toLowerCase();
+      let mimeType = baseType && acceptedMime.has(baseType) ? baseType : null;
+      // Fallback by extension when the browser doesn't provide a type
+      // (rare on macOS .mov files dragged from Finder).
+      if (!mimeType) {
+        const lower = file.name.toLowerCase();
+        if (lower.endsWith(".mp4")) mimeType = "video/mp4";
+        else if (lower.endsWith(".webm")) mimeType = "video/webm";
+        else if (lower.endsWith(".mov")) mimeType = "video/quicktime";
+      }
+      if (!mimeType) {
+        const message =
+          "That file type isn't supported. Try MP4, WebM, or MOV.";
+        setError(message);
+        setUiState("error");
+        toast.error(message);
+        return;
+      }
+
+      let createdId: string | null = null;
+      try {
+        const meta = await probeVideoMetadata(file);
+
+        const res = await fetch(
+          agentNativePath("/_agent-native/actions/create-recording"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title: file.name.replace(/\.[^/.]+$/, "") || "Untitled recording",
+              hasCamera: false,
+              hasAudio: true,
+              width: meta.width,
+              height: meta.height,
+            }),
+          },
+        );
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403) {
+            throw new Error("SESSION_EXPIRED");
+          }
+          const body = (await res.json().catch(() => null)) as {
+            error?: string;
+          } | null;
+          throw new Error(
+            body?.error ?? `create-recording failed (${res.status})`,
+          );
+        }
+        const created = (await res.json()) as {
+          result?: { id: string; uploadChunkUrl: string };
+          id?: string;
+          uploadChunkUrl?: string;
+        };
+        const info =
+          created.result ?? (created as { id: string; uploadChunkUrl: string });
+        if (!info?.id) {
+          throw new Error("create-recording did not return an id");
+        }
+        createdId = info.id;
+        const uploadBase = `${appBasePath()}${info.uploadChunkUrl}`;
+
+        const totalChunks = Math.max(
+          1,
+          Math.ceil(file.size / UPLOAD_CHUNK_BYTES),
+        );
+        for (let i = 0; i < totalChunks; i++) {
+          const start = i * UPLOAD_CHUNK_BYTES;
+          const end = Math.min(start + UPLOAD_CHUNK_BYTES, file.size);
+          const slice = file.slice(start, end, mimeType);
+          const isFinal = i === totalChunks - 1;
+          const params = new URLSearchParams({
+            index: String(i),
+            total: String(totalChunks),
+            isFinal: isFinal ? "1" : "0",
+            mimeType,
+          });
+          if (isFinal) {
+            params.set("durationMs", String(meta.durationMs));
+            params.set("width", String(meta.width));
+            params.set("height", String(meta.height));
+            params.set("hasAudio", "1");
+            params.set("hasCamera", "0");
+          }
+          const chunkRes = await fetch(`${uploadBase}?${params.toString()}`, {
+            method: "POST",
+            headers: { "Content-Type": mimeType },
+            body: await slice.arrayBuffer(),
+          });
+          if (!chunkRes.ok) {
+            const text = await chunkRes.text().catch(() => "");
+            throw new Error(
+              `Upload failed at chunk ${i + 1}/${totalChunks}: ${
+                text || chunkRes.statusText
+              }`,
+            );
+          }
+        }
+
+        setUiState("complete");
+        toast.success("Video uploaded");
+        await writeAppState("navigate", {
+          view: "recording",
+          recordingId: createdId,
+        });
+        setTimeout(() => {
+          if (createdId) navigate(`/r/${createdId}`);
+        }, 50);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Upload failed";
+        // Trash the orphaned row so it doesn't sit in the library forever
+        // in 'uploading' status.
+        if (createdId) {
+          fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: createdId }),
+          }).catch(() => {});
+        }
+        setError(message);
+        setUiState("error");
+        if (message !== "SESSION_EXPIRED") toast.error(message);
+      }
+    },
+    [navigate, probeVideoMetadata],
   );
 
   // -------------------------------------------------------------------------
@@ -602,8 +798,11 @@ export default function RecordRoute() {
   // `/record` is a fullscreen route outside the `_app` shell, so it has no
   // sidebar back-affordance. Surface a back arrow whenever there's nothing in
   // flight — during recording/countdown/uploading the toolbar's stop flow is
-  // the exit path.
-  const showBackButton = uiState === "idle" || uiState === "error";
+  // the exit path. `pickingSources` is included so users aren't trapped
+  // when the browser's permission/source dialog hangs or they want to bail
+  // out before granting access.
+  const showBackButton =
+    uiState === "idle" || uiState === "error" || uiState === "pickingSources";
 
   return (
     <div className="relative min-h-screen bg-background">
@@ -644,7 +843,7 @@ export default function RecordRoute() {
               </span>
             </div>
             {storageConfigured === null ? null : storageConfigured ? (
-              <PreRecordPanel onStart={startFlow} />
+              <PreRecordPanel onStart={startFlow} onUpload={uploadFile} />
             ) : (
               <StorageSetupCard
                 onConfigured={() => setStorageConfigured(true)}

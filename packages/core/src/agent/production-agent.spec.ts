@@ -12,6 +12,7 @@ import type { AgentEngine, EngineEvent } from "./engine/types.js";
 function actionEntry(opts: {
   description?: string;
   readOnly?: boolean;
+  parallelSafe?: boolean;
   actions?: string[];
 }): ActionEntry {
   return {
@@ -34,6 +35,9 @@ function actionEntry(opts: {
           },
     },
     ...(typeof opts.readOnly === "boolean" ? { readOnly: opts.readOnly } : {}),
+    ...(typeof opts.parallelSafe === "boolean"
+      ? { parallelSafe: opts.parallelSafe }
+      : {}),
     run: async (args) => `ran:${JSON.stringify(args)}`,
   };
 }
@@ -257,6 +261,182 @@ describe("runAgentLoop", () => {
     });
 
     expect(order).toEqual(["a:start", "a:end", "b:start", "b:end"]);
+  });
+
+  it("runs parallel-safe mutating tool calls concurrently", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "tool-a",
+                name: "write-a",
+                input: {},
+              },
+              {
+                type: "tool-call" as const,
+                id: "tool-b",
+                name: "write-b",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    let active = 0;
+    let maxActive = 0;
+    const run = async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active -= 1;
+      return "ok";
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "write-a": {
+          ...actionEntry({ readOnly: false, parallelSafe: true }),
+          run,
+        },
+        "write-b": {
+          ...actionEntry({ readOnly: false, parallelSafe: true }),
+          run,
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(maxActive).toBe(2);
+  });
+
+  it("keeps reads ordered around parallel-safe mutating batches", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "tool-a",
+                name: "write-a",
+                input: {},
+              },
+              {
+                type: "tool-call" as const,
+                id: "tool-read",
+                name: "read-state",
+                input: {},
+              },
+              {
+                type: "tool-call" as const,
+                id: "tool-b",
+                name: "write-b",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const order: string[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "write-a": {
+          ...actionEntry({ readOnly: false, parallelSafe: true }),
+          run: async () => {
+            order.push("a:start");
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            order.push("a:end");
+            return "a";
+          },
+        },
+        "read-state": {
+          ...actionEntry({ readOnly: true }),
+          run: async () => {
+            order.push("read:start");
+            order.push("read:end");
+            return "read";
+          },
+        },
+        "write-b": {
+          ...actionEntry({ readOnly: false, parallelSafe: true }),
+          run: async () => {
+            order.push("b:start");
+            order.push("b:end");
+            return "b";
+          },
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(order).toEqual([
+      "a:start",
+      "a:end",
+      "read:start",
+      "read:end",
+      "b:start",
+      "b:end",
+    ]);
   });
 
   it("emits loop_limit with the configured max iteration count", async () => {

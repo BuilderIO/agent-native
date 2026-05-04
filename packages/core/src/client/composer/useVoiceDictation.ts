@@ -109,6 +109,7 @@ export interface VoiceDictationApi {
   start: () => Promise<void>;
   stop: () => void;
   cancel: () => void;
+  dismissError: () => void;
 }
 
 async function readVoicePrefs(): Promise<VoicePrefs> {
@@ -871,6 +872,23 @@ export function useVoiceDictation(
     setState("idle");
   }, [state, teardown]);
 
+  // Auto-dismiss error after 8s so a stale "permission denied" message doesn't
+  // sit forever after the user fixes the underlying permission. Manual dismiss
+  // (via dismissError) and click-to-retry both also clear the error sooner.
+  useEffect(() => {
+    if (state !== "error") return;
+    const handle = setTimeout(() => {
+      setErrorMessage(null);
+      setState("idle");
+    }, 8000);
+    return () => clearTimeout(handle);
+  }, [state]);
+
+  const dismissError = useCallback(() => {
+    setErrorMessage(null);
+    if (state === "error") setState("idle");
+  }, [state]);
+
   return {
     state,
     amplitude,
@@ -881,5 +899,6 @@ export function useVoiceDictation(
     start,
     stop,
     cancel,
+    dismissError,
   };
 }

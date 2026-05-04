@@ -84,6 +84,12 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
 
+  // Routes whose page renders its own h-12 toolbar (with NotificationsBell +
+  // AgentToggleButton). Layout still mounts Sidebar + AgentSidebar, but skips
+  // its own header so there's no double-header.
+  const pageOwnsToolbar =
+    location.pathname === "/tools" || location.pathname.startsWith("/tools/");
+
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
@@ -302,21 +308,23 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
 
             {/* Main content area */}
             <div className="flex min-w-0 flex-1 flex-col">
-              <header className="flex min-h-[52px] items-center gap-3 border-b border-border px-5 py-2">
-                <button
-                  onClick={() => setSidebarOpen(true)}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground md:hidden"
-                >
-                  <IconMenu2 className="h-4 w-4" />
-                </button>
-                <div
-                  ref={setHeaderSlot}
-                  className="flex min-w-0 flex-1 flex-wrap items-center gap-3"
-                />
-                <div className="ml-auto flex items-center gap-2">
-                  <AgentToggleButton />
-                </div>
-              </header>
+              {!pageOwnsToolbar && (
+                <header className="flex min-h-[52px] items-center gap-3 border-b border-border px-5 py-2">
+                  <button
+                    onClick={() => setSidebarOpen(true)}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground md:hidden"
+                  >
+                    <IconMenu2 className="h-4 w-4" />
+                  </button>
+                  <div
+                    ref={setHeaderSlot}
+                    className="flex min-w-0 flex-1 flex-wrap items-center gap-3"
+                  />
+                  <div className="ml-auto flex items-center gap-2">
+                    <AgentToggleButton />
+                  </div>
+                </header>
+              )}
               {shouldShowPromo && (
                 <div className="flex items-center gap-3 border-b border-border bg-primary/5 px-5 py-2.5 text-sm">
                   <IconAppWindow className="h-4 w-4 shrink-0 text-primary" />

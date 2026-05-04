@@ -277,8 +277,19 @@ export function useEmails(
     // refetchOnWindowFocus stays off: with useInfiniteQuery it replays every
     // cached page (50+ Gmail calls each) on tab focus and trips the quota.
     staleTime: search ? 0 : 60_000,
-    refetchInterval: (query: { state: { status: string } }) =>
-      query.state.status === "error" ? false : 2 * 60_000,
+    // On error, back off (don't disable polling entirely). One transient
+    // 429 / network blip used to stop auto-refresh forever — now we stretch
+    // the interval based on consecutive failures, capped at 5 minutes, so the
+    // UI keeps trying without hammering Gmail.
+    refetchInterval: (query: {
+      state: { status: string; fetchFailureCount: number };
+    }) => {
+      const base = 2 * 60_000;
+      if (query.state.status === "error") {
+        return Math.min(base * (1 + query.state.fetchFailureCount), 5 * 60_000);
+      }
+      return base;
+    },
     refetchOnWindowFocus: false,
     retry: false,
     enabled: options?.enabled ?? true,
@@ -293,6 +304,8 @@ export function useEmails(
   return {
     data,
     isLoading: q.isLoading,
+    isFetching: q.isFetching,
+    isRefetching: q.isRefetching,
     isError: q.isError,
     error: q.error,
     refetch: q.refetch,

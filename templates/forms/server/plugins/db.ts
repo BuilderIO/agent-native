@@ -68,6 +68,13 @@ CREATE TABLE IF NOT EXISTS form_shares (
 )`,
       },
     },
+    {
+      version: 7,
+      sql: {
+        postgres: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS submitter_email TEXT`,
+        sqlite: `ALTER TABLE responses ADD COLUMN submitter_email TEXT`,
+      },
+    },
   ],
   { table: "forms_migrations" },
 );

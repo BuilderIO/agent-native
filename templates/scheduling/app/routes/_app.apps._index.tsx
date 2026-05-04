@@ -1,6 +1,10 @@
 import { useMemo, useState } from "react";
 import { callAction } from "@/lib/api";
-import { agentNativePath, useSendToAgentChat } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  PromptComposer,
+  useSendToAgentChat,
+} from "@agent-native/core/client";
 
 export function meta() {
   return [{ title: "Apps — Scheduling" }];
@@ -223,15 +227,13 @@ function IntegrationCard({
 }
 
 function AddIntegrationCTA() {
-  const [prompt, setPrompt] = useState("");
   const { send, isGenerating } = useSendToAgentChat();
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!prompt.trim() || isGenerating) return;
-
+  function handleSubmit(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || isGenerating) return;
     send({
-      message: prompt.trim(),
+      message: trimmed,
       context:
         "The user wants to add a new integration to the scheduling app. " +
         "Help them add it by: creating a new provider in `@agent-native/scheduling/server/providers/` (if it's a calendar or video integration), " +
@@ -240,8 +242,6 @@ function AddIntegrationCTA() {
         "and updating the relevant skill docs. Ask clarifying questions if you need to know which service or what capability they need.",
       submit: true,
     });
-
-    setPrompt("");
   }
 
   return (
@@ -256,33 +256,12 @@ function AddIntegrationCTA() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <Textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder='e.g. "Add Cronofy so we can sync with Exchange on-prem calendars"'
-            className="min-h-[80px] resize-y"
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                e.preventDefault();
-                if (prompt.trim()) handleSubmit(e);
-              }
-            }}
-          />
-          <div className="flex items-center justify-end gap-2">
-            <span className="text-[11px] text-muted-foreground/70">
-              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-              +Enter to submit
-            </span>
-            <Button
-              type="submit"
-              size="sm"
-              disabled={!prompt.trim() || isGenerating}
-            >
-              {isGenerating ? "Sending…" : "Add integration"}
-            </Button>
-          </div>
-        </form>
+        <PromptComposer
+          disabled={isGenerating}
+          placeholder='e.g. "Add Cronofy so we can sync with Exchange on-prem calendars"'
+          draftScope="scheduling:add-integration"
+          onSubmit={handleSubmit}
+        />
       </CardContent>
     </Card>
   );

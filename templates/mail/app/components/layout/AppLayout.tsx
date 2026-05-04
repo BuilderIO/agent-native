@@ -38,6 +38,7 @@ import {
   IconPlus,
   IconTool,
   IconClock,
+  IconRefresh,
 } from "@tabler/icons-react";
 import {
   Popover,
@@ -217,8 +218,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     : userPinnedLabels;
   const hasNoteToSelf = pinnedLabels.includes("note-to-self");
   const labelAliases = settings?.labelAliases ?? {};
-  const { data: rawInboxEmails = [], isLoading: emailsLoading } =
-    useEmails("inbox");
+  const {
+    data: rawInboxEmails = [],
+    isLoading: emailsLoading,
+    isFetching: inboxIsFetching,
+  } = useEmails("inbox");
   const { data: rawAllLocalEmails = [], isLoading: allLocalEmailsLoading } =
     useEmails("all", undefined, undefined, {
       enabled: googleStatusReady && !hasAccounts,
@@ -943,6 +947,26 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 )}
               </Link>
 
+              {/* Manual refresh — auto-poll backs off on error, but users
+                  still want a button to force a fresh fetch on demand. */}
+              <button
+                onClick={() => {
+                  if (inboxIsFetching) return;
+                  qc.invalidateQueries({ queryKey: ["emails"] });
+                  qc.invalidateQueries({ queryKey: ["labels"] });
+                }}
+                disabled={inboxIsFetching}
+                className={cn(
+                  "flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-muted-foreground",
+                )}
+                aria-label="Refresh inbox"
+                title="Refresh inbox"
+              >
+                <IconRefresh
+                  className={cn("h-4 w-4", inboxIsFetching && "animate-spin")}
+                />
+              </button>
+
               {/* Tools */}
               <Link
                 to="/tools"
@@ -1416,6 +1440,12 @@ function StandardLayout({ children }: AppLayoutProps) {
   const queuedDrafts = useQueuedDraftCount();
   const view = location.pathname.split("/").filter(Boolean)[0] || "";
 
+  // Tools (`/tools` list and `/tools/:id` viewer) render their own h-12
+  // toolbar with NotificationsBell + AgentToggleButton inside the shared
+  // ToolViewer / ToolsListPage components. Skip our header to avoid stacking.
+  const pageOwnsToolbar =
+    location.pathname === "/tools" || location.pathname.startsWith("/tools/");
+
   const fallbackTitle = (() => {
     if (location.pathname === "/settings") return "Settings";
     if (location.pathname === "/team") return "Team";
@@ -1437,28 +1467,30 @@ function StandardLayout({ children }: AppLayoutProps) {
         ]}
       >
         <div className="relative flex flex-1 flex-col overflow-hidden">
-          <header className="relative z-20 flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-3">
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 cursor-pointer"
-              aria-label="Toggle menu"
-              title="Menu"
-            >
-              <IconMenu2 className="h-4 w-4" />
-            </button>
-            <div className="flex min-w-0 flex-1 items-center gap-2">
-              {headerTitle ?? (
-                <h1 className="text-lg font-semibold tracking-tight truncate">
-                  {fallbackTitle}
-                </h1>
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {headerActions}
-              <NotificationsBell />
-              <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
-            </div>
-          </header>
+          {!pageOwnsToolbar && (
+            <header className="relative z-20 flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-3">
+              <button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 cursor-pointer"
+                aria-label="Toggle menu"
+                title="Menu"
+              >
+                <IconMenu2 className="h-4 w-4" />
+              </button>
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                {headerTitle ?? (
+                  <h1 className="text-lg font-semibold tracking-tight truncate">
+                    {fallbackTitle}
+                  </h1>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {headerActions}
+                <NotificationsBell />
+                <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
+              </div>
+            </header>
+          )}
 
           {sidebarOpen && (
             <>

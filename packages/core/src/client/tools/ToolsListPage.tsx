@@ -5,6 +5,7 @@ import { Link } from "react-router";
 import { IconPlus, IconTool } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { AgentToggleButton } from "../AgentPanel.js";
+import { NotificationsBell } from "../notifications/NotificationsBell.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { PromptComposer } from "../composer/PromptComposer.js";
 import {
@@ -125,6 +126,7 @@ export function ToolsListPage() {
               />
             </PopoverContent>
           </Popover>
+          <NotificationsBell />
           <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
         </div>
       </header>

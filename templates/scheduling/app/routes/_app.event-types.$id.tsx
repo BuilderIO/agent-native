@@ -31,7 +31,10 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { AgentToggleButton } from "@agent-native/core/client";
+import {
+  AgentToggleButton,
+  NotificationsBell,
+} from "@agent-native/core/client";
 import {
   IconArrowLeft,
   IconBrandGoogle,
@@ -126,6 +129,7 @@ export default function EventTypeEditor() {
                 Preview
               </a>
             </Button>
+            <NotificationsBell />
             <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
           </div>
         </div>

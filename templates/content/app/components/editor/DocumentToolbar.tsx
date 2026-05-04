@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   AgentToggleButton,
+  NotificationsBell,
   PresenceBar,
   type CollabUser,
 } from "@agent-native/core/client";
@@ -568,6 +569,7 @@ export function DocumentToolbar({
         </PopoverContent>
       </Popover>
 
+      <NotificationsBell />
       <AgentToggleButton />
     </div>
   );

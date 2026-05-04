@@ -27,6 +27,7 @@ import {
   emailToName,
   PresenceBar,
   AgentToggleButton,
+  NotificationsBell,
   type CollabUser,
 } from "@agent-native/core/client";
 
@@ -518,6 +519,7 @@ export default function DesignEditor() {
             agentActive={agentActive}
             currentUserEmail={session?.email}
           />
+          <NotificationsBell />
           <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
         </div>
       </header>

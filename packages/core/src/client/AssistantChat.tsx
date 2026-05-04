@@ -58,6 +58,8 @@ import {
   type TiptapComposerHandle,
 } from "./composer/TiptapComposer.js";
 import type { Reference } from "./composer/types.js";
+import { isPastedTextAttachmentName } from "./composer/pasted-text.js";
+import { PastedTextChip } from "./composer/PastedTextChip.js";
 import {
   IconMessage,
   IconX,
@@ -535,6 +537,10 @@ function ComposerAttachmentPreviewCard({
     };
   }, [attachment]);
 
+  if (isPastedTextAttachmentName(attachment.name)) {
+    return <PastedTextChip attachment={attachment} onRemove={onRemove} />;
+  }
+
   const isImage = !!imageSrc;
 
   return (
@@ -662,6 +668,11 @@ function ToolCallDisplay({
         return (
           <ConnectBuilderCard
             configured={!!parsed.configured}
+            builderEnabled={
+              typeof parsed.builderEnabled === "boolean"
+                ? parsed.builderEnabled
+                : true
+            }
             connectUrl={parsed.connectUrl || ""}
             orgName={parsed.orgName ?? null}
             prompt={typeof parsed.prompt === "string" ? parsed.prompt : ""}
@@ -1002,6 +1013,9 @@ function UserMessageAttachments() {
               />
             </div>
           );
+        }
+        if (isPastedTextAttachmentName(att.name)) {
+          return <PastedTextChip key={att.id} attachment={att} compact />;
         }
         return (
           <div
@@ -2814,13 +2828,29 @@ const AssistantChatInner = forwardRef<
     }
   }, []);
 
-  // Scroll to bottom when a restored thread finishes loading
+  // Scroll to bottom when a restored thread finishes loading.
+  // Re-scroll a few times because messages with images, code blocks, and
+  // markdown can change height after their initial paint — a single RAF
+  // call lands on the wrong position and leaves the user staring at the top.
   const wasRestoringRef = useRef(isRestoring);
   useEffect(() => {
     if (wasRestoringRef.current && !isRestoring) {
-      requestAnimationFrame(() => {
-        scrollToBottom();
-      });
+      const el = scrollRef.current;
+      if (el) {
+        // Immediate sync scroll so the first paint is already at the bottom.
+        el.scrollTop = el.scrollHeight;
+        isNearBottomRef.current = true;
+        setShowScrollToBottom(false);
+      }
+      // Then re-snap on the next frame and again after late content lays out.
+      requestAnimationFrame(() => scrollToBottom());
+      const t1 = setTimeout(() => scrollToBottom(), 100);
+      const t2 = setTimeout(() => scrollToBottom(), 400);
+      wasRestoringRef.current = isRestoring;
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
     }
     wasRestoringRef.current = isRestoring;
   }, [isRestoring, scrollToBottom]);
@@ -3061,7 +3091,22 @@ const AssistantChatInner = forwardRef<
                                 : "Retry the previous request from a clean approach.",
                             );
                           }}
-                          onFork={onForkChat}
+                          onFork={
+                            onForkChat
+                              ? () => {
+                                  // Dismiss the error locally so the card
+                                  // disappears immediately (visual feedback)
+                                  // and doesn't reappear when the forked tab
+                                  // mounts with the same persisted error
+                                  // metadata in its thread_data.
+                                  if (visibleRunErrorKey) {
+                                    setDismissedRunErrorKey(visibleRunErrorKey);
+                                  }
+                                  setRunErrorInfo(null);
+                                  onForkChat();
+                                }
+                              : undefined
+                          }
                           onDismiss={() => {
                             if (visibleRunErrorKey) {
                               setDismissedRunErrorKey(visibleRunErrorKey);
@@ -3149,6 +3194,25 @@ const AssistantChatInner = forwardRef<
             <SelectionAttachedPill />
             {/* Input area */}
             <div className="agent-composer-area shrink-0 px-3 py-2">
+              {composerOnly && missingApiKey && (
+                <div className="mb-2 flex items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                  <span className="min-w-0">
+                    Set up an AI engine to start chatting with the agent.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.dispatchEvent(new CustomEvent("agent-panel:open"));
+                      window.dispatchEvent(
+                        new CustomEvent("agent-panel:open-settings"),
+                      );
+                    }}
+                    className="shrink-0 cursor-pointer rounded-md bg-foreground px-2.5 py-1 text-[11px] font-medium text-background hover:opacity-90"
+                  >
+                    Set up agent
+                  </button>
+                </div>
+              )}
               <ComposerPrimitive.Root
                 className={cn(
                   "flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring",
@@ -3161,14 +3225,16 @@ const AssistantChatInner = forwardRef<
                   focusRef={tiptapRef}
                   disabled={missingApiKey}
                   placeholder={
-                    composerPlaceholder ??
-                    (missingApiKey
-                      ? "Connect an AI engine above to start chatting…"
-                      : isRunning
-                        ? queuedMessages.length > 0
-                          ? `${queuedMessages.length} queued — type another...`
-                          : "Queue a message..."
-                        : undefined)
+                    missingApiKey
+                      ? composerOnly
+                        ? "Set up an AI engine to start chatting…"
+                        : "Connect an AI engine above to start chatting…"
+                      : (composerPlaceholder ??
+                        (isRunning
+                          ? queuedMessages.length > 0
+                            ? `${queuedMessages.length} queued — type another...`
+                            : "Queue a message..."
+                          : undefined))
                   }
                   onSubmit={
                     onSubmitOverride

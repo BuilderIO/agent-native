@@ -41,6 +41,7 @@ import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
 import {
   AgentToggleButton,
+  NotificationsBell,
   ShareButton,
   appPath,
   useSendToAgentChat,
@@ -357,6 +358,8 @@ export function FormBuilderPage() {
           toast.success(
             newStatus === "published" ? "Form published!" : "Form unpublished",
           ),
+        // Errors (including publish-validation failures) are surfaced by
+        // useUpdateForm's onError, which echoes the server's actual message.
       },
     );
   }
@@ -460,6 +463,7 @@ export function FormBuilderPage() {
           <Button size="sm" className="text-xs" onClick={handleTogglePublish}>
             {form.status === "published" ? "Unpublish" : "Publish"}
           </Button>
+          <NotificationsBell />
           <AgentToggleButton />
         </div>
       </div>

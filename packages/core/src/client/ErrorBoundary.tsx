@@ -36,13 +36,28 @@ export function ErrorBoundary() {
       title = `${error.status} Error`;
       details = error.statusText || details;
     }
-  } else if (
-    typeof process !== "undefined" &&
-    process.env.NODE_ENV !== "production" &&
-    error instanceof Error
-  ) {
-    details = error.message;
-    stack = error.stack;
+  } else if (error instanceof Error) {
+    // Always surface the underlying error message — a generic
+    // "An unexpected error occurred." in production tells users (and us)
+    // nothing. The stack trace is still gated to dev so we don't leak
+    // internals to end users.
+    if (error.message) {
+      details = error.message;
+    }
+    if (
+      typeof process !== "undefined" &&
+      process.env.NODE_ENV !== "production"
+    ) {
+      stack = error.stack;
+    }
+  } else if (typeof error === "string" && error) {
+    details = error;
+  }
+
+  // Log to the console so the underlying failure is recoverable from
+  // browser devtools / Sentry even when the UI hides the stack.
+  if (typeof console !== "undefined" && error) {
+    console.error("[ErrorBoundary]", error);
   }
 
   return (

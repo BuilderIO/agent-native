@@ -157,7 +157,7 @@ export default defineAction({
 });
 ```
 
-Use `http: { method: "GET" }` or `readOnly: true` for read-only actions. Use `toolCallable: false` for high-blast-radius actions that should not run from sandboxed tools.
+Use `http: { method: "GET" }` or `readOnly: true` for read-only actions. Use `parallelSafe: true` only for mutating actions that are safe to run concurrently with same-turn tool calls. Use `toolCallable: false` for high-blast-radius actions that should not run from sandboxed tools.
 
 ## Build The UI {#ui}
 
