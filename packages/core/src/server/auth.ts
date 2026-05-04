@@ -719,6 +719,27 @@ function applyCorsHeaders(event: H3Event): {
   return { hasOrigin: true, allowed: true };
 }
 
+function createAuthCorsHandler() {
+  return defineEventHandler((event) => {
+    const cors = applyCorsHeaders(event);
+    if (getMethod(event) !== "OPTIONS") return;
+
+    if (cors.hasOrigin && !cors.allowed) {
+      setResponseStatus(event, 403);
+      return "";
+    }
+
+    setResponseStatus(event, 204);
+    return "";
+  });
+}
+
+function mountAuthCorsMiddleware(app: H3App): void {
+  const handler = createAuthCorsHandler();
+  app.use("/_agent-native/auth", handler);
+  app.use("/_agent-native/google", handler);
+}
+
 function createAuthGuardFn(): (
   event: H3Event,
 ) => Promise<Response | object | string | void> {
@@ -2111,6 +2132,8 @@ export async function autoMountAuth(
   customGetSession = null;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
   const publicPaths = options.publicPaths ?? [];
+
+  mountAuthCorsMiddleware(app);
 
   if (options.getSession) {
     customGetSession = options.getSession;
