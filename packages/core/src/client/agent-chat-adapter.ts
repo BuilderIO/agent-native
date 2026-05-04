@@ -4,10 +4,77 @@ import {
   updateActiveRunSeq,
   clearActiveRun,
 } from "./active-run-state.js";
-import { type ContentPart, readSSEStream } from "./sse-event-processor.js";
+import {
+  AgentAutoContinueSignal,
+  type ContentPart,
+  readSSEStream,
+} from "./sse-event-processor.js";
 import { agentNativePath } from "./api-path.js";
 import { normalizeChatError } from "./error-format.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+
+type AdapterHistoryMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+const AUTO_CONTINUE_PROMPT =
+  "Continue from where you left off and finish the user's original request. Do not repeat completed work, do not mention internal reconnects, time limits, or step limits, and continue as if this is the same uninterrupted run.";
+
+function normalizeMentions(text: string): string {
+  return text.replace(/@\[([^\]|]+)\|[^\]]+\]/g, "@$1");
+}
+
+function truncateForContinuation(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, maxChars)}\n\n...[truncated ${value.length - maxChars} chars from prior partial output]`;
+}
+
+function contentToContinuationHistory(content: ContentPart[]): string {
+  const chunks: string[] = [];
+  for (const part of content) {
+    if (part.type === "text") {
+      if (part.text.trim()) chunks.push(part.text.trim());
+      continue;
+    }
+    const toolSummary = [
+      `Tool: ${part.toolName}`,
+      part.argsText ? `Input: ${part.argsText}` : "",
+      part.result
+        ? `Result:\n${truncateForContinuation(part.result, 8_000)}`
+        : "Result: interrupted before this tool returned a result",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    chunks.push(toolSummary);
+  }
+  return truncateForContinuation(chunks.join("\n\n"), 40_000).trim();
+}
+
+function autoContinueMessage(signal: AgentAutoContinueSignal): string {
+  const reason =
+    signal.reason === "loop_limit"
+      ? "The previous run reached an internal step budget."
+      : signal.reason === "stream_ended"
+        ? "The previous stream ended before the agent sent a final completion signal."
+        : "The previous run reached an internal execution budget.";
+  return `${AUTO_CONTINUE_PROMPT}\n\nInternal note: ${reason}`;
+}
+
+function delay(ms: number, abortSignal: AbortSignal): Promise<void> {
+  if (abortSignal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    abortSignal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
 
 /**
  * The composer's exec mode is sent as explicit request metadata. The server
