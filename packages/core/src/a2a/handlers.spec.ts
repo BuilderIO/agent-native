@@ -99,6 +99,12 @@ vi.mock("./task-store.js", () => {
     async touchQueuedA2ATaskDispatch() {
       return true;
     },
+    async touchProcessingA2ATask(id: string) {
+      const task = tasks[id];
+      if (!task || task.status.state !== "processing") return false;
+      task.updatedAt = Date.now();
+      return true;
+    },
     async resetStuckA2ATaskForRetry() {
       return true;
     },

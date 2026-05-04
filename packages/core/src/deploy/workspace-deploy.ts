@@ -248,6 +248,7 @@ function writeCloudflareRoutingManifest(distDir: string, apps: string[]): void {
     include.push(
       ...DISPATCH_WORKSPACE_ROOT_REDIRECTS.map(([from]) => `/${from}`),
     );
+    include.push("/apps/*");
     if (dispatchFaviconAsset) include.push("/favicon.ico");
   }
   const routes = {
@@ -285,13 +286,17 @@ function writeCloudflareRoutingManifest(distDir: string, apps: string[]): void {
           `    if (pathname === "/${from}") return Response.redirect(new URL("/dispatch/${to}" + search, request.url).toString(), 302);`,
       ).join("\n") + "\n"
     : "";
+  const dispatchRootDynamicAliasRoutes = apps.includes("dispatch")
+    ? `    if (pathname.startsWith("/apps/")) return Response.redirect(new URL("/dispatch" + pathname + search, request.url).toString(), 302);
+`
+    : "";
 
   const worker = `${imports}
 
 export default {
   async fetch(request, env, ctx) {
     const { pathname, search } = new URL(request.url);
-${dispatchRootFrameworkRoutes}${dispatchRootFaviconRoute}${dispatchRootAliasRoutes}${dispatch}
+${dispatchRootFrameworkRoutes}${dispatchRootFaviconRoute}${dispatchRootAliasRoutes}${dispatchRootDynamicAliasRoutes}${dispatch}
     if (pathname === "/") {
       return Response.redirect(new URL("${cloudflareRootRedirectPath(apps)}", request.url).toString(), 302);
     }
@@ -331,6 +336,7 @@ function writeNetlifyRedirects(distDir: string, apps: string[]): void {
     for (const [from, to] of DISPATCH_WORKSPACE_ROOT_REDIRECTS) {
       lines.push(`/${from} /dispatch/${to} 302`);
     }
+    lines.push("/apps/* /dispatch/apps/:splat 302");
   } else {
     lines.push(`/ /${apps[0]}/ 302`);
   }
