@@ -55,6 +55,7 @@ import {
   getDbExec,
   isPostgres,
   intType,
+  isLocalDatabase,
   retryOnDdlRace,
 } from "../db/client.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
@@ -64,6 +65,7 @@ import {
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
+import { migrateLocalUserData } from "./local-migration.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
   readDesktopSso,
@@ -215,8 +217,41 @@ function getOAuthStateAppId(): string | undefined {
 const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
 // ---------------------------------------------------------------------------
-// Environment helpers
+// AUTH_MODE detection
 // ---------------------------------------------------------------------------
+
+let _warnedRemoteLocalMode = false;
+
+/**
+ * Check if the app is in local-only mode (no auth).
+ *
+ * Returns true when AUTH_MODE=local is explicitly set.
+ *
+ * Local mode is an explicit escape hatch for when you want to guarantee
+ * no auth is used. In development, getSession() also falls back to
+ * local@localhost automatically if no other auth method succeeds, so
+ * apps are always usable without configuration in dev.
+ *
+ * Refuses to enable on any non-local database (Postgres, Turso, D1): local
+ * mode uses a single shared virtual user with no per-machine scoping, so on
+ * a shared DB every developer would land on the same account and collide.
+ */
+async function isLocalModeEnabled(): Promise<boolean> {
+  if (process.env.AUTH_MODE !== "local") return false;
+
+  if (!isLocalDatabase()) {
+    if (!_warnedRemoteLocalMode) {
+      _warnedRemoteLocalMode = true;
+      console.warn(
+        "[agent-native] AUTH_MODE=local ignored: database is not local SQLite. " +
+          "local@localhost has no per-user scoping and would collide across developers on a shared DB.",
+      );
+    }
+    return false;
+  }
+
+  return true;
+}
 
 /**
  * Check if we're in a development/test environment.
