@@ -1,0 +1,52 @@
+{
+  "name": "@agent-native/dispatch",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Dispatch — workspace control plane for agent-native apps. Vault, integrations, destinations, scheduled jobs, and cross-app delegation, shipped as a single drop-in package.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native",
+    "directory": "packages/dispatch"
+  },
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "exports": {
+    ".": "./dist/index.js",
+    "./routes": "./dist/routes/index.js",
+    "./server": "./dist/server/index.js",
+    "./actions": "./dist/actions/index.js",
+    "./db": "./dist/db/index.js",
+    "./components": "./dist/components/index.js"
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run src",
+    "prepack": "cp ../../README.md ./README.md",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@agent-native/core": ">=0.7.82",
+    "react": ">=18",
+    "react-router": ">=7"
+  },
+  "dependencies": {
+    "@tabler/icons-react": "^3",
+    "drizzle-orm": "^0.44.5",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@agent-native/core": "workspace:*",
+    "@react-router/dev": "^7.13.1",
+    "@types/react": "^19.2.0",
+    "react": "^19.2.0",
+    "react-router": "^7.13.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
+  }
+}
