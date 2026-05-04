@@ -20,7 +20,6 @@ import {
   oauthErrorPage,
   setDesktopExchange,
   setDesktopExchangeError,
-  DEV_MODE_USER_EMAIL,
 } from "@agent-native/core/server";
 import {
   getAuthUrl,
@@ -97,10 +96,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       (q.redirect_uri as string) ||
       getAppUrl(event, "/_agent-native/google/callback");
     const session = await getSession(event);
-    const owner =
-      session?.email && session.email !== DEV_MODE_USER_EMAIL
-        ? session.email
-        : undefined;
+    const owner = session?.email;
     const desktop =
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
     const flowId = desktop ? (q.flow_id as string) || undefined : undefined;

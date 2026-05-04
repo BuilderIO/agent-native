@@ -29,7 +29,6 @@ import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../../db/index.js";
 import { nanoid, shouldCountView } from "../../lib/recordings.js";
 import {
-  DEV_MODE_USER_EMAIL,
   getSession,
   runWithRequestContext,
 } from "@agent-native/core/server";
@@ -130,10 +129,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const session = await getSession(event).catch(() => null);
-  const sessionEmail =
-    session?.email && session.email !== DEV_MODE_USER_EMAIL
-      ? session.email
-      : undefined;
+  const sessionEmail = session?.email;
   const viewerEmail = sessionEmail ?? null;
   const viewerName = body.viewerName ?? sessionEmail?.split("@")[0] ?? null;
   const now = new Date().toISOString();
