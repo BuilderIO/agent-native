@@ -979,6 +979,13 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
           // and triggers a server restart when those files change.
           noExternal: [
             /^@agent-native\/core(\/.*)?$/,
+            // Radix UI primitives are transitive deps of @agent-native/core
+            // (used by FeedbackButton, AgentSidebar, ShareDialog, etc.). When
+            // a consumer app SSRs a component that imports Radix, Node's
+            // externalized resolver can't find @radix-ui/* from the app cwd
+            // because pnpm doesn't hoist transitive deps. Bundling them
+            // through Vite resolves them via the workspace store.
+            /^@radix-ui\//,
             // scheduling ships tsc-compiled dist files that contain literal
             // `@/` path-alias imports (e.g. `import { Input } from
             // "@/components/ui/input"`). In standalone (published) mode Node
