@@ -42,7 +42,6 @@ export function useNavigationState() {
       if (!res.ok) return null;
       const data = await res.json();
       if (data) {
-        // Return with a timestamp to ensure uniqueness
         return { ...data, _ts: Date.now() };
       }
       return null;
@@ -54,14 +53,12 @@ export function useNavigationState() {
 
   useEffect(() => {
     if (!navCommand) return;
-    // Delete the one-shot command AFTER reading it
     fetch(agentNativePath("/_agent-native/application-state/navigate"), {
       method: "DELETE",
       headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
     const cmd = navCommand as NavigationState;
 
-    // Navigate to a specific path or resolve view name to path
     const path = routerPath(cmd.path || resolvePath(cmd.view) || "/overview");
     navigate(path);
     qc.setQueryData(["navigate-command"], null);
