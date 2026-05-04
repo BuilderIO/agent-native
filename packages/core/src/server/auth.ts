@@ -10,6 +10,7 @@ import {
   getCookie,
   setCookie,
   deleteCookie,
+  getHeader,
 } from "h3";
 import type { H3Event } from "h3";
 import type { H3AppShim } from "./framework-request-handler.js";
@@ -691,12 +692,7 @@ function applyCorsHeaders(event: H3Event): {
   // response would be missing the Allow-Origin header and the browser
   // blocks the response body (making it look like a network error
   // rather than "unauthenticated").
-  const reqHeaders = (event.node?.req?.headers ?? {}) as Record<
-    string,
-    string | string[] | undefined
-  >;
-  const originRaw = reqHeaders["origin"];
-  const origin = Array.isArray(originRaw) ? originRaw[0] : originRaw;
+  const origin = getHeader(event, "origin");
   if (!origin) return { hasOrigin: false, allowed: true };
   const allowedOrigin = getAllowedCorsOrigin(origin, {
     allowedOrigins: readCorsAllowedOrigins(),

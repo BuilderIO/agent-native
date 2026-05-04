@@ -481,6 +481,7 @@ describe("server/auth", () => {
         path: "/_agent-native/auth/desktop-exchange",
         headers: { origin: "tauri://localhost" },
       });
+      delete event.node.req.headers.origin;
 
       const result = await corsHandler(event);
 

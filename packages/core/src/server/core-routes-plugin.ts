@@ -304,12 +304,7 @@ export function createCoreRoutesPlugin(
             String(event.node?.req?.url ?? event.path ?? "/").split("?")[0],
         );
         if (!pathname.startsWith(P) && !pathname.startsWith("/api/")) return;
-        const reqHeaders = (event.node?.req?.headers ?? {}) as Record<
-          string,
-          string | string[] | undefined
-        >;
-        const originRaw = reqHeaders["origin"];
-        const origin = Array.isArray(originRaw) ? originRaw[0] : originRaw;
+        const origin = getHeader(event, "origin");
         const method = getMethod(event);
 
         // Decide whether this origin is allowed. We never fall back to the
