@@ -18,6 +18,7 @@ import {
   getA2ATaskDispatchState,
   failStuckA2ATask,
   touchQueuedA2ATaskDispatch,
+  touchProcessingA2ATask,
 } from "./task-store.js";
 import { agentChat } from "../shared/agent-chat.js";
 import { signInternalToken } from "../integrations/internal-token.js";
@@ -33,6 +34,7 @@ import {
 const A2A_PROCESS_TASK_PATH = "/_agent-native/a2a/_process-task";
 const A2A_QUEUED_DISPATCH_STUCK_AFTER_MS = 10_000;
 const A2A_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
+const A2A_PROCESSING_HEARTBEAT_MS = 30_000;
 
 /**
  * Resolve the base URL we should fire the A2A processor request to. Mirrors
@@ -156,6 +158,14 @@ export async function processA2ATaskFromQueue(
 
   const { runWithRequestContext } =
     await import("../server/request-context.js");
+  const heartbeat = setInterval(() => {
+    touchProcessingA2ATask(taskId).catch((err) =>
+      console.error("[a2a] Failed to heartbeat async task:", err),
+    );
+  }, A2A_PROCESSING_HEARTBEAT_MS);
+  (
+    heartbeat as ReturnType<typeof setInterval> & { unref?: () => void }
+  ).unref?.();
   try {
     await runWithRequestContext(
       { userEmail: verifiedEmail, orgId: resolvedOrgId },
@@ -179,6 +189,8 @@ export async function processA2ATaskFromQueue(
         },
       });
     } catch {}
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
