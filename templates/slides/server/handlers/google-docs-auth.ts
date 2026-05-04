@@ -151,7 +151,9 @@ export const handleGoogleDocsCallback = defineEventHandler(
         appName: "Google Docs",
       });
     } catch (error) {
-      return oauthErrorPage(`Google Docs connection failed: ${permissionMessage(error)}`);
+      return oauthErrorPage(
+        `Google Docs connection failed: ${permissionMessage(error)}`,
+      );
     }
   },
 );

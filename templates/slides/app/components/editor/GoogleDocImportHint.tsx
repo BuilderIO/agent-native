@@ -145,25 +145,25 @@ export function GoogleDocImportHint({
   const [choosing, setChoosing] = useState(false);
   const lastAutoImportUrlRef = useRef("");
 
-  const refreshStatus = useCallback(async (): Promise<GoogleDocsStatus | null> => {
-    const response = await fetch(endpoint("/_agent-native/google-docs/status"), {
-      credentials: "same-origin",
-    });
-    const data = await readJson<GoogleDocsStatus>(response);
-    if (response.ok) {
-      setStatus(data);
-      return data;
-    }
-    setStatus(null);
-    return null;
-  }, []);
+  const refreshStatus =
+    useCallback(async (): Promise<GoogleDocsStatus | null> => {
+      const response = await fetch(
+        endpoint("/_agent-native/google-docs/status"),
+        {
+          credentials: "same-origin",
+        },
+      );
+      const data = await readJson<GoogleDocsStatus>(response);
+      if (response.ok) {
+        setStatus(data);
+        return data;
+      }
+      setStatus(null);
+      return null;
+    }, []);
 
   const importDocument = useCallback(
-    async (
-      urlOrId: string,
-      origin: "url" | "picker",
-      title = "Google Doc",
-    ) => {
+    async (urlOrId: string, origin: "url" | "picker", title = "Google Doc") => {
       setLoading(true);
       setError(null);
       try {
@@ -238,9 +238,7 @@ export function GoogleDocImportHint({
         agentNativePath("/_agent-native/google-docs/callback"),
         window.location.origin,
       ).toString();
-      const authUrl = new URL(
-        endpoint("/_agent-native/google-docs/auth-url"),
-      );
+      const authUrl = new URL(endpoint("/_agent-native/google-docs/auth-url"));
       authUrl.searchParams.set("redirect_uri", callbackUrl);
       authUrl.searchParams.set(
         "return",
@@ -249,9 +247,11 @@ export function GoogleDocImportHint({
       const response = await fetch(authUrl.toString(), {
         credentials: "same-origin",
       });
-      const data = await readJson<{ url?: string; error?: string; message?: string }>(
-        response,
-      );
+      const data = await readJson<{
+        url?: string;
+        error?: string;
+        message?: string;
+      }>(response);
       if (!response.ok || !data.url) {
         throw new Error(
           errorFromResponse(response, data, "Could not start Google OAuth"),
@@ -305,9 +305,7 @@ export function GoogleDocImportHint({
       }
 
       await new Promise<void>((resolve, reject) => {
-        const view = new google.picker.DocsView(
-          google.picker.ViewId.DOCUMENTS,
-        )
+        const view = new google.picker.DocsView(google.picker.ViewId.DOCUMENTS)
           .setMimeTypes("application/vnd.google-apps.document")
           .setSelectFolderEnabled(false);
         const picker = new google.picker.PickerBuilder()
@@ -392,7 +390,8 @@ export function GoogleDocImportHint({
           )}
           {pickerMissing && (
             <p className="mt-1 text-[11px] text-amber-500">
-              Google Picker needs GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID.
+              Google Picker needs GOOGLE_PICKER_API_KEY and
+              GOOGLE_PICKER_APP_ID.
             </p>
           )}
         </div>
