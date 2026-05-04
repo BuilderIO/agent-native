@@ -157,14 +157,18 @@ function EmailErrorState({
   );
   const autoRetryFired = useRef(false);
 
-  // Tick the cooldown countdown every second.
+  // Tick the cooldown countdown every second. Depend on the boolean so the
+  // effect only re-runs when the cooldown starts or stops — not on every tick.
+  // The functional setter pattern reads `prev` from the latest state, so we
+  // don't need `cooldownRemaining` in the deps array.
+  const isCoolingDown = cooldownRemaining > 0;
   useEffect(() => {
-    if (cooldownRemaining <= 0) return;
+    if (!isCoolingDown) return;
     const handle = setInterval(() => {
       setCooldownRemaining((prev) => Math.max(0, prev - 1000));
     }, 1000);
     return () => clearInterval(handle);
-  }, [cooldownRemaining]);
+  }, [isCoolingDown]);
 
   // Auto-retry once when a rate-limit cooldown elapses so the user doesn't
   // have to babysit the screen waiting for Google to recover.
