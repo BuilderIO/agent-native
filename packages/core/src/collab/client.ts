@@ -341,7 +341,15 @@ export function useCollaborativeDoc(
       stopped = true;
       if (timer) clearTimeout(timer);
     };
-  }, [ydoc, awareness, docId, pollInterval, requestSource, baseUrl, docMissing]);
+  }, [
+    ydoc,
+    awareness,
+    docId,
+    pollInterval,
+    requestSource,
+    baseUrl,
+    docMissing,
+  ]);
 
   return {
     ydoc,
