@@ -20,7 +20,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useQueryClient } from "@tanstack/react-query";
-import type { DocumentSyncStatus } from "@shared/api";
+import type { Document, DocumentSyncStatus } from "@shared/api";
 
 const TAB_ID = generateTabId();
 
@@ -28,8 +28,39 @@ interface DocumentEditorProps {
   documentId: string;
 }
 
+/**
+ * Outer wrapper: gates the editor on the document fetch so collab + comments
+ * only mount once we know the doc exists. Otherwise an invalid id triggers
+ * an infinite spinner plus repeating 404/403 polls in the console.
+ */
 export function DocumentEditor({ documentId }: DocumentEditorProps) {
-  const { data: document, isLoading } = useDocument(documentId);
+  const { data: document, isLoading, isError } = useDocument(documentId);
+
+  if (isError || (!isLoading && !document)) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        Document not found
+      </div>
+    );
+  }
+
+  if (isLoading || !document) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <IconLoader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return <DocumentEditorBody documentId={documentId} document={document} />;
+}
+
+interface DocumentEditorBodyProps {
+  documentId: string;
+  document: Document;
+}
+
+function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const updateDocument = useUpdateDocument();
   const queryClient = useQueryClient();
   // Shared with DocumentToolbar via the same localStorage key — both read it.
@@ -207,26 +238,18 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
     setPendingComment({ quotedText, offsetTop });
   }, []);
 
-  // Auto-focus title on new empty documents once loading is done
+  // Auto-focus title on new empty documents once collab finishes loading
   useEffect(() => {
-    if (!isLoading && !collabLoading && shouldFocusTitleRef.current) {
+    if (!collabLoading && shouldFocusTitleRef.current) {
       shouldFocusTitleRef.current = false;
       requestAnimationFrame(() => titleInputRef.current?.focus());
     }
   });
 
-  if (isLoading || collabLoading) {
+  if (collabLoading) {
     return (
       <div className="flex items-center justify-center h-full">
         <IconLoader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (!document) {
-    return (
-      <div className="flex items-center justify-center h-full text-muted-foreground">
-        Document not found
       </div>
     );
   }
@@ -259,7 +282,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
           ref={scrollContainerRef}
           className="flex-1 min-h-0 overflow-auto flex flex-col"
         >
-          <div className="shrink-0 px-4 pt-14 pb-2 sm:px-8 md:px-16 md:pt-16 group/title">
+          <div className="shrink-0 w-full max-w-3xl mx-auto px-4 pt-14 pb-2 sm:px-8 md:px-16 md:pt-16 group/title">
             <div className="mb-1">
               <EmojiPicker
                 icon={document.icon}
@@ -287,7 +310,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
           </div>
 
           <div
-            className="flex-1 px-4 pb-16 cursor-text sm:px-8 md:px-16"
+            className="flex-1 w-full max-w-3xl mx-auto px-4 pb-16 cursor-text sm:px-8 md:px-16"
             onClick={(e) => {
               if (e.target === e.currentTarget) {
                 const pm = e.currentTarget.querySelector(

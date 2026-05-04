@@ -810,6 +810,7 @@ function AddDataSourceCTA() {
 
 function FirstPartyAnalyticsCard() {
   const queryClient = useQueryClient();
+  const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState("Hosted templates");
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -822,6 +823,7 @@ function FirstPartyAnalyticsCard() {
   const keys = ((data as AnalyticsPublicKeyRow[] | undefined) ?? []).filter(
     (key) => !key.revokedAt,
   );
+  const connected = keys.length > 0;
 
   const createKey = useActionMutation("create-analytics-public-key", {
     onSuccess: (result: any) => {
@@ -849,145 +851,171 @@ function FirstPartyAnalyticsCard() {
 
   return (
     <Card className="bg-card border-border/50">
-      <CardHeader>
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <IconKey className="h-5 w-5" />
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full text-left"
+      >
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-6">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <IconKey className="h-5 w-5" />
+              </div>
+              <div>
+                <CardTitle className="text-sm font-medium">
+                  First-party Analytics
+                </CardTitle>
+                <CardDescription className="text-xs mt-0.5">
+                  Receive product events at your first-party endpoint and query
+                  them as a dashboard data source.
+                </CardDescription>
+              </div>
             </div>
-            <div>
-              <CardTitle className="text-sm font-medium">
-                First-party Analytics
-              </CardTitle>
-              <CardDescription className="text-xs mt-0.5">
-                Receive product events at your first-party endpoint and query
-                them as a dashboard data source.
-              </CardDescription>
+            <div className="flex items-center gap-2">
+              {isLoading ? (
+                <Skeleton className="h-4 w-20 rounded-full" />
+              ) : connected ? (
+                <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
+                  <IconCheck className="h-3.5 w-3.5" />
+                  Connected
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
+                  <IconCircle className="h-3 w-3" />
+                  Not connected
+                </span>
+              )}
+              {expanded ? (
+                <IconChevronUp className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <IconChevronDown className="h-4 w-4 text-muted-foreground" />
+              )}
             </div>
           </div>
-          {isLoading ? (
-            <Skeleton className="h-4 w-20 rounded-full" />
-          ) : keys.length > 0 ? (
-            <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
-              <IconCheck className="h-3.5 w-3.5" />
-              {keys.length} active
-            </span>
-          ) : (
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
-              <IconCircle className="h-3 w-3" />
-              No keys
-            </span>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-2 rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted-foreground">Endpoint</span>
-            <code className="truncate font-mono">
-              {firstPartyAnalyticsEndpoint}
-            </code>
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted-foreground">Server env</span>
-            <code className="truncate font-mono">
-              AGENT_NATIVE_ANALYTICS_PUBLIC_KEY
-            </code>
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted-foreground">Browser env</span>
-            <code className="truncate font-mono">
-              VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY
-            </code>
-          </div>
-        </div>
+        </CardHeader>
+      </button>
 
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="flex min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-            placeholder="Key name"
-          />
-          <Button
-            size="sm"
-            onClick={() => createKey.mutate({ name })}
-            disabled={createKey.isPending}
-            className="text-xs"
-          >
-            {createKey.isPending ? (
-              <>
-                <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <IconPlus className="h-3 w-3 mr-1.5" />
-                Generate Key
-              </>
-            )}
-          </Button>
-        </div>
+      {expanded && (
+        <CardContent className="pt-0 border-t border-border/50">
+          <div className="space-y-4 pt-3">
+            <div className="grid gap-2 rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Endpoint</span>
+                <code className="truncate font-mono">
+                  {firstPartyAnalyticsEndpoint}
+                </code>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Server env</span>
+                <code className="truncate font-mono">
+                  AGENT_NATIVE_ANALYTICS_PUBLIC_KEY
+                </code>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Browser env</span>
+                <code className="truncate font-mono">
+                  VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY
+                </code>
+              </div>
+            </div>
 
-        {createdKey && (
-          <div className="space-y-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3">
-            <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-              New key generated
-            </p>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <input
-                readOnly
-                value={createdKey}
-                className="flex min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="flex min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+                placeholder="Key name"
               />
               <Button
                 size="sm"
-                variant="outline"
-                onClick={copyCreatedKey}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  createKey.mutate({ name });
+                }}
+                disabled={createKey.isPending}
                 className="text-xs"
               >
-                <IconCopy className="h-3 w-3 mr-1.5" />
-                {copied ? "Copied" : "Copy"}
+                {createKey.isPending ? (
+                  <>
+                    <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <IconPlus className="h-3 w-3 mr-1.5" />
+                    Generate Key
+                  </>
+                )}
               </Button>
             </div>
-          </div>
-        )}
 
-        {keys.length > 0 && (
-          <div className="space-y-2 border-t border-border/30 pt-3">
-            {keys.map((key) => (
-              <div
-                key={key.id}
-                className="flex items-center justify-between gap-3 text-xs"
-              >
-                <div className="min-w-0">
-                  <div className="font-medium truncate">{key.name}</div>
-                  <div className="text-muted-foreground font-mono">
-                    {key.publicKeyPrefix}...
-                    {key.lastUsedAt
-                      ? ` last used ${new Date(key.lastUsedAt).toLocaleDateString()}`
-                      : " never used"}
-                  </div>
+            {createdKey && (
+              <div className="space-y-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3">
+                <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                  New key generated
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    readOnly
+                    value={createdKey}
+                    className="flex min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      copyCreatedKey();
+                    }}
+                    className="text-xs"
+                  >
+                    <IconCopy className="h-3 w-3 mr-1.5" />
+                    {copied ? "Copied" : "Copy"}
+                  </Button>
                 </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => revokeKey.mutate({ id: key.id })}
-                  disabled={revokeKey.isPending}
-                  className="text-xs text-destructive hover:text-destructive"
-                >
-                  {revokeKey.isPending ? (
-                    <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
-                  ) : (
-                    <IconTrash className="h-3 w-3 mr-1.5" />
-                  )}
-                  Revoke
-                </Button>
               </div>
-            ))}
+            )}
+
+            {keys.length > 0 && (
+              <div className="space-y-2 border-t border-border/30 pt-3">
+                {keys.map((key) => (
+                  <div
+                    key={key.id}
+                    className="flex items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{key.name}</div>
+                      <div className="text-muted-foreground font-mono">
+                        {key.publicKeyPrefix}...
+                        {key.lastUsedAt
+                          ? ` last used ${new Date(key.lastUsedAt).toLocaleDateString()}`
+                          : " never used"}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        revokeKey.mutate({ id: key.id });
+                      }}
+                      disabled={revokeKey.isPending}
+                      className="text-xs text-destructive hover:text-destructive"
+                    >
+                      {revokeKey.isPending ? (
+                        <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
+                      ) : (
+                        <IconTrash className="h-3 w-3 mr-1.5" />
+                      )}
+                      Revoke
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        )}
-      </CardContent>
+        </CardContent>
+      )}
     </Card>
   );
 }
@@ -1042,8 +1070,6 @@ export default function DataSources() {
         />
       </div>
 
-      {!search && <FirstPartyAnalyticsCard />}
-
       {/* Filtered results */}
       {filteredSources !== null ? (
         filteredSources.length > 0 ? (
@@ -1074,6 +1100,7 @@ export default function DataSources() {
                 {categoryLabels[category]}
               </h3>
               <div className="grid gap-3 lg:grid-cols-2">
+                {category === "analytics" && <FirstPartyAnalyticsCard />}
                 {sources.map((source) => (
                   <DataSourceCard
                     key={source.id}

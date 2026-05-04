@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import * as PopoverPrimitive from "@radix-ui/react-popover";
 import {
   IconBuilding,
   IconCheck,
   IconLoader2,
+  IconLogout,
   IconPlus,
   IconSelector,
   IconUser,
@@ -16,6 +18,7 @@ import {
   useAcceptInvitation,
 } from "./hooks.js";
 import { DEV_MODE_USER_EMAIL } from "../dev-mode.js";
+import { agentNativePath } from "../api-path.js";
 
 export interface OrgSwitcherProps {
   className?: string;
@@ -39,13 +42,20 @@ function personalLabelFromEmail(email: string | null | undefined): string {
 
 type Mode = "list" | "create" | "invite";
 
+const POPOVER_CONTENT_CLASS =
+  "z-50 min-w-[14rem] rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2";
+
+const ITEM_CLASS =
+  "flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-foreground hover:bg-accent focus-visible:bg-accent focus:outline-none disabled:opacity-50 disabled:pointer-events-none";
+
+const SECTION_LABEL_CLASS =
+  "px-2.5 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground";
+
 /**
- * Compact org switcher button. Shows the active org name; opens a dropdown
- * with the user's other orgs, pending invitations, and inline forms to
- * create a new org or invite a teammate. Renders nothing in solo / dev
- * mode or when the user has no orgs at all and no invites.
- *
- * Headless DOM (no shadcn deps) so it works in any template.
+ * Compact org switcher button. Shows the active org (or "Personal" when the
+ * user has none); opens a popover with the user's other orgs, pending
+ * invitations, inline forms to create a new org / invite a teammate, and a
+ * sign-out item. Renders nothing in dev / no-auth mode.
  */
 export function OrgSwitcher({
   className,
@@ -61,26 +71,30 @@ export function OrgSwitcher({
   const [mode, setMode] = useState<Mode>("list");
   const [newName, setNewName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
+  const [signingOut, setSigningOut] = useState(false);
 
-  useEffect(() => {
-    if (!open) return;
-    const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) {
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (!next) {
       setMode("list");
       setNewName("");
       setInviteEmail("");
     }
-  }, [open]);
+  };
+
+  const handleSignOut = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await fetch(agentNativePath("/_agent-native/auth/logout"), {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {
+      /* fall through to reload — server may already have cleared the cookie */
+    }
+    window.location.reload();
+  };
 
   if (!org) {
     return reserveSpace && isLoading ? (
@@ -113,22 +127,33 @@ export function OrgSwitcher({
 
   const personalLabel = personalLabelFromEmail(org.email);
   const inOrg = !!org.orgId;
-  const label = org.orgName ?? "Personal";
+  const buttonLabel = org.orgName ?? "Personal";
   const ButtonIcon = inOrg ? IconBuilding : IconUser;
 
   return (
-    <div ref={ref} className={`relative ${className ?? ""}`}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground border border-border/50"
-      >
-        <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
-        <span className="truncate flex-1 text-left">{label}</span>
-        <IconSelector className="h-3 w-3 shrink-0 opacity-50" />
-      </button>
-      {open && (
-        <div className="absolute left-0 right-0 bottom-full mb-1 z-50 rounded-md border border-border bg-popover shadow-md py-1 min-w-[14rem]">
+    <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange}>
+      <PopoverPrimitive.Trigger asChild>
+        <button
+          type="button"
+          className={`flex w-full items-center gap-2 rounded-md border border-border/50 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer ${className ?? ""}`}
+        >
+          <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate flex-1 text-left">{buttonLabel}</span>
+          <IconSelector className="h-3 w-3 shrink-0 opacity-50" />
+        </button>
+      </PopoverPrimitive.Trigger>
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Content
+          side="top"
+          align="start"
+          sideOffset={6}
+          collisionPadding={12}
+          className={POPOVER_CONTENT_CLASS}
+          onOpenAutoFocus={(e) => {
+            // Don't auto-focus the first item — feels heavy on a switcher.
+            if (mode === "list") e.preventDefault();
+          }}
+        >
           {mode === "list" && (
             <>
               {!inOrg && (
@@ -143,9 +168,7 @@ export function OrgSwitcher({
                 </div>
               )}
               {orgs.length > 0 && (
-                <div className="px-2.5 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                  Organization
-                </div>
+                <div className={SECTION_LABEL_CLASS}>Organizations</div>
               )}
               {orgs.map((o) => (
                 <button
@@ -164,12 +187,12 @@ export function OrgSwitcher({
                     }
                   }}
                   disabled={switchOrg.isPending}
-                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-foreground hover:bg-accent disabled:opacity-50"
+                  className={`${ITEM_CLASS} cursor-pointer`}
                 >
                   <IconBuilding className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <span className="truncate flex-1 text-left">{o.orgName}</span>
                   {o.orgId === org.orgId && (
-                    <IconCheck className="h-3.5 w-3.5 shrink-0 text-green-500" />
+                    <IconCheck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   )}
                 </button>
               ))}
@@ -177,9 +200,7 @@ export function OrgSwitcher({
               {pendingInvitations.length > 0 && (
                 <>
                   {orgs.length > 0 && <div className="my-1 h-px bg-border" />}
-                  <div className="px-2.5 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                    Invitations
-                  </div>
+                  <div className={SECTION_LABEL_CLASS}>Invitations</div>
                   {pendingInvitations.map((inv) => (
                     <div
                       key={inv.id}
@@ -200,7 +221,7 @@ export function OrgSwitcher({
                           }
                         }}
                         disabled={acceptInvitation.isPending}
-                        className="rounded px-1.5 py-0.5 text-[11px] font-medium text-green-600 hover:bg-green-500/10 disabled:opacity-50"
+                        className="rounded px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/10 disabled:opacity-50 cursor-pointer"
                       >
                         {acceptInvitation.isPending ? (
                           <IconLoader2 className="h-3 w-3 animate-spin" />
@@ -217,7 +238,7 @@ export function OrgSwitcher({
               <button
                 type="button"
                 onClick={() => setMode("create")}
-                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-foreground hover:bg-accent"
+                className={`${ITEM_CLASS} cursor-pointer`}
               >
                 <IconPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <span className="flex-1 text-left">Create organization</span>
@@ -226,15 +247,37 @@ export function OrgSwitcher({
                 <button
                   type="button"
                   onClick={() => setMode("invite")}
-                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-foreground hover:bg-accent"
+                  className={`${ITEM_CLASS} cursor-pointer`}
                 >
                   <IconUserPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <span className="flex-1 text-left">Invite member</span>
                 </button>
               )}
 
+              <div className="my-1 h-px bg-border" />
+              <button
+                type="button"
+                onClick={handleSignOut}
+                disabled={signingOut}
+                className={`${ITEM_CLASS} cursor-pointer`}
+              >
+                {signingOut ? (
+                  <IconLoader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+                ) : (
+                  <IconLogout className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                )}
+                <span className="flex-1 text-left">
+                  Sign out
+                  {org.email ? (
+                    <span className="ml-1 text-muted-foreground">
+                      ({org.email})
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+
               {(switchOrg.error || acceptInvitation.error) && (
-                <div className="px-2.5 pt-1 text-[11px] text-red-600">
+                <div className="px-2.5 pt-1 text-[11px] text-destructive">
                   {
                     ((switchOrg.error || acceptInvitation.error) as Error)
                       .message
@@ -271,7 +314,7 @@ export function OrgSwitcher({
                 className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
               />
               {createOrg.error && (
-                <div className="pt-1 text-[11px] text-red-600">
+                <div className="pt-1 text-[11px] text-destructive">
                   {(createOrg.error as Error).message}
                 </div>
               )}
@@ -280,14 +323,14 @@ export function OrgSwitcher({
                   type="button"
                   onClick={() => setMode("list")}
                   disabled={createOrg.isPending}
-                  className="flex-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent disabled:opacity-50"
+                  className="flex-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent disabled:opacity-50 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={createOrg.isPending || !newName.trim()}
-                  className="flex-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                  className="flex-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 cursor-pointer"
                 >
                   {createOrg.isPending ? (
                     <IconLoader2 className="mx-auto h-3 w-3 animate-spin" />
@@ -328,7 +371,7 @@ export function OrgSwitcher({
                 className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
               />
               {inviteMember.error && (
-                <div className="pt-1 text-[11px] text-red-600">
+                <div className="pt-1 text-[11px] text-destructive">
                   {(inviteMember.error as Error).message}
                 </div>
               )}
@@ -337,14 +380,14 @@ export function OrgSwitcher({
                   type="button"
                   onClick={() => setMode("list")}
                   disabled={inviteMember.isPending}
-                  className="flex-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent disabled:opacity-50"
+                  className="flex-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent disabled:opacity-50 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={inviteMember.isPending || !inviteEmail.trim()}
-                  className="flex-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                  className="flex-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 cursor-pointer"
                 >
                   {inviteMember.isPending ? (
                     <IconLoader2 className="mx-auto h-3 w-3 animate-spin" />
@@ -355,8 +398,8 @@ export function OrgSwitcher({
               </div>
             </form>
           )}
-        </div>
-      )}
-    </div>
+        </PopoverPrimitive.Content>
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
   );
 }

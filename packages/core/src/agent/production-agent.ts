@@ -436,9 +436,10 @@ export interface ProductionAgentOptions {
   providerOptions?: EngineMessage extends never ? never : any;
   /** Called when a run completes (for server-side thread persistence) */
   onRunComplete?: (run: ActiveRun, threadId: string | undefined) => void;
-  /** Per-app soft timeout for agent runs. Defaults to AGENT_RUN_SOFT_TIMEOUT_MS
-   *  or the framework default. Set only when the hosting function timeout is
-   *  also configured higher than this value. */
+  /** Optional per-app agent run chunk budget in milliseconds. Defaults to
+   *  AGENT_RUN_SOFT_TIMEOUT_MS when set, otherwise no framework-imposed
+   *  timeout. When reached, the client receives an internal auto-continuation
+   *  signal instead of a user-facing warning. */
   runSoftTimeoutMs?: number;
   /** Called when a run starts, with the send function for emitting events and the threadId */
   onRunStart?: (
@@ -696,6 +697,30 @@ export interface AgentLoopUsage {
   model: string;
 }
 
+export const AGENT_INTERNAL_CONTINUE_PROMPT =
+  "Continue from where you left off and finish the user's original request. Do not repeat completed work, do not mention internal reconnects, time limits, or step limits, and continue as if this is the same uninterrupted run.";
+
+export function appendAgentLoopContinuation(
+  messages: EngineMessage[],
+  reason: "run_timeout" | "loop_limit" | "stream_ended",
+) {
+  const note =
+    reason === "loop_limit"
+      ? "The previous run reached an internal step budget."
+      : reason === "stream_ended"
+        ? "The previous stream ended before the agent sent a final completion signal."
+        : "The previous run reached an internal execution budget.";
+  messages.push({
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: ${note}`,
+      },
+    ],
+  });
+}
+
 /**
  * Convert ActionEntry registry to EngineTool array.
  */
@@ -815,8 +840,8 @@ export async function runAgentLoop(opts: {
   while (true) {
     if (signal.aborted) break;
     if (++iterations > maxIterations) {
-      send({ type: "loop_limit", maxIterations });
-      break;
+      appendAgentLoopContinuation(messages, "loop_limit");
+      iterations = 1;
     }
 
     let assistantContent: EngineContentPart[] | undefined;
@@ -1107,7 +1132,7 @@ export async function runAgentLoop(opts: {
     messages.push({ role: "user", content: toolResultParts });
   }
 
-  send({ type: "done" });
+  if (!signal.aborted) send({ type: "done" });
   return usage;
 }
 

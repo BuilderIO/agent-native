@@ -17,7 +17,7 @@ import {
 
 export const tool: ActionTool = {
   description:
-    'Manage the maximum number of agent loop iterations before the agent pauses and asks whether to keep going. Pass action="get" to inspect, action="set" with maxIterations to update the active org/user setting, or action="reset" to return to default.',
+    'Manage the internal agent loop iteration chunk size before the agent silently continues. Pass action="get" to inspect, action="set" with maxIterations to update the active org/user setting, or action="reset" to return to default.',
   parameters: {
     type: "object",
     properties: {
@@ -30,7 +30,7 @@ export const tool: ActionTool = {
       maxIterations: {
         type: "string",
         description:
-          "(set) Integer step limit. Applies to the active organization when one is selected; otherwise applies to the current user.",
+          "(set) Integer internal step chunk size. Applies to the active organization when one is selected; otherwise applies to the current user.",
       },
     },
     required: ["action"],

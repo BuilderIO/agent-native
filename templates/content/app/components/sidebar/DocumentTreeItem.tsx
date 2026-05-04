@@ -58,33 +58,38 @@ export function DocumentTreeItem({
     <div>
       <div
         className={cn(
-          "group relative flex items-center gap-1 px-2 py-[5px] rounded-md cursor-pointer text-sm",
+          "group relative flex items-center gap-1.5 pr-2 py-[5px] rounded-md cursor-pointer text-sm",
           isActive
             ? "bg-accent text-accent-foreground"
             : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
         )}
-        style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        style={{ paddingLeft: `${depth * 16 + 12}px` }}
         onClick={() => onSelect(node.id)}
       >
-        <button
-          className={cn(
-            "flex-shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-accent",
-            !hasChildren && "invisible",
-          )}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleExpanded(node.id);
-          }}
-        >
-          <IconChevronRight
-            size={14}
-            className={cn("transition-transform", expanded && "rotate-90")}
-          />
-        </button>
-
-        <span className="flex-shrink-0 w-5 text-center">
-          {node.icon || (
-            <IconFileText size={14} className="text-muted-foreground" />
+        <span className="relative flex-shrink-0 w-5 h-5">
+          <span
+            className={cn(
+              "absolute inset-0 flex items-center justify-center text-center",
+              hasChildren && "group-hover:opacity-0",
+            )}
+          >
+            {node.icon || (
+              <IconFileText size={14} className="text-muted-foreground" />
+            )}
+          </span>
+          {hasChildren && (
+            <button
+              className="absolute inset-0 flex items-center justify-center rounded hover:bg-accent opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleExpanded(node.id);
+              }}
+            >
+              <IconChevronRight
+                size={14}
+                className={cn("transition-transform", expanded && "rotate-90")}
+              />
+            </button>
           )}
         </span>
 

@@ -29,12 +29,11 @@ const threadToRun = new Map<string, string>();
 
 /** How long to keep completed runs in memory before cleanup (5 min) */
 const CLEANUP_DELAY_MS = 5 * 60 * 1000;
-const DEFAULT_RUN_SOFT_TIMEOUT_MS = 75_000;
 
 export interface StartRunOptions {
-  /** Override the run soft timeout for this run. Must be lower than the
-   * hosting platform's hard function timeout so the framework can emit a
-   * recoverable event before the host kills the process. */
+  /** Optional internal run chunk budget. When reached, the framework emits an
+   * auto-continuation signal instead of a user-facing timeout. Leave unset for
+   * no framework-imposed run timeout. */
   softTimeoutMs?: number;
 }
 
@@ -44,7 +43,7 @@ export function resolveRunSoftTimeoutMs(overrideMs?: number): number {
   }
   const raw = Number(process.env.AGENT_RUN_SOFT_TIMEOUT_MS);
   if (Number.isFinite(raw) && raw >= 0) return raw;
-  return DEFAULT_RUN_SOFT_TIMEOUT_MS;
+  return 0;
 }
 
 /**
@@ -102,14 +101,8 @@ export function startRun(
           if (run.status !== "running" || abort.signal.aborted) return;
           softTimedOut = true;
           send({
-            type: "error",
-            error:
-              "The agent reached the run time limit before it could finish.",
-            errorCode: "run_timeout",
-            recoverable: true,
-            details: `The run exceeded ${Math.round(
-              softTimeoutMs / 1000,
-            )} seconds. Partial output and tool calls were preserved so you can continue or retry.`,
+            type: "auto_continue",
+            reason: "run_timeout",
           });
           abort.abort();
         }, softTimeoutMs)
@@ -149,12 +142,12 @@ export function startRun(
   // Run in background — intentionally detached from any HTTP connection
   const runPromise = runFn(send, abort.signal)
     .then(() => {
-      run.status = softTimedOut ? "errored" : "completed";
+      run.status = "completed";
     })
     .catch((err) => {
       // Don't surface abort errors — the run was intentionally stopped
       if (abort.signal.aborted) {
-        run.status = softTimedOut ? "errored" : "aborted";
+        run.status = softTimedOut ? "completed" : "aborted";
         return;
       }
       run.status = "errored";

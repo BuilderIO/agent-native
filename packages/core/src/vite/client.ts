@@ -275,6 +275,27 @@ function getCoreSourceAliases(
       coreSrc,
       "client/tools/index.ts",
     ),
+    "@agent-native/core/client/org": path.join(coreSrc, "client/org/index.ts"),
+    "@agent-native/core/client/observability": path.join(
+      coreSrc,
+      "client/observability/index.ts",
+    ),
+    "@agent-native/core/client/onboarding": path.join(
+      coreSrc,
+      "client/onboarding/index.ts",
+    ),
+    "@agent-native/core/client/sharing": path.join(
+      coreSrc,
+      "client/sharing/index.ts",
+    ),
+    "@agent-native/core/client/notifications": path.join(
+      coreSrc,
+      "client/notifications/index.ts",
+    ),
+    "@agent-native/core/client/progress": path.join(
+      coreSrc,
+      "client/progress/index.ts",
+    ),
     "@agent-native/core/db": path.join(coreSrc, "db/index.ts"),
     "@agent-native/core/db/schema": path.join(coreSrc, "db/schema.ts"),
     "@agent-native/core/shared": path.join(coreSrc, "shared/index.ts"),

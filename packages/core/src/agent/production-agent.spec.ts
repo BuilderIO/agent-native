@@ -439,8 +439,9 @@ describe("runAgentLoop", () => {
     ]);
   });
 
-  it("emits loop_limit with the configured max iteration count", async () => {
+  it("continues internally when the configured iteration chunk is exhausted", async () => {
     let streamCalls = 0;
+    const seenMessages: any[] = [];
     const engine: AgentEngine = {
       name: "test",
       label: "Test",
@@ -453,8 +454,18 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(opts): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        seenMessages.push(opts.messages);
+        if (streamCalls === 3) {
+          yield { type: "text-delta", text: "finished" };
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "finished" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
         const parts = [
           {
             type: "tool-call" as const,
@@ -487,8 +498,14 @@ describe("runAgentLoop", () => {
       maxIterations: 2,
     });
 
-    expect(streamCalls).toBe(2);
-    expect(events).toContainEqual({ type: "loop_limit", maxIterations: 2 });
+    expect(streamCalls).toBe(3);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "loop_limit" }),
+    );
+    expect(JSON.stringify(seenMessages.at(-1))).toContain(
+      "Continue from where you left off",
+    );
+    expect(events).toContainEqual({ type: "text", text: "finished" });
     expect(events.at(-1)).toEqual({ type: "done" });
   });
 

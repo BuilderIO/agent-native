@@ -126,6 +126,11 @@ export type AgentChatEvent =
     }
   | { type: "missing_api_key" }
   | { type: "loop_limit"; maxIterations?: number }
+  | {
+      type: "auto_continue";
+      reason: "run_timeout" | "loop_limit" | "stream_ended";
+      maxIterations?: number;
+    }
   | { type: "clear" };
 
 export interface RunEvent {

@@ -22,6 +22,7 @@ export interface SSEEvent {
   seq?: number;
   agent?: string;
   status?: string;
+  reason?: string;
   // Agent task fields
   taskId?: string;
   threadId?: string;
@@ -38,6 +39,26 @@ export interface SSEEvent {
   maxIterations?: number;
 }
 
+export type AgentAutoContinueReason =
+  | "run_timeout"
+  | "loop_limit"
+  | "stream_ended";
+
+export class AgentAutoContinueSignal extends Error {
+  readonly reason: AgentAutoContinueReason;
+  readonly maxIterations?: number;
+
+  constructor(options: {
+    reason: AgentAutoContinueReason;
+    maxIterations?: number;
+  }) {
+    super(`Agent run needs automatic continuation: ${options.reason}`);
+    this.name = "AgentAutoContinueSignal";
+    this.reason = options.reason;
+    this.maxIterations = options.maxIterations;
+  }
+}
+
 /**
  * Process a single SSE event and update the content accumulator.
  * Returns: "continue" to keep going, "done" to stop, or a yield-ready result.
@@ -48,8 +69,18 @@ export function processEvent(
   toolCallCounter: { value: number },
   tabId: string | undefined,
 ): {
-  action: "continue" | "done" | "yield" | "error" | "missing_api_key";
+  action:
+    | "continue"
+    | "done"
+    | "yield"
+    | "error"
+    | "missing_api_key"
+    | "auto_continue";
   result?: ChatModelRunResult;
+  autoContinue?: {
+    reason: AgentAutoContinueReason;
+    maxIterations?: number;
+  };
 } {
   if (ev.type === "clear") {
     // Server is retrying — discard partial text/tool output from the failed attempt
@@ -200,36 +231,53 @@ export function processEvent(
   if (ev.type === "loop_limit") {
     const maxIterations =
       typeof ev.maxIterations === "number" ? ev.maxIterations : undefined;
-    content.push({
-      type: "text",
-      text: maxIterations
-        ? `I reached the ${maxIterations}-step limit before finishing.`
-        : "I reached the step limit before finishing.",
-    });
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("agent-chat:loop-limit", {
-          detail: { tabId, maxIterations },
-        }),
-      );
-    }
     return {
-      action: "done",
-      result: {
-        content: [...content],
-        metadata: {
-          custom: {
-            loopLimit: {
-              ...(maxIterations ? { maxIterations } : {}),
-            },
-          },
-        },
-      } as ChatModelRunResult,
+      action: "auto_continue",
+      autoContinue: {
+        reason: "loop_limit",
+        ...(maxIterations ? { maxIterations } : {}),
+      },
+    };
+  }
+
+  if (ev.type === "auto_continue") {
+    const reason =
+      ev.reason === "stream_ended" ||
+      ev.reason === "loop_limit" ||
+      ev.reason === "run_timeout"
+        ? ev.reason
+        : ev.errorCode === "stream_ended" ||
+            ev.errorCode === "loop_limit" ||
+            ev.errorCode === "run_timeout"
+          ? ev.errorCode
+          : ev.error === "stream_ended" ||
+              ev.error === "loop_limit" ||
+              ev.error === "run_timeout"
+            ? ev.error
+            : ev.status === "stream_ended" ||
+                ev.status === "loop_limit" ||
+                ev.status === "run_timeout"
+              ? ev.status
+              : "run_timeout";
+    return {
+      action: "auto_continue",
+      autoContinue: {
+        reason,
+        ...(typeof ev.maxIterations === "number"
+          ? { maxIterations: ev.maxIterations }
+          : {}),
+      },
     };
   }
 
   if (ev.type === "error") {
     const errMsg = ev.error ?? "Unknown error";
+    if (ev.errorCode === "run_timeout" && ev.recoverable) {
+      return {
+        action: "auto_continue",
+        autoContinue: { reason: "run_timeout" },
+      };
+    }
     const normalized = normalizeChatError(errMsg);
     if (
       errMsg.includes("apiKey") ||
@@ -358,7 +406,7 @@ export async function* readSSEStream(
           onSeq(ev.seq);
         }
 
-        const { action, result } = processEvent(
+        const { action, result, autoContinue } = processEvent(
           ev,
           content,
           toolCallCounter,
@@ -366,6 +414,11 @@ export async function* readSSEStream(
         );
 
         if (result) yield withRunId(result);
+        if (action === "auto_continue") {
+          throw new AgentAutoContinueSignal(
+            autoContinue ?? { reason: "stream_ended" },
+          );
+        }
         if (
           action === "done" ||
           action === "error" ||
@@ -381,28 +434,7 @@ export async function* readSSEStream(
 
   // Stream ended without explicit done event
   if (content.length > 0) {
-    const runError = {
-      message:
-        "The response stream ended before the agent sent a completion signal. You can continue from the partial work or retry.",
-      errorCode: "stream_ended",
-      recoverable: true,
-    };
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("agent-chat:run-error", {
-          detail: { ...runError, tabId },
-        }),
-      );
-    }
-    content.push({
-      type: "text",
-      text: `Error: ${runError.message}`,
-    });
-    yield withRunId({
-      content: [...content],
-      status: { type: "incomplete" as const, reason: "error" as const },
-      metadata: { custom: { runError } },
-    } as ChatModelRunResult);
+    throw new AgentAutoContinueSignal({ reason: "stream_ended" });
   }
 }
 
@@ -455,6 +487,10 @@ export async function readSSEStreamRaw(
         ) {
           updated = true;
         }
+        if (action === "auto_continue") {
+          onUpdate([...content]);
+          return;
+        }
         if (
           action === "done" ||
           action === "error" ||
@@ -472,21 +508,5 @@ export async function readSSEStreamRaw(
   } finally {
     reader.releaseLock();
   }
-  if (content.length > 0) {
-    const runError = {
-      message:
-        "The response stream ended before the agent sent a completion signal. You can continue from the partial work or retry.",
-      errorCode: "stream_ended",
-      recoverable: true,
-    };
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("agent-chat:run-error", {
-          detail: { ...runError, tabId },
-        }),
-      );
-    }
-    content.push({ type: "text", text: `Error: ${runError.message}` });
-    onUpdate([...content]);
-  }
+  if (content.length > 0) onUpdate([...content]);
 }
