@@ -505,6 +505,13 @@ export function getWorkspaceInfo(): WorkspaceInfo {
   const rawName = typeof pkg?.name === "string" ? pkg.name.trim() : "";
   // Strip a leading "@scope/" if the workspace root happens to be scoped.
   const name = rawName.replace(/^@[^/]+\//, "") || null;
+  // Honor an explicit `displayName` in the workspace package.json before
+  // falling back to a title-cased version of the slug. Users naming a
+  // workspace "On-Call Todo Manager" via `displayName` should see that
+  // exact label rather than `On Call Todo Manager`.
+  const rawDisplay =
+    typeof pkg?.displayName === "string" ? pkg.displayName.trim() : "";
+  const displayName = rawDisplay || (name ? titleCase(name) : null);
   let appCount = 0;
   const appsDir = path.join(rootPath, "apps");
   if (fs.existsSync(appsDir)) {
@@ -518,7 +525,7 @@ export function getWorkspaceInfo(): WorkspaceInfo {
   }
   return {
     name,
-    displayName: name ? titleCase(name) : null,
+    displayName,
     rootPath,
     appCount,
   };
