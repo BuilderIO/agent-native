@@ -117,8 +117,24 @@ describe("listGmailMessages", () => {
       historyId: String(index + 1),
     }));
     threads[59] = { id: "thread-slack-marketplace", historyId: "999" };
+    const candidateMetadata = threads.map((thread, index) => ({
+      id: thread.id,
+      data: {
+        messages: [
+          {
+            id: `meta-${thread.id}`,
+            threadId: thread.id,
+            internalDate:
+              thread.id === "thread-slack-marketplace"
+                ? "999"
+                : String(index + 1),
+          },
+        ],
+      },
+    }));
     vi.mocked(gmailListThreads).mockResolvedValue({ threads } as any);
     vi.mocked(gmailBatchGetThreads)
+      .mockResolvedValueOnce(candidateMetadata as any)
       .mockResolvedValueOnce([
         {
           id: "thread-slack-marketplace",
@@ -167,7 +183,14 @@ describe("listGmailMessages", () => {
       maxResults: 100,
       pageToken: undefined,
     });
-    expect(gmailBatchGetThreads).toHaveBeenCalledWith(
+    expect(gmailBatchGetThreads).toHaveBeenNthCalledWith(
+      1,
+      "access-token",
+      threads.map((thread) => thread.id),
+      "metadata",
+    );
+    expect(gmailBatchGetThreads).toHaveBeenNthCalledWith(
+      2,
       "access-token",
       ["thread-slack-marketplace", "thread-59"],
       "full",
@@ -194,6 +217,77 @@ describe("listGmailMessages", () => {
       "full",
     );
     expect(nextResult.messages.map((m) => m.id)).toEqual(["next-a", "next-b"]);
+  });
+
+  it("ranks search candidates by latest message time instead of history mutations", async () => {
+    const threads = [
+      { id: "old-label-touched", historyId: "9999" },
+      { id: "recent-message", historyId: "1" },
+    ];
+    vi.mocked(gmailListThreads).mockResolvedValue({ threads } as any);
+    vi.mocked(gmailBatchGetThreads)
+      .mockResolvedValueOnce([
+        {
+          id: "old-label-touched",
+          data: {
+            messages: [
+              {
+                id: "old-meta",
+                threadId: "old-label-touched",
+                internalDate: "100",
+              },
+            ],
+          },
+        },
+        {
+          id: "recent-message",
+          data: {
+            messages: [
+              {
+                id: "recent-meta",
+                threadId: "recent-message",
+                internalDate: "900",
+              },
+            ],
+          },
+        },
+      ] as any)
+      .mockResolvedValueOnce([
+        {
+          id: "recent-message",
+          data: {
+            messages: [
+              {
+                id: "recent-full",
+                threadId: "recent-message",
+                internalDate: "900",
+              },
+            ],
+          },
+        },
+      ] as any);
+
+    const result = await listGmailMessages(
+      "slack-history-mismatch",
+      1,
+      "owner@example.com",
+      undefined,
+      { mode: "threads", threadCandidateLimit: 100 },
+    );
+
+    expect(gmailBatchGetThreads).toHaveBeenNthCalledWith(
+      1,
+      "access-token",
+      ["old-label-touched", "recent-message"],
+      "metadata",
+    );
+    expect(gmailBatchGetThreads).toHaveBeenNthCalledWith(
+      2,
+      "access-token",
+      ["recent-message"],
+      "full",
+    );
+    expect(result.messages.map((m) => m.id)).toEqual(["recent-full"]);
   });
 
   it("refills missing thread batch parts before returning search results", async () => {

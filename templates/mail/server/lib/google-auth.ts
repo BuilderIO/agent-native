@@ -488,9 +488,9 @@ type ListOptions = {
   /**
    * Search result order from threads.list is not enough to mimic Gmail's UI:
    * an old thread can match because its first message has the search term,
-   * while the thread itself was modified recently. Listing a wider candidate
-   * window is cheap (thread IDs only); we then hydrate the most recently
-   * modified candidates.
+   * while the thread itself has a newer reply. Listing a wider candidate
+   * window is cheap (thread IDs only); we then hydrate metadata and rank by
+   * each thread's newest message time, which is what Gmail visibly sorts by.
    */
   threadCandidateLimit?: number;
 };
@@ -608,6 +608,102 @@ async function storeThreadCandidatePage(
   };
   await writeThreadCandidatePageStore(ownerEmail, pages);
   return key;
+}
+
+function latestThreadMessageTime(thread: any): number {
+  let latest = 0;
+  for (const message of thread?.messages || []) {
+    const internalDate = Number(message.internalDate || 0);
+    if (Number.isFinite(internalDate) && internalDate > latest) {
+      latest = internalDate;
+    }
+
+    const headerDate = Date.parse(
+      getHeader(message.payload?.headers || [], "Date"),
+    );
+    if (Number.isFinite(headerDate) && headerDate > latest) {
+      latest = headerDate;
+    }
+  }
+  return latest;
+}
+
+async function fetchThreadBatchWithRefill(
+  accessToken: string,
+  threadIds: string[],
+  format: "full" | "metadata" | "minimal",
+): Promise<Array<{ id: string; data: any | null; error?: string }>> {
+  const batchResults = await gmailBatchGetThreads(
+    accessToken,
+    threadIds,
+    format,
+  );
+
+  // A missing thread part should not make search look incomplete when an
+  // individual retry can recover it.
+  const missing = batchResults.filter((r) => !r.data).map((r) => r.id);
+  if (missing.length > 0) {
+    const refills = await Promise.all(
+      missing.map(async (id) => {
+        try {
+          const data = await gmailGetThread(accessToken, id, format);
+          return { id, data };
+        } catch {
+          return { id, data: null as any };
+        }
+      }),
+    );
+    const byId = new Map(refills.map((r) => [r.id, r.data]));
+    for (const r of batchResults) {
+      if (!r.data && byId.has(r.id)) r.data = byId.get(r.id);
+    }
+  }
+
+  return batchResults;
+}
+
+function messagesFromThreadBatchResults(
+  batchResults: Array<{ id: string; data: any | null; error?: string }>,
+  email: string,
+): any[] {
+  const messages: any[] = [];
+  for (const r of batchResults) {
+    for (const message of r.data?.messages || []) {
+      messages.push({ ...message, _accountEmail: email });
+    }
+  }
+  return messages;
+}
+
+async function rankThreadCandidatesByLatestMessage(
+  accessToken: string,
+  candidateIds: string[],
+): Promise<{
+  ids: string[];
+  metadataById: Map<string, any>;
+}> {
+  const originalIndex = new Map(
+    candidateIds.map((id, index) => [id, index] as const),
+  );
+  const batchResults = await fetchThreadBatchWithRefill(
+    accessToken,
+    candidateIds,
+    "metadata",
+  );
+  const metadataById = new Map<string, any>();
+  for (const result of batchResults) {
+    if (result.data) metadataById.set(result.id, result.data);
+  }
+
+  const ids = [...candidateIds].sort((a, b) => {
+    const diff =
+      latestThreadMessageTime(metadataById.get(b)) -
+      latestThreadMessageTime(metadataById.get(a));
+    if (diff !== 0) return diff;
+    return (originalIndex.get(a) ?? 0) - (originalIndex.get(b) ?? 0);
+  });
+
+  return { ids, metadataById };
 }
 
 function listCacheKey(
@@ -1213,19 +1309,17 @@ async function fetchAccountThreads(
   onEstimate(listRes.resultSizeEstimate || 0);
 
   const threadStubs = listRes.threads || [];
-  if (useCandidateWindow && threadStubs.some((t: any) => t.historyId)) {
-    threadStubs.sort((a: any, b: any) => {
-      try {
-        const ah = BigInt(a.historyId || 0);
-        const bh = BigInt(b.historyId || 0);
-        return ah === bh ? 0 : ah > bh ? -1 : 1;
-      } catch {
-        return Number(b.historyId || 0) - Number(a.historyId || 0);
-      }
-    });
+  let candidateIds = threadStubs.map((t: any) => t.id).filter(Boolean);
+  let candidateMetadataById: Map<string, any> | undefined;
+  if (useCandidateWindow && candidateIds.length > maxResults) {
+    const ranked = await rankThreadCandidatesByLatestMessage(
+      accessToken,
+      candidateIds,
+    );
+    candidateIds = ranked.ids;
+    candidateMetadataById = ranked.metadataById;
   }
 
-  const candidateIds = threadStubs.map((t: any) => t.id).filter(Boolean);
   const threadIds = candidateIds.slice(0, maxResults);
   if (threadIds.length === 0) return [];
 
@@ -1241,6 +1335,16 @@ async function fetchAccountThreads(
     onNextPageToken(listRes.nextPageToken);
   }
 
+  if (format === "metadata" && candidateMetadataById) {
+    return messagesFromThreadBatchResults(
+      threadIds.map((id) => ({
+        id,
+        data: candidateMetadataById.get(id) ?? null,
+      })),
+      email,
+    );
+  }
+
   return fetchThreadMessagesForIds(accessToken, email, threadIds, format);
 }
 
@@ -1251,40 +1355,12 @@ async function fetchThreadMessagesForIds(
   format: "full" | "metadata" | "minimal",
 ): Promise<any[]> {
   if (threadIds.length === 0) return [];
-
-  const batchResults = await gmailBatchGetThreads(
+  const batchResults = await fetchThreadBatchWithRefill(
     accessToken,
     threadIds,
     format,
   );
-
-  // Same partial-batch guard as messages: a missing thread part should not
-  // make search look incomplete when an individual retry can recover it.
-  const missing = batchResults.filter((r) => !r.data).map((r) => r.id);
-  if (missing.length > 0) {
-    const refills = await Promise.all(
-      missing.map(async (id) => {
-        try {
-          const data = await gmailGetThread(accessToken, id, format);
-          return { id, data };
-        } catch {
-          return { id, data: null as any };
-        }
-      }),
-    );
-    const byId = new Map(refills.map((r) => [r.id, r.data]));
-    for (const r of batchResults) {
-      if (!r.data && byId.has(r.id)) r.data = byId.get(r.id);
-    }
-  }
-
-  const messages: any[] = [];
-  for (const r of batchResults) {
-    for (const message of r.data?.messages || []) {
-      messages.push({ ...message, _accountEmail: email });
-    }
-  }
-  return messages;
+  return messagesFromThreadBatchResults(batchResults, email);
 }
 
 async function listGmailMessagesUncached(
