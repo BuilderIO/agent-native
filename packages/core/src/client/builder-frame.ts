@@ -103,3 +103,46 @@ export function sendToBuilderChat(opts: BuilderChatMessage): boolean {
 
   return true;
 }
+
+// Detect "build/create/make/scaffold a new app/agent" style prompts.
+// Within agent-native, "agent" and "app" are synonyms — every agent-native
+// app is an agent, so users phrase build requests either way.
+const BUILD_APP_OR_AGENT_RE =
+  /\b(?:build|create|make|scaffold|generate)\b[^.!?\n]*?\b(?:agent[-\s]native\s+)?(?:workspace\s+)?(?:app|agent)\b/i;
+
+/**
+ * Returns true if `text` looks like a "build me an app/agent" request that
+ * should hand off to the code-writing agent (Builder, local code agent, etc.)
+ * rather than be answered by the embedded app's domain agent.
+ *
+ * Conservative: requires both an imperative build verb AND an explicit
+ * "app" / "agent" target word in the same sentence. "Build me a tool",
+ * "build a recurring job", "create a destination" do not match — they
+ * don't end in "app"/"agent" so they stay on the local agent. "Build me
+ * an email app" / "create me an email agent" do match — the target
+ * word is "app" / "agent", not "email".
+ */
+export function isBuildAppOrAgentRequest(text: string | undefined): boolean {
+  const t = (text ?? "").trim();
+  if (!t) return false;
+  return BUILD_APP_OR_AGENT_RE.test(t);
+}
+
+/**
+ * If the user typed a "build me an app/agent" prompt while running inside
+ * the Builder.io webview/iframe, hand the prompt up to the parent Builder
+ * chat via `builder.submitChat`. Returns true when delegated.
+ *
+ * Why: Builder is the code-writing agent. When a workspace app (Dispatch,
+ * Mail, etc.) is mounted inside Builder's webview and the user asks the
+ * embedded chat to "build an app", the user almost certainly means the
+ * already-open Builder chat session — not a separate Builder agent run
+ * spawned through `start-workspace-app-creation`.
+ */
+export function tryDelegateBuildRequestToBuilder(
+  text: string | undefined,
+): boolean {
+  if (!isInBuilderFrame()) return false;
+  if (!isBuildAppOrAgentRequest(text)) return false;
+  return sendToBuilderChat({ message: (text ?? "").trim(), submit: true });
+}

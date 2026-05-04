@@ -61,7 +61,6 @@ describe("server/auth", () => {
     it("throws when app is null/undefined in production mode", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "secret");
-      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       await expect(autoMountAuth(null as any)).rejects.toThrow(
@@ -69,39 +68,18 @@ describe("server/auth", () => {
       );
     });
 
-    it("returns false when app is null in local mode", async () => {
-      vi.stubEnv("AUTH_MODE", "local");
-      const { autoMountAuth } = await import("./auth.js");
-
-      expect(await autoMountAuth(null as any)).toBe(false);
-    });
-
     it("returns false when app is null in dev mode", async () => {
       vi.stubEnv("NODE_ENV", "development");
-      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       expect(await autoMountAuth(null as any)).toBe(false);
     });
 
-    it("returns false in AUTH_MODE=local (auth skipped)", async () => {
-      vi.stubEnv("AUTH_MODE", "local");
-      const { autoMountAuth } = await import("./auth.js");
-
-      const app = createMockApp();
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      expect(await autoMountAuth(app)).toBe(false);
-      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("local"));
-      logSpy.mockRestore();
-    });
-
-    it("enables Better Auth in dev when AUTH_MODE=local is not set", async () => {
+    it("enables Better Auth in dev mode", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("DEBUG", "1");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
-      delete process.env.AUTH_DISABLED;
-      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -119,28 +97,11 @@ describe("server/auth", () => {
       errorSpy.mockRestore();
     });
 
-    it("returns false when AUTH_DISABLED=true in production", async () => {
-      vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("AUTH_DISABLED", "true");
-      delete process.env.ACCESS_TOKEN;
-      delete process.env.ACCESS_TOKENS;
-      delete process.env.AUTH_MODE;
-      const { autoMountAuth } = await import("./auth.js");
-
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const app = createMockApp();
-      expect(await autoMountAuth(app)).toBe(false);
-      expect(warnSpy).toHaveBeenCalled();
-      warnSpy.mockRestore();
-    });
-
     it("enables Better Auth when no tokens in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("DEBUG", "1");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
-      delete process.env.AUTH_DISABLED;
-      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -167,8 +128,6 @@ describe("server/auth", () => {
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
-      delete process.env.AUTH_DISABLED;
-      delete process.env.AUTH_MODE;
 
       vi.doMock("./better-auth-instance.js", () => ({
         getBetterAuth: vi.fn(async () => ({
@@ -201,8 +160,6 @@ describe("server/auth", () => {
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
-      delete process.env.AUTH_DISABLED;
-      delete process.env.AUTH_MODE;
 
       vi.doMock("./better-auth-instance.js", () => ({
         getBetterAuth: vi.fn(async () => ({
@@ -239,8 +196,6 @@ describe("server/auth", () => {
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
-      delete process.env.AUTH_DISABLED;
-      delete process.env.AUTH_MODE;
 
       vi.doMock("./better-auth-instance.js", () => ({
         getBetterAuth: vi.fn(async () => ({
@@ -281,7 +236,6 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       vi.stubEnv("DEBUG", "1");
-      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -299,7 +253,6 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       vi.stubEnv("APP_BASE_PATH", "/docs");
-      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -322,7 +275,6 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
-      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -352,8 +304,6 @@ describe("server/auth", () => {
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
-      delete process.env.AUTH_DISABLED;
-      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
@@ -381,8 +331,6 @@ describe("server/auth", () => {
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
-      delete process.env.AUTH_DISABLED;
-      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
@@ -408,7 +356,6 @@ describe("server/auth", () => {
     it("allows app-state request-source headers in CORS preflight responses", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
-      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
@@ -445,7 +392,6 @@ describe("server/auth", () => {
     it("rejects disallowed cross-origin preflight before auth", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
-      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
@@ -476,7 +422,6 @@ describe("server/auth", () => {
     it("accepts HEAD on the auth session endpoint", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
-      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
@@ -501,8 +446,6 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
-      delete process.env.AUTH_DISABLED;
-      delete process.env.AUTH_MODE;
 
       const mockExecute = vi.fn().mockImplementation(({ sql, args }: any) => {
         if (
@@ -565,8 +508,6 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
-      delete process.env.AUTH_DISABLED;
-      delete process.env.AUTH_MODE;
 
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
@@ -624,8 +565,6 @@ describe("server/auth", () => {
       vi.stubEnv("APP_BASE_PATH", "/docs");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
-      delete process.env.AUTH_DISABLED;
-      delete process.env.AUTH_MODE;
 
       let forwardedPath = "";
       vi.doMock("./better-auth-instance.js", () => ({
@@ -693,7 +632,6 @@ describe("server/auth", () => {
       vi.stubEnv("ACCESS_TOKENS", "token1, token2, token3");
       vi.stubEnv("DEBUG", "1");
       delete process.env.ACCESS_TOKEN;
-      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -712,7 +650,6 @@ describe("server/auth", () => {
       vi.stubEnv("ACCESS_TOKEN", "shared");
       vi.stubEnv("ACCESS_TOKENS", "shared,unique1,unique2");
       vi.stubEnv("DEBUG", "1");
-      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -730,7 +667,6 @@ describe("server/auth", () => {
       vi.stubEnv("DEBUG", "1");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
-      delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -748,34 +684,8 @@ describe("server/auth", () => {
   });
 
   describe("getSession", () => {
-    it("returns local session in AUTH_MODE=local", async () => {
-      vi.stubEnv("AUTH_MODE", "local");
-      const { getSession, autoMountAuth } = await import("./auth.js");
-
-      const app = createMockApp();
-      await autoMountAuth(app);
-
-      const event = createMockEvent();
-      const session = await getSession(event);
-      expect(session).toEqual({ email: "local@localhost" });
-    });
-
-    it("returns local session in AUTH_MODE=local regardless of NODE_ENV", async () => {
+    it("promotes _session query tokens to a session cookie", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("AUTH_MODE", "local");
-      const { getSession, autoMountAuth } = await import("./auth.js");
-
-      const app = createMockApp();
-      await autoMountAuth(app);
-
-      const event = createMockEvent();
-      const session = await getSession(event);
-      expect(session).toEqual({ email: "local@localhost" });
-    });
-
-    it("promotes _session query tokens even while AUTH_MODE=local is active", async () => {
-      vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("AUTH_MODE", "local");
 
       const mockExecute = vi.fn().mockImplementation(({ sql, args }: any) => {
         if (
@@ -809,44 +719,10 @@ describe("server/auth", () => {
       expect(event.res.headers.get("set-cookie")).toContain("mobile-token-abc");
     });
 
-    it("still returns local session in dev after AUTH_MODE=local is cleared (dev fallback)", async () => {
-      vi.stubEnv("NODE_ENV", "development");
-      vi.stubEnv("AUTH_MODE", "local");
-      const { getSession, autoMountAuth } = await import("./auth.js");
-
-      const app = createMockApp();
-      await autoMountAuth(app);
-
-      const event = createMockEvent();
-      expect(await getSession(event)).toEqual({ email: "local@localhost" });
-
-      delete process.env.AUTH_MODE;
-
-      // Dev-mode safety net — still returns local@localhost
-      expect(await getSession(event)).toEqual({ email: "local@localhost" });
-    });
-
-    it("returns null in production when AUTH_MODE=local is cleared", async () => {
-      vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("AUTH_MODE", "local");
-      const { getSession, autoMountAuth } = await import("./auth.js");
-
-      const app = createMockApp();
-      await autoMountAuth(app);
-
-      const event = createMockEvent();
-      expect(await getSession(event)).toEqual({ email: "local@localhost" });
-
-      delete process.env.AUTH_MODE;
-
-      expect(await getSession(event)).toBeNull();
-    });
-
     it("falls through to _session query param when custom getSession returns null", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
-      delete process.env.AUTH_MODE;
 
       const mockExecute = vi.fn().mockImplementation(({ sql, args }: any) => {
         if (
@@ -892,7 +768,6 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
-      delete process.env.AUTH_MODE;
 
       const authModule = await import("./auth.js");
 
@@ -1142,12 +1017,15 @@ describe("server/auth", () => {
       expect(html).not.toContain("return to Clips");
     });
 
-    it("uses a deep link for Electron desktop exchange completion", async () => {
+    it("uses a deep link for Agent Native desktop exchange completion", async () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");
       const response = await Promise.resolve(
         oauthCallbackResponse(
           createMockEvent({
-            headers: { "user-agent": "Agent Native Electron" },
+            headers: {
+              "user-agent":
+                "Mozilla/5.0 ... Electron/41.2.2 AgentNativeDesktop/0.1.7",
+            },
             query: { state: "state-1" },
           }),
           "steve@example.com",
@@ -1166,6 +1044,35 @@ describe("server/auth", () => {
       expect(html).toContain("token=token-1");
       expect(html).toContain("state=state-1");
       expect(html).not.toContain("return to Mail");
+    });
+
+    it("does not deep-link from generic Electron webviews (e.g. Builder Fusion)", async () => {
+      const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const response = await Promise.resolve(
+        oauthCallbackResponse(
+          createMockEvent({
+            // Generic Electron UA without the AgentNativeDesktop marker —
+            // matches Builder.io's Fusion webview, Slack desktop, etc.
+            headers: {
+              "user-agent":
+                "Mozilla/5.0 ... Chrome/138.0 Electron/41.2.2 Safari/537.36",
+            },
+            query: { state: "state-1" },
+          }),
+          "steve@example.com",
+          {
+            desktop: true,
+            flowId: "flow-1",
+            sessionToken: "token-1",
+            appName: "Mail",
+          },
+        ),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      const html = await (response as Response).text();
+      expect(html).not.toContain("agentnative://oauth-complete");
+      expect(html).toContain("return to Mail");
     });
   });
 

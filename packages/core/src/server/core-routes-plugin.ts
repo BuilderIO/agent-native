@@ -48,7 +48,7 @@ import {
   putUserSetting,
   deleteUserSetting,
 } from "../settings/user-settings.js";
-import { getSession, DEV_MODE_USER_EMAIL } from "./auth.js";
+import { getSession } from "./auth.js";
 import { getOrigin } from "./google-oauth.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { listOnboardingSteps } from "../onboarding/registry.js";
@@ -671,20 +671,6 @@ export function createCoreRoutesPlugin(
         if (!session?.email) {
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
-        }
-        // `local@localhost` is the dev/local-mode bypass session. In a
-        // hosted production deploy it means either AUTH_MODE=local was
-        // misconfigured or AUTH_DISABLED=true is in use — either way the
-        // caller isn't a named user we should spend a Builder private key
-        // on. Allow it only when the environment explicitly opts into
-        // local mode (dev, tests, or AUTH_MODE=local).
-        if (
-          session.email === DEV_MODE_USER_EMAIL &&
-          process.env.NODE_ENV === "production" &&
-          process.env.AUTH_MODE !== "local"
-        ) {
-          setResponseStatus(event, 401);
-          return { error: "A signed-in user is required to run Builder" };
         }
         const userEmail = session.email;
         if (!isBuilderBranchingEnabled()) {

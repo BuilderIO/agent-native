@@ -10,7 +10,6 @@ import {
   IconPlus,
   IconX,
   IconKeyboard,
-  IconLogin,
   IconInfoCircle,
   IconCheck,
   IconEye,
@@ -47,7 +46,6 @@ import {
   appPath,
   useSession,
   FeedbackButton,
-  DEV_MODE_USER_EMAIL,
 } from "@agent-native/core/client";
 import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
 import {
@@ -478,7 +476,6 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const removeExternal = useRemoveExternalCalendar();
   const updateExternalColor = useUpdateExternalCalendarColor();
   const isConnected = googleStatus.data?.connected ?? false;
-  const isLocalMode = session?.email === DEV_MODE_USER_EMAIL;
 
   return (
     <>
@@ -719,28 +716,6 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             </div>
           )}
         </div>
-
-        {/* Sign in prompt for local-mode users */}
-        {isLocalMode && (
-          <div className="border-t border-border px-1.5 py-2">
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-              onClick={async () => {
-                await fetch(
-                  agentNativePath("/_agent-native/auth/exit-local-mode"),
-                  {
-                    method: "POST",
-                  },
-                );
-                window.location.reload();
-              }}
-            >
-              <IconLogin className="h-3.5 w-3.5" />
-              Sign in or create account
-            </button>
-          </div>
-        )}
 
         <div className="border-t border-border px-1.5 py-1">
           <FeedbackButton className="px-3 py-2" />

@@ -62,9 +62,7 @@
     "updater": {
       "active": true,
       "dialog": false,
-      "endpoints": [
-        "https://github.com/BuilderIO/agent-native/releases/download/clips-latest/clips-latest.json"
-      ],
+      "endpoints": ["https://clips.agent-native.com/api/clips-updater.json"],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg3MzRDMTE2MDhBMzQ5MzMKUldRelNhTUlGc0UwaDZqU3VPVEt4cGpZUGs2cEZVVHk5aGRTRnlFWmJTU3MxcGNwN2Era0F0b04K"
     }
   }

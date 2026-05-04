@@ -9,7 +9,6 @@ vi.mock("../deploy/route-discovery.js", () => ({
 }));
 
 vi.mock("../server/auth.js", () => ({
-  DEV_MODE_USER_EMAIL: "local@localhost",
   getSession: (...args: any[]) => getSessionMock(...args),
 }));
 

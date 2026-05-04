@@ -17,7 +17,6 @@ export {
   runAuthGuard,
   setDesktopExchange,
   setDesktopExchangeError,
-  DEV_MODE_USER_EMAIL,
   safeReturnPath,
   type DesktopExchangeErrorPayload,
   type AuthSession,

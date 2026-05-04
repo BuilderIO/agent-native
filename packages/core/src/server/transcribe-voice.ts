@@ -29,7 +29,7 @@ import {
 } from "h3";
 import { readAppSecret } from "../secrets/storage.js";
 import { resolveCredential } from "../credentials/index.js";
-import { getSession, DEV_MODE_USER_EMAIL } from "./auth.js";
+import { getSession } from "./auth.js";
 import { appStateGet } from "../application-state/store.js";
 import { resolveHasBuilderPrivateKey } from "./credential-provider.js";
 import { transcribeWithBuilder } from "../transcription/builder-transcription.js";
@@ -171,10 +171,7 @@ export function createTranscribeVoiceHandler() {
     const transcribeWithBuilderForRequest = (
       opts: Parameters<typeof transcribeWithBuilder>[0],
     ) => withRequestContext(() => transcribeWithBuilder(opts));
-    const sessionId =
-      session?.email === DEV_MODE_USER_EMAIL
-        ? "local"
-        : (session?.email ?? "local");
+    const sessionId = session?.email ?? "local";
     let providerPref: string | undefined;
     // CRITICAL: presence of the "provider" form field is the explicit
     // signal that the client is making a per-request choice. Even if

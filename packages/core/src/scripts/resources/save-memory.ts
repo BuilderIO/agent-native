@@ -9,7 +9,6 @@
 import { parseArgs, fail } from "../utils.js";
 import { resourcePut, resourceGetByPath } from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
-import { DEV_MODE_USER_EMAIL } from "../../server/auth.js";
 
 const VALID_TYPES = ["user", "feedback", "project", "reference"] as const;
 
@@ -33,7 +32,12 @@ export default async function saveMemoryScript(args: string[]): Promise<void> {
   const content = parsed.content;
   if (!content) fail("--content is required");
 
-  const owner = getRequestUserEmail() ?? DEV_MODE_USER_EMAIL;
+  const owner = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+  if (!owner) {
+    fail(
+      "save-memory requires an authenticated user (request context or AGENT_USER_EMAIL env var).",
+    );
+  }
   const memoryPath = `memory/${name}.md`;
   const indexPath = "memory/MEMORY.md";
   const now = new Date().toISOString().slice(0, 10);

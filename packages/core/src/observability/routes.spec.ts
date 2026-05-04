@@ -25,7 +25,6 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("../server/auth.js", () => ({
-  DEV_MODE_USER_EMAIL: "local@localhost",
   getSession: (...args: unknown[]) => mockGetSession(...args),
 }));
 

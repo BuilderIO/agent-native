@@ -1,6 +1,5 @@
 import type { H3Event } from "h3";
 import { getOrgContext } from "@agent-native/core/org";
-import { DEV_MODE_USER_EMAIL } from "@agent-native/core/server";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -11,11 +10,9 @@ import {
   deleteUserSetting,
   getAllSettings,
   getOrgSetting,
-  getSetting,
   getUserSetting,
   listOrgSettings,
   putOrgSetting,
-  putSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
 
@@ -23,8 +20,6 @@ export interface SettingsScope {
   email: string;
   orgId: string | null;
 }
-
-const LOCAL_EMAIL = DEV_MODE_USER_EMAIL;
 
 function userPrefix(email: string) {
   return `u:${email}:`;
@@ -72,12 +67,9 @@ export async function getScopedSettingRecord(
     const orgValue = await getOrgSetting(scope.orgId, key);
     if (orgValue) return orgValue;
   }
-  if (scope.email && scope.email !== LOCAL_EMAIL) {
+  if (scope.email) {
     const userValue = await getUserSetting(scope.email, key);
     if (userValue) return userValue;
-  }
-  if (scope.email === LOCAL_EMAIL) {
-    return getSetting(key);
   }
   return null;
 }
@@ -91,11 +83,11 @@ export async function putScopedSettingRecord(
     await putOrgSetting(scope.orgId, key, value);
     return;
   }
-  if (scope.email && scope.email !== LOCAL_EMAIL) {
+  if (scope.email) {
     await putUserSetting(scope.email, key, value);
     return;
   }
-  await putSetting(key, value);
+  throw new Error("putScopedSettingRecord requires an authenticated scope");
 }
 
 export async function deleteScopedSettingRecord(
@@ -106,7 +98,7 @@ export async function deleteScopedSettingRecord(
     await deleteOrgSetting(scope.orgId, key);
     return;
   }
-  if (scope.email && scope.email !== LOCAL_EMAIL) {
+  if (scope.email) {
     await deleteUserSetting(scope.email, key);
     return;
   }
@@ -117,17 +109,9 @@ export async function listScopedSettingRecords(
   scope: SettingsScope,
   prefix: string,
 ): Promise<Record<string, Record<string, unknown>>> {
-  const all = await getAllSettings();
   const byKey: Record<string, Record<string, unknown>> = {};
 
-  if (scope.email === LOCAL_EMAIL) {
-    for (const [key, value] of Object.entries(all)) {
-      if (!isGlobalAppKey(key, prefix)) continue;
-      byKey[key] = value;
-    }
-  }
-
-  if (scope.email && scope.email !== LOCAL_EMAIL) {
+  if (scope.email) {
     Object.assign(byKey, await listUserSettings(scope.email, prefix));
   }
 
@@ -142,7 +126,7 @@ export async function migrateGlobalSettingsPrefixesToUser(
   scope: SettingsScope,
   prefixes: string[],
 ): Promise<{ migrated: number; keys: string[] }> {
-  if (!scope.email || scope.email === LOCAL_EMAIL) {
+  if (!scope.email) {
     return { migrated: 0, keys: [] };
   }
 

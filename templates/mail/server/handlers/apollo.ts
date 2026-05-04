@@ -9,16 +9,11 @@ import {
   appStatePut,
   appStateDelete,
 } from "@agent-native/core/application-state";
-import {
-  readBody,
-  getSession,
-  DEV_MODE_USER_EMAIL,
-} from "@agent-native/core/server";
+import { readBody, getSession } from "@agent-native/core/server";
 
 async function getSessionId(event: H3Event): Promise<string> {
   const session = await getSession(event);
   if (!session) return "local";
-  if (session.email === DEV_MODE_USER_EMAIL) return "local";
   return session.email;
 }
 

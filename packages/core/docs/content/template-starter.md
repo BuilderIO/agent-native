@@ -13,7 +13,7 @@ Pick Starter when you're not sure which domain template fits, or when you want t
 
 - **Agent sidebar** (`<AgentSidebar>`) wired into `app/root.tsx`. Chat, CLI, workspace tabs all present.
 - **Agent chat plugin** pre-configured so the chat actually talks to Claude (once `ANTHROPIC_API_KEY` is set).
-- **Auth** via Better Auth — login, signup, sessions, organizations. Local-mode fallback (`local@localhost`) for first-run dev.
+- **Auth** via Better Auth — login, signup, sessions, organizations. The same flow runs locally and in production; in development email verification is skipped so signup is just an email + password.
 - **Actions directory** with one example (`actions/hello-world.ts`) and the `view-screen` / `navigate` standard actions wired up.
 - **Drizzle schema** with the framework's core tables (application_state, settings, oauth_tokens, sessions, resources).
 - **Polling sync** (`useDbSync`) already wired so UI auto-refreshes when the agent writes to the database.

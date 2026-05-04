@@ -52,9 +52,22 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-/** Detect requests from the Electron desktop app webview. */
+/**
+ * Detect requests from the Agent Native desktop app specifically.
+ *
+ * The desktop app appends `AgentNativeDesktop/<version>` to its user-agent
+ * (see `packages/desktop-app/src/main/index.ts`). We check for that marker
+ * rather than matching generic `Electron`, which would also match other
+ * Electron-based webviews like Builder.io's Fusion, Slack desktop, Discord,
+ * etc. Falsely treating those as "the desktop app" sends users to the
+ * `agentnative://oauth-complete` deep-link success page after Google sign-in,
+ * where the protocol handler can't fire and the "Open Agent Native" button
+ * does nothing.
+ *
+ * Kept exported as `isElectron` for backwards compatibility with consumers.
+ */
 export function isElectron(event: H3Event): boolean {
-  return /Electron/i.test(getHeader(event, "user-agent") || "");
+  return /AgentNativeDesktop/i.test(getHeader(event, "user-agent") || "");
 }
 
 /** Detect requests from a mobile browser (iOS/Android). */
@@ -458,7 +471,6 @@ export function decodeOAuthState(
 
 export interface OAuthOwnerResult {
   owner: string | undefined;
-  isDevSession: boolean;
   hasProductionSession: boolean;
 }
 
@@ -471,16 +483,12 @@ export async function resolveOAuthOwner(
   stateOwner?: string,
 ): Promise<OAuthOwnerResult> {
   const existingSession = await getSession(event);
-  const isDevSession = existingSession?.email === "local@localhost";
-  const hasProductionSession = !!(existingSession?.email && !isDevSession);
-
-  // Never use "local@localhost" as a token owner — it creates shared-ownership
-  // bugs where multiple users can see the same tokens.
+  const hasProductionSession = !!existingSession?.email;
   const owner = hasProductionSession
     ? existingSession!.email
     : stateOwner || undefined;
 
-  return { owner, isDevSession, hasProductionSession };
+  return { owner, hasProductionSession };
 }
 
 export interface OAuthSessionResult {

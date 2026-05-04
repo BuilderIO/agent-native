@@ -19,7 +19,6 @@
  */
 
 import { getRequestUserEmail } from "./request-context.js";
-import { DEV_MODE_USER_EMAIL } from "./auth.js";
 
 export class FeatureNotConfiguredError extends Error {
   readonly requiredCredential: string;
@@ -232,7 +231,7 @@ export async function deleteBuilderCredentials(email: string): Promise<void> {
  */
 export async function resolveSecret(key: string): Promise<string | null> {
   const email = getRequestUserEmail();
-  if (email && email !== DEV_MODE_USER_EMAIL) {
+  if (email) {
     try {
       const { readAppSecret } = await import("../secrets/storage.js");
       const secret = await readAppSecret({

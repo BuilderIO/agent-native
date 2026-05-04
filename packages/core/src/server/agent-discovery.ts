@@ -102,23 +102,15 @@ export async function discoverAgents(
 
   // Overlay custom agents from resources
   try {
-    const { resourceList, resourceGet, SHARED_OWNER, resourceListAccessible } =
+    const { resourceList, resourceGet, SHARED_OWNER } =
       await import("../resources/store.js");
-    const { DEV_MODE_USER_EMAIL } = await import("./auth.js");
-
-    const isDevMode =
-      typeof process !== "undefined" && process.env?.NODE_ENV !== "production";
 
     const { parseRemoteAgentManifest, REMOTE_AGENT_RESOURCE_PREFIXES } =
       await import("../resources/metadata.js");
 
     const resources: Array<{ id: string; path: string }> = [];
     for (const prefix of [...REMOTE_AGENT_RESOURCE_PREFIXES].reverse()) {
-      resources.push(
-        ...(isDevMode
-          ? await resourceListAccessible(DEV_MODE_USER_EMAIL, prefix)
-          : await resourceList(SHARED_OWNER, prefix)),
-      );
+      resources.push(...(await resourceList(SHARED_OWNER, prefix)));
     }
 
     for (const r of resources) {
@@ -138,8 +130,11 @@ export async function discoverAgents(
         // "fetch failed" instantly. The override still wins for non-localhost
         // URLs (the supported case for self-hosted custom agents).
         let url = manifest.url;
+        const isProduction =
+          typeof process !== "undefined" &&
+          process.env?.NODE_ENV === "production";
         if (
-          !isDevMode &&
+          isProduction &&
           typeof url === "string" &&
           /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|\/|$)/.test(url)
         ) {

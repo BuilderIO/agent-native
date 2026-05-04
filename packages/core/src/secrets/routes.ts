@@ -13,7 +13,7 @@ import {
   type H3Event,
 } from "h3";
 import { readBody } from "../server/h3-helpers.js";
-import { DEV_MODE_USER_EMAIL, getSession } from "../server/auth.js";
+import { getSession } from "../server/auth.js";
 import { getOrgContext } from "../org/context.js";
 
 /**
@@ -41,10 +41,7 @@ async function canMutateWorkspaceScope(
   if (!ctx?.orgId) return true;
   return ctx.role === "owner" || ctx.role === "admin";
 }
-import {
-  hasOAuthTokens,
-  listOAuthAccountsByOwner,
-} from "../oauth-tokens/store.js";
+import { listOAuthAccountsByOwner } from "../oauth-tokens/store.js";
 import {
   listRequiredSecrets,
   getRequiredSecret,
@@ -94,11 +91,6 @@ async function hasOAuthSecretForEvent(
   if (!secret.oauthProvider) return false;
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return false;
-  // hasOAuthTokens now requires an explicit owner — passing the dev sentinel
-  // preserves the "any row exists" wildcard behaviour for local-dev only.
-  if (session.email === DEV_MODE_USER_EMAIL) {
-    return hasOAuthTokens(secret.oauthProvider, DEV_MODE_USER_EMAIL);
-  }
   const accounts = await listOAuthAccountsByOwner(
     secret.oauthProvider,
     session.email,
