@@ -7,6 +7,16 @@ description: "The minimal agent-native scaffold — agent chat, actions, applica
 
 Starter is the minimum viable agent-native app. You get the six-rules architecture, the agent sidebar, the workspace tab, polling sync, auth, and exactly one example action. Nothing else. Build from there.
 
+<!-- screenshot:
+  app: starter
+  view: /
+  shows: Blank-slate app with sidebar (Starter brand, Home / New App / Observability), centered "Blank app" card with Start building prompt button + 3 quick-action tiles (New app / Documentation / Theme), agent chat panel on the right
+  account: screenshot-account (no domain data needed — starter ships with no seed schema)
+  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
+-->
+
+![Starter scaffold with the agent sidebar and a clean blank-slate UI](/screenshots/starter.png)
+
 Pick Starter when you're not sure which domain template fits, or when you want to learn the framework by doing — there's almost nothing to delete.
 
 ## What's in it {#whats-in-it}

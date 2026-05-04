@@ -20,6 +20,7 @@ import {
   IconAdjustments,
   IconPencilPlus,
   IconPin,
+  IconWand,
 } from "@tabler/icons-react";
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
 import { useSaveState } from "@/context/DeckContext";
@@ -231,13 +232,21 @@ export default function EditorToolbar({
   const saveState = useSaveState();
   const [layoutOpen, setLayoutOpen] = useState(false);
   const layoutRef = useRef<HTMLButtonElement>(null);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const toolsRef = useRef<HTMLButtonElement>(null);
+  // The four secondary tools share an "active when something is on" indicator
+  // so the dot on the consolidated button reflects any of them.
+  const anyToolActive = Boolean(
+    animationsOpen || tweaksOpen || drawMode || pinMode,
+  );
 
   const closeAll = () => {
     setLayoutOpen(false);
+    setToolsOpen(false);
   };
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-background px-1 sm:gap-2 sm:px-3">
+    <div className="flex h-12 shrink-0 items-center gap-0.5 overflow-x-auto whitespace-nowrap border-b border-border bg-background px-1 sm:gap-1 sm:px-3">
       {/* Back button */}
       <Link
         to="/"
@@ -524,71 +533,120 @@ graph TD
         </>
       )}
 
-      {/* Animations button */}
-      {currentSlide && onToggleAnimations && (
-        <button
-          onClick={onToggleAnimations}
-          className={`p-2.5 sm:p-1.5 rounded-md cursor-pointer flex-shrink-0 ${
-            animationsOpen
-              ? "text-[#609FF8] bg-[#609FF8]/10"
-              : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
-          }`}
-          title="Element animations"
-          aria-label="Element animations"
-        >
-          <IconBolt className="w-3.5 h-3.5" />
-        </button>
+      {/* Slide tools palette — animations, tweaks, draw, comment-pin all live
+       * inside one popover so the toolbar doesn't drown in icons. */}
+      {(onToggleAnimations ||
+        onToggleTweaks ||
+        onToggleDrawMode ||
+        onTogglePinMode) && (
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                ref={toolsRef}
+                onClick={() => {
+                  closeAll();
+                  setToolsOpen(!toolsOpen);
+                }}
+                className={`relative p-1.5 rounded cursor-pointer flex-shrink-0 ${
+                  anyToolActive || toolsOpen
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
+                }`}
+                title="Slide tools"
+                aria-label="Slide tools"
+              >
+                <IconWand className="w-4 h-4" />
+                {anyToolActive && !toolsOpen && (
+                  <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[#609FF8]" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Slide tools</TooltipContent>
+          </Tooltip>
+          <ToolbarPopover
+            open={toolsOpen}
+            anchorRef={toolsRef}
+            onClose={() => setToolsOpen(false)}
+            width={200}
+          >
+            <div className="py-1.5">
+              {currentSlide && onToggleAnimations && (
+                <button
+                  onClick={() => {
+                    onToggleAnimations();
+                    setToolsOpen(false);
+                  }}
+                  className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
+                    animationsOpen
+                      ? "text-[#609FF8] bg-accent/50"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                  }`}
+                >
+                  <IconBolt className="w-3.5 h-3.5" />
+                  Element animations
+                </button>
+              )}
+              {onToggleTweaks && (
+                <button
+                  onClick={() => {
+                    onToggleTweaks();
+                    setToolsOpen(false);
+                  }}
+                  className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
+                    tweaksOpen
+                      ? "text-foreground bg-accent/50"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                  }`}
+                >
+                  <IconAdjustments className="w-3.5 h-3.5" />
+                  Tweaks
+                </button>
+              )}
+              {onToggleDrawMode && (
+                <button
+                  onClick={() => {
+                    onToggleDrawMode();
+                    setToolsOpen(false);
+                  }}
+                  data-toolbar-draw-button
+                  className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
+                    drawMode
+                      ? "text-foreground bg-accent/50"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                  }`}
+                >
+                  <IconPencilPlus className="w-3.5 h-3.5" />
+                  Draw on slide
+                </button>
+              )}
+              {onTogglePinMode && (
+                <button
+                  onClick={() => {
+                    onTogglePinMode();
+                    setToolsOpen(false);
+                  }}
+                  data-toolbar-pin-button
+                  className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
+                    pinMode
+                      ? "text-foreground bg-accent/50"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                  }`}
+                >
+                  <IconPin className="w-3.5 h-3.5" />
+                  Drop comment pin
+                </button>
+              )}
+            </div>
+          </ToolbarPopover>
+        </>
       )}
 
-      {/* Tweaks button */}
-      {onToggleTweaks && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={onToggleTweaks}
-              className={`p-1.5 rounded cursor-pointer ${tweaksOpen ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"}`}
-            >
-              <IconAdjustments className="w-4 h-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Tweaks</TooltipContent>
-        </Tooltip>
-      )}
-
-      {/* Draw-on-slide button */}
-      {onToggleDrawMode && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={onToggleDrawMode}
-              data-toolbar-draw-button
-              className={`p-1.5 rounded cursor-pointer ${drawMode ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"}`}
-            >
-              <IconPencilPlus className="w-4 h-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Draw on slide</TooltipContent>
-        </Tooltip>
-      )}
-
-      {/* Drop-comment-pin button */}
-      {onTogglePinMode && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={onTogglePinMode}
-              data-toolbar-pin-button
-              className={`p-1.5 rounded cursor-pointer ${pinMode ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"}`}
-            >
-              <IconPin className="w-4 h-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Drop comment pin</TooltipContent>
-        </Tooltip>
-      )}
-
-      {/* Import button */}
-      <ImportButton deckId={deckId} />
+      {/* Import button — hide on narrower viewports; available via the slide
+          settings popover on small screens. */}
+      <div className="hidden lg:block flex-shrink-0">
+        <ImportButton deckId={deckId} />
+      </div>
 
       {/* Separator */}
       <div className="w-px h-5 bg-accent flex-shrink-0 hidden sm:block" />
@@ -615,11 +673,11 @@ graph TD
         </button>
       </div>
 
-      {/* IconHistory - hidden on small screens */}
+      {/* IconHistory - hide on narrow / mid widths to keep the bar compact */}
       <button
         ref={historyButtonRef}
         onClick={onShowHistory}
-        className={`p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0 hidden sm:block ${
+        className={`p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0 hidden lg:block ${
           historyOpen
             ? "text-foreground/90 bg-accent"
             : "text-muted-foreground hover:text-foreground/70"
@@ -687,16 +745,22 @@ graph TD
         </button>
       )}
 
-      {/* Save-state indicator */}
-      <SaveStatusIndicator saving={saveState.saving} />
+      {/* Save-state indicator (icon-only — text label was wrapping at narrow
+          widths inside the toolbar's flex layout) */}
+      <SaveStatusIndicator
+        saving={saveState.saving}
+        className="flex-shrink-0"
+      />
 
       {/* Export / Share menu (export, duplicate, share) */}
-      <ExportMenu
-        deckId={deckId}
-        deckTitle={deckTitle}
-        onDuplicate={onDuplicateDeck ?? (() => {})}
-        onExportPdf={onExportPdf ?? (() => {})}
-      />
+      <div className="flex-shrink-0">
+        <ExportMenu
+          deckId={deckId}
+          deckTitle={deckTitle}
+          onDuplicate={onDuplicateDeck ?? (() => {})}
+          onExportPdf={onExportPdf ?? (() => {})}
+        />
+      </div>
 
       {/* Framework share (ownership, per-user/org grants, visibility) */}
       <div className="flex-shrink-0">

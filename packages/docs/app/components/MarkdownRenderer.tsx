@@ -74,6 +74,10 @@ function createRenderer() {
   const renderer = new marked.Renderer();
 
   renderer.html = function ({ text }: Tokens.HTML) {
+    // Strip HTML comments entirely (used by the docs build for screenshot
+    // metadata, e.g. `<!-- screenshot: url=... -->` — should never render).
+    // Escape everything else for safety.
+    if (/^\s*<!--[\s\S]*?-->\s*$/.test(text)) return "";
     return escapeHtml(text);
   };
 

@@ -9,6 +9,16 @@ description: "Dispatch is the workspace control plane — central inbox, cross-a
 
 Dispatch is the **workspace control plane**. Where other templates are domain apps (Mail, Calendar, Analytics), Dispatch is the app you run _alongside_ them to coordinate everything: a central inbox, a secrets vault, scheduled jobs, Slack/Telegram integration, and an orchestrator agent that delegates domain work to the right specialist app over [A2A](/docs/a2a-protocol).
 
+<!-- screenshot:
+  app: dispatch
+  view: /overview
+  shows: Overview with "What should we do next?" composer, prompt suggestions (Create a lightweight customer onboarding app / Ask Slides to draft a board update from our latest metrics / Schedule a Monday morning analytics digest), and the Workspace apps grid (Mail / Calendar / Slides / Analytics / Forms / Content + Create app placeholder) showing each mounted path + description
+  account: screenshot-account (workspace seeded with the six sibling apps registered as A2A peers)
+  capture: 1400x900 viewport, cropped 90px from bottom (final 1400x810)
+-->
+
+![Dispatch overview with the orchestrator chat and workspace apps grid](/screenshots/dispatch.png)
+
 If you're running an [multi-app workspace](/docs/multi-app-workspace) with many apps, Dispatch is the glue.
 
 ## What it does {#what-it-does}
