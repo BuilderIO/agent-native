@@ -8,6 +8,7 @@ import {
   agentNativePath,
 } from "@agent-native/core/client";
 import {
+  IconActivity,
   IconAlertTriangle,
   IconApps,
   IconArrowUpRight,
@@ -633,53 +634,59 @@ export default function OverviewRoute() {
         </section>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="Vault secrets"
-          help="Credentials stored in the workspace vault. Grant them to apps from the Vault page."
-          value={data?.vault?.secretCount || 0}
-          icon={IconKey}
-          cta={
-            (data?.vault?.secretCount || 0) === 0 ? (
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/vault">Set up vault</Link>
-              </Button>
-            ) : undefined
-          }
-        />
-        <StatCard
-          label="Active grants"
-          help="Secrets currently granted to apps. Sync them to push credentials."
-          value={data?.vault?.activeGrantCount || 0}
-          icon={IconShieldCheck}
-        />
-        <StatCard
-          label="Destinations"
-          help="Saved outbound targets used for proactive sends and scheduled jobs."
-          value={counts.destinations}
-          icon={IconArrowUpRight}
-          cta={
-            counts.destinations === 0 ? (
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/destinations">Set up destinations</Link>
-              </Button>
-            ) : undefined
-          }
-        />
-        <StatCard
-          label="Agents"
-          help="Agents available to dispatch for delegation over A2A. This includes the built-in app suite plus any additional agents you add."
-          value={connectedAgentCount}
-          icon={IconPlugConnected}
-          cta={
-            connectedAgentCount === 0 ? (
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/agents">Open agents</Link>
-              </Button>
-            ) : undefined
-          }
-        />
-      </div>
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <IconActivity size={16} className="text-muted-foreground" />
+          <h2 className="text-sm font-semibold text-foreground">At a glance</h2>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <StatCard
+            label="Vault secrets"
+            help="Credentials stored in the workspace vault. Grant them to apps from the Vault page."
+            value={data?.vault?.secretCount || 0}
+            icon={IconKey}
+            cta={
+              (data?.vault?.secretCount || 0) === 0 ? (
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/vault">Set up vault</Link>
+                </Button>
+              ) : undefined
+            }
+          />
+          <StatCard
+            label="Active grants"
+            help="Secrets currently granted to apps. Sync them to push credentials."
+            value={data?.vault?.activeGrantCount || 0}
+            icon={IconShieldCheck}
+          />
+          <StatCard
+            label="Destinations"
+            help="Saved outbound targets used for proactive sends and scheduled jobs."
+            value={counts.destinations}
+            icon={IconArrowUpRight}
+            cta={
+              counts.destinations === 0 ? (
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/destinations">Set up destinations</Link>
+                </Button>
+              ) : undefined
+            }
+          />
+          <StatCard
+            label="Agents"
+            help="Agents available to dispatch for delegation over A2A. This includes the built-in app suite plus any additional agents you add."
+            value={connectedAgentCount}
+            icon={IconPlugConnected}
+            cta={
+              connectedAgentCount === 0 ? (
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/agents">Open agents</Link>
+                </Button>
+              ) : undefined
+            }
+          />
+        </div>
+      </section>
 
       <details className="rounded-xl border">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold text-foreground hover:bg-muted/30 [&::-webkit-details-marker]:hidden">
