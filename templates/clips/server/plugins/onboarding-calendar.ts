@@ -32,7 +32,7 @@ export default async (): Promise<void> => {
           "Read-only access to your events. Tokens are stored encrypted, scoped per-user.",
         primary: true,
         payload: {
-          url: "/api/auth/google-calendar?redirect=1",
+          url: "/_agent-native/google/auth-url?calendar=1&redirect=1",
         },
       },
       {
