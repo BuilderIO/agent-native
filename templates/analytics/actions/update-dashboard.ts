@@ -375,7 +375,16 @@ export default defineAction({
       if (sqlError) return `Error: ${sqlError}`;
       await upsertDashboard(args.dashboardId, "sql", args.config, ctx);
       await syncToCollab(args.dashboardId, args.config);
-      return `Dashboard "${args.dashboardId}" replaced.`;
+      return {
+        id: args.dashboardId,
+        dashboardId: args.dashboardId,
+        name:
+          typeof args.config.name === "string"
+            ? args.config.name
+            : args.dashboardId,
+        urlPath: `/adhoc/${args.dashboardId}`,
+        message: `Dashboard "${args.dashboardId}" replaced.`,
+      };
     }
 
     const existing = await getDashboard(args.dashboardId, ctx);
@@ -404,10 +413,15 @@ export default defineAction({
     );
     await syncToCollab(args.dashboardId, root as Record<string, unknown>);
 
-    return (
-      `Dashboard "${args.dashboardId}" updated. ` +
-      `Applied ${details.length} op(s): ${details.join("; ")}. ` +
-      `Call refresh-screen to update the UI.`
-    );
+    return {
+      id: args.dashboardId,
+      dashboardId: args.dashboardId,
+      name: typeof root.name === "string" ? root.name : args.dashboardId,
+      urlPath: `/adhoc/${args.dashboardId}`,
+      message:
+        `Dashboard "${args.dashboardId}" updated. ` +
+        `Applied ${details.length} op(s): ${details.join("; ")}. ` +
+        `Call refresh-screen to update the UI.`,
+    };
   },
 });

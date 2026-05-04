@@ -70,6 +70,46 @@ describe("appendA2AArtifactLinks", () => {
     );
   });
 
+  it("treats update-dashboard as a recoverable dashboard artifact", () => {
+    const text = buildA2ARecoverableArtifactMessage(
+      [
+        {
+          tool: "update-dashboard",
+          result: JSON.stringify({
+            id: "growth-funnel",
+            name: "Growth Funnel",
+            urlPath: "/adhoc/growth-funnel",
+          }),
+        },
+      ],
+      { baseUrl: "https://analytics.agent.test/" },
+    );
+
+    expect(text).toContain(
+      '- Dashboard "Growth Funnel": https://analytics.agent.test/adhoc/growth-funnel (ID: growth-funnel)',
+    );
+  });
+
+  it("treats save-analysis as a recoverable report artifact", () => {
+    const text = buildA2ARecoverableArtifactMessage(
+      [
+        {
+          tool: "save-analysis",
+          result: JSON.stringify({
+            id: "q2-pipeline-report",
+            name: "Q2 Pipeline Report",
+            urlPath: "/analyses/q2-pipeline-report",
+          }),
+        },
+      ],
+      { baseUrl: "https://analytics.agent.test/" },
+    );
+
+    expect(text).toContain(
+      '- Report "Q2 Pipeline Report": https://analytics.agent.test/analyses/q2-pipeline-report (ID: q2-pipeline-report)',
+    );
+  });
+
   it("prefers canonical URLs returned by successful artifact actions", () => {
     const text = appendA2AArtifactLinks(
       "Created the deck.",
@@ -606,5 +646,37 @@ describe("appendA2AArtifactLinks", () => {
     );
 
     expect(text).toContain("https://content.agent.test/page/doc_123");
+  });
+
+  it("blocks unverified analytics artifact URLs on known production hosts", () => {
+    const text = appendA2AArtifactLinks(
+      "Dashboard ready: https://analytics.agent-native.com/adhoc/fake-dashboard",
+      [],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the dashboard URL");
+  });
+
+  it("parses downstream dashboard and report artifact proof blocks", () => {
+    const text = appendA2AArtifactLinks(
+      "Created both.",
+      [
+        {
+          tool: "call-agent",
+          result: [
+            "Artifacts:",
+            "- Dashboard: https://analytics.agent.test/adhoc/growth-funnel (ID: growth-funnel)",
+            "- Report: https://analytics.agent.test/analyses/q2-pipeline-report (ID: q2-pipeline-report)",
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent.test" },
+    );
+
+    expect(text).toContain("https://analytics.agent.test/adhoc/growth-funnel");
+    expect(text).toContain(
+      "https://analytics.agent.test/analyses/q2-pipeline-report",
+    );
   });
 });

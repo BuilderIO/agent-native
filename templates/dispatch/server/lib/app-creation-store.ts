@@ -4,16 +4,20 @@ import { fileURLToPath } from "node:url";
 import { getSetting, putSetting } from "@agent-native/core/settings";
 import {
   getBuilderBranchProjectId,
+  getRequestContext,
   isIntegrationCallerRequest,
   resolveBuilderCredentials,
   runBuilderAgent,
 } from "@agent-native/core/server";
+import { getDbExec } from "@agent-native/core/db";
 import { assertValidWorkspaceAppId } from "@agent-native/core/shared";
 import {
   currentOrgId,
   currentOwnerEmail,
   recordAudit,
+  resolveLinkedOwner,
 } from "./dispatch-store.js";
+import { identityKeyForIncoming } from "./dispatch-integrations.js";
 import { createRequest, listSecrets } from "./vault-store.js";
 
 const SETTINGS_KEY = "dispatch-app-creation-settings";
@@ -569,6 +573,7 @@ export async function getAppCreationSettings(): Promise<AppCreationSettings> {
 export async function setAppCreationSettings(input: {
   builderProjectId?: string | null;
 }): Promise<AppCreationSettings> {
+  await assertCanManageAppCreationSettings();
   const builderProjectId = input.builderProjectId?.trim() || null;
   const raw = await readSettingsRecord();
   await putSetting(scopedSettingsKey(), { ...raw, builderProjectId });
@@ -613,6 +618,59 @@ function isSyntheticIntegrationOwner(ownerEmail: string): boolean {
   return (
     ownerEmail.startsWith("integration@") ||
     ownerEmail.endsWith("@integration.local")
+  );
+}
+
+async function requestOwnerRole(): Promise<string | null> {
+  const orgId = currentOrgId();
+  const ownerEmail = currentOwnerEmail();
+  if (!orgId) return null;
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      args: [orgId, ownerEmail.toLowerCase()],
+    });
+    const role = (rows[0] as any)?.role;
+    return typeof role === "string" ? role : null;
+  } catch {
+    return null;
+  }
+}
+
+async function assertCanManageAppCreationSettings(): Promise<void> {
+  const orgId = currentOrgId();
+  if (!orgId) return;
+  const role = await requestOwnerRole();
+  if (role !== "owner" && role !== "admin") {
+    throw new Error(
+      "Only organization owners and admins can update app creation settings.",
+    );
+  }
+}
+
+async function isCurrentIntegrationExplicitlyLinked(): Promise<boolean> {
+  const incoming = getRequestContext()?.integration?.incoming;
+  if (!incoming) return true;
+  const externalUserId = identityKeyForIncoming(incoming);
+  const linkedOwner = await resolveLinkedOwner(
+    incoming.platform,
+    externalUserId,
+    {
+      allowAnyOrgFallback: true,
+    },
+  ).catch(() => null);
+  return linkedOwner === currentOwnerEmail();
+}
+
+async function defaultOwnerAppCreationAllowed(): Promise<boolean> {
+  const defaultOwner = process.env.DISPATCH_DEFAULT_OWNER_EMAIL?.trim();
+  if (!defaultOwner || defaultOwner !== currentOwnerEmail()) return false;
+  if (await isCurrentIntegrationExplicitlyLinked()) return true;
+  return (
+    process.env.DISPATCH_ALLOW_DEFAULT_OWNER_APP_CREATION === "true" ||
+    process.env.DISPATCH_ALLOW_DEFAULT_OWNER_APP_CREATION === "1" ||
+    process.env.ENABLE_BUILDER === "true" ||
+    process.env.ENABLE_BUILDER === "1"
   );
 }
 
@@ -666,20 +724,31 @@ function normalizeBuilderRunResult(result: unknown): {
   };
 }
 
-function remoteAppCreationAuthorization():
-  | { ok: true }
-  | { ok: false; message: string } {
+async function remoteAppCreationAuthorization(): Promise<
+  { ok: true } | { ok: false; message: string }
+> {
   const ownerEmail = currentOwnerEmail();
+  const isIntegrationCaller = isIntegrationCallerRequest();
+  const defaultOwner = process.env.DISPATCH_DEFAULT_OWNER_EMAIL?.trim();
+  if (isIntegrationCaller && defaultOwner && defaultOwner === ownerEmail) {
+    if (await defaultOwnerAppCreationAllowed()) return { ok: true };
+    return {
+      ok: false,
+      message:
+        "Messaging-triggered app creation is using the deployment default Dispatch owner. " +
+        "Link the messaging identity to a Dispatch user with /link, start the app from Dispatch while signed in, or explicitly set ENABLE_BUILDER=true for this deployment.",
+    };
+  }
   if (!isSyntheticIntegrationOwner(ownerEmail)) return { ok: true };
 
-  const source = isIntegrationCallerRequest()
+  const source = isIntegrationCaller
     ? "Messaging-triggered"
     : "Synthetic integration";
   return {
     ok: false,
     message:
       `${source} app creation needs a trusted Dispatch owner before Builder can start a branch. ` +
-      "Link the Slack identity to a Dispatch user with /link, configure DISPATCH_DEFAULT_OWNER_EMAIL for this Slack workspace, or start the app from Dispatch while signed in.",
+      "Link the messaging identity to a Dispatch user with /link, start the app from Dispatch while signed in, or explicitly set ENABLE_BUILDER=true for this deployment.",
   };
 }
 
@@ -758,7 +827,7 @@ export async function startWorkspaceAppCreation(input: {
   const isLocal = isLocalAppCreationRuntime();
 
   if (!isLocal) {
-    const authorization = remoteAppCreationAuthorization();
+    const authorization = await remoteAppCreationAuthorization();
     if (authorization.ok === false) {
       return {
         mode: "builder-unavailable",

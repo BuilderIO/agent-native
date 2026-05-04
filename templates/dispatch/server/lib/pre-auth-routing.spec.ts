@@ -44,6 +44,8 @@ describe("dispatch pre-auth routing", () => {
     expect(rootDispatchRedirect("/dispatch/tools/", "")).toBeNull();
     expect(rootDispatchRedirect("/dispatch/tools/tool-123", "")).toBeNull();
     expect(rootDispatchRedirect("/dispatch/tools/tool-123/", "")).toBeNull();
+    expect(rootDispatchRedirect("/dispatch/apps/analytics", "")).toBeNull();
+    expect(rootDispatchRedirect("/dispatch/apps/analytics/", "")).toBeNull();
   });
 
   it("allows React Router manifest patch requests through the mounted dispatch path", () => {
@@ -67,6 +69,17 @@ describe("dispatch pre-auth routing", () => {
 
     expect(response?.status).toBe(302);
     expect(response?.headers.get("location")).toBe("/dispatch/apps?tab=all");
+  });
+
+  it("redirects root app detail aliases to mounted Dispatch app details", () => {
+    useDispatchBasePath();
+
+    const response = rootDispatchRedirect("/apps/analytics", "?tab=activity");
+
+    expect(response?.status).toBe(302);
+    expect(response?.headers.get("location")).toBe(
+      "/dispatch/apps/analytics?tab=activity",
+    );
   });
 
   it("redirects embedded root aliases to mounted Dispatch routes", () => {

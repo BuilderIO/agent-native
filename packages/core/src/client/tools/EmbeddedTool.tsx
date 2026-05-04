@@ -1,6 +1,18 @@
 import { agentNativePath } from "../api-path.js";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router";
+import {
+  IconDots,
+  IconExternalLink,
+  IconLayoutSidebarRightCollapse,
+  IconTrash,
+} from "@tabler/icons-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
 import {
   isAllowedToolPath,
   sanitizeToolRequestOptions,
@@ -212,20 +224,153 @@ export function EmbeddedTool({
   }
 
   return (
-    <iframe
-      ref={iframeRef}
-      key={`${toolId}-${tool.updatedAt ?? ""}`}
-      src={iframeSrc}
-      className={className}
-      title={tool.name}
-      sandbox="allow-scripts allow-forms"
-      style={{ width: "100%", border: 0, height }}
-      onLoad={() => {
-        iframeRef.current?.contentWindow?.postMessage(
-          { type: "agent-native-slot-context", context: context ?? {} },
-          "*",
-        );
+    <div className={`relative group/embedded-tool ${className ?? ""}`}>
+      <iframe
+        ref={iframeRef}
+        key={`${toolId}-${tool.updatedAt ?? ""}`}
+        src={iframeSrc}
+        title={tool.name}
+        sandbox="allow-scripts allow-forms"
+        style={{ width: "100%", border: 0, height, display: "block" }}
+        onLoad={() => {
+          iframeRef.current?.contentWindow?.postMessage(
+            { type: "agent-native-slot-context", context: context ?? {} },
+            "*",
+          );
+        }}
+      />
+      <EmbeddedToolMenu toolId={toolId} slotId={slotId} toolName={tool.name} />
+    </div>
+  );
+}
+
+function EmbeddedToolMenu({
+  toolId,
+  slotId,
+  toolName,
+}: {
+  toolId: string;
+  slotId: string;
+  toolName: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  const closeMenu = () => {
+    setOpen(false);
+    setConfirmingDelete(false);
+  };
+
+  const removeFromSlot = async () => {
+    closeMenu();
+    queryClient.setQueryData<any[]>(["slot-installs", slotId], (old) =>
+      (old ?? []).filter((i) => i.toolId !== toolId),
+    );
+    try {
+      await fetch(
+        agentNativePath(
+          `/_agent-native/slots/${encodeURIComponent(slotId)}/install/${encodeURIComponent(toolId)}`,
+        ),
+        { method: "DELETE" },
+      );
+    } finally {
+      queryClient.invalidateQueries({ queryKey: ["slot-installs", slotId] });
+    }
+  };
+
+  const deleteTool = async () => {
+    closeMenu();
+    queryClient.setQueryData<any[]>(["slot-installs", slotId], (old) =>
+      (old ?? []).filter((i) => i.toolId !== toolId),
+    );
+    try {
+      await fetch(agentNativePath(`/_agent-native/tools/${toolId}`), {
+        method: "DELETE",
+      });
+    } finally {
+      queryClient.invalidateQueries({ queryKey: ["slot-installs", slotId] });
+      queryClient.invalidateQueries({ queryKey: ["tool", toolId] });
+      queryClient.invalidateQueries({ queryKey: ["tools"] });
+    }
+  };
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) setConfirmingDelete(false);
       }}
-    />
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-md bg-background/60 text-muted-foreground/60 opacity-0 hover:bg-accent hover:text-foreground hover:opacity-100 group-hover/embedded-tool:opacity-100 cursor-pointer transition-opacity"
+          title={`${toolName} options`}
+          aria-label={`${toolName} options`}
+        >
+          <IconDots className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" sideOffset={4} className="w-56 p-1">
+        {!confirmingDelete ? (
+          <div className="flex flex-col">
+            <button
+              type="button"
+              onClick={() => {
+                closeMenu();
+                navigate(`/tools/${toolId}`);
+              }}
+              className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] hover:bg-accent cursor-pointer text-left"
+            >
+              <IconExternalLink className="h-3.5 w-3.5" />
+              <span>Open full view</span>
+            </button>
+            <button
+              type="button"
+              onClick={removeFromSlot}
+              className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] hover:bg-accent cursor-pointer text-left"
+            >
+              <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
+              <span>Remove from this widget area</span>
+            </button>
+            <div className="my-1 h-px bg-border/40" />
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10 cursor-pointer text-left"
+            >
+              <IconTrash className="h-3.5 w-3.5" />
+              <span>Delete tool…</span>
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2 p-2">
+            <p className="text-[12px]">
+              Delete <span className="font-medium">{toolName}</span>? This
+              removes the tool everywhere, for everyone it's shared with.
+            </p>
+            <div className="flex justify-end gap-1">
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(false)}
+                className="rounded-md px-2 py-1 text-[12px] hover:bg-accent cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={deleteTool}
+                className="rounded-md bg-destructive px-2 py-1 text-[12px] text-destructive-foreground hover:bg-destructive/90 cursor-pointer"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }

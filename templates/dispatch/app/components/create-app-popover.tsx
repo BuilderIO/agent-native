@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { sendToAgentChat } from "@agent-native/core/client";
-import { IconArrowUp, IconPlus } from "@tabler/icons-react";
+import { useState, type ReactNode } from "react";
+import { sendToAgentChat, PromptComposer } from "@agent-native/core/client";
+import { IconPlus } from "@tabler/icons-react";
 import {
   Popover,
   PopoverContent,
@@ -27,33 +27,18 @@ export function CreateAppPopover({
   align = "center",
 }: CreateAppPopoverProps) {
   const [open, setOpen] = useState(false);
-  const [prompt, setPrompt] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const id = window.setTimeout(() => textareaRef.current?.focus(), 50);
-    return () => window.clearTimeout(id);
-  }, [open]);
-
-  function submit() {
-    const text = prompt.trim();
-    if (!text) return;
+  function submit(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
     sendToAgentChat({
-      message: text,
+      message: trimmed,
       context: SUBMIT_CONTEXT,
       submit: true,
       newTab: true,
     });
-    setPrompt("");
     setOpen(false);
   }
-
-  const submitShortcut =
-    typeof navigator !== "undefined" &&
-    /Mac|iPhone|iPad/.test(navigator.userAgent)
-      ? "⌘"
-      : "Ctrl";
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -73,44 +58,17 @@ export function CreateAppPopover({
       <PopoverContent
         align={align}
         sideOffset={10}
-        className="w-[calc(100vw-2rem)] rounded-xl p-4 shadow-xl sm:w-96"
+        className="w-[calc(100vw-2rem)] rounded-xl p-3 shadow-xl sm:w-[420px]"
       >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit();
-          }}
-          className="space-y-3"
-        >
-          <p className="text-sm font-semibold text-foreground">Create app</p>
-          <textarea
-            ref={textareaRef}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                e.preventDefault();
-                submit();
-              }
-            }}
-            placeholder="Describe the app you want to build…"
-            rows={5}
-            className="flex min-h-[140px] w-full resize-y rounded-md border border-input bg-background px-3 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-          />
-          <div className="flex items-center justify-end gap-2">
-            <span className="text-[11px] text-muted-foreground/75">
-              {submitShortcut}+Enter to submit
-            </span>
-            <button
-              type="submit"
-              disabled={!prompt.trim()}
-              aria-label="Submit prompt"
-              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <IconArrowUp className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </form>
+        <p className="px-1 pb-2 text-sm font-semibold text-foreground">
+          Create app
+        </p>
+        <PromptComposer
+          autoFocus
+          placeholder="Describe the app you want to build…"
+          draftScope="dispatch:create-app-popover"
+          onSubmit={(text) => submit(text)}
+        />
       </PopoverContent>
     </Popover>
   );

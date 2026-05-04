@@ -3,16 +3,14 @@ import {
   IconArrowUpRight,
   IconCheck,
   IconChevronDown,
-  IconCode,
   IconKey,
-  IconLoader2,
-  IconPlus,
 } from "@tabler/icons-react";
 import { agentNativePath, appBasePath } from "./api-path.js";
 import { sendToAgentChat } from "./agent-chat.js";
 import { isInBuilderFrame } from "./builder-frame.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { getWorkspaceAppIdValidationError } from "../shared/workspace-app-id.js";
+import { PromptComposer } from "./composer/PromptComposer.js";
 
 export interface VaultSecretOption {
   id: string;
@@ -27,20 +25,6 @@ export interface NewWorkspaceAppFlowProps {
   className?: string;
   dispatchBasePath?: string | null;
 }
-
-const TEMPLATE_OPTIONS = [
-  { value: "starter", label: "Starter" },
-  { value: "analytics", label: "Analytics" },
-  { value: "calendar", label: "Calendar" },
-  { value: "content", label: "Content" },
-  { value: "design", label: "Design" },
-  { value: "dispatch", label: "Dispatch" },
-  { value: "forms", label: "Forms" },
-  { value: "mail", label: "Mail" },
-  { value: "slides", label: "Slides" },
-  { value: "videos", label: "Videos" },
-  { value: "clips", label: "Clips" },
-] as const;
 
 function slugify(value: string): string {
   return value
@@ -87,7 +71,6 @@ async function fetchJson(url: string, init?: RequestInit): Promise<any> {
 function buildNewWorkspaceAppPrompt(input: {
   appId: string;
   prompt: string;
-  template: string;
   selectedKeys: string[];
 }): string {
   const keyList = input.selectedKeys.join(", ");
@@ -98,11 +81,11 @@ function buildNewWorkspaceAppPrompt(input: {
   return [
     `Create a new agent-native app in this workspace.`,
     ``,
-    `App name: ${input.appId}`,
-    `Template to start from: ${input.template}`,
+    `Suggested app name: ${input.appId} (you may adjust the slug if it conflicts)`,
     `User prompt: ${input.prompt.trim()}`,
     grantRequest,
     ``,
+    `Pick a starter template that fits the user's prompt — analytics, calendar, content, design, dispatch, forms, mail, slides, videos, clips, or starter when none of the others fit.`,
     `Use the workspace app layout: create it under apps/${input.appId}, mount it at /${input.appId}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
     keyList
       ? `After the app exists, grant the selected Dispatch vault keys to appId "${input.appId}" and sync them once the app server is available. Treat these as requested grants, not active grants before creation succeeds.`
@@ -122,10 +105,6 @@ export function NewWorkspaceAppFlow({
   className = "",
   dispatchBasePath,
 }: NewWorkspaceAppFlowProps) {
-  const [prompt, setPrompt] = useState("");
-  const [appName, setAppName] = useState("");
-  const [template, setTemplate] =
-    useState<(typeof TEMPLATE_OPTIONS)[number]["value"]>("starter");
   const [selectedSecretIds, setSelectedSecretIds] = useState<string[]>([]);
   const [secrets, setSecrets] = useState<VaultSecretOption[]>([]);
   const [secretsError, setSecretsError] = useState<string | null>(null);
@@ -161,11 +140,6 @@ export function NewWorkspaceAppFlow({
     };
   }, [effectiveDispatchBasePath]);
 
-  useEffect(() => {
-    if (appName || !prompt.trim()) return;
-    setAppName(titleFromPrompt(prompt));
-  }, [prompt, appName]);
-
   const selectedSecrets = useMemo(
     () => secrets.filter((secret) => selectedSecretIds.includes(secret.id)),
     [secrets, selectedSecretIds],
@@ -174,38 +148,22 @@ export function NewWorkspaceAppFlow({
     selectedSecretIds.length === 0
       ? "No keys selected"
       : `${selectedSecretIds.length} key${selectedSecretIds.length === 1 ? "" : "s"} selected`;
-  const hasAppNameCandidate =
-    appName.trim().length > 0 || prompt.trim().length > 0;
-  const safeAppName = slugify(appName) || titleFromPrompt(prompt);
-  const appNameError = hasAppNameCandidate
-    ? getWorkspaceAppIdValidationError(safeAppName)
-    : null;
 
-  const canSubmit =
-    prompt.trim().length > 0 && safeAppName.length > 0 && !appNameError;
-  const submitShortcut =
-    typeof navigator !== "undefined" &&
-    /Mac|iPhone|iPad/.test(navigator.userAgent)
-      ? "⌘"
-      : "Ctrl";
-
-  function buildMessage(): string {
-    return buildNewWorkspaceAppPrompt({
-      appId: safeAppName,
-      prompt,
-      template,
-      selectedKeys: selectedSecrets.map((s) => s.credentialKey),
-    });
-  }
-
-  async function submit() {
-    if (!canSubmit || isSubmitting) return;
-    const validationError = getWorkspaceAppIdValidationError(safeAppName);
+  async function submit(rawPrompt: string) {
+    const prompt = rawPrompt.trim();
+    if (!prompt || isSubmitting) return;
+    const appId = titleFromPrompt(prompt);
+    const validationError = getWorkspaceAppIdValidationError(appId);
     if (validationError) {
       setStatusMessage(validationError);
       return;
     }
-    const message = buildMessage();
+
+    const message = buildNewWorkspaceAppPrompt({
+      appId,
+      prompt,
+      selectedKeys: selectedSecrets.map((s) => s.credentialKey),
+    });
     setIsSubmitting(true);
     setStatusMessage(null);
     setBranchUrl(null);
@@ -224,9 +182,8 @@ export function NewWorkspaceAppFlow({
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              prompt: prompt.trim(),
-              appId: safeAppName,
-              template,
+              prompt,
+              appId,
               secretIds: selectedSecretIds,
             }),
           },
@@ -261,107 +218,30 @@ export function NewWorkspaceAppFlow({
       className={`mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-6 ${className}`}
     >
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="rounded-lg border border-border bg-card">
-          <div className="border-b border-border px-4 py-3">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <IconPlus className="h-4 w-4" />
-              New app
-            </div>
-          </div>
-          <div className="space-y-4 p-4">
-            <label className="block space-y-2">
-              <span className="text-xs font-medium text-muted-foreground">
-                Prompt
-              </span>
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                    e.preventDefault();
-                    submit();
-                  }
-                }}
-                placeholder="Describe the app your teammate should be able to use..."
-                rows={6}
-                className="min-h-36 w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring"
-              />
-            </label>
+        <div className="flex flex-col gap-3">
+          <PromptComposer
+            autoFocus
+            disabled={isSubmitting}
+            placeholder="Describe the app your teammate should be able to use..."
+            draftScope="dispatch:new-app"
+            onSubmit={(text) => submit(text)}
+          />
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block space-y-2">
-                <span className="text-xs font-medium text-muted-foreground">
-                  App path
-                </span>
-                <input
-                  value={appName}
-                  onChange={(e) => setAppName(slugify(e.target.value))}
-                  placeholder="customer-health"
-                  className={`h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-ring ${
-                    appNameError ? "border-destructive" : "border-input"
-                  }`}
-                />
-                {appNameError ? (
-                  <span className="block text-xs text-destructive">
-                    {appNameError}
-                  </span>
-                ) : null}
-              </label>
-              <label className="block space-y-2">
-                <span className="text-xs font-medium text-muted-foreground">
-                  Starter template
-                </span>
-                <select
-                  value={template}
-                  onChange={(e) =>
-                    setTemplate(e.target.value as typeof template)
-                  }
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring"
+          {statusMessage ? (
+            <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+              {statusMessage}
+              {branchUrl ? (
+                <a
+                  href={branchUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ml-2 inline-flex items-center gap-1 font-medium text-foreground underline"
                 >
-                  {TEMPLATE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  Open branch <IconArrowUpRight className="h-3 w-3" />
+                </a>
+              ) : null}
             </div>
-
-            <div className="flex items-center justify-end gap-3">
-              <span className="text-[11px] text-muted-foreground/75">
-                {submitShortcut}+Enter to submit
-              </span>
-              <button
-                type="button"
-                onClick={submit}
-                disabled={!canSubmit || isSubmitting}
-                className="inline-flex h-10 items-center gap-2 rounded-md bg-foreground px-4 text-sm font-medium text-background disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {isSubmitting ? (
-                  <IconLoader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <IconCode className="h-4 w-4" />
-                )}
-                Create app
-              </button>
-            </div>
-
-            {statusMessage ? (
-              <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                {statusMessage}
-                {branchUrl ? (
-                  <a
-                    href={branchUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="ml-2 inline-flex items-center gap-1 font-medium text-foreground underline"
-                  >
-                    Open branch <IconArrowUpRight className="h-3 w-3" />
-                  </a>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
+          ) : null}
         </div>
 
         <aside className="rounded-lg border border-border bg-card">
@@ -401,7 +281,7 @@ export function NewWorkspaceAppFlow({
                       type="button"
                       aria-pressed={selected}
                       onClick={() => toggleSecret(secret.id)}
-                      className="flex w-full items-start gap-3 rounded-md px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                      className="flex w-full cursor-pointer items-start gap-3 rounded-md px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                     >
                       <span
                         className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition ${

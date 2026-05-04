@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useSendToAgentChat } from "@agent-native/core/client";
+import { useSendToAgentChat, PromptComposer } from "@agent-native/core/client";
 import {
   Popover,
   PopoverContent,
@@ -8,33 +8,27 @@ import {
 import { IconPlus, IconLoader2 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
+const DASHBOARD_CONTEXT =
+  "The user wants to create a new analytics dashboard. " +
+  "Create a SQL-driven dashboard by saving a JSON config via PUT /api/sql-dashboards/{id}. " +
+  "The config shape is: { name: string, panels: [{ id, title, sql, source, chartType, width, config? }] }. " +
+  "Each panel needs: id (unique string), title, sql (the query), source ('bigquery' | 'ga4' | 'amplitude' | 'first-party'), " +
+  "chartType ('line' | 'area' | 'bar' | 'metric' | 'table' | 'pie'), width (1 or 2). " +
+  "Optional config: { xKey, yKey, yKeys, color, colors, yFormatter ('number'|'currency'|'percent'), description }. " +
+  "For first-party analytics, source is 'first-party' and sql may read analytics_events only; do not use db-query for datasource panels. " +
+  "First check /_agent-native/env-status to see which data sources are connected. " +
+  "Refer to AGENTS.md, .agents/skills, the data dictionary, and connected data-source instructions for SQL patterns and table names. " +
+  "NO code files need to be created — only the dashboard config JSON via the API. " +
+  "After saving, the dashboard will be accessible at /adhoc/{id}.";
+
 export function NewDashboardDialog() {
   const [open, setOpen] = useState(false);
-  const [prompt, setPrompt] = useState("");
   const { send, isGenerating } = useSendToAgentChat();
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!prompt.trim() || isGenerating) return;
-
-    send({
-      message: prompt.trim(),
-      context:
-        "The user wants to create a new analytics dashboard. " +
-        "Create a SQL-driven dashboard by saving a JSON config via PUT /api/sql-dashboards/{id}. " +
-        "The config shape is: { name: string, panels: [{ id, title, sql, source, chartType, width, config? }] }. " +
-        "Each panel needs: id (unique string), title, sql (the query), source ('bigquery' | 'ga4' | 'amplitude' | 'first-party'), " +
-        "chartType ('line' | 'area' | 'bar' | 'metric' | 'table' | 'pie'), width (1 or 2). " +
-        "Optional config: { xKey, yKey, yKeys, color, colors, yFormatter ('number'|'currency'|'percent'), description }. " +
-        "For first-party analytics, source is 'first-party' and sql may read analytics_events only; do not use db-query for datasource panels. " +
-        "First check /_agent-native/env-status to see which data sources are connected. " +
-        "Refer to AGENTS.md, .agents/skills, the data dictionary, and connected data-source instructions for SQL patterns and table names. " +
-        "NO code files need to be created — only the dashboard config JSON via the API. " +
-        "After saving, the dashboard will be accessible at /adhoc/{id}.",
-      submit: true,
-    });
-
-    setPrompt("");
+  function handleSubmit(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || isGenerating) return;
+    send({ message: trimmed, context: DASHBOARD_CONTEXT, submit: true });
     setOpen(false);
   }
 
@@ -44,7 +38,7 @@ export function NewDashboardDialog() {
         <button
           disabled={isGenerating}
           className={cn(
-            "flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs transition-all",
+            "flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-xs transition-all",
             isGenerating
               ? "text-primary cursor-wait"
               : "text-muted-foreground/60 hover:text-primary hover:bg-sidebar-accent/50",
@@ -59,51 +53,20 @@ export function NewDashboardDialog() {
         </button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[calc(100vw-2rem)] sm:w-96 p-4"
+        className="w-[calc(100vw-2rem)] p-3 sm:w-[420px]"
         side="right"
         align="start"
       >
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <p className="text-sm font-semibold text-foreground">New dashboard</p>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Describe the dashboard you want to create..."
-            className={cn(
-              "flex w-full rounded-md border border-input bg-background px-3 py-3 text-sm",
-              "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
-              "min-h-[140px] resize-y",
-            )}
-            autoFocus
-            required
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                e.preventDefault();
-                if (prompt.trim()) handleSubmit(e);
-              }
-            }}
-          />
-          <div className="flex items-center justify-end gap-2">
-            <span className="text-[11px] text-muted-foreground">
-              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-              +Enter to submit
-            </span>
-            <button
-              type="submit"
-              disabled={!prompt.trim() || isGenerating}
-              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isGenerating ? (
-                <span className="flex items-center gap-1.5">
-                  <IconLoader2 className="h-3 w-3 animate-spin" />
-                  Generating...
-                </span>
-              ) : (
-                "Create"
-              )}
-            </button>
-          </div>
-        </form>
+        <p className="px-1 pb-2 text-sm font-semibold text-foreground">
+          New dashboard
+        </p>
+        <PromptComposer
+          autoFocus
+          disabled={isGenerating}
+          placeholder="Describe the dashboard you want to create..."
+          draftScope="analytics:new-dashboard"
+          onSubmit={handleSubmit}
+        />
       </PopoverContent>
     </Popover>
   );

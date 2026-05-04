@@ -11,7 +11,9 @@ function contextString(value: unknown): string | null {
   return null;
 }
 
-function identityKeyForIncoming(incoming: IncomingMessage): string | null {
+export function identityKeyForIncoming(
+  incoming: IncomingMessage,
+): string | null {
   const senderId = contextString(incoming.senderId);
   if (!senderId) return null;
 

@@ -1,10 +1,19 @@
 import { agentNativePath } from "../api-path.js";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconLoader2, IconPencil, IconRefresh } from "@tabler/icons-react";
+import { useNavigate } from "react-router";
+import {
+  IconDots,
+  IconLoader2,
+  IconPencil,
+  IconRefresh,
+  IconTrash,
+  IconX,
+} from "@tabler/icons-react";
 import { ShareButton } from "../sharing/ShareButton.js";
 import { AgentToggleButton } from "../AgentPanel.js";
 import { sendToAgentChat } from "../agent-chat.js";
+import { PromptComposer } from "../composer/PromptComposer.js";
 import {
   Popover,
   PopoverContent,
@@ -72,17 +81,16 @@ export interface ToolViewerProps {
 
 function EditToolPopover({ tool }: { tool: Tool }) {
   const [open, setOpen] = useState(false);
-  const [editPrompt, setEditPrompt] = useState("");
 
-  const handleSubmit = () => {
-    if (!editPrompt.trim()) return;
+  const handleSubmit = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
     sendToAgentChat({
-      message: editPrompt.trim(),
+      message: trimmed,
       context: `The user is viewing tool "${tool.name}" (id: ${tool.id}) and wants to edit it.`,
       submit: true,
       openSidebar: true,
     });
-    setEditPrompt("");
     setOpen(false);
   };
 
@@ -97,42 +105,16 @@ function EditToolPopover({ tool }: { tool: Tool }) {
           <IconPencil className="h-4 w-4" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" sideOffset={6} className="w-80 p-4">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSubmit();
-          }}
-          className="space-y-3"
-        >
-          <p className="text-sm font-semibold text-foreground">Edit tool</p>
-          <textarea
-            value={editPrompt}
-            onChange={(e) => setEditPrompt(e.target.value)}
-            placeholder="What would you like to change?"
-            className="flex w-full rounded-md border border-input bg-background px-3 py-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 min-h-[100px] resize-y"
-            autoFocus
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                e.preventDefault();
-                if (editPrompt.trim()) handleSubmit();
-              }
-            }}
-          />
-          <div className="flex items-center justify-end gap-2">
-            <span className="text-[11px] text-muted-foreground/75">
-              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-              +Enter to submit
-            </span>
-            <button
-              type="submit"
-              disabled={!editPrompt.trim()}
-              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            >
-              Send
-            </button>
-          </div>
-        </form>
+      <PopoverContent align="end" sideOffset={6} className="w-[420px] p-3">
+        <p className="px-1 pb-2 text-sm font-semibold text-foreground">
+          Edit tool
+        </p>
+        <PromptComposer
+          autoFocus
+          placeholder="What would you like to change?"
+          draftScope={`tools:edit:${tool.id}`}
+          onSubmit={handleSubmit}
+        />
       </PopoverContent>
     </Popover>
   );
@@ -506,6 +488,7 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
             resourceId={toolId}
             resourceTitle={tool.name}
           />
+          <ToolMoreMenu toolId={toolId} toolName={tool.name} />
           <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
         </div>
       </div>
@@ -533,5 +516,169 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
         />
       </div>
     </div>
+  );
+}
+
+interface SlotDeclaration {
+  id: string;
+  toolId: string;
+  slotId: string;
+}
+
+function ToolMoreMenu({
+  toolId,
+  toolName,
+}: {
+  toolId: string;
+  toolName: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  const { data: slots = [] } = useQuery<SlotDeclaration[]>({
+    queryKey: ["tool-slots", toolId],
+    queryFn: async () => {
+      const res = await fetch(
+        agentNativePath(`/_agent-native/slots/tool/${toolId}`),
+      );
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  const closeMenu = () => {
+    setOpen(false);
+    setConfirmingDelete(false);
+  };
+
+  const removeFromSlot = async (slotId: string) => {
+    try {
+      await fetch(
+        agentNativePath(
+          `/_agent-native/slots/${encodeURIComponent(slotId)}/install/${encodeURIComponent(toolId)}`,
+        ),
+        { method: "DELETE" },
+      );
+    } finally {
+      queryClient.invalidateQueries({ queryKey: ["slot-installs", slotId] });
+    }
+  };
+
+  const deleteTool = async () => {
+    closeMenu();
+    try {
+      await fetch(agentNativePath(`/_agent-native/tools/${toolId}`), {
+        method: "DELETE",
+      });
+    } finally {
+      queryClient.invalidateQueries({ queryKey: ["tool", toolId] });
+      queryClient.invalidateQueries({ queryKey: ["tools"] });
+      slots.forEach((s) =>
+        queryClient.invalidateQueries({
+          queryKey: ["slot-installs", s.slotId],
+        }),
+      );
+      navigate("/tools");
+    }
+  };
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) setConfirmingDelete(false);
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center justify-center rounded-md h-8 w-8 text-muted-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer"
+          title="More options"
+          aria-label="More options"
+        >
+          <IconDots className="h-4 w-4" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" sideOffset={4} className="w-72 p-0">
+        {!confirmingDelete ? (
+          <>
+            <div className="px-3 py-2 border-b border-border/40">
+              <p className="text-[12px] font-medium">Appears in</p>
+              {slots.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                  Not installed in any widget areas. Ask the agent to add it
+                  somewhere.
+                </p>
+              ) : (
+                <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                  This tool can render in {slots.length} widget area
+                  {slots.length === 1 ? "" : "s"}.
+                </p>
+              )}
+            </div>
+            {slots.length > 0 && (
+              <div className="max-h-48 overflow-y-auto py-1">
+                {slots.map((s) => (
+                  <div
+                    key={s.id}
+                    className="flex items-center gap-2 px-3 py-1.5 text-[12px]"
+                  >
+                    <span className="flex-1 truncate font-mono text-[11px] text-muted-foreground">
+                      {s.slotId}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeFromSlot(s.slotId)}
+                      className="rounded p-1 text-muted-foreground/60 hover:bg-accent hover:text-foreground cursor-pointer"
+                      title="Remove from this widget area (for me)"
+                      aria-label="Remove from this widget area"
+                    >
+                      <IconX className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="border-t border-border/40 p-1">
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(true)}
+                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10 cursor-pointer text-left"
+              >
+                <IconTrash className="h-3.5 w-3.5" />
+                <span>Delete tool…</span>
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col gap-2 p-3">
+            <p className="text-[12px]">
+              Delete <span className="font-medium">{toolName}</span>? This
+              removes the tool everywhere, for everyone it's shared with.
+            </p>
+            <div className="flex justify-end gap-1">
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(false)}
+                className="rounded-md px-2 py-1 text-[12px] hover:bg-accent cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={deleteTool}
+                className="rounded-md bg-destructive px-2 py-1 text-[12px] text-destructive-foreground hover:bg-destructive/90 cursor-pointer"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }

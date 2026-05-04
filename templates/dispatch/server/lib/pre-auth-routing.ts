@@ -42,7 +42,7 @@ const MOUNTED_DISPATCH_ALIASES = new Map<string, string>([
 function isDispatchPagePath(pathname: string): boolean {
   if (DISPATCH_PAGE_PATHS.has(pathname)) return true;
   if (pathname === "/approval" || pathname === "/tools") return true;
-  return /^\/tools\/[^/]+$/.test(pathname);
+  return /^\/tools\/[^/]+$/.test(pathname) || /^\/apps\/[^/]+$/.test(pathname);
 }
 
 function isDispatchAssetOrFrameworkPath(pathname: string): boolean {
@@ -136,6 +136,13 @@ export function rootDispatchRedirect(
     return new Response(null, {
       status: 302,
       headers: { Location: `${basePath}${rootAlias}${search}` },
+    });
+  }
+
+  if (/^\/apps\/[^/]+$/.test(normalizedPathname)) {
+    return new Response(null, {
+      status: 302,
+      headers: { Location: `${basePath}${normalizedPathname}${search}` },
     });
   }
 

@@ -15,6 +15,7 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { sendToAgentChat } from "../agent-chat.js";
+import { PromptComposer } from "../composer/PromptComposer.js";
 import {
   Popover,
   PopoverContent,
@@ -61,7 +62,6 @@ export function ToolsSidebarSection() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [showCreate, setShowCreate] = useState(false);
-  const [createPrompt, setCreatePrompt] = useState("");
   const [toolOrderState, setToolOrderState] = useState<string[]>(() =>
     typeof window !== "undefined" ? getToolsOrder() : [],
   );
@@ -205,15 +205,15 @@ export function ToolsSidebarSection() {
     [sortedTools],
   );
 
-  const handleCreate = () => {
-    if (!createPrompt.trim()) return;
+  const handleCreate = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
     sendToAgentChat({
-      message: `Create a tool: ${createPrompt.trim()}`,
+      message: `Create a tool: ${trimmed}`,
       submit: true,
       openSidebar: true,
       newTab: true,
     });
-    setCreatePrompt("");
     setShowCreate(false);
   };
 
@@ -248,42 +248,16 @@ export function ToolsSidebarSection() {
               <IconPlus className="h-3.5 w-3.5" />
             </button>
           </PopoverTrigger>
-          <PopoverContent side="right" align="start" className="w-80 p-4">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleCreate();
-              }}
-              className="space-y-3"
-            >
-              <p className="text-sm font-semibold text-foreground">New tool</p>
-              <textarea
-                autoFocus
-                value={createPrompt}
-                onChange={(e) => setCreatePrompt(e.target.value)}
-                placeholder="Describe what you'd like to build..."
-                className="flex w-full rounded-md border border-input bg-background px-3 py-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 min-h-[100px] resize-y"
-                onKeyDown={(e) => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                    e.preventDefault();
-                    handleCreate();
-                  }
-                }}
-              />
-              <div className="flex items-center justify-end gap-2">
-                <span className="text-[11px] text-muted-foreground/75">
-                  {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-                  +Enter to submit
-                </span>
-                <button
-                  type="submit"
-                  disabled={!createPrompt.trim()}
-                  className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  Create
-                </button>
-              </div>
-            </form>
+          <PopoverContent side="right" align="start" className="w-[420px] p-3">
+            <p className="px-1 pb-2 text-sm font-semibold text-foreground">
+              New tool
+            </p>
+            <PromptComposer
+              autoFocus
+              placeholder="Describe what you'd like to build..."
+              draftScope="tools:sidebar-create"
+              onSubmit={handleCreate}
+            />
           </PopoverContent>
         </Popover>
       </div>

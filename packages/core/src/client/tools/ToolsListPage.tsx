@@ -6,6 +6,7 @@ import { IconPlus, IconTool } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { AgentToggleButton } from "../AgentPanel.js";
 import { sendToAgentChat } from "../agent-chat.js";
+import { PromptComposer } from "../composer/PromptComposer.js";
 import {
   Popover,
   PopoverContent,
@@ -24,70 +25,33 @@ interface Tool {
   icon?: string;
 }
 
-function CreateToolInput({
-  className,
-  inputClassName,
-}: {
-  className?: string;
-  inputClassName?: string;
-}) {
-  const [prompt, setPrompt] = useState("");
+function submitCreateTool(prompt: string) {
+  const trimmed = prompt.trim();
+  if (!trimmed) return;
+  sendToAgentChat({
+    message: `Create a tool: ${trimmed}`,
+    submit: true,
+    openSidebar: true,
+    newTab: true,
+  });
+}
 
-  const handleCreate = () => {
-    if (!prompt.trim()) return;
-    sendToAgentChat({
-      message: `Create a tool: ${prompt.trim()}`,
-      submit: true,
-      openSidebar: true,
-      newTab: true,
-    });
-    setPrompt("");
-  };
-
+function CreateToolInput({ className }: { className?: string }) {
   return (
     <div className={cn("flex flex-col gap-2", className)}>
       <p className="text-sm font-semibold text-foreground">New tool</p>
-      <textarea
-        value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
-        placeholder={
-          "Describe what you'd like to build...\ne.g. a todo list, API dashboard, calculator"
-        }
-        className={cn(
-          "flex w-full rounded-md border border-input bg-background px-3 py-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 min-h-[100px] resize-y",
-          inputClassName,
-        )}
-        onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-            e.preventDefault();
-            handleCreate();
-          }
-        }}
+      <PromptComposer
+        autoFocus
+        placeholder="Describe what you'd like to build... e.g. a todo list, API dashboard, calculator"
+        draftScope="tools:create"
+        onSubmit={(text) => submitCreateTool(text)}
       />
-      <div className="flex items-center justify-end gap-2">
-        <span className="text-[11px] text-muted-foreground/75">
-          {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter to
-          submit
-        </span>
-        <button
-          type="button"
-          onClick={handleCreate}
-          disabled={!prompt.trim()}
-          className={cn(
-            "rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 cursor-pointer",
-            !prompt.trim() && "opacity-60",
-          )}
-        >
-          Create
-        </button>
-      </div>
     </div>
   );
 }
 
 export function ToolsListPage() {
   const [showCreate, setShowCreate] = useState(false);
-  const [createPrompt, setCreatePrompt] = useState("");
   const [toolOrderState, setToolOrderState] = useState<string[]>(() =>
     typeof window !== "undefined" ? getToolsOrder() : [],
   );
@@ -125,15 +89,8 @@ export function ToolsListPage() {
       ? applyToolsOrder(tools ?? [], toolOrderState)
       : (tools ?? []);
 
-  const handleCreate = () => {
-    if (!createPrompt.trim()) return;
-    sendToAgentChat({
-      message: `Create a tool: ${createPrompt.trim()}`,
-      submit: true,
-      openSidebar: true,
-      newTab: true,
-    });
-    setCreatePrompt("");
+  const handleCreate = (text: string) => {
+    submitCreateTool(text);
     setShowCreate(false);
   };
 
@@ -152,44 +109,20 @@ export function ToolsListPage() {
                 New Tool
               </button>
             </PopoverTrigger>
-            <PopoverContent align="end" sideOffset={6} className="w-80 p-4">
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleCreate();
-                }}
-                className="space-y-3"
-              >
-                <p className="text-sm font-semibold text-foreground">
-                  New tool
-                </p>
-                <textarea
-                  autoFocus
-                  value={createPrompt}
-                  onChange={(e) => setCreatePrompt(e.target.value)}
-                  placeholder="Describe what you'd like to build..."
-                  className="flex w-full rounded-md border border-input bg-background px-3 py-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 min-h-[140px] resize-y"
-                  onKeyDown={(e) => {
-                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                      e.preventDefault();
-                      handleCreate();
-                    }
-                  }}
-                />
-                <div className="flex items-center justify-end gap-2">
-                  <span className="text-[11px] text-muted-foreground/75">
-                    {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-                    +Enter to submit
-                  </span>
-                  <button
-                    type="submit"
-                    disabled={!createPrompt.trim()}
-                    className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                  >
-                    Create
-                  </button>
-                </div>
-              </form>
+            <PopoverContent
+              align="end"
+              sideOffset={6}
+              className="w-[420px] p-3"
+            >
+              <p className="px-1 pb-2 text-sm font-semibold text-foreground">
+                New tool
+              </p>
+              <PromptComposer
+                autoFocus
+                placeholder="Describe what you'd like to build..."
+                draftScope="tools:create-popover"
+                onSubmit={handleCreate}
+              />
             </PopoverContent>
           </Popover>
           <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />

@@ -1,12 +1,6 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import {
-  IconLoader2,
-  IconPaperclip,
-  IconX,
-  IconArrowUp,
-} from "@tabler/icons-react";
-import { appBasePath } from "@agent-native/core/client";
+import { appBasePath, PromptComposer } from "@agent-native/core/client";
 
 export interface UploadedFile {
   path: string;
@@ -41,25 +35,8 @@ export default function PromptPopover({
   anchorRef,
   centered = false,
 }: PromptPopoverProps) {
-  const [prompt, setPrompt] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
-  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [dragging, setDragging] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (open) {
-      setTimeout(() => inputRef.current?.focus(), 50);
-    } else {
-      setPrompt("");
-      setFiles([]);
-      setUploadedFiles([]);
-      setDragging(false);
-    }
-  }, [open]);
 
   // Position the popover after render so we can measure its actual size
   useEffect(() => {
@@ -79,24 +56,17 @@ export default function PromptPopover({
     const vw = window.innerWidth;
     const vh = window.innerHeight;
 
-    // Vertical: prefer below, flip above if needed
     let top = anchor.bottom + MARGIN;
     if (top + panelRect.height > vh - MARGIN) {
       top = Math.max(MARGIN, anchor.top - panelRect.height - MARGIN);
     }
 
-    // Horizontal: center on anchor, then clamp to stay within viewport
     const anchorCenterX = anchor.left + anchor.width / 2;
     let left = anchorCenterX - panelRect.width / 2;
-
-    // Clamp: don't go off right edge
     if (left + panelRect.width > vw - MARGIN) {
       left = vw - panelRect.width - MARGIN;
     }
-    // Clamp: don't go off left edge
-    if (left < MARGIN) {
-      left = MARGIN;
-    }
+    if (left < MARGIN) left = MARGIN;
 
     panel.style.top = top + "px";
     panel.style.left = left + "px";
@@ -127,56 +97,33 @@ export default function PromptPopover({
     };
   }, [open, onOpenChange, anchorRef]);
 
-  const uploadFiles = useCallback(async (newFiles: File[]) => {
-    setFiles((prev) => [...prev, ...newFiles]);
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      newFiles.forEach((f) => formData.append("files", f));
-      const res = await fetch(`${appBasePath()}/api/uploads`, {
-        method: "POST",
-        body: formData,
-      });
-      if (res.ok) {
-        const results: UploadedFile[] = await res.json();
-        setUploadedFiles((prev) => [...prev, ...results]);
+  const uploadFiles = useCallback(
+    async (files: File[]): Promise<UploadedFile[]> => {
+      if (files.length === 0) return [];
+      setUploading(true);
+      try {
+        const formData = new FormData();
+        files.forEach((f) => formData.append("files", f));
+        const res = await fetch(`${appBasePath()}/api/uploads`, {
+          method: "POST",
+          body: formData,
+        });
+        if (!res.ok) return [];
+        return (await res.json()) as UploadedFile[];
+      } finally {
+        setUploading(false);
       }
-    } catch {
-      /* silent */
-    } finally {
-      setUploading(false);
-    }
-  }, []);
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = e.target.files;
-    if (!selected || selected.length === 0) return;
-    uploadFiles(Array.from(selected));
-    e.target.value = "";
-  };
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragging(false);
-      const droppedFiles = Array.from(e.dataTransfer.files);
-      if (droppedFiles.length > 0) uploadFiles(droppedFiles);
     },
-    [uploadFiles],
+    [],
   );
 
-  const removeFile = (index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
-    setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleSubmit = () => {
-    if (!prompt.trim() && uploadedFiles.length === 0) return;
-    onSubmit(prompt.trim(), uploadedFiles);
-  };
-
-  const busy = loading || uploading;
-  const hasContent = prompt.trim().length > 0 || uploadedFiles.length > 0;
+  const handleSubmit = useCallback(
+    async (text: string, files: File[]) => {
+      const uploaded = await uploadFiles(files);
+      onSubmit(text.trim(), uploaded);
+    },
+    [onSubmit, uploadFiles],
+  );
 
   if (!open) return null;
 
@@ -190,131 +137,39 @@ export default function PromptPopover({
       )}
       <div
         ref={panelRef}
-        className={`fixed z-[200] w-[min(400px,calc(100vw-24px))] rounded-xl border bg-popover shadow-2xl shadow-black/60 overflow-hidden transition-colors ${
-          dragging ? "border-[#609FF8]/50 bg-accent" : "border-border"
-        }`}
+        className="fixed z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border border-border bg-popover shadow-2xl shadow-black/60"
         style={{ top: 0, left: 0, visibility: "visible" }}
-        onDrop={handleDrop}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={(e) => {
-          e.preventDefault();
-          setDragging(false);
-        }}
       >
-        <div className="px-3.5 pt-3 pb-1.5">
+        <div className="px-3.5 pt-3 pb-2">
           <span className="text-sm font-medium text-foreground/90">
             {title}
           </span>
         </div>
 
-        <div className="px-3.5 pb-2">
-          <textarea
-            ref={inputRef}
-            value={prompt}
-            onChange={(e) => {
-              setPrompt(e.target.value);
-              const el = e.target;
-              el.style.height = "auto";
-              el.style.height =
-                Math.min(el.scrollHeight, window.innerHeight * 0.5) + "px";
-            }}
+        <div className="px-2 pb-2">
+          <PromptComposer
+            autoFocus
+            attachmentsEnabled
+            disabled={loading || uploading}
             placeholder={placeholder}
-            className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground/70 outline-none resize-none"
-            rows={3}
-            style={{ maxHeight: "50vh" }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                handleSubmit();
-              }
-            }}
+            onSubmit={handleSubmit}
           />
         </div>
 
-        {/* File chips */}
-        {files.length > 0 && (
-          <div className="px-3.5 pb-2 flex flex-wrap gap-1.5">
-            {files.map((file, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent border border-border text-[11px] text-muted-foreground"
-              >
-                <span className="max-w-[120px] truncate">{file.name}</span>
-                <button
-                  onClick={() => removeFile(i)}
-                  className="p-0.5 rounded hover:bg-accent"
-                  aria-label={`Remove ${file.name}`}
-                >
-                  <IconX className="w-2.5 h-2.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Bottom bar */}
-        <div className="px-3.5 py-2 flex items-center justify-between border-t border-border">
-          <div className="flex items-center gap-1">
+        {onSkip && (
+          <div className="flex justify-end border-t border-border px-3.5 py-2">
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="p-1.5 rounded-md hover:bg-accent text-muted-foreground/70 hover:text-muted-foreground transition-colors"
-              title="Attach files"
-              aria-label="Attach files"
+              onClick={() => {
+                onSkip();
+                onOpenChange(false);
+              }}
+              className="cursor-pointer text-xs text-[#609FF8] hover:text-[#7AB2FA]"
             >
-              <IconPaperclip className="w-4 h-4" />
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              onChange={handleFileChange}
-              className="hidden"
-            />
-          </div>
-
-          <div className="flex items-center gap-3">
-            <span className="text-[10px] text-muted-foreground/70">
-              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-              +Enter to submit
-            </span>
-            {onSkip && (
-              <button
-                onClick={() => {
-                  onSkip();
-                  onOpenChange(false);
-                }}
-                className="text-xs text-[#609FF8] hover:text-[#7AB2FA] transition-colors"
-              >
-                {skipLabel}
-              </button>
-            )}
-            <button
-              onClick={handleSubmit}
-              disabled={busy || !hasContent}
-              className={`p-1.5 rounded-lg transition-colors ${
-                hasContent && !busy
-                  ? "bg-[#609FF8] hover:bg-[#7AB2FA] text-black"
-                  : "bg-accent hover:bg-accent/80 disabled:opacity-30 disabled:cursor-not-allowed"
-              }`}
-              title="Submit"
-              aria-label="Submit"
-            >
-              {busy ? (
-                <IconLoader2
-                  className={`w-4 h-4 animate-spin ${hasContent ? "text-black" : "text-foreground/70"}`}
-                />
-              ) : (
-                <IconArrowUp
-                  className={`w-4 h-4 ${hasContent ? "text-black" : "text-foreground/70"}`}
-                />
-              )}
+              {skipLabel}
             </button>
           </div>
-        </div>
+        )}
       </div>
     </>
   );

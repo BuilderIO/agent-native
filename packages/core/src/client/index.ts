@@ -74,6 +74,11 @@ export {
 } from "./MultiTabAssistantChat.js";
 export { createAgentChatAdapter } from "./agent-chat-adapter.js";
 export {
+  PromptComposer,
+  type PromptComposerProps,
+  type PromptComposerFile,
+} from "./composer/PromptComposer.js";
+export {
   useChatThreads,
   type ChatThreadSummary,
   type ChatThreadData,
