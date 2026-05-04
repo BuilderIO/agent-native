@@ -107,9 +107,11 @@ async function createWorkspaceInteractive(
 
   clack.note(
     [
-      "A workspace is a monorepo that holds one or more apps sharing auth,",
-      "database, and the agent chat. Pick as many as you want — you can add",
-      "more later with `agent-native add-app`. Starter is a minimal scaffold,",
+      `You're creating a workspace named "${name}". A workspace is a monorepo`,
+      "container — it isn't an app itself. Inside it you pick one or more apps",
+      "(below), and each app gets its own route, agent, and UI. Apps in the",
+      "same workspace share auth, database, and the agent chat. Add more apps",
+      "later with `agent-native add-app`. Starter is a minimal scaffold —",
       "useful as a blank app to build from scratch alongside the others.",
     ].join("\n"),
     "About workspaces",
@@ -175,16 +177,36 @@ async function createWorkspaceInteractive(
 
   tryGitInit(targetDir);
 
+  // Show the user the tree we just built so the workspace/app distinction is
+  // visible, not just described. First-time users routinely expect their
+  // workspace name to be the app — seeing apps/<template>/ subdirectories
+  // makes the structure concrete.
+  const treeLines = [
+    `  ${name}/                    ← your workspace`,
+    ...templates.map(
+      (t, i) =>
+        `  ${i === templates.length - 1 ? "└─" : "├─"} apps/${t}/`.padEnd(30) +
+        `   ← app`,
+    ),
+  ];
+
   clack.outro(
     [
-      `Done! Next steps:`,
+      `Created workspace "${name}" with ${templates.length} app${templates.length === 1 ? "" : "s"}:`,
+      ``,
+      ...treeLines,
+      ``,
+      `Next steps:`,
       ``,
       `  cd ${name}`,
       `  pnpm install`,
-      `  pnpm dev`,
+      `  pnpm dev          # starts every app in the workspace`,
       ``,
-      `Add another app later:  agent-native add-app`,
-      `Deploy the whole workspace:  agent-native deploy`,
+      `Once running, open Dispatch — you'll see "Workspace: ${titleCase(name)}"`,
+      `at the top, with all your apps listed under it.`,
+      ``,
+      `Add another app later:        agent-native add-app`,
+      `Deploy the whole workspace:   agent-native deploy`,
     ].join("\n"),
   );
 }

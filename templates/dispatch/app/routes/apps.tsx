@@ -37,6 +37,12 @@ export function meta() {
   return [{ title: "Apps — Dispatch" }];
 }
 
+interface WorkspaceInfo {
+  name: string | null;
+  displayName: string | null;
+  appCount: number;
+}
+
 export default function AppsRoute() {
   const { data: apps = [] } = useActionQuery(
     "list-workspace-apps",
@@ -45,6 +51,13 @@ export default function AppsRoute() {
       refetchInterval: 2_000,
     },
   );
+  const { data: workspace } = useActionQuery(
+    "get-workspace-info",
+    {},
+    { staleTime: 60_000 },
+  );
+  const ws = workspace as WorkspaceInfo | undefined;
+  const workspaceLabel = ws?.displayName ?? ws?.name ?? null;
   const typedApps = (apps as WorkspaceAppSummary[]).filter(
     (app) => !app.isDispatch,
   );
@@ -52,7 +65,11 @@ export default function AppsRoute() {
   return (
     <DispatchShell
       title="Apps"
-      description="Open workspace apps and start new app creation from Dispatch."
+      description={
+        workspaceLabel
+          ? `Apps in the "${workspaceLabel}" workspace. Each app gets its own route under this workspace and shares its database, auth, and agent chat.`
+          : "Open workspace apps and start new app creation from Dispatch."
+      }
     >
       <div className="space-y-4">
         <section className="space-y-3">
@@ -60,7 +77,9 @@ export default function AppsRoute() {
             <div className="flex items-center gap-2">
               <IconApps size={16} className="text-muted-foreground" />
               <h2 className="text-sm font-semibold text-foreground">
-                Workspace apps
+                {workspaceLabel
+                  ? `Apps in ${workspaceLabel}`
+                  : "Workspace apps"}
               </h2>
             </div>
             <CreateAppPopover

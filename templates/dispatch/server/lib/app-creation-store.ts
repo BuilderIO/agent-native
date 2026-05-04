@@ -58,6 +58,17 @@ export interface AppCreationSettings {
   builderBranchingEnabled: boolean;
 }
 
+export interface WorkspaceInfo {
+  /** Slug from the workspace root package.json `name` (e.g. "on-call-todo-manager"). */
+  name: string | null;
+  /** Title-cased version for display (e.g. "On Call Todo Manager"). */
+  displayName: string | null;
+  /** Absolute path to the workspace root, if detected. */
+  rootPath: string | null;
+  /** Number of apps currently scaffolded under apps/. */
+  appCount: number;
+}
+
 interface PendingWorkspaceApp {
   id: string;
   name: string;
@@ -477,6 +488,40 @@ export function getEnvBuilderProjectId(): string | null {
     process.env.BUILDER_PROJECT_ID ||
     null
   );
+}
+
+/**
+ * Read the workspace's identity from the workspace root's package.json. Used to
+ * surface "Workspace: <name>" in the Dispatch UI so first-time users can see
+ * the container their apps live inside (rather than only seeing app names like
+ * "starter" / "dispatch" with no parent context).
+ */
+export function getWorkspaceInfo(): WorkspaceInfo {
+  const rootPath = findWorkspaceRoot();
+  if (!rootPath) {
+    return { name: null, displayName: null, rootPath: null, appCount: 0 };
+  }
+  const pkg = readJson(path.join(rootPath, "package.json"));
+  const rawName = typeof pkg?.name === "string" ? pkg.name.trim() : "";
+  // Strip a leading "@scope/" if the workspace root happens to be scoped.
+  const name = rawName.replace(/^@[^/]+\//, "") || null;
+  let appCount = 0;
+  const appsDir = path.join(rootPath, "apps");
+  if (fs.existsSync(appsDir)) {
+    try {
+      appCount = fs
+        .readdirSync(appsDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory()).length;
+    } catch {
+      appCount = 0;
+    }
+  }
+  return {
+    name,
+    displayName: name ? titleCase(name) : null,
+    rootPath,
+    appCount,
+  };
 }
 
 export async function listWorkspaceApps(

@@ -4,6 +4,7 @@ import {
   AgentSidebar,
   FeedbackButton,
   appPath,
+  useActionQuery,
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
@@ -70,8 +71,21 @@ function pageOwnsToolbar(pathname: string): boolean {
   return false;
 }
 
+interface WorkspaceInfo {
+  name: string | null;
+  displayName: string | null;
+  appCount: number;
+}
+
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const location = useLocation();
+  const { data: workspace } = useActionQuery(
+    "get-workspace-info",
+    {},
+    { staleTime: 60_000 },
+  );
+  const ws = workspace as WorkspaceInfo | undefined;
+  const workspaceLabel = ws?.displayName ?? ws?.name ?? null;
   const operationsOpen = OPERATIONS_NAV_ITEMS.some(
     (item) =>
       location.pathname === item.to ||
@@ -119,12 +133,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
               className="hidden h-4 w-auto shrink-0 dark:block"
             />
           </div>
-          <div>
-            <div className="text-sm font-semibold text-foreground">
-              Dispatch
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-foreground">
+              {workspaceLabel ?? "Dispatch"}
             </div>
-            <div className="text-xs text-muted-foreground">
-              Workspace control plane
+            <div className="truncate text-xs text-muted-foreground">
+              {workspaceLabel
+                ? `Workspace · ${ws?.appCount ?? 0} app${ws?.appCount === 1 ? "" : "s"}`
+                : "Workspace control plane"}
             </div>
           </div>
         </div>
