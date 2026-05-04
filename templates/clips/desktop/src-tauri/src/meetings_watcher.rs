@@ -12,10 +12,10 @@
 //!   1. `meetings_watcher_set_server_url(serverUrl)` — once it knows the
 //!      backend origin (read from `localStorage["clips:server-url"]`).
 //!   2. `meetings_watcher_set_session(cookieString)` — passes
-//!      `document.cookie` so the Rust-side fetch can attach the Better Auth
-//!      session cookie. **Without this, the watcher hits 401 in production
-//!      and silently never alerts on any meeting.** The renderer should
-//!      re-push the cookie whenever it refreshes (e.g. after sign-in,
+//!      `document.cookie` plus the desktop bearer token so the Rust-side
+//!      fetch can authenticate. **Without this, the watcher hits 401 in
+//!      production and silently never alerts on any meeting.** The renderer
+//!      should re-push the session whenever it refreshes (e.g. after sign-in,
 //!      after switching orgs, or on reconnect).
 //!
 //! On every successful poll the watcher emits `meetings:updated` with the
@@ -48,6 +48,8 @@ struct MeetingsWatcherInner {
     server_url: Option<String>,
     /// Raw `document.cookie` string forwarded from the renderer.
     session_cookie: Option<String>,
+    /// Legacy framework session token persisted by the desktop renderer.
+    auth_token: Option<String>,
     notified_meeting_ids: HashSet<String>,
 }
 
@@ -95,17 +97,29 @@ pub async fn meetings_watcher_set_server_url(
 pub async fn meetings_watcher_set_session(
     state: tauri::State<'_, MeetingsWatcherState>,
     cookie: String,
+    auth_token: Option<String>,
 ) -> Result<(), String> {
     let trimmed = cookie.trim().to_string();
+    let trimmed_token = auth_token.unwrap_or_default().trim().to_string();
     dlog!(
-        "[clips-tray] meetings_watcher_set_session -> {} bytes",
-        trimmed.len()
+        "[clips-tray] meetings_watcher_set_session -> {} cookie bytes, token={}",
+        trimmed.len(),
+        if trimmed_token.is_empty() {
+            "no"
+        } else {
+            "yes"
+        }
     );
     if let Ok(mut g) = state.inner.lock() {
         g.session_cookie = if trimmed.is_empty() {
             None
         } else {
             Some(trimmed)
+        };
+        g.auth_token = if trimmed_token.is_empty() {
+            None
+        } else {
+            Some(trimmed_token)
         };
     }
     Ok(())
@@ -147,12 +161,16 @@ async fn run_watcher(app: AppHandle) {
 }
 
 async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), String> {
-    let (server_url, cookie) = {
+    let (server_url, cookie, auth_token) = {
         let state = app
             .try_state::<MeetingsWatcherState>()
             .ok_or_else(|| "no MeetingsWatcherState".to_string())?;
         let g = state.inner.lock().map_err(|e| e.to_string())?;
-        (g.server_url.clone(), g.session_cookie.clone())
+        (
+            g.server_url.clone(),
+            g.session_cookie.clone(),
+            g.auth_token.clone(),
+        )
     };
     let Some(server_url) = server_url else {
         return Ok(());
@@ -165,6 +183,9 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
     let mut req = client.get(&url);
     if let Some(c) = cookie.as_deref() {
         req = req.header("Cookie", c);
+    }
+    if let Some(token) = auth_token.as_deref() {
+        req = req.bearer_auth(token);
     }
     let resp = req
         .send()
