@@ -13,6 +13,11 @@ import {
   updateRunHeartbeat,
   reapIfStale,
 } from "./run-store.js";
+import {
+  countRecentRunContinuationsForThread,
+  enqueueRunContinuation,
+} from "../run-continuations/store.js";
+import { dispatchRunContinuation } from "../run-continuations/dispatch.js";
 
 export interface ActiveRun {
   runId: string;
@@ -35,6 +40,27 @@ export interface StartRunOptions {
    * auto-continuation signal instead of a user-facing timeout. Leave unset for
    * no framework-imposed run timeout. */
   softTimeoutMs?: number;
+  /**
+   * Identity of the run's owner. Required for the run-continuations queue
+   * (see Layer 3 of the timeout-mitigation plan): when the soft timeout
+   * fires, the framework enqueues a continuation row keyed to this user so
+   * a fresh function execution can resume the thread on their behalf.
+   * If omitted, soft-timeout aborts behave as before — no auto-continue.
+   */
+  ownerEmail?: string;
+  orgId?: string | null;
+}
+
+/** Maximum cascading continuation attempts within `CONTINUATION_CASCADE_WINDOW_MS`
+ * for a single thread before we stop auto-continuing. Each soft-timeout fires
+ * a continuation; if the resumed run also times out, that's a second
+ * continuation, etc. Hard-cap so a buggy agent loop can't burn unbounded
+ * spend re-firing itself. */
+const CONTINUATION_CASCADE_LIMIT = 3;
+const CONTINUATION_CASCADE_WINDOW_MS = 10 * 60 * 1000;
+
+function autoContinuationsEnabled(): boolean {
+  return process.env.AGENT_AUTO_CONTINUATION !== "false";
 }
 
 export function resolveRunSoftTimeoutMs(overrideMs?: number): number {
@@ -242,6 +268,55 @@ export function startRun(
       } catch {
         // Best-effort — reapIfStale will eventually clean this up via
         // the heartbeat-stale path.
+      }
+
+      // 4.5. Auto-continue: if this run hit the soft timeout, enqueue a
+      //      continuation row and fire-and-forget a dispatch to the
+      //      processor route so a fresh function execution can resume
+      //      the thread. Runs AFTER updateRunStatus so observers seeing
+      //      the agent_runs row in a terminal state can already trust
+      //      thread_data is durable. Best-effort: a dropped dispatch is
+      //      caught by the recurring sweep ~60s later.
+      if (softTimedOut && autoContinuationsEnabled() && options?.ownerEmail) {
+        try {
+          const sinceMs = Date.now() - CONTINUATION_CASCADE_WINDOW_MS;
+          const cascade = await countRecentRunContinuationsForThread(
+            threadId,
+            sinceMs,
+          );
+          if (cascade >= CONTINUATION_CASCADE_LIMIT) {
+            console.warn(
+              `[run-manager] thread ${threadId} hit cascade limit (${cascade}/${CONTINUATION_CASCADE_LIMIT}) — not auto-continuing`,
+            );
+          } else {
+            const continuationId = `cont-${Date.now()}-${Math.random()
+              .toString(36)
+              .slice(2, 10)}`;
+            await enqueueRunContinuation({
+              id: continuationId,
+              threadId,
+              parentRunId: runId,
+              ownerEmail: options.ownerEmail,
+              orgId: options.orgId ?? null,
+            });
+            // Fire-and-forget — the sweep is the safety net if dispatch
+            // is dropped (network blip, function frozen mid-handshake).
+            void dispatchRunContinuation(continuationId).catch((err) => {
+              if (process.env.DEBUG) {
+                console.log(
+                  `[run-manager] dispatch ${continuationId} failed:`,
+                  err instanceof Error ? err.message : err,
+                );
+              }
+            });
+          }
+        } catch (err) {
+          // Don't let the auto-continue path crash run completion.
+          console.error(
+            "[run-manager] auto-continuation enqueue failed:",
+            err instanceof Error ? err.message : err,
+          );
+        }
       }
 
       // 5. Schedule in-memory cleanup + opportunistic old-run pruning.

@@ -1916,7 +1916,15 @@ export function createProductionAgentHandler(
       options.onRunComplete
         ? (run) => options.onRunComplete!(run, threadId)
         : undefined,
-      { softTimeoutMs: options.runSoftTimeoutMs },
+      {
+        softTimeoutMs: options.runSoftTimeoutMs,
+        // Identify the run's owner so the run-manager can enqueue an
+        // auto-continuation row keyed to this user when the soft timeout
+        // fires. Falls back to the request context if the plugin didn't
+        // resolve it explicitly.
+        ownerEmail: ownerEmail ?? getRequestUserEmail() ?? undefined,
+        orgId: getRequestOrgId() ?? null,
+      },
     );
 
     // Subscribe to the run and stream events to the client

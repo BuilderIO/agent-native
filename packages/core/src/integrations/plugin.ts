@@ -423,6 +423,22 @@ export function createIntegrationsPlugin(
       }),
     );
 
+    // ─── Process run continuation (auto-continue after soft timeout) ─
+    // POST /_agent-native/runs/_continue-run
+    // Internal endpoint invoked from run-manager.ts (after a soft timeout
+    // fires and aborts a chat run) and from the recurring sweep (for
+    // dropped dispatches). Auth: HMAC bearer signed with A2A_SECRET, just
+    // like process-task. Mounted here (rather than in core-routes) because
+    // this plugin is the existing home for "background work that needs a
+    // fresh function execution" infrastructure.
+    {
+      const {
+        createRunContinuationRouteHandler,
+        RUN_CONTINUATIONS_ROUTE_PATH,
+      } = await import("../run-continuations/route.js");
+      h3.use(RUN_CONTINUATIONS_ROUTE_PATH, createRunContinuationRouteHandler());
+    }
+
     // ─── Process deferred A2A continuation ──────────────────────────
     // POST /_agent-native/integrations/process-a2a-continuation
     // Internal endpoint invoked when call-agent timed out inside an
@@ -703,6 +719,20 @@ export function createIntegrationsPlugin(
       webhookBaseUrl: process.env.WEBHOOK_BASE_URL,
     });
     startA2AContinuationRetryJob(adapterMap);
+
+    // ─── Start run-continuations retry sweeper ───────────────────
+    // Mirrors the pending-tasks sweep: re-fires any agent_run_continuations
+    // rows stuck in pending/processing state (initial dispatch lost or
+    // processor killed mid-flight). 75s cutoff on serverless, 5min on
+    // Node. After MAX_ATTEMPTS the row is marked `gave_up` and stops
+    // being re-fired.
+    {
+      const { startRunContinuationsRetryJob } =
+        await import("../run-continuations/retry-job.js");
+      startRunContinuationsRetryJob({
+        baseUrl: process.env.WEBHOOK_BASE_URL,
+      });
+    }
 
     // ─── Start Google Docs poller/push ────────────────────────────
     if (adapterMap.has("google-docs")) {
