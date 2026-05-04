@@ -21,7 +21,7 @@ import {
 import { getOrgDomain, getOrgA2ASecret } from "../org/context.js";
 
 const DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS = 18_000;
-const NETLIFY_INTEGRATION_A2A_TIMEOUT_MS = 5_000;
+const NETLIFY_INTEGRATION_A2A_TIMEOUT_MS = 2_000;
 const INTEGRATION_A2A_TOKEN_TTL = "30m";
 
 function parseTimeoutMs(value: string | undefined): number | undefined {
@@ -51,9 +51,10 @@ function getIntegrationCallTimeoutMs(): number | undefined {
   );
   if (configured !== undefined) return configured;
 
-  // Netlify's current synchronous function budget is 60s. Keep each delegated
-  // call short so multi-agent integration requests can queue continuations for
-  // more than one downstream app before the parent function is killed.
+  // Netlify's current synchronous function budget is 60s. Keep delegated
+  // calls very short so multi-agent integration requests queue downstream
+  // continuations quickly instead of spending the parent Slack/email processor
+  // budget waiting on separately deployed apps one-by-one.
   if (process.env.NETLIFY) return NETLIFY_INTEGRATION_A2A_TIMEOUT_MS;
 
   return DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS;
