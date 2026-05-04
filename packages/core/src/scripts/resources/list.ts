@@ -7,7 +7,7 @@
  *   pnpm action resource-list [--prefix <path>] [--scope personal|shared|all] [--format json|text]
  */
 
-import { parseArgs } from "../utils.js";
+import { parseArgs, fail } from "../utils.js";
 import {
   resourceList,
   resourceListAccessible,
@@ -15,7 +15,6 @@ import {
   SHARED_OWNER,
 } from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
-import { DEV_MODE_USER_EMAIL } from "../../server/auth.js";
 
 export default async function resourceListScript(
   args: string[],
@@ -36,7 +35,12 @@ Options:
   const prefix = parsed.prefix;
   const scope = parsed.scope ?? "all";
   const format = parsed.format ?? "text";
-  const owner = getRequestUserEmail() ?? DEV_MODE_USER_EMAIL;
+  const owner = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+  if (!owner) {
+    fail(
+      "resource-list requires an authenticated user (request context or AGENT_USER_EMAIL env var).",
+    );
+  }
 
   // Seed personal AGENTS.md + LEARNINGS.md on first access
   if (scope !== "shared") {

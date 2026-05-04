@@ -10,7 +10,6 @@
 import { parseArgs, fail } from "../utils.js";
 import { resourceDeleteByPath, SHARED_OWNER } from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
-import { DEV_MODE_USER_EMAIL } from "../../server/auth.js";
 
 export default async function resourceDeleteScript(
   args: string[],
@@ -33,10 +32,19 @@ Options:
   }
 
   const scope = parsed.scope ?? "personal";
-  const owner =
-    scope === "shared"
-      ? SHARED_OWNER
-      : (getRequestUserEmail() ?? DEV_MODE_USER_EMAIL);
+  let owner: string;
+  if (scope === "shared") {
+    owner = SHARED_OWNER;
+  } else {
+    const personalOwner =
+      getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+    if (!personalOwner) {
+      fail(
+        "resource-delete --scope=personal requires an authenticated user (request context or AGENT_USER_EMAIL env var).",
+      );
+    }
+    owner = personalOwner;
+  }
 
   const deleted = await resourceDeleteByPath(owner, resourcePath);
   if (deleted) {
