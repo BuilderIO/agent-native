@@ -54,6 +54,14 @@ function isHostedRuntime(): boolean {
   if (process.env.CF_PAGES === "1") return true;
   if (process.env.VERCEL || process.env.VERCEL_ENV) return true;
   if (process.env.RENDER || process.env.FLY_APP_NAME) return true;
+  // Cloudflare Workers (non-Pages) doesn't set CF_PAGES but exposes the
+  // execution context via globalThis.__cf_ctx — same hook the
+  // waitUntil call below relies on.
+  try {
+    if (typeof globalThis.__cf_ctx?.waitUntil === "function") return true;
+  } catch {
+    // Accessing globalThis.__cf_ctx can throw in some sandboxes — ignore.
+  }
   return false;
 }
 

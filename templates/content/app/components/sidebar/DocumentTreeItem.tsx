@@ -79,7 +79,7 @@ export function DocumentTreeItem({
           </span>
           {hasChildren && (
             <button
-              className="absolute inset-0 flex items-center justify-center rounded hover:bg-accent opacity-0 group-hover:opacity-100"
+              className="absolute inset-0 flex items-center justify-center rounded hover:bg-accent opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto"
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleExpanded(node.id);
