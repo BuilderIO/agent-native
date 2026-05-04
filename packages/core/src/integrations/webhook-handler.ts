@@ -404,6 +404,7 @@ export async function processIntegrationTask(
 
   await processIncomingMessage(parsed.incoming, options, {
     taskId: task.id,
+    attempts: task.attempts,
     placeholderRef: parsed.placeholderRef,
   });
 }
@@ -415,7 +416,7 @@ export async function processIntegrationTask(
 async function processIncomingMessage(
   incoming: IncomingMessage,
   options: WebhookHandlerOptions,
-  opts: { taskId?: string; placeholderRef?: string } = {},
+  opts: { taskId?: string; attempts?: number; placeholderRef?: string } = {},
 ): Promise<void> {
   const {
     adapter,
@@ -535,6 +536,7 @@ async function processIncomingMessage(
             integration: opts.taskId
               ? {
                   taskId: opts.taskId,
+                  attempts: opts.attempts,
                   incoming,
                   placeholderRef: opts.placeholderRef,
                 }

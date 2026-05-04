@@ -509,7 +509,7 @@ describe("integration webhook handler engine resolution", () => {
       ownerEmail: "dispatch+qa@integration.local",
       orgId: "org-qa",
       status: "processing",
-      attempts: 1,
+      attempts: 2,
       errorMessage: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -528,6 +528,7 @@ describe("integration webhook handler engine resolution", () => {
     expect(captured).toEqual(
       expect.objectContaining({
         taskId: "task-context",
+        attempts: 2,
         placeholderRef: "placeholder-qa",
         incoming: expect.objectContaining({
           platform: "fake",
