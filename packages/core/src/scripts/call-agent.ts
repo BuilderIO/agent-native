@@ -21,7 +21,7 @@ import {
 import { getOrgDomain, getOrgA2ASecret } from "../org/context.js";
 
 const DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS = 18_000;
-const NETLIFY_INTEGRATION_A2A_TIMEOUT_MS = 15_000;
+const NETLIFY_INTEGRATION_A2A_TIMEOUT_MS = 5_000;
 const INTEGRATION_A2A_TOKEN_TTL = "30m";
 
 function parseTimeoutMs(value: string | undefined): number | undefined {
