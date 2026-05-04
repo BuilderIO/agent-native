@@ -101,10 +101,10 @@ describe("run manager soft timeout", () => {
     expect(resolveRunSoftTimeoutMs()).toBe(0);
   });
 
-  it("keeps a hosted default on serverless deploys", () => {
+  it("does not impose a hosted default on serverless deploys", () => {
     process.env.NETLIFY = "true";
 
-    expect(resolveRunSoftTimeoutMs()).toBe(75_000);
+    expect(resolveRunSoftTimeoutMs()).toBe(0);
   });
 
   it("treats Netlify local as a local runtime", () => {

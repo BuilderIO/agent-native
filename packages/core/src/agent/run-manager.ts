@@ -29,12 +29,11 @@ const threadToRun = new Map<string, string>();
 
 /** How long to keep completed runs in memory before cleanup (5 min) */
 const CLEANUP_DELAY_MS = 5 * 60 * 1000;
-const HOSTED_RUN_SOFT_TIMEOUT_MS = 75_000;
 
 export interface StartRunOptions {
-  /** Override the run soft timeout for this run. Must be lower than the
-   * hosting platform's hard function timeout so the framework can emit a
-   * recoverable event before the host kills the process. */
+  /** Optional internal run chunk budget. When reached, the framework emits an
+   * auto-continuation signal instead of a user-facing timeout. Leave unset for
+   * no framework-imposed run timeout. */
   softTimeoutMs?: number;
 }
 
@@ -44,25 +43,7 @@ export function resolveRunSoftTimeoutMs(overrideMs?: number): number {
   }
   const raw = Number(process.env.AGENT_RUN_SOFT_TIMEOUT_MS);
   if (Number.isFinite(raw) && raw >= 0) return raw;
-  return isHostedRuntime() ? HOSTED_RUN_SOFT_TIMEOUT_MS : 0;
-}
-
-function isHostedRuntime(): boolean {
-  if (process.env.NETLIFY === "true" && process.env.NETLIFY_LOCAL !== "true") {
-    return true;
-  }
-  if (process.env.CF_PAGES === "1") return true;
-  if (process.env.VERCEL || process.env.VERCEL_ENV) return true;
-  if (process.env.RENDER || process.env.FLY_APP_NAME) return true;
-  // Cloudflare Workers (non-Pages) doesn't set CF_PAGES but exposes the
-  // execution context via globalThis.__cf_ctx — same hook the
-  // waitUntil call below relies on.
-  try {
-    if (typeof globalThis.__cf_ctx?.waitUntil === "function") return true;
-  } catch {
-    // Accessing globalThis.__cf_ctx can throw in some sandboxes — ignore.
-  }
-  return false;
+  return 0;
 }
 
 /**
