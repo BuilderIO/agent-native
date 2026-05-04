@@ -16,7 +16,6 @@ const resolveEngineMock = vi.hoisted(() => vi.fn());
 const getStoredModelForEngineMock = vi.hoisted(() => vi.fn());
 const isLocalDatabaseMock = vi.hoisted(() => vi.fn());
 const readDeployCredentialEnvMock = vi.hoisted(() => vi.fn());
-const getA2AContinuationForIntegrationTaskMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
 
 vi.mock("./thread-mapping-store.js", () => ({
@@ -61,11 +60,6 @@ vi.mock("../db/client.js", async () => {
 
 vi.mock("../server/credential-provider.js", () => ({
   readDeployCredentialEnv: readDeployCredentialEnvMock,
-}));
-
-vi.mock("./a2a-continuations-store.js", () => ({
-  getA2AContinuationForIntegrationTask:
-    getA2AContinuationForIntegrationTaskMock,
 }));
 
 vi.mock("../agent/run-manager.js", () => ({
@@ -167,7 +161,6 @@ describe("integration webhook handler engine resolution", () => {
     getOwnerApiKeyMock.mockResolvedValue(undefined);
     isLocalDatabaseMock.mockReturnValue(true);
     readDeployCredentialEnvMock.mockReturnValue(undefined);
-    getA2AContinuationForIntegrationTaskMock.mockResolvedValue(null);
     actionsToEngineToolsMock.mockReturnValue([]);
     getStoredModelForEngineMock.mockResolvedValue(undefined);
     resolveEngineMock.mockResolvedValue({
@@ -544,30 +537,31 @@ describe("integration webhook handler engine resolution", () => {
     );
   });
 
-  it("does not rerun the agent loop when retrying a task that already queued an A2A continuation", async () => {
+  it("reruns the agent loop when a previously queued continuation task is retried", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
       await import("./a2a-continuation-marker.js");
     const sendResponse = vi.fn();
     const task = pendingTask({ id: "task-retry-existing-continuation" });
-    getA2AContinuationForIntegrationTaskMock
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        id: "cont-existing",
-        integrationTaskId: task.id,
+    runAgentLoopMock
+      .mockImplementationOnce(async ({ send }) => {
+        send({
+          type: "tool_start",
+          tool: "call-agent",
+          input: { agent: "starter", message: "finish the setup" },
+        });
+        send({
+          type: "tool_done",
+          tool: "call-agent",
+          result: `${A2A_CONTINUATION_QUEUED_MARKER}\nThe Starter agent is still working.`,
+        });
+      })
+      .mockImplementationOnce(async ({ send }) => {
+        send({
+          type: "text",
+          text: "Recovered final answer after the retry.",
+        });
       });
-    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
-      send({
-        type: "tool_start",
-        tool: "call-agent",
-        input: { agent: "starter", message: "finish the setup" },
-      });
-      send({
-        type: "tool_done",
-        tool: "call-agent",
-        result: `${A2A_CONTINUATION_QUEUED_MARKER}\nThe Starter agent is still working.`,
-      });
-    });
 
     await processIntegrationTask(task, {
       adapter: createAdapter(sendResponse),
@@ -586,11 +580,13 @@ describe("integration webhook handler engine resolution", () => {
       ownerEmail: "dispatch+qa@integration.local",
     });
 
-    expect(getA2AContinuationForIntegrationTaskMock).toHaveBeenCalledWith(
-      task.id,
+    expect(runAgentLoopMock).toHaveBeenCalledTimes(2);
+    expect(sendResponse).toHaveBeenCalledTimes(1);
+    expect(sendResponse.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        text: "Recovered final answer after the retry.",
+      }),
     );
-    expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
-    expect(sendResponse).not.toHaveBeenCalled();
   });
 
   it("suppresses stale A2A continuation deferral replies", async () => {
