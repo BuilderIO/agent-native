@@ -29,7 +29,7 @@ interface DocumentEditorProps {
 }
 
 export function DocumentEditor({ documentId }: DocumentEditorProps) {
-  const { data: document, isLoading } = useDocument(documentId);
+  const { data: document, isLoading, isError } = useDocument(documentId);
   const updateDocument = useUpdateDocument();
   const queryClient = useQueryClient();
   // Shared with DocumentToolbar via the same localStorage key — both read it.
@@ -215,18 +215,21 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
     }
   });
 
-  if (isLoading || collabLoading) {
+  // Show "not found" as soon as the document fetch errors (deterministic
+  // not-found / no-access response) — otherwise the user stares at a spinner
+  // while collab + comments retry against an id that doesn't exist.
+  if (isError || (!isLoading && !document)) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <IconLoader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        Document not found
       </div>
     );
   }
 
-  if (!document) {
+  if (isLoading || collabLoading || !document) {
     return (
-      <div className="flex items-center justify-center h-full text-muted-foreground">
-        Document not found
+      <div className="flex items-center justify-center h-full">
+        <IconLoader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
