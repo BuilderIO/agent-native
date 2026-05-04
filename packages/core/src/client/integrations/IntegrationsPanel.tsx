@@ -193,6 +193,10 @@ function IntegrationDetail({
 
   const isConfigured = serverStatus?.configured ?? false;
   const isEnabled = serverStatus?.enabled ?? false;
+  const serviceAccountEmail =
+    typeof serverStatus?.details?.serviceAccountEmail === "string"
+      ? serverStatus.details.serviceAccountEmail
+      : null;
 
   return (
     <div>
@@ -235,6 +239,26 @@ function IntegrationDetail({
           ))}
         </ol>
       </div>
+
+      {serviceAccountEmail && (
+        <div className="mb-3">
+          <div className="text-[10px] font-medium text-muted-foreground mb-1">
+            Share documents with
+          </div>
+          <div className="flex items-center gap-1">
+            <code className="flex-1 truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground">
+              {serviceAccountEmail}
+            </code>
+            <button
+              onClick={() => handleCopy(serviceAccountEmail)}
+              className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/50"
+              title="Copy service account email"
+            >
+              {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Required secrets */}
       {platform.envVars.length > 0 && (
