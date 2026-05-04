@@ -41,11 +41,16 @@ interface ScopedTable {
   viewSql: string;
 }
 
-function getUserEmail(): string | null {
+function getUserEmail(): string {
   const userEmail = getRequestUserEmail() || null;
-  if (userEmail === DEV_FALLBACK_EMAIL) {
+  if (!userEmail || userEmail === DEV_FALLBACK_EMAIL) {
     throw new Error(
-      "DB script scoping requires a real user identity; refusing to run with local@localhost.",
+      "db-exec / db-query / db-patch require an authenticated user identity. " +
+        "Set AGENT_USER_EMAIL=<email> in the env, or invoke through an HTTP " +
+        "action that runs under runWithRequestContext. Refusing to run unscoped — " +
+        "an unscoped UPDATE/DELETE would touch every user's rows, and an " +
+        "unscoped INSERT would land with the dev sentinel owner and be invisible " +
+        "to the UI.",
     );
   }
   return userEmail;
@@ -218,21 +223,12 @@ export interface ScopingContext {
 export async function buildScopingPostgres(
   pgSql: any,
 ): Promise<ScopingContext> {
-  const inactive: ScopingContext = {
-    setup: [],
-    teardown: [],
-    active: false,
-    userEmail: null,
-    orgId: null,
-    ownerEmailTables: new Set(),
-    orgIdTables: new Set(),
-  };
-
-  // Scoping is always active when there is a request user (dev, preview, and
-  // prod). Previously this short-circuited outside production, which created
-  // a cross-user read in dev mode. See audit 05-tools-sandbox.md (C3.d).
+  // getUserEmail() throws when there is no authenticated user (no request
+  // context AND no AGENT_USER_EMAIL env) or when it resolves to the dev
+  // sentinel `local@localhost`. We let that throw propagate: the script
+  // refuses to run unscoped rather than silently writing rows that the UI
+  // then can't see, or running an UPDATE/DELETE across every user's data.
   const userEmail = getUserEmail();
-  if (!userEmail) return inactive;
 
   const orgId = getOrgId();
   const allColumns = await discoverColumnsPostgres(pgSql);
@@ -268,21 +264,8 @@ export async function buildScopingPostgres(
  * Returns setup/teardown SQL to run before/after the user's query.
  */
 export async function buildScopingSqlite(client: any): Promise<ScopingContext> {
-  const inactive: ScopingContext = {
-    setup: [],
-    teardown: [],
-    active: false,
-    userEmail: null,
-    orgId: null,
-    ownerEmailTables: new Set(),
-    orgIdTables: new Set(),
-  };
-
-  // Scoping is always active when there is a request user (dev, preview, and
-  // prod). Previously this short-circuited outside production, which created
-  // a cross-user read in dev mode. See audit 05-tools-sandbox.md (C3.d).
+  // See buildScopingPostgres: getUserEmail() throws on no user / dev sentinel.
   const userEmail = getUserEmail();
-  if (!userEmail) return inactive;
 
   const orgId = getOrgId();
   const allColumns = await discoverColumnsSqlite(client);
