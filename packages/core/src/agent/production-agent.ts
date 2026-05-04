@@ -436,10 +436,10 @@ export interface ProductionAgentOptions {
   providerOptions?: EngineMessage extends never ? never : any;
   /** Called when a run completes (for server-side thread persistence) */
   onRunComplete?: (run: ActiveRun, threadId: string | undefined) => void;
-  /** Per-app soft timeout for agent runs. Defaults to AGENT_RUN_SOFT_TIMEOUT_MS
-   *  when set, 75s on hosted serverless runtimes, and no timeout locally. Set
-   *  only when the hosting function timeout is also configured higher than
-   *  this value. */
+  /** Optional per-app agent run chunk budget in milliseconds. Defaults to
+   *  AGENT_RUN_SOFT_TIMEOUT_MS when set, otherwise no framework-imposed
+   *  timeout. When reached, the client receives an internal auto-continuation
+   *  signal instead of a user-facing warning. */
   runSoftTimeoutMs?: number;
   /** Called when a run starts, with the send function for emitting events and the threadId */
   onRunStart?: (

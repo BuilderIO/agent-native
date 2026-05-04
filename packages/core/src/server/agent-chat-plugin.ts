@@ -1317,10 +1317,10 @@ export interface AgentChatPluginOptions {
   devSystemPrompt?: string;
   /** Claude model to use. Default: claude-sonnet-4-6 */
   model?: string;
-  /** Per-app agent run soft timeout in milliseconds. Defaults to no timeout
-   * locally and a hosted-serverless timeout in deployed runtimes. Must stay
-   * below the hosting function timeout so the run can emit a recoverable
-   * timeout event instead of being killed by the platform. */
+  /** Optional per-app agent run chunk budget in milliseconds. Defaults to
+   * AGENT_RUN_SOFT_TIMEOUT_MS when set, otherwise no framework-imposed
+   * timeout. When reached, long runs continue through the hidden continuation
+   * path instead of surfacing a timeout warning. */
   runSoftTimeoutMs?: number;
   /** Anthropic API key. Falls back to ANTHROPIC_API_KEY env var */
   apiKey?: string;

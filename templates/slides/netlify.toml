@@ -10,7 +10,7 @@
 
 # Slides builds can legitimately need several model/tool iterations. Keep this
 # above templates/slides/server/plugins/agent-chat.ts (runSoftTimeoutMs =
-# 240_000) so the framework can emit a recoverable timeout before Netlify kills
-# the function.
+# 240_000) so the hidden auto-continuation path can hand off before Netlify
+# kills the function.
 [functions."*"]
   timeout = 300
