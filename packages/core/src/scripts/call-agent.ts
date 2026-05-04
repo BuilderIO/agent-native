@@ -164,7 +164,7 @@ export async function run(
             callerOrgSecret,
             {
               expiresIn: INTEGRATION_A2A_TOKEN_TTL,
-              preferGlobalSecret: true,
+              preferGlobalSecret: !callerOrgSecret,
             },
           );
         } catch {}
