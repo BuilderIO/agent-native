@@ -238,26 +238,15 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     setPendingComment({ quotedText, offsetTop });
   }, []);
 
-  // Auto-focus title on new empty documents once loading is done
+  // Auto-focus title on new empty documents once collab finishes loading
   useEffect(() => {
-    if (!isLoading && !collabLoading && shouldFocusTitleRef.current) {
+    if (!collabLoading && shouldFocusTitleRef.current) {
       shouldFocusTitleRef.current = false;
       requestAnimationFrame(() => titleInputRef.current?.focus());
     }
   });
 
-  // Show "not found" as soon as the document fetch errors (deterministic
-  // not-found / no-access response) — otherwise the user stares at a spinner
-  // while collab + comments retry against an id that doesn't exist.
-  if (isError || (!isLoading && !document)) {
-    return (
-      <div className="flex items-center justify-center h-full text-muted-foreground">
-        Document not found
-      </div>
-    );
-  }
-
-  if (isLoading || collabLoading || !document) {
+  if (collabLoading) {
     return (
       <div className="flex items-center justify-center h-full">
         <IconLoader2 className="w-6 h-6 animate-spin text-muted-foreground" />
