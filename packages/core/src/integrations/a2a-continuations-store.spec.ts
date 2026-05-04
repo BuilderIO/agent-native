@@ -39,6 +39,7 @@ function continuationRow(overrides: Record<string, unknown> = {}) {
     org_id: null,
     agent_name: "Slides",
     agent_url: "https://slides.agent-native.test",
+    dedupe_key: "message-hash-1",
     a2a_task_id: "a2a-task-1",
     a2a_auth_token: null,
     status: "processing",
@@ -88,6 +89,71 @@ describe("A2A continuations store", () => {
 
     expect(continuation?.id).toBe("cont-existing");
     expect(continuation?.integrationTaskId).toBe("task-existing");
+  });
+
+  it("lists continuations for an integration task, agent URL, and dedupe key", async () => {
+    const { getA2AContinuationsForIntegrationTaskAgent } = await loadStore();
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        const args = queryArgs(query);
+        if (
+          sql.includes(
+            "WHERE integration_task_id = ? AND agent_url = ? AND dedupe_key = ?",
+          ) &&
+          sql.includes("ORDER BY created_at ASC")
+        ) {
+          return {
+            rows: [
+              continuationRow({
+                id: "cont-first",
+                integration_task_id: args[0],
+                agent_url: args[1],
+                dedupe_key: args[2],
+                created_at: 10,
+              }),
+              continuationRow({
+                id: "cont-second",
+                integration_task_id: args[0],
+                agent_url: args[1],
+                dedupe_key: args[2],
+                status: "completed",
+                created_at: 20,
+                completed_at: 30,
+              }),
+            ],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+    );
+
+    const continuations = await getA2AContinuationsForIntegrationTaskAgent(
+      "task-existing",
+      "https://slides.agent-native.test",
+      "message-hash-1",
+    );
+
+    expect(continuations.map((continuation) => continuation.id)).toEqual([
+      "cont-first",
+      "cont-second",
+    ]);
+    expect(
+      executeMock.mock.calls.some(([query]) => {
+        const sql = querySql(query);
+        return (
+          sql.includes(
+            "integration_task_id = ? AND agent_url = ? AND dedupe_key = ?",
+          ) && sql.includes("ORDER BY created_at ASC")
+        );
+      }),
+    ).toBe(true);
+    expect(queryArgs(executeMock.mock.calls.at(-1)![0])).toEqual([
+      "task-existing",
+      "https://slides.agent-native.test",
+      "message-hash-1",
+    ]);
   });
 
   it("allows multiple downstream continuations for one integration task", async () => {

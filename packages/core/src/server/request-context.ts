@@ -64,6 +64,7 @@ export interface RequestContext {
    */
   integration?: {
     taskId: string;
+    attempts?: number;
     incoming: import("../integrations/types.js").IncomingMessage;
     placeholderRef?: string;
   };
