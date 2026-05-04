@@ -1,4 +1,10 @@
-import { getDbExec, isPostgres, intType } from "../db/client.js";
+import {
+  getDbExec,
+  isPostgres,
+  intType,
+  retryOnDdlRace,
+} from "../db/client.js";
+import { isDuplicateColumnError } from "../db/migrations.js";
 import type { IncomingMessage } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -9,7 +15,8 @@ async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await client.execute(`
+      await retryOnDdlRace(() =>
+        client.execute(`
         CREATE TABLE IF NOT EXISTS integration_a2a_continuations (
           id TEXT PRIMARY KEY,
           integration_task_id TEXT NOT NULL,
@@ -32,36 +39,46 @@ async function ensureTable(): Promise<void> {
           updated_at ${intType()} NOT NULL,
           completed_at ${intType()}
         )
-      `);
-      await client.execute(
-        `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_status_next ON integration_a2a_continuations(status, next_check_at)`,
+      `),
       );
-      await client.execute(
-        `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_integration_task ON integration_a2a_continuations(integration_task_id)`,
+      await retryOnDdlRace(() =>
+        client.execute(
+          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_status_next ON integration_a2a_continuations(status, next_check_at)`,
+        ),
       );
-      await client.execute(
-        `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_remote_task ON integration_a2a_continuations(integration_task_id, agent_url, a2a_task_id)`,
+      await retryOnDdlRace(() =>
+        client.execute(
+          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_integration_task ON integration_a2a_continuations(integration_task_id)`,
+        ),
       );
-      await client.execute(
-        `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
+      await retryOnDdlRace(() =>
+        client.execute(
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_remote_task ON integration_a2a_continuations(integration_task_id, agent_url, a2a_task_id)`,
+        ),
       );
-      try {
-        await client.execute(
-          `ALTER TABLE integration_a2a_continuations ADD COLUMN a2a_auth_token TEXT`,
-        );
-      } catch {
-        // Column already exists.
-      }
-      try {
-        await client.execute(
-          `ALTER TABLE integration_a2a_continuations ADD COLUMN dedupe_key TEXT`,
-        );
-      } catch {
-        // Column already exists.
-      }
+      await addColumnIfMissing("a2a_auth_token", "TEXT");
+      await addColumnIfMissing("dedupe_key", "TEXT");
+      await retryOnDdlRace(() =>
+        client.execute(
+          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
+        ),
+      );
     })();
   }
   return _initPromise;
+}
+
+async function addColumnIfMissing(name: string, definition: string) {
+  try {
+    await retryOnDdlRace(() =>
+      getDbExec().execute(
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN ${name} ${definition}`,
+      ),
+    );
+  } catch (err) {
+    if (isDuplicateColumnError(err)) return;
+    throw err;
+  }
 }
 
 export type A2AContinuationStatus =

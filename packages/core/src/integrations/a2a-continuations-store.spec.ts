@@ -7,6 +7,14 @@ vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
   isPostgres: isPostgresMock,
   intType: () => "INTEGER",
+  retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+}));
+
+vi.mock("../db/migrations.js", () => ({
+  isDuplicateColumnError: (err: unknown) =>
+    /duplicate column name|column .* already exists/i.test(
+      (err as Error | undefined)?.message ?? "",
+    ),
 }));
 
 async function loadStore() {
@@ -57,6 +65,42 @@ describe("A2A continuations store", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isPostgresMock.mockReturnValue(false);
+  });
+
+  it("adds migrated columns before indexing them", async () => {
+    const { getA2AContinuationForIntegrationTask } = await loadStore();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+
+    await getA2AContinuationForIntegrationTask("task-existing");
+
+    const calls = executeMock.mock.calls.map(([query]) => querySql(query));
+    const dedupeAlterIndex = calls.findIndex((sql) =>
+      sql.includes("ADD COLUMN dedupe_key"),
+    );
+    const dedupeIndexIndex = calls.findIndex((sql) =>
+      sql.includes("idx_a2a_continuations_dedupe_key"),
+    );
+    expect(dedupeAlterIndex).toBeGreaterThan(-1);
+    expect(dedupeIndexIndex).toBeGreaterThan(-1);
+    expect(dedupeAlterIndex).toBeLessThan(dedupeIndexIndex);
+  });
+
+  it("does not swallow non-duplicate column migration errors", async () => {
+    const { getA2AContinuationForIntegrationTask } = await loadStore();
+    const migrationError = new Error("permission denied for table");
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        if (sql.includes("ADD COLUMN a2a_auth_token")) {
+          throw migrationError;
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+    );
+
+    await expect(
+      getA2AContinuationForIntegrationTask("task-existing"),
+    ).rejects.toThrow("permission denied");
   });
 
   it("finds an existing continuation for an integration task", async () => {
