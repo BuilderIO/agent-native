@@ -86,16 +86,8 @@ function workspaceAppHref(app: WorkspaceAppSummary): string | null {
   return app.url || app.path || null;
 }
 
-function isExternalHref(href: string): boolean {
-  if (!/^https?:\/\//i.test(href)) return false;
-  if (typeof window === "undefined") return true;
-  try {
-    return (
-      new URL(href, window.location.href).origin !== window.location.origin
-    );
-  } catch {
-    return true;
-  }
+function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
+  return app.status === "pending" && !!app.builderUrl;
 }
 
 const HOME_CHAT_SUGGESTIONS = [
@@ -208,13 +200,18 @@ function WorkspaceAppsSection({
             ))
           : visibleApps.map((app) => {
               const href = workspaceAppHref(app);
-              const external = href ? isExternalHref(href) : false;
+              // Pending Builder branches live on a different host (Builder
+              // editor URL); open those in a new tab. Ready workspace apps
+              // navigate the current window so this works inside the
+              // Builder webview, where new tabs would try to open in the
+              // host browser and break the embedded session.
+              const openInNewTab = isPendingBuilderHref(app);
               return (
                 <a
                   key={app.id}
                   href={href ?? undefined}
-                  target={external ? "_blank" : undefined}
-                  rel={external ? "noreferrer" : undefined}
+                  target={openInNewTab ? "_blank" : undefined}
+                  rel={openInNewTab ? "noreferrer" : undefined}
                   aria-disabled={!href}
                   className="group min-h-32 rounded-lg border bg-card p-4 transition hover:border-foreground/30 aria-disabled:pointer-events-none aria-disabled:opacity-60"
                 >
