@@ -20,7 +20,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useQueryClient } from "@tanstack/react-query";
-import type { DocumentSyncStatus } from "@shared/api";
+import type { Document, DocumentSyncStatus } from "@shared/api";
 
 const TAB_ID = generateTabId();
 
@@ -28,8 +28,39 @@ interface DocumentEditorProps {
   documentId: string;
 }
 
+/**
+ * Outer wrapper: gates the editor on the document fetch so collab + comments
+ * only mount once we know the doc exists. Otherwise an invalid id triggers
+ * an infinite spinner plus repeating 404/403 polls in the console.
+ */
 export function DocumentEditor({ documentId }: DocumentEditorProps) {
   const { data: document, isLoading, isError } = useDocument(documentId);
+
+  if (isError || (!isLoading && !document)) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        Document not found
+      </div>
+    );
+  }
+
+  if (isLoading || !document) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <IconLoader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return <DocumentEditorBody documentId={documentId} document={document} />;
+}
+
+interface DocumentEditorBodyProps {
+  documentId: string;
+  document: Document;
+}
+
+function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const updateDocument = useUpdateDocument();
   const queryClient = useQueryClient();
   // Shared with DocumentToolbar via the same localStorage key — both read it.

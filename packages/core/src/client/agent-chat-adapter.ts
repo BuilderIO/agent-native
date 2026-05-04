@@ -227,7 +227,7 @@ export function createAgentChatAdapter(options?: {
           boolean,
           unknown
         > {
-          if (!runId || lastSeq < 0) return false;
+          if (!runId) return false;
           for (let attempt = 0; attempt < 3; attempt++) {
             try {
               const reconnectRes = await fetch(
@@ -313,6 +313,30 @@ export function createAgentChatAdapter(options?: {
             }
 
             if (!res.ok) {
+              if (res.status === 409) {
+                let handledConflict = false;
+                try {
+                  const body = await res.json();
+                  if (body?.activeRunId) {
+                    handledConflict = true;
+                    runId = String(body.activeRunId);
+                    lastSeq = -1;
+                    if (threadId) {
+                      setActiveRun({ threadId, runId, lastSeq: -1 });
+                    }
+                    const reconnected = yield* reconnectCurrentRun();
+                    if (reconnected) return;
+                  }
+                } catch {
+                  // Fall through to the generic response handling below.
+                }
+                if (handledConflict) {
+                  await delay(1000, abortSignal);
+                  if (abortSignal.aborted) return;
+                  continue;
+                }
+              }
+
               // 405 Method Not Allowed usually means the session is broken/expired
               // (e.g. a redirect to a login page that only accepts GET).
               if (res.status === 405) {

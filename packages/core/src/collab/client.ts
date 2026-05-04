@@ -125,6 +125,10 @@ export function useCollaborativeDoc(
   const [activeUsers, setActiveUsers] = useState<CollabUser[]>([]);
   const [agentActive, setAgentActive] = useState(false);
   const [agentPresent, setAgentPresent] = useState(false);
+  // Set when the initial state fetch returns 404/403 — stops the awareness
+  // poll so we don't spam the console with errors against a doc that doesn't
+  // exist or isn't accessible.
+  const [docMissing, setDocMissing] = useState(false);
   const agentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollVersionRef = useRef(0);
 
@@ -182,12 +186,21 @@ export function useCollaborativeDoc(
     let cancelled = false;
     setIsLoading(true);
     setIsSynced(false);
+    setDocMissing(false);
 
     fetch(`${baseUrl}/${docId}/state`)
-      .then((res) => res.json())
-      .then((data: { state: string }) => {
+      .then(async (res) => {
         if (cancelled) return;
-        if (data.state) {
+        if (res.status === 404 || res.status === 403) {
+          setDocMissing(true);
+          setIsLoading(false);
+          setIsSynced(true);
+          return;
+        }
+        const data = (await res.json().catch(() => null)) as {
+          state?: string;
+        } | null;
+        if (data?.state) {
           const binary = base64ToUint8Array(data.state);
           if (binary.length > 4) {
             Y.applyUpdate(ydoc, binary);
@@ -209,7 +222,7 @@ export function useCollaborativeDoc(
 
   // Send local updates to server
   useEffect(() => {
-    if (!ydoc || !docId) return;
+    if (!ydoc || !docId || docMissing) return;
 
     const handler = (update: Uint8Array, origin: unknown) => {
       if (origin === "remote") return;
@@ -228,11 +241,11 @@ export function useCollaborativeDoc(
     return () => {
       ydoc.off("update", handler);
     };
-  }, [ydoc, docId, baseUrl, requestSource]);
+  }, [ydoc, docId, baseUrl, requestSource, docMissing]);
 
   // Poll for remote doc updates + awareness sync
   useEffect(() => {
-    if (!ydoc || !docId) return;
+    if (!ydoc || !docId || docMissing) return;
 
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -328,7 +341,7 @@ export function useCollaborativeDoc(
       stopped = true;
       if (timer) clearTimeout(timer);
     };
-  }, [ydoc, awareness, docId, pollInterval, requestSource, baseUrl]);
+  }, [ydoc, awareness, docId, pollInterval, requestSource, baseUrl, docMissing]);
 
   return {
     ydoc,
