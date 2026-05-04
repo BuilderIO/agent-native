@@ -1,5 +1,6 @@
 import type { ActionTool } from "../agent/types.js";
 import type { ActionRunContext } from "../agent/production-agent.js";
+import { createHash } from "node:crypto";
 import { findAgent, discoverAgents } from "../server/agent-discovery.js";
 import {
   A2AClient,
@@ -189,6 +190,9 @@ export async function run(
 
       let responseText = "";
       let lastSentLength = 0;
+      const existingContinuationText =
+        await formatExistingIntegrationContinuationIfRetry(agent, message);
+      if (existingContinuationText) return existingContinuationText;
 
       context.send({
         type: "agent_call",
@@ -248,6 +252,7 @@ export async function run(
           const queued = await enqueueIntegrationContinuationIfPossible(
             pollErr,
             agent,
+            message,
             callerEmail,
           );
           if (queued) {
@@ -317,6 +322,7 @@ export async function run(
 async function enqueueIntegrationContinuationIfPossible(
   error: A2ATaskTimeoutError,
   agent: { name: string; url: string },
+  message: string,
   ownerEmail: string | undefined,
 ): Promise<boolean> {
   const integration = getIntegrationRequestContext();
@@ -338,6 +344,7 @@ async function enqueueIntegrationContinuationIfPossible(
       orgId: getRequestOrgId() ?? null,
       agentName: agent.name,
       agentUrl: agent.url,
+      dedupeKey: getIntegrationContinuationDedupeKey(message),
       a2aTaskId: error.taskId,
       // Do not persist the short-lived JWT used for the initial send. The
       // continuation processor can mint a fresh token for each poll.
@@ -354,6 +361,50 @@ async function enqueueIntegrationContinuationIfPossible(
     console.error("[call-agent] Failed to enqueue A2A continuation:", err);
     return false;
   }
+}
+
+async function formatExistingIntegrationContinuationIfRetry(
+  agent: {
+    name: string;
+    url: string;
+  },
+  message: string,
+): Promise<string | null> {
+  const integration = getIntegrationRequestContext();
+  if (!integration || (integration.attempts ?? 1) <= 1) return null;
+
+  try {
+    const { getA2AContinuationsForIntegrationTaskAgent } =
+      await import("../integrations/a2a-continuations-store.js");
+    const continuations = await getA2AContinuationsForIntegrationTaskAgent(
+      integration.taskId,
+      agent.url,
+      getIntegrationContinuationDedupeKey(message),
+    );
+    const active = continuations.find((continuation) =>
+      ["pending", "processing", "delivering", "completed"].includes(
+        continuation.status,
+      ),
+    );
+    if (!active) return null;
+
+    const state =
+      active.status === "completed"
+        ? "already completed this delegated subtask and posted its result to the originating integration thread"
+        : "already accepted this delegated subtask and is still working on it for the originating integration thread";
+    return (
+      `${A2A_CONTINUATION_QUEUED_MARKER}\n` +
+      `The ${agent.name} agent ${state}. Do not call ${agent.name} again for this same subtask. Continue any other requested work, then answer with the completed results you have; if needed, mention that ${agent.name} is posting or has posted its result separately.`
+    );
+  } catch (err) {
+    console.error("[call-agent] Failed to inspect existing continuation:", err);
+    return null;
+  }
+}
+
+function getIntegrationContinuationDedupeKey(message: string): string {
+  const normalized = message.trim().replace(/\s+/g, " ");
+  return createHash("sha256").update(normalized).digest("hex");
 }
 
 // Expand bare leading-slash paths (e.g. "/deck/abc") into fully-qualified URLs

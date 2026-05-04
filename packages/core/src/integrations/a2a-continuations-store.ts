@@ -21,6 +21,7 @@ async function ensureTable(): Promise<void> {
           org_id TEXT,
           agent_name TEXT NOT NULL,
           agent_url TEXT NOT NULL,
+          dedupe_key TEXT,
           a2a_task_id TEXT NOT NULL,
           a2a_auth_token TEXT,
           status TEXT NOT NULL,
@@ -41,9 +42,19 @@ async function ensureTable(): Promise<void> {
       await client.execute(
         `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_remote_task ON integration_a2a_continuations(integration_task_id, agent_url, a2a_task_id)`,
       );
+      await client.execute(
+        `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
+      );
       try {
         await client.execute(
           `ALTER TABLE integration_a2a_continuations ADD COLUMN a2a_auth_token TEXT`,
+        );
+      } catch {
+        // Column already exists.
+      }
+      try {
+        await client.execute(
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN dedupe_key TEXT`,
         );
       } catch {
         // Column already exists.
@@ -71,6 +82,7 @@ export interface A2AContinuation {
   orgId: string | null;
   agentName: string;
   agentUrl: string;
+  dedupeKey: string | null;
   a2aTaskId: string;
   a2aAuthToken: string | null;
   status: A2AContinuationStatus;
@@ -94,6 +106,7 @@ function rowToContinuation(row: Record<string, unknown>): A2AContinuation {
     orgId: (row.org_id as string | null) ?? null,
     agentName: row.agent_name as string,
     agentUrl: row.agent_url as string,
+    dedupeKey: (row.dedupe_key as string | null) ?? null,
     a2aTaskId: row.a2a_task_id as string,
     a2aAuthToken: (row.a2a_auth_token as string | null) ?? null,
     status: row.status as A2AContinuationStatus,
@@ -117,6 +130,7 @@ export async function insertA2AContinuation(input: {
   orgId?: string | null;
   agentName: string;
   agentUrl: string;
+  dedupeKey?: string | null;
   a2aTaskId: string;
   a2aAuthToken?: string | null;
 }): Promise<A2AContinuation> {
@@ -130,9 +144,9 @@ export async function insertA2AContinuation(input: {
     await client.execute({
       sql: `INSERT INTO integration_a2a_continuations
         (id, integration_task_id, platform, external_thread_id, incoming_payload,
-         placeholder_ref, owner_email, org_id, agent_name, agent_url, a2a_task_id, a2a_auth_token,
+         placeholder_ref, owner_email, org_id, agent_name, agent_url, dedupe_key, a2a_task_id, a2a_auth_token,
          status, attempts, next_check_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         id,
         input.integrationTaskId,
@@ -144,6 +158,7 @@ export async function insertA2AContinuation(input: {
         input.orgId ?? null,
         input.agentName,
         input.agentUrl,
+        input.dedupeKey ?? null,
         input.a2aTaskId,
         input.a2aAuthToken ?? null,
         "pending",
@@ -179,6 +194,31 @@ export async function getA2AContinuationForIntegrationTask(
     args: [integrationTaskId],
   });
   return rows[0] ? rowToContinuation(rows[0] as Record<string, unknown>) : null;
+}
+
+export async function getA2AContinuationsForIntegrationTaskAgent(
+  integrationTaskId: string,
+  agentUrl: string,
+  dedupeKey?: string | null,
+): Promise<A2AContinuation[]> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute(
+    dedupeKey
+      ? {
+          sql: `SELECT * FROM integration_a2a_continuations
+                WHERE integration_task_id = ? AND agent_url = ? AND dedupe_key = ?
+                ORDER BY created_at ASC`,
+          args: [integrationTaskId, agentUrl, dedupeKey],
+        }
+      : {
+          sql: `SELECT * FROM integration_a2a_continuations
+                WHERE integration_task_id = ? AND agent_url = ?
+                ORDER BY created_at ASC`,
+          args: [integrationTaskId, agentUrl],
+        },
+  );
+  return rows.map((row) => rowToContinuation(row as Record<string, unknown>));
 }
 
 function isDuplicateContinuationError(err: unknown): boolean {
