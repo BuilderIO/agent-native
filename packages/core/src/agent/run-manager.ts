@@ -120,14 +120,8 @@ export function startRun(
           if (run.status !== "running" || abort.signal.aborted) return;
           softTimedOut = true;
           send({
-            type: "error",
-            error:
-              "The agent reached the run time limit before it could finish.",
-            errorCode: "run_timeout",
-            recoverable: true,
-            details: `The run exceeded ${Math.round(
-              softTimeoutMs / 1000,
-            )} seconds. Partial output and tool calls were preserved so you can continue or retry.`,
+            type: "auto_continue",
+            reason: "run_timeout",
           });
           abort.abort();
         }, softTimeoutMs)
@@ -167,12 +161,12 @@ export function startRun(
   // Run in background — intentionally detached from any HTTP connection
   const runPromise = runFn(send, abort.signal)
     .then(() => {
-      run.status = softTimedOut ? "errored" : "completed";
+      run.status = "completed";
     })
     .catch((err) => {
       // Don't surface abort errors — the run was intentionally stopped
       if (abort.signal.aborted) {
-        run.status = softTimedOut ? "errored" : "aborted";
+        run.status = softTimedOut ? "completed" : "aborted";
         return;
       }
       run.status = "errored";

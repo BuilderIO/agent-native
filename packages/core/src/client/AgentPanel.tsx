@@ -108,6 +108,11 @@ const SetupButton = lazy(() =>
   })),
 );
 
+// Setup/onboarding widget is hidden until the UX is improved.
+// Flip to `true` to restore the SetupButton in the header and the
+// OnboardingPanel above the chat.
+const SHOW_ONBOARDING = false;
+
 const CLI_STORAGE_KEY = "agent-native-cli-command";
 const CLI_DEFAULT = "claude";
 const EXEC_MODE_KEY = "agent-native-exec-mode";
@@ -530,7 +535,7 @@ export function AgentPanel({
   const renderHeaderActions = useCallback(
     () => (
       <div className="flex shrink-0 items-center gap-1.5">
-        {isDevMode && (
+        {SHOW_ONBOARDING && isDevMode && (
           <Suspense fallback={null}>
             <SetupButton />
           </Suspense>
@@ -1098,8 +1103,8 @@ export function AgentPanel({
       {/* Framework onboarding — appears above the chat/cli/settings tabs
           so it's visible regardless of which tab the user is on. The panel
           hides itself once all required steps are done or the user
-          dismisses it. */}
-      {mounted && isDevMode && (
+          dismisses it. Gated by SHOW_ONBOARDING until the UX is improved. */}
+      {SHOW_ONBOARDING && mounted && isDevMode && (
         <Suspense fallback={null}>
           <OnboardingPanel />
         </Suspense>

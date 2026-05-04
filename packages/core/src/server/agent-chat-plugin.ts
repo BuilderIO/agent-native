@@ -20,6 +20,7 @@ import {
   getRun,
   abortRun,
   subscribeToRun,
+  appendAgentLoopContinuation,
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { resolveRunSoftTimeoutMs } from "../agent/run-manager.js";
@@ -165,49 +166,64 @@ async function runAgentLoopDirectWithSoftTimeout(
   if (timeoutMs <= 0) return runAgentLoop(opts);
 
   const upstreamSignal = opts.signal;
-  const controller = new AbortController();
-  const abortFromUpstream = () => controller.abort();
-  if (upstreamSignal.aborted) {
-    controller.abort();
-  } else {
-    upstreamSignal.addEventListener("abort", abortFromUpstream, {
-      once: true,
-    });
-  }
+  const usage: Awaited<ReturnType<typeof runAgentLoop>> = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    model: opts.model,
+  };
 
-  let softTimedOut = false;
-  const timer = setTimeout(() => {
-    if (controller.signal.aborted) return;
-    softTimedOut = true;
-    opts.send({
-      type: "error",
-      error: "The agent reached the run time limit before it could finish.",
-      errorCode: "run_timeout",
-      recoverable: true,
-      details: `The run exceeded ${Math.round(
-        timeoutMs / 1000,
-      )} seconds. Partial output and tool calls were preserved so you can continue or retry.`,
-    });
-    controller.abort();
-  }, timeoutMs);
+  const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) => {
+    usage.inputTokens += next.inputTokens;
+    usage.outputTokens += next.outputTokens;
+    usage.cacheReadTokens += next.cacheReadTokens;
+    usage.cacheWriteTokens += next.cacheWriteTokens;
+    usage.model = next.model;
+  };
 
-  try {
-    return await runAgentLoop({ ...opts, signal: controller.signal });
-  } catch (err) {
-    if (softTimedOut) {
-      return {
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        model: opts.model,
-      };
+  while (!upstreamSignal.aborted) {
+    const controller = new AbortController();
+    const abortFromUpstream = () => controller.abort();
+    if (upstreamSignal.aborted) {
+      controller.abort();
+    } else {
+      upstreamSignal.addEventListener("abort", abortFromUpstream, {
+        once: true,
+      });
     }
-    throw err;
-  } finally {
-    clearTimeout(timer);
-    upstreamSignal.removeEventListener("abort", abortFromUpstream);
+
+    let softTimedOut = false;
+    const timer = setTimeout(() => {
+      if (controller.signal.aborted) return;
+      softTimedOut = true;
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      const nextUsage = await runAgentLoop({
+        ...opts,
+        signal: controller.signal,
+      });
+      addUsage(nextUsage);
+      if (softTimedOut && !upstreamSignal.aborted) {
+        appendAgentLoopContinuation(opts.messages, "run_timeout");
+        continue;
+      }
+      return usage;
+    } catch (err) {
+      if (softTimedOut && !upstreamSignal.aborted) {
+        appendAgentLoopContinuation(opts.messages, "run_timeout");
+        continue;
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+      upstreamSignal.removeEventListener("abort", abortFromUpstream);
+    }
   }
+
+  return usage;
 }
 
 export function assembleA2AFinalResponse(

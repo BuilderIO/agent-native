@@ -59,7 +59,7 @@ describe("run manager soft timeout", () => {
     vi.useRealTimers();
   });
 
-  it("emits a recoverable timeout error and aborts the run", async () => {
+  it("emits an internal continuation signal and aborts the run chunk", async () => {
     const events: AgentChatEvent[] = [];
     let aborted = false;
 
@@ -84,12 +84,11 @@ describe("run manager soft timeout", () => {
     expect(aborted).toBe(true);
     expect(events).toContainEqual(
       expect.objectContaining({
-        type: "error",
-        errorCode: "run_timeout",
-        recoverable: true,
+        type: "auto_continue",
+        reason: "run_timeout",
       }),
     );
-    expect(run.status).toBe("errored");
+    expect(run.status).toBe("completed");
   });
 
   it("prefers an explicit soft timeout over the environment default", () => {
