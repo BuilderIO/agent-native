@@ -53,6 +53,8 @@ export interface PromptComposerProps {
   voiceEnabled?: boolean;
   /** Show file upload controls and pass submitted files to onSubmit (default: true). */
   attachmentsEnabled?: boolean;
+  /** Called whenever the plain editor text changes. */
+  onTextChange?: (text: string) => void;
   /** Imperative handle for focusing the composer. */
   composerRef?: Ref<TiptapComposerHandle>;
 }
@@ -202,6 +204,7 @@ function PromptComposerInner({
   showModelSelector = true,
   voiceEnabled = true,
   attachmentsEnabled = true,
+  onTextChange,
   composerRef,
 }: PromptComposerProps) {
   const localRef = useRef<TiptapComposerHandle>(null);
@@ -275,6 +278,7 @@ function PromptComposerInner({
           onSubmit={handleSubmit}
           plusMenuMode={attachmentsEnabled ? "upload-only" : "hidden"}
           voiceEnabled={voiceEnabled}
+          onTextChange={onTextChange}
           draftScope={draftScope}
           selectedModel={showModelSelector ? models.selectedModel : undefined}
           selectedEffort={showModelSelector ? models.selectedEffort : undefined}

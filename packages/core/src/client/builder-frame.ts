@@ -20,7 +20,7 @@ function ancestorOrigin(): string | null {
   return normalizeOrigin(document.referrer);
 }
 
-function isBuilderLikeOrigin(origin: string | null): boolean {
+function isStrictBuilderHost(origin: string | null): boolean {
   if (!origin) return false;
   try {
     const hostname = new URL(origin).hostname.toLowerCase();
@@ -28,10 +28,19 @@ function isBuilderLikeOrigin(origin: string | null): boolean {
       hostname === "builder.io" ||
       hostname.endsWith(".builder.io") ||
       hostname === "builder.my" ||
-      hostname.endsWith(".builder.my") ||
-      hostname === "localhost" ||
-      hostname === "127.0.0.1"
+      hostname.endsWith(".builder.my")
     );
+  } catch {
+    return false;
+  }
+}
+
+function isBuilderLikeOrigin(origin: string | null): boolean {
+  if (!origin) return false;
+  if (isStrictBuilderHost(origin)) return true;
+  try {
+    const hostname = new URL(origin).hostname.toLowerCase();
+    return hostname === "localhost" || hostname === "127.0.0.1";
   } catch {
     return false;
   }
@@ -48,15 +57,33 @@ function hasBuilderPreviewParams(): boolean {
   );
 }
 
+/**
+ * For *.builder.io / *.builder.my the parent origin alone is sufficient — those
+ * are Builder-owned hosts and any iframe they load is by definition a Builder
+ * editor session. For localhost we still require the legacy `?builder.*` query
+ * params, because "parent is localhost" can mean anything in dev. The params
+ * check existed historically as a belt-and-suspenders signal, but Builder's
+ * Interact mode tunnels straight to the iframe URL without appending them, so
+ * requiring them everywhere caused `isInBuilderFrame()` to return false for
+ * real Builder editor sessions and `HomeChatPanel` submissions silently fell
+ * through to `agentNative.submitChat` (which Builder ignores).
+ */
 export function getBuilderParentOrigin(): string | null {
   const frameOrigin = getFrameOrigin();
-  if (isBuilderLikeOrigin(frameOrigin) && hasBuilderPreviewParams()) {
-    return frameOrigin;
+  if (frameOrigin) {
+    if (isStrictBuilderHost(frameOrigin)) return frameOrigin;
+    if (isBuilderLikeOrigin(frameOrigin) && hasBuilderPreviewParams()) {
+      return frameOrigin;
+    }
   }
   const origin = ancestorOrigin();
-  return isBuilderLikeOrigin(origin) && hasBuilderPreviewParams()
-    ? origin
-    : null;
+  if (origin) {
+    if (isStrictBuilderHost(origin)) return origin;
+    if (isBuilderLikeOrigin(origin) && hasBuilderPreviewParams()) {
+      return origin;
+    }
+  }
+  return null;
 }
 
 export function isInBuilderFrame(): boolean {

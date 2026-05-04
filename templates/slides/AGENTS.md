@@ -290,17 +290,17 @@ When generating slides for a deck that has a design system, **always use the des
 
 ### Import / Export
 
-| Action              | Args                                              | Purpose                             |
-| ------------------- | ------------------------------------------------- | ----------------------------------- |
-| `import-file`       | `--filePath <path> [--format auto] [--deckId]`    | Import PPTX/DOCX/PDF to deck        |
-| `import-google-doc` | `--url <google-doc-url-or-id> [--maxChars 60000]` | Extract text from a Google Doc link |
-| `import-pptx`       | `--filePath <path> [--deckId] [--title]`          | Direct PPTX import to deck          |
-| `import-docx`       | `--filePath <path>`                               | Extract DOCX content for slides     |
-| `export-pptx`       | `--deckId <id> [--includeNotes]`                  | Export deck as PowerPoint           |
-| `export-html`       | `--deckId <id>`                                   | Export as standalone HTML           |
-| `duplicate-deck`    | `--deckId <id> [--title]`                         | Create a copy of an existing deck   |
+| Action              | Args                                              | Purpose                                             |
+| ------------------- | ------------------------------------------------- | --------------------------------------------------- |
+| `import-file`       | `--filePath <path> [--format auto] [--deckId]`    | Import PPTX/DOCX/PDF to deck                        |
+| `import-google-doc` | `--url <google-doc-url-or-id> [--maxChars 60000]` | Extract text from a Google Doc link or selected Doc |
+| `import-pptx`       | `--filePath <path> [--deckId] [--title]`          | Direct PPTX import to deck                          |
+| `import-docx`       | `--filePath <path>`                               | Extract DOCX content for slides                     |
+| `export-pptx`       | `--deckId <id> [--includeNotes]`                  | Export deck as PowerPoint                           |
+| `export-html`       | `--deckId <id>`                                   | Export as standalone HTML                           |
+| `duplicate-deck`    | `--deckId <id> [--title]`                         | Create a copy of an existing deck                   |
 
-If the user provides a Google Docs URL while asking for a deck, call `import-google-doc` before creating slides. Use the returned `text` as source material. If the action cannot read a private doc, relay its sharing instruction (usually share with the configured service account email or make the link viewable) and do not invent slides from the URL alone.
+If the user provides a Google Docs URL while asking for a deck, call `import-google-doc` before creating slides. Use the returned `text` as source material. Private Docs can be read after the user connects Google Docs and chooses the file through the picker, or when the Doc is shared with the configured service account. If the action still cannot read the Doc, relay the exact access instruction and do not invent slides from the URL alone.
 
 ### Sharing
 

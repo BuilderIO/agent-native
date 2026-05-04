@@ -26,8 +26,8 @@ import {
   type CollabUser,
   useAvatarUrl,
 } from "@agent-native/core/client";
-import { extractGoogleDocUrls } from "@shared/google-docs";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
 import {
   Tooltip,
   TooltipContent,
@@ -262,6 +262,8 @@ function AddSlidePopover({
   agentSubmit: (message: string, context: string) => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const [promptText, setPromptText] = useState("");
+  const [googleDocContext, setGoogleDocContext] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -303,22 +305,14 @@ function AddSlidePopover({
         }
       }
 
-      const description = text.trim() || "a new slide";
+      const trimmedText = text.trim();
+      const description = [trimmedText || "a new slide", googleDocContext]
+        .filter(Boolean)
+        .join("\n\n");
       const sourceForContext = truncateSourceForContext(description);
-      const googleDocUrls = extractGoogleDocUrls(text);
       const fileContext =
         uploaded.length > 0
           ? `\n\nThe user uploaded ${uploaded.length} file(s) for context:\n${uploaded.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
-          : "";
-      const googleDocContext =
-        googleDocUrls.length > 0
-          ? [
-              "",
-              "The request includes Google Docs URL(s):",
-              ...googleDocUrls.map((url) => `- ${url}`),
-              "Before adding slides, call `import-google-doc` for each URL and use the returned text as source material.",
-              "If the action cannot read a private document, tell the user the exact sharing step from the action error instead of generating from the URL alone.",
-            ].join("\n")
           : "";
       const context = [
         `Add a new slide to deck "${deckTitle}" (id: ${deckId}).`,
@@ -328,13 +322,15 @@ function AddSlidePopover({
         sourceForContext.truncated
           ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
           : "",
-        googleDocContext,
         fileContext,
         "",
         "Create the slide content and insert it at the correct position using the app's slide data structure.",
       ].join("\n");
 
-      agentSubmit(`Add slide: ${summarizePromptForChat(description)}`, context);
+      agentSubmit(
+        `Add slide: ${summarizePromptForChat(trimmedText || "a new slide")}`,
+        context,
+      );
       onOpenChange(false);
     },
     [
@@ -343,10 +339,18 @@ function AddSlidePopover({
       agentSubmit,
       deckId,
       deckTitle,
+      googleDocContext,
       onOpenChange,
       slideCount,
     ],
   );
+
+  useEffect(() => {
+    if (!open) {
+      setPromptText("");
+      setGoogleDocContext("");
+    }
+  }, [open]);
 
   if (!open || !anchorRef.current) return null;
 
@@ -374,7 +378,14 @@ function AddSlidePopover({
         placeholder="Describe the slides you want..."
         draftScope={`slides:add-slide:${deckId}`}
         onSubmit={handleSubmit}
+        onTextChange={setPromptText}
       />
+      <div className="-mx-1 mt-2">
+        <GoogleDocImportHint
+          promptText={promptText}
+          onSourceContextChange={setGoogleDocContext}
+        />
+      </div>
     </div>,
     document.body,
   );

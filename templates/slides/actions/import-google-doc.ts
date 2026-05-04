@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 import {
   extractGoogleDocId,
   normalizeGoogleDocText,
 } from "../shared/google-docs.js";
+import { getGoogleDocsAccessToken } from "../server/lib/google-docs-oauth.js";
 
 const DEFAULT_MAX_CHARS = 60_000;
 
@@ -15,7 +17,7 @@ interface ServiceAccountKey {
   token_uri?: string;
 }
 
-interface AccessTokenResult {
+interface ServiceAccountAccessTokenResult {
   token: string;
   serviceAccountEmail: string;
 }
@@ -41,7 +43,7 @@ function base64UrlJson(value: unknown): string {
   return Buffer.from(JSON.stringify(value)).toString("base64url");
 }
 
-async function getServiceAccountAccessToken(): Promise<AccessTokenResult | null> {
+async function getServiceAccountAccessToken(): Promise<ServiceAccountAccessTokenResult | null> {
   const key = parseServiceAccountKey();
   if (!key?.client_email || !key.private_key) return null;
 
@@ -124,7 +126,7 @@ async function readExportText(response: Response): Promise<string> {
   return normalized;
 }
 
-async function exportWithServiceAccount(
+async function exportWithDriveToken(
   documentId: string,
   token: string,
 ): Promise<string> {
@@ -146,8 +148,9 @@ async function exportPublicDocument(documentId: string): Promise<string> {
 export default defineAction({
   description:
     "Import plain text from a Google Docs document URL or document ID. " +
-    "Works for public Docs links, and for private Docs shared with the " +
-    "configured GOOGLE_SERVICE_ACCOUNT_KEY service account.",
+    "Works for public Docs links, private Docs selected through the user's " +
+    "connected Google Docs account, and private Docs shared with the configured " +
+    "GOOGLE_SERVICE_ACCOUNT_KEY service account.",
   schema: z.object({
     url: z.string().describe("Google Docs URL or raw document ID"),
     maxChars: z.coerce
@@ -168,7 +171,18 @@ export default defineAction({
 
     const limit = maxChars ?? DEFAULT_MAX_CHARS;
     const errors: string[] = [];
-    let serviceAccount: AccessTokenResult | null = null;
+    const owner = getRequestUserEmail();
+    let userConnection: { accessToken: string; accountEmail: string } | null =
+      null;
+    if (owner) {
+      try {
+        userConnection = await getGoogleDocsAccessToken(owner);
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+
+    let serviceAccount: ServiceAccountAccessTokenResult | null = null;
     try {
       serviceAccount = await getServiceAccountAccessToken();
     } catch (error) {
@@ -176,11 +190,24 @@ export default defineAction({
     }
 
     let text: string | null = null;
-    let source: "service-account" | "public-export" | null = null;
+    let source: "user-oauth" | "service-account" | "public-export" | null =
+      null;
 
-    if (serviceAccount) {
+    if (userConnection) {
       try {
-        text = await exportWithServiceAccount(documentId, serviceAccount.token);
+        text = await exportWithDriveToken(
+          documentId,
+          userConnection.accessToken,
+        );
+        source = "user-oauth";
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+
+    if (!text && serviceAccount) {
+      try {
+        text = await exportWithDriveToken(documentId, serviceAccount.token);
         source = "service-account";
       } catch (error) {
         errors.push(error instanceof Error ? error.message : String(error));
@@ -198,9 +225,11 @@ export default defineAction({
 
     if (!text || !source) {
       const shareTarget = serviceAccount?.serviceAccountEmail;
-      const shareHint = shareTarget
-        ? `Share the document with ${shareTarget}, or set the link to "Anyone with the link can view", then try again.`
-        : 'Set GOOGLE_SERVICE_ACCOUNT_KEY so private Docs can be shared with the service account, set the link to "Anyone with the link can view", or upload an exported .docx file.';
+      const shareHint = userConnection
+        ? `Choose this document from the Google Docs picker so ${userConnection.accountEmail} grants file access, share it with ${shareTarget ?? "the configured service account"}, or set the link to "Anyone with the link can view", then try again.`
+        : shareTarget
+          ? `Connect Google Docs and choose the file, share the document with ${shareTarget}, or set the link to "Anyone with the link can view", then try again.`
+          : 'Connect Google Docs and choose the file, set GOOGLE_SERVICE_ACCOUNT_KEY so private Docs can be shared with the service account, set the link to "Anyone with the link can view", or upload an exported .docx file.';
       throw new Error(
         `Could not read that Google Doc. ${shareHint} ${errors.join(" ")}`,
       );
@@ -213,6 +242,7 @@ export default defineAction({
       text: truncated ? text.slice(0, limit) : text,
       charCount: text.length,
       truncated,
+      googleAccountEmail: userConnection?.accountEmail,
       serviceAccountEmail: serviceAccount?.serviceAccountEmail,
       note: truncated
         ? `Returned the first ${limit} characters. Ask for a higher maxChars value if more context is needed.`

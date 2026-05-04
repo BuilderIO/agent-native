@@ -15,8 +15,10 @@ description: How to create a new deck with slides from scratch. Read this before
 
 If the user provides a Google Docs URL as source material, call
 `import-google-doc --url <url>` first and build from the returned text. If the
-action cannot read a private document, relay its sharing instructions instead
-of generating from the URL alone.
+action cannot read a private document, the user can connect Google Docs and
+choose the file through the picker, or share the Doc with the configured service
+account. Relay the action's exact access instructions instead of generating from
+the URL alone.
 
 ```bash
 pnpm action create-deck --title "My Deck" --slides '[

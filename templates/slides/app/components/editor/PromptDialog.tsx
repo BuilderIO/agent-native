@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { appBasePath, PromptComposer } from "@agent-native/core/client";
+import { GoogleDocImportHint } from "./GoogleDocImportHint";
 
 export interface UploadedFile {
   path: string;
@@ -36,6 +37,8 @@ export default function PromptPopover({
   centered = false,
 }: PromptPopoverProps) {
   const [uploading, setUploading] = useState(false);
+  const [promptText, setPromptText] = useState("");
+  const [googleDocContext, setGoogleDocContext] = useState("");
   const panelRef = useRef<HTMLDivElement>(null);
 
   // Position the popover after render so we can measure its actual size
@@ -120,10 +123,20 @@ export default function PromptPopover({
   const handleSubmit = useCallback(
     async (text: string, files: File[]) => {
       const uploaded = await uploadFiles(files);
-      onSubmit(text.trim(), uploaded);
+      const enrichedText = [text.trim(), googleDocContext]
+        .filter(Boolean)
+        .join("\n\n");
+      onSubmit(enrichedText, uploaded);
     },
-    [onSubmit, uploadFiles],
+    [googleDocContext, onSubmit, uploadFiles],
   );
+
+  useEffect(() => {
+    if (!open) {
+      setPromptText("");
+      setGoogleDocContext("");
+    }
+  }, [open]);
 
   if (!open) return null;
 
@@ -153,8 +166,14 @@ export default function PromptPopover({
             disabled={loading || uploading}
             placeholder={placeholder}
             onSubmit={handleSubmit}
+            onTextChange={setPromptText}
           />
         </div>
+
+        <GoogleDocImportHint
+          promptText={promptText}
+          onSourceContextChange={setGoogleDocContext}
+        />
 
         {onSkip && (
           <div className="flex justify-end border-t border-border px-3.5 py-2">
