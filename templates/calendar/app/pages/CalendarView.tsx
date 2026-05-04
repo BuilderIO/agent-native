@@ -696,6 +696,7 @@ export default function CalendarView() {
                 </TooltipContent>
               </Tooltip>
 
+              <NotificationsBell />
               <CreateEventPopover
                 open={createDialogOpen}
                 onOpenChange={(open) => {
@@ -709,7 +710,6 @@ export default function CalendarView() {
                 defaultStartTime={createDefaultStart}
                 defaultEndTime={createDefaultEnd}
               />
-              <NotificationsBell />
               <AgentToggleButton />
             </div>
           </div>

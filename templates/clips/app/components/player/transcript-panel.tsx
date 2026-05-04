@@ -135,7 +135,8 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
           </Button>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Builder.io provides free transcription — no API key needed.
+          Builder.io includes free credits for transcription — no API key
+          needed.
         </p>
       </div>
     );

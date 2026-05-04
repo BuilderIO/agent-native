@@ -507,7 +507,7 @@ function ModelSelector({
                       : "Connect Builder.io"}
                   </span>
                   <span className="block text-[11px] text-muted-foreground">
-                    Free access to Claude, OpenAI &amp; Gemini
+                    Free credits for Claude, OpenAI &amp; Gemini
                   </span>
                 </span>
               </button>

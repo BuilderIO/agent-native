@@ -1473,7 +1473,7 @@ function BuilderConnectCta({
           Connect Builder.io
         </div>
         <p className="text-[11px] text-muted-foreground mt-0.5 max-w-[220px]">
-          Managed LLM, hosting, and more — no API key needed
+          Free credits for LLM, hosting, and more — no API key needed
         </p>
         {error && <p className="mt-1 text-[10px] text-destructive">{error}</p>}
       </div>
