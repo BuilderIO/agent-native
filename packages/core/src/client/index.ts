@@ -54,6 +54,8 @@ export {
   getBuilderParentOrigin,
   isInBuilderFrame,
   sendToBuilderChat,
+  isBuildAppOrAgentRequest,
+  tryDelegateBuildRequestToBuilder,
   type BuilderChatMessage,
 } from "./builder-frame.js";
 export {

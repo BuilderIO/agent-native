@@ -473,6 +473,71 @@ describe("server/auth", () => {
       expect(event.res.headers.get("access-control-allow-origin")).toBeNull();
     });
 
+    it("handles Tauri auth preflights before route-specific auth handlers", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      delete process.env.AUTH_MODE;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const corsHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth",
+      )?.[1];
+      expect(corsHandler).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/_agent-native/auth/login",
+        headers: {
+          origin: "tauri://localhost",
+          "access-control-request-method": "POST",
+          "access-control-request-headers": "content-type",
+        },
+      });
+      event.req.method = "OPTIONS";
+      event.node.req.method = "OPTIONS";
+
+      const result = await corsHandler(event);
+
+      expect(result).toBe("");
+      expect(event.res.status).toBe(204);
+      expect(event.res.headers.get("access-control-allow-origin")).toBe(
+        "tauri://localhost",
+      );
+      expect(event.res.headers.get("access-control-allow-credentials")).toBe(
+        "true",
+      );
+    });
+
+    it("adds CORS headers to Tauri auth GETs while allowing the route to continue", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      delete process.env.AUTH_MODE;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const corsHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth",
+      )?.[1];
+      const event = createMockEvent({
+        path: "/_agent-native/auth/desktop-exchange",
+        headers: { origin: "tauri://localhost" },
+      });
+
+      const result = await corsHandler(event);
+
+      expect(result).toBeUndefined();
+      expect(event.res.headers.get("access-control-allow-origin")).toBe(
+        "tauri://localhost",
+      );
+      expect(event.res.headers.get("access-control-allow-credentials")).toBe(
+        "true",
+      );
+    });
+
     it("accepts HEAD on the auth session endpoint", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -1142,12 +1207,15 @@ describe("server/auth", () => {
       expect(html).not.toContain("return to Clips");
     });
 
-    it("uses a deep link for Electron desktop exchange completion", async () => {
+    it("uses a deep link for Agent Native desktop exchange completion", async () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");
       const response = await Promise.resolve(
         oauthCallbackResponse(
           createMockEvent({
-            headers: { "user-agent": "Agent Native Electron" },
+            headers: {
+              "user-agent":
+                "Mozilla/5.0 ... Electron/41.2.2 AgentNativeDesktop/0.1.7",
+            },
             query: { state: "state-1" },
           }),
           "steve@example.com",
@@ -1166,6 +1234,35 @@ describe("server/auth", () => {
       expect(html).toContain("token=token-1");
       expect(html).toContain("state=state-1");
       expect(html).not.toContain("return to Mail");
+    });
+
+    it("does not deep-link from generic Electron webviews (e.g. Builder Fusion)", async () => {
+      const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const response = await Promise.resolve(
+        oauthCallbackResponse(
+          createMockEvent({
+            // Generic Electron UA without the AgentNativeDesktop marker —
+            // matches Builder.io's Fusion webview, Slack desktop, etc.
+            headers: {
+              "user-agent":
+                "Mozilla/5.0 ... Chrome/138.0 Electron/41.2.2 Safari/537.36",
+            },
+            query: { state: "state-1" },
+          }),
+          "steve@example.com",
+          {
+            desktop: true,
+            flowId: "flow-1",
+            sessionToken: "token-1",
+            appName: "Mail",
+          },
+        ),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      const html = await (response as Response).text();
+      expect(html).not.toContain("agentnative://oauth-complete");
+      expect(html).toContain("return to Mail");
     });
   });
 

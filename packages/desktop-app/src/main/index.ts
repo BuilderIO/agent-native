@@ -24,6 +24,15 @@ import * as AppStore from "./app-store";
 
 const IS_DEV = !app.isPackaged;
 
+// ---------- User-Agent marker ----------
+// Tag every request from this Electron app so the server can distinguish
+// Agent Native desktop from other Electron-based webviews (Builder.io's
+// Fusion, Slack desktop, Discord, etc.). Without this, any Electron UA
+// would trigger the desktop-only OAuth deep-link page (`agentnative://...`),
+// stranding users in non-Agent-Native Electron contexts on a "Connected!
+// Open Agent Native" screen whose deep link can't fire.
+app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVersion()}`;
+
 // ---------- Deep link protocol (agentnative://) ----------
 // Register before app is ready so macOS associates the scheme with this app.
 

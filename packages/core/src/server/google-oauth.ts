@@ -52,9 +52,22 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-/** Detect requests from the Electron desktop app webview. */
+/**
+ * Detect requests from the Agent Native desktop app specifically.
+ *
+ * The desktop app appends `AgentNativeDesktop/<version>` to its user-agent
+ * (see `packages/desktop-app/src/main/index.ts`). We check for that marker
+ * rather than matching generic `Electron`, which would also match other
+ * Electron-based webviews like Builder.io's Fusion, Slack desktop, Discord,
+ * etc. Falsely treating those as "the desktop app" sends users to the
+ * `agentnative://oauth-complete` deep-link success page after Google sign-in,
+ * where the protocol handler can't fire and the "Open Agent Native" button
+ * does nothing.
+ *
+ * Kept exported as `isElectron` for backwards compatibility with consumers.
+ */
 export function isElectron(event: H3Event): boolean {
-  return /Electron/i.test(getHeader(event, "user-agent") || "");
+  return /AgentNativeDesktop/i.test(getHeader(event, "user-agent") || "");
 }
 
 /** Detect requests from a mobile browser (iOS/Android). */

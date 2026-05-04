@@ -936,6 +936,27 @@ function createAuthGuardFn(): (
   };
 }
 
+function handleCorsPreflight(
+  event: H3Event,
+): Response | object | string | void {
+  const cors = applyCorsHeaders(event);
+  if (getMethod(event) !== "OPTIONS") return;
+  if (cors.hasOrigin && !cors.allowed) {
+    setResponseStatus(event, 403);
+    return "";
+  }
+  setResponseStatus(event, 204);
+  return "";
+}
+
+function mountAuthCorsMiddleware(app: H3App): void {
+  const handler = defineEventHandler((event) => {
+    return handleCorsPreflight(event);
+  });
+  app.use("/_agent-native/auth", handler);
+  app.use("/_agent-native/google", handler);
+}
+
 /**
  * Map a Better Auth session to our AuthSession type.
  */
@@ -1015,10 +1036,11 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     const session = await customGetSession(event);
     if (session) return session;
     // Desktop SSO broker: even with BYOA auth, fall back to the broker
-    // for Electron requests so cross-template SSO works for custom-auth
-    // templates too. Gated on `readDesktopSsoSafely` so a non-loopback
-    // request that spoofs `User-Agent: ... Electron/...` cannot read the
-    // home-dir broker file (and so production builds never consult it).
+    // for Agent Native desktop requests so cross-template SSO works for
+    // custom-auth templates too. Gated on `readDesktopSsoSafely` so a
+    // non-loopback request that spoofs `User-Agent: ... AgentNativeDesktop/...`
+    // cannot read the home-dir broker file (and so production builds
+    // never consult it).
     const sso = await readDesktopSsoSafely(event);
     if (sso?.email) return { email: sso.email, token: sso.token };
     // Fall through to mobile _session check
@@ -2426,6 +2448,13 @@ export async function autoMountAuth(
   authDisabledMode = false;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
   const publicPaths = options.publicPaths ?? [];
+
+  // Auth endpoints are called from the Tauri desktop WebView
+  // (`tauri://localhost`) as cross-origin credentialed requests. Mount this
+  // before the concrete auth routes so preflights short-circuit cleanly and
+  // non-preflight responses carry the Access-Control-Allow-* headers even
+  // when route-specific handlers return before the global auth guard runs.
+  mountAuthCorsMiddleware(app);
 
   if (options.getSession) {
     customGetSession = options.getSession;

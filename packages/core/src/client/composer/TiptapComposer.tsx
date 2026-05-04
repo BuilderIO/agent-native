@@ -48,6 +48,7 @@ import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
 import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
 import { sendToAgentChat } from "../agent-chat.js";
+import { tryDelegateBuildRequestToBuilder } from "../builder-frame.js";
 import { getComposerDraftKey } from "./draft-key.js";
 import {
   createPastedTextFile,
@@ -235,6 +236,16 @@ interface TiptapComposerProps {
    * `"hidden"` hides attachment controls for text-only prompt surfaces.
    */
   plusMenuMode?: "full" | "upload-only" | "hidden";
+  /**
+   * When true and the composer is running inside the Builder.io webview/iframe,
+   * intercept "build me an app/agent" prompts and forward them to the parent
+   * Builder chat via `builder.submitChat` instead of sending to the local
+   * agent. Off by default — the chat sidebar opts in; standalone prompt
+   * forms (NewWorkspaceAppFlow, etc.) handle delegation themselves with
+   * extra context (vault keys, computed app ids) that the raw composer
+   * text lacks.
+   */
+  interceptBuildRequestsForBuilder?: boolean;
 }
 
 function ModeSelector({
@@ -652,6 +663,7 @@ export function TiptapComposer({
   onEffortChange,
   draftScope,
   plusMenuMode = "full",
+  interceptBuildRequestsForBuilder = false,
 }: TiptapComposerProps) {
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
@@ -1246,6 +1258,25 @@ export function TiptapComposer({
       return;
     }
 
+    // Builder iframe delegation: when this app is mounted inside the
+    // Builder.io webview and the user typed a "build me an app/agent"
+    // prompt, hand it up to the parent Builder chat instead of sending
+    // it to this app's domain agent. Builder is the code-writing agent;
+    // the local agent (dispatch, mail, etc.) cannot scaffold workspace
+    // apps from inside its own iframe.
+    if (
+      interceptBuildRequestsForBuilder &&
+      tryDelegateBuildRequestToBuilder(trimmed)
+    ) {
+      ed.commands.clearContent();
+      setEditorHasText(false);
+      try {
+        localStorage.removeItem(draftKey);
+      } catch {}
+      closePopover();
+      return;
+    }
+
     if (onSubmit) {
       onSubmit(text, references, attachments);
       // Clear any pending attachments now that the host has them.
@@ -1264,6 +1295,7 @@ export function TiptapComposer({
     composerMode,
     composerRuntime,
     editor,
+    interceptBuildRequestsForBuilder,
     onSubmit,
     syncComposerState,
   ]);
