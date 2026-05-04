@@ -89,6 +89,12 @@ export default defineAction({
       },
       { email, orgId },
     );
-    return `Analysis "${args.name}" saved as ${args.id}. Users can view it at /analyses/${args.id} and re-run it anytime for fresh results.`;
+    return {
+      id: args.id,
+      analysisId: args.id,
+      name: args.name,
+      urlPath: `/analyses/${args.id}`,
+      message: `Analysis "${args.name}" saved as ${args.id}. Users can view it at /analyses/${args.id} and re-run it anytime for fresh results.`,
+    };
   },
 });

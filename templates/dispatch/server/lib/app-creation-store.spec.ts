@@ -7,10 +7,18 @@ const createRequestMock = vi.hoisted(() => vi.fn());
 const grantSecretsToAppMock = vi.hoisted(() => vi.fn());
 const listSecretsMock = vi.hoisted(() => vi.fn());
 const isIntegrationCallerRequestMock = vi.hoisted(() => vi.fn());
+const getRequestContextMock = vi.hoisted(() => vi.fn());
 const currentOwnerEmailMock = vi.hoisted(() => vi.fn());
+const currentOrgIdMock = vi.hoisted(() => vi.fn());
+const resolveLinkedOwnerMock = vi.hoisted(() => vi.fn());
+const getDbExecMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
 const originalWorkspaceAppsJson = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
 const originalAppUrl = process.env.APP_URL;
+const originalDefaultOwner = process.env.DISPATCH_DEFAULT_OWNER_EMAIL;
+const originalAllowDefaultOwnerAppCreation =
+  process.env.DISPATCH_ALLOW_DEFAULT_OWNER_APP_CREATION;
+const originalEnableBuilder = process.env.ENABLE_BUILDER;
 const originalFetch = globalThis.fetch;
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -20,15 +28,21 @@ vi.mock("@agent-native/core/settings", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   getBuilderBranchProjectId: vi.fn(() => null),
+  getRequestContext: getRequestContextMock,
   isIntegrationCallerRequest: isIntegrationCallerRequestMock,
   resolveBuilderCredentials: vi.fn(async () => null),
   runBuilderAgent: runBuilderAgentMock,
 }));
 
+vi.mock("@agent-native/core/db", () => ({
+  getDbExec: getDbExecMock,
+}));
+
 vi.mock("./dispatch-store.js", () => ({
-  currentOrgId: vi.fn(() => null),
+  currentOrgId: currentOrgIdMock,
   currentOwnerEmail: currentOwnerEmailMock,
   recordAudit: vi.fn(),
+  resolveLinkedOwner: resolveLinkedOwnerMock,
 }));
 
 vi.mock("./vault-store.js", () => ({
@@ -47,7 +61,11 @@ describe("startWorkspaceAppCreation", () => {
     grantSecretsToAppMock.mockReset();
     listSecretsMock.mockReset();
     isIntegrationCallerRequestMock.mockReset();
+    getRequestContextMock.mockReset();
     currentOwnerEmailMock.mockReset();
+    currentOrgIdMock.mockReset();
+    resolveLinkedOwnerMock.mockReset();
+    getDbExecMock.mockReset();
     getSettingMock.mockResolvedValue({ builderProjectId: "builder-project" });
     runBuilderAgentMock.mockResolvedValue({
       branchName: "branch",
@@ -57,9 +75,18 @@ describe("startWorkspaceAppCreation", () => {
     createRequestMock.mockResolvedValue({ status: "pending" });
     listSecretsMock.mockResolvedValue([]);
     isIntegrationCallerRequestMock.mockReturnValue(false);
+    getRequestContextMock.mockReturnValue(undefined);
     currentOwnerEmailMock.mockReturnValue("dispatch-test@example.com");
+    currentOrgIdMock.mockReturnValue(null);
+    resolveLinkedOwnerMock.mockResolvedValue(null);
+    getDbExecMock.mockReturnValue({
+      execute: vi.fn(async () => ({ rows: [] })),
+    });
     process.env.NODE_ENV = "production";
     process.env.APP_URL = "https://workspace.example.test";
+    delete process.env.DISPATCH_DEFAULT_OWNER_EMAIL;
+    delete process.env.DISPATCH_ALLOW_DEFAULT_OWNER_APP_CREATION;
+    delete process.env.ENABLE_BUILDER;
   });
 
   afterEach(() => {
@@ -73,6 +100,22 @@ describe("startWorkspaceAppCreation", () => {
       delete process.env.APP_URL;
     } else {
       process.env.APP_URL = originalAppUrl;
+    }
+    if (originalDefaultOwner === undefined) {
+      delete process.env.DISPATCH_DEFAULT_OWNER_EMAIL;
+    } else {
+      process.env.DISPATCH_DEFAULT_OWNER_EMAIL = originalDefaultOwner;
+    }
+    if (originalAllowDefaultOwnerAppCreation === undefined) {
+      delete process.env.DISPATCH_ALLOW_DEFAULT_OWNER_APP_CREATION;
+    } else {
+      process.env.DISPATCH_ALLOW_DEFAULT_OWNER_APP_CREATION =
+        originalAllowDefaultOwnerAppCreation;
+    }
+    if (originalEnableBuilder === undefined) {
+      delete process.env.ENABLE_BUILDER;
+    } else {
+      process.env.ENABLE_BUILDER = originalEnableBuilder;
     }
     vi.unstubAllGlobals();
     if (originalFetch) {
@@ -246,6 +289,108 @@ describe("startWorkspaceAppCreation", () => {
     expect(getSettingMock).not.toHaveBeenCalled();
     expect(runBuilderAgentMock).not.toHaveBeenCalled();
     expect(grantSecretsToAppMock).not.toHaveBeenCalled();
+  });
+
+  it("blocks default-owner Builder starts for unlinked integration senders unless explicitly allowed", async () => {
+    process.env.DISPATCH_DEFAULT_OWNER_EMAIL = "dispatch-test@example.com";
+    process.env.ENABLE_BUILDER = "false";
+    isIntegrationCallerRequestMock.mockReturnValue(true);
+    getRequestContextMock.mockReturnValue({
+      integration: {
+        incoming: {
+          platform: "slack",
+          externalThreadId: "C1:1",
+          senderId: "UQA",
+          senderName: "QA User",
+          text: "make an app",
+          platformContext: { teamId: "TQA" },
+          timestamp: 100,
+        },
+      },
+    });
+    resolveLinkedOwnerMock.mockResolvedValue(null);
+
+    const { startWorkspaceAppCreation } =
+      await import("./app-creation-store.js");
+
+    const result = await startWorkspaceAppCreation({
+      prompt: "make a QA dashboard",
+      appId: "qa-dashboard",
+    });
+
+    expect(result).toMatchObject({
+      mode: "builder-unavailable",
+      appId: "qa-dashboard",
+      message: expect.stringContaining("deployment default Dispatch owner"),
+    });
+    expect(runBuilderAgentMock).not.toHaveBeenCalled();
+  });
+
+  it("allows default-owner Builder starts when the integration sender is explicitly linked to that owner", async () => {
+    process.env.DISPATCH_DEFAULT_OWNER_EMAIL = "dispatch-test@example.com";
+    isIntegrationCallerRequestMock.mockReturnValue(true);
+    getRequestContextMock.mockReturnValue({
+      integration: {
+        incoming: {
+          platform: "slack",
+          externalThreadId: "C1:1",
+          senderId: "UQA",
+          senderName: "QA User",
+          text: "make an app",
+          platformContext: { teamId: "TQA" },
+          timestamp: 100,
+        },
+      },
+    });
+    resolveLinkedOwnerMock.mockResolvedValue("dispatch-test@example.com");
+
+    const { startWorkspaceAppCreation } =
+      await import("./app-creation-store.js");
+
+    const result = await startWorkspaceAppCreation({
+      prompt: "make a QA dashboard",
+      appId: "qa-dashboard",
+    });
+
+    expect(result).toMatchObject({
+      mode: "builder",
+      appId: "qa-dashboard",
+    });
+    expect(runBuilderAgentMock).toHaveBeenCalled();
+  });
+
+  it("allows default-owner Builder starts when the deployment explicitly opts in", async () => {
+    process.env.DISPATCH_DEFAULT_OWNER_EMAIL = "dispatch-test@example.com";
+    process.env.ENABLE_BUILDER = "true";
+    isIntegrationCallerRequestMock.mockReturnValue(true);
+    getRequestContextMock.mockReturnValue({
+      integration: {
+        incoming: {
+          platform: "slack",
+          externalThreadId: "C1:1",
+          senderId: "UQA",
+          senderName: "QA User",
+          text: "make an app",
+          platformContext: { teamId: "TQA" },
+          timestamp: 100,
+        },
+      },
+    });
+    resolveLinkedOwnerMock.mockResolvedValue(null);
+
+    const { startWorkspaceAppCreation } =
+      await import("./app-creation-store.js");
+
+    const result = await startWorkspaceAppCreation({
+      prompt: "make a QA dashboard",
+      appId: "qa-dashboard",
+    });
+
+    expect(result).toMatchObject({
+      mode: "builder",
+      appId: "qa-dashboard",
+    });
+    expect(runBuilderAgentMock).toHaveBeenCalled();
   });
 
   it("keeps local dev app creation ergonomic for synthetic integration owners", async () => {

@@ -183,8 +183,16 @@ interface TiptapComposerProps {
   placeholder?: string;
   disabled?: boolean;
   focusRef?: React.Ref<TiptapComposerHandle>;
-  /** When provided, called instead of composerRuntime.send(). Used for queue mode. */
-  onSubmit?: (text: string, references: Reference[]) => void;
+  /**
+   * When provided, called instead of composerRuntime.send(). Used for queue
+   * mode and standalone prompt popovers. Receives the live composer
+   * attachments so callers (e.g. PromptComposer) can surface uploaded files.
+   */
+  onSubmit?: (
+    text: string,
+    references: Reference[],
+    attachments?: ReadonlyArray<unknown>,
+  ) => void;
   /** Custom action button (e.g. stop button) to render instead of the default send button. */
   actionButton?: React.ReactNode;
   /** Extra button to render alongside the default send button (e.g. stop while running). */
@@ -216,6 +224,13 @@ interface TiptapComposerProps {
   onEffortChange?: (effort: ReasoningEffort) => void;
   /** Stable scope for persisted drafts, usually the active thread or tab id. */
   draftScope?: string;
+  /**
+   * Controls the "+" menu next to the composer. `"full"` (default) shows the
+   * normal Upload / Skill / Job / Automation / Tool / MCP picker. `"upload-only"`
+   * collapses it to a single button that opens the file picker directly.
+   * `"hidden"` hides attachment controls for text-only prompt surfaces.
+   */
+  plusMenuMode?: "full" | "upload-only" | "hidden";
 }
 
 function ModeSelector({
@@ -632,6 +647,7 @@ export function TiptapComposer({
   onModelChange,
   onEffortChange,
   draftScope,
+  plusMenuMode = "full",
 }: TiptapComposerProps) {
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
@@ -1171,7 +1187,9 @@ export function TiptapComposer({
     if (!ed) return;
 
     const { text, references } = syncComposerState();
-    if (!text.trim() && references.length === 0) return;
+    const attachments = composerRuntime.getState().attachments;
+    if (!text.trim() && references.length === 0 && attachments.length === 0)
+      return;
 
     // Intercept slash commands typed directly (e.g. "/clear" + Enter)
     const trimmed = text.trim();
@@ -1210,7 +1228,9 @@ export function TiptapComposer({
     }
 
     if (onSubmit) {
-      onSubmit(text, references);
+      onSubmit(text, references, attachments);
+      // Clear any pending attachments now that the host has them.
+      void composerRuntime.clearAttachments().catch(() => {});
     } else {
       composerRuntime.send();
     }
@@ -1455,7 +1475,13 @@ export function TiptapComposer({
       </div>
       {voiceEnabled && <VoiceRecordingOverlay voice={voice} />}
       <div className="flex items-center gap-1 px-2 py-1.5">
-        {attachButton ?? <ComposerPlusMenu onSelectMode={handleSelectMode} />}
+        {attachButton ??
+          (plusMenuMode === "hidden" ? null : (
+            <ComposerPlusMenu
+              onSelectMode={handleSelectMode}
+              mode={plusMenuMode}
+            />
+          ))}
         <div className="flex-1" />
         {actionButton ?? (
           <>
