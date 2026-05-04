@@ -5,6 +5,7 @@ import {
   IconClockHour4,
   IconPlus,
 } from "@tabler/icons-react";
+import { AppKeysPopover } from "@/components/app-keys-popover";
 import { CreateAppPopover } from "@/components/create-app-popover";
 import { DispatchShell } from "@/components/dispatch-shell";
 import { Badge } from "@/components/ui/badge";
@@ -120,10 +121,15 @@ export default function AppsRoute() {
                         </p>
                       ) : null}
                     </div>
-                    <IconArrowUpRight
-                      size={16}
-                      className="shrink-0 text-muted-foreground transition group-hover:text-foreground"
-                    />
+                    <div className="flex shrink-0 items-center gap-1">
+                      {app.status === "ready" ? (
+                        <AppKeysPopover appId={app.id} appName={app.name} />
+                      ) : null}
+                      <IconArrowUpRight
+                        size={16}
+                        className="text-muted-foreground transition group-hover:text-foreground"
+                      />
+                    </div>
                   </div>
                 </a>
               );
