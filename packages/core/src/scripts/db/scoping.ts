@@ -46,7 +46,9 @@ function getUserEmail(): string {
   if (!userEmail || userEmail === DEV_FALLBACK_EMAIL) {
     throw new Error(
       "db-exec / db-query / db-patch require an authenticated user identity. " +
-        "Set AGENT_USER_EMAIL=<email> in the env, or invoke through an HTTP " +
+        "Easiest fix: open the app at http://localhost:3000 and sign in — " +
+        "the CLI then auto-loads your session. Otherwise set " +
+        "AGENT_USER_EMAIL=<email> in the env, or invoke through an HTTP " +
         "action that runs under runWithRequestContext. Refusing to run unscoped — " +
         "an unscoped UPDATE/DELETE would touch every user's rows, and an " +
         "unscoped INSERT would land with the dev sentinel owner and be invisible " +
