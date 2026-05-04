@@ -62,20 +62,7 @@ describe("oauth token store", () => {
     vi.clearAllMocks();
   });
 
-  it("repairs legacy local ownership when the Google account reconnects", async () => {
-    existingOwner = "local@localhost";
-
-    await saveOAuthTokens(
-      "google",
-      "steve@builder.io",
-      { access_token: "new-token" },
-      "steve@builder.io",
-    );
-
-    expect(lastInsert().args[2]).toBe("steve@builder.io");
-  });
-
-  it("still refuses to rebind a Google account owned by a real user", async () => {
+  it("refuses to rebind a Google account owned by a different user", async () => {
     existingOwner = "other@example.com";
 
     await expect(

@@ -20,10 +20,6 @@ vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
 }));
 
-vi.mock("./auth.js", () => ({
-  DEV_MODE_USER_EMAIL: "dev@example.test",
-}));
-
 describe("agent discovery", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -85,7 +81,7 @@ describe("agent discovery", () => {
   });
 
   it("ignores stale hidden first-party remote-agent resources", async () => {
-    resourceListAccessibleMock.mockResolvedValue([
+    resourceListMock.mockResolvedValue([
       { id: "dispatch-resource", path: "remote-agents/dispatch.json" },
       { id: "issues-resource", path: "remote-agents/issues.json" },
       { id: "recruiting-resource", path: "remote-agents/recruiting.json" },
@@ -126,7 +122,7 @@ describe("agent discovery", () => {
   });
 
   it("discovers legacy agents/*.json remote-agent resources", async () => {
-    resourceListAccessibleMock.mockImplementation(
+    resourceListMock.mockImplementation(
       async (_owner: string, prefix: string) => {
         if (prefix === "agents/") {
           return [{ id: "legacy-resource", path: "agents/external-qa.json" }];
@@ -144,14 +140,11 @@ describe("agent discovery", () => {
 
     const agents = await discoverAgents("dispatch");
 
-    expect(resourceListAccessibleMock).toHaveBeenCalledWith(
-      "dev@example.test",
+    expect(resourceListMock).toHaveBeenCalledWith(
+      "__shared__",
       "remote-agents/",
     );
-    expect(resourceListAccessibleMock).toHaveBeenCalledWith(
-      "dev@example.test",
-      "agents/",
-    );
+    expect(resourceListMock).toHaveBeenCalledWith("__shared__", "agents/");
     expect(agents.find((agent) => agent.id === "external-qa")).toMatchObject({
       id: "external-qa",
       name: "External QA",

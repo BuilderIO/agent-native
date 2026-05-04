@@ -18,8 +18,7 @@ vi.mock("./store.js", () => ({
 }));
 
 vi.mock("../server/auth.js", () => ({
-  getSession: vi.fn().mockResolvedValue({ email: "local@localhost" }),
-  DEV_MODE_USER_EMAIL: "local@localhost",
+  getSession: vi.fn().mockResolvedValue({ email: "user@example.com" }),
 }));
 
 let lastStatus = 200;
@@ -53,7 +52,7 @@ describe("application-state handlers", () => {
     vi.clearAllMocks();
     lastStatus = 200;
     vi.mocked(getSession).mockResolvedValue({
-      email: "local@localhost",
+      email: "user@example.com",
     } as any);
   });
 
@@ -64,7 +63,7 @@ describe("application-state handlers", () => {
       const event = { _params: { key: "test!@#$%^&*()" }, _headers: {} };
       await getState(event);
 
-      expect(mockAppStateGet).toHaveBeenCalledWith("local", "test");
+      expect(mockAppStateGet).toHaveBeenCalledWith("user@example.com", "test");
     });
 
     it("preserves alphanumeric, hyphens, and underscores", async () => {
@@ -73,7 +72,10 @@ describe("application-state handlers", () => {
       const event = { _params: { key: "my-key_123" }, _headers: {} };
       await getState(event);
 
-      expect(mockAppStateGet).toHaveBeenCalledWith("local", "my-key_123");
+      expect(mockAppStateGet).toHaveBeenCalledWith(
+        "user@example.com",
+        "my-key_123",
+      );
     });
   });
 
@@ -95,16 +97,6 @@ describe("application-state handlers", () => {
       const result = await getState(event);
 
       expect(result).toBeNull();
-    });
-
-    it("uses 'local' session ID for dev mode (local@localhost)", async () => {
-      mockAppStateGet.mockResolvedValue(null);
-
-      const event = { _params: { key: "test" }, _headers: {} };
-      await getState(event);
-
-      // Session resolves local@localhost → "local"
-      expect(mockAppStateGet).toHaveBeenCalledWith("local", "test");
     });
 
     it("rejects unauthenticated requests instead of sharing local state", async () => {
@@ -132,9 +124,14 @@ describe("application-state handlers", () => {
       };
       const result = await putState(event);
 
-      expect(mockAppStatePut).toHaveBeenCalledWith("local", "user", body, {
-        requestSource: undefined,
-      });
+      expect(mockAppStatePut).toHaveBeenCalledWith(
+        "user@example.com",
+        "user",
+        body,
+        {
+          requestSource: undefined,
+        },
+      );
       expect(result).toEqual(body);
     });
 
@@ -149,7 +146,7 @@ describe("application-state handlers", () => {
       await putState(event);
 
       expect(mockAppStatePut).toHaveBeenCalledWith(
-        "local",
+        "user@example.com",
         "test",
         { v: 1 },
         { requestSource: "tab-1" },
@@ -167,9 +164,13 @@ describe("application-state handlers", () => {
       };
       const result = await deleteState(event);
 
-      expect(mockAppStateDelete).toHaveBeenCalledWith("local", "old", {
-        requestSource: undefined,
-      });
+      expect(mockAppStateDelete).toHaveBeenCalledWith(
+        "user@example.com",
+        "old",
+        {
+          requestSource: undefined,
+        },
+      );
       expect(result).toEqual({ ok: true });
     });
   });
@@ -185,7 +186,10 @@ describe("application-state handlers", () => {
         const event = {};
         const result = await listComposeDrafts(event);
 
-        expect(mockAppStateList).toHaveBeenCalledWith("local", "compose-");
+        expect(mockAppStateList).toHaveBeenCalledWith(
+          "user@example.com",
+          "compose-",
+        );
         expect(result).toEqual([
           { id: "1", subject: "Hello" },
           { id: "2", subject: "World" },
@@ -202,7 +206,7 @@ describe("application-state handlers", () => {
         const result = await getComposeDraft(event);
 
         expect(mockAppStateGet).toHaveBeenCalledWith(
-          "local",
+          "user@example.com",
           "compose-draft-1",
         );
         expect(result).toEqual(draft);
@@ -230,7 +234,7 @@ describe("application-state handlers", () => {
         const result = await putComposeDraft(event);
 
         expect(mockAppStatePut).toHaveBeenCalledWith(
-          "local",
+          "user@example.com",
           "compose-d1",
           { subject: "Hi", body: "Hello there", id: "d1" },
           { requestSource: undefined },
@@ -289,9 +293,13 @@ describe("application-state handlers", () => {
         };
         const result = await deleteComposeDraft(event);
 
-        expect(mockAppStateDelete).toHaveBeenCalledWith("local", "compose-d1", {
-          requestSource: undefined,
-        });
+        expect(mockAppStateDelete).toHaveBeenCalledWith(
+          "user@example.com",
+          "compose-d1",
+          {
+            requestSource: undefined,
+          },
+        );
         expect(result).toEqual({ ok: true });
       });
     });
@@ -304,7 +312,7 @@ describe("application-state handlers", () => {
         const result = await deleteAllComposeDrafts(event);
 
         expect(mockAppStateDeleteByPrefix).toHaveBeenCalledWith(
-          "local",
+          "user@example.com",
           "compose-",
           { requestSource: undefined },
         );

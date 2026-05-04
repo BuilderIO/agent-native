@@ -37,48 +37,6 @@ describe("application-state script-helpers", () => {
   });
 
   describe("session ID resolution", () => {
-    it("falls back to DB session when no AGENT_USER_EMAIL is set", async () => {
-      delete process.env.AGENT_USER_EMAIL;
-      mockDbExecute.mockResolvedValue({ rows: [{ email: "user@test.com" }] });
-
-      const { readAppState } = await import("./script-helpers.js");
-      mockAppStateGet.mockResolvedValue(null);
-
-      await readAppState("key");
-      expect(mockAppStateGet).toHaveBeenCalledWith("user@test.com", "key");
-    });
-
-    it("uses 'local' when no AGENT_USER_EMAIL and no DB session", async () => {
-      delete process.env.AGENT_USER_EMAIL;
-      mockDbExecute.mockResolvedValue({ rows: [] });
-
-      const { readAppState } = await import("./script-helpers.js");
-      mockAppStateGet.mockResolvedValue(null);
-
-      await readAppState("key");
-      expect(mockAppStateGet).toHaveBeenCalledWith("local", "key");
-    });
-
-    it("uses 'local' when no AGENT_USER_EMAIL and DB query fails", async () => {
-      delete process.env.AGENT_USER_EMAIL;
-      mockDbExecute.mockRejectedValue(new Error("no such table"));
-
-      const { readAppState } = await import("./script-helpers.js");
-      mockAppStateGet.mockResolvedValue(null);
-
-      await readAppState("key");
-      expect(mockAppStateGet).toHaveBeenCalledWith("local", "key");
-    });
-
-    it("uses 'local' when AGENT_USER_EMAIL is local@localhost", async () => {
-      process.env.AGENT_USER_EMAIL = "local@localhost";
-      const { readAppState } = await import("./script-helpers.js");
-      mockAppStateGet.mockResolvedValue(null);
-
-      await readAppState("key");
-      expect(mockAppStateGet).toHaveBeenCalledWith("local", "key");
-    });
-
     it("uses email as session ID when AGENT_USER_EMAIL is set", async () => {
       process.env.AGENT_USER_EMAIL = "alice@test.com";
 
@@ -89,45 +47,55 @@ describe("application-state script-helpers", () => {
       expect(mockAppStateGet).toHaveBeenCalledWith("alice@test.com", "key");
     });
 
-    it("does not fall back to stale env or DB identity inside an unauthenticated request context", async () => {
+    it("throws when no AGENT_USER_EMAIL and no request context", async () => {
+      delete process.env.AGENT_USER_EMAIL;
+
+      const { readAppState } = await import("./script-helpers.js");
+      mockAppStateGet.mockResolvedValue(null);
+
+      await expect(readAppState("key")).rejects.toThrow(
+        "Application state access requires an authenticated request context or AGENT_USER_EMAIL env var",
+      );
+      expect(mockAppStateGet).not.toHaveBeenCalled();
+    });
+
+    it("prefers request-context email over AGENT_USER_EMAIL env var", async () => {
       process.env.AGENT_USER_EMAIL = "stale@test.com";
-      mockDbExecute.mockResolvedValue({ rows: [{ email: "latest@test.com" }] });
 
       const { readAppState } = await import("./script-helpers.js");
       const { runWithRequestContext } =
         await import("../server/request-context.js");
+      mockAppStateGet.mockResolvedValue(null);
 
-      await expect(
-        runWithRequestContext({ userEmail: undefined }, () =>
-          readAppState("key"),
-        ),
-      ).rejects.toThrow("authenticated request context");
-      expect(mockAppStateGet).not.toHaveBeenCalled();
+      await runWithRequestContext({ userEmail: "fresh@test.com" }, () =>
+        readAppState("key"),
+      );
+      expect(mockAppStateGet).toHaveBeenCalledWith("fresh@test.com", "key");
     });
   });
 
   describe("readAppState", () => {
     it("delegates to appStateGet with resolved session ID", async () => {
-      process.env.AGENT_USER_EMAIL = "local@localhost";
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
       const { readAppState } = await import("./script-helpers.js");
       const value = { data: "test" };
       mockAppStateGet.mockResolvedValue(value);
 
       const result = await readAppState("my-key");
       expect(result).toEqual(value);
-      expect(mockAppStateGet).toHaveBeenCalledWith("local", "my-key");
+      expect(mockAppStateGet).toHaveBeenCalledWith("alice@test.com", "my-key");
     });
   });
 
   describe("writeAppState", () => {
     it("delegates to appStatePut", async () => {
-      process.env.AGENT_USER_EMAIL = "local@localhost";
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
       const { writeAppState } = await import("./script-helpers.js");
       mockAppStatePut.mockResolvedValue(undefined);
 
       await writeAppState("key", { foo: "bar" });
       expect(mockAppStatePut).toHaveBeenCalledWith(
-        "local",
+        "alice@test.com",
         "key",
         {
           foo: "bar",
@@ -139,13 +107,13 @@ describe("application-state script-helpers", () => {
 
   describe("deleteAppState", () => {
     it("delegates to appStateDelete", async () => {
-      process.env.AGENT_USER_EMAIL = "local@localhost";
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
       const { deleteAppState } = await import("./script-helpers.js");
       mockAppStateDelete.mockResolvedValue(true);
 
       const result = await deleteAppState("key");
       expect(result).toBe(true);
-      expect(mockAppStateDelete).toHaveBeenCalledWith("local", "key", {
+      expect(mockAppStateDelete).toHaveBeenCalledWith("alice@test.com", "key", {
         requestSource: "agent",
       });
     });
@@ -153,27 +121,30 @@ describe("application-state script-helpers", () => {
 
   describe("listAppState", () => {
     it("delegates to appStateList with prefix", async () => {
-      process.env.AGENT_USER_EMAIL = "local@localhost";
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
       const { listAppState } = await import("./script-helpers.js");
       const items = [{ key: "compose-1", value: { text: "hi" } }];
       mockAppStateList.mockResolvedValue(items);
 
       const result = await listAppState("compose-");
       expect(result).toEqual(items);
-      expect(mockAppStateList).toHaveBeenCalledWith("local", "compose-");
+      expect(mockAppStateList).toHaveBeenCalledWith(
+        "alice@test.com",
+        "compose-",
+      );
     });
   });
 
   describe("deleteAppStateByPrefix", () => {
     it("delegates to appStateDeleteByPrefix", async () => {
-      process.env.AGENT_USER_EMAIL = "local@localhost";
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
       const { deleteAppStateByPrefix } = await import("./script-helpers.js");
       mockAppStateDeleteByPrefix.mockResolvedValue(3);
 
       const result = await deleteAppStateByPrefix("compose-");
       expect(result).toBe(3);
       expect(mockAppStateDeleteByPrefix).toHaveBeenCalledWith(
-        "local",
+        "alice@test.com",
         "compose-",
         { requestSource: "agent" },
       );

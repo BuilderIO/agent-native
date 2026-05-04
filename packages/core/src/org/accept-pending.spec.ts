@@ -25,12 +25,6 @@ describe("acceptPendingInvitationsForEmail", () => {
     mockExecute.mockResolvedValue({ rows: [] });
   });
 
-  it("returns empty for local@localhost", async () => {
-    const out = await acceptPendingInvitationsForEmail("local@localhost");
-    expect(out).toEqual({ accepted: [], activeOrgId: null });
-    expect(mockExecute).not.toHaveBeenCalled();
-  });
-
   it("returns empty when no pending invitations", async () => {
     queueSelect([]);
     const out = await acceptPendingInvitationsForEmail("new@example.com");

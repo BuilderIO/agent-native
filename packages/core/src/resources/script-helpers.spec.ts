@@ -48,27 +48,12 @@ describe("resources script-helpers", () => {
       );
     });
 
-    it("defaults to local@localhost when no AGENT_USER_EMAIL", async () => {
+    it("throws when no AGENT_USER_EMAIL and no request context", async () => {
       delete process.env.AGENT_USER_EMAIL;
-      mockResourceGetByPath.mockResolvedValue(null);
 
-      await readResource("file.md");
-      expect(mockResourceGetByPath).toHaveBeenCalledWith(
-        "local@localhost",
-        "file.md",
+      await expect(readResource("file.md")).rejects.toThrow(
+        "Resource access requires an authenticated request context or AGENT_USER_EMAIL env var",
       );
-    });
-
-    it("does not fall back to stale env identity inside an unauthenticated request context", async () => {
-      process.env.AGENT_USER_EMAIL = "stale@test.com";
-      const { runWithRequestContext } =
-        await import("../server/request-context.js");
-
-      await expect(
-        runWithRequestContext({ userEmail: undefined }, () =>
-          readResource("file.md"),
-        ),
-      ).rejects.toThrow("authenticated request context");
       expect(mockResourceGetByPath).not.toHaveBeenCalled();
     });
 
@@ -86,7 +71,7 @@ describe("resources script-helpers", () => {
 
   describe("readResource", () => {
     it("returns content when resource exists", async () => {
-      delete process.env.AGENT_USER_EMAIL;
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
       mockResourceGetByPath.mockResolvedValue({
         content: "# Hello",
         path: "README.md",
@@ -97,7 +82,7 @@ describe("resources script-helpers", () => {
     });
 
     it("returns null when resource does not exist", async () => {
-      delete process.env.AGENT_USER_EMAIL;
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
       mockResourceGetByPath.mockResolvedValue(null);
 
       const result = await readResource("nonexist.md");
@@ -107,12 +92,12 @@ describe("resources script-helpers", () => {
 
   describe("writeResource", () => {
     it("writes content to the correct owner and path", async () => {
-      delete process.env.AGENT_USER_EMAIL;
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
       mockResourcePut.mockResolvedValue({});
 
       await writeResource("notes.md", "# Notes");
       expect(mockResourcePut).toHaveBeenCalledWith(
-        "local@localhost",
+        "alice@test.com",
         "notes.md",
         "# Notes",
         undefined,
@@ -120,14 +105,14 @@ describe("resources script-helpers", () => {
     });
 
     it("passes mimeType option", async () => {
-      delete process.env.AGENT_USER_EMAIL;
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
       mockResourcePut.mockResolvedValue({});
 
       await writeResource("data.json", '{"a":1}', {
         mimeType: "application/json",
       });
       expect(mockResourcePut).toHaveBeenCalledWith(
-        "local@localhost",
+        "alice@test.com",
         "data.json",
         '{"a":1}',
         "application/json",
@@ -150,19 +135,19 @@ describe("resources script-helpers", () => {
 
   describe("deleteResource", () => {
     it("deletes a resource by path", async () => {
-      delete process.env.AGENT_USER_EMAIL;
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
       mockResourceDeleteByPath.mockResolvedValue(true);
 
       const result = await deleteResource("old.md");
       expect(result).toBe(true);
       expect(mockResourceDeleteByPath).toHaveBeenCalledWith(
-        "local@localhost",
+        "alice@test.com",
         "old.md",
       );
     });
 
     it("returns false when resource does not exist", async () => {
-      delete process.env.AGENT_USER_EMAIL;
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
       mockResourceDeleteByPath.mockResolvedValue(false);
 
       const result = await deleteResource("nope.md");
@@ -184,12 +169,12 @@ describe("resources script-helpers", () => {
     });
 
     it("filters by prefix", async () => {
-      delete process.env.AGENT_USER_EMAIL;
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
       mockResourceList.mockResolvedValue([]);
 
       await listResources("skills/");
       expect(mockResourceList).toHaveBeenCalledWith(
-        "local@localhost",
+        "alice@test.com",
         "skills/",
       );
     });
@@ -230,15 +215,13 @@ describe("resources script-helpers", () => {
       );
     });
 
-    it("defaults to local@localhost when no AGENT_USER_EMAIL", async () => {
+    it("throws when no AGENT_USER_EMAIL and no request context", async () => {
       delete process.env.AGENT_USER_EMAIL;
-      mockResourceListAccessible.mockResolvedValue([]);
 
-      await listAllResources();
-      expect(mockResourceListAccessible).toHaveBeenCalledWith(
-        "local@localhost",
-        undefined,
+      await expect(listAllResources()).rejects.toThrow(
+        "Resource access requires an authenticated request context or AGENT_USER_EMAIL env var",
       );
+      expect(mockResourceListAccessible).not.toHaveBeenCalled();
     });
   });
 });
