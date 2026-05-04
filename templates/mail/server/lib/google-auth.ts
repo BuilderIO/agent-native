@@ -1129,8 +1129,16 @@ async function fetchAccountThreads(
       }
       return fetchThreadMessagesForIds(accessToken, email, threadIds, format);
     }
+    // Cache miss — the synthetic token was minted on a different process or
+    // the entry was evicted. Returning [] would silently end pagination.
+    // Fall through to a fresh first-page fetch instead so the user sees real
+    // results; we drop the historyId-sorted candidate window since we no
+    // longer have its bounds. Worst case: page 2 onwards repeats some of
+    // page 1, which is far better than a blank list on a serverless cold
+    // container.
     threadCandidatePageCache.delete(cachedCandidatePage.key);
-    return [];
+    pageToken = undefined;
+    candidateLimit = undefined;
   }
 
   const useCandidateWindow =

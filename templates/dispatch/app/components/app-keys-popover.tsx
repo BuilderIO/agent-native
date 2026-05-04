@@ -98,6 +98,20 @@ function AppKeysPanel({ appId, appName }: { appId: string; appName: string }) {
     return map;
   }, [grants]);
 
+  // Track per-secret pending state so a fast double-click on the same row
+  // can't queue two `create-vault-grant` requests (which would silently
+  // create duplicate active grants — a later revoke only clears one).
+  const [pendingSecretIds, setPendingSecretIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const markPending = (secretId: string, pending: boolean) =>
+    setPendingSecretIds((prev) => {
+      const next = new Set(prev);
+      if (pending) next.add(secretId);
+      else next.delete(secretId);
+      return next;
+    });
+
   const grantMutation = useActionMutation("create-vault-grant", {
     onSuccess: () => refetchGrants(),
     onError: (err) => toast.error(`Could not grant: ${String(err)}`),
@@ -125,11 +139,14 @@ function AppKeysPanel({ appId, appName }: { appId: string; appName: string }) {
   const typedSecrets = secrets as VaultSecret[];
 
   const toggleSecret = (secret: VaultSecret) => {
+    if (pendingSecretIds.has(secret.id)) return;
     const existing = grantBySecretId.get(secret.id);
+    markPending(secret.id, true);
+    const onSettled = () => markPending(secret.id, false);
     if (existing) {
-      revokeMutation.mutate({ grantId: existing.id });
+      revokeMutation.mutate({ grantId: existing.id }, { onSettled });
     } else {
-      grantMutation.mutate({ secretId: secret.id, appId });
+      grantMutation.mutate({ secretId: secret.id, appId }, { onSettled });
     }
   };
 
@@ -171,13 +188,17 @@ function AppKeysPanel({ appId, appName }: { appId: string; appName: string }) {
         ) : (
           typedSecrets.map((secret) => {
             const granted = grantBySecretId.has(secret.id);
+            const pending = pendingSecretIds.has(secret.id);
             return (
               <button
                 key={secret.id}
                 type="button"
                 aria-pressed={granted}
+                disabled={pending}
                 onClick={() => toggleSecret(secret)}
-                className={`flex w-full cursor-pointer items-start gap-3 rounded-md px-2.5 py-2 text-left text-sm ${
+                className={`flex w-full items-start gap-3 rounded-md px-2.5 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-60 ${
+                  pending ? "" : "cursor-pointer"
+                } ${
                   granted
                     ? "border border-primary/45 bg-primary/5"
                     : "border border-transparent hover:border-muted-foreground/30 hover:bg-accent/35"
