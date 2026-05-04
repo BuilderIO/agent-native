@@ -75,8 +75,6 @@ export default function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isHome = useLocation().pathname === "/";
   const [scrolled, setScrolled] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     if (!isHome) return;
@@ -133,7 +131,7 @@ export default function Header() {
           </Link>
 
           {/* Desktop nav links */}
-          <div className="hidden sm:flex items-center gap-5 text-sm">
+          <div className="hidden lg:flex items-center gap-5 text-sm">
             <NavLink
               prefetch="render"
               to="/docs"
@@ -186,14 +184,12 @@ export default function Header() {
           </div>
 
           <div className="ml-auto flex items-center gap-3">
-            {mounted && (
-              <FeedbackButton
-                variant="outlined"
-                className="hidden sm:flex border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
-                align="end"
-                side="bottom"
-              />
-            )}
+            <FeedbackButton
+              variant="outlined"
+              className="hidden lg:flex border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
+              align="end"
+              side="bottom"
+            />
             <SearchTrigger onClick={() => setOpen(true)} />
             <ThemeToggle />
             <button
