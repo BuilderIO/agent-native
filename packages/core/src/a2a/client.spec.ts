@@ -233,6 +233,46 @@ describe("A2AClient", () => {
       jose.jwtVerify(token, new TextEncoder().encode("org-a2a-secret")),
     ).rejects.toThrow();
   });
+
+  it("auto-signs delegated calls with the org secret when one is available", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    let bearerToken = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (!init) return new Response("not found", { status: 404 });
+        bearerToken = String(
+          new Headers(init.headers).get("authorization") ?? "",
+        ).replace(/^Bearer\s+/i, "");
+        const body = JSON.parse(String(init.body));
+        return completedResponse(body, "signed with org secret");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        async: false,
+        userEmail: "alice+qa@agent-native.test",
+        orgDomain: "builder.io",
+        orgSecret: "org-a2a-secret",
+      }),
+    ).resolves.toBe("signed with org secret");
+
+    await expect(
+      jose.jwtVerify(bearerToken, new TextEncoder().encode("org-a2a-secret")),
+    ).resolves.toMatchObject({
+      payload: {
+        sub: "alice+qa@agent-native.test",
+        org_domain: "builder.io",
+      },
+    });
+    await expect(
+      jose.jwtVerify(
+        bearerToken,
+        new TextEncoder().encode("global-a2a-secret"),
+      ),
+    ).rejects.toThrow();
+  });
 });
 
 function completedResponse(body: any, text: string): Response {

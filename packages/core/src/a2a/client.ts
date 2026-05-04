@@ -469,7 +469,7 @@ export async function callAgent(
         opts.userEmail,
         opts.orgDomain,
         opts.orgSecret,
-        { preferGlobalSecret: true },
+        { preferGlobalSecret: !opts.orgSecret },
       );
     } catch {
       // Fall back to unsigned call
