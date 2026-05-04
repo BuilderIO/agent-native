@@ -1,10 +1,6 @@
 import { createGetDb } from "@agent-native/core/db";
-import * as schema from "./schema.js";
+import { schema } from "@agent-native/dispatch/db";
 
 export const getDb = createGetDb(schema);
-
-export function db() {
-  return getDb();
-}
 
 export { schema };

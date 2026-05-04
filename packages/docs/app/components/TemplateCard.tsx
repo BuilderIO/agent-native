@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router";
+import { IconBook2, IconTerminal2 } from "@tabler/icons-react";
 import { trackEvent } from "@agent-native/core/client";
 
 export { trackEvent };
@@ -289,37 +290,37 @@ function TemplateLaunchButton({ template }: { template: Template }) {
           Try It
         </a>
       )}
-      <button
-        ref={buttonRef}
-        onClick={() => {
-          if (!showCli)
-            trackEvent("click run locally", {
+      <div className="flex gap-2">
+        <button
+          ref={buttonRef}
+          onClick={() => {
+            if (!showCli)
+              trackEvent("click run locally", {
+                template: template.slug,
+                location: "card",
+              });
+            setShowCli(!showCli);
+          }}
+          className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
+        >
+          <IconTerminal2 size={14} stroke={2} />
+          Run Locally
+        </button>
+        <Link
+          prefetch="render"
+          to={`/templates/${template.slug}`}
+          onClick={() =>
+            trackEvent("click view docs", {
               template: template.slug,
               location: "card",
-            });
-          setShowCli(!showCli);
-        }}
-        className={
-          hasDemoUrl
-            ? "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
-            : "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
-        }
-      >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+            })
+          }
+          className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
         >
-          <polyline points="4 17 10 11 4 5" />
-          <line x1="12" y1="19" x2="20" y2="19" />
-        </svg>
-        Run Locally
-      </button>
+          <IconBook2 size={14} stroke={2} />
+          View Docs
+        </Link>
+      </div>
       {showCli && (
         <CliPopover
           template={template}

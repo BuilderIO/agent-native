@@ -8,6 +8,7 @@ on:
       - "packages/desktop-app/package.json"
       - "packages/scheduling/package.json"
       - "packages/pinpoint/package.json"
+      - "packages/dispatch/package.json"
   workflow_dispatch:
     inputs:
       version_bump:
@@ -115,6 +116,7 @@ jobs:
       desktop-changed: ${{ steps.check.outputs.desktop-changed }}
       scheduling-changed: ${{ steps.check.outputs.scheduling-changed }}
       pinpoint-changed: ${{ steps.check.outputs.pinpoint-changed }}
+      dispatch-changed: ${{ steps.check.outputs.dispatch-changed }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -145,6 +147,7 @@ jobs:
           check_pkg desktop packages/desktop-app
           check_pkg scheduling packages/scheduling
           check_pkg pinpoint packages/pinpoint
+          check_pkg dispatch packages/dispatch
 
   publish-core:
     name: Publish @agent-native/core
@@ -311,6 +314,62 @@ jobs:
 
       - name: Publish to npm
         working-directory: packages/pinpoint
+        # See note in publish-scheduling — pnpm publish handles workspace:*
+        # rewriting that npm publish doesn't.
+        run: pnpm publish --access public --provenance --no-git-checks
+
+  publish-dispatch:
+    name: Publish @agent-native/dispatch
+    needs: detect-changes
+    if: needs.detect-changes.outputs.dispatch-changed == 'true'
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build dispatch package
+        run: pnpm --filter @agent-native/dispatch build
+
+      - name: Run tests
+        run: pnpm --filter @agent-native/dispatch test
+
+      - name: Tag release
+        working-directory: packages/dispatch
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git rev-parse "dispatch-v${VERSION}" >/dev/null 2>&1; then
+            echo "Tag dispatch-v${VERSION} already exists, skipping"
+          else
+            git tag "dispatch-v${VERSION}"
+            git push origin "dispatch-v${VERSION}"
+          fi
+
+      - name: Publish to npm
+        working-directory: packages/dispatch
         # See note in publish-scheduling — pnpm publish handles workspace:*
         # rewriting that npm publish doesn't.
         run: pnpm publish --access public --provenance --no-git-checks

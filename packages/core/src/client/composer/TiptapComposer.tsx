@@ -198,6 +198,8 @@ interface TiptapComposerProps {
     references: Reference[],
     attachments?: ReadonlyArray<unknown>,
   ) => void;
+  /** Called whenever the plain editor text changes. */
+  onTextChange?: (text: string) => void;
   /** Custom action button (e.g. stop button) to render instead of the default send button. */
   actionButton?: React.ReactNode;
   /** Extra button to render alongside the default send button (e.g. stop while running). */
@@ -649,6 +651,7 @@ export function TiptapComposer({
   disabled = false,
   focusRef,
   onSubmit,
+  onTextChange,
   actionButton,
   extraActionButton,
   attachButton,
@@ -726,6 +729,8 @@ export function TiptapComposer({
   filteredSkillsRef.current = filteredSkills;
   const onSlashCommandRef = useRef(onSlashCommand);
   onSlashCommandRef.current = onSlashCommand;
+  const onTextChangeRef = useRef(onTextChange);
+  onTextChangeRef.current = onTextChange;
 
   const closePopover = useCallback(() => {
     setPopover(null);
@@ -778,6 +783,7 @@ export function TiptapComposer({
           ed.commands.focus("end");
           setEditorHasText(ed.state.doc.textContent.trim().length > 0);
         }
+        onTextChangeRef.current?.(ed.state.doc.textContent.trim());
       } catch {}
     },
     onUpdate: ({ editor: ed }) => {
@@ -798,6 +804,7 @@ export function TiptapComposer({
         });
       }
       setEditorHasText(hasContent);
+      onTextChangeRef.current?.(ed.state.doc.textContent.trim());
 
       // Debounce-save draft to localStorage
       clearTimeout(draftTimerRef.current);
