@@ -718,10 +718,28 @@ function extractRecoverableA2AArtifactToolResult(
 function isQueuedA2AContinuationDeferral(text: string): boolean {
   const normalized = text.replace(/\s+/g, " ").trim();
   if (!normalized) return true;
+  if (hasSubstantiveA2APartialAnswer(text)) return false;
   if (normalized.includes(A2A_CONTINUATION_QUEUED_MARKER)) return true;
   return /\b(?:still (?:working|processing)|is working on|taking longer than expected|will (?:post|update|surface|show up)|(?:it'?ll|it will|the result will|the final result will) (?:post|be posted|update|be updated|surface|show up)|will be (?:posted|updated|sent|shared)|final result when it finishes|while you wait|as soon as (?:it|it'?s|it is|the result|the artifact) (?:comes back|is ready|ready)|hang tight|relay from the .* agent)\b/i.test(
     normalized,
   );
+}
+
+function hasSubstantiveA2APartialAnswer(text: string): boolean {
+  const withoutMarker = text
+    .replaceAll(A2A_CONTINUATION_QUEUED_MARKER, "")
+    .trim();
+  if (!withoutMarker) return false;
+  if (/https?:\/\//i.test(withoutMarker)) return true;
+  if (/\|\s*[-:]+\s*\|/.test(withoutMarker)) return true;
+  if (
+    /\b(?:page\s*views?|unique\s+visitors?|dashboard|artifact id|document id|deck id|source|query|bigquery|created successfully)\b/i.test(
+      withoutMarker,
+    )
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**
