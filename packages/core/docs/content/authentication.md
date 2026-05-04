@@ -12,13 +12,14 @@ Agent-native apps use [Better Auth](https://better-auth.com) for authentication 
 Auth is configured automatically via `autoMountAuth(app)` in the auth server plugin. The behavior depends on your environment:
 
 - **Default:** Better Auth with email/password + social providers. Onboarding page shown on first visit.
-- **`AUTH_MODE=local`:** No auth. Solo local development with `local@localhost` identity.
 - **`ACCESS_TOKEN`:** Simple shared token for production.
 - **Custom:** Bring your own auth via `getSession` callback.
 
+Local development uses the same Better Auth flow as production — there is no dev-mode shim. The first time you load a template, you'll be sent to the onboarding page to create an account. Email verification is skipped by default in development (and when no email provider is configured), so signup is just an email + password.
+
 ## Better Auth (Default) {#better-auth}
 
-When no `ACCESS_TOKEN` or `AUTH_MODE=local` is set, Better Auth powers authentication. It provides:
+When no `ACCESS_TOKEN` is set, Better Auth powers authentication. It provides:
 
 - Email/password registration and login
 - Social providers (Google, GitHub, and 35+ others)
@@ -32,23 +33,6 @@ Better Auth routes are mounted at `/_agent-native/auth/ba/*`. The framework also
 - `POST /_agent-native/auth/login` — email/password or token login
 - `POST /_agent-native/auth/register` — create account
 - `POST /_agent-native/auth/logout` — sign out
-
-## Development Mode {#dev-mode}
-
-In development (`NODE_ENV=development`), auth is automatically bypassed. If no other auth method succeeds (no account, no token), `getSession()` returns `{ email: "local@localhost" }` so you can use the app immediately without any configuration.
-
-This means you can run any template app locally and start using it right away — no account creation, no environment variables needed.
-
-## Local Mode {#local-mode}
-
-For explicit no-auth in local development, set `AUTH_MODE=local` in your local shell or `.env` file. This returns `{ email: "local@localhost" }` for all requests, skipping all other auth checks.
-
-```bash
-# .env
-AUTH_MODE=local
-```
-
-To switch back to real auth, remove the line from `.env` and restart the dev server. The old `.agent-native/auth-mode` marker file is no longer read or generated.
 
 ## QA Accounts {#qa-accounts}
 
@@ -222,7 +206,6 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 
 | Variable                       | Purpose                                                                                                                           |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| `AUTH_MODE`                    | Set to `local` to disable auth                                                                                                    |
 | `BETTER_AUTH_SECRET`           | Signing key for Better Auth (auto-generated if not set)                                                                           |
 | `AUTH_SKIP_EMAIL_VERIFICATION` | Set to `1` in QA/preview environments to let email/password signups proceed without verification; local dev/test skips by default |
 | `GOOGLE_CLIENT_ID`             | Enable Google OAuth                                                                                                               |
