@@ -497,6 +497,68 @@ type ListOptions = {
 const LIST_CACHE_TTL = 20_000;
 const listCache = new Map<string, { result: ListResult; expiresAt: number }>();
 const listInflight = new Map<string, Promise<ListResult>>();
+const THREAD_CANDIDATE_PAGE_TTL = 5 * 60 * 1000;
+const THREAD_CANDIDATE_PAGE_MAX = 100;
+const THREAD_CANDIDATE_PAGE_PREFIX = "__an_thread_candidates__:";
+const threadCandidatePageCache = new Map<
+  string,
+  {
+    email: string;
+    ids: string[];
+    nextPageToken?: string;
+    expiresAt: number;
+    updatedAt: number;
+  }
+>();
+
+function evictThreadCandidatePageCache() {
+  const now = Date.now();
+  for (const [key, entry] of threadCandidatePageCache) {
+    if (entry.expiresAt <= now) threadCandidatePageCache.delete(key);
+  }
+  if (threadCandidatePageCache.size <= THREAD_CANDIDATE_PAGE_MAX) return;
+  const entries = Array.from(threadCandidatePageCache.entries()).sort(
+    (a, b) => a[1].updatedAt - b[1].updatedAt,
+  );
+  const toDrop = entries.length - THREAD_CANDIDATE_PAGE_MAX;
+  for (let i = 0; i < toDrop; i++) {
+    threadCandidatePageCache.delete(entries[i][0]);
+  }
+}
+
+function makeThreadCandidatePageToken(key: string, offset: number): string {
+  return `${THREAD_CANDIDATE_PAGE_PREFIX}${key}:${offset}`;
+}
+
+function parseThreadCandidatePageToken(
+  pageToken: string | undefined,
+): { key: string; offset: number } | null {
+  if (!pageToken?.startsWith(THREAD_CANDIDATE_PAGE_PREFIX)) return null;
+  const rest = pageToken.slice(THREAD_CANDIDATE_PAGE_PREFIX.length);
+  const idx = rest.lastIndexOf(":");
+  if (idx <= 0) return null;
+  const key = rest.slice(0, idx);
+  const offset = Number(rest.slice(idx + 1));
+  if (!Number.isFinite(offset) || offset < 0) return null;
+  return { key, offset };
+}
+
+function storeThreadCandidatePage(
+  email: string,
+  ids: string[],
+  nextPageToken: string | undefined,
+): string {
+  evictThreadCandidatePageCache();
+  const key = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  threadCandidatePageCache.set(key, {
+    email,
+    ids,
+    nextPageToken,
+    expiresAt: Date.now() + THREAD_CANDIDATE_PAGE_TTL,
+    updatedAt: Date.now(),
+  });
+  return key;
+}
 
 function listCacheKey(
   query: string | undefined,
@@ -1048,8 +1110,33 @@ async function fetchAccountThreads(
   onNextPageToken: (token: string) => void,
   onEstimate: (n: number) => void,
 ): Promise<any[]> {
+  const cachedCandidatePage = parseThreadCandidatePageToken(pageToken);
+  if (cachedCandidatePage) {
+    const cached = threadCandidatePageCache.get(cachedCandidatePage.key);
+    if (cached && cached.email === email && cached.expiresAt > Date.now()) {
+      cached.updatedAt = Date.now();
+      const nextOffset = cachedCandidatePage.offset + maxResults;
+      const threadIds = cached.ids.slice(
+        cachedCandidatePage.offset,
+        nextOffset,
+      );
+      if (nextOffset < cached.ids.length) {
+        onNextPageToken(
+          makeThreadCandidatePageToken(cachedCandidatePage.key, nextOffset),
+        );
+      } else if (cached.nextPageToken) {
+        onNextPageToken(cached.nextPageToken);
+      }
+      return fetchThreadMessagesForIds(accessToken, email, threadIds, format);
+    }
+    threadCandidatePageCache.delete(cachedCandidatePage.key);
+    return [];
+  }
+
+  const useCandidateWindow =
+    !pageToken && candidateLimit && candidateLimit > maxResults;
   const listMaxResults =
-    !pageToken && candidateLimit
+    useCandidateWindow && candidateLimit
       ? Math.min(Math.max(candidateLimit, maxResults), 500)
       : maxResults;
   const listRes = await gmailListThreads(accessToken, {
@@ -1059,15 +1146,9 @@ async function fetchAccountThreads(
   });
 
   onEstimate(listRes.resultSizeEstimate || 0);
-  if (listRes.nextPageToken) onNextPageToken(listRes.nextPageToken);
 
   const threadStubs = listRes.threads || [];
-  if (
-    !pageToken &&
-    candidateLimit &&
-    candidateLimit > maxResults &&
-    threadStubs.some((t: any) => t.historyId)
-  ) {
+  if (useCandidateWindow && threadStubs.some((t: any) => t.historyId)) {
     threadStubs.sort((a: any, b: any) => {
       try {
         const ah = BigInt(a.historyId || 0);
@@ -1079,10 +1160,30 @@ async function fetchAccountThreads(
     });
   }
 
-  const threadIds = threadStubs
-    .slice(0, maxResults)
-    .map((t: any) => t.id)
-    .filter(Boolean);
+  const candidateIds = threadStubs.map((t: any) => t.id).filter(Boolean);
+  const threadIds = candidateIds.slice(0, maxResults);
+  if (threadIds.length === 0) return [];
+
+  if (useCandidateWindow && candidateIds.length > maxResults) {
+    const key = storeThreadCandidatePage(
+      email,
+      candidateIds,
+      listRes.nextPageToken,
+    );
+    onNextPageToken(makeThreadCandidatePageToken(key, maxResults));
+  } else if (listRes.nextPageToken) {
+    onNextPageToken(listRes.nextPageToken);
+  }
+
+  return fetchThreadMessagesForIds(accessToken, email, threadIds, format);
+}
+
+async function fetchThreadMessagesForIds(
+  accessToken: string,
+  email: string,
+  threadIds: string[],
+  format: "full" | "metadata" | "minimal",
+): Promise<any[]> {
   if (threadIds.length === 0) return [];
 
   const batchResults = await gmailBatchGetThreads(
