@@ -1490,7 +1490,9 @@ The \`call-agent\` tool sends a message to a DIFFERENT, separately-deployed app'
 
 **ONLY use \`call-agent\` when:**
 - The user explicitly asks you to communicate with a different app
-- You need data that only another deployed app can provide`,
+- You need data that only another deployed app can provide
+
+If \`call-agent\` says a downstream agent accepted the subtask and will post its result separately, do not call that same agent again for the same subtask. Continue any remaining work and answer with the completed results you have.`,
 
   memory: `### Structured Memory
 
@@ -1672,6 +1674,7 @@ The \`call-agent\` tool sends a message to a DIFFERENT, separately-deployed app'
 - You are coordinating across genuinely separate apps
 
 If \`call-agent\` returns an error saying the agent is yourself — stop and use your own tools instead.
+If \`call-agent\` says a downstream agent accepted a subtask and will post its result separately, do not call that same agent again for the same subtask. Continue any remaining work and answer with the completed results you have.
 
 ### Structured Memory
 

@@ -718,6 +718,48 @@ describe("integration webhook handler engine resolution", () => {
     );
   });
 
+  it("sends substantive partial answers even when one A2A continuation will post separately", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { A2A_CONTINUATION_QUEUED_MARKER } =
+      await import("./a2a-continuation-marker.js");
+    const sendResponse = vi.fn();
+    const partialAnswer =
+      "Analytics completed: 259,850 page views and 9,337 unique visitors from BigQuery. " +
+      "Content page was created successfully with document id abc123. " +
+      "Slides will post its result separately.";
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_start",
+        tool: "call-agent",
+        input: { agent: "slides", message: "create deck" },
+      });
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result: `${A2A_CONTINUATION_QUEUED_MARKER}\nThe Slides agent accepted this delegated subtask and will post its own final result.`,
+      });
+      send({
+        type: "text",
+        text: partialAnswer,
+      });
+    });
+
+    await processIntegrationTask(pendingTask({ id: "task-partial-final" }), {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: "dispatch+qa@integration.local",
+    });
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ text: partialAnswer }),
+      expect.any(Object),
+      expect.objectContaining({ placeholderRef: undefined }),
+    );
+  });
+
   it("sends verified recoverable A2A artifact tool results when no final text is emitted", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const sendResponse = vi.fn();

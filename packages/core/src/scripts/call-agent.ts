@@ -250,7 +250,10 @@ export async function run(
             callerEmail,
           );
           if (queued) {
-            responseText = `${A2A_CONTINUATION_QUEUED_MARKER}\nThe ${agent.name} agent is still working. Do not send an interim reply to the user; the final result will be posted to the originating integration thread automatically.`;
+            responseText =
+              `${A2A_CONTINUATION_QUEUED_MARKER}\n` +
+              `The ${agent.name} agent accepted this delegated subtask and will post its own final result to the originating integration thread automatically. ` +
+              `Do not call ${agent.name} again for this same subtask. Continue any other requested work, then answer with the completed results you have; if needed, mention that ${agent.name} is posting its result separately.`;
           } else {
             const reason = pollErr?.message ?? "unknown error";
             responseText = `The ${agent.name} agent is taking longer than expected and didn't reply in time. (${reason})`;

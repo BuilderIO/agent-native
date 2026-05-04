@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.7.74",
+  "version": "0.7.75",
   "type": "module",
   "description": "Framework for agent-native application development — where AI agents and UI share state via files",
   "license": "MIT",
