@@ -13,6 +13,11 @@ description: How to create a new deck with slides from scratch. Read this before
 2. Call `create-deck` action with all slides in one shot
 3. Navigate to the new deck
 
+If the user provides a Google Docs URL as source material, call
+`import-google-doc --url <url>` first and build from the returned text. If the
+action cannot read a private document, relay its sharing instructions instead
+of generating from the URL alone.
+
 ```bash
 pnpm action create-deck --title "My Deck" --slides '[
   { "id": "slide-1", "layout": "title", "content": "..." },

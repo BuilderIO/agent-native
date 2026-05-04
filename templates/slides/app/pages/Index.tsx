@@ -12,6 +12,7 @@ import {
   useSetPageTitle,
 } from "@/components/layout/HeaderActions";
 import { agentNativePath } from "@agent-native/core/client";
+import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,6 +25,28 @@ import {
 } from "@/components/ui/alert-dialog";
 
 import { Button } from "@/components/ui/button";
+
+const MAX_SOURCE_CONTEXT_CHARS = 60_000;
+
+function summarizePromptForChat(prompt: string): string {
+  const singleLine = prompt.trim().replace(/\s+/g, " ");
+  if (!singleLine) return "new deck";
+  if (singleLine.length <= 180) return singleLine;
+  return `${singleLine.slice(0, 177)}...`;
+}
+
+function truncateSourceForContext(prompt: string): {
+  text: string;
+  truncated: boolean;
+} {
+  if (prompt.length <= MAX_SOURCE_CONTEXT_CHARS) {
+    return { text: prompt, truncated: false };
+  }
+  return {
+    text: prompt.slice(0, MAX_SOURCE_CONTEXT_CHARS),
+    truncated: true,
+  };
+}
 
 export default function Index() {
   const { decks, createDeck, deleteDeck, updateDeck, loading } = useDecks();
@@ -61,14 +84,34 @@ export default function Index() {
     });
     if (!deck) return;
 
+    const trimmedPrompt = prompt.trim();
+    const sourceForContext = truncateSourceForContext(trimmedPrompt);
+    const googleDocUrls = extractGoogleDocUrls(trimmedPrompt);
     const fileContext =
       files.length > 0
         ? `\n\nThe user uploaded ${files.length} file(s) for context:\n${files.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
         : "";
+    const googleDocContext =
+      googleDocUrls.length > 0
+        ? [
+            "",
+            "The request includes Google Docs URL(s):",
+            ...googleDocUrls.map((url) => `- ${url}`),
+            "Before adding slides, call `import-google-doc` for each URL and use the returned text as source material.",
+            "If the action cannot read a private document, tell the user the exact sharing step from the action error instead of generating from the URL alone.",
+          ].join("\n")
+        : "";
 
     const context = [
       `The user just created a new empty deck (id: "${deck.id}") and wants to fill it with slides.`,
-      `User request: "${prompt}"`,
+      "The text below is the user's request and/or pasted source material for the deck. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+      trimmedPrompt
+        ? `User request / source material:\n${sourceForContext.text}`
+        : "User request / source material: create a new deck.",
+      sourceForContext.truncated
+        ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
+        : "",
+      googleDocContext,
       fileContext,
       "",
       "Add slides ONE AT A TIME using the `add-slide` action with --deckId=" +
@@ -78,7 +121,10 @@ export default function Index() {
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, resource-read, or search-files.",
     ].join("\n");
 
-    agentSubmit(`Create deck: ${prompt}`, context);
+    agentSubmit(
+      `Create deck: ${summarizePromptForChat(trimmedPrompt)}`,
+      context,
+    );
     setShowNewDeckPrompt(false);
     navigate(`/deck/${deck.id}?generating=1`);
   };

@@ -26,6 +26,7 @@ import {
   type CollabUser,
   useAvatarUrl,
 } from "@agent-native/core/client";
+import { extractGoogleDocUrls } from "@shared/google-docs";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import {
   Tooltip,
@@ -45,6 +46,21 @@ interface EditorSidebarProps {
   slidePresence?: Map<string, CollabUser[]>;
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
+}
+
+const MAX_SOURCE_CONTEXT_CHARS = 60_000;
+
+function truncateSourceForContext(prompt: string): {
+  text: string;
+  truncated: boolean;
+} {
+  if (prompt.length <= MAX_SOURCE_CONTEXT_CHARS) {
+    return { text: prompt, truncated: false };
+  }
+  return {
+    text: prompt.slice(0, MAX_SOURCE_CONTEXT_CHARS),
+    truncated: true,
+  };
 }
 
 /** Small presence avatar circle with hover card showing name + email */
@@ -288,20 +304,37 @@ function AddSlidePopover({
       }
 
       const description = text.trim() || "a new slide";
+      const sourceForContext = truncateSourceForContext(description);
+      const googleDocUrls = extractGoogleDocUrls(text);
       const fileContext =
         uploaded.length > 0
           ? `\n\nThe user uploaded ${uploaded.length} file(s) for context:\n${uploaded.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
           : "";
+      const googleDocContext =
+        googleDocUrls.length > 0
+          ? [
+              "",
+              "The request includes Google Docs URL(s):",
+              ...googleDocUrls.map((url) => `- ${url}`),
+              "Before adding slides, call `import-google-doc` for each URL and use the returned text as source material.",
+              "If the action cannot read a private document, tell the user the exact sharing step from the action error instead of generating from the URL alone.",
+            ].join("\n")
+          : "";
       const context = [
         `Add a new slide to deck "${deckTitle}" (id: ${deckId}).`,
         `Insert after slide ${activeSlideIndex + 1} of ${slideCount} (active slide id: ${activeSlideId}).`,
-        `User request: "${description}"`,
+        "The text below is the user's request and/or pasted source material for the new slide(s). Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+        `User request / source material:\n${sourceForContext.text}`,
+        sourceForContext.truncated
+          ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
+          : "",
+        googleDocContext,
         fileContext,
         "",
         "Create the slide content and insert it at the correct position using the app's slide data structure.",
       ].join("\n");
 
-      agentSubmit(`Add slide: ${description}`, context);
+      agentSubmit(`Add slide: ${summarizePromptForChat(description)}`, context);
       onOpenChange(false);
     },
     [
@@ -345,6 +378,13 @@ function AddSlidePopover({
     </div>,
     document.body,
   );
+}
+
+function summarizePromptForChat(prompt: string): string {
+  const singleLine = prompt.trim().replace(/\s+/g, " ");
+  if (!singleLine) return "a new slide";
+  if (singleLine.length <= 180) return singleLine;
+  return `${singleLine.slice(0, 177)}...`;
 }
 
 export default function EditorSidebar({

@@ -75,8 +75,6 @@ export default function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isHome = useLocation().pathname === "/";
   const [scrolled, setScrolled] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     if (!isHome) return;
@@ -133,7 +131,7 @@ export default function Header() {
           </Link>
 
           {/* Desktop nav links */}
-          <div className="hidden sm:flex items-center gap-5 text-sm">
+          <div className="hidden lg:flex items-center gap-5 text-sm">
             <NavLink
               prefetch="render"
               to="/docs"
@@ -186,14 +184,12 @@ export default function Header() {
           </div>
 
           <div className="ml-auto flex items-center gap-3">
-            {mounted && (
-              <FeedbackButton
-                variant="outlined"
-                className="hidden sm:flex border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
-                align="end"
-                side="bottom"
-              />
-            )}
+            <FeedbackButton
+              variant="outlined"
+              className="hidden lg:flex border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
+              align="end"
+              side="bottom"
+            />
             <SearchTrigger onClick={() => setOpen(true)} />
             <ThemeToggle />
             <button
@@ -210,7 +206,7 @@ export default function Header() {
             {/* Mobile hamburger */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="sm:hidden flex items-center justify-center w-8 h-8 text-[var(--fg-secondary)] hover:text-[var(--fg)] transition"
+              className="lg:hidden flex items-center justify-center w-8 h-8 text-[var(--fg-secondary)] hover:text-[var(--fg)] transition"
               aria-label="Toggle navigation menu"
               aria-expanded={mobileMenuOpen}
             >
@@ -221,7 +217,7 @@ export default function Header() {
 
         {/* Mobile dropdown menu */}
         {mobileMenuOpen && (
-          <div className="sm:hidden border-t border-[var(--docs-border)] bg-[var(--header-bg)] backdrop-blur-lg px-6 py-4 flex flex-col gap-4">
+          <div className="lg:hidden border-t border-[var(--docs-border)] bg-[var(--header-bg)] backdrop-blur-lg px-6 py-4 flex flex-col gap-4">
             <NavLink
               prefetch="render"
               to="/docs"
@@ -274,6 +270,12 @@ export default function Header() {
                 ↗
               </span>
             </a>
+            <FeedbackButton
+              variant="outlined"
+              className="self-start border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
+              align="start"
+              side="bottom"
+            />
           </div>
         )}
       </header>

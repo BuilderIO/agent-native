@@ -86,6 +86,9 @@
   --table-header-bg: #fafafa;
   --sidebar-hover: #f5f5f5;
   --selection: rgba(0, 114, 245, 0.15);
+  --approaches-good: #15803d;
+  --approaches-warn: #b45309;
+  --approaches-bad: #b91c1c;
 }
 
 :root[data-theme="dark"] {
@@ -102,6 +105,9 @@
   --table-header-bg: #0a0a0a;
   --sidebar-hover: #111;
   --selection: rgba(82, 168, 255, 0.2);
+  --approaches-good: #86efac;
+  --approaches-warn: #fcd34d;
+  --approaches-bad: #fca5a5;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -119,6 +125,9 @@
     --table-header-bg: #0a0a0a;
     --sidebar-hover: #111;
     --selection: rgba(82, 168, 255, 0.2);
+    --approaches-good: #86efac;
+    --approaches-warn: #fcd34d;
+    --approaches-bad: #fca5a5;
   }
 }
 
@@ -605,15 +614,15 @@ html.dark .shiki span {
 }
 
 .approaches-td--good {
-  color: #86efac;
+  color: var(--approaches-good);
 }
 
 .approaches-td--warn {
-  color: #fcd34d;
+  color: var(--approaches-warn);
 }
 
 .approaches-td--bad {
-  color: #fca5a5;
+  color: var(--approaches-bad);
 }
 
 .approaches-solution {
