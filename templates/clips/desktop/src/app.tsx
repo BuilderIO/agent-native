@@ -37,6 +37,7 @@ const VOICE_SHORTCUT_CONFIGURED_KEY = "clips:voice-shortcut-configured";
 const VOICE_MODE_KEY = "clips:voice-mode";
 const VOICE_PROVIDER_KEY = "clips:voice-provider";
 const VOICE_INSTRUCTIONS_KEY = "clips:voice-instructions";
+const AUTH_TOKEN_KEY = "clips:auth-token";
 const SOURCE_KEY = "clips:last-source";
 const CAM_KEY = "clips:last-camera-id";
 const MIC_KEY = "clips:last-mic-id";
@@ -71,6 +72,90 @@ function saveString(key: string, value: string): void {
   } catch {
     // non-fatal
   }
+}
+
+type FetchInput = Parameters<typeof fetch>[0];
+type FetchInit = Parameters<typeof fetch>[1];
+
+let authFetchInstalled = false;
+let currentServerOrigin = "";
+let currentAuthToken = "";
+
+function originForUrl(value: string, base?: string): string | null {
+  try {
+    return new URL(value, base).origin;
+  } catch {
+    return null;
+  }
+}
+
+function originForServer(serverUrl: string): string {
+  return originForUrl(serverUrl) ?? serverUrl.trim().replace(/\/+$/, "");
+}
+
+function authTokenStorageKey(serverUrl: string): string {
+  return `${AUTH_TOKEN_KEY}:${originForServer(serverUrl)}`;
+}
+
+function loadDesktopAuthToken(serverUrl: string): string {
+  return loadString(authTokenStorageKey(serverUrl), "");
+}
+
+function setDesktopAuthContext(serverUrl: string, token: string): void {
+  currentServerOrigin = originForServer(serverUrl);
+  currentAuthToken = token.trim();
+}
+
+function saveDesktopAuthToken(serverUrl: string, token: string): void {
+  const trimmed = token.trim();
+  if (!trimmed) return;
+  saveString(authTokenStorageKey(serverUrl), trimmed);
+  setDesktopAuthContext(serverUrl, trimmed);
+}
+
+function clearDesktopAuthToken(serverUrl: string): void {
+  saveString(authTokenStorageKey(serverUrl), "");
+  if (currentServerOrigin === originForServer(serverUrl)) {
+    currentAuthToken = "";
+  }
+}
+
+function urlForFetchInput(input: FetchInput): string | null {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.toString();
+  if (typeof Request !== "undefined" && input instanceof Request) {
+    return input.url;
+  }
+  return null;
+}
+
+function installAuthFetchInterceptor(): void {
+  if (authFetchInstalled || typeof window === "undefined") return;
+  authFetchInstalled = true;
+  const nativeFetch = window.fetch.bind(window);
+
+  window.fetch = (input: FetchInput, init?: FetchInit) => {
+    const rawUrl = urlForFetchInput(input);
+    const targetOrigin = rawUrl
+      ? originForUrl(rawUrl, window.location.href)
+      : null;
+    if (!targetOrigin || targetOrigin !== currentServerOrigin) {
+      return nativeFetch(input, init);
+    }
+
+    const requestHeaders =
+      typeof Request !== "undefined" && input instanceof Request
+        ? input.headers
+        : undefined;
+    const headers = new Headers(init?.headers ?? requestHeaders);
+    if (!headers.has("X-Request-Source")) {
+      headers.set("X-Request-Source", "clips-desktop");
+    }
+    if (currentAuthToken && !headers.has("Authorization")) {
+      headers.set("Authorization", `Bearer ${currentAuthToken}`);
+    }
+    return nativeFetch(input, { ...init, headers });
+  };
 }
 
 function loadBool(key: string, fallback: boolean): boolean {
@@ -211,6 +296,11 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    installAuthFetchInterceptor();
+    setDesktopAuthContext(serverUrl, loadDesktopAuthToken(serverUrl));
+  }, [serverUrl]);
+
+  useEffect(() => {
     return installDesktopVoiceDictation({
       enabled: featureConfig?.voiceEnabled !== false,
       serverUrl,
@@ -239,21 +329,27 @@ export function App() {
         { credentials: "include" },
       );
       if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          clearDesktopAuthToken(serverUrl);
+        }
         setAuthStatus("anon");
         setSignedInAs(null);
         return false;
       }
       const json = (await res.json().catch(() => null)) as {
         email?: string;
+        token?: string;
         error?: string;
       } | null;
       if (json?.email) {
+        if (json.token) saveDesktopAuthToken(serverUrl, json.token);
         setAuthStatus("authed");
         setSignedInAs(json.email);
         return true;
       }
       setAuthStatus("anon");
       setSignedInAs(null);
+      clearDesktopAuthToken(serverUrl);
       return false;
     } catch {
       setAuthStatus("anon");
@@ -277,26 +373,29 @@ export function App() {
   }, [serverUrl]);
 
   // The Rust-side meetings watcher fetches the backend with `reqwest`, which
-  // does NOT inherit the popover WebView's cookie jar. We forward
-  // `document.cookie` to it so the Better Auth session cookie travels along.
+  // does NOT inherit the popover WebView's cookie jar or fetch interceptor.
+  // We forward both the legacy cookie string and the desktop bearer token.
   // Re-push on:
   //   - boot
   //   - sign-in / sign-out (signedInAs change)
   //   - the watcher emitting `meetings:auth-needed` (401) — usually means
   //     the cookie expired and we need to send a fresh one.
   useEffect(() => {
-    function pushCookie() {
+    function pushSession() {
       const cookie =
         typeof document !== "undefined" ? document.cookie || "" : "";
-      invoke("meetings_watcher_set_session", { cookie }).catch(() => {
-        // Older builds may not expose this command yet — best-effort.
-      });
+      const authToken = loadDesktopAuthToken(serverUrl);
+      invoke("meetings_watcher_set_session", { cookie, authToken }).catch(
+        () => {
+          // Older builds may not expose this command yet — best-effort.
+        },
+      );
     }
-    pushCookie();
+    pushSession();
     let unlisten: (() => void) | null = null;
     listen("meetings:auth-needed", () => {
-      console.warn("[clips-popover] meetings:auth-needed — re-pushing cookie");
-      pushCookie();
+      console.warn("[clips-popover] meetings:auth-needed — re-pushing session");
+      pushSession();
     })
       .then((u) => {
         unlisten = u;
@@ -411,7 +510,9 @@ export function App() {
           }
           if (xd?.token) {
             stopPolling();
-            // Establish the session cookie in the Tauri WebView's cookie jar.
+            saveDesktopAuthToken(base, String(xd.token));
+            // Establish the session cookie when the WebView accepts it; the
+            // bearer token above is the reliable desktop auth path.
             await fetch(
               `${base}/_agent-native/auth/session?_session=${xd.token}`,
               { credentials: "include" },
@@ -457,6 +558,7 @@ export function App() {
     } catch {
       // ignore — we'll re-check session regardless
     }
+    clearDesktopAuthToken(serverUrl);
     await checkAuth();
     setShowSettings(false);
   }
@@ -1442,11 +1544,9 @@ function SignInForm({
     setSubmitting(true);
     try {
       // Post to the framework's Better Auth-backed email/password endpoint.
-      // credentials: "include" ensures the session cookie is attached to
-      // this webview's jar — and because we poll /auth/session from the
-      // SAME webview, it resolves correctly (unlike the previous separate-
-      // window flow, where Tauri 2 gave each webview its own WebKit data
-      // store and the cookie never reached the popover).
+      // Production Tauri builds cannot rely on cross-origin cookies sticking,
+      // so the desktop fetch interceptor stores the returned session token and
+      // sends it as Authorization on later same-server requests.
       const res = await fetch(
         `${serverUrl.replace(/\/+$/, "")}/_agent-native/auth/login`,
         {
@@ -1456,10 +1556,14 @@ function SignInForm({
           credentials: "include",
         },
       );
+      const json = (await res.json().catch(() => null)) as {
+        error?: string;
+        token?: string;
+      } | null;
       if (!res.ok) {
-        const json = await res.json().catch(() => null);
         throw new Error(json?.error || `Sign in failed (${res.status})`);
       }
+      if (json?.token) saveDesktopAuthToken(serverUrl, json.token);
       await onSignedIn();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

@@ -359,6 +359,43 @@ function safeTokenMatch(input: string, tokens: string[]): boolean {
   return false;
 }
 
+function getBearerSessionToken(event: H3Event): string | undefined {
+  const auth = getHeader(event, "authorization");
+  if (!auth) return undefined;
+  const match = /^Bearer\s+(.+)$/i.exec(auth.trim());
+  return match?.[1]?.trim() || undefined;
+}
+
+async function getBearerLegacySession(
+  event: H3Event,
+): Promise<AuthSession | null> {
+  const bearerToken = getBearerSessionToken(event);
+  if (!bearerToken) return null;
+  const email = await getSessionEmail(bearerToken);
+  return email ? { email, token: bearerToken } : null;
+}
+
+function shouldExposeSessionTokenInBody(event: H3Event): boolean {
+  const origin = getHeader(event, "origin");
+  if (origin && DESKTOP_AUTH_TOKEN_BODY_ORIGINS.has(origin)) return true;
+
+  // Some native WebViews do not consistently emit an Origin header for
+  // programmatic fetches. The desktop app marks same-server requests with
+  // X-Request-Source; browsers can only use that cross-origin after our CORS
+  // allowlist has approved the origin, and same-origin pages already receive
+  // an equivalent httpOnly session cookie on successful login.
+  return !origin && getHeader(event, "x-request-source") === "clips-desktop";
+}
+
+function authLoginResponse(
+  event: H3Event,
+  token: string,
+  email?: string,
+): { ok: true; token?: string; email?: string } {
+  if (!shouldExposeSessionTokenInBody(event)) return { ok: true };
+  return email ? { ok: true, token, email } : { ok: true, token };
+}
+
 // ---------------------------------------------------------------------------
 // Legacy session store — kept for backward compat (addSession/getSessionEmail)
 // Used by google-oauth.ts for mobile deep linking session creation.
@@ -528,6 +565,10 @@ type DesktopExchangeStoredEntry =
 
 const _desktopExchanges = new Map<string, DesktopExchangeEntry>();
 const DESKTOP_EXCHANGE_ERROR_PREFIX = "__error__::";
+const DESKTOP_AUTH_TOKEN_BODY_ORIGINS = new Set([
+  "tauri://localhost",
+  "http://localhost:1420",
+]);
 
 // 5-minute TTL for exchange entries (short — single-use tokens).
 const DESKTOP_EXCHANGE_TTL_MS = 5 * 60 * 1000;
@@ -926,10 +967,11 @@ function mapBetterAuthSession(baSession: {
  * Resolution chain:
  * 1. ACCESS_TOKEN → check legacy cookie-based token sessions
  * 2. BYOA custom getSession → delegate to template callback
- * 3. Better Auth → check session via Better Auth API (cookie or Bearer)
- * 4. Legacy cookie → check an_session cookie in legacy sessions table
- * 5. Desktop SSO broker (Electron loopback only)
- * 6. Mobile _session query param → promote to cookie
+ * 3. Bearer legacy session → check Authorization: Bearer against sessions
+ * 4. Better Auth → check session via Better Auth API (cookie or Bearer)
+ * 5. Legacy cookie → check an_session cookie in legacy sessions table
+ * 6. Desktop SSO broker (Electron loopback only)
+ * 7. Mobile _session query param → promote to cookie
  *
  * Returns `null` for unauthenticated requests. There is no dev-mode bypass:
  * local development uses the same Better Auth signup flow as production. The
@@ -951,6 +993,10 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   if (customGetSession) {
     const session = await customGetSession(event);
     if (session) return session;
+
+    const bearerSession = await getBearerLegacySession(event);
+    if (bearerSession) return bearerSession;
+
     // Desktop SSO broker: even with BYOA auth, fall back to the broker
     // for Electron requests so cross-template SSO works for custom-auth
     // templates too. Gated on `readDesktopSsoSafely` so a non-loopback
@@ -960,7 +1006,12 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     if (sso?.email) return { email: sso.email, token: sso.token };
     // Fall through to mobile _session check
   } else {
-    // 3. Better Auth session (cookie or Bearer token)
+    // 3. Bearer legacy session. Desktop/native clients can persist a session
+    // token outside the WebView cookie jar and attach it to all app requests.
+    const bearerSession = await getBearerLegacySession(event);
+    if (bearerSession) return bearerSession;
+
+    // 4. Better Auth session (cookie or Bearer token)
     try {
       const ba = getBetterAuthSync();
       if (ba) {
@@ -975,7 +1026,7 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
       console.error("[auth] ba.api.getSession error:", e);
     }
 
-    // 4. Legacy cookie fallback (for sessions created before migration)
+    // 5. Legacy cookie fallback (for sessions created before migration)
     const cookie = getCookie(event, COOKIE_NAME);
     if (cookie) {
       const email = await getSessionEmail(cookie);
@@ -984,7 +1035,7 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
       }
     }
 
-    // 5. Desktop SSO broker fallback.
+    // 6. Desktop SSO broker fallback.
     // Each template in the Electron desktop app has its own database, so
     // a session token created by one template doesn't resolve in another.
     // When an Electron request has no resolvable session, trust the
@@ -999,7 +1050,7 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     }
   }
 
-  // 6. Mobile WebView bridge — _session query param
+  // 7. Mobile WebView bridge — _session query param
   const querySession = await promoteQuerySession(event);
   if (querySession) return querySession;
 
@@ -1629,7 +1680,7 @@ async function mountBetterAuthRoutes(
           path: "/",
           maxAge: sessionMaxAge,
         });
-        return { ok: true };
+        return authLoginResponse(event, sessionToken, "user");
       }
 
       // Email/password login via Better Auth
@@ -1660,7 +1711,7 @@ async function mountBetterAuthRoutes(
               expiresAt: Date.now() + sessionMaxAge * 1000,
             });
           }
-          return { ok: true };
+          return authLoginResponse(event, result.token, email);
         }
         // signInEmail succeeded but returned no token — typically means the
         // email isn't verified yet. Don't return { ok: true } without a
@@ -1721,6 +1772,8 @@ async function mountBetterAuthRoutes(
     defineEventHandler(async (event) => {
       const cookie = getCookie(event, COOKIE_NAME);
       if (cookie) await removeSession(cookie);
+      const bearerToken = getBearerSessionToken(event);
+      if (bearerToken) await removeSession(bearerToken);
       deleteCookie(event, COOKIE_NAME, { path: "/" });
 
       try {
@@ -1881,7 +1934,7 @@ function mountTokenOnlyRoutes(
         path: "/",
         maxAge: sessionMaxAge,
       });
-      return { ok: true };
+      return authLoginResponse(event, sessionToken, "user");
     }),
   );
 
@@ -1890,6 +1943,8 @@ function mountTokenOnlyRoutes(
     defineEventHandler(async (event) => {
       const cookie = getCookie(event, COOKIE_NAME);
       if (cookie) await removeSession(cookie);
+      const bearerToken = getBearerSessionToken(event);
+      if (bearerToken) await removeSession(bearerToken);
       deleteCookie(event, COOKIE_NAME, { path: "/" });
       if (isElectronRequest(event)) await clearDesktopSso();
       return { ok: true };
@@ -1956,7 +2011,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
               expiresAt: Date.now() + sessionMaxAge * 1000,
             });
           }
-          return { ok: true };
+          return authLoginResponse(event, result.token, email);
         }
         setResponseStatus(event, 403);
         return {
@@ -2009,6 +2064,8 @@ function mountAuthFallbackRoutes(app: H3App): void {
     defineEventHandler(async (event) => {
       const cookie = getCookie(event, COOKIE_NAME);
       if (cookie) await removeSession(cookie);
+      const bearerToken = getBearerSessionToken(event);
+      if (bearerToken) await removeSession(bearerToken);
       deleteCookie(event, COOKIE_NAME, { path: "/" });
 
       try {
@@ -2148,6 +2205,8 @@ export async function autoMountAuth(
       defineEventHandler(async (event) => {
         const cookie = getCookie(event, COOKIE_NAME);
         if (cookie) await removeSession(cookie);
+        const bearerToken = getBearerSessionToken(event);
+        if (bearerToken) await removeSession(bearerToken);
         deleteCookie(event, COOKIE_NAME, { path: "/" });
         if (isElectronRequest(event)) await clearDesktopSso();
         return { ok: true };
