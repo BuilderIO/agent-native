@@ -471,7 +471,6 @@ export function decodeOAuthState(
 
 export interface OAuthOwnerResult {
   owner: string | undefined;
-  isDevSession: boolean;
   hasProductionSession: boolean;
 }
 
@@ -484,16 +483,12 @@ export async function resolveOAuthOwner(
   stateOwner?: string,
 ): Promise<OAuthOwnerResult> {
   const existingSession = await getSession(event);
-  const isDevSession = existingSession?.email === "local@localhost";
-  const hasProductionSession = !!(existingSession?.email && !isDevSession);
-
-  // Never use "local@localhost" as a token owner — it creates shared-ownership
-  // bugs where multiple users can see the same tokens.
+  const hasProductionSession = !!existingSession?.email;
   const owner = hasProductionSession
     ? existingSession!.email
     : stateOwner || undefined;
 
-  return { owner, isDevSession, hasProductionSession };
+  return { owner, hasProductionSession };
 }
 
 export interface OAuthSessionResult {
