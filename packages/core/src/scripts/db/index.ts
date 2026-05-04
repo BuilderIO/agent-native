@@ -10,4 +10,6 @@ export const coreDbScripts: Record<string, (args: string[]) => Promise<void>> =
       import("./wipe-leaked-builder-keys.js").then((m) => m.default(args)),
     "db-migrate-user-api-keys": (args) =>
       import("./migrate-user-api-keys.js").then((m) => m.default(args)),
+    "db-reset-dev-owner": (args) =>
+      import("./reset-dev-owner.js").then((m) => m.default(args)),
   };
