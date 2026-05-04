@@ -7,6 +7,16 @@ description: "Async screen recording (Loom-style), calendar-synced meeting notes
 
 A capture-everything app: screen recordings (Loom-style), meeting notes from your calendar (Granola-style), and Fn-hold voice dictation (Wisprflow-style). The agent transcribes, titles, summarizes, and indexes all of it — then lets you ask "find the clip where we discussed the rollout plan" and searches across every transcript you've ever made.
 
+<!-- screenshot:
+  app: clips
+  view: /library
+  shows: Library with Acme Co. organization, folders (Onboarding videos / Customer calls / Bug repros) and spaces (Engineering / Design / Sales) in the sidebar, six recordings in a 3-column grid (Q3 OKRs review meeting, Walkthrough of new onboarding flow, Eng standup May 4, Dictation - Ideas for landing page copy, Customer call - Acme Corp pricing review, Bug repro - drag-and-drop in Safari)
+  account: screenshot-account (recordings imported into this org via the standard upload + meetings flow)
+  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
+-->
+
+![Clips library with recordings, folders, and spaces](/screenshots/clips.png)
+
 Think along the lines of Loom + Granola + Wisprflow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's.
 
 ## What you can do with it

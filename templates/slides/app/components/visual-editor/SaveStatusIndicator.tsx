@@ -45,18 +45,23 @@ export function SaveStatusIndicator({
     }
   }, [saving, wasSaving]);
 
+  // The text labels (Saved / Saving… / Offline) used to render alongside the
+  // icon, but in the deck-editor toolbar that wrapped vertically at narrower
+  // widths because the flex container had to shrink each child. Keep the icon
+  // only — the tooltip on hover still describes the state — and only restore
+  // the label on truly wide screens (xl+).
   if (offline) {
     return (
       <div
         data-save-status="offline"
         title="Changes will save when reconnected"
         className={cn(
-          "flex items-center gap-1 text-[11px] text-amber-500",
+          "flex items-center gap-1 text-[11px] text-amber-500 whitespace-nowrap",
           className,
         )}
       >
         <IconCloudOff className="w-3 h-3" />
-        <span className="hidden sm:inline">Offline</span>
+        <span className="hidden xl:inline">Offline</span>
       </div>
     );
   }
@@ -67,12 +72,12 @@ export function SaveStatusIndicator({
         data-save-status="saving"
         title="Saving your changes…"
         className={cn(
-          "flex items-center gap-1 text-[11px] text-muted-foreground",
+          "flex items-center gap-1 text-[11px] text-muted-foreground whitespace-nowrap",
           className,
         )}
       >
         <IconLoader2 className="w-3 h-3 animate-spin" />
-        <span className="hidden sm:inline">Saving…</span>
+        <span className="hidden xl:inline">Saving…</span>
       </div>
     );
   }
@@ -83,12 +88,12 @@ export function SaveStatusIndicator({
         data-save-status="saved"
         title="All changes saved"
         className={cn(
-          "flex items-center gap-1 text-[11px] text-emerald-500",
+          "flex items-center gap-1 text-[11px] text-emerald-500 whitespace-nowrap",
           className,
         )}
       >
         <IconCheck className="w-3 h-3" />
-        <span className="hidden sm:inline">Saved</span>
+        <span className="hidden xl:inline">Saved</span>
       </div>
     );
   }
@@ -98,12 +103,12 @@ export function SaveStatusIndicator({
       data-save-status="idle"
       title="All changes saved"
       className={cn(
-        "flex items-center gap-1 text-[11px] text-muted-foreground/60",
+        "flex items-center gap-1 text-[11px] text-muted-foreground/60 whitespace-nowrap",
         className,
       )}
     >
       <IconCheck className="w-3 h-3" />
-      <span className="hidden sm:inline">Saved</span>
+      <span className="hidden xl:inline">Saved</span>
     </div>
   );
 }

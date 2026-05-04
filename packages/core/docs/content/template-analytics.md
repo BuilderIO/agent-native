@@ -7,6 +7,16 @@ description: "Ask analytics questions in plain English, get charts and dashboard
 
 Ask analytics questions in plain English, get charts and dashboards back. The agent connects to BigQuery, GA4, Amplitude, the built-in first-party event collector, HubSpot, Jira, and a dozen other sources, writes the query for you, validates it, and renders the answer as a chart, table, or saved dashboard panel.
 
+<!-- screenshot:
+  app: analytics
+  view: /adhoc/<dashboard-id>
+  shows: Adhoc dashboard with 3 KPI cards (Weekly active users 24,318 / New signups 1,842 / Revenue MRR $48,210), Weekly active users line chart and Revenue over time area chart side by side, Signups by source bar chart below
+  account: screenshot-account (dashboard authored on this account against a seeded warehouse)
+  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
+-->
+
+![Analytics dashboard with KPIs and charts](/screenshots/analytics.png)
+
 It's an open-source replacement for Amplitude, Mixpanel, and Looker — for teams that want to own the code, the queries, and the data.
 
 ## What you can do with it

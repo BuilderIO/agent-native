@@ -3,13 +3,13 @@ import type { CalendarEvent } from "@shared/api";
 // ─── Palette (dark-mode editor inspired) ─────────────────────────────────────
 
 export const EVENT_CATEGORY_COLORS = {
-  focus: "#7C9C6B", // sage — self-holds, focus time
+  focus: "#3B82F6", // blue — self-holds, focus time (also the calendar default)
   internal1on1: "#5B9BD5", // steel blue — internal 1:1
   internalGroup: "#B07CC6", // amethyst — internal group
   external1on1: "#D4A053", // amber — external 1:1
   externalGroup: "#CD6B6B", // coral — external group
   allDay: "#8B8FA3", // slate — all-day, OOO
-  fallback: "#5B9BD5", // steel blue
+  fallback: "#3B82F6", // blue — matches focus default
 } as const;
 
 export type EventCategory = keyof typeof EVENT_CATEGORY_COLORS;
