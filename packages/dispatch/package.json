@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/dispatch",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Dispatch — workspace control plane for agent-native apps. Vault, integrations, destinations, scheduled jobs, and cross-app delegation, shipped as a single drop-in package.",
   "license": "MIT",
@@ -30,7 +30,7 @@
     "build": "tsc && tsc-alias",
     "dev": "tsc --watch & tsc-alias --watch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest --run src",
+    "test": "vitest --run src --passWithNoTests",
     "prepack": "cp ../../README.md ./README.md",
     "prepublishOnly": "npm run build"
   },
