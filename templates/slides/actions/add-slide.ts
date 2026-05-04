@@ -14,12 +14,12 @@ const deckLocks = new Map<string, Promise<unknown>>();
 function withDeckLock<T>(deckId: string, fn: () => Promise<T>): Promise<T> {
   const prev = deckLocks.get(deckId) ?? Promise.resolve();
   const next = prev.then(fn, fn);
-  deckLocks.set(
-    deckId,
-    next.finally(() => {
+  deckLocks.set(deckId, next);
+  next
+    .finally(() => {
       if (deckLocks.get(deckId) === next) deckLocks.delete(deckId);
-    }),
-  );
+    })
+    .catch(() => {});
   return next;
 }
 
@@ -63,6 +63,10 @@ export default defineAction({
       ),
   }),
   http: false,
+  // The deck-level lock above serializes writes that target the same deck,
+  // while calls for different decks can proceed independently. This lets the
+  // agent build several slides from one model turn without wasting wall time.
+  parallelSafe: true,
   run: async ({ deckId, content, slideId, layout, notes, position }) =>
     withDeckLock(deckId, async () => {
       await assertAccess("deck", deckId, "editor");

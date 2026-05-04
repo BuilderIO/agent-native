@@ -7,6 +7,11 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { usePausingInterval } from "../use-pausing-interval.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
 import type {
   Notification as NotificationDto,
   NotificationSeverity,
@@ -45,10 +50,6 @@ export function NotificationsBell({
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationDto[] | null>(null);
-  const [menuPosition, setMenuPosition] = useState<{
-    top: number;
-    left: number;
-  } | null>(null);
   // Init to "default" unconditionally so server and client render the same
   // HTML — reading Notification.permission at init would diverge between SSR
   // ("denied", no API) and hydration ("default"/"granted"), causing a mismatch
@@ -60,8 +61,6 @@ export function NotificationsBell({
   useEffect(() => {
     if (SUPPORTS_NOTIFICATION) setPermission(Notification.permission);
   }, []);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
   // Ids already popped as browser notifications. Seeded on first run so
   // existing unread don't pop retroactively on page load.
   const seenIdsRef = useRef<Set<string> | null>(null);
@@ -141,41 +140,6 @@ export function NotificationsBell({
     loadItems();
   }, [open, loadItems]);
 
-  useEffect(() => {
-    if (!open) return;
-    const updatePosition = () => {
-      const rect = triggerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const width = 320;
-      const margin = 12;
-      setMenuPosition({
-        top: rect.bottom + 8,
-        left: Math.min(
-          Math.max(rect.right - width, margin),
-          window.innerWidth - width - margin,
-        ),
-      });
-    };
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [open]);
-
   const markRead = async (id: string) => {
     try {
       await fetch(agentNativePath(`/_agent-native/notifications/${id}/read`), {
@@ -228,126 +192,118 @@ export function NotificationsBell({
   const Icon = hasUnread ? IconBellRinging : IconBell;
 
   return (
-    <div
-      ref={menuRef}
-      className={
-        "an-notifications-bell relative inline-flex" +
-        (className ? ` ${className}` : "")
-      }
-    >
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-label={
-          hasUnread ? `${unreadCount} unread notifications` : "Notifications"
-        }
-        onClick={() => setOpen((v) => !v)}
-        className="an-notifications-bell__trigger relative inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-      >
-        <Icon size={18} aria-hidden />
-        {hasUnread ? (
-          <span
-            aria-hidden
-            className="an-notifications-bell__badge absolute -right-0.5 -top-0.5 rounded-full bg-destructive px-1 text-[10px] leading-[14px] font-medium text-destructive-foreground"
-          >
-            {unreadCount > 99 ? "99+" : unreadCount}
-          </span>
-        ) : null}
-      </button>
-      {open ? (
-        <div
-          role="menu"
-          className="an-notifications-bell__menu fixed z-[2100] w-80 rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
-          style={{
-            top: menuPosition?.top ?? 48,
-            left: menuPosition?.left ?? 12,
-          }}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={
+            hasUnread ? `${unreadCount} unread notifications` : "Notifications"
+          }
+          className={
+            "an-notifications-bell__trigger relative inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/40 hover:text-foreground" +
+            (className ? ` ${className}` : "")
+          }
         >
-          <div className="flex items-center justify-between border-b border-border px-3 py-2 text-sm font-medium">
-            <span>Notifications</span>
-            {hasUnread ? (
-              <button
-                type="button"
-                onClick={markAllRead}
-                className="text-xs text-primary hover:underline"
-              >
-                Mark all read
-              </button>
-            ) : null}
-          </div>
-          {browserNotifications &&
-          SUPPORTS_NOTIFICATION &&
-          permission === "default" ? (
-            <div className="flex items-center justify-between gap-2 border-b border-border bg-accent/40 px-3 py-2 text-xs text-foreground">
-              <span>Get a system popup for new notifications.</span>
-              <button
-                type="button"
-                onClick={async () => {
-                  const result = await Notification.requestPermission();
-                  setPermission(result);
-                }}
-                className="shrink-0 rounded bg-primary px-2 py-0.5 font-medium text-primary-foreground hover:bg-primary/90"
-              >
-                Enable
-              </button>
-            </div>
+          <Icon size={18} aria-hidden />
+          {hasUnread ? (
+            <span
+              aria-hidden
+              className="an-notifications-bell__badge absolute -right-0.5 -top-0.5 rounded-full bg-destructive px-1 text-[10px] leading-[14px] font-medium text-destructive-foreground"
+            >
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
           ) : null}
-          <div className="max-h-96 overflow-y-auto">
-            {items === null ? (
-              <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-                <IconLoader2 size={14} className="animate-spin" /> Loading…
-              </div>
-            ) : items.length > 0 ? (
-              items.map((n) => (
-                <div
-                  key={n.id}
-                  className={
-                    "group relative border-b border-border last:border-b-0 hover:bg-accent/40 " +
-                    (n.readAt ? "opacity-60" : "")
-                  }
-                >
-                  <button
-                    type="button"
-                    onClick={() => (n.readAt ? undefined : markRead(n.id))}
-                    className="flex w-full flex-col items-start gap-0.5 px-3 py-2 pr-8 text-left"
-                  >
-                    <div className="flex w-full items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium text-foreground">
-                        {n.title}
-                      </span>
-                      <SeverityBadge severity={n.severity} />
-                    </div>
-                    {n.body ? (
-                      <span className="line-clamp-2 text-xs text-muted-foreground">
-                        {n.body}
-                      </span>
-                    ) : null}
-                    <span className="text-[10px] text-muted-foreground/70">
-                      {new Date(n.createdAt).toLocaleString()}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Dismiss notification"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void dismiss(n.id);
-                    }}
-                    className="absolute right-2 top-2 hidden rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground group-hover:flex"
-                  >
-                    <IconX size={12} />
-                  </button>
-                </div>
-              ))
-            ) : (
-              <div className="p-4 text-sm text-muted-foreground">
-                No notifications.
-              </div>
-            )}
-          </div>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="an-notifications-bell__menu w-80 p-0"
+      >
+        <div className="flex items-center justify-between border-b border-border px-3 py-2 text-sm font-medium">
+          <span>Notifications</span>
+          {hasUnread ? (
+            <button
+              type="button"
+              onClick={markAllRead}
+              className="text-xs text-primary hover:underline"
+            >
+              Mark all read
+            </button>
+          ) : null}
         </div>
-      ) : null}
-    </div>
+        {browserNotifications &&
+        SUPPORTS_NOTIFICATION &&
+        permission === "default" ? (
+          <div className="flex items-center justify-between gap-2 border-b border-border bg-accent/40 px-3 py-2 text-xs text-foreground">
+            <span>Get a system popup for new notifications.</span>
+            <button
+              type="button"
+              onClick={async () => {
+                const result = await Notification.requestPermission();
+                setPermission(result);
+              }}
+              className="shrink-0 rounded bg-primary px-2 py-0.5 font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Enable
+            </button>
+          </div>
+        ) : null}
+        <div className="max-h-96 overflow-y-auto">
+          {items === null ? (
+            <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+              <IconLoader2 size={14} className="animate-spin" /> Loading…
+            </div>
+          ) : items.length > 0 ? (
+            items.map((n) => (
+              <div
+                key={n.id}
+                className={
+                  "group relative border-b border-border last:border-b-0 hover:bg-accent/40 " +
+                  (n.readAt ? "opacity-60" : "")
+                }
+              >
+                <button
+                  type="button"
+                  onClick={() => (n.readAt ? undefined : markRead(n.id))}
+                  className="flex w-full flex-col items-start gap-0.5 px-3 py-2 pr-8 text-left"
+                >
+                  <div className="flex w-full items-center justify-between gap-2">
+                    <span className="truncate text-sm font-medium text-foreground">
+                      {n.title}
+                    </span>
+                    <SeverityBadge severity={n.severity} />
+                  </div>
+                  {n.body ? (
+                    <span className="line-clamp-2 text-xs text-muted-foreground">
+                      {n.body}
+                    </span>
+                  ) : null}
+                  <span className="text-[10px] text-muted-foreground/70">
+                    {new Date(n.createdAt).toLocaleString()}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  aria-label="Dismiss notification"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void dismiss(n.id);
+                  }}
+                  className="absolute right-2 top-2 hidden rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground group-hover:flex"
+                >
+                  <IconX size={12} />
+                </button>
+              </div>
+            ))
+          ) : (
+            <div className="p-4 text-sm text-muted-foreground">
+              No notifications.
+            </div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

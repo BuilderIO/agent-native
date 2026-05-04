@@ -1,4 +1,4 @@
-import { NewWorkspaceAppFlow } from "@agent-native/core/client";
+import { CreateAppFlow } from "@/components/create-app-popover";
 import { DispatchShell } from "@/components/dispatch-shell";
 
 export function meta() {
@@ -11,7 +11,9 @@ export default function NewAppRoute() {
       title="New App"
       description="Create a workspace app from a prompt and grant it selected vault keys."
     >
-      <NewWorkspaceAppFlow sourceApp="dispatch" className="px-0 py-0" />
+      <div className="mx-auto w-full max-w-xl">
+        <CreateAppFlow />
+      </div>
     </DispatchShell>
   );
 }

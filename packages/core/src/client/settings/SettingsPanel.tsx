@@ -310,7 +310,7 @@ function UseBuilderCard({
   connected,
   orgName,
   label = "Connect Builder.io",
-  subtitle = "One click, no API key needed.",
+  subtitle = "Free credits to start — no API key needed.",
   dim,
 }: {
   connectUrl?: string;

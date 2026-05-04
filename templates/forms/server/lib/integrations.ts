@@ -37,6 +37,8 @@ interface SubmissionPayload {
   fields: FormField[];
   data: Record<string, unknown>;
   submittedAt: string;
+  /** Email of the submitter, when known (claimed by the client, not verified). */
+  submitterEmail?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,6 +69,11 @@ function buildSlackPayload(submission: SubmissionPayload) {
       return `*${f.label}:* ${display}`;
     });
 
+  const tsContext = `Submitted <!date^${Math.floor(new Date(submission.submittedAt).getTime() / 1000)}^{date_short_pretty} at {time}|${submission.submittedAt}>`;
+  const contextText = submission.submitterEmail
+    ? `${tsContext} by *${submission.submitterEmail}*`
+    : tsContext;
+
   return {
     blocks: [
       {
@@ -89,7 +96,7 @@ function buildSlackPayload(submission: SubmissionPayload) {
         elements: [
           {
             type: "mrkdwn",
-            text: `Submitted <!date^${Math.floor(new Date(submission.submittedAt).getTime() / 1000)}^{date_short_pretty} at {time}|${submission.submittedAt}>`,
+            text: contextText,
           },
         ],
       },
@@ -106,6 +113,13 @@ function buildDiscordPayload(submission: SubmissionPayload) {
       const display = Array.isArray(val) ? val.join(", ") : String(val);
       return { name: f.label, value: display, inline: true };
     });
+  if (submission.submitterEmail) {
+    discordFields.push({
+      name: "Submitted by",
+      value: submission.submitterEmail,
+      inline: true,
+    });
+  }
 
   return {
     embeds: [
@@ -124,6 +138,7 @@ function buildGoogleSheetsPayload(submission: SubmissionPayload) {
   return {
     formTitle: submission.formTitle,
     submittedAt: submission.submittedAt,
+    submitterEmail: submission.submitterEmail ?? "",
     ...formatFields(submission.fields, submission.data),
   };
 }
@@ -136,6 +151,7 @@ function buildWebhookPayload(submission: SubmissionPayload) {
     formTitle: submission.formTitle,
     responseId: submission.responseId,
     submittedAt: submission.submittedAt,
+    submitterEmail: submission.submitterEmail ?? null,
     data: formatFields(submission.fields, submission.data),
     rawData: submission.data,
   };

@@ -206,6 +206,10 @@ export interface ActionEntry {
   /** If true, completion does NOT trigger a screen-refresh poll event.
    *  Set automatically by `defineAction` when `http.method === "GET"`. */
   readOnly?: boolean;
+  /** If true, this action can run concurrently with other same-turn
+   *  read-only/parallel-safe tool calls. Only use for actions that handle
+   *  their own write ordering and idempotency. */
+  parallelSafe?: boolean;
   /** Whether this action may be invoked from the tools-iframe bridge.
    *  **Default-allow opt-out**: only an explicit `false` returns 403.
    *  - `true` / `undefined` — allow.
@@ -432,6 +436,10 @@ export interface ProductionAgentOptions {
   providerOptions?: EngineMessage extends never ? never : any;
   /** Called when a run completes (for server-side thread persistence) */
   onRunComplete?: (run: ActiveRun, threadId: string | undefined) => void;
+  /** Per-app soft timeout for agent runs. Defaults to AGENT_RUN_SOFT_TIMEOUT_MS
+   *  or the framework default. Set only when the hosting function timeout is
+   *  also configured higher than this value. */
+  runSoftTimeoutMs?: number;
   /** Called when a run starts, with the send function for emitting events and the threadId */
   onRunStart?: (
     send: (event: AgentChatEvent) => void,
@@ -1055,25 +1063,46 @@ export async function runAgentLoop(opts: {
       };
     };
 
-    const hasMutatingToolCall = toolCallParts.some((toolCall) => {
+    type ParallelBatchKind = "read" | "parallel-write";
+    const getParallelBatchKind = (
+      toolCall: import("./engine/types.js").EngineToolCallPart,
+    ): ParallelBatchKind | null => {
       const entry = actions[toolCall.name];
-      return entry && entry.readOnly !== true;
-    });
+      if (!entry || entry.readOnly === true) return "read";
+      if (entry.parallelSafe === true) return "parallel-write";
+      return null;
+    };
 
-    // Engines can emit several tool-call blocks in one turn. Keep read-only
-    // calls parallel for latency, but serialize any batch containing a mutating
-    // call so DB writes and UI refresh events preserve model order and do not
-    // interleave or partially race.
+    // Engines can emit several tool-call blocks in one turn. Read-only calls
+    // are always parallel. Mutating calls remain serialized by default, but
+    // consecutive actions that explicitly declare `parallelSafe` can run in a
+    // write batch. Reads and writes are separate batches so the model's stated
+    // order still controls what data a same-turn read can observe.
     const toolResultParts: EngineContentPart[] = [];
-    if (hasMutatingToolCall) {
-      for (const toolCall of toolCallParts) {
+    let parallelBatch: import("./engine/types.js").EngineToolCallPart[] = [];
+    let parallelBatchKind: ParallelBatchKind | null = null;
+    const flushParallelBatch = async () => {
+      if (parallelBatch.length === 0) return;
+      const batch = parallelBatch;
+      parallelBatch = [];
+      parallelBatchKind = null;
+      toolResultParts.push(...(await Promise.all(batch.map(runToolCall))));
+    };
+
+    for (const toolCall of toolCallParts) {
+      const batchKind = getParallelBatchKind(toolCall);
+      if (batchKind) {
+        if (parallelBatchKind && parallelBatchKind !== batchKind) {
+          await flushParallelBatch();
+        }
+        parallelBatchKind = batchKind;
+        parallelBatch.push(toolCall);
+      } else {
+        await flushParallelBatch();
         toolResultParts.push(await runToolCall(toolCall));
       }
-    } else {
-      toolResultParts.push(
-        ...(await Promise.all(toolCallParts.map(runToolCall))),
-      );
     }
+    await flushParallelBatch();
 
     messages.push({ role: "user", content: toolResultParts });
   }
@@ -1864,6 +1893,7 @@ export function createProductionAgentHandler(
       options.onRunComplete
         ? (run) => options.onRunComplete!(run, threadId)
         : undefined,
+      { softTimeoutMs: options.runSoftTimeoutMs },
     );
 
     // Subscribe to the run and stream events to the client

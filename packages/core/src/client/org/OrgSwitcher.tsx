@@ -5,6 +5,7 @@ import {
   IconLoader2,
   IconPlus,
   IconSelector,
+  IconUser,
   IconUserPlus,
 } from "@tabler/icons-react";
 import {
@@ -111,7 +112,9 @@ export function OrgSwitcher({
     !!org.orgId && (org.role === "owner" || org.role === "admin");
 
   const personalLabel = personalLabelFromEmail(org.email);
-  const label = org.orgName ?? personalLabel;
+  const inOrg = !!org.orgId;
+  const label = org.orgName ?? "Personal";
+  const ButtonIcon = inOrg ? IconBuilding : IconUser;
 
   return (
     <div ref={ref} className={`relative ${className ?? ""}`}>
@@ -120,7 +123,7 @@ export function OrgSwitcher({
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground border border-border/50"
       >
-        <IconBuilding className="h-3.5 w-3.5 shrink-0" />
+        <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
         <span className="truncate flex-1 text-left">{label}</span>
         <IconSelector className="h-3 w-3 shrink-0 opacity-50" />
       </button>
@@ -128,21 +131,20 @@ export function OrgSwitcher({
         <div className="absolute left-0 right-0 bottom-full mb-1 z-50 rounded-md border border-border bg-popover shadow-md py-1 min-w-[14rem]">
           {mode === "list" && (
             <>
-              {(orgs.length > 0 || !org.orgId) && (
-                <div className="px-2.5 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                  Organization
-                </div>
-              )}
-              {orgs.length === 0 && !org.orgId && (
+              {!inOrg && (
                 <div
                   className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-muted-foreground"
                   aria-disabled="true"
                 >
-                  <IconBuilding className="h-3.5 w-3.5 shrink-0" />
+                  <IconUser className="h-3.5 w-3.5 shrink-0" />
                   <span className="truncate flex-1 text-left">
-                    {personalLabel}
+                    Personal ({personalLabel})
                   </span>
-                  <IconCheck className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                </div>
+              )}
+              {orgs.length > 0 && (
+                <div className="px-2.5 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                  Organization
                 </div>
               )}
               {orgs.map((o) => (

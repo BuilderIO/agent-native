@@ -128,6 +128,108 @@ export function InboxZero() {
   );
 }
 
+// ─── Error state ────────────────────────────────────────────────────────────
+// Rendered when the emails query fails. The "Try again" button must give
+// visible feedback during the refetch — without it, clicking on a persistent
+// rate-limit error looks like nothing happens (the same error re-renders
+// identically so the user assumes the button is broken). For 429/quota errors
+// we auto-schedule one retry after a short delay so recovery is hands-off,
+// and gate the manual button behind a 15s cooldown so a flurry of clicks
+// can't itself trip the rate limit.
+
+const RATE_LIMIT_RETRY_MS = 15_000;
+
+function EmailErrorState({
+  isQuotaError,
+  message,
+  isFetching,
+  onRetry,
+  containerRef,
+}: {
+  isQuotaError: boolean;
+  message: string;
+  isFetching: boolean;
+  onRetry: () => unknown;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [cooldownRemaining, setCooldownRemaining] = useState(
+    isQuotaError ? RATE_LIMIT_RETRY_MS : 0,
+  );
+  const autoRetryFired = useRef(false);
+
+  // Tick the cooldown countdown every second. Depend on the boolean so the
+  // effect only re-runs when the cooldown starts or stops — not on every tick.
+  // The functional setter pattern reads `prev` from the latest state, so we
+  // don't need `cooldownRemaining` in the deps array.
+  const isCoolingDown = cooldownRemaining > 0;
+  useEffect(() => {
+    if (!isCoolingDown) return;
+    const handle = setInterval(() => {
+      setCooldownRemaining((prev) => Math.max(0, prev - 1000));
+    }, 1000);
+    return () => clearInterval(handle);
+  }, [isCoolingDown]);
+
+  // Auto-retry once when a rate-limit cooldown elapses so the user doesn't
+  // have to babysit the screen waiting for Google to recover.
+  useEffect(() => {
+    if (!isQuotaError) return;
+    if (autoRetryFired.current) return;
+    if (cooldownRemaining > 0) return;
+    autoRetryFired.current = true;
+    void onRetry();
+  }, [cooldownRemaining, isQuotaError, onRetry]);
+
+  const handleClick = useCallback(() => {
+    if (cooldownRemaining > 0 || isFetching) return;
+    setCooldownRemaining(isQuotaError ? RATE_LIMIT_RETRY_MS : 0);
+    autoRetryFired.current = true;
+    void onRetry();
+  }, [cooldownRemaining, isFetching, isQuotaError, onRetry]);
+
+  const cooldownSeconds = Math.ceil(cooldownRemaining / 1000);
+  const buttonDisabled = isFetching || cooldownRemaining > 0;
+
+  let buttonLabel: string;
+  if (isFetching) {
+    buttonLabel = "Retrying…";
+  } else if (cooldownRemaining > 0) {
+    buttonLabel = `Try again in ${cooldownSeconds}s`;
+  } else {
+    buttonLabel = "Try again";
+  }
+
+  return (
+    <div className="flex h-full flex-col" ref={containerRef}>
+      <div className="flex flex-1 flex-col items-center justify-center px-8">
+        <div className="flex flex-col items-center gap-3 max-w-xs text-center">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10">
+            <IconAlertCircle className="h-5 w-5 text-destructive" />
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-foreground">
+              {isQuotaError ? "Gmail rate limit hit" : "Unable to load emails"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {isQuotaError
+                ? "Too many recent requests to Google. Waiting a moment before retrying."
+                : message}
+            </p>
+          </div>
+          <button
+            onClick={handleClick}
+            disabled={buttonDisabled}
+            className="mt-1 inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isFetching && <Spinner className="h-3 w-3" />}
+            {buttonLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Email List ─────────────────────────────────────────────────────────────
 
 export function EmailList({
@@ -156,6 +258,7 @@ export function EmailList({
   const {
     data: fetchedEmails = [],
     isLoading,
+    isFetching,
     error: emailsError,
     refetch,
     hasNextPage,
@@ -771,33 +874,13 @@ export function EmailList({
     );
 
     return (
-      <div className="flex h-full flex-col" ref={containerRef}>
-        <div className="flex flex-1 flex-col items-center justify-center px-8">
-          <div className="flex flex-col items-center gap-3 max-w-xs text-center">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10">
-              <IconAlertCircle className="h-5 w-5 text-destructive" />
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">
-                {isQuotaError
-                  ? "Gmail rate limit hit"
-                  : "Unable to load emails"}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {isQuotaError
-                  ? "Too many recent requests to Google. Waiting a moment before retrying."
-                  : emailsError.message}
-              </p>
-            </div>
-            <button
-              onClick={() => refetch()}
-              className="mt-1 inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-            >
-              Try again
-            </button>
-          </div>
-        </div>
-      </div>
+      <EmailErrorState
+        isQuotaError={isQuotaError}
+        message={emailsError.message ?? ""}
+        isFetching={isFetching}
+        onRetry={refetch}
+        containerRef={containerRef}
+      />
     );
   }
 

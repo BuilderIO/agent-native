@@ -31,7 +31,17 @@ const threadToRun = new Map<string, string>();
 const CLEANUP_DELAY_MS = 5 * 60 * 1000;
 const DEFAULT_RUN_SOFT_TIMEOUT_MS = 75_000;
 
-function getRunSoftTimeoutMs(): number {
+export interface StartRunOptions {
+  /** Override the run soft timeout for this run. Must be lower than the
+   * hosting platform's hard function timeout so the framework can emit a
+   * recoverable event before the host kills the process. */
+  softTimeoutMs?: number;
+}
+
+export function resolveRunSoftTimeoutMs(overrideMs?: number): number {
+  if (typeof overrideMs === "number" && Number.isFinite(overrideMs)) {
+    return Math.max(0, overrideMs);
+  }
   const raw = Number(process.env.AGENT_RUN_SOFT_TIMEOUT_MS);
   if (Number.isFinite(raw) && raw >= 0) return raw;
   return DEFAULT_RUN_SOFT_TIMEOUT_MS;
@@ -52,6 +62,7 @@ export function startRun(
     signal: AbortSignal,
   ) => Promise<void>,
   onComplete?: (run: ActiveRun) => void | Promise<void>,
+  options?: StartRunOptions,
 ): ActiveRun {
   // If there's already a run for this thread, abort it
   const existingRunId = threadToRun.get(threadId);
@@ -84,7 +95,7 @@ export function startRun(
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
     updateRunHeartbeat(runId).catch(() => {});
   }, 1500);
-  const softTimeoutMs = getRunSoftTimeoutMs();
+  const softTimeoutMs = resolveRunSoftTimeoutMs(options?.softTimeoutMs);
   const softTimeoutTimer =
     softTimeoutMs > 0
       ? setTimeout(() => {

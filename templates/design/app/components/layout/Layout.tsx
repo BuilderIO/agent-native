@@ -18,9 +18,10 @@ const BARE_PREFIXES = ["/present/"];
 /**
  * Routes where the page renders its own toolbar instead of the global Header.
  * The Sidebar + AgentSidebar still render. The Header is hidden so the page
- * can supply a richer custom toolbar (e.g. DesignEditor mode/zoom/device).
+ * can supply a richer custom toolbar (e.g. DesignEditor mode/zoom/device,
+ * shared ToolViewer / ToolsListPage chrome).
  */
-const EDITOR_PREFIXES = ["/design/"];
+const EDITOR_PREFIXES = ["/design/", "/tools"];
 
 export function Layout({ children }: LayoutProps) {
   useNavigationState();

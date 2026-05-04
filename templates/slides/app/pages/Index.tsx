@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useMemo } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
 import { IconPlus, IconStack2 } from "@tabler/icons-react";
 import { useDecks } from "@/context/DeckContext";
@@ -42,7 +43,11 @@ export default function Index() {
   }, []);
 
   const handleCreateDeckBlank = () => {
-    const deck = createDeck();
+    let deck: ReturnType<typeof createDeck> | undefined;
+    flushSync(() => {
+      deck = createDeck();
+    });
+    if (!deck) return;
     navigate(`/deck/${deck.id}`);
   };
 
@@ -50,7 +55,11 @@ export default function Index() {
     prompt: string,
     files: UploadedFile[],
   ) => {
-    const deck = createDeck(undefined, { noDefaultSlides: true });
+    let deck: ReturnType<typeof createDeck> | undefined;
+    flushSync(() => {
+      deck = createDeck(undefined, { noDefaultSlides: true });
+    });
+    if (!deck) return;
 
     const fileContext =
       files.length > 0

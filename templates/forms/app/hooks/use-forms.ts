@@ -37,8 +37,17 @@ export function useUpdateForm() {
       qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
       qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
-    onError: () => {
-      toast.error("Failed to update form");
+    onError: (err: unknown) => {
+      // Surface the server's actual error message (e.g. publish validation
+      // failures like "Cannot publish: form has no fields") instead of a
+      // generic toast that hides the real problem. Callers can pass an
+      // inline `onError` to mutate() to suppress this toast if they want
+      // to show their own UI.
+      const message =
+        err instanceof Error && err.message
+          ? err.message.replace(/^Action update-form failed:\s*/, "")
+          : "Failed to update form";
+      toast.error(message);
     },
   });
 }

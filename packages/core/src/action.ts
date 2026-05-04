@@ -46,6 +46,11 @@ interface DefineActionWithSchema<
    *  Only set this manually when you need to override the inference — e.g. a
    *  POST action that only reads data but can't use GET for a protocol reason. */
   readOnly?: boolean;
+  /** If true, the agent may execute this action concurrently with other
+   *  read-only or parallel-safe tool calls emitted in the same model turn.
+   *  Only set this for mutating actions that are internally concurrency-safe
+   *  and order-independent for same-turn execution. */
+  parallelSafe?: boolean;
   /** Whether this action may be invoked from the tools (Alpine iframe) bridge
    *  via `appAction(name, params)` — see `packages/core/docs/content/actions.md`
    *  ("Tools Callability"). **Default-allow opt-out**: undefined / `true` both
@@ -81,6 +86,9 @@ interface DefineActionWithParams<
   /** If true, the framework will NOT emit a screen-refresh poll event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`. */
   readOnly?: boolean;
+  /** If true, the agent may execute this action concurrently with other
+   *  read-only or parallel-safe tool calls emitted in the same model turn. */
+  parallelSafe?: boolean;
   /** Whether this action may be invoked from the tools (Alpine iframe) bridge
    *  via `appAction(name, params)`. See the schema overload above for details
    *  and the `toolCallable` section in actions.md. */
@@ -188,6 +196,10 @@ export function defineAction(options: any) {
     typeof options.toolCallable === "boolean"
       ? options.toolCallable
       : undefined;
+  const parallelSafe: boolean | undefined =
+    typeof options.parallelSafe === "boolean"
+      ? options.parallelSafe
+      : undefined;
 
   return {
     tool: {
@@ -198,6 +210,7 @@ export function defineAction(options: any) {
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
+    ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
   };
 }

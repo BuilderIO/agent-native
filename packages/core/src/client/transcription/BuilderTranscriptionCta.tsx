@@ -93,7 +93,7 @@ export function BuilderTranscriptionCta() {
       <span className="flex-1">
         {connecting
           ? "Waiting for Builder.io…"
-          : "Connect Builder.io for higher-quality transcription — free, no API key needed."}
+          : "Connect Builder.io for higher-quality transcription — free credits, no API key needed."}
       </span>
       {error ? (
         <span className="text-destructive text-[10px]">{error}</span>

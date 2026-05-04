@@ -10,6 +10,7 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { IconMessage2, IconCheck } from "@tabler/icons-react";
 import { cn } from "./utils.js";
+import { useSession } from "./use-session.js";
 
 const DEFAULT_FEEDBACK_URL =
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
@@ -115,6 +116,7 @@ export function FeedbackButton({
   placeholder,
 }: FeedbackButtonProps) {
   const target = parseTarget(url);
+  const { session } = useSession();
 
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
@@ -168,6 +170,7 @@ export function FeedbackButton({
       setSubmitting(true);
       setError(null);
       try {
+        const submitterEmail = session?.email;
         const res = await fetch(
           `${target.endpoint}/api/submit/${encodeURIComponent(schema.formId)}`,
           {
@@ -177,6 +180,7 @@ export function FeedbackButton({
               data: { [schema.fieldId]: trimmed },
               _t: openedAtRef.current,
               _hp: honeypot,
+              ...(submitterEmail ? { _meta: { submitterEmail } } : {}),
             }),
           },
         );
@@ -193,7 +197,7 @@ export function FeedbackButton({
         setError(err instanceof Error ? err.message : "Couldn't send feedback");
       }
     },
-    [target, schema, value, honeypot, submitting],
+    [target, schema, value, honeypot, submitting, session?.email],
   );
 
   const trigger =

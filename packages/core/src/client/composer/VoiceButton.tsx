@@ -73,14 +73,36 @@ export interface VoiceRecordingOverlayProps {
 
 export function VoiceRecordingOverlay({ voice }: VoiceRecordingOverlayProps) {
   const { state, amplitude, durationMs, errorMessage, cancel } = voice;
+  const { dismissError, start } = voice;
 
   if (state === "error" && errorMessage) {
     return (
       <div
         role="alert"
-        className="mx-2 mt-1 rounded-md border border-red-500/40 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-500"
+        className="mx-2 mt-1 flex items-start gap-2 rounded-md border border-red-500/40 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-500"
       >
-        {errorMessage}
+        <span className="flex-1 min-w-0">{errorMessage}</span>
+        <button
+          type="button"
+          onClick={() => {
+            dismissError();
+            void start();
+          }}
+          className="shrink-0 cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-medium text-red-500 hover:bg-red-500/20"
+          title="Try again"
+          aria-label="Try again"
+        >
+          Try again
+        </button>
+        <button
+          type="button"
+          onClick={dismissError}
+          className="shrink-0 flex h-4 w-4 cursor-pointer items-center justify-center rounded text-red-500 hover:bg-red-500/20"
+          title="Dismiss"
+          aria-label="Dismiss"
+        >
+          <IconX className="h-3 w-3" />
+        </button>
       </div>
     );
   }

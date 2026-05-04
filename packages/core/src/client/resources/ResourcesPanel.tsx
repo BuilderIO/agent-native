@@ -22,6 +22,7 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { sendToAgentChat } from "../agent-chat.js";
+import { PromptComposer } from "../composer/PromptComposer.js";
 import { ResourceTree } from "./ResourceTree.js";
 import { ResourceEditor } from "./ResourceEditor.js";
 import { serializeFrontmatter } from "../../resources/metadata.js";
@@ -223,8 +224,8 @@ function CreateMenu({
     }
   };
 
-  const submitSkill = () => {
-    const trimmed = value.trim();
+  const submitSkill = (text: string = value) => {
+    const trimmed = text.trim();
     if (!trimmed) return;
 
     sendToAgentChat({
@@ -298,8 +299,8 @@ Keep the skill concise (under 500 lines) and actionable.`,
     onCreated?.();
   };
 
-  const submitJob = () => {
-    const trimmed = value.trim();
+  const submitJob = (text: string = value) => {
+    const trimmed = text.trim();
     if (!trimmed) return;
 
     sendToAgentChat({
@@ -320,8 +321,8 @@ The job will run automatically on the schedule. Make the instructions specific â
     setOpen(false);
   };
 
-  const submitAgentPrompt = () => {
-    const trimmed = value.trim();
+  const submitAgentPrompt = (text: string = value) => {
+    const trimmed = text.trim();
     if (!trimmed) return;
 
     sendToAgentChat({
@@ -535,7 +536,11 @@ The result should be a reusable agent profile, not a one-off task response.`,
         <div
           ref={popoverRef}
           className="absolute right-0 top-full mt-1.5 z-[220] rounded-lg border border-border bg-popover shadow-lg"
-          style={{ width: 260, fontSize: 13, lineHeight: "normal" }}
+          style={{
+            width: view === "menu" || view === "file" ? 260 : 380,
+            fontSize: 13,
+            lineHeight: "normal",
+          }}
         >
           {view === "menu" && (
             <div className="py-1">
@@ -599,33 +604,12 @@ The result should be a reusable agent profile, not a one-off task response.`,
                 Describe what kind of skill you want and the agent will create
                 it.
               </p>
-              <textarea
-                ref={inputRef as React.RefObject<HTMLTextAreaElement>}
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    submitSkill();
-                  }
-                  if (e.key === "Escape") {
-                    e.stopPropagation();
-                    setView("menu");
-                  }
-                }}
-                rows={3}
-                className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+              <PromptComposer
+                autoFocus
                 placeholder="e.g. A skill that reviews PRs for security issues and OWASP top 10 vulnerabilities"
+                draftScope="resources:create-skill"
+                onSubmit={(text) => submitSkill(text)}
               />
-              <div className="mt-2.5 flex justify-end">
-                <button
-                  onClick={submitSkill}
-                  disabled={!value.trim()}
-                  className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
-                >
-                  Create
-                </button>
-              </div>
             </div>
           )}
 
@@ -637,33 +621,12 @@ The result should be a reusable agent profile, not a one-off task response.`,
               <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
                 Describe what should happen and when.
               </p>
-              <textarea
-                ref={inputRef as React.RefObject<HTMLTextAreaElement>}
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    submitJob();
-                  }
-                  if (e.key === "Escape") {
-                    e.stopPropagation();
-                    setView("menu");
-                  }
-                }}
-                rows={3}
-                className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+              <PromptComposer
+                autoFocus
                 placeholder="e.g. Every weekday at 9am, check for overdue scorecards and send a Slack update"
+                draftScope="resources:create-job"
+                onSubmit={(text) => submitJob(text)}
               />
-              <div className="mt-2.5 flex justify-end">
-                <button
-                  onClick={submitJob}
-                  disabled={!value.trim()}
-                  className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
-                >
-                  Create
-                </button>
-              </div>
             </div>
           )}
 
@@ -718,33 +681,12 @@ The result should be a reusable agent profile, not a one-off task response.`,
                 Describe the agent you want. It will be saved under{" "}
                 <code>agents/</code>.
               </p>
-              <textarea
-                ref={inputRef as React.RefObject<HTMLTextAreaElement>}
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    submitAgentPrompt();
-                  }
-                  if (e.key === "Escape") {
-                    e.stopPropagation();
-                    setView("agent-mode");
-                  }
-                }}
-                rows={4}
-                className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+              <PromptComposer
+                autoFocus
                 placeholder="e.g. A design agent that critiques layouts, suggests UI direction, and prefers concise product reasoning"
+                draftScope="resources:create-agent"
+                onSubmit={(text) => submitAgentPrompt(text)}
               />
-              <div className="mt-2.5 flex justify-end">
-                <button
-                  onClick={submitAgentPrompt}
-                  disabled={!value.trim()}
-                  className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
-                >
-                  Create
-                </button>
-              </div>
             </div>
           )}
 

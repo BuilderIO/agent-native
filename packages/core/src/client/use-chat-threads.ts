@@ -221,7 +221,14 @@ export function useChatThreads(
             body: JSON.stringify({ id }),
           },
         );
-        if (!res.ok) return null;
+        if (!res.ok) {
+          // Surface failures so a click on the Fork button isn't a silent
+          // no-op when the source thread can't be found or auth has lapsed.
+          console.error(
+            `[chat] fork failed for ${sourceId}: ${res.status} ${res.statusText}`,
+          );
+          return null;
+        }
         const thread = await res.json();
         setThreads((prev) => [
           {
@@ -235,7 +242,8 @@ export function useChatThreads(
           ...prev,
         ]);
         return thread.id;
-      } catch {
+      } catch (err) {
+        console.error(`[chat] fork threw for ${sourceId}:`, err);
         return null;
       }
     },

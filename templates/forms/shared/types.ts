@@ -99,4 +99,6 @@ export interface FormResponse {
   formId: string;
   data: Record<string, unknown>;
   submittedAt: string;
+  /** Email of the submitter when known (claimed by the client; not verified). */
+  submitterEmail?: string | null;
 }

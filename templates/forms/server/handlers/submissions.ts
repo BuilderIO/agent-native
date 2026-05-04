@@ -183,12 +183,29 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   const responseId = nanoid();
   const ip = getRequestIP(event) ?? null;
 
+  // Optional metadata sent by trusted clients (e.g. the framework's
+  // FeedbackButton, which forwards the logged-in user's email so we can see
+  // who sent feedback in Slack). Never required, never trusted as identity —
+  // anyone can claim any email — but useful as a hint when the client is ours.
+  const rawSubmitter =
+    typeof body._meta === "object" && body._meta !== null
+      ? (body._meta as { submitterEmail?: unknown }).submitterEmail
+      : undefined;
+  const submitterEmail =
+    typeof rawSubmitter === "string" &&
+    rawSubmitter.length > 0 &&
+    rawSubmitter.length <= 320 &&
+    rawSubmitter.includes("@")
+      ? rawSubmitter
+      : null;
+
   await db.insert(schema.responses).values({
     id: responseId,
     formId: id,
     data: JSON.stringify(data),
     submittedAt: now,
     ip,
+    submitterEmail,
   });
 
   // Write submission notification to application state (SQL-backed)
@@ -216,6 +233,7 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
         fields,
         data,
         submittedAt: now,
+        submitterEmail,
       }).catch(() => {});
     }
   } catch {
@@ -266,6 +284,7 @@ export const listResponses = defineEventHandler(async (event: H3Event) => {
           formId: r.formId,
           data: JSON.parse(r.data),
           submittedAt: r.submittedAt,
+          submitterEmail: r.submitterEmail,
         })) as FormResponse[],
         total: total?.count ?? 0,
         fields: JSON.parse(access.resource.fields),

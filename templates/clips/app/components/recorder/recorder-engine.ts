@@ -229,6 +229,12 @@ export class RecorderEngine {
         cameraStream: this.cameraStream,
       };
     } catch (err) {
+      // Release any tracks acquired before the failure so the browser's
+      // screen / camera / mic indicators don't linger after the caller's
+      // error handler. Without this, a screen-share that succeeded followed
+      // by a camera permission denial would leave the screen capture
+      // running until tab close.
+      this.cleanupTracks();
       this.transition("error", { reason: String(err) });
       throw this.friendlyError(err);
     }

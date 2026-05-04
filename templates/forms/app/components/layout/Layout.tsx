@@ -10,7 +10,7 @@ const BARE_ROUTES = new Set(["/form-preview"]);
 // Routes whose page renders its own custom toolbar (with AgentToggleButton).
 // Layout still mounts Sidebar + AgentSidebar, but skips its own Header so
 // there's no double-header.
-const NO_HEADER_PREFIXES = ["/forms/"];
+const NO_HEADER_PREFIXES = ["/forms/", "/tools"];
 
 interface LayoutProps {
   children: React.ReactNode;

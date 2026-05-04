@@ -80,7 +80,7 @@ const llmStep: OnboardingStep = {
       kind: "builder-cli-auth",
       label: "Connect Builder",
       description:
-        "One click, no API key needed. Builder routes Claude, GPT, Gemini, and more.",
+        "Free credits for Claude, GPT, Gemini, and more — no API key needed.",
       primary: true,
       payload: {
         scope: "llm",

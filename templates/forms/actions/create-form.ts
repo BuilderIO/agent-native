@@ -27,8 +27,17 @@ export default defineAction({
   schema: z.object({
     title: z.string().optional().describe("Form title"),
     description: z.string().optional().describe("Form description"),
-    fields: z.string().optional().describe("JSON array of form fields"),
-    settings: z.string().optional().describe("JSON object of form settings"),
+    // Accept either a JSON string (agent CLI / older callers) or an actual
+    // array/object — the UI POSTs JSON bodies via useActionMutation, which
+    // serializes the inputs directly.
+    fields: z
+      .union([z.string(), z.array(z.any())])
+      .optional()
+      .describe("Array of form fields (or JSON string of the same)"),
+    settings: z
+      .union([z.string(), z.record(z.string(), z.any())])
+      .optional()
+      .describe("Form settings object (or JSON string of the same)"),
     slug: z.string().optional().describe("Custom URL slug"),
     status: z
       .enum(["draft", "published", "closed"])

@@ -9,6 +9,7 @@ import "../register-secrets.js";
 export default createAgentChatPlugin({
   appId: "slides",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
+  runSoftTimeoutMs: 240_000,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   mentionProviders: async () => {
     const { getDb } = await import("../db/index.js");

@@ -4,7 +4,10 @@ import {
   IconLayoutSidebar,
   IconShare2,
 } from "@tabler/icons-react";
-import { AgentToggleButton } from "@agent-native/core/client";
+import {
+  AgentToggleButton,
+  NotificationsBell,
+} from "@agent-native/core/client";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
 import {
@@ -80,6 +83,7 @@ export function StudioHeader({
             <span className="hidden sm:inline">Share</span>
           </button>
         )}
+        <NotificationsBell />
         <AgentToggleButton />
       </div>
     </header>

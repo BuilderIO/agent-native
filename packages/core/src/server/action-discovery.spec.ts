@@ -29,4 +29,18 @@ describe("action discovery", () => {
 
     expect(registry["named-mutating-read"].readOnly).toBe(false);
   });
+
+  it("preserves explicit parallelSafe metadata", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "safe-write": {
+        default: {
+          tool: { description: "Safe write", parameters: {} },
+          parallelSafe: true,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["safe-write"].parallelSafe).toBe(true);
+  });
 });

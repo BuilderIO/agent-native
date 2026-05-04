@@ -26,6 +26,7 @@ import {
   useActionMutation,
   appBasePath,
   AgentToggleButton,
+  NotificationsBell,
 } from "@agent-native/core/client";
 import { formatMs } from "@/lib/timestamp-format";
 import { useCallPlayer } from "@/hooks/use-call-player";
@@ -373,6 +374,7 @@ export function CallPlayer({
             <IconMessage className="h-4 w-4" />
             Comments
           </Button>
+          <NotificationsBell />
           <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
         </div>
       </header>

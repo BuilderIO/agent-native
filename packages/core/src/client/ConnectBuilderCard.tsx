@@ -8,6 +8,12 @@ import { agentNativePath } from "./api-path.js";
 
 export interface ConnectBuilderCardProps {
   configured: boolean;
+  /**
+   * True when ENABLE_BUILDER / BUILDER_BRANCH_PROJECT_ID is set on the
+   * deploy. When false, the card shows a "coming soon" waitlist CTA instead
+   * of a Send button — the /builder/run endpoint would 403 anyway.
+   */
+  builderEnabled?: boolean;
   connectUrl: string;
   orgName?: string | null;
   /** The user's feature/change request, forwarded to Builder's cloud agent
@@ -29,6 +35,7 @@ interface BuilderRunResult {
  */
 export function ConnectBuilderCard({
   configured: initialConfigured,
+  builderEnabled: initialBuilderEnabled = true,
   connectUrl: initialConnectUrl,
   orgName: initialOrgName,
   prompt = "",
@@ -44,10 +51,17 @@ export function ConnectBuilderCard({
   const configured = flow.hasFetchedStatus
     ? flow.configured
     : initialConfigured;
+  const builderEnabled = flow.hasFetchedStatus
+    ? flow.builderEnabled
+    : initialBuilderEnabled;
   const orgName = flow.hasFetchedStatus
     ? flow.orgName
     : (initialOrgName ?? null);
   const connecting = flow.connecting;
+
+  const [waitlistJoined, setWaitlistJoined] = useState(false);
+  const [joiningWaitlist, setJoiningWaitlist] = useState(false);
+  const [waitlistErr, setWaitlistErr] = useState<string | null>(null);
 
   const [sending, setSending] = useState(false);
   const [runResult, setRunResult] = useState<BuilderRunResult | null>(null);
@@ -93,10 +107,45 @@ export function ConnectBuilderCard({
     }
   }, [prompt]);
 
-  // Combine connect-flow errors and send errors into one surface.
-  const err = sendErr ?? flow.error;
+  const handleJoinWaitlist = useCallback(async () => {
+    setJoiningWaitlist(true);
+    setWaitlistErr(null);
+    try {
+      const origin = getCallbackOrigin() || window.location.origin;
+      const res = await fetch(
+        new URL(
+          agentNativePath("/_agent-native/builder/branch-waitlist"),
+          origin,
+        ).href,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(
+          typeof data?.error === "string"
+            ? data.error
+            : `Request failed (${res.status})`,
+        );
+      }
+      if (!mountedRef.current) return;
+      setWaitlistJoined(true);
+      setJoiningWaitlist(false);
+    } catch (e) {
+      if (!mountedRef.current) return;
+      setWaitlistErr(e instanceof Error ? e.message : "Couldn't join waitlist");
+      setJoiningWaitlist(false);
+    }
+  }, []);
 
-  const canSend = configured && prompt.trim().length > 0;
+  // Combine connect-flow errors, send errors, and waitlist errors.
+  const err = sendErr ?? waitlistErr ?? flow.error;
+
+  const hasPrompt = prompt.trim().length > 0;
+  const canSend = configured && builderEnabled && hasPrompt;
+  // Branch creation is gated by deploy env (ENABLE_BUILDER / project id).
+  // Show waitlist when the user has connected and has a prompt, but the
+  // deploy hasn't been opted in yet.
+  const showWaitlist = configured && !builderEnabled && hasPrompt;
 
   // Title + subtitle depend on which mode we're in. We compute them up front
   // so the render tree below stays flat.
@@ -111,6 +160,18 @@ export function ConnectBuilderCard({
           {runResult.branchName}
         </span>
         . Click through to watch progress in the Visual Editor.
+      </>
+    );
+  } else if (showWaitlist) {
+    title = waitlistJoined
+      ? "You're on the waitlist"
+      : "Builder branches — coming soon";
+    subtitle = waitlistJoined ? (
+      <>We'll let you know as soon as cloud branch creation is available.</>
+    ) : (
+      <>
+        Cloud branch creation isn't available on this deployment yet. Join the
+        waitlist and we'll let you know when it ships.
       </>
     );
   } else if (canSend) {
@@ -207,6 +268,26 @@ export function ConnectBuilderCard({
                   </>
                 ) : (
                   <>Send to Builder</>
+                )}
+              </button>
+            ) : showWaitlist && !waitlistJoined ? (
+              <button
+                type="button"
+                onClick={handleJoinWaitlist}
+                disabled={joiningWaitlist}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  "bg-foreground text-background hover:bg-foreground/90",
+                  joiningWaitlist && "opacity-70 cursor-wait",
+                )}
+              >
+                {joiningWaitlist ? (
+                  <>
+                    <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                    Joining…
+                  </>
+                ) : (
+                  <>Join the waitlist</>
                 )}
               </button>
             ) : !configured ? (

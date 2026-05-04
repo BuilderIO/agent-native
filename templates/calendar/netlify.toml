@@ -7,3 +7,11 @@
 [build.environment]
   NITRO_PRESET = "netlify"
   NPM_CONFIG_PRODUCTION = "false"
+
+# A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).
+# Aligned with the agent-run soft timeout in
+# packages/core/src/agent/run-manager.ts (DEFAULT_RUN_SOFT_TIMEOUT_MS = 75_000)
+# so the framework's friendly "run_timeout" event fires before Netlify kills
+# the function.
+[functions."*"]
+  timeout = 75

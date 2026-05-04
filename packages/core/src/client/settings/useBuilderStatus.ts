@@ -109,6 +109,12 @@ export interface BuilderConnectFlow {
    * disconnect controls — `start()` will be a no-op.
    */
   envManaged: boolean;
+  /**
+   * True when ENABLE_BUILDER (or a BUILDER_BRANCH_PROJECT_ID) is set on the
+   * deploy, gating Builder cloud branch creation. When false, the card
+   * surfaces a "coming soon" waitlist CTA instead of a Send button.
+   */
+  builderEnabled: boolean;
   orgName: string | null;
   connecting: boolean;
   error: string | null;
@@ -134,6 +140,7 @@ export function useBuilderConnectFlow(
   const { popupUrl, onConnected } = opts;
   const [configured, setConfigured] = useState(false);
   const [envManaged, setEnvManaged] = useState(false);
+  const [builderEnabled, setBuilderEnabled] = useState(false);
   const [orgName, setOrgName] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -162,6 +169,7 @@ export function useBuilderConnectFlow(
       return (await r.json()) as {
         configured: boolean;
         envManaged?: boolean;
+        builderEnabled?: boolean;
         orgName?: string | null;
         connectError?: { message: string; at: number };
       };
@@ -188,6 +196,7 @@ export function useBuilderConnectFlow(
       if (!s) return;
       setConfigured(!!s.configured);
       setEnvManaged(!!s.envManaged);
+      setBuilderEnabled(!!s.builderEnabled);
       setOrgName(s.orgName ?? null);
     };
     refresh();
@@ -313,6 +322,7 @@ export function useBuilderConnectFlow(
   return {
     configured,
     envManaged,
+    builderEnabled,
     orgName,
     connecting,
     error,

@@ -110,7 +110,7 @@ export default function Header() {
       <header
         className={`sticky top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-300 ${showHeaderBg ? "border-b border-[var(--docs-border)] bg-[var(--header-bg)] backdrop-blur-lg" : "border-b border-transparent bg-transparent"}`}
       >
-        <nav className="mx-auto flex h-16 max-w-[1600px] items-center gap-6 px-6">
+        <nav className="mx-auto flex h-16 w-full max-w-[1600px] items-center gap-6 px-6">
           <Link
             prefetch="render"
             to="/"

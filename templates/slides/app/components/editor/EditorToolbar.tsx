@@ -35,6 +35,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 
 import {
   AgentToggleButton,
+  NotificationsBell,
   ShareButton,
   PresenceBar,
   type CollabUser,
@@ -716,6 +717,7 @@ graph TD
         <span className="hidden sm:inline">Present</span>
       </Link>
       <ThemeToggle className="flex-shrink-0" />
+      <NotificationsBell />
       <AgentToggleButton className="flex-shrink-0 text-muted-foreground hover:text-foreground/70 hover:bg-accent" />
     </div>
   );

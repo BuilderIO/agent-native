@@ -12,6 +12,7 @@ import {
 } from "@tabler/icons-react";
 import { ShareButton } from "../sharing/ShareButton.js";
 import { AgentToggleButton } from "../AgentPanel.js";
+import { NotificationsBell } from "../notifications/NotificationsBell.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { PromptComposer } from "../composer/PromptComposer.js";
 import {
@@ -81,6 +82,23 @@ export interface ToolViewerProps {
 
 function EditToolPopover({ tool }: { tool: Tool }) {
   const [open, setOpen] = useState(false);
+
+  // Radix's outside-click detection runs in the parent document, so a click
+  // inside the tool iframe (or any other iframe) never fires it. The browser
+  // does shift focus to the iframe though, which blurs the parent window — we
+  // hook that to close the popover so it behaves like a normal click-outside.
+  useEffect(() => {
+    if (!open) return;
+    const handleBlur = () => {
+      // Defer until after the focus actually lands so document.activeElement
+      // reflects the iframe (or whatever the user clicked on).
+      setTimeout(() => {
+        if (document.activeElement?.tagName === "IFRAME") setOpen(false);
+      }, 0);
+    };
+    window.addEventListener("blur", handleBlur);
+    return () => window.removeEventListener("blur", handleBlur);
+  }, [open]);
 
   const handleSubmit = (text: string) => {
     const trimmed = text.trim();
@@ -489,6 +507,7 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
             resourceTitle={tool.name}
           />
           <ToolMoreMenu toolId={toolId} toolName={tool.name} />
+          <NotificationsBell />
           <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
         </div>
       </div>

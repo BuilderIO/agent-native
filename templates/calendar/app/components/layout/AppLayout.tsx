@@ -28,6 +28,17 @@ const EVENT_DETAIL_MODE_KEY = "calendar-event-detail-mode";
 /** Routes that render without the full AppLayout chrome (sidebar, agent panel). */
 const BARE_ROUTES = new Set(["/event"]);
 
+/**
+ * Routes whose page renders its own toolbar (with NotificationsBell + AgentToggleButton).
+ * Layout still mounts Sidebar + AgentSidebar, but skips its own header so
+ * there's no double-header.
+ */
+function pageOwnsToolbar(pathname: string): boolean {
+  if (pathname === "/") return true;
+  if (pathname === "/tools" || pathname.startsWith("/tools/")) return true;
+  return false;
+}
+
 export type ViewMode = "month" | "week" | "day";
 
 interface CalendarContextValue {
@@ -200,28 +211,32 @@ export function AppLayout({ children }: AppLayoutProps) {
           ]}
         >
           <div className="flex flex-1 flex-col overflow-hidden">
-            <header className="flex h-12 items-center justify-between gap-3 border-b border-border px-3 shrink-0">
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                {headerControls?.left ?? (
-                  <div className="flex items-center lg:hidden">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-10 w-10"
-                      onClick={() => setSidebarOpen(true)}
-                    >
-                      <IconMenu className="h-5 w-5" />
-                    </Button>
-                    <span className="ml-2 text-sm font-semibold">Calendar</span>
-                  </div>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {headerControls?.right}
-                <NotificationsBell />
-                <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
-              </div>
-            </header>
+            {!pageOwnsToolbar(location.pathname) && (
+              <header className="flex h-12 items-center justify-between gap-3 border-b border-border px-3 shrink-0">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  {headerControls?.left ?? (
+                    <div className="flex items-center lg:hidden">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-10 w-10"
+                        onClick={() => setSidebarOpen(true)}
+                      >
+                        <IconMenu className="h-5 w-5" />
+                      </Button>
+                      <span className="ml-2 text-sm font-semibold">
+                        Calendar
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {headerControls?.right}
+                  <NotificationsBell />
+                  <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
+                </div>
+              </header>
+            )}
 
             <HeaderControlsContext.Provider value={setHeaderControls}>
               <InvitationBanner />

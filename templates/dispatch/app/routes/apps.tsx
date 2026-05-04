@@ -1,4 +1,3 @@
-import { Link } from "react-router";
 import { useActionQuery } from "@agent-native/core/client";
 import {
   IconArrowUpRight,
@@ -71,12 +70,15 @@ export default function AppsRoute() {
                 Workspace apps
               </h2>
             </div>
-            <Button asChild size="sm" variant="outline">
-              <Link to="/new-app">
-                <IconPlus size={15} className="mr-1.5" />
-                App
-              </Link>
-            </Button>
+            <CreateAppPopover
+              align="end"
+              trigger={
+                <Button size="sm" variant="outline">
+                  <IconPlus size={15} className="mr-1.5" />
+                  App
+                </Button>
+              }
+            />
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">

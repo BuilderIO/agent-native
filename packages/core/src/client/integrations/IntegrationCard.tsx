@@ -45,11 +45,13 @@ export function IntegrationCard({
   const [expanded, setExpanded] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [toggleError, setToggleError] = useState<string | null>(null);
 
   const Icon = platformIcons[status.platform] || IconMessageCircle;
 
   const handleToggle = useCallback(async () => {
     setToggling(true);
+    setToggleError(null);
     try {
       const action = status.enabled ? "disable" : "enable";
       const res = await fetch(
@@ -60,11 +62,26 @@ export function IntegrationCard({
       );
       if (res.ok) {
         onRefresh();
+        return;
       }
+      const data = (await res.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      setToggleError(
+        data?.error ||
+          res.statusText ||
+          `Couldn't ${action} ${status.label} (HTTP ${res.status})`,
+      );
+    } catch (err) {
+      setToggleError(
+        err instanceof Error
+          ? err.message
+          : "Network error reaching the server",
+      );
     } finally {
       setToggling(false);
     }
-  }, [status.platform, status.enabled, onRefresh]);
+  }, [status.platform, status.enabled, status.label, onRefresh]);
 
   const handleCopy = useCallback(async () => {
     if (!status.webhookUrl) return;
@@ -121,6 +138,10 @@ export function IntegrationCard({
 
           {status.error && (
             <p className="text-[10px] text-destructive">{status.error}</p>
+          )}
+
+          {toggleError && (
+            <p className="text-[10px] text-destructive">{toggleError}</p>
           )}
 
           {!status.configured && !status.error && (
