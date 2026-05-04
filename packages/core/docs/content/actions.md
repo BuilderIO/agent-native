@@ -67,6 +67,7 @@ export default defineAction({
 - **`http: { path: "..." }`** — override the route path under `/_agent-native/actions/`. Defaults to the filename.
 - **`http: false`** — disable the HTTP endpoint entirely. Agent + CLI only.
 - **`readOnly: true`** — explicitly skip the poll-refresh even for POST actions that don't mutate.
+- **`parallelSafe: true`** — allow a mutating action to run concurrently with other same-turn tool calls. Only set this when the action is internally concurrency-safe and order-independent; mutating actions serialize by default.
 
 ### Tools callability {#tool-callable}
 

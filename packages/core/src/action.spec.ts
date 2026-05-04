@@ -66,4 +66,14 @@ describe("defineAction — readOnly inference", () => {
     // refresh event even though the method is GET.
     expect(action.readOnly).toBe(false);
   });
+
+  it("preserves explicit parallelSafe metadata", () => {
+    const action = defineAction({
+      description: "safe same-turn write",
+      parameters: { x: { type: "string" } },
+      parallelSafe: true,
+      run: async () => "ok",
+    });
+    expect(action.parallelSafe).toBe(true);
+  });
 });

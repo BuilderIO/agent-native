@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   IconCamera,
   IconDeviceScreen,
   IconMicrophone,
+  IconUpload,
   IconVideo,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,8 @@ export interface PreRecordPanelProps {
     micDeviceId: string | null;
     cameraDeviceId: string | null;
   }) => void;
+  /** Called when the user picks a local video file to upload. */
+  onUpload?: (file: File) => void;
   onCancel?: () => void;
   busy?: boolean;
 }
@@ -53,9 +56,11 @@ const MODE_OPTIONS: Array<{
 
 export function PreRecordPanel({
   onStart,
+  onUpload,
   onCancel,
   busy,
 }: PreRecordPanelProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<RecordingMode>("screen+camera");
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
@@ -211,6 +216,38 @@ export function PreRecordPanel({
           Start recording
         </Button>
       </div>
+
+      {onUpload && (
+        <>
+          <div className="relative flex items-center">
+            <div className="flex-1 border-t border-border" />
+            <span className="px-3 text-[11px] uppercase tracking-wide text-muted-foreground">
+              or
+            </span>
+            <div className="flex-1 border-t border-border" />
+          </div>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => fileInputRef.current?.click()}
+            className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-background px-3 py-2.5 text-sm text-muted-foreground hover:border-foreground/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <IconUpload className="h-4 w-4" />
+            Upload a video file
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="video/mp4,video/webm,video/quicktime,video/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onUpload(file);
+              if (fileInputRef.current) fileInputRef.current.value = "";
+            }}
+          />
+        </>
+      )}
     </div>
   );
 }

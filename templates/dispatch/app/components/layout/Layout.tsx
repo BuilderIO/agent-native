@@ -62,6 +62,14 @@ const SIDEBAR_SUGGESTIONS = [
 
 const CHROMELESS_PATHS = ["/approval"];
 
+// Routes whose page renders its own toolbar (with NotificationsBell + AgentToggleButton).
+// Layout still mounts the sidebar + AgentSidebar, but skips its own Header so
+// there's no double-header.
+function pageOwnsToolbar(pathname: string): boolean {
+  if (pathname === "/tools" || pathname.startsWith("/tools/")) return true;
+  return false;
+}
+
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const location = useLocation();
   const operationsOpen = OPERATIONS_NAV_ITEMS.some(
@@ -154,14 +162,19 @@ export function Layout({ children }: { children: ReactNode }) {
     return <>{children}</>;
   }
 
+  const showHeader = !pageOwnsToolbar(location.pathname);
   const appContent = (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
-      <Header onOpenMobile={() => setMobileOpen(true)} />
+      {showHeader ? <Header onOpenMobile={() => setMobileOpen(true)} /> : null}
       <InvitationBanner />
       <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">
-          {children}
-        </div>
+        {showHeader ? (
+          <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">
+            {children}
+          </div>
+        ) : (
+          children
+        )}
       </main>
     </div>
   );

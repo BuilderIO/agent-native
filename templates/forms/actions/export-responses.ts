@@ -34,6 +34,7 @@ export default defineAction({
       const data = responses.map((r) => ({
         id: r.id,
         submittedAt: r.submittedAt,
+        submitterEmail: r.submitterEmail ?? null,
         ...JSON.parse(r.data),
       }));
       fs.writeFileSync(outputPath, JSON.stringify(data, null, 2));
@@ -41,6 +42,7 @@ export default defineAction({
       const headers = [
         "ID",
         "Submitted At",
+        "Submitter Email",
         ...fields.map((f: any) => f.label),
       ];
       const rows = responses.map((r) => {
@@ -48,6 +50,7 @@ export default defineAction({
         return [
           r.id,
           r.submittedAt,
+          r.submitterEmail ?? "",
           ...fields.map((f: any) => {
             const val = data[f.id];
             if (Array.isArray(val)) return val.join("; ");

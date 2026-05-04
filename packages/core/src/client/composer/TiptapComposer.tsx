@@ -50,6 +50,10 @@ import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { getComposerDraftKey } from "./draft-key.js";
 import {
+  createPastedTextFile,
+  shouldConvertPasteToAttachment,
+} from "./pasted-text.js";
+import {
   getReasoningEffortOptionsForModel,
   reasoningEffortLabel,
   type ReasoningEffort,
@@ -503,7 +507,7 @@ function ModelSelector({
                       : "Connect Builder.io"}
                   </span>
                   <span className="block text-[11px] text-muted-foreground">
-                    Free access to Claude, OpenAI &amp; Gemini
+                    Free credits for Claude, OpenAI &amp; Gemini
                   </span>
                 </span>
               </button>
@@ -806,24 +810,39 @@ export function TiptapComposer({
         const files = Array.from(event.clipboardData?.files ?? []).filter(
           (file) => file.type.startsWith("image/"),
         );
-        if (files.length === 0) return false;
+        if (files.length > 0) {
+          event.preventDefault();
+          void Promise.all(
+            files.map((file) => {
+              // SimpleImageAttachmentAdapter uses file.name as the attachment id.
+              // Clipboard images (e.g. screenshots) are typically all named
+              // "image.png", so a second paste would replace the first instead of
+              // appending. Prepend a unique token so each paste gets a distinct id.
+              const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2)}-${file.name}`;
+              return composerRuntime.addAttachment(
+                new File([file], uniqueName, { type: file.type }),
+              );
+            }),
+          ).catch((error) => {
+            console.error("Error adding pasted attachment:", error);
+          });
+          return true;
+        }
 
-        event.preventDefault();
-        void Promise.all(
-          files.map((file) => {
-            // SimpleImageAttachmentAdapter uses file.name as the attachment id.
-            // Clipboard images (e.g. screenshots) are typically all named
-            // "image.png", so a second paste would replace the first instead of
-            // appending. Prepend a unique token so each paste gets a distinct id.
-            const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2)}-${file.name}`;
-            return composerRuntime.addAttachment(
-              new File([file], uniqueName, { type: file.type }),
-            );
-          }),
-        ).catch((error) => {
-          console.error("Error adding pasted attachment:", error);
-        });
-        return true;
+        // Large text pastes turn into a `Pasted text` attachment chip so the
+        // prompt stays readable. Matches Claude.ai / Claude Code's UX.
+        const pastedText = event.clipboardData?.getData("text/plain") ?? "";
+        if (shouldConvertPasteToAttachment(pastedText)) {
+          event.preventDefault();
+          void composerRuntime
+            .addAttachment(createPastedTextFile(pastedText))
+            .catch((error) => {
+              console.error("Error adding pasted-text attachment:", error);
+            });
+          return true;
+        }
+
+        return false;
       },
       handleKeyDown: (view, event) => {
         const pop = popoverStateRef.current;

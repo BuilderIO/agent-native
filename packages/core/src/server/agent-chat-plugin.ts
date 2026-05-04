@@ -22,6 +22,7 @@ import {
   subscribeToRun,
   type ActionEntry,
 } from "../agent/production-agent.js";
+import { resolveRunSoftTimeoutMs } from "../agent/run-manager.js";
 import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import { resolveEngine, createAnthropicEngine } from "../agent/engine/index.js";
 import { DEFAULT_MODEL } from "../agent/default-model.js";
@@ -83,7 +84,10 @@ import {
 } from "../resources/store.js";
 import nodePath from "node:path";
 import { readBody } from "./h3-helpers.js";
-import { getBuilderBrowserConnectUrl } from "./builder-browser.js";
+import {
+  getBuilderBrowserConnectUrl,
+  isBuilderBranchingEnabled,
+} from "./builder-browser.js";
 import { captureCliOutput } from "./cli-capture.js";
 import { withConfiguredAppBasePath } from "./app-base-path.js";
 import {
@@ -151,6 +155,59 @@ function resolveArtifactBaseUrl(event: any | undefined): string | undefined {
   } catch {}
 
   return undefined;
+}
+
+async function runAgentLoopDirectWithSoftTimeout(
+  opts: Parameters<typeof runAgentLoop>[0],
+  softTimeoutMs?: number,
+): Promise<Awaited<ReturnType<typeof runAgentLoop>>> {
+  const timeoutMs = resolveRunSoftTimeoutMs(softTimeoutMs);
+  if (timeoutMs <= 0) return runAgentLoop(opts);
+
+  const upstreamSignal = opts.signal;
+  const controller = new AbortController();
+  const abortFromUpstream = () => controller.abort();
+  if (upstreamSignal.aborted) {
+    controller.abort();
+  } else {
+    upstreamSignal.addEventListener("abort", abortFromUpstream, {
+      once: true,
+    });
+  }
+
+  let softTimedOut = false;
+  const timer = setTimeout(() => {
+    if (controller.signal.aborted) return;
+    softTimedOut = true;
+    opts.send({
+      type: "error",
+      error: "The agent reached the run time limit before it could finish.",
+      errorCode: "run_timeout",
+      recoverable: true,
+      details: `The run exceeded ${Math.round(
+        timeoutMs / 1000,
+      )} seconds. Partial output and tool calls were preserved so you can continue or retry.`,
+    });
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    return await runAgentLoop({ ...opts, signal: controller.signal });
+  } catch (err) {
+    if (softTimedOut) {
+      return {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: opts.model,
+      };
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    upstreamSignal.removeEventListener("abort", abortFromUpstream);
+  }
 }
 
 export function assembleA2AFinalResponse(
@@ -926,6 +983,7 @@ function createBuilderBrowserTool(deps: {
         return JSON.stringify({
           kind: "connect-builder-card",
           configured,
+          builderEnabled: isBuilderBranchingEnabled(),
           connectUrl: getBuilderBrowserConnectUrl(deps.getOrigin()),
           orgName: creds.orgName || null,
           prompt,
@@ -1243,6 +1301,10 @@ export interface AgentChatPluginOptions {
   devSystemPrompt?: string;
   /** Claude model to use. Default: claude-sonnet-4-6 */
   model?: string;
+  /** Per-app agent run soft timeout in milliseconds. Must stay below the
+   * hosting function timeout so the run can emit a recoverable timeout event
+   * instead of being killed by the platform. */
+  runSoftTimeoutMs?: number;
   /** Anthropic API key. Falls back to ANTHROPIC_API_KEY env var */
   apiKey?: string;
   /**
@@ -2793,55 +2855,58 @@ export function createAgentChatPlugin(
             `[A2A] Starting agent loop: ${a2aTools.length} tools, prompt ${systemPrompt.length} chars`,
           );
 
-          await runAgentLoop({
-            engine: a2aEngine,
-            model,
-            systemPrompt,
-            tools: a2aTools,
-            messages: a2aMessages,
-            actions: a2aActions,
-            send: (event) => {
-              a2aEvents.push(event);
-              if (event.type === "tool_start") {
-                console.log(`[A2A] Tool call: ${event.tool}`);
-              } else if (event.type === "tool_done") {
-                a2aToolResults.push({
-                  tool: event.tool,
-                  result: event.result,
-                });
-                const recoverableArtifactText =
-                  buildA2ARecoverableArtifactMessage(a2aToolResults, {
-                    baseUrl: resolveArtifactBaseUrl(context.event),
+          await runAgentLoopDirectWithSoftTimeout(
+            {
+              engine: a2aEngine,
+              model,
+              systemPrompt,
+              tools: a2aTools,
+              messages: a2aMessages,
+              actions: a2aActions,
+              send: (event) => {
+                a2aEvents.push(event);
+                if (event.type === "tool_start") {
+                  console.log(`[A2A] Tool call: ${event.tool}`);
+                } else if (event.type === "tool_done") {
+                  a2aToolResults.push({
+                    tool: event.tool,
+                    result: event.result,
                   });
-                if (
-                  recoverableArtifactText &&
-                  recoverableArtifactText !== lastRecoverableArtifactText
-                ) {
-                  lastRecoverableArtifactText = recoverableArtifactText;
-                  updateTaskStatusMessage(context.taskId, {
-                    role: "agent",
-                    metadata: { agentNativeRecoverableArtifacts: true },
-                    parts: [
-                      {
-                        type: "text",
-                        text: recoverableArtifactText,
-                      },
-                    ],
-                  }).catch((err) => {
-                    console.error(
-                      `[A2A] Failed to persist recoverable artifact message for task ${context.taskId}:`,
-                      err,
-                    );
-                  });
+                  const recoverableArtifactText =
+                    buildA2ARecoverableArtifactMessage(a2aToolResults, {
+                      baseUrl: resolveArtifactBaseUrl(context.event),
+                    });
+                  if (
+                    recoverableArtifactText &&
+                    recoverableArtifactText !== lastRecoverableArtifactText
+                  ) {
+                    lastRecoverableArtifactText = recoverableArtifactText;
+                    updateTaskStatusMessage(context.taskId, {
+                      role: "agent",
+                      metadata: { agentNativeRecoverableArtifacts: true },
+                      parts: [
+                        {
+                          type: "text",
+                          text: recoverableArtifactText,
+                        },
+                      ],
+                    }).catch((err) => {
+                      console.error(
+                        `[A2A] Failed to persist recoverable artifact message for task ${context.taskId}:`,
+                        err,
+                      );
+                    });
+                  }
+                } else if (event.type === "error") {
+                  console.error(`[A2A] Error: ${event.error}`);
+                } else if (event.type === "done") {
+                  console.log(`[A2A] Done. Events: ${a2aEvents.length}`);
                 }
-              } else if (event.type === "error") {
-                console.error(`[A2A] Error: ${event.error}`);
-              } else if (event.type === "done") {
-                console.log(`[A2A] Done. Events: ${a2aEvents.length}`);
-              }
+              },
+              signal: controller.signal,
             },
-            signal: controller.signal,
-          });
+            options?.runSoftTimeoutMs,
+          );
 
           const { responseText, finalText } = assembleA2AFinalResponse(
             a2aEvents,
@@ -2984,20 +3049,23 @@ export function createAgentChatPlugin(
           let accumulatedText = "";
           const controller = new AbortController();
 
-          await runAgentLoop({
-            engine: mcpEngine,
-            model,
-            systemPrompt,
-            tools: mcpTools,
-            messages: [
-              { role: "user", content: [{ type: "text", text: message }] },
-            ],
-            actions: mcpActions,
-            send: (event) => {
-              if (event.type === "text") accumulatedText += event.text;
+          await runAgentLoopDirectWithSoftTimeout(
+            {
+              engine: mcpEngine,
+              model,
+              systemPrompt,
+              tools: mcpTools,
+              messages: [
+                { role: "user", content: [{ type: "text", text: message }] },
+              ],
+              actions: mcpActions,
+              send: (event) => {
+                if (event.type === "text") accumulatedText += event.text;
+              },
+              signal: controller.signal,
             },
-            signal: controller.signal,
-          });
+            options?.runSoftTimeoutMs,
+          );
 
           return accumulatedText || "(no response)";
         },
@@ -3419,6 +3487,7 @@ export function createAgentChatPlugin(
         },
         model: options?.model ?? DEFAULT_MODEL,
         apiKey: options?.apiKey,
+        runSoftTimeoutMs: options?.runSoftTimeoutMs,
         skipFilesContext: leanPrompt,
         onEngineResolved: (engine, model) => {
           const runCtx = ensureRequestRunContext();
@@ -3510,6 +3579,7 @@ export function createAgentChatPlugin(
           },
           model: options?.model,
           apiKey: options?.apiKey,
+          runSoftTimeoutMs: options?.runSoftTimeoutMs,
           skipFilesContext: leanPrompt,
           onEngineResolved: (engine, model) => {
             const runCtx = ensureRequestRunContext();

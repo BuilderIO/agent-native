@@ -21,8 +21,17 @@ export default defineAction({
     title: z.string().optional().describe("New title"),
     description: z.string().optional().describe("New description"),
     slug: z.string().optional().describe("New URL slug"),
-    fields: z.string().optional().describe("JSON array of form fields"),
-    settings: z.string().optional().describe("JSON object of form settings"),
+    // Accept fields as a JSON string (agent CLI / older callers) or as an
+    // actual array (UI POSTs JSON bodies via useActionMutation, which
+    // serializes the FormField[] directly — Zod must accept both).
+    fields: z
+      .union([z.string(), z.array(z.any())])
+      .optional()
+      .describe("Array of form fields (or JSON string of the same)"),
+    settings: z
+      .union([z.string(), z.record(z.string(), z.any())])
+      .optional()
+      .describe("Form settings object (or JSON string of the same)"),
     status: z
       .enum(["draft", "published", "closed"])
       .optional()
@@ -85,6 +94,63 @@ export default defineAction({
       assertIntegrationUrlsAllowed(parsedSettings);
     }
     if (args.status !== undefined) updates.status = args.status;
+
+    // Pre-publish validation. Reject the publish if the form is missing
+    // required configuration that would make it unsubmittable. This also
+    // catches the agent flipping status to "published" on an empty/broken
+    // form. We only validate on transition INTO published — leaving an
+    // already-published form alone (or unpublishing it) shouldn't error.
+    if (args.status === "published") {
+      // Use the incoming fields if provided, otherwise the existing row.
+      const effectiveFieldsRaw =
+        updates.fields !== undefined ? updates.fields : existing.fields;
+      let effectiveFields: FormField[] = [];
+      try {
+        effectiveFields =
+          typeof effectiveFieldsRaw === "string"
+            ? (JSON.parse(effectiveFieldsRaw) as FormField[])
+            : ((effectiveFieldsRaw as unknown as FormField[]) ?? []);
+      } catch {
+        effectiveFields = [];
+      }
+
+      const issues: string[] = [];
+      if (effectiveFields.length === 0) {
+        issues.push("form has no fields");
+      }
+      const optionTypes = new Set(["select", "multiselect", "radio"]);
+      for (const [idx, field] of effectiveFields.entries()) {
+        const label = String(field?.label ?? "").trim();
+        if (!label) {
+          issues.push(`field #${idx + 1} is missing a label`);
+        }
+        if (
+          optionTypes.has(field?.type) &&
+          (!Array.isArray(field?.options) || field.options.length === 0)
+        ) {
+          issues.push(`field "${label || `#${idx + 1}`}" has no options`);
+        }
+        // For required Number/Scale fields, conflicting min/max would
+        // render the field unsubmittable — block publish on that too.
+        if (
+          field?.required &&
+          (field?.type === "number" || field?.type === "scale") &&
+          field?.validation?.min !== undefined &&
+          field?.validation?.max !== undefined &&
+          Number(field.validation.min) > Number(field.validation.max)
+        ) {
+          issues.push(
+            `required field "${label || `#${idx + 1}`}" has min > max`,
+          );
+        }
+      }
+
+      if (issues.length > 0) {
+        throw new Error(
+          `Cannot publish: ${issues.join("; ")}. Fix these before publishing.`,
+        );
+      }
+    }
 
     await db
       .update(schema.forms)

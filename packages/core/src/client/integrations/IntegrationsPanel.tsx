@@ -148,20 +148,42 @@ function IntegrationDetail({
 }) {
   const [toggling, setToggling] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [toggleError, setToggleError] = useState<string | null>(null);
 
   const handleToggle = useCallback(async () => {
     setToggling(true);
+    setToggleError(null);
     try {
       const action = serverStatus?.enabled ? "disable" : "enable";
       const res = await fetch(
         agentNativePath(`/_agent-native/integrations/${platform.id}/${action}`),
         { method: "POST" },
       );
-      if (res.ok) onRefresh();
+      if (res.ok) {
+        onRefresh();
+        return;
+      }
+      // Surface the real reason instead of silently doing nothing.
+      // The endpoint returns `{ error }` for known failures (admin gating,
+      // missing secrets, etc.); fall back to status text otherwise.
+      const data = (await res.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      setToggleError(
+        data?.error ||
+          res.statusText ||
+          `Couldn't ${action} ${platform.label} (HTTP ${res.status})`,
+      );
+    } catch (err) {
+      setToggleError(
+        err instanceof Error
+          ? err.message
+          : "Network error reaching the server",
+      );
     } finally {
       setToggling(false);
     }
-  }, [platform.id, serverStatus?.enabled, onRefresh]);
+  }, [platform.id, platform.label, serverStatus?.enabled, onRefresh]);
 
   const handleCopy = useCallback(async (text: string) => {
     await navigator.clipboard.writeText(text);
@@ -304,6 +326,10 @@ function IntegrationDetail({
         <p className="text-[10px] text-destructive mt-2">
           {serverStatus.error}
         </p>
+      )}
+
+      {toggleError && (
+        <p className="text-[10px] text-destructive mt-2">{toggleError}</p>
       )}
     </div>
   );

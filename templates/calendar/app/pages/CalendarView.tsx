@@ -54,7 +54,10 @@ import {
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useQueryClient } from "@tanstack/react-query";
-import { AgentToggleButton } from "@agent-native/core/client";
+import {
+  AgentToggleButton,
+  NotificationsBell,
+} from "@agent-native/core/client";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
 import { setUndoAction, runUndo } from "@/hooks/use-undo";
@@ -693,6 +696,7 @@ export default function CalendarView() {
                 </TooltipContent>
               </Tooltip>
 
+              <NotificationsBell />
               <CreateEventPopover
                 open={createDialogOpen}
                 onOpenChange={(open) => {

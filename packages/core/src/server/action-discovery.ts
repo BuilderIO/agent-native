@@ -134,6 +134,9 @@ function wrapDefaultExport(
 function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   const out: Partial<ActionEntry> = {};
   if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
+  if (typeof entry.parallelSafe === "boolean") {
+    out.parallelSafe = entry.parallelSafe;
+  }
   if (typeof entry.toolCallable === "boolean") {
     out.toolCallable = entry.toolCallable;
   }
@@ -440,6 +443,7 @@ export async function mergeCoreSharingActions(
           run: def.run,
           ...(def.http !== undefined ? { http: def.http } : {}),
           ...(def.readOnly === true ? { readOnly: true } : {}),
+          ...(def.parallelSafe === true ? { parallelSafe: true } : {}),
         };
       }
     } catch {

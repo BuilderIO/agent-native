@@ -12,9 +12,7 @@ import {
   IconCopy,
   IconTrash,
   IconLoader2,
-  IconPaperclip,
   IconX,
-  IconArrowUp,
 } from "@tabler/icons-react";
 import type { Slide } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
@@ -24,6 +22,7 @@ import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useCallback } from "react";
 import {
   appBasePath,
+  PromptComposer,
   type CollabUser,
   useAvatarUrl,
 } from "@agent-native/core/client";
@@ -233,7 +232,6 @@ function AddSlidePopover({
   activeSlideId,
   slideCount,
   activeSlideIndex,
-  generating,
   agentSubmit,
 }: {
   open: boolean;
@@ -247,69 +245,7 @@ function AddSlidePopover({
   generating: boolean;
   agentSubmit: (message: string, context: string) => void;
 }) {
-  const [prompt, setPrompt] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
-  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [dragging, setDragging] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (open && inputRef.current) {
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
-    if (!open) {
-      setPrompt("");
-      setFiles([]);
-      setUploadedFiles([]);
-      setDragging(false);
-    }
-  }, [open]);
-
-  const doUpload = useCallback(async (newFiles: File[]) => {
-    setFiles((prev) => [...prev, ...newFiles]);
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      newFiles.forEach((f) => formData.append("files", f));
-      const res = await fetch(`${appBasePath()}/api/uploads`, {
-        method: "POST",
-        body: formData,
-      });
-      if (res.ok) {
-        const results: UploadedFile[] = await res.json();
-        setUploadedFiles((prev) => [...prev, ...results]);
-      }
-    } catch {
-      /* silent */
-    } finally {
-      setUploading(false);
-    }
-  }, []);
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = e.target.files;
-    if (!selected || selected.length === 0) return;
-    doUpload(Array.from(selected));
-    e.target.value = "";
-  };
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragging(false);
-      const dropped = Array.from(e.dataTransfer.files);
-      if (dropped.length > 0) doUpload(dropped);
-    },
-    [doUpload],
-  );
-
-  const removeFile = (index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
-    setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
-  };
 
   useEffect(() => {
     if (!open) return;
@@ -334,149 +270,78 @@ function AddSlidePopover({
     };
   }, [open, onOpenChange, anchorRef]);
 
-  const handleSubmit = () => {
-    const description = prompt.trim() || "a new slide";
-    const fileContext =
-      uploadedFiles.length > 0
-        ? `\n\nThe user uploaded ${uploadedFiles.length} file(s) for context:\n${uploadedFiles.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
-        : "";
-    const context = [
-      `Add a new slide to deck "${deckTitle}" (id: ${deckId}).`,
-      `Insert after slide ${activeSlideIndex + 1} of ${slideCount} (active slide id: ${activeSlideId}).`,
-      `User request: "${description}"`,
-      fileContext,
-      "",
-      "Create the slide content and insert it at the correct position using the app's slide data structure.",
-    ].join("\n");
+  const handleSubmit = useCallback(
+    async (text: string, files: File[]) => {
+      let uploaded: UploadedFile[] = [];
+      if (files.length > 0) {
+        try {
+          const formData = new FormData();
+          files.forEach((f) => formData.append("files", f));
+          const res = await fetch(`${appBasePath()}/api/uploads`, {
+            method: "POST",
+            body: formData,
+          });
+          if (res.ok) uploaded = (await res.json()) as UploadedFile[];
+        } catch {
+          /* silent */
+        }
+      }
 
-    agentSubmit(`Add slide: ${description}`, context);
-    setPrompt("");
-    setFiles([]);
-    setUploadedFiles([]);
-    onOpenChange(false);
-  };
+      const description = text.trim() || "a new slide";
+      const fileContext =
+        uploaded.length > 0
+          ? `\n\nThe user uploaded ${uploaded.length} file(s) for context:\n${uploaded.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
+          : "";
+      const context = [
+        `Add a new slide to deck "${deckTitle}" (id: ${deckId}).`,
+        `Insert after slide ${activeSlideIndex + 1} of ${slideCount} (active slide id: ${activeSlideId}).`,
+        `User request: "${description}"`,
+        fileContext,
+        "",
+        "Create the slide content and insert it at the correct position using the app's slide data structure.",
+      ].join("\n");
+
+      agentSubmit(`Add slide: ${description}`, context);
+      onOpenChange(false);
+    },
+    [
+      activeSlideId,
+      activeSlideIndex,
+      agentSubmit,
+      deckId,
+      deckTitle,
+      onOpenChange,
+      slideCount,
+    ],
+  );
 
   if (!open || !anchorRef.current) return null;
 
   const rect = anchorRef.current.getBoundingClientRect();
-  const panelWidth = Math.min(384, window.innerWidth - 24);
+  const panelWidth = Math.min(420, window.innerWidth - 24);
   const left = Math.max(
     12,
     Math.min(rect.left, window.innerWidth - panelWidth - 12),
   );
 
-  const busy = generating || uploading;
-
   return createPortal(
     <div
       ref={panelRef}
-      className={`fixed w-[min(24rem,calc(100vw-24px))] rounded-xl border bg-popover shadow-2xl shadow-black/60 z-[200] overflow-hidden transition-colors ${
-        dragging ? "border-[#609FF8]/50 bg-accent" : "border-border"
-      }`}
+      className="fixed w-[min(420px,calc(100vw-24px))] rounded-xl border border-border bg-popover shadow-2xl shadow-black/60 z-[200] p-3"
       style={{
         top: rect.bottom + 8,
         left,
       }}
-      onDrop={handleDrop}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragging(true);
-      }}
-      onDragLeave={(e) => {
-        e.preventDefault();
-        setDragging(false);
-      }}
     >
-      <div className="px-3.5 pt-3 pb-1.5">
-        <span className="text-sm font-medium text-foreground/90">
-          Add slides
-        </span>
-      </div>
-
-      <div className="px-3.5 pb-2">
-        <textarea
-          ref={inputRef}
-          value={prompt}
-          onChange={(e) => {
-            setPrompt(e.target.value);
-            const el = e.target;
-            el.style.height = "auto";
-            el.style.height =
-              Math.min(el.scrollHeight, window.innerHeight * 0.5) + "px";
-          }}
-          placeholder="Describe the slides you want..."
-          className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground/70 outline-none resize-none"
-          rows={3}
-          style={{ maxHeight: "50vh" }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              handleSubmit();
-            }
-          }}
-        />
-      </div>
-
-      {/* File chips */}
-      {files.length > 0 && (
-        <div className="px-3.5 pb-2 flex flex-wrap gap-1.5">
-          {files.map((file, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent border border-border text-[11px] text-muted-foreground"
-            >
-              <span className="max-w-[100px] truncate">{file.name}</span>
-              <button
-                onClick={() => removeFile(i)}
-                className="p-0.5 rounded hover:bg-accent"
-                aria-label={`Remove ${file.name}`}
-              >
-                <IconX className="w-2.5 h-2.5" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Bottom bar */}
-      <div className="px-3.5 py-2 flex items-center justify-between border-t border-border">
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className="p-2 rounded-md hover:bg-accent text-muted-foreground/70 hover:text-foreground"
-          title="Attach files"
-          aria-label="Attach files"
-        >
-          <IconPaperclip className="w-4 h-4" />
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          onChange={handleFileChange}
-          className="hidden"
-        />
-
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-muted-foreground/70">
-            {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter
-            to submit
-          </span>
-          <button
-            onClick={handleSubmit}
-            disabled={busy}
-            className="p-2 rounded-lg bg-accent hover:bg-accent/80 disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Generate"
-            aria-label="Generate slides"
-          >
-            {busy ? (
-              <IconLoader2 className="w-4 h-4 text-foreground/90 animate-spin" />
-            ) : (
-              <IconArrowUp className="w-4 h-4 text-foreground/90" />
-            )}
-          </button>
-        </div>
-      </div>
+      <p className="px-1 pb-2 text-sm font-medium text-foreground/90">
+        Add slides
+      </p>
+      <PromptComposer
+        autoFocus
+        placeholder="Describe the slides you want..."
+        draftScope={`slides:add-slide:${deckId}`}
+        onSubmit={handleSubmit}
+      />
     </div>,
     document.body,
   );

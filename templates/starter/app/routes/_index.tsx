@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import { Link } from "react-router";
 import {
-  IconArrowUp,
   IconArrowUpRight,
   IconBolt,
   IconBook2,
@@ -9,7 +8,11 @@ import {
   IconPlus,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
-import { sendToAgentChat, openAgentSidebar } from "@agent-native/core/client";
+import {
+  PromptComposer,
+  openAgentSidebar,
+  sendToAgentChat,
+} from "@agent-native/core/client";
 import {
   Popover,
   PopoverContent,
@@ -40,35 +43,21 @@ export function HydrateFallback() {
 export default function IndexPage() {
   useSetPageTitle("Home");
   const { theme, setTheme } = useTheme();
-  const [prompt, setPrompt] = useState("");
   const [startOpen, setStartOpen] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
-    if (!startOpen) return;
-    setTimeout(() => textareaRef.current?.focus(), 50);
-  }, [startOpen]);
-
-  function submit() {
-    const text = prompt.trim();
-    if (!text) return;
+  function submit(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
     openAgentSidebar();
     sendToAgentChat({
-      message: text,
+      message: trimmed,
       context:
         "The user is starting from the Agent-Native starter template and wants you to customize this app. Make the requested app changes directly in the starter template code.",
       submit: true,
       type: "code",
     });
-    setPrompt("");
     setStartOpen(false);
   }
-
-  const submitShortcut =
-    typeof navigator !== "undefined" &&
-    /Mac|iPhone|iPad/.test(navigator.userAgent)
-      ? "⌘"
-      : "Ctrl";
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
@@ -109,46 +98,17 @@ export default function IndexPage() {
             <PopoverContent
               align="center"
               sideOffset={10}
-              className="w-[calc(100vw-2rem)] rounded-xl p-4 shadow-xl sm:w-96"
+              className="w-[calc(100vw-2rem)] rounded-xl p-3 shadow-xl sm:w-[420px]"
             >
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  submit();
-                }}
-                className="space-y-3"
-              >
-                <p className="text-sm font-semibold text-foreground">
-                  Start building
-                </p>
-                <textarea
-                  ref={textareaRef}
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  onKeyDown={(e) => {
-                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                      e.preventDefault();
-                      submit();
-                    }
-                  }}
-                  placeholder="Describe what you want to add or change..."
-                  rows={5}
-                  className="flex min-h-[140px] w-full resize-y rounded-md border border-input bg-background px-3 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-                />
-                <div className="flex items-center justify-end gap-2">
-                  <span className="text-[11px] text-muted-foreground/75">
-                    {submitShortcut}+Enter to submit
-                  </span>
-                  <button
-                    type="submit"
-                    disabled={!prompt.trim()}
-                    aria-label="Submit prompt"
-                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <IconArrowUp className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </form>
+              <p className="px-1 pb-2 text-sm font-semibold text-foreground">
+                Start building
+              </p>
+              <PromptComposer
+                autoFocus
+                placeholder="Describe what you want to add or change..."
+                draftScope="starter:start-building"
+                onSubmit={(text) => submit(text)}
+              />
             </PopoverContent>
           </Popover>
 

@@ -18,7 +18,7 @@ interface LibraryLayoutProps {
 // Routes whose page renders its own custom toolbar (with AgentToggleButton).
 // Layout still mounts Sidebar + AgentSidebar, but skips its own Header so
 // there's no double-header.
-const NO_HEADER_PREFIXES = ["/calls/"];
+const NO_HEADER_PREFIXES = ["/calls/", "/tools"];
 
 function LibraryHeader({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const title = useHeaderTitle();

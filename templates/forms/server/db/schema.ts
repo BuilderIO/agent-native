@@ -29,6 +29,7 @@ export const responses = table("responses", {
   data: text("data").notNull(), // JSON object: { fieldId: value }
   submittedAt: text("submitted_at").notNull(),
   ip: text("ip"),
+  submitterEmail: text("submitter_email"),
 });
 
 export const formShares = createSharesTable("form_shares");
