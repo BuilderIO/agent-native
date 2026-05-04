@@ -990,7 +990,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   return (
     <div
-      className="relative flex h-screen flex-col border-r border-border bg-sidebar text-sidebar-foreground"
+      className="relative flex h-screen min-w-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground"
       style={mobile ? undefined : { width: sidebarWidth }}
     >
       {!mobile && (
@@ -1016,7 +1016,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           <span className="text-lg font-bold tracking-tight">Analytics</span>
         </Link>
       </div>
-      <div className="flex-1 overflow-y-auto overflow-x-hidden py-2">
+      <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden py-2">
         <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
           {/* Data Sources link */}
           <Link
@@ -1200,7 +1200,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             </DndContext>
           )}
 
-          <div className="border-t border-border mt-2 pt-2">
+          <div className="min-w-0 border-t border-border mt-2 pt-2">
             <ToolsSidebarSection />
           </div>
 

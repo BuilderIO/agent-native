@@ -27,7 +27,7 @@ export function Layout({ children }: LayoutProps) {
   return (
     <HeaderActionsProvider>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-        <div className="hidden md:block">
+        <div className="hidden shrink-0 md:block">
           <Sidebar />
         </div>
         <AgentSidebar
