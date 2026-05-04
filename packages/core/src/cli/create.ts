@@ -321,7 +321,7 @@ async function scaffoldOneAppIntoWorkspace(
       workspaceCoreName: workspace.workspaceCoreName,
       coreDependencyVersion: getCoreDependencyVersion(),
     });
-    fixPackageJsonName(appDir, appName);
+    fixPackageJsonName(appDir, appName, templateName);
     rewriteNetlifyToml(appDir, appName, "workspace");
     renameGitignore(appDir);
     setupAgentSymlinks(appDir);
@@ -925,12 +925,23 @@ function titleCase(name: string): string {
     .join(" ");
 }
 
-function fixPackageJsonName(appDir: string, name: string): void {
+function fixPackageJsonName(
+  appDir: string,
+  name: string,
+  templateName?: string,
+): void {
   const pkgPath = path.join(appDir, "package.json");
   if (!fs.existsSync(pkgPath)) return;
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
     pkg.name = name;
+    // When the user picked a custom name (e.g. `add-app todo --template=starter`)
+    // the template's displayName ("Agent-Native Starter") would otherwise leak
+    // into the workspace apps grid as the new app's label. Overwrite it so the
+    // app shows up as "Todo" instead of the template's branding.
+    if (templateName && name !== templateName) {
+      pkg.displayName = titleCase(name);
+    }
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
   } catch {}
 }
