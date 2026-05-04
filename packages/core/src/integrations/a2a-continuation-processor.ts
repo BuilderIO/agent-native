@@ -22,13 +22,13 @@ import {
 
 const PROCESSOR_PATH = `${FRAMEWORK_ROUTE_PREFIX}/integrations/process-a2a-continuation`;
 const TERMINAL_STATES = new Set(["completed", "failed", "canceled"]);
-const MAX_ATTEMPTS = 6;
-const MAX_REMOTE_WORK_MS = 10 * 60_000;
-// Do not chain immediate self-dispatches for long-running remote A2A tasks.
-// Netlify and similar hosts can reject repeated same-site self-invocations
-// with loop-protection responses. The integration retry job sweeps due rows.
-const RESCHEDULE_DELAY_MS = 60_000;
-const MAX_PRE_CLAIM_WAIT_MS = 10_000;
+const MAX_ATTEMPTS = 30;
+const MAX_REMOTE_WORK_MS = 20 * 60_000;
+// Re-dispatch continuations after a short delay. Serverless hosts do not keep
+// in-memory interval sweepers alive between requests, so delayed self-dispatch
+// is the portable retry mechanism.
+const RESCHEDULE_DELAY_MS = 20_000;
+const MAX_PRE_CLAIM_WAIT_MS = 25_000;
 const POLL_INTERVAL_MS = 2_000;
 const PROCESSOR_WAIT_MS = 10_000;
 const POLL_REQUEST_TIMEOUT_MS = 8_000;
@@ -174,7 +174,7 @@ async function processClaimedContinuation(
         );
         return;
       }
-      await rescheduleA2AContinuation(continuation.id, RESCHEDULE_DELAY_MS);
+      await rescheduleAndRedispatchA2AContinuation(continuation.id);
       return;
     }
     if (continuation.attempts >= MAX_ATTEMPTS) {
@@ -185,7 +185,7 @@ async function processClaimedContinuation(
       );
       return;
     }
-    await rescheduleA2AContinuation(continuation.id, RESCHEDULE_DELAY_MS);
+    await rescheduleAndRedispatchA2AContinuation(continuation.id);
     return;
   }
 
@@ -211,7 +211,7 @@ async function processClaimedContinuation(
       );
       return;
     }
-    await rescheduleA2AContinuation(continuation.id, RESCHEDULE_DELAY_MS);
+    await rescheduleAndRedispatchA2AContinuation(continuation.id);
     return;
   }
 
@@ -320,14 +320,23 @@ async function deliverAndCompleteA2AContinuation(
       );
       return;
     }
-    await rescheduleA2AContinuation(
-      deliveryContinuation.id,
-      RESCHEDULE_DELAY_MS,
-    );
+    await rescheduleAndRedispatchA2AContinuation(deliveryContinuation.id);
     return;
   }
 
   await completeAfterSuccessfulDelivery(deliveryContinuation);
+}
+
+async function rescheduleAndRedispatchA2AContinuation(
+  continuationId: string,
+): Promise<void> {
+  await rescheduleA2AContinuation(continuationId, RESCHEDULE_DELAY_MS);
+  await dispatchA2AContinuation(continuationId).catch((err) => {
+    console.error(
+      `[integrations] Failed to redispatch A2A continuation ${continuationId}:`,
+      err,
+    );
+  });
 }
 
 async function completeAfterSuccessfulDelivery(

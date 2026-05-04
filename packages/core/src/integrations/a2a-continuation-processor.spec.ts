@@ -538,7 +538,7 @@ describe("A2A continuation processor", () => {
     );
   });
 
-  it("backs off a still-working remote task without chaining self-dispatches", async () => {
+  it("backs off a still-working remote task and redispatches itself", async () => {
     vi.useFakeTimers();
     const sendResponse = vi.fn(async () => undefined);
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());
@@ -562,16 +562,16 @@ describe("A2A continuation processor", () => {
     expect(failA2AContinuationMock).not.toHaveBeenCalled();
     expect(rescheduleA2AContinuationMock).toHaveBeenCalledWith(
       "cont-1",
-      60_000,
+      20_000,
     );
-    expect(fetch).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalled();
   });
 
   it("notifies the platform when a still-working remote task exhausts polling attempts", async () => {
     vi.useFakeTimers();
     const sendResponse = vi.fn(async () => undefined);
     claimA2AContinuationMock.mockResolvedValueOnce(
-      continuation({ attempts: 6 }),
+      continuation({ attempts: 30 }),
     );
     getTaskMock.mockResolvedValue({
       id: "a2a-task-1",
@@ -592,7 +592,7 @@ describe("A2A continuation processor", () => {
     expect(sendResponse).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringContaining(
-          "The Slides agent could not finish this request: Timed out polling the Slides A2A task a2a-task-1 after 6 attempts",
+          "The Slides agent could not finish this request: Timed out polling the Slides A2A task a2a-task-1 after 30 attempts",
         ),
       }),
       expect.any(Object),
@@ -601,7 +601,7 @@ describe("A2A continuation processor", () => {
     expect(failA2AContinuationMock).toHaveBeenCalledWith(
       "cont-1",
       expect.stringContaining(
-        "Timed out polling the Slides A2A task a2a-task-1 after 6 attempts",
+        "Timed out polling the Slides A2A task a2a-task-1 after 30 attempts",
       ),
     );
     expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
@@ -669,15 +669,15 @@ describe("A2A continuation processor", () => {
     expect(failA2AContinuationMock).not.toHaveBeenCalled();
     expect(rescheduleA2AContinuationMock).toHaveBeenCalledWith(
       "cont-1",
-      60_000,
+      20_000,
     );
-    expect(fetch).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalled();
   });
 
   it("notifies the platform when transient polling errors exhaust attempts", async () => {
     const sendResponse = vi.fn(async () => undefined);
     claimA2AContinuationMock.mockResolvedValueOnce(
-      continuation({ attempts: 6 }),
+      continuation({ attempts: 30 }),
     );
     getTaskMock.mockRejectedValueOnce(
       new DOMException("This operation was aborted", "AbortError"),
@@ -692,7 +692,7 @@ describe("A2A continuation processor", () => {
     expect(sendResponse).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringContaining(
-          "The Slides agent could not finish this request: Timed out polling the Slides A2A task a2a-task-1 after 6 attempts",
+          "The Slides agent could not finish this request: Timed out polling the Slides A2A task a2a-task-1 after 30 attempts",
         ),
       }),
       expect.any(Object),
@@ -701,7 +701,7 @@ describe("A2A continuation processor", () => {
     expect(failA2AContinuationMock).toHaveBeenCalledWith(
       "cont-1",
       expect.stringContaining(
-        "Timed out polling the Slides A2A task a2a-task-1 after 6 attempts",
+        "Timed out polling the Slides A2A task a2a-task-1 after 30 attempts",
       ),
     );
     expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
@@ -727,9 +727,9 @@ describe("A2A continuation processor", () => {
     expect(failA2AContinuationMock).not.toHaveBeenCalled();
     expect(rescheduleA2AContinuationMock).toHaveBeenCalledWith(
       "cont-1",
-      60_000,
+      20_000,
     );
-    expect(fetch).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalled();
   });
 
   it("treats Netlify loop-protection 508s as transient while attempts remain", async () => {
@@ -749,15 +749,18 @@ describe("A2A continuation processor", () => {
     expect(failA2AContinuationMock).not.toHaveBeenCalled();
     expect(rescheduleA2AContinuationMock).toHaveBeenCalledWith(
       "cont-1",
-      60_000,
+      20_000,
     );
-    expect(fetch).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalled();
   });
 
   it("reports a friendly timeout when task polling aborts after the remote work deadline", async () => {
     const sendResponse = vi.fn(async () => undefined);
     claimA2AContinuationMock.mockResolvedValueOnce(
-      continuation({ attempts: 99, createdAt: Date.now() - 10 * 60_000 - 1 }),
+      continuation({
+        attempts: 99,
+        createdAt: Date.now() - 20 * 60_000 - 1,
+      }),
     );
     getTaskMock.mockRejectedValueOnce(
       new DOMException("This operation was aborted", "AbortError"),
@@ -771,13 +774,13 @@ describe("A2A continuation processor", () => {
 
     const sentText = vi.mocked(sendResponse).mock.calls[0]?.[0].text ?? "";
     expect(sentText).toContain(
-      "The Slides agent could not finish this request: Timed out polling the Slides A2A task a2a-task-1 after 10 minutes",
+      "The Slides agent could not finish this request: Timed out polling the Slides A2A task a2a-task-1 after 20 minutes",
     );
     expect(sentText).not.toContain("This operation was aborted");
     expect(failA2AContinuationMock).toHaveBeenCalledWith(
       "cont-1",
       expect.stringContaining(
-        "Timed out polling the Slides A2A task a2a-task-1 after 10 minutes",
+        "Timed out polling the Slides A2A task a2a-task-1 after 20 minutes",
       ),
     );
   });
@@ -842,7 +845,10 @@ describe("A2A continuation processor", () => {
     vi.useFakeTimers();
     const sendResponse = vi.fn(async () => undefined);
     claimA2AContinuationMock.mockResolvedValueOnce(
-      continuation({ attempts: 20, createdAt: Date.now() - 10 * 60_000 - 1 }),
+      continuation({
+        attempts: 20,
+        createdAt: Date.now() - 20 * 60_000 - 1,
+      }),
     );
     getTaskMock.mockResolvedValue({
       id: "a2a-task-1",
@@ -863,7 +869,7 @@ describe("A2A continuation processor", () => {
     expect(sendResponse).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringContaining(
-          "The Slides agent could not finish this request: Timed out polling the Slides A2A task a2a-task-1 after 10 minutes",
+          "The Slides agent could not finish this request: Timed out polling the Slides A2A task a2a-task-1 after 20 minutes",
         ),
       }),
       expect.any(Object),
@@ -872,12 +878,12 @@ describe("A2A continuation processor", () => {
     expect(failA2AContinuationMock).toHaveBeenCalledWith(
       "cont-1",
       expect.stringContaining(
-        "Timed out polling the Slides A2A task a2a-task-1 after 10 minutes",
+        "Timed out polling the Slides A2A task a2a-task-1 after 20 minutes",
       ),
     );
   });
 
-  it("reschedules through the retry job when the platform send fails", async () => {
+  it("reschedules and redispatches when the platform send fails", async () => {
     const sendResponse = vi.fn(async () => {
       throw new Error("slack unavailable");
     });
@@ -891,13 +897,13 @@ describe("A2A continuation processor", () => {
 
     expect(rescheduleA2AContinuationMock).toHaveBeenCalledWith(
       "cont-1",
-      60_000,
+      20_000,
     );
-    expect(fetch).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalled();
     expect(completeA2AContinuationMock).not.toHaveBeenCalled();
   });
 
-  it("reschedules through the retry job when the platform send hangs", async () => {
+  it("reschedules and redispatches when the platform send hangs", async () => {
     vi.useFakeTimers();
     const sendResponse = vi.fn(() => new Promise<void>(() => {}));
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());
@@ -913,9 +919,9 @@ describe("A2A continuation processor", () => {
 
     expect(rescheduleA2AContinuationMock).toHaveBeenCalledWith(
       "cont-1",
-      60_000,
+      20_000,
     );
-    expect(fetch).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalled();
     expect(completeA2AContinuationMock).not.toHaveBeenCalled();
   });
 });
