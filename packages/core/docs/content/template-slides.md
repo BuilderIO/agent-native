@@ -7,7 +7,17 @@ description: "Generate decks from a prompt, edit visually, and present full-scre
 
 Generate full presentation decks from a prompt, edit slides visually, and present full-screen. Ask the agent for "a 10-slide pitch deck for a coffee subscription service" and watch it stream slide-by-slide into the editor in seconds. An open-source replacement for Google Slides, Pitch, and PowerPoint.
 
-When you open the app, you'll see your deck list. Click into a deck and you get a slide editor in the middle, a sidebar of slides on the left, and the agent on the right.
+<!-- screenshot:
+  app: slides
+  view: /deck/<id>
+  shows: Deck editor with a "Q3 Board Update" deck open — collapsed left icon rail (Decks / Design Systems / Team), slides thumbnail strip (6 slides — title, agenda, metrics, what we shipped, what we're watching), main slide preview showing the title slide by Maya Chen CEO, speaker notes pane, and the agent chat sidebar with deck-aware suggestions
+  account: screenshot-account (deck authored on this account via the standard create-deck + add-slide flow)
+  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710); collapse the left rail before capture
+-->
+
+![Slides deck editor with a deck open and slide thumbnails on the left](/screenshots/slides.png)
+
+When you open a deck, you get a slide editor in the middle, a sidebar of slides on the left, and the agent on the right.
 
 ## What you can do with it
 

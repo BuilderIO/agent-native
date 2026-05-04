@@ -7,6 +7,16 @@ description: "An agent-powered calendar with Google Calendar sync and Calendly-s
 
 An agent-powered calendar app. Connect your Google Calendar and the agent can read your schedule, find free slots, create events, and manage Calendly-style booking links — all in plain English. It replaces the Google Calendar + Calendly combo with one app you own.
 
+<!-- screenshot:
+  app: calendar
+  view: / (week)
+  shows: Calendar week view (May 3-9) with ~17 events scattered across the week (All-hands kickoff, Q3 launch sync, Design review, 1:1 with Marcus, Coffee w/ Hannah, Eng standup, Lunch block, Customer call - Acme, Design crit, Focus block, Roadmap planning, Skip-level w/ Priya, Friday demo, All-hands) — events render in the default blue tone — and the agent sidebar with calendar-aware suggestions
+  account: screenshot-account (Google Calendar connected and a representative week populated via create-event)
+  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
+-->
+
+![Calendar week view with a populated week and the agent sidebar](/screenshots/calendar.png)
+
 When you open the app, you'll see your calendar in the middle and the agent in the sidebar. The agent always knows which day, week, or event you're looking at, so you can say "schedule a 30-minute call with Alex on this day" without spelling everything out.
 
 ## What you can do with it

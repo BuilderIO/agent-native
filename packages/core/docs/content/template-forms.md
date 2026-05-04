@@ -7,6 +7,16 @@ description: "Agent-native form builder — create, edit, publish, and route for
 
 Forms is an agent-native form builder. Describe the form you want, refine it in the editor, and publish a public form that stores submissions in your own SQL database.
 
+<!-- screenshot:
+  app: forms
+  view: /forms/<id>
+  shows: Editor for a "Beta signup" form — sidebar with 5 forms (Beta signup selected, Customer feedback Q3, Job application Engineering, Event RSVP, New customer onboarding); editor pane with title, description, and field cards (Full name, Work email, Your role, Team size, What problem are you hoping to solve?); Edit/Results/Settings/Integrations tabs and Share + Unpublish buttons; agent sidebar with form-related suggestions
+  account: screenshot-account (forms authored on this account via the standard build flow, with realistic response counts seeded by submitting through the public URL)
+  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
+-->
+
+![Forms editor with a form open and the agent sidebar](/screenshots/forms.png)
+
 When you open the app, you see your forms, the current editor, and a live preview. The agent can create a form from a prompt, update field labels and options, change validation, and connect submission destinations using the same actions the UI uses.
 
 ## What you can do with it

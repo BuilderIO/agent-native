@@ -152,9 +152,9 @@ export function ExportMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent text-xs cursor-pointer">
+        <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent text-xs cursor-pointer whitespace-nowrap">
           <IconDownload className="w-3.5 h-3.5" />
-          Export
+          <span className="hidden md:inline">Export</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-52">

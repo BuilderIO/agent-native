@@ -7,6 +7,16 @@ description: "A programmatic video studio for motion graphics, product demos, an
 
 A programmatic video studio for the kind of motion graphics, product demos, and kinetic-text videos that are a pain to keyframe by hand. Ask the agent for "a 6-second logo reveal that fades in at 2 seconds" and it builds the animation. Tune timing, easing, and camera moves on a timeline, then render to MP4 or WebM.
 
+<!-- screenshot:
+  app: video
+  view: /c/<composition-id>
+  shows: Video studio with 4 compositions (Logo reveal, Q3 product demo, Pricing animation, Onboarding walkthrough) in the sidebar; Logo reveal loaded with timeline + Remotion preview + camera tools and the agent chat sidebar
+  account: screenshot-account (compositions authored on this account)
+  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
+-->
+
+![Video studio with timeline, composition, and agent sidebar](/screenshots/videos.png)
+
 When you open the studio, you'll see a list of compositions on the home screen. Click into one and you get a player on top, a timeline at the bottom, and a properties panel on the right. The agent always knows which composition you have open.
 
 ## What you can do with it
