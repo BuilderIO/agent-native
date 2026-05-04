@@ -419,6 +419,80 @@ describe("server/auth", () => {
       expect(event.res.headers.get("access-control-allow-origin")).toBeNull();
     });
 
+    it("handles Tauri auth preflights before route-specific auth handlers", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const calls = app.use.mock.calls;
+      const corsIndex = calls.findIndex(
+        (call: any[]) => call[0] === "/_agent-native/auth",
+      );
+      const loginIndex = calls.findIndex(
+        (call: any[]) => call[0] === "/_agent-native/auth/login",
+      );
+      expect(corsIndex).toBeGreaterThanOrEqual(0);
+      expect(loginIndex).toBeGreaterThan(corsIndex);
+
+      const corsHandler = calls[corsIndex][1];
+      const event = createMockEvent({
+        path: "/_agent-native/auth/login",
+        headers: {
+          origin: "tauri://localhost",
+          "access-control-request-method": "POST",
+          "access-control-request-headers": "content-type",
+        },
+      });
+      event.req.method = "OPTIONS";
+      event.node.req.method = "OPTIONS";
+
+      const result = await corsHandler(event);
+
+      expect(result).toBe("");
+      expect(event.res.status).toBe(204);
+      expect(event.res.headers.get("access-control-allow-origin")).toBe(
+        "tauri://localhost",
+      );
+      expect(event.res.headers.get("access-control-allow-methods")).toContain(
+        "POST",
+      );
+      expect(event.res.headers.get("access-control-allow-headers")).toContain(
+        "Content-Type",
+      );
+    });
+
+    it("adds CORS headers to Tauri auth GETs while allowing the route to continue", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const corsHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth",
+      )?.[1];
+      expect(corsHandler).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/_agent-native/auth/desktop-exchange",
+        headers: { origin: "tauri://localhost" },
+      });
+
+      const result = await corsHandler(event);
+
+      expect(result).toBeUndefined();
+      expect(event.res.headers.get("access-control-allow-origin")).toBe(
+        "tauri://localhost",
+      );
+      expect(event.res.headers.get("access-control-allow-credentials")).toBe(
+        "true",
+      );
+    });
+
     it("accepts HEAD on the auth session endpoint", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
