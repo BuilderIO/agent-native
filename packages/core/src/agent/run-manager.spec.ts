@@ -18,19 +18,44 @@ vi.mock("./run-store.js", () => ({
 import { resolveRunSoftTimeoutMs, startRun } from "./run-manager.js";
 
 const originalTimeoutEnv = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
+const originalNetlify = process.env.NETLIFY;
+const originalNetlifyLocal = process.env.NETLIFY_LOCAL;
+const originalCfPages = process.env.CF_PAGES;
+const originalVercel = process.env.VERCEL;
+const originalVercelEnv = process.env.VERCEL_ENV;
+const originalRender = process.env.RENDER;
+const originalFlyAppName = process.env.FLY_APP_NAME;
+
+function restoreEnv(key: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
+}
 
 describe("run manager soft timeout", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     delete process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
+    delete process.env.NETLIFY;
+    delete process.env.NETLIFY_LOCAL;
+    delete process.env.CF_PAGES;
+    delete process.env.VERCEL;
+    delete process.env.VERCEL_ENV;
+    delete process.env.RENDER;
+    delete process.env.FLY_APP_NAME;
   });
 
   afterEach(() => {
-    if (originalTimeoutEnv === undefined) {
-      delete process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
-    } else {
-      process.env.AGENT_RUN_SOFT_TIMEOUT_MS = originalTimeoutEnv;
-    }
+    restoreEnv("AGENT_RUN_SOFT_TIMEOUT_MS", originalTimeoutEnv);
+    restoreEnv("NETLIFY", originalNetlify);
+    restoreEnv("NETLIFY_LOCAL", originalNetlifyLocal);
+    restoreEnv("CF_PAGES", originalCfPages);
+    restoreEnv("VERCEL", originalVercel);
+    restoreEnv("VERCEL_ENV", originalVercelEnv);
+    restoreEnv("RENDER", originalRender);
+    restoreEnv("FLY_APP_NAME", originalFlyAppName);
     vi.useRealTimers();
   });
 
@@ -71,5 +96,29 @@ describe("run manager soft timeout", () => {
     process.env.AGENT_RUN_SOFT_TIMEOUT_MS = "25000";
 
     expect(resolveRunSoftTimeoutMs(5000)).toBe(5000);
+  });
+
+  it("disables the default soft timeout in local runtimes", () => {
+    expect(resolveRunSoftTimeoutMs()).toBe(0);
+  });
+
+  it("keeps a hosted default on serverless deploys", () => {
+    process.env.NETLIFY = "true";
+
+    expect(resolveRunSoftTimeoutMs()).toBe(75_000);
+  });
+
+  it("treats Netlify local as a local runtime", () => {
+    process.env.NETLIFY = "true";
+    process.env.NETLIFY_LOCAL = "true";
+
+    expect(resolveRunSoftTimeoutMs()).toBe(0);
+  });
+
+  it("allows the environment to disable hosted soft timeouts", () => {
+    process.env.NETLIFY = "true";
+    process.env.AGENT_RUN_SOFT_TIMEOUT_MS = "0";
+
+    expect(resolveRunSoftTimeoutMs()).toBe(0);
   });
 });

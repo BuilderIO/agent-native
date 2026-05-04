@@ -29,7 +29,7 @@ const threadToRun = new Map<string, string>();
 
 /** How long to keep completed runs in memory before cleanup (5 min) */
 const CLEANUP_DELAY_MS = 5 * 60 * 1000;
-const DEFAULT_RUN_SOFT_TIMEOUT_MS = 75_000;
+const HOSTED_RUN_SOFT_TIMEOUT_MS = 75_000;
 
 export interface StartRunOptions {
   /** Override the run soft timeout for this run. Must be lower than the
@@ -44,7 +44,17 @@ export function resolveRunSoftTimeoutMs(overrideMs?: number): number {
   }
   const raw = Number(process.env.AGENT_RUN_SOFT_TIMEOUT_MS);
   if (Number.isFinite(raw) && raw >= 0) return raw;
-  return DEFAULT_RUN_SOFT_TIMEOUT_MS;
+  return isHostedRuntime() ? HOSTED_RUN_SOFT_TIMEOUT_MS : 0;
+}
+
+function isHostedRuntime(): boolean {
+  if (process.env.NETLIFY === "true" && process.env.NETLIFY_LOCAL !== "true") {
+    return true;
+  }
+  if (process.env.CF_PAGES === "1") return true;
+  if (process.env.VERCEL || process.env.VERCEL_ENV) return true;
+  if (process.env.RENDER || process.env.FLY_APP_NAME) return true;
+  return false;
 }
 
 /**

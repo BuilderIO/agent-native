@@ -10,7 +10,7 @@
 
 # A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).
 # Aligned with the agent-run soft timeout in
-# packages/core/src/agent/run-manager.ts (DEFAULT_RUN_SOFT_TIMEOUT_MS = 75_000)
+# packages/core/src/agent/run-manager.ts (hosted default = 75_000)
 # so the framework's friendly "run_timeout" event fires before Netlify kills
 # the function.
 [functions."*"]

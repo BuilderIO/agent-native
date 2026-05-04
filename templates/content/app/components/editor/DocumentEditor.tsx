@@ -259,7 +259,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
           ref={scrollContainerRef}
           className="flex-1 min-h-0 overflow-auto flex flex-col"
         >
-          <div className="shrink-0 px-4 pt-14 pb-2 sm:px-8 md:px-16 md:pt-16 group/title">
+          <div className="shrink-0 w-full max-w-3xl mx-auto px-4 pt-14 pb-2 sm:px-8 md:px-16 md:pt-16 group/title">
             <div className="mb-1">
               <EmojiPicker
                 icon={document.icon}
@@ -287,7 +287,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
           </div>
 
           <div
-            className="flex-1 px-4 pb-16 cursor-text sm:px-8 md:px-16"
+            className="flex-1 w-full max-w-3xl mx-auto px-4 pb-16 cursor-text sm:px-8 md:px-16"
             onClick={(e) => {
               if (e.target === e.currentTarget) {
                 const pm = e.currentTarget.querySelector(

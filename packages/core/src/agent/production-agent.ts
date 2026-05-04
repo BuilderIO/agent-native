@@ -437,8 +437,9 @@ export interface ProductionAgentOptions {
   /** Called when a run completes (for server-side thread persistence) */
   onRunComplete?: (run: ActiveRun, threadId: string | undefined) => void;
   /** Per-app soft timeout for agent runs. Defaults to AGENT_RUN_SOFT_TIMEOUT_MS
-   *  or the framework default. Set only when the hosting function timeout is
-   *  also configured higher than this value. */
+   *  when set, 75s on hosted serverless runtimes, and no timeout locally. Set
+   *  only when the hosting function timeout is also configured higher than
+   *  this value. */
   runSoftTimeoutMs?: number;
   /** Called when a run starts, with the send function for emitting events and the threadId */
   onRunStart?: (
