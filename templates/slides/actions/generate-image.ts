@@ -28,6 +28,7 @@ const config = async () => {
 };
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from "fs";
 import { dirname, join } from "path";
+import pLimit from "p-limit";
 import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
 
 function parseArgs(args: string[]): Record<string, string> {
@@ -164,26 +165,38 @@ Options:
     ...extraReferenceUrls,
   ];
 
-  // Load reference images from URLs
-  const refImages: Array<{ data: string; mimeType: string }> = [];
-  for (const url of referenceUrls) {
-    try {
-      console.log(`Loading reference image: ${url}`);
-      const res = await fetch(url);
-      if (!res.ok) {
-        console.warn(`Failed to load reference image: ${url}`);
-        continue;
-      }
-      const contentType = res.headers.get("content-type") || "image/png";
-      const buffer = Buffer.from(await res.arrayBuffer());
-      refImages.push({
-        data: buffer.toString("base64"),
-        mimeType: contentType.split(";")[0].trim(),
-      });
-    } catch (err: any) {
-      console.warn(`Error loading reference image ${url}: ${err.message}`);
-    }
-  }
+  // Load reference images from URLs in parallel (capped concurrency to avoid
+  // overwhelming the network and to keep the agent within its run budget).
+  const refFetchLimit = pLimit(4);
+  const refImages = (
+    await Promise.all(
+      referenceUrls.map((url) =>
+        refFetchLimit(async () => {
+          try {
+            console.log(`Loading reference image: ${url}`);
+            const res = await fetch(url, {
+              signal: AbortSignal.timeout(8000),
+            });
+            if (!res.ok) {
+              console.warn(`Failed to load reference image: ${url}`);
+              return null;
+            }
+            const contentType = res.headers.get("content-type") || "image/png";
+            const buffer = Buffer.from(await res.arrayBuffer());
+            return {
+              data: buffer.toString("base64"),
+              mimeType: contentType.split(";")[0].trim(),
+            };
+          } catch (err: any) {
+            console.warn(
+              `Error loading reference image ${url}: ${err.message}`,
+            );
+            return null;
+          }
+        }),
+      ),
+    )
+  ).filter((r): r is { data: string; mimeType: string } => r !== null);
 
   console.log(`\nGenerating ${count} image(s) with prompt: "${prompt}"`);
   console.log(
@@ -200,31 +213,46 @@ Options:
     mkdirSync(dirname(outputPrefix), { recursive: true });
   }
 
+  // Generate variations concurrently. Default to 2 in flight to stay under the
+  // image-provider rate limits (Gemini and OpenAI both have low TPM/RPM caps);
+  // tunable via IMAGE_GEN_CONCURRENCY without redeploying.
+  const genLimit = pLimit(
+    Math.max(1, Number(process.env.IMAGE_GEN_CONCURRENCY) || 2),
+  );
+  const variantResults = await Promise.allSettled(
+    Array.from({ length: count }, (_, i) =>
+      genLimit(async () => {
+        console.log(`\nGenerating variation ${i + 1}/${count}...`);
+        const result = await provider.generate(prompt, refImages, context);
+        return { i, result };
+      }),
+    ),
+  );
+
   const generatedFiles: string[] = [];
 
-  for (let i = 0; i < count; i++) {
-    try {
-      console.log(`\nGenerating variation ${i + 1}/${count}...`);
-      const result = await provider.generate(prompt, refImages, context);
-
-      if (outputPrefix) {
-        const filePath = `${outputPrefix}-v${i + 1}.png`;
-        writeFileSync(filePath, result.imageData);
-        generatedFiles.push(filePath);
-        console.log(
-          `Saved: ${filePath} (${Math.round(result.imageData.length / 1024)}KB)`,
-        );
-      } else {
-        const dataUrl = `data:${result.mimeType};base64,${result.imageData.toString("base64")}`;
-        console.log(`\nGenerated image ${i + 1}:`);
-        console.log(`  MIME type: ${result.mimeType}`);
-        console.log(`  Size: ${Math.round(result.imageData.length / 1024)}KB`);
-        console.log(
-          `  Data URL (first 100 chars): ${dataUrl.substring(0, 100)}...`,
-        );
-      }
-    } catch (err: any) {
-      console.error(`Failed to generate variation ${i + 1}: ${err.message}`);
+  for (const settled of variantResults) {
+    if (settled.status === "rejected") {
+      const err = settled.reason as { message?: string } | undefined;
+      console.error(`Failed to generate variation: ${err?.message ?? err}`);
+      continue;
+    }
+    const { i, result } = settled.value;
+    if (outputPrefix) {
+      const filePath = `${outputPrefix}-v${i + 1}.png`;
+      writeFileSync(filePath, result.imageData);
+      generatedFiles.push(filePath);
+      console.log(
+        `Saved: ${filePath} (${Math.round(result.imageData.length / 1024)}KB)`,
+      );
+    } else {
+      const dataUrl = `data:${result.mimeType};base64,${result.imageData.toString("base64")}`;
+      console.log(`\nGenerated image ${i + 1}:`);
+      console.log(`  MIME type: ${result.mimeType}`);
+      console.log(`  Size: ${Math.round(result.imageData.length / 1024)}KB`);
+      console.log(
+        `  Data URL (first 100 chars): ${dataUrl.substring(0, 100)}...`,
+      );
     }
   }
 
