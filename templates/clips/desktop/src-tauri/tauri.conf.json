@@ -37,6 +37,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["dmg", "app", "msi", "nsis"],
     "icon": ["icons/icon.png", "icons/icon.ico", "icons/icon.icns"],
     "macOS": {
