@@ -36,18 +36,19 @@ describe("scoping", () => {
       expect(ctx.setup.length).toBeGreaterThan(0);
     });
 
-    it("returns inactive scoping when there is no request user", async () => {
+    it("throws when there is no request user (no inactive fallback — would silently land writes with the dev sentinel owner_email)", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_USER_EMAIL", "");
       const { buildScopingSqlite } = await import("./scoping.js");
 
       const mockClient = {
-        execute: vi.fn().mockResolvedValue({ rows: [] }),
+        execute: vi.fn(),
       };
 
-      const ctx = await buildScopingSqlite(mockClient);
-      expect(ctx.active).toBe(false);
-      expect(ctx.userEmail).toBeNull();
+      await expect(buildScopingSqlite(mockClient)).rejects.toThrow(
+        "require an authenticated user identity",
+      );
+      expect(mockClient.execute).not.toHaveBeenCalled();
     });
 
     it("builds scoping views for core tables in prod mode", async () => {
@@ -298,7 +299,7 @@ describe("scoping", () => {
       };
 
       await expect(buildScopingSqlite(mockClient)).rejects.toThrow(
-        "requires a real user identity",
+        "require an authenticated user identity",
       );
       expect(mockClient.execute).not.toHaveBeenCalled();
     });
@@ -346,14 +347,16 @@ describe("scoping", () => {
       expect(ctx.userEmail).toBe("user+qa@test.com");
     });
 
-    it("returns inactive scoping when there is no request user", async () => {
+    it("throws when there is no request user (matches sqlite path — refuses to run unscoped against a multi-user database)", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_USER_EMAIL", "");
       const { buildScopingPostgres } = await import("./scoping.js");
 
-      const mockPgSql: any = {};
-      const ctx = await buildScopingPostgres(mockPgSql);
-      expect(ctx.active).toBe(false);
+      const mockPgSql = vi.fn();
+      await expect(buildScopingPostgres(mockPgSql)).rejects.toThrow(
+        "require an authenticated user identity",
+      );
+      expect(mockPgSql).not.toHaveBeenCalled();
     });
 
     it("refuses to scope Postgres DB scripts to the local fallback identity", async () => {
@@ -364,7 +367,7 @@ describe("scoping", () => {
       const mockPgSql = vi.fn();
 
       await expect(buildScopingPostgres(mockPgSql)).rejects.toThrow(
-        "requires a real user identity",
+        "require an authenticated user identity",
       );
       expect(mockPgSql).not.toHaveBeenCalled();
     });
