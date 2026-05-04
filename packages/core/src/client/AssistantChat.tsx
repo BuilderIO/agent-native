@@ -43,6 +43,7 @@ import { cn } from "./utils.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
+import { useOnboarding } from "./onboarding/use-onboarding.js";
 import {
   Tooltip,
   TooltipContent,
@@ -662,11 +663,6 @@ function ToolCallDisplay({
         return (
           <ConnectBuilderCard
             configured={!!parsed.configured}
-            builderEnabled={
-              typeof parsed.builderEnabled === "boolean"
-                ? parsed.builderEnabled
-                : true
-            }
             connectUrl={parsed.connectUrl || ""}
             orgName={parsed.orgName ?? null}
             prompt={typeof parsed.prompt === "string" ? parsed.prompt : ""}
@@ -1422,6 +1418,19 @@ function ThinkingIndicator({ label = "Thinking" }: { label?: string } = {}) {
 // which opens the flow in an Electron BrowserWindow that shares the webview's
 // session. See packages/desktop-app/src/main/index.ts.
 
+/**
+ * The OnboardingPanel sidebar checklist also surfaces the Builder Connect
+ * step (id `llm`). When that's visible, dropping a duplicate "Connect Builder"
+ * button into the empty-state chat card just confuses the user — they see two
+ * primary CTAs that do the same thing. This hook returns true when we should
+ * suppress the in-chat Connect CTA in favor of the sidebar checklist.
+ */
+function useSuppressInChatBuilderCta(): boolean {
+  const onboarding = useOnboarding();
+  if (onboarding.loading || onboarding.dismissed) return false;
+  return onboarding.steps.some((step) => step.id === "llm" && !step.complete);
+}
+
 function BuilderConnectCta({
   variant = "primary",
 }: {
@@ -1464,7 +1473,7 @@ function BuilderConnectCta({
           Connect Builder.io
         </div>
         <p className="text-[11px] text-muted-foreground mt-0.5 max-w-[220px]">
-          Managed LLM, hosting, and more — no API key needed
+          Free credits for LLM, hosting, and more — no API key needed
         </p>
         {error && <p className="mt-1 text-[10px] text-destructive">{error}</p>}
       </div>
@@ -1498,6 +1507,7 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const suppressBuilderCta = useSuppressInChatBuilderCta();
   const handleSave = async () => {
     if (!apiKey.trim()) return;
     setSaving(true);
@@ -1542,15 +1552,19 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
       </div>
 
       <div className="space-y-3">
-        <BuilderConnectCta />
+        {suppressBuilderCta ? null : (
+          <>
+            <BuilderConnectCta />
 
-        <div className="relative flex items-center">
-          <div className="flex-grow border-t border-border" />
-          <span className="mx-2 text-[10px] uppercase tracking-wider text-muted-foreground/60">
-            or
-          </span>
-          <div className="flex-grow border-t border-border" />
-        </div>
+            <div className="relative flex items-center">
+              <div className="flex-grow border-t border-border" />
+              <span className="mx-2 text-[10px] uppercase tracking-wider text-muted-foreground/60">
+                or
+              </span>
+              <div className="flex-grow border-t border-border" />
+            </div>
+          </>
+        )}
 
         <input
           type="password"

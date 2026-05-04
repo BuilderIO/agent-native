@@ -221,19 +221,40 @@ function PromptComposerInner({
   }, [autoFocus, handleRef]);
 
   const handleSubmit = useCallback(
-    (
+    async (
       text: string,
       references: Reference[],
       attachments?: ReadonlyArray<unknown>,
     ) => {
+      // PromptComposer hosts (NewWorkspaceAppFlow, create-tool, create-deck,
+      // …) submit a single string prompt — they don't run the assistant-ui
+      // attachment send pipeline. TiptapComposer auto-converts large pastes
+      // into a "Pasted text" chip, which would otherwise disappear into an
+      // unprocessed File. Inline the chip body back into the prompt text so
+      // newlines and full content survive the round-trip.
       const files: File[] = [];
+      const pastedTextBlocks: string[] = [];
       for (const att of attachments ?? []) {
         const a = att as Attachment;
         if ("file" in a && a.file instanceof File) {
-          files.push(a.file);
+          const file = a.file;
+          if (isPastedTextAttachmentName(file.name)) {
+            try {
+              pastedTextBlocks.push(await file.text());
+            } catch {
+              // If we can't read it, fall back to surfacing it as a regular
+              // attachment file rather than silently losing it.
+              files.push(file);
+            }
+          } else {
+            files.push(file);
+          }
         }
       }
-      onSubmit(text, files, references);
+      const finalText = pastedTextBlocks.length
+        ? [text.trim(), ...pastedTextBlocks].filter(Boolean).join("\n\n")
+        : text;
+      onSubmit(finalText, files, references);
     },
     [onSubmit],
   );

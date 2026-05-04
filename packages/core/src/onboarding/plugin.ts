@@ -21,7 +21,7 @@ import {
   markDefaultPluginProvided,
 } from "../server/framework-request-handler.js";
 import { appStateGet, appStatePut } from "../application-state/store.js";
-import { getSession, DEV_MODE_USER_EMAIL } from "../server/auth.js";
+import { getSession } from "../server/auth.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { listOnboardingSteps } from "./registry.js";
 import { registerDefaultOnboardingSteps } from "./default-steps.js";
@@ -47,13 +47,6 @@ async function resolveOnboardingContext(
 ): Promise<OnboardingResolveContext> {
   const session = await getSession(event);
   if (!session) return { sessionId: "local" };
-  if (session.email === DEV_MODE_USER_EMAIL) {
-    return {
-      sessionId: "local",
-      userEmail: session.email,
-      orgId: session.orgId ?? null,
-    };
-  }
   return {
     sessionId: session.email,
     userEmail: session.email,

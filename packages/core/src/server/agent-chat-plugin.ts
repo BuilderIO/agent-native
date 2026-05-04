@@ -62,7 +62,7 @@ import {
   getHeader,
 } from "h3";
 import { agentEnv } from "../shared/agent-env.js";
-import { getSession, DEV_MODE_USER_EMAIL } from "./auth.js";
+import { getSession } from "./auth.js";
 import { getOrigin } from "./google-oauth.js";
 import {
   createThread,
@@ -76,7 +76,6 @@ import {
   setThreadQueuedMessages,
 } from "../chat-threads/store.js";
 import {
-  resourceListAccessible,
   resourceList,
   resourceGet,
   resourceGetByPath,
@@ -3034,12 +3033,12 @@ export function createAgentChatPlugin(
           const mcpTools = actionsToEngineTools(mcpActions);
 
           const resources = await loadResourcesForPrompt(
-            DEV_MODE_USER_EMAIL,
+            SHARED_OWNER,
             lazyContext,
           );
           const schemaBlock = lazyContext
             ? ""
-            : await buildSchemaBlock(DEV_MODE_USER_EMAIL, devActiveMcp);
+            : await buildSchemaBlock(SHARED_OWNER, devActiveMcp);
           // Build the MCP handler's own prompt — always use the shell-based
           // dev prompt in dev mode because mcpActions routes template actions
           // through shell (`devScriptsForA2A`), regardless of `nativeActionsInDev`.
@@ -3692,7 +3691,7 @@ export function createAgentChatPlugin(
           const trimmedKey = key.trim();
 
           const ownerEmail = await getOwnerFromEvent(event);
-          if (!ownerEmail || ownerEmail === DEV_MODE_USER_EMAIL) {
+          if (!ownerEmail) {
             setResponseStatus(event, 401);
             return { error: "Authentication required" };
           }
@@ -3779,9 +3778,7 @@ export function createAgentChatPlugin(
 
           // Query resources
           try {
-            const resources = currentDevMode
-              ? await resourceListAccessible(DEV_MODE_USER_EMAIL)
-              : await resourceList(SHARED_OWNER);
+            const resources = await resourceList(SHARED_OWNER);
             for (const r of resources) {
               if (!seen.has(r.path)) {
                 seen.add(r.path);
@@ -3882,9 +3879,7 @@ export function createAgentChatPlugin(
 
           // Query resources with skills/ prefix
           try {
-            const resourceSkills = currentDevMode
-              ? await resourceListAccessible(DEV_MODE_USER_EMAIL, "skills/")
-              : await resourceList(SHARED_OWNER, "skills/");
+            const resourceSkills = await resourceList(SHARED_OWNER, "skills/");
             for (const r of resourceSkills) {
               // Try to get content to parse frontmatter
               let skillName =
@@ -4031,9 +4026,7 @@ export function createAgentChatPlugin(
             sources.push(
               (async () => {
                 try {
-                  const resources = currentDevMode
-                    ? await resourceListAccessible(DEV_MODE_USER_EMAIL)
-                    : await resourceList(SHARED_OWNER);
+                  const resources = await resourceList(SHARED_OWNER);
                   flush(
                     resources.map((r) => {
                       const isShared = r.owner === SHARED_OWNER;

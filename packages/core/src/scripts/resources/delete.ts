@@ -36,8 +36,7 @@ Options:
   if (scope === "shared") {
     owner = SHARED_OWNER;
   } else {
-    const personalOwner =
-      getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+    const personalOwner = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
     if (!personalOwner) {
       fail(
         "resource-delete --scope=personal requires an authenticated user (request context or AGENT_USER_EMAIL env var).",

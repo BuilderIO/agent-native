@@ -12,11 +12,7 @@ import type {
   OnboardingResolveContext,
   OnboardingStep,
 } from "../onboarding/types.js";
-import {
-  hasOAuthTokens,
-  listOAuthAccountsByOwner,
-} from "../oauth-tokens/store.js";
-import { DEV_MODE_USER_EMAIL } from "../server/auth.js";
+import { listOAuthAccountsByOwner } from "../oauth-tokens/store.js";
 import type { RegisteredSecret } from "./register.js";
 import { readAppSecretMeta } from "./storage.js";
 
@@ -74,16 +70,6 @@ export function maybeRegisterSecretOnboardingStep(
 
       if (secret.kind === "oauth" && secret.oauthProvider) {
         try {
-          // hasOAuthTokens now requires an owner — pass the dev sentinel for
-          // local-dev's "any row exists" wildcard, otherwise the user email
-          // so onboarding only marks the step complete for the user who
-          // actually connected.
-          if (userEmail === DEV_MODE_USER_EMAIL) {
-            return await hasOAuthTokens(
-              secret.oauthProvider,
-              DEV_MODE_USER_EMAIL,
-            );
-          }
           const accounts = await listOAuthAccountsByOwner(
             secret.oauthProvider,
             userEmail,

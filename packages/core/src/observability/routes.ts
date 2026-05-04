@@ -27,7 +27,7 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { getSession, DEV_MODE_USER_EMAIL } from "../server/auth.js";
+import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
   getObservabilityOverview,
@@ -96,15 +96,6 @@ export function createObservabilityHandler() {
     const parts = pathname ? pathname.split("/") : [];
 
     const owner = await resolveOwner(event);
-    if (!owner || owner === DEV_MODE_USER_EMAIL) {
-      const isLocal =
-        process.env.NODE_ENV !== "production" ||
-        process.env.AUTH_MODE === "local";
-      if (!isLocal) {
-        setResponseStatus(event, 401);
-        return { error: "Authentication required" };
-      }
-    }
 
     // Every read endpoint passes `userId: owner` to the store. Omitting
     // it returns rows from every user — load-bearing.
