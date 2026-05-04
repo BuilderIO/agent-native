@@ -494,6 +494,75 @@ describe("server/auth", () => {
       );
     });
 
+    it("returns a session token body for desktop email/password login", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const signInEmail = vi.fn(async () => ({ token: "desktop-login-token" }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail,
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+            listOrganizations: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const loginHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/login",
+      )?.[1];
+      expect(loginHandler).toBeTypeOf("function");
+
+      const request = new Request("http://localhost/_agent-native/auth/login", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-request-source": "clips-desktop",
+        },
+        body: JSON.stringify({
+          email: "USER@EXAMPLE.COM",
+          password: "secret-password",
+        }),
+      });
+      const event = createMockEvent({
+        path: "/_agent-native/auth/login",
+        headers: {
+          "content-type": "application/json",
+          "x-request-source": "clips-desktop",
+        },
+      });
+      event.req = request;
+      event.headers = request.headers;
+      event.node.req.method = "POST";
+      event.node.req.headers = Object.fromEntries(request.headers.entries());
+
+      await expect(loginHandler(event)).resolves.toEqual({
+        ok: true,
+        token: "desktop-login-token",
+        email: "user@example.com",
+      });
+      expect(signInEmail).toHaveBeenCalledWith({
+        body: { email: "user@example.com", password: "secret-password" },
+      });
+    });
+
     it("accepts HEAD on the auth session endpoint", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -759,6 +828,43 @@ describe("server/auth", () => {
   });
 
   describe("getSession", () => {
+    it("resolves bearer legacy session tokens for desktop clients", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn().mockImplementation(({ sql, args }: any) => {
+        if (
+          typeof sql === "string" &&
+          sql.includes("SELECT") &&
+          args?.[0] === "desktop-token-abc"
+        ) {
+          return {
+            rows: [{ email: "user@gmail.com", created_at: Date.now() }],
+          };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { getSession } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: { authorization: "Bearer desktop-token-abc" },
+      });
+
+      expect(await getSession(event)).toEqual({
+        email: "user@gmail.com",
+        token: "desktop-token-abc",
+      });
+      expect(event.res.headers.get("set-cookie")).toBeNull();
+    });
+
     it("promotes _session query tokens to a session cookie", async () => {
       vi.stubEnv("NODE_ENV", "production");
 
