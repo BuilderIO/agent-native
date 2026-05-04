@@ -14,7 +14,7 @@ export function Sidebar() {
   const location = useLocation();
 
   return (
-    <aside className="flex h-full w-56 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
+    <aside className="flex h-full w-56 min-w-0 shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground">
       <div className="flex h-12 shrink-0 items-center gap-2 px-4 border-b border-border">
         <img
           src={appPath("/agent-native-icon-light.svg")}

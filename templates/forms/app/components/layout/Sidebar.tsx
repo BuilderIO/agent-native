@@ -140,7 +140,7 @@ export function Sidebar() {
   const sidebarContent = (
     <div
       className={cn(
-        "flex h-screen w-60 flex-col border-r border-border bg-muted/30",
+        "flex h-screen w-60 min-w-0 shrink-0 flex-col overflow-hidden border-r border-border bg-muted/30",
         isMobile && "w-full",
       )}
     >

@@ -465,6 +465,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         await listGmailMessages(searchQuery, undefined, email, pageTokens, {
           mode: "threads",
           threadFormat: "metadata",
+          threadCandidateLimit: q ? 500 : undefined,
         });
       if (messages.length === 0 && errors.length > 0) {
         // All accounts failed — surface as error

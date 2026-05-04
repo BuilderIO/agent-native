@@ -111,6 +111,91 @@ describe("listGmailMessages", () => {
     expect(result.resultSizeEstimate).toBe(12);
   });
 
+  it("hydrates recently modified matching threads even when Gmail lists them deep in the search page", async () => {
+    const threads = Array.from({ length: 60 }, (_, index) => ({
+      id: `thread-${index + 1}`,
+      historyId: String(index + 1),
+    }));
+    threads[59] = { id: "thread-slack-marketplace", historyId: "999" };
+    vi.mocked(gmailListThreads).mockResolvedValue({ threads } as any);
+    vi.mocked(gmailBatchGetThreads)
+      .mockResolvedValueOnce([
+        {
+          id: "thread-slack-marketplace",
+          data: {
+            messages: [
+              {
+                id: "slack-latest",
+                threadId: "thread-slack-marketplace",
+                internalDate: "999",
+              },
+            ],
+          },
+        },
+        {
+          id: "thread-59",
+          data: {
+            messages: [{ id: "other-latest", threadId: "thread-59" }],
+          },
+        },
+      ] as any)
+      .mockResolvedValueOnce([
+        {
+          id: "thread-58",
+          data: {
+            messages: [{ id: "next-a", threadId: "thread-58" }],
+          },
+        },
+        {
+          id: "thread-57",
+          data: {
+            messages: [{ id: "next-b", threadId: "thread-57" }],
+          },
+        },
+      ] as any);
+
+    const result = await listGmailMessages(
+      "slack",
+      2,
+      "owner@example.com",
+      undefined,
+      { mode: "threads", threadCandidateLimit: 100 },
+    );
+
+    expect(gmailListThreads).toHaveBeenCalledWith("access-token", {
+      q: "slack",
+      maxResults: 100,
+      pageToken: undefined,
+    });
+    expect(gmailBatchGetThreads).toHaveBeenCalledWith(
+      "access-token",
+      ["thread-slack-marketplace", "thread-59"],
+      "full",
+    );
+    expect(result.messages.map((m) => m.id)).toEqual([
+      "slack-latest",
+      "other-latest",
+    ]);
+    const nextToken = result.nextPageTokens?.["connected@example.com"];
+    expect(nextToken).toMatch(/^__an_thread_candidates__:/);
+
+    const nextResult = await listGmailMessages(
+      "slack",
+      2,
+      "owner@example.com",
+      { "connected@example.com": nextToken! },
+      { mode: "threads", threadCandidateLimit: 100 },
+    );
+
+    expect(gmailListThreads).toHaveBeenCalledTimes(1);
+    expect(gmailBatchGetThreads).toHaveBeenLastCalledWith(
+      "access-token",
+      ["thread-58", "thread-57"],
+      "full",
+    );
+    expect(nextResult.messages.map((m) => m.id)).toEqual(["next-a", "next-b"]);
+  });
+
   it("refills missing thread batch parts before returning search results", async () => {
     vi.mocked(gmailListThreads).mockResolvedValue({
       threads: [{ id: "thread-refill" }],

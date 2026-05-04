@@ -3,6 +3,9 @@ import { createAuthPlugin } from "@agent-native/core/server";
 // Clips has public share pages, embeds, and view-event tracking that must
 // reach unauthenticated viewers. Everything else sits behind auth.
 export default createAuthPlugin({
+  // Clips owns `/_agent-native/google/*` so the same registered Google
+  // callback can handle both normal sign-in and the Calendar connect flow.
+  mountGoogleOAuthRoutes: false,
   marketing: {
     appName: "Agent-Native Clips",
     tagline:
@@ -34,5 +37,8 @@ export default createAuthPlugin({
     // actually fetch the <video> bytes for public recordings. The chunk
     // upload POSTs stay behind auth under /api/uploads/*.
     "/api/video",
+    "/api/auth/google-calendar",
+    "/_agent-native/google/auth-url",
+    "/_agent-native/google/callback",
   ],
 });

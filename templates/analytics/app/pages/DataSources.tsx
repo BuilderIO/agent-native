@@ -39,7 +39,13 @@ import {
   useActionMutation,
   useActionQuery,
   useSendToAgentChat,
+  PromptComposer,
 } from "@agent-native/core/client";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 interface EnvKeyStatus {
   key: string;
@@ -743,15 +749,14 @@ function DataSourceCard({
 }
 
 function AddDataSourceCTA() {
-  const [prompt, setPrompt] = useState("");
+  const [open, setOpen] = useState(false);
   const { send, isGenerating } = useSendToAgentChat();
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!prompt.trim() || isGenerating) return;
-
+  function handleSubmit(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || isGenerating) return;
     send({
-      message: prompt.trim(),
+      message: trimmed,
       context:
         "The user wants to add a new data source integration to the analytics app. " +
         "Help them add the integration by: creating a new entry in app/lib/data-sources.ts with the source metadata, " +
@@ -759,52 +764,46 @@ function AddDataSourceCTA() {
         "Ask clarifying questions if needed about which service they want to connect.",
       submit: true,
     });
-
-    setPrompt("");
+    setOpen(false);
   }
 
   return (
-    <Card className="bg-card border-border/50 border-dashed">
-      <CardHeader>
-        <CardTitle className="text-base flex items-center gap-2">
-          <IconPlus className="h-4 w-4" />
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5 shrink-0"
+          disabled={isGenerating}
+        >
+          {isGenerating ? (
+            <IconLoader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <IconPlus className="h-4 w-4" />
+          )}
+          {isGenerating ? "Adding..." : "Add Data Source"}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-[calc(100vw-2rem)] p-3 sm:w-[420px]"
+        align="end"
+      >
+        <p className="px-1 pb-1 text-sm font-semibold text-foreground">
           Add a Data Source
-        </CardTitle>
-        <CardDescription>
+        </p>
+        <p className="px-1 pb-3 text-xs text-muted-foreground">
           Don't see the integration you need? Describe it and the agent will add
-          it
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder='e.g., "Add Salesforce integration so I can query CRM data"'
-            className="flex w-full rounded-md border border-input bg-background px-3 py-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 min-h-[80px] resize-y"
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                e.preventDefault();
-                if (prompt.trim()) handleSubmit(e);
-              }
-            }}
-          />
-          <div className="flex items-center justify-end gap-2">
-            <span className="text-[11px] text-muted-foreground/70">
-              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-              +Enter to submit
-            </span>
-            <Button
-              type="submit"
-              size="sm"
-              disabled={!prompt.trim() || isGenerating}
-            >
-              {isGenerating ? "Sending..." : "Add Integration"}
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+          it.
+        </p>
+        <PromptComposer
+          autoFocus
+          disabled={isGenerating}
+          placeholder='e.g., "Add Salesforce integration so I can query CRM data"'
+          draftScope="analytics:add-data-source"
+          onSubmit={handleSubmit}
+        />
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -1058,16 +1057,19 @@ export default function DataSources() {
         )}
       </p>
 
-      {/* Search bar */}
-      <div className="relative">
-        <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search data sources..."
-          className="flex w-full rounded-md border border-input bg-background pl-9 pr-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-        />
+      {/* Search bar + Add Data Source */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search data sources..."
+            className="flex w-full rounded-md border border-input bg-background pl-9 pr-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+          />
+        </div>
+        <AddDataSourceCTA />
       </div>
 
       {/* Filtered results */}
@@ -1116,9 +1118,6 @@ export default function DataSources() {
           );
         })
       )}
-
-      {/* Always-visible CTA to request a new data source */}
-      <AddDataSourceCTA />
     </div>
   );
 }
