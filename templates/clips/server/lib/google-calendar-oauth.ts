@@ -11,10 +11,7 @@ import { runWithRequestContext } from "@agent-native/core/server/request-context
 import { writeAppSecret } from "@agent-native/core/secrets";
 import { getDb, schema } from "../db/index.js";
 import { getActiveOrganizationId } from "./recordings.js";
-import {
-  exchangeCode,
-  getUserInfo,
-} from "./google-calendar-client.js";
+import { exchangeCode, getUserInfo } from "./google-calendar-client.js";
 
 export const CLIPS_GOOGLE_OAUTH_APP_ID = "clips";
 

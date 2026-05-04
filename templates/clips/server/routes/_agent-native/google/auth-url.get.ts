@@ -12,9 +12,7 @@ import {
   resolveOAuthRedirectUri,
   safeReturnPath,
 } from "@agent-native/core/server";
-import {
-  CLIPS_GOOGLE_OAUTH_APP_ID,
-} from "../../../lib/google-calendar-oauth.js";
+import { CLIPS_GOOGLE_OAUTH_APP_ID } from "../../../lib/google-calendar-oauth.js";
 import {
   GOOGLE_AUTH_URL,
   GOOGLE_CALENDAR_SCOPES,
@@ -59,9 +57,7 @@ export default defineEventHandler(async (event: H3Event) => {
       typeof q.return === "string" ? safeReturnPath(q.return) : "/";
     const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
     const calendarConnect =
-      q.calendar === "1" ||
-      q.calendar === "true" ||
-      q.product === "calendar";
+      q.calendar === "1" || q.calendar === "true" || q.product === "calendar";
 
     if (calendarConnect && !owner) {
       setResponseStatus(event, 401);
