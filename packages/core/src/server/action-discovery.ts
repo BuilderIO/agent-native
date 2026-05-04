@@ -51,6 +51,46 @@ const SKIP_FILES = new Set([
 ]);
 
 /**
+ * Global registry of actions contributed by published packages
+ * (e.g. `@agent-native/dispatch`). Populated by `registerPackageActions()`
+ * which the package calls from import side effects, then merged into
+ * `autoDiscoverActions` after the template's local `actions/` directory.
+ *
+ * Ordering: template `actions/` files always win on name collision so
+ * consumers can override a packaged action by dropping a same-named file
+ * in their own `actions/` dir.
+ */
+const packageActionRegistry: Record<string, ActionEntry> = {};
+
+/**
+ * Register a map of actions contributed by a published package.
+ *
+ * Called from a package's server entrypoint via import side effects:
+ * ```ts
+ * // packages/dispatch/src/server/index.ts
+ * import { registerPackageActions } from "@agent-native/core/server";
+ * import { actions } from "../actions/index.js";
+ * registerPackageActions(actions);
+ * ```
+ *
+ * Idempotent — re-registering the same name from the same import is a no-op
+ * so HMR / repeated dynamic imports don't double-warn.
+ */
+export function registerPackageActions(
+  actions: Record<string, ActionEntry>,
+): void {
+  for (const [name, entry] of Object.entries(actions)) {
+    if (packageActionRegistry[name]) continue;
+    packageActionRegistry[name] = entry;
+  }
+}
+
+/** Internal — used by `autoDiscoverActions`. Returns a shallow copy. */
+function getPackageActions(): Record<string, ActionEntry> {
+  return { ...packageActionRegistry };
+}
+
+/**
  * Split a string into shell-like tokens, handling double and single quotes.
  * `--title "My Page" --content ""` → `["--title", "My Page", "--content", ""]`
  */
@@ -387,6 +427,15 @@ export async function autoDiscoverActions(
         `If in production, switch from autoDiscoverActions to loadActionsFromStaticRegistry. ` +
         `See: https://docs.agent-native.com/actions#static-registry`,
     );
+  }
+
+  // 1c. Package-registered actions — contributed by published packages
+  //     (e.g. @agent-native/dispatch) via `registerPackageActions()` from
+  //     import side effects. Merged with skip-existing so the template's
+  //     own actions/ files always win on name collision.
+  for (const [name, entry] of Object.entries(getPackageActions())) {
+    if (registry[name]) continue;
+    registry[name] = entry;
   }
 
   // 2. Workspace-core actions — merged in with skipExisting so they can't
