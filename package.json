@@ -12,7 +12,7 @@
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "packageManager": "pnpm@10.29.1",
   "scripts": {
-    "postinstall": "pnpm --filter @agent-native/core build && pnpm --filter @agent-native/pinpoint build && pnpm --filter @agent-native/scheduling build",
+    "postinstall": "pnpm --filter @agent-native/core build && pnpm --filter @agent-native/pinpoint build && pnpm --filter @agent-native/scheduling build && pnpm --filter @agent-native/dispatch build",
     "setup": "pnpm install && pnpm --filter @agent-native/core build && pnpm --filter @agent-native/scheduling build && pnpm install",
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",
