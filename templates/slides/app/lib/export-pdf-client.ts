@@ -72,8 +72,8 @@ export async function exportDeckAsPdf(
   // JPEG (vs PNG) keeps a typical 8-slide deck under ~10 MB instead of
   // ~100 MB — at 0.92 quality the difference is invisible on slide content.
   const [{ domToJpeg }, { jsPDF }] = await Promise.all([
-    import(/* @vite-ignore */ "modern-screenshot"),
-    import(/* @vite-ignore */ "jspdf"),
+    import("modern-screenshot"),
+    import("jspdf"),
   ]);
 
   // Web fonts (Poppins) must finish loading before capture — otherwise
