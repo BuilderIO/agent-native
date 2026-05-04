@@ -3731,6 +3731,9 @@ importers:
       nanoid:
         specifier: ^5.1.9
         version: 5.1.9
+      p-limit:
+        specifier: ^7.3.0
+        version: 7.3.0
       pdf-parse:
         specifier: ^2.4.5
         version: 2.4.5

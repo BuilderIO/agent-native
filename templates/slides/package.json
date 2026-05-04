@@ -55,6 +55,7 @@
     "mermaid": "^11.14.0",
     "modern-screenshot": "^4.7.0",
     "nanoid": "^5.1.9",
+    "p-limit": "^7.3.0",
     "pdf-parse": "^2.4.5",
     "pptxgenjs": "4.0.1",
     "react-markdown": "^10.1.0",
