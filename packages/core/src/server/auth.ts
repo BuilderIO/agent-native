@@ -1049,20 +1049,11 @@ function setFrameworkSessionCookie(event: H3Event, token: string): void {
 
 function isHttpsRequest(event: H3Event): boolean {
   try {
-    const req: any = (event as any).req ?? event.node?.req;
-    const headers: any = req?.headers;
-    const get = (k: string): string | undefined => {
-      if (!headers) return undefined;
-      if (typeof headers.get === "function") {
-        return headers.get(k) ?? undefined;
-      }
-      const v = headers[k];
-      return Array.isArray(v) ? v[0] : v;
-    };
-    const xfProto = get("x-forwarded-proto");
+    const xfProto = getHeader(event, "x-forwarded-proto");
     if (xfProto && String(xfProto).split(",")[0].trim() === "https") {
       return true;
     }
+    const req: any = (event as any).req ?? event.node?.req;
     const url: string | undefined = req?.url;
     if (typeof url === "string" && url.startsWith("https://")) return true;
     const appUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL || "";

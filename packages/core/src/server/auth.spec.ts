@@ -794,6 +794,50 @@ describe("server/auth", () => {
       expect(event.res.headers.get("set-cookie")).toContain("mobile-token-abc");
     });
 
+    it("marks promoted cross-site session cookies secure on forwarded HTTPS requests", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.APP_URL;
+      delete process.env.BETTER_AUTH_URL;
+
+      const mockExecute = vi.fn().mockImplementation(({ sql, args }: any) => {
+        if (
+          typeof sql === "string" &&
+          sql.includes("SELECT") &&
+          args?.[0] === "desktop-token-abc"
+        ) {
+          return {
+            rows: [{ email: "user@gmail.com", created_at: Date.now() }],
+          };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { getSession } = await import("./auth.js");
+      const event = createMockEvent({
+        query: { _session: "desktop-token-abc" },
+        headers: { "x-forwarded-proto": "https" },
+      });
+      // Netlify/H3 exposes headers through the web Request/H3 accessors, but
+      // not always through the legacy Node request object.
+      delete event.node.req.headers["x-forwarded-proto"];
+
+      expect(await getSession(event)).toEqual({
+        email: "user@gmail.com",
+        token: "desktop-token-abc",
+      });
+      const setCookie = event.res.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain("desktop-token-abc");
+      expect(setCookie).toContain("SameSite=None");
+      expect(setCookie).toContain("Secure");
+    });
+
     it("falls through to _session query param when custom getSession returns null", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
