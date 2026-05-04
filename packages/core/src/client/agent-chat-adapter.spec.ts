@@ -246,7 +246,7 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
-  it("surfaces loop limit metadata from the SSE stream", async () => {
+  it("auto-continues without surfacing loop limit text", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
     vi.stubGlobal(
@@ -264,8 +264,14 @@ describe("createAgentChatAdapter", () => {
       "fetch",
       vi
         .fn()
-        .mockResolvedValue(
+        .mockResolvedValueOnce(
           sseResponse([{ type: "loop_limit", maxIterations: 7 }]),
+        )
+        .mockResolvedValueOnce(
+          sseResponse([
+            { type: "text", text: "finished after continuation" },
+            { type: "done" },
+          ]),
         ),
     );
 
@@ -286,14 +292,17 @@ describe("createAgentChatAdapter", () => {
     );
 
     const last = results.at(-1) as any;
-    expect(last.content.at(-1).text).toContain("7-step limit");
-    expect(last.metadata.custom.loopLimit).toEqual({ maxIterations: 7 });
+    expect(last.content.at(-1).text).toBe("finished after continuation");
     expect(last.metadata.custom.runId).toBe("run-qa");
-    expect(dispatchEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "agent-chat:loop-limit",
-        detail: { tabId: "chat-limit", maxIterations: 7 },
-      }),
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:loop-limit" }),
     );
+    const fetchSpy = vi.mocked(fetch);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const secondBody = JSON.parse(fetchSpy.mock.calls[1][1].body);
+    expect(secondBody.message).toContain("Continue from where you left off");
+    expect(secondBody.history).toEqual([
+      { role: "user", content: "keep using tools" },
+    ]);
   });
 });

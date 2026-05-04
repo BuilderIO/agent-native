@@ -4,10 +4,77 @@ import {
   updateActiveRunSeq,
   clearActiveRun,
 } from "./active-run-state.js";
-import { type ContentPart, readSSEStream } from "./sse-event-processor.js";
+import {
+  AgentAutoContinueSignal,
+  type ContentPart,
+  readSSEStream,
+} from "./sse-event-processor.js";
 import { agentNativePath } from "./api-path.js";
 import { normalizeChatError } from "./error-format.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+
+type AdapterHistoryMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+const AUTO_CONTINUE_PROMPT =
+  "Continue from where you left off and finish the user's original request. Do not repeat completed work, do not mention internal reconnects, time limits, or step limits, and continue as if this is the same uninterrupted run.";
+
+function normalizeMentions(text: string): string {
+  return text.replace(/@\[([^\]|]+)\|[^\]]+\]/g, "@$1");
+}
+
+function truncateForContinuation(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, maxChars)}\n\n...[truncated ${value.length - maxChars} chars from prior partial output]`;
+}
+
+function contentToContinuationHistory(content: ContentPart[]): string {
+  const chunks: string[] = [];
+  for (const part of content) {
+    if (part.type === "text") {
+      if (part.text.trim()) chunks.push(part.text.trim());
+      continue;
+    }
+    const toolSummary = [
+      `Tool: ${part.toolName}`,
+      part.argsText ? `Input: ${part.argsText}` : "",
+      part.result
+        ? `Result:\n${truncateForContinuation(part.result, 8_000)}`
+        : "Result: interrupted before this tool returned a result",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    chunks.push(toolSummary);
+  }
+  return truncateForContinuation(chunks.join("\n\n"), 40_000).trim();
+}
+
+function autoContinueMessage(signal: AgentAutoContinueSignal): string {
+  const reason =
+    signal.reason === "loop_limit"
+      ? "The previous run reached an internal step budget."
+      : signal.reason === "stream_ended"
+        ? "The previous stream ended before the agent sent a final completion signal."
+        : "The previous run reached an internal execution budget.";
+  return `${AUTO_CONTINUE_PROMPT}\n\nInternal note: ${reason}`;
+}
+
+function delay(ms: number, abortSignal: AbortSignal): Promise<void> {
+  if (abortSignal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    abortSignal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
 
 /**
  * The composer's exec mode is sent as explicit request metadata. The server
@@ -139,6 +206,10 @@ export function createAgentChatAdapter(options?: {
       const toolCallCounter = { value: 0 };
       let runId: string | null = null;
       let lastSeq = -1;
+      let currentMessageText = normalizeMentions(rawMessageText);
+      let currentHistory: AdapterHistoryMessage[] = history;
+      let includeAttachments = attachments.length > 0;
+      let includeReferences = Boolean(runConfig?.custom?.references);
 
       try {
         const headers: Record<string, string> = {
@@ -150,162 +221,13 @@ export function createAgentChatAdapter(options?: {
         } catch {
           // Non-browser or Intl unavailable — tool calls will fall back to UTC.
         }
-        const res = await fetch(apiUrl, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            message: rawMessageText.replace(/@\[([^\]|]+)\|[^\]]+\]/g, "@$1"),
-            history,
-            ...(threadId ? { threadId } : {}),
-            ...(requestMode ? { mode: requestMode } : {}),
-            ...(modelRef?.current ? { model: modelRef.current } : {}),
-            ...(engineRef?.current ? { engine: engineRef.current } : {}),
-            ...(effortRef?.current ? { effort: effortRef.current } : {}),
-            ...(attachments.length > 0 ? { attachments } : {}),
-            ...(runConfig?.custom?.references
-              ? { references: runConfig.custom.references }
-              : {}),
-          }),
-          signal: abortSignal,
-        });
 
-        // Check for auth errors returned as 200 with JSON (common with middleware issues)
-        const contentType = res.headers.get("content-type") || "";
-        if (
-          res.ok &&
-          contentType.includes("application/json") &&
-          !contentType.includes("text/event-stream")
-        ) {
-          try {
-            const body = await res.text();
-            const parsed = JSON.parse(body);
-            if (parsed.error) {
-              throw new Error(parsed.error);
-            }
-          } catch (e) {
-            if (
-              e instanceof Error &&
-              e.message !== "Unexpected end of JSON input"
-            ) {
-              throw e;
-            }
-          }
-        }
-
-        if (!res.ok) {
-          // 405 Method Not Allowed usually means the session is broken/expired
-          // (e.g. a redirect to a login page that only accepts GET).
-          if (res.status === 405) {
-            if (typeof window !== "undefined") {
-              window.dispatchEvent(
-                new CustomEvent("agent-chat:auth-error", {
-                  detail: { reason: "session-expired" },
-                }),
-              );
-            }
-            content.push({ type: "text", text: "" });
-            yield {
-              content: [...content],
-              status: {
-                type: "incomplete" as const,
-                reason: "error" as const,
-              },
-            } as ChatModelRunResult;
-            return;
-          }
-
-          let errorText = `Server error: ${res.status}`;
-          try {
-            const body = await res.text();
-            if (
-              body.includes("apiKey") ||
-              body.includes("authToken") ||
-              body.includes("ANTHROPIC_API_KEY") ||
-              body.includes("authentication")
-            ) {
-              if (typeof window !== "undefined") {
-                window.dispatchEvent(new Event("agent-chat:missing-api-key"));
-              }
-              content.push({ type: "text", text: "" });
-              yield {
-                content: [...content],
-                status: {
-                  type: "incomplete" as const,
-                  reason: "error" as const,
-                },
-              } as ChatModelRunResult;
-              return;
-            } else if (body.includes("Cannot find any path")) {
-              errorText =
-                "Agent chat endpoint not found. Make sure the agent-chat plugin is loaded in server/plugins/.";
-            } else if (body) {
-              errorText = body.length > 200 ? body.slice(0, 200) + "..." : body;
-            }
-          } catch {}
-          throw new Error(errorText);
-        }
-        if (!res.body) {
-          throw new Error("No response body");
-        }
-
-        // Track the run ID for reconnection
-        runId = res.headers.get("X-Run-Id");
-        if (runId && threadId) {
-          setActiveRun({ threadId, runId, lastSeq: -1 });
-        }
-
-        yield* readSSEStream(
-          res.body,
-          content,
-          toolCallCounter,
-          tabId,
-          (seq) => {
-            lastSeq = seq;
-            if (runId && threadId) {
-              updateActiveRunSeq(seq);
-            }
-          },
-          runId,
-        );
-
-        // Run completed normally — clear active run state
-        clearActiveRun();
-      } catch (err: unknown) {
-        if (err instanceof Error && err.name === "AbortError") {
-          // User-initiated abort (Stop button) — clear active run
-          clearActiveRun();
-          return;
-        }
-
-        const errMsg =
-          err instanceof Error ? err.message : "Something went wrong.";
-        const isAuthError =
-          errMsg.includes("Unauthorized") ||
-          errMsg.includes("Not authenticated") ||
-          errMsg.includes("401") ||
-          errMsg.includes("403") ||
-          errMsg.includes("405");
-
-        // Don't try to reconnect for auth/client errors — show error directly
-        if (isAuthError) {
-          if (typeof window !== "undefined") {
-            window.dispatchEvent(new Event("agent-chat:auth-error"));
-          }
-          content.push({ type: "text", text: "" });
-          yield {
-            content: [...content],
-            status: {
-              type: "incomplete" as const,
-              reason: "error" as const,
-            },
-          };
-          clearActiveRun();
-          return;
-        }
-
-        // Connection lost — try to reconnect to the run
-        if (runId && lastSeq >= 0) {
-          let reconnected = false;
+        const reconnectCurrentRun = async function* (): AsyncGenerator<
+          ChatModelRunResult,
+          boolean,
+          unknown
+        > {
+          if (!runId) return false;
           for (let attempt = 0; attempt < 3; attempt++) {
             try {
               const reconnectRes = await fetch(
@@ -321,61 +243,295 @@ export function createAgentChatAdapter(options?: {
                 tabId,
                 (seq) => {
                   lastSeq = seq;
-                  if (threadId) {
-                    updateActiveRunSeq(seq);
-                  }
+                  if (threadId) updateActiveRunSeq(seq);
                 },
                 runId,
               );
-              reconnected = true;
               clearActiveRun();
-              break;
+              return true;
             } catch (reconnectErr: unknown) {
               if (
                 reconnectErr instanceof Error &&
                 reconnectErr.name === "AbortError"
               ) {
                 clearActiveRun();
-                return;
+                return true;
               }
-              // Wait briefly before retrying
-              await new Promise((r) => setTimeout(r, 1000));
+              if (reconnectErr instanceof AgentAutoContinueSignal) {
+                return false;
+              }
+              await delay(1000, abortSignal);
             }
           }
-
-          if (reconnected) return;
-        }
-
-        // Reconnect failed or not possible — show error with details
-        const normalized = normalizeChatError(errMsg);
-        const runError = {
-          message: normalized.message,
-          ...(normalized.details ? { details: normalized.details } : {}),
-          errorCode: "connection_error",
-          recoverable: true,
-          ...(runId ? { runId } : {}),
+          return false;
         };
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(
-            new CustomEvent("agent-chat:run-error", {
-              detail: { ...runError, tabId },
-            }),
-          );
+
+        while (true) {
+          try {
+            runId = null;
+            lastSeq = -1;
+            const res = await fetch(apiUrl, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                message: currentMessageText,
+                history: currentHistory,
+                ...(threadId ? { threadId } : {}),
+                ...(requestMode ? { mode: requestMode } : {}),
+                ...(modelRef?.current ? { model: modelRef.current } : {}),
+                ...(engineRef?.current ? { engine: engineRef.current } : {}),
+                ...(effortRef?.current ? { effort: effortRef.current } : {}),
+                ...(includeAttachments ? { attachments } : {}),
+                ...(includeReferences && runConfig?.custom?.references
+                  ? { references: runConfig.custom.references }
+                  : {}),
+              }),
+              signal: abortSignal,
+            });
+
+            // Check for auth errors returned as 200 with JSON (common with middleware issues)
+            const contentType = res.headers.get("content-type") || "";
+            if (
+              res.ok &&
+              contentType.includes("application/json") &&
+              !contentType.includes("text/event-stream")
+            ) {
+              try {
+                const body = await res.text();
+                const parsed = JSON.parse(body);
+                if (parsed.error) {
+                  throw new Error(parsed.error);
+                }
+              } catch (e) {
+                if (
+                  e instanceof Error &&
+                  e.message !== "Unexpected end of JSON input"
+                ) {
+                  throw e;
+                }
+              }
+            }
+
+            if (!res.ok) {
+              if (res.status === 409) {
+                let handledConflict = false;
+                try {
+                  const body = await res.json();
+                  if (body?.activeRunId) {
+                    handledConflict = true;
+                    runId = String(body.activeRunId);
+                    lastSeq = -1;
+                    if (threadId) {
+                      setActiveRun({ threadId, runId, lastSeq: -1 });
+                    }
+                    const reconnected = yield* reconnectCurrentRun();
+                    if (reconnected) return;
+                  }
+                } catch {
+                  // Fall through to the generic response handling below.
+                }
+                if (handledConflict) {
+                  await delay(1000, abortSignal);
+                  if (abortSignal.aborted) return;
+                  continue;
+                }
+              }
+
+              // 405 Method Not Allowed usually means the session is broken/expired
+              // (e.g. a redirect to a login page that only accepts GET).
+              if (res.status === 405) {
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(
+                    new CustomEvent("agent-chat:auth-error", {
+                      detail: { reason: "session-expired" },
+                    }),
+                  );
+                }
+                content.push({ type: "text", text: "" });
+                yield {
+                  content: [...content],
+                  status: {
+                    type: "incomplete" as const,
+                    reason: "error" as const,
+                  },
+                } as ChatModelRunResult;
+                return;
+              }
+
+              let errorText = `Server error: ${res.status}`;
+              try {
+                const body = await res.text();
+                if (
+                  body.includes("apiKey") ||
+                  body.includes("authToken") ||
+                  body.includes("ANTHROPIC_API_KEY") ||
+                  body.includes("authentication")
+                ) {
+                  if (typeof window !== "undefined") {
+                    window.dispatchEvent(
+                      new Event("agent-chat:missing-api-key"),
+                    );
+                  }
+                  content.push({ type: "text", text: "" });
+                  yield {
+                    content: [...content],
+                    status: {
+                      type: "incomplete" as const,
+                      reason: "error" as const,
+                    },
+                  } as ChatModelRunResult;
+                  return;
+                } else if (body.includes("Cannot find any path")) {
+                  errorText =
+                    "Agent chat endpoint not found. Make sure the agent-chat plugin is loaded in server/plugins/.";
+                } else if (body) {
+                  errorText =
+                    body.length > 200 ? body.slice(0, 200) + "..." : body;
+                }
+              } catch {}
+              throw new Error(errorText);
+            }
+            if (!res.body) {
+              throw new Error("No response body");
+            }
+
+            // Track the run ID for reconnection
+            runId = res.headers.get("X-Run-Id");
+            if (runId && threadId) {
+              setActiveRun({ threadId, runId, lastSeq: -1 });
+            }
+
+            yield* readSSEStream(
+              res.body,
+              content,
+              toolCallCounter,
+              tabId,
+              (seq) => {
+                lastSeq = seq;
+                if (runId && threadId) {
+                  updateActiveRunSeq(seq);
+                }
+              },
+              runId,
+            );
+
+            // Run completed normally — clear active run state
+            clearActiveRun();
+            return;
+          } catch (err: unknown) {
+            if (err instanceof Error && err.name === "AbortError") {
+              // User-initiated abort (Stop button) — clear active run
+              clearActiveRun();
+              return;
+            }
+
+            if (err instanceof AgentAutoContinueSignal) {
+              if (err.reason === "stream_ended") {
+                const reconnected = yield* reconnectCurrentRun();
+                if (reconnected) return;
+              }
+              const partialHistory = contentToContinuationHistory(content);
+              currentHistory = [
+                ...history,
+                { role: "user", content: normalizeMentions(rawMessageText) },
+                ...(partialHistory
+                  ? [{ role: "assistant" as const, content: partialHistory }]
+                  : []),
+              ];
+              currentMessageText = autoContinueMessage(err);
+              includeAttachments = false;
+              includeReferences = false;
+              clearActiveRun();
+              await delay(250, abortSignal);
+              if (abortSignal.aborted) return;
+              continue;
+            }
+
+            const errMsg =
+              err instanceof Error ? err.message : "Something went wrong.";
+            const isAuthError =
+              errMsg.includes("Unauthorized") ||
+              errMsg.includes("Not authenticated") ||
+              errMsg.includes("401") ||
+              errMsg.includes("403") ||
+              errMsg.includes("405");
+
+            // Don't try to reconnect for auth/client errors — show error directly
+            if (isAuthError) {
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(new Event("agent-chat:auth-error"));
+              }
+              content.push({ type: "text", text: "" });
+              yield {
+                content: [...content],
+                status: {
+                  type: "incomplete" as const,
+                  reason: "error" as const,
+                },
+              };
+              clearActiveRun();
+              return;
+            }
+
+            // Connection lost — try to reconnect to the run
+            const reconnected = yield* reconnectCurrentRun();
+            if (reconnected) return;
+
+            // Reconnect failed or not possible — keep going from the partial
+            // streamed content instead of surfacing a transient transport error.
+            if (content.length > 0) {
+              const partialHistory = contentToContinuationHistory(content);
+              currentHistory = [
+                ...history,
+                { role: "user", content: normalizeMentions(rawMessageText) },
+                ...(partialHistory
+                  ? [{ role: "assistant" as const, content: partialHistory }]
+                  : []),
+              ];
+              currentMessageText = autoContinueMessage(
+                new AgentAutoContinueSignal({ reason: "stream_ended" }),
+              );
+              includeAttachments = false;
+              includeReferences = false;
+              clearActiveRun();
+              await delay(250, abortSignal);
+              if (abortSignal.aborted) return;
+              continue;
+            }
+
+            // No partial work exists, so this is still a real startup failure.
+            const normalized = normalizeChatError(errMsg);
+            const runError = {
+              message: normalized.message,
+              ...(normalized.details ? { details: normalized.details } : {}),
+              errorCode: "connection_error",
+              recoverable: true,
+              ...(runId ? { runId } : {}),
+            };
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(
+                new CustomEvent("agent-chat:run-error", {
+                  detail: { ...runError, tabId },
+                }),
+              );
+            }
+            content.push({
+              type: "text",
+              text: errMsg.startsWith("Server error:")
+                ? errMsg
+                : `Something went wrong: ${normalized.message}`,
+            });
+            yield {
+              content: [...content],
+              status: {
+                type: "incomplete" as const,
+                reason: "error" as const,
+              },
+              metadata: { custom: { ...(runId ? { runId } : {}), runError } },
+            };
+            return;
+          }
         }
-        content.push({
-          type: "text",
-          text: errMsg.startsWith("Server error:")
-            ? errMsg
-            : `Something went wrong: ${normalized.message}`,
-        });
-        yield {
-          content: [...content],
-          status: {
-            type: "incomplete" as const,
-            reason: "error" as const,
-          },
-          metadata: { custom: { ...(runId ? { runId } : {}), runError } },
-        };
       } finally {
         if (typeof window !== "undefined") {
           window.dispatchEvent(

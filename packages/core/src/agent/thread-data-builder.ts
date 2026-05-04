@@ -29,7 +29,6 @@ export function buildAssistantMessage(
 } | null {
   const content: ContentPart[] = [];
   let toolCallCounter = 0;
-  let loopLimit: { maxIterations?: number } | null = null;
   let runError: {
     message: string;
     errorCode?: string;
@@ -87,20 +86,19 @@ export function buildAssistantMessage(
     }
 
     if (event.type === "loop_limit") {
-      loopLimit = {
-        ...(event.maxIterations ? { maxIterations: event.maxIterations } : {}),
-      };
-      appendText(
-        `${content.length > 0 ? "\n\n" : ""}${
-          event.maxIterations
-            ? `I reached the ${event.maxIterations}-step limit before finishing.`
-            : "I reached the step limit before finishing."
-        }`,
-      );
+      // Older servers emitted this as a user-visible terminal event. Treat it
+      // as an internal continuation boundary when rebuilding persisted turns.
+      continue;
+    }
+
+    if (event.type === "auto_continue") {
       continue;
     }
 
     if (event.type === "error") {
+      if (event.errorCode === "run_timeout" && event.recoverable) {
+        continue;
+      }
       runError = {
         message: event.error,
         ...(event.errorCode ? { errorCode: event.errorCode } : {}),
@@ -118,17 +116,12 @@ export function buildAssistantMessage(
 
   const metadata: Record<string, unknown> = {};
   if (runId) metadata.runId = runId;
-  if (loopLimit || runError) {
+  if (runError) {
     metadata.custom = {
-      ...(loopLimit ? { loopLimit } : {}),
-      ...(runError
-        ? {
-            runError: {
-              ...runError,
-              ...(runId ? { runId } : {}),
-            },
-          }
-        : {}),
+      runError: {
+        ...runError,
+        ...(runId ? { runId } : {}),
+      },
     };
   }
 

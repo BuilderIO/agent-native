@@ -1655,6 +1655,12 @@ function getRunErrorMetadata(message: unknown): RunErrorInfo | null {
   const messageText =
     typeof runError.message === "string" ? runError.message : "";
   if (!messageText) return null;
+  if (
+    runError.errorCode === "run_timeout" ||
+    runError.errorCode === "stream_ended"
+  ) {
+    return null;
+  }
   const runId =
     typeof runError.runId === "string"
       ? runError.runId
@@ -2898,9 +2904,7 @@ const AssistantChatInner = forwardRef<
     }
     return "";
   }, [messages]);
-  const visibleLoopLimit = showContinue
-    ? (loopLimitInfo ?? lastMessageLoopLimit ?? {})
-    : lastMessageLoopLimit;
+  const visibleLoopLimit: LoopLimitInfo | null = null;
   const visibleRunError = runErrorInfo ?? lastMessageRunError;
   const visibleRunErrorKey = visibleRunError
     ? `${visibleRunError.runId ?? ""}:${visibleRunError.errorCode ?? ""}:${visibleRunError.message}`

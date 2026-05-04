@@ -31,6 +31,9 @@ export function useDocuments() {
 export function useDocument(id: string | null) {
   return useActionQuery<Document>("get-document", id ? { id } : undefined, {
     enabled: !!id,
+    // Doc-not-found / no-access errors are deterministic — retrying just keeps
+    // the spinner up for ~7s before the UI can render "Not found".
+    retry: false,
   });
 }
 
