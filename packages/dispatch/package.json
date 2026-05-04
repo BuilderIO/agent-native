@@ -21,7 +21,10 @@
     "./db": "./dist/db/index.js",
     "./components": "./dist/components/index.js"
   },
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
