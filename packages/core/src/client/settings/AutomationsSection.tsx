@@ -9,6 +9,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { sendToAgentChat } from "../agent-chat.js";
+import { PromptComposer } from "../composer/PromptComposer.js";
 
 interface TreeNode {
   name: string;
@@ -222,7 +223,6 @@ export function AutomationsSection() {
   }, [showToast]);
 
   const [newOpen, setNewOpen] = useState(false);
-  const [newPrompt, setNewPrompt] = useState("");
   const [newScope, setNewScope] = useState<"personal" | "organization">(
     "personal",
   );
@@ -257,24 +257,23 @@ export function AutomationsSection() {
   }, [newOpen]);
 
   const handleNewSubmit = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!newPrompt.trim()) return;
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
       window.dispatchEvent(
         new CustomEvent("agent-panel:set-mode", {
           detail: { mode: "chat" },
         }),
       );
       sendToAgentChat({
-        message: newPrompt.trim(),
+        message: trimmed,
         context: `The user wants to create a new automation. Scope: ${newScope}. Use manage-automations with action=define to create it. Ask clarifying questions if needed about what event to trigger on, conditions, and what actions to take.`,
         submit: true,
         newTab: true,
       });
-      setNewPrompt("");
       setNewOpen(false);
     },
-    [newPrompt, newScope],
+    [newScope],
   );
 
   if (error) {
@@ -310,52 +309,29 @@ export function AutomationsSection() {
           {newOpen && (
             <div
               ref={newPopoverRef}
-              className="absolute left-0 top-full mt-1.5 z-[220] w-72 rounded-lg border border-border bg-popover p-3 shadow-lg"
+              className="absolute left-0 top-full mt-1.5 z-[220] w-[380px] rounded-lg border border-border bg-popover p-3 shadow-lg"
             >
-              <form onSubmit={handleNewSubmit} className="space-y-2.5">
-                <p className="text-sm font-semibold text-foreground">
-                  New automation
-                </p>
-                <textarea
-                  value={newPrompt}
-                  onChange={(e) => setNewPrompt(e.target.value)}
-                  placeholder="Describe what you want to automate..."
-                  className="w-full resize-y rounded-md border border-border bg-background px-2.5 py-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring/50 min-h-[100px]"
-                  autoFocus
-                  required
-                  onKeyDown={(e) => {
-                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                      e.preventDefault();
-                      if (newPrompt.trim()) handleNewSubmit(e);
-                    }
-                  }}
-                />
-                <div>
-                  <select
-                    value={newScope}
-                    onChange={(e) =>
-                      setNewScope(e.target.value as "personal" | "organization")
-                    }
-                    className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-[12px] text-foreground"
-                  >
-                    <option value="personal">Personal</option>
-                    <option value="organization">Organization</option>
-                  </select>
-                </div>
-                <div className="flex items-center justify-end gap-2">
-                  <span className="text-[11px] text-muted-foreground/70">
-                    {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-                    +Enter to submit
-                  </span>
-                  <button
-                    type="submit"
-                    disabled={!newPrompt.trim()}
-                    className="rounded-md bg-primary px-3 py-1.5 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Create
-                  </button>
-                </div>
-              </form>
+              <p className="px-1 pb-2 text-sm font-semibold text-foreground">
+                New automation
+              </p>
+              <PromptComposer
+                autoFocus
+                placeholder="Describe what you want to automate..."
+                draftScope="automations:create"
+                onSubmit={handleNewSubmit}
+              />
+              <div className="mt-2">
+                <select
+                  value={newScope}
+                  onChange={(e) =>
+                    setNewScope(e.target.value as "personal" | "organization")
+                  }
+                  className="w-full cursor-pointer rounded-md border border-input bg-background px-3 py-1.5 text-[12px] text-foreground"
+                >
+                  <option value="personal">Personal</option>
+                  <option value="organization">Organization</option>
+                </select>
+              </div>
             </div>
           )}
         </div>

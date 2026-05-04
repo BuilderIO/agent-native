@@ -20,6 +20,41 @@ vi.mock("./use-dev-mode.js", () => ({
   useDevMode: () => ({ isDevMode: devState.isDevMode }),
 }));
 
+vi.mock("./composer/PromptComposer.js", async () => {
+  const React = await import("react");
+  return {
+    PromptComposer: ({
+      onSubmit,
+      placeholder,
+    }: {
+      onSubmit: (text: string, files: File[], references: unknown[]) => void;
+      placeholder?: string;
+    }) => {
+      const [value, setValue] = React.useState("");
+      return React.createElement(
+        "div",
+        null,
+        React.createElement("textarea", {
+          "aria-label": "Prompt",
+          placeholder,
+          value,
+          onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) =>
+            setValue(event.target.value),
+        }),
+        React.createElement(
+          "button",
+          {
+            disabled: !value.trim(),
+            onClick: () => onSubmit(value, [], []),
+            type: "button",
+          },
+          "Create app",
+        ),
+      );
+    },
+  };
+});
+
 const vaultSecrets = [
   {
     id: "secret-openai",
@@ -112,10 +147,9 @@ describe("NewWorkspaceAppFlow", () => {
     });
 
     changeValue(
-      container.querySelector("textarea")!,
+      container.querySelector('textarea[aria-label="Prompt"]')!,
       "Build a quality dashboard",
     );
-    changeValue(container.querySelector("input")!, "qa-dashboard");
 
     act(() => {
       findButton(container, "OPENAI_API_KEY").click();

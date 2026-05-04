@@ -30,7 +30,24 @@ interface CreatedDeckArtifact {
   url?: string;
 }
 
-type ReferencedArtifactKind = "deck" | "design" | "document";
+interface CreatedDashboardArtifact {
+  id: string;
+  title?: string;
+  url?: string;
+}
+
+interface CreatedAnalysisArtifact {
+  id: string;
+  title?: string;
+  url?: string;
+}
+
+type ReferencedArtifactKind =
+  | "deck"
+  | "design"
+  | "document"
+  | "dashboard"
+  | "analysis";
 
 interface ReferencedArtifact {
   kind: ReferencedArtifactKind;
@@ -140,6 +157,14 @@ function deckIdValue(parsed: Record<string, unknown>): string | undefined {
   return stringValue(parsed.id) ?? stringValue(parsed.deckId);
 }
 
+function dashboardIdValue(parsed: Record<string, unknown>): string | undefined {
+  return stringValue(parsed.id) ?? stringValue(parsed.dashboardId);
+}
+
+function analysisIdValue(parsed: Record<string, unknown>): string | undefined {
+  return stringValue(parsed.id) ?? stringValue(parsed.analysisId);
+}
+
 function isReadyDeckArtifact(parsed: Record<string, unknown>): boolean {
   const slideCount = numberValue(parsed.slideCount);
   if (slideCount !== undefined) return slideCount > 0;
@@ -177,11 +202,15 @@ function addListedDeckArtifacts(
 function collectArtifacts(results: A2AToolResultSummary[]): {
   documents: CreatedDocumentArtifact[];
   decks: CreatedDeckArtifact[];
+  dashboards: CreatedDashboardArtifact[];
+  analyses: CreatedAnalysisArtifact[];
   designShells: CreatedDesignShell[];
   generatedDesigns: GeneratedDesignArtifact[];
 } {
   const documents = new Map<string, CreatedDocumentArtifact>();
   const decks = new Map<string, CreatedDeckArtifact>();
+  const dashboards = new Map<string, CreatedDashboardArtifact>();
+  const analyses = new Map<string, CreatedAnalysisArtifact>();
   const designShells = new Map<string, CreatedDesignShell>();
   const generatedDesigns = new Map<string, GeneratedDesignArtifact>();
 
@@ -195,6 +224,18 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
           });
         } else if (artifact.kind === "document") {
           documents.set(artifact.id, {
+            id: artifact.id,
+            title: artifact.title,
+            url: artifact.url,
+          });
+        } else if (artifact.kind === "dashboard") {
+          dashboards.set(artifact.id, {
+            id: artifact.id,
+            title: artifact.title,
+            url: artifact.url,
+          });
+        } else if (artifact.kind === "analysis") {
+          analyses.set(artifact.id, {
             id: artifact.id,
             title: artifact.title,
             url: artifact.url,
@@ -253,6 +294,37 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
       if (id && slideCount !== undefined && slideCount > 0) {
         decks.set(id, {
           id,
+          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
+        });
+      }
+      continue;
+    }
+
+    if (
+      toolResult.tool === "update-dashboard" ||
+      toolResult.tool === "rename-dashboard" ||
+      toolResult.tool === "get-dashboard"
+    ) {
+      const id = dashboardIdValue(parsed);
+      if (id) {
+        dashboards.set(id, {
+          id,
+          title: stringValue(parsed.name) ?? stringValue(parsed.title),
+          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
+        });
+      }
+      continue;
+    }
+
+    if (
+      toolResult.tool === "save-analysis" ||
+      toolResult.tool === "get-analysis"
+    ) {
+      const id = analysisIdValue(parsed);
+      if (id) {
+        analyses.set(id, {
+          id,
+          title: stringValue(parsed.name) ?? stringValue(parsed.title),
           url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
         });
       }
@@ -342,6 +414,8 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
   return {
     documents: [...documents.values()],
     decks: [...decks.values()],
+    dashboards: [...dashboards.values()],
+    analyses: [...analyses.values()],
     designShells: [...designShells.values()],
     generatedDesigns: [...generatedDesigns.values()],
   };
@@ -350,6 +424,8 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
 type DownstreamArtifact =
   | { kind: "deck"; id: string; url: string }
   | { kind: "document"; id: string; url: string; title?: string }
+  | { kind: "dashboard"; id: string; url: string; title?: string }
+  | { kind: "analysis"; id: string; url: string; title?: string }
   | { kind: "design"; id: string; url: string; fileCount: number };
 
 function parseDownstreamArtifactBlock(result: string): DownstreamArtifact[] {
@@ -379,6 +455,36 @@ function parseDownstreamArtifactBlock(result: string): DownstreamArtifact[] {
         kind: "document",
         title: document[1],
         url: document[2],
+        id,
+      });
+      continue;
+    }
+
+    const dashboard = line.match(
+      /^- Dashboard(?:\s+"([^"]+)")?:\s+(\S+)\s+\(ID:\s*([A-Za-z0-9_-]+)\)$/,
+    );
+    if (dashboard) {
+      const id = dashboard[3];
+      if (!artifactUrlReferencesId(dashboard[2], "dashboard", id)) continue;
+      artifacts.push({
+        kind: "dashboard",
+        title: dashboard[1],
+        url: dashboard[2],
+        id,
+      });
+      continue;
+    }
+
+    const analysis = line.match(
+      /^- (?:Analysis|Report)(?:\s+"([^"]+)")?:\s+(\S+)\s+\(ID:\s*([A-Za-z0-9_-]+)\)$/,
+    );
+    if (analysis) {
+      const id = analysis[3];
+      if (!artifactUrlReferencesId(analysis[2], "analysis", id)) continue;
+      artifacts.push({
+        kind: "analysis",
+        title: analysis[1],
+        url: analysis[2],
         id,
       });
       continue;
@@ -453,6 +559,12 @@ function parseArtifactReferenceUrl(rawUrl: string): ReferencedArtifact | null {
   const document = path.match(/(?:^|\/)page\/([A-Za-z0-9_-]+)$/);
   if (document) return { kind: "document", id: document[1] };
 
+  const dashboard = path.match(/(?:^|\/)adhoc\/([A-Za-z0-9_-]+)$/);
+  if (dashboard) return { kind: "dashboard", id: dashboard[1] };
+
+  const analysis = path.match(/(?:^|\/)analyses\/([A-Za-z0-9_-]+)$/);
+  if (analysis) return { kind: "analysis", id: analysis[1] };
+
   return null;
 }
 
@@ -469,6 +581,24 @@ function formatDeckLine(
   baseUrl: string | undefined,
 ): string {
   return `- Deck: ${artifactUrlFromResult({ url: deck.url }, `/deck/${deck.id}`, baseUrl)} (ID: ${deck.id})`;
+}
+
+function formatDashboardLine(
+  dashboard: CreatedDashboardArtifact,
+  baseUrl: string | undefined,
+): string {
+  const label = dashboard.title
+    ? `Dashboard "${dashboard.title}"`
+    : "Dashboard";
+  return `- ${label}: ${artifactUrlFromResult({ url: dashboard.url }, `/adhoc/${dashboard.id}`, baseUrl)} (ID: ${dashboard.id})`;
+}
+
+function formatAnalysisLine(
+  analysis: CreatedAnalysisArtifact,
+  baseUrl: string | undefined,
+): string {
+  const label = analysis.title ? `Report "${analysis.title}"` : "Report";
+  return `- ${label}: ${artifactUrlFromResult({ url: analysis.url }, `/analyses/${analysis.id}`, baseUrl)} (ID: ${analysis.id})`;
 }
 
 function formatDesignLine(
@@ -496,14 +626,22 @@ function collectReferencedArtifacts(
   const refs = new Map<string, ReferencedArtifact>();
   const baseOrigin = safeOrigin(baseUrl);
   const artifactUrlPattern =
-    /(?:(https?:\/\/[^/\s<>()]+))?(?:\/[^\s<>()]*)?\/(deck|design|page)\/([A-Za-z0-9_-]+)/g;
+    /(?:(https?:\/\/[^/\s<>()]+))?(?:\/[^\s<>()]*)?\/(deck|design|page|adhoc|analyses)\/([A-Za-z0-9_-]+)/g;
 
   for (const match of text.matchAll(artifactUrlPattern)) {
     const origin = safeOrigin(match[1]);
     const route = match[2];
     const id = match[3];
     const kind: ReferencedArtifactKind =
-      route === "deck" ? "deck" : route === "design" ? "design" : "document";
+      route === "deck"
+        ? "deck"
+        : route === "design"
+          ? "design"
+          : route === "page"
+            ? "document"
+            : route === "adhoc"
+              ? "dashboard"
+              : "analysis";
     if (!shouldValidateArtifactReference(origin, baseOrigin, kind)) continue;
     refs.set(`${kind}:${id}`, { kind, id });
   }
@@ -527,6 +665,8 @@ const KNOWN_AGENT_NATIVE_ARTIFACT_HOSTS: Record<
   deck: new Set(["slides.agent-native.com"]),
   design: new Set(["design.agent-native.com"]),
   document: new Set(["content.agent-native.com"]),
+  dashboard: new Set(["analytics.agent-native.com"]),
+  analysis: new Set(["analytics.agent-native.com"]),
 };
 
 function safeHostnameFromOrigin(
@@ -556,15 +696,21 @@ function findUnverifiedArtifactReferences(
   baseUrl: string | undefined,
   documents: CreatedDocumentArtifact[],
   decks: CreatedDeckArtifact[],
+  dashboards: CreatedDashboardArtifact[],
+  analyses: CreatedAnalysisArtifact[],
   generatedDesigns: GeneratedDesignArtifact[],
 ): ReferencedArtifact[] {
   const documentIds = new Set(documents.map((document) => document.id));
   const deckIds = new Set(decks.map((deck) => deck.id));
+  const dashboardIds = new Set(dashboards.map((dashboard) => dashboard.id));
+  const analysisIds = new Set(analyses.map((analysis) => analysis.id));
   const designIds = new Set(generatedDesigns.map((design) => design.id));
 
   return collectReferencedArtifacts(text, baseUrl).filter((ref) => {
     if (ref.kind === "document") return !documentIds.has(ref.id);
     if (ref.kind === "deck") return !deckIds.has(ref.id);
+    if (ref.kind === "dashboard") return !dashboardIds.has(ref.id);
+    if (ref.kind === "analysis") return !analysisIds.has(ref.id);
     return !designIds.has(ref.id);
   });
 }
@@ -573,24 +719,34 @@ function formatUnverifiedArtifactMessage(
   refs: ReferencedArtifact[],
   documents: CreatedDocumentArtifact[],
   decks: CreatedDeckArtifact[],
+  dashboards: CreatedDashboardArtifact[],
+  analyses: CreatedAnalysisArtifact[],
   generatedDesigns: GeneratedDesignArtifact[],
   baseUrl: string | undefined,
 ): string {
   const hasOnlyDesigns = refs.every((ref) => ref.kind === "design");
   const hasOnlyDocuments = refs.every((ref) => ref.kind === "document");
   const hasOnlyDecks = refs.every((ref) => ref.kind === "deck");
+  const hasOnlyDashboards = refs.every((ref) => ref.kind === "dashboard");
+  const hasOnlyAnalyses = refs.every((ref) => ref.kind === "analysis");
   const label = hasOnlyDesigns
     ? "design URL"
     : hasOnlyDocuments
       ? "document URL"
       : hasOnlyDecks
         ? "deck URL"
-        : "artifact URL";
+        : hasOnlyDashboards
+          ? "dashboard URL"
+          : hasOnlyAnalyses
+            ? "report URL"
+            : "artifact URL";
   const plural = refs.length === 1 ? label : `${label}s`;
   const message = `I could not verify the ${plural} in the final answer against a successful artifact action that saved app data, so I cannot return it.`;
   const verifiedLines = [
     ...documents.map((document) => formatDocumentLine(document, baseUrl)),
     ...decks.map((deck) => formatDeckLine(deck, baseUrl)),
+    ...dashboards.map((dashboard) => formatDashboardLine(dashboard, baseUrl)),
+    ...analyses.map((analysis) => formatAnalysisLine(analysis, baseUrl)),
     ...generatedDesigns.map((design) => formatDesignLine(design, baseUrl)),
   ];
 
@@ -607,8 +763,14 @@ export function appendA2AArtifactLinks(
   const baseUrl = normalizeBaseUrl(options.baseUrl);
   const includeReferencedArtifacts =
     options.includeReferencedArtifacts ?? false;
-  const { documents, decks, designShells, generatedDesigns } =
-    collectArtifacts(toolResults);
+  const {
+    documents,
+    decks,
+    dashboards,
+    analyses,
+    designShells,
+    generatedDesigns,
+  } = collectArtifacts(toolResults);
   const generatedDesignIds = new Set(
     generatedDesigns.map((design) => design.id),
   );
@@ -635,6 +797,8 @@ export function appendA2AArtifactLinks(
     baseUrl,
     documents,
     decks,
+    dashboards,
+    analyses,
     generatedDesigns,
   );
   if (unverifiedRefs.length > 0) {
@@ -642,6 +806,8 @@ export function appendA2AArtifactLinks(
       unverifiedRefs,
       documents,
       decks,
+      dashboards,
+      analyses,
       generatedDesigns,
       baseUrl,
     );
@@ -666,6 +832,24 @@ export function appendA2AArtifactLinks(
       missingLines.push(formatDeckLine(deck, baseUrl));
     }
   }
+  for (const dashboard of dashboards) {
+    const path = `/adhoc/${dashboard.id}`;
+    if (
+      includeReferencedArtifacts ||
+      !responseAlreadyMentionsPath(text, path)
+    ) {
+      missingLines.push(formatDashboardLine(dashboard, baseUrl));
+    }
+  }
+  for (const analysis of analyses) {
+    const path = `/analyses/${analysis.id}`;
+    if (
+      includeReferencedArtifacts ||
+      !responseAlreadyMentionsPath(text, path)
+    ) {
+      missingLines.push(formatAnalysisLine(analysis, baseUrl));
+    }
+  }
   for (const design of generatedDesigns) {
     const path = `/design/${design.id}`;
     if (
@@ -686,10 +870,13 @@ export function buildA2ARecoverableArtifactMessage(
   options: A2AArtifactResponseOptions = {},
 ): string | null {
   const baseUrl = normalizeBaseUrl(options.baseUrl);
-  const { documents, decks, generatedDesigns } = collectArtifacts(toolResults);
+  const { documents, decks, dashboards, analyses, generatedDesigns } =
+    collectArtifacts(toolResults);
   const lines = [
     ...documents.map((document) => formatDocumentLine(document, baseUrl)),
     ...decks.map((deck) => formatDeckLine(deck, baseUrl)),
+    ...dashboards.map((dashboard) => formatDashboardLine(dashboard, baseUrl)),
+    ...analyses.map((analysis) => formatAnalysisLine(analysis, baseUrl)),
     ...generatedDesigns.map((design) => formatDesignLine(design, baseUrl)),
   ];
 

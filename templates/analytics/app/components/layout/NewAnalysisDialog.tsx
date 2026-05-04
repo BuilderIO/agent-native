@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useSendToAgentChat } from "@agent-native/core/client";
+import { useSendToAgentChat, PromptComposer } from "@agent-native/core/client";
 import {
   Popover,
   PopoverContent,
@@ -8,29 +8,23 @@ import {
 import { IconPlus, IconLoader2 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
+const ANALYSIS_CONTEXT =
+  "The user wants to kick off a new ad-hoc analysis. " +
+  "Read the `adhoc-analysis` skill first. Then: gather data from relevant sources, " +
+  "synthesize findings, and save via `save-analysis` with --id, --name, --question, " +
+  "--instructions (markdown recipe for re-running), --resultMarkdown (polished writeup), " +
+  "--sources (comma-separated data sources used), and --tags (comma-separated). " +
+  "After saving, call `navigate --view=analyses --analysisId=<id>` so the user sees it. " +
+  "No code files to create — analyses are persisted settings data.";
+
 export function NewAnalysisDialog() {
   const [open, setOpen] = useState(false);
-  const [prompt, setPrompt] = useState("");
   const { send, isGenerating } = useSendToAgentChat();
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!prompt.trim() || isGenerating) return;
-
-    send({
-      message: prompt.trim(),
-      context:
-        "The user wants to kick off a new ad-hoc analysis. " +
-        "Read the `adhoc-analysis` skill first. Then: gather data from relevant sources, " +
-        "synthesize findings, and save via `save-analysis` with --id, --name, --question, " +
-        "--instructions (markdown recipe for re-running), --resultMarkdown (polished writeup), " +
-        "--sources (comma-separated data sources used), and --tags (comma-separated). " +
-        "After saving, call `navigate --view=analyses --analysisId=<id>` so the user sees it. " +
-        "No code files to create — analyses are persisted settings data.",
-      submit: true,
-    });
-
-    setPrompt("");
+  function handleSubmit(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || isGenerating) return;
+    send({ message: trimmed, context: ANALYSIS_CONTEXT, submit: true });
     setOpen(false);
   }
 
@@ -40,7 +34,7 @@ export function NewAnalysisDialog() {
         <button
           disabled={isGenerating}
           className={cn(
-            "flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs transition-all",
+            "flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-xs transition-all",
             isGenerating
               ? "text-primary cursor-wait"
               : "text-muted-foreground/60 hover:text-primary hover:bg-sidebar-accent/50",
@@ -55,51 +49,20 @@ export function NewAnalysisDialog() {
         </button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[calc(100vw-2rem)] sm:w-96 p-4"
+        className="w-[calc(100vw-2rem)] p-3 sm:w-[420px]"
         side="right"
         align="start"
       >
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <p className="text-sm font-semibold text-foreground">New analysis</p>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Describe the question you want to investigate..."
-            className={cn(
-              "flex w-full rounded-md border border-input bg-background px-3 py-3 text-sm",
-              "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
-              "min-h-[140px] resize-y",
-            )}
-            autoFocus
-            required
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                e.preventDefault();
-                if (prompt.trim()) handleSubmit(e);
-              }
-            }}
-          />
-          <div className="flex items-center justify-end gap-2">
-            <span className="text-[11px] text-muted-foreground">
-              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-              +Enter to submit
-            </span>
-            <button
-              type="submit"
-              disabled={!prompt.trim() || isGenerating}
-              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isGenerating ? (
-                <span className="flex items-center gap-1.5">
-                  <IconLoader2 className="h-3 w-3 animate-spin" />
-                  Generating...
-                </span>
-              ) : (
-                "Create"
-              )}
-            </button>
-          </div>
-        </form>
+        <p className="px-1 pb-2 text-sm font-semibold text-foreground">
+          New analysis
+        </p>
+        <PromptComposer
+          autoFocus
+          disabled={isGenerating}
+          placeholder="Describe the question you want to investigate..."
+          draftScope="analytics:new-analysis"
+          onSubmit={handleSubmit}
+        />
       </PopoverContent>
     </Popover>
   );

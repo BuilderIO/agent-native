@@ -28,11 +28,46 @@ import type { ComposerMode } from "./types.js";
 
 interface ComposerPlusMenuProps {
   onSelectMode?: (mode: ComposerMode) => void;
+  /**
+   * "full" (default): full + menu with Upload File, Create Skill, Scheduled Task,
+   * Automation, Tool, MCP Server. "upload-only": clicking + opens the file
+   * picker directly — no popover, no other modes. Use for prompt popovers
+   * (create tool, create deck, create dashboard, etc.) where the only thing
+   * to attach is a file.
+   */
+  mode?: "full" | "upload-only";
 }
 
 type View = "menu" | "mcp-server";
 
-export function ComposerPlusMenu({ onSelectMode }: ComposerPlusMenuProps) {
+function UploadOnlyAttachButton() {
+  return (
+    <ComposerPrimitive.AddAttachment asChild>
+      <button
+        type="button"
+        className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 disabled:opacity-30 disabled:cursor-not-allowed"
+        title="Upload file"
+        aria-label="Upload file"
+      >
+        <IconPlus className="h-4 w-4" />
+      </button>
+    </ComposerPrimitive.AddAttachment>
+  );
+}
+
+export function ComposerPlusMenu({
+  onSelectMode,
+  mode = "full",
+}: ComposerPlusMenuProps) {
+  if (mode === "upload-only") {
+    return <UploadOnlyAttachButton />;
+  }
+  return <ComposerPlusMenuFull onSelectMode={onSelectMode} />;
+}
+
+function ComposerPlusMenuFull({
+  onSelectMode,
+}: Pick<ComposerPlusMenuProps, "onSelectMode">) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>("menu");
 
