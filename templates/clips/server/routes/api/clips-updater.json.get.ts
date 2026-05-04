@@ -76,7 +76,11 @@ async function getManifest(): Promise<unknown> {
       cache = { data, ts: Date.now() };
       return data;
     } catch {
-      return cache?.data ?? INERT_MANIFEST;
+      // Cache the fallback (inert or last good) so we don't re-hit GitHub
+      // — and re-pay the 10s timeout — on every request after a failure.
+      const fallback = cache?.data ?? INERT_MANIFEST;
+      cache = { data: fallback, ts: Date.now() };
+      return fallback;
     } finally {
       inFlight = null;
     }
