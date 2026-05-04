@@ -16,6 +16,8 @@ import { pathToFileURL } from "url";
 import { coreScripts, getCoreScriptNames } from "./core-scripts.js";
 import { closeDbExec } from "../db/client.js";
 import { loadEnv } from "./utils.js";
+import { runWithRequestContext } from "../server/request-context.js";
+import { resolveDevUserEmail } from "./dev-session.js";
 
 // Load .env from cwd so DATABASE_URL and other vars are available to all actions.
 loadEnv();
@@ -81,6 +83,32 @@ export async function runScript(): Promise<void> {
 
   const args = process.argv.slice(3);
 
+  // Establish a request context for the duration of this CLI run. Without
+  // it, db-exec / db-query / db-patch and any action that calls
+  // `getRequestUserEmail()` see no identity and refuse to run. The
+  // resolver picks up `AGENT_USER_EMAIL` if explicitly set, otherwise
+  // reads the most-recent signed-in session from the DB (dev-only,
+  // narrowly gated — see dev-session.ts).
+  //
+  // This wrap is intentionally a single point of injection: it covers
+  // both the local-action branch and the fall-through to core scripts
+  // (db-query, db-exec, …) so every CLI entrypoint runs scoped to a real
+  // user. It uses `runWithRequestContext` rather than mutating
+  // `process.env.AGENT_USER_EMAIL` because env mutation leaks across
+  // boundaries — see the cautionary comment in
+  // `server/request-context.ts` about exactly that pattern.
+  const userEmail = await resolveDevUserEmail();
+  const orgId = process.env.AGENT_ORG_ID || undefined;
+
+  return runWithRequestContext({ userEmail, orgId }, () =>
+    dispatchAction(actionName, args),
+  );
+}
+
+async function dispatchAction(
+  actionName: string,
+  args: string[],
+): Promise<void> {
   // 1. Try local app action first (actions/ then scripts/ for backwards compat)
   const actionsPath = path.resolve(
     process.cwd(),
