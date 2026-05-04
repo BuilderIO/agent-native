@@ -59,6 +59,68 @@ export class AgentAutoContinueSignal extends Error {
   }
 }
 
+function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
+  const code = String(ev.errorCode ?? "").toLowerCase();
+  const msg = errMsg.toLowerCase();
+
+  if (
+    code === "context_length_exceeded" ||
+    code === "input_too_long" ||
+    code.startsWith("credits-limit") ||
+    code === "billing_error" ||
+    code === "unauthorized" ||
+    code === "authentication_error" ||
+    code === "permission_error" ||
+    code === "gateway_not_enabled" ||
+    code === "missing_api_key" ||
+    code === "missing_credentials" ||
+    code === "invalid_request_error" ||
+    code === "request_too_large" ||
+    code === "not_found_error" ||
+    code === "model_not_found"
+  ) {
+    return false;
+  }
+
+  if (
+    code === "builder_gateway_timeout" ||
+    code === "stale_run" ||
+    code === "timeout" ||
+    code === "timeout_error" ||
+    code === "http_408" ||
+    code === "http_429" ||
+    code === "http_500" ||
+    code === "http_502" ||
+    code === "http_503" ||
+    code === "http_504" ||
+    code === "rate_limited" ||
+    code === "too_many_concurrent_requests" ||
+    code === "overloaded_error"
+  ) {
+    return true;
+  }
+
+  if (ev.recoverable === true) return true;
+
+  return (
+    msg.includes("overloaded") ||
+    msg.includes("rate_limit") ||
+    msg.includes("too many requests") ||
+    msg.includes("timeout") ||
+    msg.includes("gateway timeout") ||
+    msg.includes("inactivity timeout") ||
+    msg.includes("connection") ||
+    msg.includes("network") ||
+    msg.includes("stream closed") ||
+    msg.includes("stream ended") ||
+    msg.includes("temporarily unavailable") ||
+    msg.includes("502") ||
+    msg.includes("503") ||
+    msg.includes("504") ||
+    msg.includes("529")
+  );
+}
+
 /**
  * Process a single SSE event and update the content accumulator.
  * Returns: "continue" to keep going, "done" to stop, or a yield-ready result.
@@ -272,10 +334,20 @@ export function processEvent(
 
   if (ev.type === "error") {
     const errMsg = ev.error ?? "Unknown error";
-    if (ev.errorCode === "run_timeout" && ev.recoverable) {
+    if (
+      (ev.errorCode === "run_timeout" && ev.recoverable) ||
+      isAutoRecoverableError(ev, errMsg)
+    ) {
       return {
         action: "auto_continue",
-        autoContinue: { reason: "run_timeout" },
+        autoContinue: {
+          reason:
+            ev.errorCode === "builder_gateway_timeout" ||
+            ev.errorCode === "run_timeout" ||
+            errMsg.toLowerCase().includes("timeout")
+              ? "run_timeout"
+              : "stream_ended",
+        },
       };
     }
     const normalized = normalizeChatError(errMsg);
@@ -432,10 +504,11 @@ export async function* readSSEStream(
     reader.releaseLock();
   }
 
-  // Stream ended without explicit done event
-  if (content.length > 0) {
-    throw new AgentAutoContinueSignal({ reason: "stream_ended" });
-  }
+  // Stream ended without explicit done event. Even an empty content array is
+  // abnormal here: a healthy run emits a terminal `done` event. Treat this as
+  // recoverable so the adapter can first reconnect to the run, then continue
+  // from durable history if the producer is gone.
+  throw new AgentAutoContinueSignal({ reason: "stream_ended" });
 }
 
 /**

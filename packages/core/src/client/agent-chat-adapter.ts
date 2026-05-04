@@ -20,6 +20,11 @@ type AdapterHistoryMessage = {
 
 const AUTO_CONTINUE_PROMPT =
   "Continue from where you left off and finish the user's original request. Do not repeat completed work, do not mention internal reconnects, time limits, or step limits, and continue as if this is the same uninterrupted run.";
+const MAX_RECONNECT_ATTEMPTS = 5;
+const MAX_STARTUP_RECOVERY_ATTEMPTS = 8;
+const MAX_TRANSIENT_CONTINUATIONS = 8;
+const RETRY_BASE_DELAY_MS = 500;
+const RETRY_MAX_DELAY_MS = 8_000;
 
 function normalizeMentions(text: string): string {
   return text.replace(/@\[([^\]|]+)\|[^\]]+\]/g, "@$1");
@@ -74,6 +79,63 @@ function delay(ms: number, abortSignal: AbortSignal): Promise<void> {
       { once: true },
     );
   });
+}
+
+function retryDelay(attempt: number, abortSignal: AbortSignal): Promise<void> {
+  const base = Math.min(
+    RETRY_MAX_DELAY_MS,
+    RETRY_BASE_DELAY_MS * Math.pow(2, attempt),
+  );
+  const jitter = base * 0.2;
+  const ms = Math.max(0, base + (Math.random() * 2 - 1) * jitter);
+  return delay(ms, abortSignal);
+}
+
+function isRetryableStartupError(message: string): boolean {
+  const msg = message.toLowerCase();
+  if (
+    msg.includes("unauthorized") ||
+    msg.includes("not authenticated") ||
+    msg.includes("401") ||
+    msg.includes("403") ||
+    msg.includes("404") ||
+    msg.includes("405") ||
+    msg.includes("missing api key") ||
+    msg.includes("api key") ||
+    msg.includes("context_length") ||
+    msg.includes("input_too_long") ||
+    msg.includes("too many tokens") ||
+    msg.includes("prompt is too long") ||
+    msg.includes("credits-limit") ||
+    msg.includes("billing") ||
+    msg.includes("permission")
+  ) {
+    return false;
+  }
+  return (
+    msg.includes("failed to fetch") ||
+    msg.includes("network") ||
+    msg.includes("connection") ||
+    msg.includes("reset") ||
+    msg.includes("econnreset") ||
+    msg.includes("socket") ||
+    msg.includes("timeout") ||
+    msg.includes("gateway timeout") ||
+    msg.includes("inactivity timeout") ||
+    msg.includes("temporarily unavailable") ||
+    msg.includes("server error: 408") ||
+    msg.includes("server error: 429") ||
+    msg.includes("server error: 500") ||
+    msg.includes("server error: 502") ||
+    msg.includes("server error: 503") ||
+    msg.includes("server error: 504") ||
+    msg.includes("429") ||
+    msg.includes("500") ||
+    msg.includes("502") ||
+    msg.includes("503") ||
+    msg.includes("504") ||
+    msg.includes("529")
+  );
 }
 
 /**
@@ -210,6 +272,8 @@ export function createAgentChatAdapter(options?: {
       let currentHistory: AdapterHistoryMessage[] = history;
       let includeAttachments = attachments.length > 0;
       let includeReferences = Boolean(runConfig?.custom?.references);
+      let startupRecoveryAttempts = 0;
+      let transientContinuationAttempts = 0;
 
       try {
         const headers: Record<string, string> = {
@@ -228,7 +292,7 @@ export function createAgentChatAdapter(options?: {
           unknown
         > {
           if (!runId) return false;
-          for (let attempt = 0; attempt < 3; attempt++) {
+          for (let attempt = 0; attempt < MAX_RECONNECT_ATTEMPTS; attempt++) {
             try {
               const reconnectRes = await fetch(
                 `${apiUrl}/runs/${encodeURIComponent(runId)}/events?after=${lastSeq + 1}`,
@@ -260,10 +324,73 @@ export function createAgentChatAdapter(options?: {
               if (reconnectErr instanceof AgentAutoContinueSignal) {
                 return false;
               }
-              await delay(1000, abortSignal);
+              await retryDelay(attempt, abortSignal);
             }
           }
           return false;
+        };
+
+        const reconnectActiveRunForThread = async function* (): AsyncGenerator<
+          ChatModelRunResult,
+          boolean,
+          unknown
+        > {
+          if (!threadId) return false;
+          for (let attempt = 0; attempt < MAX_RECONNECT_ATTEMPTS; attempt++) {
+            try {
+              const activeRes = await fetch(
+                `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+                { signal: abortSignal },
+              );
+              if (!activeRes.ok) return false;
+              const active = await activeRes.json();
+              if (active?.active && active.runId) {
+                const activeRunId = String(active.runId);
+                runId = activeRunId;
+                lastSeq = -1;
+                setActiveRun({ threadId, runId: activeRunId, lastSeq: -1 });
+                const reconnected = yield* reconnectCurrentRun();
+                if (reconnected) return true;
+              }
+              return false;
+            } catch (activeErr: unknown) {
+              if (
+                activeErr instanceof Error &&
+                activeErr.name === "AbortError"
+              ) {
+                clearActiveRun();
+                return true;
+              }
+              await retryDelay(attempt, abortSignal);
+            }
+          }
+          return false;
+        };
+
+        const prepareAutoContinuation = (
+          signal: AgentAutoContinueSignal,
+        ): boolean => {
+          if (signal.reason === "loop_limit") {
+            transientContinuationAttempts = 0;
+          } else if (
+            ++transientContinuationAttempts > MAX_TRANSIENT_CONTINUATIONS
+          ) {
+            return false;
+          }
+          const partialHistory = contentToContinuationHistory(content);
+          currentHistory = [
+            ...history,
+            { role: "user", content: normalizeMentions(rawMessageText) },
+            ...(partialHistory
+              ? [{ role: "assistant" as const, content: partialHistory }]
+              : []),
+          ];
+          currentMessageText = autoContinueMessage(signal);
+          includeAttachments = false;
+          includeReferences = false;
+          startupRecoveryAttempts = 0;
+          clearActiveRun();
+          return true;
         };
 
         while (true) {
@@ -429,19 +556,42 @@ export function createAgentChatAdapter(options?: {
               if (err.reason === "stream_ended") {
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return;
+                const activeReconnected = yield* reconnectActiveRunForThread();
+                if (activeReconnected) return;
               }
-              const partialHistory = contentToContinuationHistory(content);
-              currentHistory = [
-                ...history,
-                { role: "user", content: normalizeMentions(rawMessageText) },
-                ...(partialHistory
-                  ? [{ role: "assistant" as const, content: partialHistory }]
-                  : []),
-              ];
-              currentMessageText = autoContinueMessage(err);
-              includeAttachments = false;
-              includeReferences = false;
-              clearActiveRun();
+              if (!prepareAutoContinuation(err)) {
+                const message =
+                  "The agent connection kept failing after several automatic recovery attempts.";
+                const runError = {
+                  message,
+                  errorCode: "connection_error",
+                  recoverable: true,
+                  ...(runId ? { runId } : {}),
+                };
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(
+                    new CustomEvent("agent-chat:run-error", {
+                      detail: { ...runError, tabId },
+                    }),
+                  );
+                }
+                content.push({
+                  type: "text",
+                  text: `Something went wrong: ${message}`,
+                });
+                yield {
+                  content: [...content],
+                  status: {
+                    type: "incomplete" as const,
+                    reason: "error" as const,
+                  },
+                  metadata: {
+                    custom: { ...(runId ? { runId } : {}), runError },
+                  },
+                };
+                clearActiveRun();
+                return;
+              }
               await delay(250, abortSignal);
               if (abortSignal.aborted) return;
               continue;
@@ -476,25 +626,59 @@ export function createAgentChatAdapter(options?: {
             // Connection lost — try to reconnect to the run
             const reconnected = yield* reconnectCurrentRun();
             if (reconnected) return;
+            const activeReconnected = yield* reconnectActiveRunForThread();
+            if (activeReconnected) return;
 
             // Reconnect failed or not possible — keep going from the partial
             // streamed content instead of surfacing a transient transport error.
             if (content.length > 0) {
-              const partialHistory = contentToContinuationHistory(content);
-              currentHistory = [
-                ...history,
-                { role: "user", content: normalizeMentions(rawMessageText) },
-                ...(partialHistory
-                  ? [{ role: "assistant" as const, content: partialHistory }]
-                  : []),
-              ];
-              currentMessageText = autoContinueMessage(
-                new AgentAutoContinueSignal({ reason: "stream_ended" }),
-              );
-              includeAttachments = false;
-              includeReferences = false;
-              clearActiveRun();
+              if (
+                !prepareAutoContinuation(
+                  new AgentAutoContinueSignal({ reason: "stream_ended" }),
+                )
+              ) {
+                const message =
+                  "The agent connection kept failing after several automatic recovery attempts.";
+                const runError = {
+                  message,
+                  errorCode: "connection_error",
+                  recoverable: true,
+                  ...(runId ? { runId } : {}),
+                };
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(
+                    new CustomEvent("agent-chat:run-error", {
+                      detail: { ...runError, tabId },
+                    }),
+                  );
+                }
+                content.push({
+                  type: "text",
+                  text: `Something went wrong: ${message}`,
+                });
+                yield {
+                  content: [...content],
+                  status: {
+                    type: "incomplete" as const,
+                    reason: "error" as const,
+                  },
+                  metadata: {
+                    custom: { ...(runId ? { runId } : {}), runError },
+                  },
+                };
+                clearActiveRun();
+                return;
+              }
               await delay(250, abortSignal);
+              if (abortSignal.aborted) return;
+              continue;
+            }
+
+            if (
+              isRetryableStartupError(errMsg) &&
+              startupRecoveryAttempts < MAX_STARTUP_RECOVERY_ATTEMPTS
+            ) {
+              await retryDelay(startupRecoveryAttempts++, abortSignal);
               if (abortSignal.aborted) return;
               continue;
             }
