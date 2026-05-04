@@ -86,7 +86,10 @@ export default function Index() {
 
     const trimmedPrompt = prompt.trim();
     const sourceForContext = truncateSourceForContext(trimmedPrompt);
-    const googleDocUrls = extractGoogleDocUrls(trimmedPrompt);
+    const hasImportedGoogleDocContext = trimmedPrompt.includes("<google-doc ");
+    const googleDocUrls = hasImportedGoogleDocContext
+      ? []
+      : extractGoogleDocUrls(trimmedPrompt);
     const fileContext =
       files.length > 0
         ? `\n\nThe user uploaded ${files.length} file(s) for context:\n${files.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
