@@ -110,6 +110,11 @@ export function sendToBuilderChat(opts: BuilderChatMessage): boolean {
 const BUILD_APP_OR_AGENT_RE =
   /\b(?:build|create|make|scaffold|generate)\b[^.!?\n]*?\b(?:agent[-\s]native\s+)?(?:workspace\s+)?(?:app|agent)\b/i;
 
+// Targets that explicitly are NOT a workspace app — keep these on the local
+// agent so dispatch / app agents handle them with their own actions.
+const NON_APP_TARGET_RE =
+  /\b(?:build|create|make|scaffold|generate)\s+(?:me\s+|us\s+)?(?:an?\s+|the\s+|a\s+new\s+|new\s+)?(?:tool|automation|recurring\s+job|job|destination|secret|skill|reminder|widget|email)\b/i;
+
 /**
  * Returns true if `text` looks like a "build me an app/agent" request that
  * should hand off to the code-writing agent (Builder, local code agent, etc.)
@@ -117,14 +122,13 @@ const BUILD_APP_OR_AGENT_RE =
  *
  * Conservative: requires both an imperative build verb AND an explicit
  * "app" / "agent" target word in the same sentence. "Build me a tool",
- * "build a recurring job", "create a destination" do not match — they don't
- * end in "app"/"agent" so they stay on the local agent. "Build me an email
- * app" / "create me an email agent" do match — the target word is "app" /
- * "agent", not "email".
+ * "build a recurring job", "create a destination" do not match — those
+ * stay on the local agent which has actions for them.
  */
 export function isBuildAppOrAgentRequest(text: string | undefined): boolean {
   const t = (text ?? "").trim();
   if (!t) return false;
+  if (NON_APP_TARGET_RE.test(t)) return false;
   return BUILD_APP_OR_AGENT_RE.test(t);
 }
 

@@ -55,6 +55,7 @@ import {
   getDbExec,
   isPostgres,
   intType,
+  isLocalDatabase,
   retryOnDdlRace,
 } from "../db/client.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
@@ -64,6 +65,7 @@ import {
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
+import { migrateLocalUserData } from "./local-migration.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
   readDesktopSso,
@@ -215,8 +217,41 @@ function getOAuthStateAppId(): string | undefined {
 const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
 // ---------------------------------------------------------------------------
-// Environment helpers
+// AUTH_MODE detection
 // ---------------------------------------------------------------------------
+
+let _warnedRemoteLocalMode = false;
+
+/**
+ * Check if the app is in local-only mode (no auth).
+ *
+ * Returns true when AUTH_MODE=local is explicitly set.
+ *
+ * Local mode is an explicit escape hatch for when you want to guarantee
+ * no auth is used. In development, getSession() also falls back to
+ * local@localhost automatically if no other auth method succeeds, so
+ * apps are always usable without configuration in dev.
+ *
+ * Refuses to enable on any non-local database (Postgres, Turso, D1): local
+ * mode uses a single shared virtual user with no per-machine scoping, so on
+ * a shared DB every developer would land on the same account and collide.
+ */
+async function isLocalModeEnabled(): Promise<boolean> {
+  if (process.env.AUTH_MODE !== "local") return false;
+
+  if (!isLocalDatabase()) {
+    if (!_warnedRemoteLocalMode) {
+      _warnedRemoteLocalMode = true;
+      console.warn(
+        "[agent-native] AUTH_MODE=local ignored: database is not local SQLite. " +
+          "local@localhost has no per-user scoping and would collide across developers on a shared DB.",
+      );
+    }
+    return false;
+  }
+
+  return true;
+}
 
 /**
  * Check if we're in a development/test environment.
@@ -473,6 +508,7 @@ export async function getSessionEmail(token: string): Promise<string | null> {
 
 let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
   null;
+let authDisabledMode = false;
 
 /**
  * Mutable config for the auth guard. Stored separately from the guard function
@@ -669,6 +705,19 @@ export async function runAuthGuard(
   return _authGuardFn(event);
 }
 
+/**
+ * The framework's dev-mode bypass identity. When `AUTH_MODE=local` (or
+ * dev-mode falls back), `getSession()` returns `{ email: DEV_MODE_USER_EMAIL }`.
+ * Production code that needs to check whether the current request is the
+ * dev-mode user (or filter it out of mailers, dashboards, etc.) should
+ * compare against this constant instead of inlining the literal —
+ * `guard-no-localhost-fallback.mjs` blocks the literal everywhere except
+ * `auth.ts` and a handful of dev-mode helpers.
+ */
+export const DEV_MODE_USER_EMAIL = "local@localhost";
+
+const LOCAL_SESSION: AuthSession = { email: DEV_MODE_USER_EMAIL };
+
 // ---------------------------------------------------------------------------
 // Auth guard factory
 // ---------------------------------------------------------------------------
@@ -839,8 +888,8 @@ function createAuthGuardFn(): (
     }
 
     // Auth entry pages are framework-owned pages, not app routes. When a user
-    // already has a session, redirect them back to the mounted app instead of
-    // letting React Router try to render /login.
+    // already has a session (including AUTH_MODE=local), redirect them back to
+    // the mounted app instead of letting React Router try to render /login.
     if (p === "/login" || p === "/signup") {
       const session = await getSession(event);
       if (session) {
@@ -887,6 +936,27 @@ function createAuthGuardFn(): (
   };
 }
 
+function handleCorsPreflight(
+  event: H3Event,
+): Response | object | string | void {
+  const cors = applyCorsHeaders(event);
+  if (getMethod(event) !== "OPTIONS") return;
+  if (cors.hasOrigin && !cors.allowed) {
+    setResponseStatus(event, 403);
+    return "";
+  }
+  setResponseStatus(event, 204);
+  return "";
+}
+
+function mountAuthCorsMiddleware(app: H3App): void {
+  const handler = defineEventHandler((event) => {
+    return handleCorsPreflight(event);
+  });
+  app.use("/_agent-native/auth", handler);
+  app.use("/_agent-native/google", handler);
+}
+
 /**
  * Map a Better Auth session to our AuthSession type.
  */
@@ -907,43 +977,30 @@ function mapBetterAuthSession(baSession: {
  * Get the current auth session for a request.
  *
  * Resolution chain:
- * 1. ACCESS_TOKEN → check legacy cookie-based token sessions
- * 2. BYOA custom getSession → delegate to template callback
- * 3. Better Auth → check session via Better Auth API (cookie or Bearer)
- * 4. Legacy cookie → check an_session cookie in legacy sessions table
- * 5. Desktop SSO broker (Electron loopback only)
- * 6. Mobile _session query param → promote to cookie
- *
- * Returns `null` for unauthenticated requests. There is no dev-mode bypass:
- * local development uses the same Better Auth signup flow as production. The
- * onboarding/sign-in page is served by `runAuthGuard` for any unauthenticated
- * page load.
+ * 1. AUTH_MODE=local → local@localhost (explicit escape hatch)
+ * 2. AUTH_DISABLED=true → local@localhost (infrastructure auth)
+ * 3. ACCESS_TOKEN → check legacy cookie-based token sessions
+ * 4. BYOA custom getSession → delegate to template callback
+ * 5. Better Auth → check session via Better Auth API (cookie or Bearer)
+ * 6. Legacy cookie → check an_session cookie in legacy sessions table
+ * 7. Mobile _session query param → promote to cookie
+ * 8. Dev-mode fallback → local@localhost (never block in development)
  */
 export async function getSession(event: H3Event): Promise<AuthSession | null> {
-  // 1. ACCESS_TOKEN check (programmatic/agent access)
-  const accessTokens = getAccessTokens();
-  if (accessTokens.length > 0) {
-    const cookie = getCookie(event, COOKIE_NAME);
-    if (cookie) {
-      const email = await getSessionEmail(cookie);
-      if (email) return { email, token: cookie };
+  // 1. AUTH_MODE=local — explicit local-only mode
+  if ((await isLocalModeEnabled()) || authDisabledMode) {
+    // Check for a real session cookie first (e.g. from Google OAuth)
+    try {
+      const cookie = getCookie(event, COOKIE_NAME);
+      if (cookie) {
+        const email = await getSessionEmail(cookie);
+        if (email) return { email, token: cookie };
+      }
+    } catch {
+      // DB not ready yet
     }
-  }
 
-  // 2. BYOA custom getSession
-  if (customGetSession) {
-    const session = await customGetSession(event);
-    if (session) return session;
-    // Desktop SSO broker: even with BYOA auth, fall back to the broker
-    // for Electron requests so cross-template SSO works for custom-auth
-    // templates too. Gated on `readDesktopSsoSafely` so a non-loopback
-    // request that spoofs `User-Agent: ... Electron/...` cannot read the
-    // home-dir broker file (and so production builds never consult it).
-    const sso = await readDesktopSsoSafely(event);
-    if (sso?.email) return { email: sso.email, token: sso.token };
-    // Fall through to mobile _session check
-  } else {
-    // 3. Better Auth session (cookie or Bearer token)
+    // Also try Better Auth session (for users who created an account then went local)
     try {
       const ba = getBetterAuthSync();
       if (ba) {
@@ -954,20 +1011,69 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
           return mapBetterAuthSession(baSession);
         }
       }
+    } catch {
+      // Better Auth not initialized yet
+    }
+
+    const querySession = await promoteQuerySession(event);
+    if (querySession) return querySession;
+
+    return LOCAL_SESSION;
+  }
+
+  // 2. ACCESS_TOKEN check (programmatic/agent access)
+  const accessTokens = getAccessTokens();
+  if (accessTokens.length > 0) {
+    const cookie = getCookie(event, COOKIE_NAME);
+    if (cookie) {
+      const email = await getSessionEmail(cookie);
+      if (email) return { email, token: cookie };
+    }
+  }
+
+  // 3. BYOA custom getSession
+  if (customGetSession) {
+    const session = await customGetSession(event);
+    if (session) return session;
+    // Desktop SSO broker: even with BYOA auth, fall back to the broker
+    // for Agent Native desktop requests so cross-template SSO works for
+    // custom-auth templates too. Gated on `readDesktopSsoSafely` so a
+    // non-loopback request that spoofs `User-Agent: ... AgentNativeDesktop/...`
+    // cannot read the home-dir broker file (and so production builds
+    // never consult it).
+    const sso = await readDesktopSsoSafely(event);
+    if (sso?.email) return { email: sso.email, token: sso.token };
+    // Fall through to mobile _session check
+  } else {
+    // 4. Better Auth session (cookie or Bearer token)
+    try {
+      const ba = getBetterAuthSync();
+      if (ba) {
+        const baSession = await ba.api.getSession({
+          headers: event.headers,
+        });
+        if (baSession?.user?.email) {
+          // Successful real sign-in — clear the upgrade-pending marker so
+          // the dev fallback becomes reachable again for future local work.
+          clearUpgradePendingCookie(event);
+          return mapBetterAuthSession(baSession);
+        }
+      }
     } catch (e) {
       console.error("[auth] ba.api.getSession error:", e);
     }
 
-    // 4. Legacy cookie fallback (for sessions created before migration)
+    // 5. Legacy cookie fallback (for sessions created before migration)
     const cookie = getCookie(event, COOKIE_NAME);
     if (cookie) {
       const email = await getSessionEmail(cookie);
       if (email) {
+        clearUpgradePendingCookie(event);
         return { email, token: cookie };
       }
     }
 
-    // 5. Desktop SSO broker fallback.
+    // 5b. Desktop SSO broker fallback.
     // Each template in the Electron desktop app has its own database, so
     // a session token created by one template doesn't resolve in another.
     // When an Electron request has no resolvable session, trust the
@@ -978,6 +1084,7 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     // impersonate whichever email last signed into the desktop app.
     const sso = await readDesktopSsoSafely(event);
     if (sso?.email) {
+      clearUpgradePendingCookie(event);
       return { email: sso.email, token: sso.token };
     }
   }
@@ -985,6 +1092,35 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   // 6. Mobile WebView bridge — _session query param
   const querySession = await promoteQuerySession(event);
   if (querySession) return querySession;
+
+  // 7. Dev-mode safety net — in development on a local SQLite database, fall
+  // back to local@localhost so the app is usable without any auth configuration.
+  // This prevents 401 errors when Better Auth isn't configured or the user
+  // simply wants to play around locally.
+  //
+  // Gated on isLocalDatabase() because local@localhost has no per-user scoping:
+  // on a shared DB (Postgres, Turso, D1) this fallback would land every
+  // developer on the same account and expose each other's data.
+  //
+  // STRICT NODE_ENV check: this used to read `isDevEnvironment()` which
+  // also accepted `NODE_ENV=test`, meaning a misconfigured prod deploy
+  // started with `NODE_ENV=test` (or undefined NODE_ENV in some CI/build
+  // contexts) would silently bypass auth entirely. Limiting to the literal
+  // string "development" closes that footgun. Tests that need this branch
+  // to fire stub NODE_ENV explicitly to "development".
+  //
+  // EXCEPTION: if the user has explicitly exited local mode (clicked "Upgrade
+  // to real account"), they've signaled they want real auth. The upgrade
+  // cookie suppresses this fallback so the onboarding/sign-in page is served
+  // instead of silently re-authenticating them as local@localhost.
+  if (
+    process.env.NODE_ENV === "development" &&
+    isLocalDatabase() &&
+    !isUpgradePending(event) &&
+    !hasSignInFlag(event)
+  ) {
+    return LOCAL_SESSION;
+  }
 
   return null;
 }
@@ -999,6 +1135,46 @@ async function promoteQuerySession(
   setFrameworkSessionCookie(event, qToken);
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
   return { email, token: qToken };
+}
+
+/**
+ * Cookie set by POST /_agent-native/auth/exit-local-mode so we know the user
+ * is in the middle of upgrading from local@localhost to a real account.
+ * While this cookie is present we skip the dev-mode "auto local session"
+ * fallback so the onboarding/sign-in page can actually render.
+ * Cleared on successful sign-in/sign-up.
+ */
+const UPGRADE_COOKIE = "an_upgrade_pending";
+
+function isUpgradePending(event: H3Event): boolean {
+  try {
+    return getCookie(event, UPGRADE_COOKIE) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function setUpgradePendingCookie(event: H3Event): void {
+  setCookie(event, UPGRADE_COOKIE, "1", {
+    httpOnly: true,
+    ...crossSiteCookieAttrs(event),
+    path: "/",
+    maxAge: 60 * 60, // 1 hour — enough to complete sign-in
+  });
+}
+
+/**
+ * URL-flag fallback for third-party iframe contexts (e.g. the Builder.io
+ * editor) where SameSite=Lax cookies from an exit-local-mode POST are not
+ * delivered on the subsequent reload. TeamPage reloads with ?signin=1 so
+ * we can reliably suppress the dev-mode local fallback without a cookie.
+ */
+function hasSignInFlag(event: H3Event): boolean {
+  try {
+    return getQuery(event)?.signin === "1";
+  } catch {
+    return false;
+  }
 }
 
 function isReadMethod(event: H3Event): boolean {
@@ -1054,6 +1230,14 @@ function isHttpsRequest(event: H3Event): boolean {
     // ignore
   }
   return false;
+}
+
+function clearUpgradePendingCookie(event: H3Event): void {
+  try {
+    deleteCookie(event, UPGRADE_COOKIE, { path: "/" });
+  } catch {
+    // ignore
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1170,6 +1354,62 @@ const TOKEN_LOGIN_HTML = `<!DOCTYPE html>
 </script>
 </body>
 </html>`;
+
+// ---------------------------------------------------------------------------
+// Local mode route helpers
+// ---------------------------------------------------------------------------
+
+function localModeMarkerDisabled(event: H3Event): { error: string } {
+  setResponseStatus(event, 410);
+  return {
+    error:
+      "The local-mode marker file has been removed. Set AUTH_MODE=local in your local shell or .env only for one-off local development.",
+  };
+}
+
+function exitLocalMode(event: H3Event): { ok: true } {
+  // Mark the browser so getSession's dev-mode fallback won't silently
+  // re-authenticate the user as local@localhost on the next request.
+  setUpgradePendingCookie(event);
+  return { ok: true };
+}
+
+/**
+ * POST /_agent-native/auth/migrate-local-data handler. Exposed here (not
+ * inlined in a single mount function) because it must be registered from
+ * every auth-mount path — including local-mode and fallback — so the
+ * upgrade-from-local flow never 500s when BetterAuth init is skipped or
+ * failed. Previously this was only mounted inside mountBetterAuthRoutes()
+ * which meant that in local mode (or when BetterAuth failed to init) the
+ * request fell through to the Nitro SSR renderer and produced a 500.
+ */
+const migrateLocalDataHandler = defineEventHandler(async (event) => {
+  if (getMethod(event) !== "POST") {
+    setResponseStatus(event, 405);
+    return { error: "Method not allowed" };
+  }
+  const session = await getSession(event);
+  if (!session?.email || session.email === "local@localhost") {
+    setResponseStatus(event, 401);
+    return { error: "Not authenticated as a real account" };
+  }
+  try {
+    const result = await migrateLocalUserData(session.email);
+    return { ok: true, ...result };
+  } catch (e: any) {
+    console.error("[migrate-local-data] Migration threw for", session.email, e);
+    setResponseStatus(event, 500);
+    return {
+      error: e?.message || "Migration failed",
+      // Only surface the stack when explicitly enabled. `isDevEnvironment()`
+      // returns true on preview deploys and Lambda contexts that forget
+      // NODE_ENV=production, which leaked stack traces to clients. Use
+      // AGENT_NATIVE_DEBUG_ERRORS=1 for opt-in debug visibility.
+      stack:
+        process.env.AGENT_NATIVE_DEBUG_ERRORS === "1" ? e?.stack : undefined,
+    };
+  }
+});
 
 // ---------------------------------------------------------------------------
 // mountBetterAuthRoutes — Better Auth powered auth with backward-compat routes
@@ -1592,6 +1832,31 @@ async function mountBetterAuthRoutes(
     }),
   );
 
+  // POST /_agent-native/auth/local-mode — legacy endpoint kept so old clients
+  // receive an explicit error instead of creating a persistent local marker.
+  app.use(
+    "/_agent-native/auth/local-mode",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      return localModeMarkerDisabled(event);
+    }),
+  );
+
+  // POST /_agent-native/auth/exit-local-mode — switch back to real auth
+  app.use(
+    "/_agent-native/auth/exit-local-mode",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      return exitLocalMode(event);
+    }),
+  );
+
   // Backward-compat: POST /_agent-native/auth/login
   app.use(
     "/_agent-native/auth/login",
@@ -1809,6 +2074,11 @@ async function mountBetterAuthRoutes(
     }),
   );
 
+  // POST /_agent-native/auth/migrate-local-data — move local-mode data to
+  // the currently signed-in account. Called by the UI after a user upgrades
+  // from local mode to a real account so they don't lose their data.
+  app.use("/_agent-native/auth/migrate-local-data", migrateLocalDataHandler);
+
   // GET /_agent-native/auth/reset — HTML page shown when a user clicks the
   // reset link in their email. Reads ?token=... and POSTs to Better Auth's
   // /reset-password endpoint on submit.
@@ -1899,11 +2169,51 @@ function mountTokenOnlyRoutes(
       return session ?? { error: "Not authenticated" };
     }),
   );
+  app.use("/_agent-native/auth/migrate-local-data", migrateLocalDataHandler);
 
   _authGuardConfig = { loginHtml: TOKEN_LOGIN_HTML, publicPaths };
   const guardFn = createAuthGuardFn();
   _authGuardFn = guardFn;
   app.use(defineEventHandler(guardFn));
+}
+
+// ---------------------------------------------------------------------------
+// mountLocalModeRoutes — stub routes for AUTH_MODE=local
+// ---------------------------------------------------------------------------
+
+function mountLocalModeRoutes(app: H3App): void {
+  app.use(
+    "/_agent-native/auth/session",
+    defineEventHandler(async (event) => {
+      if (!isReadMethod(event)) {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      return await getSession(event);
+    }),
+  );
+  app.use(
+    "/_agent-native/auth/login",
+    defineEventHandler(() => ({ ok: true })),
+  );
+  app.use(
+    "/_agent-native/auth/logout",
+    defineEventHandler(() => ({ ok: true })),
+  );
+  // Allow exiting local mode to switch to real auth
+  app.use(
+    "/_agent-native/auth/exit-local-mode",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      return exitLocalMode(event);
+    }),
+  );
+  // Upgrade path: migrate-local-data must be reachable from local mode
+  // because the user is still in local mode when they trigger the upgrade.
+  app.use("/_agent-native/auth/migrate-local-data", migrateLocalDataHandler);
 }
 
 // ---------------------------------------------------------------------------
@@ -2017,6 +2327,28 @@ function mountAuthFallbackRoutes(app: H3App): void {
   );
 
   app.use(
+    "/_agent-native/auth/local-mode",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      return localModeMarkerDisabled(event);
+    }),
+  );
+
+  app.use(
+    "/_agent-native/auth/exit-local-mode",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      return exitLocalMode(event);
+    }),
+  );
+
+  app.use(
     "/_agent-native/auth/session",
     defineEventHandler(async (event) => {
       if (!isReadMethod(event)) {
@@ -2027,6 +2359,11 @@ function mountAuthFallbackRoutes(app: H3App): void {
       return session ?? { error: "Not authenticated" };
     }),
   );
+
+  // Must be reachable from fallback mode too — otherwise a user who
+  // upgrades-from-local on a server that couldn't init Better Auth gets a
+  // 500 instead of a clear 401.
+  app.use("/_agent-native/auth/migrate-local-data", migrateLocalDataHandler);
 }
 
 // ---------------------------------------------------------------------------
@@ -2036,15 +2373,13 @@ function mountAuthFallbackRoutes(app: H3App): void {
 /**
  * Automatically configure auth based on environment and configuration:
  *
+ * - **AUTH_MODE=local**: Auth bypassed. `getSession()` returns `{ email: "local@localhost" }`.
+ *   This is the explicit escape hatch for solo local development.
  * - **BYOA (custom getSession)**: Template-provided auth callback handles everything.
+ * - **AUTH_DISABLED=true**: Auth bypassed (for infrastructure-level auth like Cloudflare Access).
  * - **ACCESS_TOKEN/ACCESS_TOKENS**: Simple token-based auth.
  * - **Default**: Better Auth with email/password, social providers, organizations, and JWT.
  *   Users see an onboarding page to create an account on first visit.
- *
- * Local development uses the same Better Auth flow as production. Email
- * verification is automatically skipped in dev/test environments and when
- * no email provider is configured (see `shouldSkipEmailVerification`), so a
- * fresh local clone only needs an email + password to get started.
  *
  * Returns true if auth was mounted, false if skipped.
  */
@@ -2098,7 +2433,8 @@ export async function autoMountAuth(
   _mountedApp = app;
 
   if (!app) {
-    if (isDevEnvironment()) {
+    if ((await isLocalModeEnabled()) || isDevEnvironment()) {
+      authDisabledMode = false;
       customGetSession = null;
       return false;
     }
@@ -2109,11 +2445,37 @@ export async function autoMountAuth(
 
   // Reset globals
   customGetSession = null;
+  authDisabledMode = false;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
   const publicPaths = options.publicPaths ?? [];
 
+  // Auth endpoints are called from the Tauri desktop WebView
+  // (`tauri://localhost`) as cross-origin credentialed requests. Mount this
+  // before the concrete auth routes so preflights short-circuit cleanly and
+  // non-preflight responses carry the Access-Control-Allow-* headers even
+  // when route-specific handlers return before the global auth guard runs.
+  mountAuthCorsMiddleware(app);
+
   if (options.getSession) {
     customGetSession = options.getSession;
+  }
+
+  // AUTH_MODE=local — explicit local-only mode (escape hatch)
+  if (await isLocalModeEnabled()) {
+    try {
+      // Mount the standard auth endpoints and guard even in local mode so the
+      // app can switch back to real auth immediately after AUTH_MODE is
+      // cleared, without waiting for a server restart/remount.
+      await mountBetterAuthRoutes(app, options);
+    } catch (err) {
+      console.error(
+        "[agent-native] Failed to initialize Better Auth in local mode:",
+        err,
+      );
+      mountLocalModeRoutes(app);
+    }
+    console.log("[agent-native] Auth mode: local (upgrade path enabled).");
+    return false;
   }
 
   // BYOA — custom getSession provider
@@ -2143,6 +2505,7 @@ export async function autoMountAuth(
         return { ok: true };
       }),
     );
+    app.use("/_agent-native/auth/migrate-local-data", migrateLocalDataHandler);
 
     const byoaLoginHtml = options.loginHtml ?? TOKEN_LOGIN_HTML;
     _authGuardConfig = { loginHtml: byoaLoginHtml, publicPaths };
@@ -2153,6 +2516,17 @@ export async function autoMountAuth(
     if (process.env.DEBUG)
       console.log("[agent-native] Auth enabled — custom getSession provider.");
     return true;
+  }
+
+  // AUTH_DISABLED — skip auth (infrastructure-level auth)
+  if (process.env.AUTH_DISABLED === "true") {
+    authDisabledMode = true;
+    console.warn(
+      "[agent-native] AUTH_DISABLED=true — running without auth. " +
+        "Ensure this app is behind infrastructure-level auth (Cloudflare Access, VPN, etc.).",
+    );
+    mountLocalModeRoutes(app);
+    return false;
   }
 
   // ACCESS_TOKEN-only mode

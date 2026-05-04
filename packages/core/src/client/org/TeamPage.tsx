@@ -8,6 +8,7 @@ import {
   IconLoader2,
   IconMail,
   IconCheck,
+  IconLogin,
   IconPencil,
   IconAt,
   IconX,
@@ -18,7 +19,8 @@ import {
   IconEyeOff,
   IconCloudUpload,
 } from "@tabler/icons-react";
-import { agentNativePath } from "../api-path.js";
+import { agentNativePath, appBasePath } from "../api-path.js";
+import { DEV_MODE_USER_EMAIL } from "../dev-mode.js";
 import {
   useOrg,
   useOrgMembers,
@@ -799,6 +801,251 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
   );
 }
 
+const MIGRATE_FLAG_KEY = "an_migrate_from_local";
+
+function LocalModeSignInCard() {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function upgradeToAccount() {
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      // Remember that we want to migrate data once the user completes sign-in.
+      try {
+        localStorage.setItem(MIGRATE_FLAG_KEY, "1");
+      } catch {
+        // localStorage may be unavailable (private mode) — migration just
+        // won't auto-run. The user can still sign in.
+      }
+      const res = await fetch(
+        agentNativePath("/_agent-native/auth/exit-local-mode"),
+        {
+          method: "POST",
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || "Failed to exit local mode");
+      }
+      // Reload with ?signin=1 → auth guard will serve the onboarding page so
+      // the user can sign in with Google or create an email/password account.
+      // The URL flag is used (rather than a cookie) because third-party iframe
+      // contexts (e.g. the Builder.io editor) block SameSite=Lax cookies, so a
+      // cookie-only signal would be lost on reload. The localStorage flag
+      // survives the reload so TeamPage can migrate data automatically once
+      // they're back.
+      const url = new URL(window.location.href);
+      url.searchParams.set("signin", "1");
+      window.location.href = url.toString();
+    } catch (e: any) {
+      setError(e?.message || "Failed to start sign-in");
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-border bg-card p-6 space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Signed in as <code>local@localhost</code>. Create an account to:
+      </p>
+      <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-1">
+        <li>Sync data across devices</li>
+        <li>Invite teammates</li>
+        <li>Keep your local data — it migrates automatically</li>
+      </ul>
+      <button
+        type="button"
+        onClick={upgradeToAccount}
+        disabled={isSubmitting}
+        className="inline-flex items-center gap-2 rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+      >
+        {isSubmitting ? (
+          <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <IconLogin className="h-3.5 w-3.5" />
+        )}
+        Sign in or create account
+      </button>
+      {error && <ErrorText error={error} />}
+    </section>
+  );
+}
+
+interface MigrationState {
+  status: "idle" | "running" | "done" | "error";
+  coreTables: Record<string, number>;
+  appKeys: string[];
+  error: string | null;
+}
+
+function MigrationStatusCard({ state }: { state: MigrationState }) {
+  if (state.status === "idle") return null;
+
+  const movedCore = Object.entries(state.coreTables);
+
+  return (
+    <section className="rounded-lg border border-border bg-card p-6 space-y-3">
+      <div className="flex items-center gap-2">
+        {state.status === "running" ? (
+          <IconLoader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        ) : state.status === "done" ? (
+          <IconCheck className="h-4 w-4 text-green-500" />
+        ) : (
+          <IconTrash className="h-4 w-4 text-red-500" />
+        )}
+        <h3 className="text-sm font-medium">
+          {state.status === "running"
+            ? "Migrating your local workspace"
+            : state.status === "done"
+              ? "Local workspace migrated"
+              : "Migration incomplete"}
+        </h3>
+      </div>
+
+      {state.status === "running" && (
+        <p className="text-sm text-muted-foreground">
+          Moving your local SQL data onto this real account. Keep this page open
+          while the upgrade finishes.
+        </p>
+      )}
+
+      {state.status === "done" && (
+        <>
+          <p className="text-sm text-muted-foreground">
+            Your local workspace has been attached to this account.
+          </p>
+          {(movedCore.length > 0 || state.appKeys.length > 0) && (
+            <div className="rounded-md border border-border p-3 text-xs text-muted-foreground space-y-1">
+              {movedCore.map(([table, count]) => (
+                <div key={table}>
+                  {table}: {count} row{count === 1 ? "" : "s"}
+                </div>
+              ))}
+              {state.appKeys.length > 0 && (
+                <div>
+                  app settings: {state.appKeys.length} key
+                  {state.appKeys.length === 1 ? "" : "s"}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {state.status === "error" && (
+        <p className="text-sm text-red-500">
+          {state.error || "We signed you in, but moving local data failed."}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * After the user finishes signing in on the onboarding page and lands back on
+ * the Team page, pull across any data that was previously scoped to
+ * `local@localhost`. Triggered by a localStorage flag set from
+ * `LocalModeSignInCard` so we only migrate when the user explicitly opted in.
+ */
+function useMigrateLocalDataOnSignIn(
+  email: string | undefined,
+): MigrationState {
+  const [state, setState] = useState<MigrationState>({
+    status: "idle",
+    coreTables: {},
+    appKeys: [],
+    error: null,
+  });
+
+  useEffect(() => {
+    if (!email || email === DEV_MODE_USER_EMAIL) return;
+    let flag: string | null = null;
+    try {
+      flag = localStorage.getItem(MIGRATE_FLAG_KEY);
+    } catch {
+      return;
+    }
+    if (!flag) return;
+    // Clear the flag immediately so a failed request doesn't loop.
+    try {
+      localStorage.removeItem(MIGRATE_FLAG_KEY);
+    } catch {
+      // ignore
+    }
+    let cancelled = false;
+
+    (async () => {
+      setState({
+        status: "running",
+        coreTables: {},
+        appKeys: [],
+        error: null,
+      });
+
+      try {
+        const coreRes = await fetch(
+          agentNativePath("/_agent-native/auth/migrate-local-data"),
+          {
+            method: "POST",
+            credentials: "include",
+          },
+        );
+        const coreBody = await coreRes.json().catch(() => ({}));
+        if (!coreRes.ok) {
+          throw new Error(
+            coreBody?.error || "Failed to migrate local framework data",
+          );
+        }
+
+        let appKeys: string[] = [];
+        try {
+          const appRes = await fetch(`${appBasePath()}/api/local-migration`, {
+            method: "POST",
+            credentials: "include",
+          });
+          if (appRes.ok) {
+            const appBody = await appRes.json().catch(() => ({}));
+            appKeys = Array.isArray(appBody?.keys) ? appBody.keys : [];
+          } else if (appRes.status !== 404) {
+            const appBody = await appRes.json().catch(() => ({}));
+            throw new Error(appBody?.error || "App-specific migration failed");
+          }
+        } catch (err: any) {
+          if (!/404/.test(String(err?.message ?? ""))) throw err;
+        }
+
+        if (!cancelled) {
+          setState({
+            status: "done",
+            coreTables:
+              typeof coreBody?.tables === "object" && coreBody.tables
+                ? coreBody.tables
+                : {},
+            appKeys,
+            error: null,
+          });
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setState({
+            status: "error",
+            coreTables: {},
+            appKeys: [],
+            error: err?.message || "Migration failed",
+          });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [email]);
+
+  return state;
+}
+
 /**
  * Default Team management page. Templates can route directly to this component
  * or wrap it with their own Layout via the `layout` prop.
@@ -810,6 +1057,8 @@ export function TeamPage({
   className,
 }: TeamPageProps) {
   const { data: org, isLoading } = useOrg();
+  const migration = useMigrateLocalDataOnSignIn(org?.email);
+  const isMigrating = migration.status === "running";
 
   const content = (
     <div className={`space-y-6 max-w-2xl ${className ?? ""}`}>
@@ -821,7 +1070,15 @@ export function TeamPage({
         </section>
       )}
 
-      {!isLoading && (
+      {!isLoading && org?.email === DEV_MODE_USER_EMAIL && (
+        <LocalModeSignInCard />
+      )}
+
+      {!isLoading && org?.email !== DEV_MODE_USER_EMAIL && (
+        <MigrationStatusCard state={migration} />
+      )}
+
+      {!isLoading && org?.email !== DEV_MODE_USER_EMAIL && !isMigrating && (
         <>
           <PendingInvitationsCard />
           {!org?.orgId ? (

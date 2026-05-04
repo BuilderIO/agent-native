@@ -17,6 +17,7 @@ import {
   useInviteMember,
   useAcceptInvitation,
 } from "./hooks.js";
+import { DEV_MODE_USER_EMAIL } from "../dev-mode.js";
 import { agentNativePath } from "../api-path.js";
 
 export interface OrgSwitcherProps {
@@ -97,6 +98,11 @@ export function OrgSwitcher({
 
   if (!org) {
     return reserveSpace && isLoading ? (
+      <div aria-hidden="true" className={`h-8 ${className ?? ""}`} />
+    ) : null;
+  }
+  if (org.email === DEV_MODE_USER_EMAIL) {
+    return reserveSpace ? (
       <div aria-hidden="true" className={`h-8 ${className ?? ""}`} />
     ) : null;
   }
