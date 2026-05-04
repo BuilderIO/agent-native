@@ -248,9 +248,10 @@ export async function run(
         // Mirror the response into the streaming UI so the user sees it.
         if (responseText) emitNewText(responseText);
       } catch (pollErr: any) {
-        if (pollErr instanceof A2ATaskTimeoutError) {
+        const timeoutTaskId = getA2ATaskTimeoutTaskId(pollErr);
+        if (timeoutTaskId) {
           const queued = await enqueueIntegrationContinuationIfPossible(
-            pollErr,
+            timeoutTaskId,
             agent,
             message,
             callerEmail,
@@ -320,7 +321,7 @@ export async function run(
 }
 
 async function enqueueIntegrationContinuationIfPossible(
-  error: A2ATaskTimeoutError,
+  taskId: string,
   agent: { name: string; url: string },
   message: string,
   ownerEmail: string | undefined,
@@ -345,7 +346,7 @@ async function enqueueIntegrationContinuationIfPossible(
       agentName: agent.name,
       agentUrl: agent.url,
       dedupeKey: getIntegrationContinuationDedupeKey(message),
-      a2aTaskId: error.taskId,
+      a2aTaskId: taskId,
       // Do not persist the short-lived JWT used for the initial send. The
       // continuation processor can mint a fresh token for each poll.
       a2aAuthToken: null,
@@ -361,6 +362,25 @@ async function enqueueIntegrationContinuationIfPossible(
     console.error("[call-agent] Failed to enqueue A2A continuation:", err);
     return false;
   }
+}
+
+function getA2ATaskTimeoutTaskId(err: unknown): string | null {
+  if (err instanceof A2ATaskTimeoutError) return err.taskId;
+
+  const candidate = err as
+    | { name?: unknown; taskId?: unknown; message?: unknown }
+    | null
+    | undefined;
+  const message = String(candidate?.message ?? "");
+  if (
+    candidate?.name === "A2ATaskTimeoutError" &&
+    typeof candidate.taskId === "string"
+  ) {
+    return candidate.taskId;
+  }
+
+  const match = message.match(/^A2A task ([^\s]+) did not complete\b/);
+  return match?.[1] ?? null;
 }
 
 async function formatExistingIntegrationContinuationIfRetry(
