@@ -74,7 +74,11 @@ async function fetchEmailList(
         50,
         ownerEmail,
         undefined,
-        { mode: "threads", threadFormat: "metadata" },
+        {
+          mode: "threads",
+          threadFormat: "metadata",
+          threadCandidateLimit: search ? 500 : undefined,
+        },
       );
 
       return latestPerThread(

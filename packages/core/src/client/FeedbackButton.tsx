@@ -23,10 +23,11 @@ interface ParsedTarget {
 interface FormSchema {
   formId: string;
   fieldId: string;
-  placeholder?: string;
-  submitText: string;
-  successMessage: string;
 }
+
+const DEFAULT_PLACEHOLDER = "Tell us what's on your mind…";
+const DEFAULT_SUBMIT_TEXT = "Send feedback";
+const DEFAULT_SUCCESS_MESSAGE = "Thanks for the feedback!";
 
 function parseTarget(url: string): ParsedTarget | null {
   try {
@@ -55,22 +56,14 @@ async function loadSchema(target: ParsedTarget): Promise<FormSchema> {
     if (!res.ok) throw new Error(`form fetch ${res.status}`);
     const body = (await res.json()) as {
       id: string;
-      fields: Array<{ id: string; type: string; placeholder?: string }>;
-      settings?: { submitText?: string; successMessage?: string };
+      fields: Array<{ id: string; type: string }>;
     };
     const field =
       body.fields.find((f) => f.type === "textarea") ??
       body.fields.find((f) => f.type === "text") ??
       body.fields[0];
     if (!field) throw new Error("form has no fields");
-    return {
-      formId: body.id,
-      fieldId: field.id,
-      placeholder: field.placeholder,
-      submitText: body.settings?.submitText ?? "Send feedback",
-      successMessage:
-        body.settings?.successMessage ?? "Thanks for the feedback!",
-    };
+    return { formId: body.id, fieldId: field.id };
   })();
   pending.catch(() => schemaCache.delete(key));
   schemaCache.set(key, pending);
@@ -81,15 +74,16 @@ export interface FeedbackButtonProps {
   /**
    * "sidebar" renders a full-width row with icon + label (for app left sidebars).
    * "icon" renders a small icon-only button (for dense toolbars, e.g. the agent panel header).
+   * "outlined" renders an outlined pill button with icon + label (for top-nav bars, e.g. docs).
    */
-  variant?: "sidebar" | "icon";
+  variant?: "sidebar" | "icon" | "outlined";
   label?: string;
   url?: string;
   className?: string;
   /** Which side the popover opens on. Defaults match the variant. */
   side?: "top" | "bottom" | "left" | "right";
   align?: "start" | "center" | "end";
-  /** Placeholder text for the textarea. Falls back to the form's placeholder. */
+  /** Placeholder text for the textarea. */
   placeholder?: string;
 }
 
@@ -200,8 +194,9 @@ export function FeedbackButton({
     [target, schema, value, honeypot, submitting, session?.email],
   );
 
-  const trigger =
-    variant === "icon" ? (
+  let trigger;
+  if (variant === "icon") {
+    trigger = (
       <TooltipPrimitive.Provider delayDuration={200}>
         <TooltipPrimitive.Root>
           <TooltipPrimitive.Trigger asChild>
@@ -228,7 +223,25 @@ export function FeedbackButton({
           </TooltipPrimitive.Portal>
         </TooltipPrimitive.Root>
       </TooltipPrimitive.Provider>
-    ) : (
+    );
+  } else if (variant === "outlined") {
+    trigger = (
+      <PopoverPrimitive.Trigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          className={cn(
+            "flex h-8 items-center gap-2 rounded-md border border-border bg-transparent px-3 text-sm text-muted-foreground transition hover:border-foreground/40 hover:text-foreground",
+            className,
+          )}
+        >
+          <IconMessage2 size={14} stroke={1.5} />
+          <span>{label}</span>
+        </button>
+      </PopoverPrimitive.Trigger>
+    );
+  } else {
+    trigger = (
       <PopoverPrimitive.Trigger asChild>
         <button
           type="button"
@@ -242,10 +255,10 @@ export function FeedbackButton({
         </button>
       </PopoverPrimitive.Trigger>
     );
+  }
 
-  const resolvedSide = side ?? (variant === "icon" ? "bottom" : "top");
-  const resolvedPlaceholder =
-    placeholder ?? schema?.placeholder ?? "Tell us what's on your mind…";
+  const resolvedSide = side ?? (variant === "sidebar" ? "top" : "bottom");
+  const resolvedPlaceholder = placeholder ?? DEFAULT_PLACEHOLDER;
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
@@ -265,7 +278,7 @@ export function FeedbackButton({
                 <IconCheck size={20} stroke={2.5} />
               </div>
               <div className="text-sm font-medium text-foreground">
-                {schema?.successMessage ?? "Thanks for the feedback!"}
+                {DEFAULT_SUCCESS_MESSAGE}
               </div>
             </div>
           ) : (
@@ -306,9 +319,7 @@ export function FeedbackButton({
                   disabled={submitting || !value.trim()}
                   className="inline-flex h-8 items-center justify-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                 >
-                  {submitting
-                    ? "Sending…"
-                    : (schema?.submitText ?? "Send feedback")}
+                  {submitting ? "Sending…" : DEFAULT_SUBMIT_TEXT}
                 </button>
               </div>
             </form>

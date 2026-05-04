@@ -3,8 +3,8 @@
  *
  * Returns the Google Calendar OAuth URL for the frontend to open in a
  * popup or new tab. The actual flow is handled by the Nitro routes at
- * `/api/auth/google-calendar` (initiate) and
- * `/api/auth/google-calendar/callback` (token exchange + storage).
+ * `/_agent-native/google/auth-url?calendar=1` (initiate) and
+ * `/_agent-native/google/callback` (token exchange + storage).
  *
  * Usage:
  *   pnpm action connect-calendar
@@ -43,14 +43,12 @@ export default defineAction({
       );
     }
 
-    // We construct the entry-point URL on the client side; the redirect
-    // handshake (signed state, redirect-uri allowlist) happens inside the
-    // Nitro route at /api/auth/google-calendar. Action consumers just hit
-    // that route; we return its path as a relative URL so the frontend can
-    // open it in a popup with `window.open`.
-    const params = new URLSearchParams();
+    // The route mints signed state and uses the standard framework callback
+    // path so the local Google OAuth client only needs one registered URI:
+    // http://localhost:<port>/_agent-native/google/callback.
+    const params = new URLSearchParams({ calendar: "1" });
     if (args.returnUrl) params.set("return", args.returnUrl);
-    const url = `/api/auth/google-calendar${params.toString() ? `?${params.toString()}` : ""}`;
+    const url = `/_agent-native/google/auth-url?${params.toString()}`;
 
     return {
       provider: args.provider,

@@ -30,12 +30,12 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
-use tauri::{
-    AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindowBuilder,
-};
+use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindowBuilder};
 
 use crate::dlog;
-use crate::util::{build_overlay_url, primary_monitor_physical_size, set_capture_excluded, show_without_activation};
+use crate::util::{
+    build_overlay_url, primary_monitor_physical_size, set_capture_excluded, show_without_activation,
+};
 
 const PILL_LABEL: &str = "recording-pill";
 
@@ -344,11 +344,7 @@ pub async fn recording_pill_hide(app: AppHandle) -> Result<(), String> {
 /// user drag-moves it (mouseup) so the next `show` reopens at the chosen
 /// spot.
 #[tauri::command]
-pub async fn recording_pill_save_position(
-    app: AppHandle,
-    x: i32,
-    y: i32,
-) -> Result<(), String> {
+pub async fn recording_pill_save_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
     // Persist to the right slot — detached drags shouldn't overwrite the
     // user's preferred bottom-center position and vice versa.
     if PILL_DETACHED.load(Ordering::Relaxed) {
@@ -365,10 +361,7 @@ pub async fn recording_pill_save_position(
 /// anchor; on the way OUT we resize + reposition back to the user's saved
 /// bottom-center anchor.
 #[tauri::command]
-pub async fn recording_pill_set_detached(
-    app: AppHandle,
-    detached: bool,
-) -> Result<(), String> {
+pub async fn recording_pill_set_detached(app: AppHandle, detached: bool) -> Result<(), String> {
     let prev = PILL_DETACHED.swap(detached, Ordering::SeqCst);
     if prev == detached {
         return Ok(());

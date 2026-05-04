@@ -33,6 +33,7 @@ import {
   GOOGLE_AUTH_URL,
   GOOGLE_CALENDAR_SCOPES,
 } from "../../../lib/google-calendar-client.js";
+import { CLIPS_GOOGLE_OAUTH_APP_ID } from "../../../lib/google-calendar-oauth.js";
 
 export default defineEventHandler(async (event: H3Event) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -48,12 +49,10 @@ export default defineEventHandler(async (event: H3Event) => {
 
   try {
     const q = getQuery(event);
-    // Use the framework's redirect-uri allowlist helper, defaulting to the
-    // calendar callback path. This blocks open-redirect / cross-host abuse.
-    const redirectUri = resolveOAuthRedirectUri(
-      event,
-      "/api/auth/google-calendar/callback",
-    );
+    // Use the framework-standard callback path. The local Google OAuth client
+    // is documented/configured for `/_agent-native/google/callback`; using a
+    // custom `/api/auth/...` callback causes redirect_uri_mismatch locally.
+    const redirectUri = resolveOAuthRedirectUri(event);
     if (!redirectUri) {
       setResponseStatus(event, 400);
       return {
@@ -83,8 +82,8 @@ export default defineEventHandler(async (event: H3Event) => {
       redirectUri,
       owner,
       desktop,
-      addAccount: false,
-      app: "clips-calendar",
+      addAccount: true,
+      app: CLIPS_GOOGLE_OAUTH_APP_ID,
       returnUrl,
     });
 

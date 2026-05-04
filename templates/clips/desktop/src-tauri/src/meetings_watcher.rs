@@ -77,7 +77,10 @@ pub async fn meetings_watcher_set_server_url(
     server_url: String,
 ) -> Result<(), String> {
     let trimmed = server_url.trim_end_matches('/').to_string();
-    dlog!("[clips-tray] meetings_watcher_set_server_url -> {}", trimmed);
+    dlog!(
+        "[clips-tray] meetings_watcher_set_server_url -> {}",
+        trimmed
+    );
     if let Ok(mut g) = state.inner.lock() {
         g.server_url = Some(trimmed);
     }
@@ -99,7 +102,11 @@ pub async fn meetings_watcher_set_session(
         trimmed.len()
     );
     if let Ok(mut g) = state.inner.lock() {
-        g.session_cookie = if trimmed.is_empty() { None } else { Some(trimmed) };
+        g.session_cookie = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        };
     }
     Ok(())
 }
@@ -202,7 +209,10 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
         let Ok(start) = chrono::DateTime::parse_from_rfc3339(start_str) else {
             continue;
         };
-        let secs_until = start.with_timezone(&chrono::Utc).signed_duration_since(now).num_seconds();
+        let secs_until = start
+            .with_timezone(&chrono::Utc)
+            .signed_duration_since(now)
+            .num_seconds();
         if !(0..=300).contains(&secs_until) {
             continue;
         }

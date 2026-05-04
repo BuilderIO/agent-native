@@ -115,10 +115,7 @@ pub fn system_audio_open_privacy_settings() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn system_audio_start(
-    app: AppHandle,
-    meeting_id: Option<String>,
-) -> Result<(), String> {
+pub async fn system_audio_start(app: AppHandle, meeting_id: Option<String>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         macos::system_audio_start_impl(app, meeting_id).await
@@ -318,7 +315,10 @@ mod macos {
                     let level = crate::native_speech::macos::peak_level_for_pcm(&buf);
                     let _ = self.app.emit(
                         "voice:audio-level",
-                        AudioLevelPayload { level, source: "system" },
+                        AudioLevelPayload {
+                            level,
+                            source: "system",
+                        },
                     );
                 }
             }
@@ -411,9 +411,8 @@ mod macos {
         if dest_ch_ptr.is_null() {
             return None;
         }
-        let dest_slice = unsafe {
-            std::slice::from_raw_parts_mut((*dest_ch_ptr).as_ptr(), num_samples)
-        };
+        let dest_slice =
+            unsafe { std::slice::from_raw_parts_mut((*dest_ch_ptr).as_ptr(), num_samples) };
 
         if n_buffers >= 2 {
             // Stereo non-interleaved — average the two channels.
@@ -634,7 +633,10 @@ mod macos {
                     let msg = ns_error_message(err);
                     let _ = app_for_handler.emit(
                         "voice:speech-error",
-                        ErrorPayload { error: msg, source: "system" },
+                        ErrorPayload {
+                            error: msg,
+                            source: "system",
+                        },
                     );
                     return;
                 }
@@ -650,12 +652,18 @@ mod macos {
                 if is_final {
                     let _ = app_for_handler.emit(
                         "voice:final-transcript",
-                        FinalPayload { text, source: "system" },
+                        FinalPayload {
+                            text,
+                            source: "system",
+                        },
                     );
                 } else {
                     let _ = app_for_handler.emit(
                         "voice:partial-transcript",
-                        PartialPayload { text, source: "system" },
+                        PartialPayload {
+                            text,
+                            source: "system",
+                        },
                     );
                 }
             },

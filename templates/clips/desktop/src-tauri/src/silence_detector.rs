@@ -312,7 +312,7 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
                 "us.zoom.ZoomClips",
                 "com.microsoft.teams2",
                 "com.microsoft.teams",
-                "com.google.Chrome",     // meet runs inside Chrome; weak signal
+                "com.google.Chrome", // meet runs inside Chrome; weak signal
                 "company.thebrowser.Browser", // Arc
             ];
             let mut ever_seen_front = false;
@@ -370,5 +370,9 @@ fn frontmost_bundle_id() -> Option<String> {
         return None;
     }
     let s = String::from_utf8(out.stdout).ok()?.trim().to_string();
-    if s.is_empty() { None } else { Some(s) }
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
 }

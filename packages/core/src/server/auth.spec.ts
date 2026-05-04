@@ -1149,6 +1149,53 @@ describe("server/auth", () => {
       expect(html).not.toContain("agentnative://oauth-complete");
       expect(html).toContain("return to Mail");
     });
+
+    it("uses a deep link for the no-flowId desktop login when UA marks AgentNativeDesktop", async () => {
+      const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 ... Electron/41.2.2 AgentNativeDesktop/0.1.7",
+        },
+        query: { state: "state-1" },
+      });
+      const response = await Promise.resolve(
+        oauthCallbackResponse(event, "steve@example.com", {
+          desktop: true,
+          sessionToken: "token-1",
+        }),
+      );
+      expect(response).toBeInstanceOf(Response);
+      const html = await (response as Response).text();
+      expect(html).toContain("agentnative://oauth-complete");
+      expect(html).toContain("token=token-1");
+    });
+
+    it("falls through to the web 302 when desktop=true but UA isn't AgentNativeDesktop (no flowId)", async () => {
+      const { oauthCallbackResponse } = await import("./google-oauth.js");
+      // Reproduces the Builder.io Fusion webview hitting the no-flowId
+      // desktop login path with `desktop=true` in OAuth state but a generic
+      // Electron UA. Pre-fix this rendered the dead-end "Open Agent Native"
+      // deep-link page; now the server should fall through to a 302 redirect.
+      const event = createMockEvent({
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 ... Chrome/138.0 Electron/41.2.2 Safari/537.36",
+        },
+        query: { state: "state-1" },
+      });
+      const response = await Promise.resolve(
+        oauthCallbackResponse(event, "steve@example.com", {
+          desktop: true,
+          sessionToken: "token-1",
+          returnUrl: "/dashboard",
+        }),
+      );
+      // Web flow returns a string body (h3 sets Location via setResponseHeader).
+      expect(typeof response === "string" || response === "").toBe(true);
+      expect(event.res.status).toBe(302);
+      expect(event.res.headers.get("Location")).toBe("/dashboard");
+    });
   });
 
   describe("getAppUrl", () => {

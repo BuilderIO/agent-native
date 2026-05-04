@@ -3,7 +3,7 @@ import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 
 export function Sidebar() {
   return (
-    <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
+    <aside className="hidden md:flex w-64 min-w-0 shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground">
       <div className="border-b px-4 py-3">
         <div className="flex items-center gap-2">
           <img

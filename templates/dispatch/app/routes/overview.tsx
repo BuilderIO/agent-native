@@ -2,12 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
   PromptComposer,
+  isInBuilderFrame,
   sendToAgentChat,
+  sendToBuilderChat,
   useActionQuery,
   useChatModels,
   agentNativePath,
 } from "@agent-native/core/client";
 import {
+  IconActivity,
   IconAlertTriangle,
   IconApps,
   IconArrowUpRight,
@@ -21,6 +24,7 @@ import {
   IconShieldCheck,
   type IconProps,
 } from "@tabler/icons-react";
+import { AppKeysPopover } from "@/components/app-keys-popover";
 import { CreateAppPopover } from "@/components/create-app-popover";
 import { DispatchShell } from "@/components/dispatch-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -83,16 +87,8 @@ function workspaceAppHref(app: WorkspaceAppSummary): string | null {
   return app.url || app.path || null;
 }
 
-function isExternalHref(href: string): boolean {
-  if (!/^https?:\/\//i.test(href)) return false;
-  if (typeof window === "undefined") return true;
-  try {
-    return (
-      new URL(href, window.location.href).origin !== window.location.origin
-    );
-  } catch {
-    return true;
-  }
+function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
+  return app.status === "pending" && !!app.builderUrl;
 }
 
 const HOME_CHAT_SUGGESTIONS = [
@@ -105,6 +101,14 @@ function HomeChatPanel() {
   const { selectedModel } = useChatModels();
 
   const send = (message: string) => {
+    // When mounted inside builder.io's webview, the parent frame is the
+    // code-writing agent. Route home-chat submissions up to Builder's chat
+    // instead of the local dispatch agent — the local sidebar is in this
+    // same iframe and would never receive a postMessage we send to parent.
+    if (isInBuilderFrame()) {
+      sendToBuilderChat({ message, submit: true });
+      return;
+    }
     sendToAgentChat({
       message,
       submit: true,
@@ -197,13 +201,18 @@ function WorkspaceAppsSection({
             ))
           : visibleApps.map((app) => {
               const href = workspaceAppHref(app);
-              const external = href ? isExternalHref(href) : false;
+              // Pending Builder branches live on a different host (Builder
+              // editor URL); open those in a new tab. Ready workspace apps
+              // navigate the current window so this works inside the
+              // Builder webview, where new tabs would try to open in the
+              // host browser and break the embedded session.
+              const openInNewTab = isPendingBuilderHref(app);
               return (
                 <a
                   key={app.id}
                   href={href ?? undefined}
-                  target={external ? "_blank" : undefined}
-                  rel={external ? "noreferrer" : undefined}
+                  target={openInNewTab ? "_blank" : undefined}
+                  rel={openInNewTab ? "noreferrer" : undefined}
                   aria-disabled={!href}
                   className="group min-h-32 rounded-lg border bg-card p-4 transition hover:border-foreground/30 aria-disabled:pointer-events-none aria-disabled:opacity-60"
                 >
@@ -237,10 +246,15 @@ function WorkspaceAppsSection({
                         </p>
                       ) : null}
                     </div>
-                    <IconArrowUpRight
-                      size={16}
-                      className="shrink-0 text-muted-foreground transition group-hover:text-foreground"
-                    />
+                    <div className="flex shrink-0 items-center gap-1">
+                      {app.status === "ready" ? (
+                        <AppKeysPopover appId={app.id} appName={app.name} />
+                      ) : null}
+                      <IconArrowUpRight
+                        size={16}
+                        className="text-muted-foreground transition group-hover:text-foreground"
+                      />
+                    </div>
                   </div>
                 </a>
               );
@@ -633,53 +647,59 @@ export default function OverviewRoute() {
         </section>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="Vault secrets"
-          help="Credentials stored in the workspace vault. Grant them to apps from the Vault page."
-          value={data?.vault?.secretCount || 0}
-          icon={IconKey}
-          cta={
-            (data?.vault?.secretCount || 0) === 0 ? (
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/vault">Set up vault</Link>
-              </Button>
-            ) : undefined
-          }
-        />
-        <StatCard
-          label="Active grants"
-          help="Secrets currently granted to apps. Sync them to push credentials."
-          value={data?.vault?.activeGrantCount || 0}
-          icon={IconShieldCheck}
-        />
-        <StatCard
-          label="Destinations"
-          help="Saved outbound targets used for proactive sends and scheduled jobs."
-          value={counts.destinations}
-          icon={IconArrowUpRight}
-          cta={
-            counts.destinations === 0 ? (
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/destinations">Set up destinations</Link>
-              </Button>
-            ) : undefined
-          }
-        />
-        <StatCard
-          label="Agents"
-          help="Agents available to dispatch for delegation over A2A. This includes the built-in app suite plus any additional agents you add."
-          value={connectedAgentCount}
-          icon={IconPlugConnected}
-          cta={
-            connectedAgentCount === 0 ? (
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/agents">Open agents</Link>
-              </Button>
-            ) : undefined
-          }
-        />
-      </div>
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <IconActivity size={16} className="text-muted-foreground" />
+          <h2 className="text-sm font-semibold text-foreground">At a glance</h2>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <StatCard
+            label="Vault secrets"
+            help="Credentials stored in the workspace vault. Grant them to apps from the Vault page."
+            value={data?.vault?.secretCount || 0}
+            icon={IconKey}
+            cta={
+              (data?.vault?.secretCount || 0) === 0 ? (
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/vault">Set up vault</Link>
+                </Button>
+              ) : undefined
+            }
+          />
+          <StatCard
+            label="Active grants"
+            help="Secrets currently granted to apps. Sync them to push credentials."
+            value={data?.vault?.activeGrantCount || 0}
+            icon={IconShieldCheck}
+          />
+          <StatCard
+            label="Destinations"
+            help="Saved outbound targets used for proactive sends and scheduled jobs."
+            value={counts.destinations}
+            icon={IconArrowUpRight}
+            cta={
+              counts.destinations === 0 ? (
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/destinations">Set up destinations</Link>
+                </Button>
+              ) : undefined
+            }
+          />
+          <StatCard
+            label="Agents"
+            help="Agents available to dispatch for delegation over A2A. This includes the built-in app suite plus any additional agents you add."
+            value={connectedAgentCount}
+            icon={IconPlugConnected}
+            cta={
+              connectedAgentCount === 0 ? (
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/agents">Open agents</Link>
+                </Button>
+              ) : undefined
+            }
+          />
+        </div>
+      </section>
 
       <details className="rounded-xl border">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold text-foreground hover:bg-muted/30 [&::-webkit-details-marker]:hidden">

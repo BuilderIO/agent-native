@@ -22,6 +22,7 @@ import {
   hasOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import { isOAuthConnected, getOAuthAccounts } from "@agent-native/core/server";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -484,11 +485,130 @@ type ListOptions = {
    */
   mode?: ListMode;
   threadFormat?: "full" | "metadata" | "minimal";
+  /**
+   * Search result order from threads.list is not enough to mimic Gmail's UI:
+   * an old thread can match because its first message has the search term,
+   * while the thread itself was modified recently. Listing a wider candidate
+   * window is cheap (thread IDs only); we then hydrate the most recently
+   * modified candidates.
+   */
+  threadCandidateLimit?: number;
 };
 
 const LIST_CACHE_TTL = 20_000;
 const listCache = new Map<string, { result: ListResult; expiresAt: number }>();
 const listInflight = new Map<string, Promise<ListResult>>();
+const THREAD_CANDIDATE_PAGE_TTL = 5 * 60 * 1000;
+const THREAD_CANDIDATE_PAGE_MAX = 25;
+const THREAD_CANDIDATE_PAGE_PREFIX = "__an_thread_candidates__:";
+const THREAD_CANDIDATE_PAGE_SETTING = "mail-thread-candidate-pages";
+
+type ThreadCandidatePageEntry = {
+  email: string;
+  ids: string[];
+  nextPageToken?: string;
+  expiresAt: number;
+  updatedAt: number;
+};
+
+type ThreadCandidatePageStore = {
+  pages?: Record<string, ThreadCandidatePageEntry>;
+};
+
+function pruneThreadCandidatePages(
+  pages: Record<string, ThreadCandidatePageEntry>,
+): Record<string, ThreadCandidatePageEntry> {
+  const now = Date.now();
+  const live = Object.fromEntries(
+    Object.entries(pages).filter(([, entry]) => entry.expiresAt > now),
+  );
+  const entries = Object.entries(live).sort(
+    (a, b) => b[1].updatedAt - a[1].updatedAt,
+  );
+  return Object.fromEntries(entries.slice(0, THREAD_CANDIDATE_PAGE_MAX));
+}
+
+async function readThreadCandidatePageStore(
+  ownerEmail: string,
+): Promise<Record<string, ThreadCandidatePageEntry>> {
+  const stored = (await getUserSetting(
+    ownerEmail,
+    THREAD_CANDIDATE_PAGE_SETTING,
+  )) as ThreadCandidatePageStore | null;
+  return pruneThreadCandidatePages(stored?.pages ?? {});
+}
+
+async function writeThreadCandidatePageStore(
+  ownerEmail: string,
+  pages: Record<string, ThreadCandidatePageEntry>,
+): Promise<void> {
+  await putUserSetting(ownerEmail, THREAD_CANDIDATE_PAGE_SETTING, {
+    pages: pruneThreadCandidatePages(pages),
+  });
+}
+
+async function getStoredThreadCandidatePage(
+  ownerEmail: string,
+  key: string,
+): Promise<ThreadCandidatePageEntry | null> {
+  const pages = await readThreadCandidatePageStore(ownerEmail);
+  const page = pages[key];
+  if (!page) {
+    await writeThreadCandidatePageStore(ownerEmail, pages);
+    return null;
+  }
+  page.updatedAt = Date.now();
+  pages[key] = page;
+  await writeThreadCandidatePageStore(ownerEmail, pages);
+  return page;
+}
+
+async function deleteStoredThreadCandidatePage(
+  ownerEmail: string,
+  key: string,
+): Promise<void> {
+  const pages = await readThreadCandidatePageStore(ownerEmail);
+  if (pages[key]) {
+    delete pages[key];
+    await writeThreadCandidatePageStore(ownerEmail, pages);
+  }
+}
+
+function makeThreadCandidatePageToken(key: string, offset: number): string {
+  return `${THREAD_CANDIDATE_PAGE_PREFIX}${key}:${offset}`;
+}
+
+function parseThreadCandidatePageToken(
+  pageToken: string | undefined,
+): { key: string; offset: number } | null {
+  if (!pageToken?.startsWith(THREAD_CANDIDATE_PAGE_PREFIX)) return null;
+  const rest = pageToken.slice(THREAD_CANDIDATE_PAGE_PREFIX.length);
+  const idx = rest.lastIndexOf(":");
+  if (idx <= 0) return null;
+  const key = rest.slice(0, idx);
+  const offset = Number(rest.slice(idx + 1));
+  if (!Number.isFinite(offset) || offset < 0) return null;
+  return { key, offset };
+}
+
+async function storeThreadCandidatePage(
+  ownerEmail: string,
+  email: string,
+  ids: string[],
+  nextPageToken: string | undefined,
+): Promise<string> {
+  const pages = await readThreadCandidatePageStore(ownerEmail);
+  const key = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  pages[key] = {
+    email,
+    ids,
+    nextPageToken,
+    expiresAt: Date.now() + THREAD_CANDIDATE_PAGE_TTL,
+    updatedAt: Date.now(),
+  };
+  await writeThreadCandidatePageStore(ownerEmail, pages);
+  return key;
+}
 
 function listCacheKey(
   query: string | undefined,
@@ -504,7 +624,7 @@ function listCacheKey(
         .join("|")
     : "";
   const queryPart = query === undefined ? "<default>" : query;
-  return `${forEmail ?? ""}::${queryPart}::${maxResults}::${tokenPart}::${options?.mode ?? "messages"}::${options?.threadFormat ?? ""}`;
+  return `${forEmail ?? ""}::${queryPart}::${maxResults}::${tokenPart}::${options?.mode ?? "messages"}::${options?.threadFormat ?? ""}::${options?.threadCandidateLimit ?? ""}`;
 }
 
 export async function listGmailMessages(
@@ -1031,24 +1151,105 @@ async function fetchAccountLegacy(
 
 async function fetchAccountThreads(
   accessToken: string,
+  ownerEmail: string | undefined,
   email: string,
   query: string,
   maxResults: number,
   pageToken: string | undefined,
   format: "full" | "metadata" | "minimal",
+  candidateLimit: number | undefined,
   onNextPageToken: (token: string) => void,
   onEstimate: (n: number) => void,
 ): Promise<any[]> {
+  const candidateStoreOwner = ownerEmail ?? email;
+  const cachedCandidatePage = parseThreadCandidatePageToken(pageToken);
+  if (cachedCandidatePage) {
+    const cached = await getStoredThreadCandidatePage(
+      candidateStoreOwner,
+      cachedCandidatePage.key,
+    );
+    if (cached && cached.email === email && cached.expiresAt > Date.now()) {
+      const nextOffset = cachedCandidatePage.offset + maxResults;
+      const threadIds = cached.ids.slice(
+        cachedCandidatePage.offset,
+        nextOffset,
+      );
+      if (nextOffset < cached.ids.length) {
+        onNextPageToken(
+          makeThreadCandidatePageToken(cachedCandidatePage.key, nextOffset),
+        );
+      } else if (cached.nextPageToken) {
+        onNextPageToken(cached.nextPageToken);
+      }
+      return fetchThreadMessagesForIds(accessToken, email, threadIds, format);
+    }
+    // Cache miss — the synthetic token was minted on a different process or
+    // the entry was evicted. Returning [] would silently end pagination.
+    // Fall through to a fresh first-page fetch instead so the user sees real
+    // results; we drop the historyId-sorted candidate window since we no
+    // longer have its bounds. Worst case: page 2 onwards repeats some of
+    // page 1, which is far better than a blank list on a serverless cold
+    // container.
+    await deleteStoredThreadCandidatePage(
+      candidateStoreOwner,
+      cachedCandidatePage.key,
+    );
+    pageToken = undefined;
+    candidateLimit = undefined;
+  }
+
+  const useCandidateWindow =
+    !pageToken && candidateLimit && candidateLimit > maxResults;
+  const listMaxResults =
+    useCandidateWindow && candidateLimit
+      ? Math.min(Math.max(candidateLimit, maxResults), 500)
+      : maxResults;
   const listRes = await gmailListThreads(accessToken, {
     q: query,
-    maxResults,
+    maxResults: listMaxResults,
     pageToken,
   });
 
   onEstimate(listRes.resultSizeEstimate || 0);
-  if (listRes.nextPageToken) onNextPageToken(listRes.nextPageToken);
 
-  const threadIds = (listRes.threads || []).map((t: any) => t.id);
+  const threadStubs = listRes.threads || [];
+  if (useCandidateWindow && threadStubs.some((t: any) => t.historyId)) {
+    threadStubs.sort((a: any, b: any) => {
+      try {
+        const ah = BigInt(a.historyId || 0);
+        const bh = BigInt(b.historyId || 0);
+        return ah === bh ? 0 : ah > bh ? -1 : 1;
+      } catch {
+        return Number(b.historyId || 0) - Number(a.historyId || 0);
+      }
+    });
+  }
+
+  const candidateIds = threadStubs.map((t: any) => t.id).filter(Boolean);
+  const threadIds = candidateIds.slice(0, maxResults);
+  if (threadIds.length === 0) return [];
+
+  if (useCandidateWindow && candidateIds.length > maxResults) {
+    const key = await storeThreadCandidatePage(
+      candidateStoreOwner,
+      email,
+      candidateIds,
+      listRes.nextPageToken,
+    );
+    onNextPageToken(makeThreadCandidatePageToken(key, maxResults));
+  } else if (listRes.nextPageToken) {
+    onNextPageToken(listRes.nextPageToken);
+  }
+
+  return fetchThreadMessagesForIds(accessToken, email, threadIds, format);
+}
+
+async function fetchThreadMessagesForIds(
+  accessToken: string,
+  email: string,
+  threadIds: string[],
+  format: "full" | "metadata" | "minimal",
+): Promise<any[]> {
   if (threadIds.length === 0) return [];
 
   const batchResults = await gmailBatchGetThreads(
@@ -1128,11 +1329,13 @@ async function listGmailMessagesUncached(
         if (mode === "threads") {
           return await fetchAccountThreads(
             accessToken,
+            forEmail,
             email,
             resolvedQuery,
             maxResults,
             pageTokens?.[email],
             threadFormat,
+            options?.threadCandidateLimit,
             (token) => {
               nextPageTokens[email] = token;
             },

@@ -359,7 +359,11 @@ pub(crate) mod macos {
     ) -> Result<(), String> {
         let contextual_strings: Option<Vec<String>> = {
             let v = take_pending_vocabulary();
-            if v.is_empty() { None } else { Some(v) }
+            if v.is_empty() {
+                None
+            } else {
+                Some(v)
+            }
         };
         // Cancel any prior session first — there's only one mic tap per input
         // node, and we want a deterministic state going in.
@@ -447,7 +451,10 @@ pub(crate) mod macos {
                         let level = peak_level_for_pcm(buf);
                         let _ = app_for_level.emit(
                             "voice:audio-level",
-                            AudioLevelPayload { level, source: "mic" },
+                            AudioLevelPayload {
+                                level,
+                                source: "mic",
+                            },
                         );
                     }
                 },
@@ -511,7 +518,10 @@ pub(crate) mod macos {
                         let msg = ns_error_message(err);
                         let _ = app_for_handler.emit(
                             "voice:speech-error",
-                            ErrorPayload { error: msg, source: "mic" },
+                            ErrorPayload {
+                                error: msg,
+                                source: "mic",
+                            },
                         );
                     }
                     clear_session_slot();
@@ -534,13 +544,19 @@ pub(crate) mod macos {
                 if is_final {
                     let _ = app_for_handler.emit(
                         "voice:final-transcript",
-                        FinalPayload { text, source: "mic" },
+                        FinalPayload {
+                            text,
+                            source: "mic",
+                        },
                     );
                     clear_session_slot();
                 } else if !stopped {
                     let _ = app_for_handler.emit(
                         "voice:partial-transcript",
-                        PartialPayload { text, source: "mic" },
+                        PartialPayload {
+                            text,
+                            source: "mic",
+                        },
                     );
                 }
             },

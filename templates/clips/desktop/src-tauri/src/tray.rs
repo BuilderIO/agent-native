@@ -63,23 +63,23 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
             match id_ref {
-            "show" => toggle_popover(app),
-            "devtools" => {
-                #[cfg(debug_assertions)]
-                {
-                    if let Some(w) = app.get_webview_window("popover") {
-                        if w.is_devtools_open() {
-                            w.close_devtools();
-                        } else {
-                            w.open_devtools();
+                "show" => toggle_popover(app),
+                "devtools" => {
+                    #[cfg(debug_assertions)]
+                    {
+                        if let Some(w) = app.get_webview_window("popover") {
+                            if w.is_devtools_open() {
+                                w.close_devtools();
+                            } else {
+                                w.open_devtools();
+                            }
                         }
                     }
                 }
-            }
-            "quit" => {
-                app.exit(0);
-            }
-            _ => {}
+                "quit" => {
+                    app.exit(0);
+                }
+                _ => {}
             }
         })
         .on_tray_icon_event(|tray, event| {
@@ -128,40 +128,39 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // is the documented Tauri 2 way to update a tray (there's no
     // partial-update API for items).
     let app_handle = app.handle().clone();
-    app.handle()
-        .listen("meetings:updated", move |event| {
-            #[derive(serde::Deserialize)]
-            struct Payload {
-                #[serde(default)]
-                meetings: Vec<MeetingItem>,
+    app.handle().listen("meetings:updated", move |event| {
+        #[derive(serde::Deserialize)]
+        struct Payload {
+            #[serde(default)]
+            meetings: Vec<MeetingItem>,
+        }
+        let parsed: Payload = match serde_json::from_str(event.payload()) {
+            Ok(p) => p,
+            Err(err) => {
+                eprintln!("[clips-tray] meetings:updated parse failed: {err}");
+                return;
             }
-            let parsed: Payload = match serde_json::from_str(event.payload()) {
-                Ok(p) => p,
+        };
+        let app = app_handle.clone();
+        // Tauri 2 menu APIs are main-thread-only on macOS; hop back via
+        // run_on_main_thread before touching the tray.
+        let _ = app_handle.run_on_main_thread(move || {
+            let new_menu = match build_menu_with_meetings(&app, parsed.meetings) {
+                Ok(m) => m,
                 Err(err) => {
-                    eprintln!("[clips-tray] meetings:updated parse failed: {err}");
+                    eprintln!("[clips-tray] rebuild menu failed: {err}");
                     return;
                 }
             };
-            let app = app_handle.clone();
-            // Tauri 2 menu APIs are main-thread-only on macOS; hop back via
-            // run_on_main_thread before touching the tray.
-            let _ = app_handle.run_on_main_thread(move || {
-                let new_menu = match build_menu_with_meetings(&app, parsed.meetings) {
-                    Ok(m) => m,
-                    Err(err) => {
-                        eprintln!("[clips-tray] rebuild menu failed: {err}");
-                        return;
-                    }
-                };
-                if let Some(tray) = app.tray_by_id("main") {
-                    if let Err(err) = tray.set_menu(Some(new_menu)) {
-                        eprintln!("[clips-tray] set_menu failed: {err}");
-                    } else {
-                        dlog!("[clips-tray] tray menu rebuilt with fresh meetings");
-                    }
+            if let Some(tray) = app.tray_by_id("main") {
+                if let Err(err) = tray.set_menu(Some(new_menu)) {
+                    eprintln!("[clips-tray] set_menu failed: {err}");
+                } else {
+                    dlog!("[clips-tray] tray menu rebuilt with fresh meetings");
                 }
-            });
+            }
         });
+    });
 
     Ok(())
 }

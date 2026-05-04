@@ -218,7 +218,7 @@ export function ToolsSidebarSection() {
   };
 
   return (
-    <div className="group/help relative py-2">
+    <div className="group/help relative min-w-0 py-2">
       <div
         className={cn(
           "flex items-center justify-between px-3",
@@ -263,7 +263,7 @@ export function ToolsSidebarSection() {
       </div>
 
       {isLoading ? (
-        <div className="space-y-0.5 px-1">
+        <div className="min-w-0 space-y-0.5 px-1">
           {[1, 2, 3].map((i) => (
             <div key={i} className="flex items-center rounded-md px-2 py-1.5">
               <div
@@ -274,7 +274,7 @@ export function ToolsSidebarSection() {
           ))}
         </div>
       ) : sortedTools.length === 0 ? null : (
-        <div className="space-y-0.5 px-1">
+        <div className="min-w-0 space-y-0.5 px-1">
           {sortedTools.map((tool) => {
             const isActive =
               location.pathname === `/tools/${tool.id}` ||

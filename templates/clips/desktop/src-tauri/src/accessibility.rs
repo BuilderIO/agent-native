@@ -135,15 +135,9 @@ mod macos {
             c_str: *const i8,
             encoding: u32,
         ) -> CFStringRef;
-        fn CFStringGetCStringPtr(
-            string: CFStringRef,
-            encoding: u32,
-        ) -> *const i8;
+        fn CFStringGetCStringPtr(string: CFStringRef, encoding: u32) -> *const i8;
         fn CFStringGetLength(string: CFStringRef) -> CFIndex;
-        fn CFStringGetMaximumSizeForEncoding(
-            length: CFIndex,
-            encoding: u32,
-        ) -> CFIndex;
+        fn CFStringGetMaximumSizeForEncoding(length: CFIndex, encoding: u32) -> CFIndex;
         fn CFStringGetCString(
             string: CFStringRef,
             buffer: *mut i8,
@@ -195,7 +189,12 @@ mod macos {
             return None;
         }
         let mut buf = vec![0i8; (max as usize) + 1];
-        let ok = CFStringGetCString(cfstr, buf.as_mut_ptr(), buf.len() as CFIndex, K_CF_STRING_ENCODING_UTF8);
+        let ok = CFStringGetCString(
+            cfstr,
+            buf.as_mut_ptr(),
+            buf.len() as CFIndex,
+            K_CF_STRING_ENCODING_UTF8,
+        );
         if ok == 0 {
             return None;
         }
@@ -271,11 +270,8 @@ mod macos {
             }
 
             let mut value: CFTypeRef = ptr::null();
-            let err = AXUIElementCopyAttributeValue(
-                focused as AXUIElementRef,
-                value_attr,
-                &mut value,
-            );
+            let err =
+                AXUIElementCopyAttributeValue(focused as AXUIElementRef, value_attr, &mut value);
             CFRelease(value_attr as CFTypeRef);
             CFRelease(focused);
 
