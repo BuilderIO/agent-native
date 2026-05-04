@@ -594,7 +594,7 @@ function postProcessStandalone(
   const appTitle = titleCase(name);
   replacePlaceholders(targetDir, name, appTitle);
   rewriteTrackingAppId(targetDir, name, templateName);
-  fixPackageJsonName(targetDir, name);
+  fixPackageJsonName(targetDir, name, templateName);
   rewriteNetlifyToml(targetDir, name, "standalone");
 
   for (const base of ["learnings"]) {
