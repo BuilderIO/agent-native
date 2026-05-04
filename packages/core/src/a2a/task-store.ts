@@ -58,6 +58,19 @@ function taskFromRow(row: any): Task & { ownerEmail?: string | null } {
   };
 }
 
+function getAffectedRowCount(result: unknown): number | undefined {
+  const resultRecord = result as
+    | {
+        rowsAffected?: number;
+        rowCount?: number;
+        count?: number;
+      }
+    | undefined;
+  return (
+    resultRecord?.rowsAffected ?? resultRecord?.rowCount ?? resultRecord?.count
+  );
+}
+
 export async function createTask(
   message: Message,
   contextId?: string,
@@ -144,7 +157,7 @@ export async function claimA2ATaskForProcessing(
             AND status_state IN ('submitted', 'working')`,
     args: [timestamp, now, id],
   });
-  const affected = (result as any)?.rowsAffected ?? (result as any)?.rowCount;
+  const affected = getAffectedRowCount(result);
   if (affected === 0) return null;
 
   const { rows } = await client.execute({
@@ -188,7 +201,7 @@ export async function touchQueuedA2ATaskDispatch(id: string): Promise<boolean> {
             AND status_state IN ('submitted', 'working')`,
     args: [now, id],
   });
-  const affected = (result as any)?.rowsAffected ?? (result as any)?.rowCount;
+  const affected = getAffectedRowCount(result);
   return affected !== 0;
 }
 
@@ -203,7 +216,7 @@ export async function touchProcessingA2ATask(id: string): Promise<boolean> {
             AND status_state = 'processing'`,
     args: [now, id],
   });
-  const affected = (result as any)?.rowsAffected ?? (result as any)?.rowCount;
+  const affected = getAffectedRowCount(result);
   return affected !== 0;
 }
 
@@ -225,7 +238,7 @@ export async function resetStuckA2ATaskForRetry(
             AND updated_at <= ?`,
     args: [timestamp, now, id, processingCutoff],
   });
-  const affected = (result as any)?.rowsAffected ?? (result as any)?.rowCount;
+  const affected = getAffectedRowCount(result);
   return affected !== 0;
 }
 
@@ -253,7 +266,7 @@ export async function failStuckA2ATask(
             AND updated_at <= ?`,
     args: [JSON.stringify(message), timestamp, now, id, processingCutoff],
   });
-  const affected = (result as any)?.rowsAffected ?? (result as any)?.rowCount;
+  const affected = getAffectedRowCount(result);
   return affected !== 0;
 }
 
