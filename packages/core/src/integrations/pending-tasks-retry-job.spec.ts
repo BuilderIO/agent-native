@@ -18,6 +18,7 @@ async function loadRetryJob() {
 describe("pending task retry job", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("ok", { status: 200 })),
@@ -73,6 +74,24 @@ describe("pending task retry job", () => {
       }),
     );
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("uses a shorter processing-stuck cutoff on serverless hosts", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-04T04:00:00.000Z"));
+    const { retryStuckPendingTasks } = await loadRetryJob();
+    executeMock.mockResolvedValueOnce({ rows: [] });
+
+    await retryStuckPendingTasks("https://app.test");
+
+    expect(executeMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        args: [Date.now() - 90_000, Date.now() - 75_000],
+      }),
+    );
+    vi.useRealTimers();
   });
 
   it("uses status-guarded updates so stale retry sweeps cannot clobber completed tasks", async () => {

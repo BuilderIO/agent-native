@@ -17,7 +17,8 @@ import { signInternalToken } from "./internal-token.js";
  * This job runs every 60s and re-fires the processor endpoint for tasks that
  * look stuck:
  *   - status='pending' AND created_at older than 90s (initial dispatch lost)
- *   - status='processing' AND updated_at older than 5min (killed mid-flight)
+ *   - status='processing' AND updated_at older than the host-specific
+ *     function budget (75s on serverless, 5min elsewhere)
  *
  * Retries are capped at MAX_ATTEMPTS attempts; after that the row is marked
  * `failed` permanently so it stops being retried.
@@ -30,8 +31,9 @@ import { signInternalToken } from "./internal-token.js";
 const RETRY_INTERVAL_MS = 60_000;
 /** Tasks pending longer than this are considered stuck on initial dispatch */
 const PENDING_STUCK_AFTER_MS = 90_000;
-/** Tasks "processing" longer than this are considered killed mid-flight */
-const PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
+/** Tasks "processing" longer than this are considered killed mid-flight. */
+const DEFAULT_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
+const SERVERLESS_PROCESSING_STUCK_AFTER_MS = 75_000;
 /** After this many attempts we give up and mark the task failed */
 const MAX_ATTEMPTS = 3;
 
@@ -62,7 +64,7 @@ export async function retryStuckPendingTasks(
   const client = getDbExec();
   const now = Date.now();
   const pendingCutoff = now - PENDING_STUCK_AFTER_MS;
-  const processingCutoff = now - PROCESSING_STUCK_AFTER_MS;
+  const processingCutoff = now - getProcessingStuckAfterMs();
 
   let stuckRows: StuckTaskRow[];
   try {
@@ -148,6 +150,18 @@ export async function retryStuckPendingTasks(
       );
     }
   }
+}
+
+function getProcessingStuckAfterMs(): number {
+  if (
+    process.env.NETLIFY ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.VERCEL ||
+    "__cf_env" in globalThis
+  ) {
+    return SERVERLESS_PROCESSING_STUCK_AFTER_MS;
+  }
+  return DEFAULT_PROCESSING_STUCK_AFTER_MS;
 }
 
 /**

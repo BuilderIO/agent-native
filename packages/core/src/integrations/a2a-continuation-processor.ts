@@ -478,7 +478,7 @@ async function signFreshContinuationToken(
   try {
     return await signA2AToken(continuation.ownerEmail, orgDomain, orgSecret, {
       expiresIn: "30m",
-      preferGlobalSecret: true,
+      preferGlobalSecret: !orgSecret,
     });
   } catch {
     return undefined;
