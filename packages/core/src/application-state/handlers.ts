@@ -13,14 +13,12 @@ import {
   appStateList,
   appStateDeleteByPrefix,
 } from "./store.js";
-import { getSession, DEV_MODE_USER_EMAIL } from "../server/auth.js";
+import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 
 /**
- * Resolve the session ID for app state scoping.
- * - Dev mode: returns "local" (backward-compatible with existing dev databases)
- * - Production with Google OAuth: returns the user's email
- * - Production with token auth: returns "user" (single-user, same as before)
+ * Resolve the session ID for app state scoping. Returns the authenticated
+ * user's email; throws 401 when the request has no session.
  */
 async function getSessionId(event: H3Event): Promise<string> {
   const session = await getSession(event);
@@ -30,8 +28,6 @@ async function getSessionId(event: H3Event): Promise<string> {
       statusMessage: "Unauthenticated",
     });
   }
-  // Dev mode returns DEV_MODE_USER_EMAIL — keep using "local" for compat
-  if (session.email === DEV_MODE_USER_EMAIL) return "local";
   return session.email;
 }
 

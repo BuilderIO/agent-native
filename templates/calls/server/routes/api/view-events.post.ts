@@ -31,7 +31,7 @@ import { defineEventHandler, readBody, setResponseStatus } from "h3";
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../../db/index.js";
 import { nanoid, shouldCountView } from "../../lib/calls.js";
-import { DEV_MODE_USER_EMAIL, getSession } from "@agent-native/core/server";
+import { getSession } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
 
 type ViewKind =
@@ -128,10 +128,7 @@ export default defineEventHandler(async (event) => {
 
   const db = getDb();
   const session = await getSession(event).catch(() => null);
-  const sessionEmail =
-    session?.email && session.email !== DEV_MODE_USER_EMAIL
-      ? session.email
-      : undefined;
+  const sessionEmail = session?.email;
   // Authenticated viewers: force `viewerEmail` to the session email so a
   // body field cannot spoof someone else's identity in the analytics. For
   // anonymous viewers, ignore the body's `viewerEmail` entirely (it would

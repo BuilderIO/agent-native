@@ -134,7 +134,7 @@ Four core tables, all defined in `server/db/schema.ts`:
 
 Content is stored as markdown. The editor converts to and from the Tiptap JSON model in memory; the SQL row is always markdown so actions, search, and Notion sync can operate on a single canonical format.
 
-All ownable tables include `owner_email` and `org_id` via `ownableColumns()`, so a local-mode workspace (`local@localhost`) can be upgraded to a real account without losing history.
+All ownable tables include `owner_email` and `org_id` via `ownableColumns()`, so every row is scoped to the signed-in user (and optionally their active organization) from the moment it's created.
 
 ### Customizing it
 

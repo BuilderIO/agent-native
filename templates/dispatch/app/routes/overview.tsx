@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
-  AssistantChat,
+  PromptComposer,
   sendToAgentChat,
   useActionQuery,
   useChatModels,
@@ -102,15 +102,7 @@ const HOME_CHAT_SUGGESTIONS = [
 ];
 
 function HomeChatPanel() {
-  const {
-    availableModels,
-    defaultModel,
-    selectedModel,
-    selectedEngine,
-    selectedEffort,
-    onModelChange,
-    onEffortChange,
-  } = useChatModels();
+  const { selectedModel } = useChatModels();
 
   const send = (message: string) => {
     sendToAgentChat({
@@ -127,18 +119,9 @@ function HomeChatPanel() {
         <h1 className="text-center text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
           What should we do next?
         </h1>
-        <AssistantChat
-          composerOnly
-          showHeader={false}
-          composerPlaceholder="Message agent…"
-          selectedModel={selectedModel}
-          selectedEngine={selectedEngine}
-          selectedEffort={selectedEffort}
-          defaultModel={defaultModel}
-          availableModels={availableModels}
-          onModelChange={onModelChange}
-          onEffortChange={onEffortChange}
-          onSubmitOverride={(text) => {
+        <PromptComposer
+          placeholder="Message agent…"
+          onSubmit={(text) => {
             const trimmed = text.trim();
             if (!trimmed) return;
             send(trimmed);

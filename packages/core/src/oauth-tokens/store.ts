@@ -116,14 +116,11 @@ export async function saveOAuthTokens(
   const client = getDbExec();
   const table = oauthTokensTable();
 
-  // Never store "local@localhost" as owner — it creates shared-ownership bugs
-  const sanitizedOwner = owner === "local@localhost" ? accountId : owner;
-
   // Read the current row before deciding what to write. We use this to
   // (a) preserve owner / display_name when this is a token refresh (no
   // owner argument), and (b) reject the write when the caller is trying
   // to overwrite a row owned by someone else.
-  let resolvedOwner = sanitizedOwner ?? accountId;
+  let resolvedOwner = owner ?? accountId;
   let existingDisplayName: string | null = null;
   let existingOwner: string | null = null;
   let existingTokens: Record<string, unknown> | null = null;
@@ -140,16 +137,7 @@ export async function saveOAuthTokens(
   if (!owner) {
     // Token-refresh path: keep the existing owner/displayName unchanged.
     if (existingOwner) resolvedOwner = existingOwner;
-  } else if (existingOwner === "local@localhost" && sanitizedOwner) {
-    // Legacy dev rows from older OAuth flows were sometimes stored under the
-    // synthetic local user. A successful OAuth callback proves control of the
-    // Google account, so let the reconnect repair that owner in place.
-    resolvedOwner = sanitizedOwner;
-  } else if (
-    existingOwner &&
-    sanitizedOwner &&
-    existingOwner !== sanitizedOwner
-  ) {
+  } else if (existingOwner && owner && existingOwner !== owner) {
     // Refuse to silently re-bind an account from one user to another.
     // This is the case the docstring promised but the previous
     // implementation didn't enforce — `ON CONFLICT DO UPDATE SET
@@ -158,7 +146,7 @@ export async function saveOAuthTokens(
       provider,
       accountId,
       existingOwner,
-      attemptedOwner: sanitizedOwner,
+      attemptedOwner: owner,
     });
   }
 
@@ -279,10 +267,6 @@ export async function setOAuthDisplayName(
  * across users — the onboarding banner would mark the OAuth secret as
  * "set" for user B as soon as ANY user in the deployment connected the
  * provider, and user B would never see the prompt to connect.
- *
- * For the local-dev / single-tenant case, callers pass the dev sentinel
- * (`DEV_MODE_USER_EMAIL`) and we degrade to "any row exists" — preserving
- * the original behaviour for that single-user surface.
  */
 export async function hasOAuthTokens(
   provider: string,
@@ -291,13 +275,6 @@ export async function hasOAuthTokens(
   await ensureTable();
   const client = getDbExec();
   const table = oauthTokensTable();
-  if (owner === "local@localhost") {
-    const { rows } = await client.execute({
-      sql: `SELECT 1 FROM ${table} WHERE provider = ? LIMIT 1`,
-      args: [provider],
-    });
-    return rows.length > 0;
-  }
   const { rows } = await client.execute({
     sql: `SELECT 1 FROM ${table} WHERE provider = ? AND owner = ? LIMIT 1`,
     args: [provider, owner],

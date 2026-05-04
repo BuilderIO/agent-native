@@ -27,6 +27,7 @@ export default createAuthPlugin({
     "/api/public-recording",
     "/api/media",
     "/api/clips-latest.json",
+    "/api/clips-updater.json",
     // Blob-serving for the dev-fallback (no provider) path.
     // The route itself enforces resolveAccess + password/expiry checks;
     // we add it to publicPaths so anonymous viewers on /share/:id can

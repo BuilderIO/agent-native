@@ -1,10 +1,9 @@
 /**
  * Resource helpers for use in scripts.
  *
- * Scripts run as standalone processes without HTTP context.
- * The owner is resolved from the AGENT_USER_EMAIL env var
- * (set by the agent runtime for multi-user apps), defaulting to
- * "local@localhost" for backward compatibility in dev mode.
+ * Scripts run inside an authenticated request context (set by the agent
+ * runtime) or — in CLI-only contexts — read AGENT_USER_EMAIL. Both paths
+ * require a real identity; there is no dev-mode fallback.
  */
 
 import {
@@ -16,28 +15,17 @@ import {
   resourceListAccessible,
   type ResourceMeta,
 } from "./store.js";
-import {
-  getRequestUserEmail,
-  hasRequestContext,
-} from "../server/request-context.js";
-
-// Dev-mode fallback identity. Scripts run as standalone CLI processes
-// without HTTP context — when no AGENT_USER_EMAIL is set we fall back to
-// the dev-mode user so a developer running `pnpm action` locally without
-// signing in still gets a usable scope. Production multi-user deployments
-// always set AGENT_USER_EMAIL via the agent runtime.
-import { DEV_MODE_USER_EMAIL } from "../server/auth.js";
+import { getRequestUserEmail } from "../server/request-context.js";
 
 function getOwner(shared?: boolean): string {
   if (shared) return SHARED_OWNER;
   const userEmail = getRequestUserEmail();
   if (userEmail) return userEmail;
-  if (hasRequestContext()) {
-    throw new Error(
-      "Resource access requires an authenticated request context",
-    );
-  }
-  return DEV_MODE_USER_EMAIL;
+  const cliEmail = process.env.AGENT_USER_EMAIL;
+  if (cliEmail) return cliEmail;
+  throw new Error(
+    "Resource access requires an authenticated request context or AGENT_USER_EMAIL env var",
+  );
 }
 
 export async function readResource(

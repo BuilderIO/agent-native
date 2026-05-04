@@ -14,7 +14,6 @@ import {
   SHARED_OWNER,
 } from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
-import { DEV_MODE_USER_EMAIL } from "../../server/auth.js";
 
 export default async function resourceReadScript(
   args: string[],
@@ -37,7 +36,12 @@ Options:
   }
 
   const scope = parsed.scope;
-  const owner = getRequestUserEmail() ?? DEV_MODE_USER_EMAIL;
+  const owner = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+  if (!owner) {
+    fail(
+      "resource-read requires an authenticated user (request context or AGENT_USER_EMAIL env var).",
+    );
+  }
 
   // Seed personal AGENTS.md + LEARNINGS.md on first access
   if (scope !== "shared") {

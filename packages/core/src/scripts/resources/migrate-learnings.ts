@@ -11,7 +11,7 @@ import fs from "fs";
 import path from "path";
 import { resourcePut } from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
-import { DEV_MODE_USER_EMAIL } from "../../server/auth.js";
+import { fail } from "../utils.js";
 
 export default async function migrateLearningsScript(
   args: string[],
@@ -24,7 +24,12 @@ export default async function migrateLearningsScript(
   }
 
   const content = fs.readFileSync(filePath, "utf-8");
-  const owner = getRequestUserEmail() ?? DEV_MODE_USER_EMAIL;
+  const owner = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+  if (!owner) {
+    fail(
+      "migrate-learnings requires an authenticated user (request context or AGENT_USER_EMAIL env var).",
+    );
+  }
 
   const resource = await resourcePut(
     owner,

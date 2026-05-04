@@ -5,43 +5,33 @@
  * Defensive CI guard: refuse to let production code use the literal
  * `local@localhost` as a fallback identity when no session is present.
  *
- * Background (cross-tenant data pooling): the framework's dev-mode auth
- * shim defines the bypass session as `{ email: "local@localhost" }`. That
- * identity is fine in dev — there's only one user. But in production,
- * patterns like
+ * Background: the framework used to ship a dev-mode auth shim that
+ * returned `{ email: "local@localhost" }` for unauthenticated requests
+ * in development. The shim itself was removed in favour of forcing the
+ * same Better Auth signup flow locally and in production, but the rule
+ * about not pooling unauthenticated requests onto a shared sentinel
+ * identity is permanent. Patterns like
  *
  *   const owner = session?.email ?? "local@localhost";
  *   const userEmail = getRequestUserEmail() || "local@localhost";
  *
- * silently redirect every unauthenticated/missing-session request into a
- * single shared "local@localhost" tenant. Every user without a session —
- * or every code path where the request context wasn't populated — reads
- * and writes the SAME data. We've already seen this leak credentials,
- * tools, application_state rows, and per-user resources between accounts.
+ * silently redirect every unauthenticated request into a single shared
+ * "local@localhost" tenant. Every user without a session — or every
+ * code path where the request context wasn't populated — would read and
+ * write the SAME data. The 2026-04-29 KVesta-Space credentials leak
+ * traced back to exactly this pattern.
  *
  * The right behavior in production is to throw or 401 when there's no
- * session, NOT to fall back to a sentinel identity. A handful of dev-mode
- * helpers and the auth shim itself legitimately need to know about the
- * literal — those are allowlisted.
+ * session, NOT to fall back to a sentinel identity.
  *
  * Allowlist of paths where the literal is OK:
- *   - `packages/core/src/server/auth.ts`
- *     (the dev-mode auth shim itself defines local@localhost as the dev
- *     session — that's the source of truth.)
- *   - `packages/core/src/dev**\/`
  *   - `**\/*.spec.ts`, `**\/*.test.ts`, `**\/*.spec.tsx`, `**\/*.test.tsx`
+ *     (tests use the literal as a fixture / regression marker for the
+ *     historic shim; those tests should never reach production.)
  *   - `scripts/**`
+ *     (this guard, ad-hoc migration scripts, etc.)
  *   - `**\/seed/**`, `**\/seeds/**`
- *   - `packages/core/src/org/context.ts`
- *     (intentionally reads the dev-mode email when migrating dev-mode
- *     resources to a real account.)
- *   - `packages/core/src/server/local-migration.ts`
- *     (migrates data owned by local@localhost to a real account.)
- *   - `packages/core/src/server/google-oauth.ts`
- *     (explicitly checks for and refuses to use the literal as a token
- *     owner — that's a *protective* check, not a fallback.)
- *   - `packages/core/src/oauth-tokens/store.ts`
- *     (sanitizes incoming `local@localhost` owners — again, protective.)
+ *     (seed data that explicitly wants to plant a dev fixture row.)
  *
  * Per-line opt-out (same line OR the line immediately above):
  *
@@ -68,7 +58,7 @@
  * the fallback shape is dangerous.
  *
  * Comments (lines starting with `*`, `//`, or `/*`) are skipped — the
- * literal often appears in JSDoc explaining the dev-mode behavior.
+ * literal often appears in JSDoc explaining historical dev-mode behavior.
  *
  * SQL DDL `DEFAULT 'local@localhost'` (and the Drizzle helper
  * `.default('local@localhost')`) is also skipped — schema column defaults

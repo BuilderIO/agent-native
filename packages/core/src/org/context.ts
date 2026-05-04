@@ -21,8 +21,6 @@ const nanoid = (): string =>
  *
  * - For users in multiple orgs, honors their `active-org-id` user setting.
  * - Falls back to the user's first membership.
- * - `local@localhost` (dev / no-auth mode) is treated as a regular identity:
- *   it owns whatever orgs it has created locally.
  * - When `AUTO_CREATE_DEFAULT_ORG` is set and the authenticated user has
  *   zero memberships, provisions a default org named after the user
  *   ({name}'s workspace, falling back to the email local-part). Opt-in
@@ -33,9 +31,6 @@ const nanoid = (): string =>
 export async function getOrgContext(event: H3Event): Promise<OrgContext> {
   const session = await getSession(event);
   const email = session?.email;
-  // No `?? "local@localhost"` fallback — if the session is genuinely
-  // missing (misconfigured prod, expired token mid-request) don't
-  // silently promote the caller to the shared dev identity.
   if (!email) return EMPTY_CONTEXT;
 
   const exec = getDbExec();

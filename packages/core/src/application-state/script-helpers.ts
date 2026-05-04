@@ -4,14 +4,12 @@
  * The session ID determines which user's application state is read/written.
  * Resolution order:
  *   1. Per-request context (AsyncLocalStorage) — set by the HTTP handler
- *   2. AGENT_USER_EMAIL env var — CLI only
- *   3. Most recent session in the DB — fallback for CLI scripts
- *   4. "local" — last resort
+ *   2. AGENT_USER_EMAIL env var — CLI scripts only
  *
  * The per-request context is critical in multi-user deployments: the env var
  * is process-global and gets overwritten by concurrent requests, so it cannot
  * reliably identify the caller. Only CLI scripts (single-user, no HTTP
- * context) should fall through to the env var or DB-lookup paths.
+ * context) should fall through to the env var.
  */
 
 import {
@@ -21,67 +19,31 @@ import {
   appStateList,
   appStateDeleteByPrefix,
 } from "./store.js";
-import { getDbExec } from "../db/client.js";
-import { DEV_MODE_USER_EMAIL } from "../server/auth.js";
-
-// Fallback session ID for CLI scripts (no per-request context).
-// Cached after first resolution so repeated CLI calls don't hit the DB.
-let _cliFallbackSessionId: string | undefined;
 
 /**
  * Resolve session ID for the current caller.
  *
  * In an HTTP/action context, uses the per-request user email from
- * AsyncLocalStorage so concurrent users don't collide.
- * In a CLI context (no request), falls back to AGENT_USER_EMAIL or the
- * most recent session in the DB.
+ * AsyncLocalStorage so concurrent users don't collide. In a CLI context
+ * (no request), falls back to AGENT_USER_EMAIL. Throws when neither is
+ * present — application state must be scoped to a real identity.
  */
 async function resolveSessionId(): Promise<string> {
-  // 1. Per-request context (AsyncLocalStorage) — always preferred
   try {
-    const { getRequestUserEmail, hasRequestContext } =
+    const { getRequestUserEmail } =
       await import("../server/request-context.js");
     const ctxEmail = getRequestUserEmail();
-    if (ctxEmail && ctxEmail !== DEV_MODE_USER_EMAIL) return ctxEmail;
-    if (ctxEmail === DEV_MODE_USER_EMAIL) return "local";
-    if (hasRequestContext()) {
-      throw new Error(
-        "Application state access requires an authenticated request context",
-      );
-    }
+    if (ctxEmail) return ctxEmail;
   } catch {
-    throw new Error(
-      "Application state access requires an authenticated request context",
-    );
+    // request-context not available — fall through to env var
   }
 
-  // 2. AGENT_USER_EMAIL env var (CLI scripts)
   const email = process.env.AGENT_USER_EMAIL;
-  if (email && email !== DEV_MODE_USER_EMAIL) return email;
-  if (email === DEV_MODE_USER_EMAIL) return "local";
+  if (email) return email;
 
-  // 3. DB fallback — cached per-process for CLI scripts only
-  if (_cliFallbackSessionId) return _cliFallbackSessionId;
-
-  try {
-    const db = getDbExec();
-    const { rows } = await db.execute({
-      sql: "SELECT email FROM sessions ORDER BY created_at DESC LIMIT 1",
-      args: [],
-    });
-    if (rows[0]) {
-      const dbEmail = rows[0].email as string;
-      if (dbEmail && dbEmail !== DEV_MODE_USER_EMAIL) {
-        _cliFallbackSessionId = dbEmail;
-        return dbEmail;
-      }
-    }
-  } catch {
-    // sessions table may not exist yet — fall through
-  }
-
-  _cliFallbackSessionId = "local";
-  return "local";
+  throw new Error(
+    "Application state access requires an authenticated request context or AGENT_USER_EMAIL env var",
+  );
 }
 
 export async function readAppState(

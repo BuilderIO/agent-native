@@ -12,6 +12,12 @@ interface WorkspaceApp {
   dir: string;
   port: number;
   process?: ChildProcess;
+  /**
+   * Set true once we've successfully connected to the upstream. After that we
+   * skip the readiness probe on every request — the child server stays
+   * listening for the rest of the dev session.
+   */
+  ready?: boolean;
 }
 
 const root = process.cwd();
@@ -210,32 +216,103 @@ function renderIndex(): string {
 </html>`;
 }
 
+// On `pnpm dev` the gateway answers requests immediately, but each app's vite
+// server takes a beat to bind its port. Without retry, the user sees an
+// "App is not ready yet: ECONNREFUSED" banner on the first page load and has
+// to refresh manually. We do a quick pre-flight TCP connect with retry so
+// startup is invisible for the common case (small/no body, slow boot).
+const PROXY_READY_TIMEOUT_MS = Number(
+  process.env.WORKSPACE_PROXY_READY_TIMEOUT_MS ?? 30_000,
+);
+const PROXY_READY_RETRY_DELAY_MS = 250;
+
+function probePort(port: number, timeoutMs = 1_000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+    socket.once("timeout", () => finish(false));
+    socket.connect(port, "127.0.0.1");
+  });
+}
+
+async function waitForPort(port: number, deadline: number): Promise<boolean> {
+  while (Date.now() < deadline) {
+    if (await probePort(port)) return true;
+    await new Promise((r) => setTimeout(r, PROXY_READY_RETRY_DELAY_MS));
+  }
+  return false;
+}
+
 function proxyHttp(
   app: WorkspaceApp,
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): void {
-  const headers = { ...req.headers, host: `127.0.0.1:${app.port}` };
-  const proxyReq = http.request(
-    {
-      hostname: "127.0.0.1",
-      port: app.port,
-      method: req.method,
-      path: req.url,
-      headers,
-    },
-    (proxyRes) => {
-      res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
-      proxyRes.pipe(res);
+  const dispatch = () => {
+    const headers = { ...req.headers, host: `127.0.0.1:${app.port}` };
+    const proxyReq = http.request(
+      {
+        hostname: "127.0.0.1",
+        port: app.port,
+        method: req.method,
+        path: req.url,
+        headers,
+      },
+      (proxyRes) => {
+        app.ready = true;
+        res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
+        proxyRes.pipe(res);
+      },
+    );
+
+    proxyReq.on("error", (err) => {
+      if (res.headersSent) {
+        res.end();
+        return;
+      }
+      res.writeHead(502, { "content-type": "text/plain" });
+      res.end(`App "${app.id}" is not ready yet: ${err.message}`);
+    });
+
+    req.pipe(proxyReq);
+  };
+
+  // Fast path: the upstream has accepted at least one request before, so it's
+  // listening. Skip the probe so steady-state requests stay zero-latency.
+  if (app.ready) {
+    dispatch();
+    return;
+  }
+
+  // Cold path: hold the request open while the child server boots. Node
+  // keeps the request body in paused mode until a consumer attaches via
+  // pipe(), so awaiting waitForPort() doesn't lose data.
+  void waitForPort(app.port, Date.now() + PROXY_READY_TIMEOUT_MS).then(
+    (ready) => {
+      if (!ready) {
+        if (!res.headersSent) {
+          res.writeHead(502, { "content-type": "text/plain" });
+          res.end(
+            `App "${app.id}" is not ready yet: connect ECONNREFUSED 127.0.0.1:${app.port}`,
+          );
+        } else {
+          res.end();
+        }
+        return;
+      }
+      app.ready = true;
+      dispatch();
     },
   );
-
-  proxyReq.on("error", (err) => {
-    res.writeHead(502, { "content-type": "text/plain" });
-    res.end(`App "${app.id}" is not ready yet: ${err.message}`);
-  });
-
-  req.pipe(proxyReq);
 }
 
 function proxyUpgrade(

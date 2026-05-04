@@ -268,8 +268,6 @@ async function isTriggerRunAsStillValid(
   jobUserEmail: string,
   jobOrgId: string | undefined,
 ): Promise<{ ok: boolean; reason?: string }> {
-  // guard:allow-localhost-fallback — protective check, not a fallback identity (skip user-existence validation when the dev shim wrote the row).
-  if (jobUserEmail === "local@localhost") return { ok: true };
   if (jobUserEmail === "__shared__") return { ok: true };
   try {
     const { getDbExec } = await import("../db/client.js");

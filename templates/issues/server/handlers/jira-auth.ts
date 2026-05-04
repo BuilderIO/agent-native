@@ -16,7 +16,6 @@ import {
   createOAuthSession,
   oauthCallbackResponse,
   oauthErrorPage,
-  DEV_MODE_USER_EMAIL,
 } from "@agent-native/core/server";
 import {
   getAuthUrl,
@@ -67,10 +66,7 @@ export const getAtlassianAuthUrl = defineEventHandler(
         (getQuery(event).redirect_uri as string) ||
         absoluteAppUrl(event, "/api/atlassian/callback");
       const session = await getSession(event);
-      const owner =
-        session?.email && session.email !== DEV_MODE_USER_EMAIL
-          ? session.email
-          : undefined;
+      const owner = session?.email;
       const desktop = isElectron(event);
       const state = encodeOAuthState(redirectUri, owner, desktop);
       const url = getAuthUrl(undefined, redirectUri, state);
@@ -166,9 +162,7 @@ export const disconnectAtlassian = defineEventHandler(
         setResponseStatus(event, 400);
         return { error: "email is required" };
       }
-      const ownerEmail =
-        session.email !== DEV_MODE_USER_EMAIL ? session.email : undefined;
-      const owned = await getAuthStatus(ownerEmail);
+      const owned = await getAuthStatus(session.email);
       const isOwned = owned.accounts.some((a) => a.email === targetEmail);
       if (!isOwned) {
         setResponseStatus(event, 403);

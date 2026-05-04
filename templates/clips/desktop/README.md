@@ -37,13 +37,13 @@ On first launch the popover asks for the URL of your Clips server. This is store
 
 ## Releases + auto-update
 
-Clips Desktop ships on its own release channel — tag prefix `clips-v*`, separate from the main `v*` tags used by `packages/desktop-app` (Electron). The in-app updater pulls its manifest from a stable pointer release (`clips-latest`) that the release workflow overwrites on every run.
+Clips Desktop ships on its own release channel — tag prefix `clips-v*`, separate from the main `v*` tags used by `packages/desktop-app` (Electron). The in-app updater pulls its manifest from the hosted Clips endpoint (`/api/clips-updater.json`), which proxies the stable pointer release (`clips-latest`) when a signed manifest exists and otherwise returns a no-update manifest so end users do not see release-channel setup errors.
 
 ### Shipping a release
 
 1. Bump `templates/clips/desktop/package.json` version (or pass it via workflow input).
 2. Trigger **Clips Desktop Release** in GitHub Actions (`.github/workflows/clips-desktop-release.yml`). It builds on macOS (universal), Windows, and Linux in parallel, signs everything, and uploads to `clips-v{version}`.
-3. After all three platforms finish, the `publish-release` job flips the versioned release out of draft and refreshes the `clips-latest` pointer release with the new manifest. Within a few hours (next update check) every installed Clips starts auto-downloading in the background.
+3. After all three platforms finish, the `publish-release` job flips the versioned release out of draft and refreshes the `clips-latest` pointer release with the new manifest. Within a few hours (next update check) every installed Clips starts auto-downloading in the background through the hosted manifest endpoint.
 
 ### Auto-update flow (inside the app)
 

@@ -28,7 +28,6 @@ import {
   encodeOAuthState,
   resolveOAuthRedirectUri,
   safeReturnPath,
-  DEV_MODE_USER_EMAIL,
 } from "@agent-native/core/server";
 import {
   GOOGLE_AUTH_URL,
@@ -65,10 +64,7 @@ export default defineEventHandler(async (event: H3Event) => {
     }
 
     const session = await getSession(event);
-    const owner =
-      session?.email && session.email !== DEV_MODE_USER_EMAIL
-        ? session.email
-        : undefined;
+    const owner = session?.email;
     if (!owner) {
       setResponseStatus(event, 401);
       return {

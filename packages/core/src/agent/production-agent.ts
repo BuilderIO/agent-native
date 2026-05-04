@@ -4,7 +4,6 @@ import {
   setResponseStatus,
   getMethod,
 } from "h3";
-import { DEV_MODE_USER_EMAIL } from "../server/auth.js";
 import { isLocalDatabase } from "../db/client.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import type { EventHandler as H3EventHandler } from "h3";
@@ -67,8 +66,7 @@ export { PROVIDER_TO_ENV };
 
 /**
  * Look up a user's persisted API key for the given provider. Returns
- * `undefined` for unauthenticated/local callers so the shared platform key
- * is never keyed off `local@localhost` in multi-tenant deployments.
+ * `undefined` for unauthenticated callers.
  *
  * Read order:
  *   1. `app_secrets` — encrypted, scope=user, current source of truth.
@@ -80,7 +78,7 @@ export async function getOwnerApiKey(
   provider: string,
   ownerEmail: string | null | undefined,
 ): Promise<string | undefined> {
-  if (!ownerEmail || ownerEmail === DEV_MODE_USER_EMAIL) return undefined;
+  if (!ownerEmail) return undefined;
   const secretKey =
     PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
   try {
