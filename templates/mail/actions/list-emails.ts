@@ -127,7 +127,7 @@ export default defineAction({
         limit,
         ownerEmail,
         undefined,
-        { mode: "threads" },
+        { mode: "threads", threadCandidateLimit: query ? 500 : undefined },
       );
 
       if (errors.length > 0 && messages.length === 0) {

@@ -174,7 +174,7 @@ export default defineAction({
       limit,
       ownerEmail,
       undefined,
-      { mode: "threads" },
+      { mode: "threads", threadCandidateLimit: 500 },
     );
     if (errors.length > 0 && messages.length === 0) {
       return `Error: ${errors.map((e) => `${e.email}: ${e.error}`).join("; ")}`;

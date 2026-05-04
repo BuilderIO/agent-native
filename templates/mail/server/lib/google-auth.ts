@@ -484,6 +484,14 @@ type ListOptions = {
    */
   mode?: ListMode;
   threadFormat?: "full" | "metadata" | "minimal";
+  /**
+   * Search result order from threads.list is not enough to mimic Gmail's UI:
+   * an old thread can match because its first message has the search term,
+   * while the thread itself was modified recently. Listing a wider candidate
+   * window is cheap (thread IDs only); we then hydrate the most recently
+   * modified candidates.
+   */
+  threadCandidateLimit?: number;
 };
 
 const LIST_CACHE_TTL = 20_000;
@@ -504,7 +512,7 @@ function listCacheKey(
         .join("|")
     : "";
   const queryPart = query === undefined ? "<default>" : query;
-  return `${forEmail ?? ""}::${queryPart}::${maxResults}::${tokenPart}::${options?.mode ?? "messages"}::${options?.threadFormat ?? ""}`;
+  return `${forEmail ?? ""}::${queryPart}::${maxResults}::${tokenPart}::${options?.mode ?? "messages"}::${options?.threadFormat ?? ""}::${options?.threadCandidateLimit ?? ""}`;
 }
 
 export async function listGmailMessages(
@@ -1036,19 +1044,45 @@ async function fetchAccountThreads(
   maxResults: number,
   pageToken: string | undefined,
   format: "full" | "metadata" | "minimal",
+  candidateLimit: number | undefined,
   onNextPageToken: (token: string) => void,
   onEstimate: (n: number) => void,
 ): Promise<any[]> {
+  const listMaxResults =
+    !pageToken && candidateLimit
+      ? Math.min(Math.max(candidateLimit, maxResults), 500)
+      : maxResults;
   const listRes = await gmailListThreads(accessToken, {
     q: query,
-    maxResults,
+    maxResults: listMaxResults,
     pageToken,
   });
 
   onEstimate(listRes.resultSizeEstimate || 0);
   if (listRes.nextPageToken) onNextPageToken(listRes.nextPageToken);
 
-  const threadIds = (listRes.threads || []).map((t: any) => t.id);
+  const threadStubs = listRes.threads || [];
+  if (
+    !pageToken &&
+    candidateLimit &&
+    candidateLimit > maxResults &&
+    threadStubs.some((t: any) => t.historyId)
+  ) {
+    threadStubs.sort((a: any, b: any) => {
+      try {
+        const ah = BigInt(a.historyId || 0);
+        const bh = BigInt(b.historyId || 0);
+        return ah === bh ? 0 : ah > bh ? -1 : 1;
+      } catch {
+        return Number(b.historyId || 0) - Number(a.historyId || 0);
+      }
+    });
+  }
+
+  const threadIds = threadStubs
+    .slice(0, maxResults)
+    .map((t: any) => t.id)
+    .filter(Boolean);
   if (threadIds.length === 0) return [];
 
   const batchResults = await gmailBatchGetThreads(
@@ -1133,6 +1167,7 @@ async function listGmailMessagesUncached(
             maxResults,
             pageTokens?.[email],
             threadFormat,
+            options?.threadCandidateLimit,
             (token) => {
               nextPageTokens[email] = token;
             },
