@@ -7,6 +7,16 @@ description: "A Notion-style document editor with an AI agent that can read, wri
 
 A Notion-style document workspace where the agent can read, write, reorganize, and publish pages for you. Open a doc, ask "rewrite this paragraph to be more concise" or "create a page called Q4 Planning with sub-pages for Goals, Metrics, and Risks" — same result whether you do it yourself or ask.
 
+<!-- screenshot:
+  app: content
+  view: /<doc-id>
+  shows: Workspace with sidebar tree (Q3 Roadmap favorited and expanded with Goals/Metrics/Risks, Engineering Wiki with On-call playbook + Architecture overview + Deployment guide, Personal section with Reading list and Ideas, Weekly sync — May 1) and the Q3 Roadmap document open in the editor with the agent sidebar
+  account: screenshot-account (page tree authored on this account; the doc body should NOT begin with the page title — the page chrome already renders it)
+  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
+-->
+
+![Content workspace with the page tree, an open document, and the agent sidebar](/screenshots/content.png)
+
 When you open the app, you'll see a sidebar tree of pages on the left, the editor in the middle, and the agent in the sidebar on the right. The agent always knows which page you're viewing and what text you have selected.
 
 ## What you can do with it

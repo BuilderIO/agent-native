@@ -928,6 +928,15 @@ function createAuthGuardFn(): (
     ) {
       return;
     }
+
+    // React Router 7's lazy route discovery fetches `/__manifest?p=...` to
+    // resolve manifest patches for `<Link>`s the user might click. The
+    // auth fallback returning loginHtml here makes RR fail to parse the
+    // body as RSC, surfacing as a console error and (when the visitor
+    // already errored elsewhere) blocking the app from rendering. Let it
+    // through — it returns a tiny RSC-encoded manifest of the public
+    // route tree, no per-user data.
+    if (p === "/__manifest") return;
     if (isPublicPath(normalizedUrl, publicPaths)) return;
 
     const session = await getSession(event);

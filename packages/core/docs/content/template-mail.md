@@ -7,6 +7,16 @@ description: "An agent-powered email client. Connect your Gmail and the agent ca
 
 An agent-powered email client. Connect your Gmail account and the agent can read, draft, send, and organize email for you — alongside a fast, keyboard-first inbox you can drive yourself. Think Superhuman, but the agent is a first-class citizen and the codebase is yours to own.
 
+<!-- screenshot:
+  app: mail
+  view: /inbox
+  shows: Inbox listing (Priya Mehta, Acme Billing, Marcus Tang, GitHub, Sasha Park, Linear, Hannah Reyes, Acme Recruiting, Notion, Stripe, Vercel, Calendly, Olivia Brennan, AWS Billing, Dan Kim, Figma) with the agent sidebar open and suggestion chips visible
+  account: screenshot-account (seeded with the email set above via the standard inbound flow)
+  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
+-->
+
+![Mail inbox with the agent sidebar](/screenshots/mail.png)
+
 When you open the app, you'll see your inbox on the left, the open thread in the middle, and the agent in the sidebar on the right. The agent always knows which view you're in and which thread you have open, so you can say "archive this" or "draft a friendly decline" without explaining what "this" is.
 
 ## What you can do with it
