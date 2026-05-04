@@ -192,6 +192,21 @@ export async function touchQueuedA2ATaskDispatch(id: string): Promise<boolean> {
   return affected !== 0;
 }
 
+export async function touchProcessingA2ATask(id: string): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const now = Date.now();
+  const result = await client.execute({
+    sql: `UPDATE a2a_tasks
+            SET updated_at = ?
+          WHERE id = ?
+            AND status_state = 'processing'`,
+    args: [now, id],
+  });
+  const affected = (result as any)?.rowsAffected ?? (result as any)?.rowCount;
+  return affected !== 0;
+}
+
 export async function resetStuckA2ATaskForRetry(
   id: string,
   processingCutoff: number,
