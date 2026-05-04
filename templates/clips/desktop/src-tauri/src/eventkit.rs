@@ -104,8 +104,8 @@ mod macos {
     }
 
     pub async fn request_access_impl(_app: AppHandle) -> Result<bool, String> {
-        let store = unsafe { new_event_store() }
-            .ok_or_else(|| "EventKit not available".to_string())?;
+        let store =
+            unsafe { new_event_store() }.ok_or_else(|| "EventKit not available".to_string())?;
         let (tx, rx) = mpsc::sync_channel::<bool>(1);
         // The completion block is fire-and-forget from EventKit's side. Use
         // RcBlock so the closure stays alive past the requesting frame.
@@ -142,8 +142,7 @@ mod macos {
         within_hours: u32,
     ) -> Result<Vec<EventKitEvent>, String> {
         unsafe {
-            let store = new_event_store()
-                .ok_or_else(|| "EventKit not available".to_string())?;
+            let store = new_event_store().ok_or_else(|| "EventKit not available".to_string())?;
 
             let date_cls = class!(NSDate);
             let now: *mut AnyObject = msg_send![date_cls, date];
@@ -194,8 +193,8 @@ mod macos {
                     continue;
                 }
                 let id = ns_string_to_owned(msg_send![ev, eventIdentifier]);
-                let title =
-                    ns_string_to_owned(msg_send![ev, title]).unwrap_or_else(|| "(untitled)".to_string());
+                let title = ns_string_to_owned(msg_send![ev, title])
+                    .unwrap_or_else(|| "(untitled)".to_string());
                 let start_date: *mut AnyObject = msg_send![ev, startDate];
                 let end_date: *mut AnyObject = msg_send![ev, endDate];
                 let start_s = ns_date_to_rfc3339(formatter, start_date);
