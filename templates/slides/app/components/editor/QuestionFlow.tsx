@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import {
   IconCheck,
   IconUpload,
@@ -10,20 +10,37 @@ import { Slider } from "@/components/ui/slider";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import type { QuestionFlowQuestion } from "@shared/api";
+import type { DesignSystemData, QuestionFlowQuestion } from "@shared/api";
 
 interface QuestionFlowProps {
   questions: QuestionFlowQuestion[];
   onSubmit: (answers: Record<string, any>) => void;
   onSkip: () => void;
+  designSystem?: DesignSystemData;
 }
 
 export function QuestionFlow({
   questions,
   onSubmit,
   onSkip,
+  designSystem,
 }: QuestionFlowProps) {
   const [answers, setAnswers] = useState<Record<string, any>>({});
+  const visibleQuestions = useMemo(
+    () =>
+      questions.map((question) =>
+        question.type === "color-options" && designSystem
+          ? {
+              ...question,
+              options: designSystemColorOptions(
+                designSystem,
+                question.options || [],
+              ),
+            }
+          : question,
+      ),
+    [designSystem, questions],
+  );
 
   const setAnswer = useCallback((id: string, value: any) => {
     setAnswers((prev) => ({ ...prev, [id]: value }));
@@ -44,7 +61,7 @@ export function QuestionFlow({
     onSubmit(answers);
   };
 
-  const allRequiredAnswered = questions
+  const allRequiredAnswered = visibleQuestions
     .filter((q) => q.required)
     .every((q) => {
       const val = answers[q.id];
@@ -54,14 +71,15 @@ export function QuestionFlow({
     });
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-background">
-      <div className="w-full max-w-2xl px-8">
-        <h2 className="mb-8 text-2xl font-semibold text-foreground">
+    <div className="absolute inset-0 z-50 bg-background">
+      <div className="h-full overflow-y-auto px-4 py-6 sm:px-8 sm:py-10">
+        <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col">
+          <h2 className="mb-6 text-2xl font-semibold text-foreground sm:mb-8">
           Before we begin...
-        </h2>
+          </h2>
 
-        <div className="space-y-8">
-          {questions.map((q) => (
+          <div className="space-y-6 sm:space-y-8">
+            {visibleQuestions.map((q) => (
             <QuestionRenderer
               key={q.id}
               question={q}
@@ -69,12 +87,12 @@ export function QuestionFlow({
               onChange={(val) => setAnswer(q.id, val)}
               onToggleMulti={(val) => toggleMultiSelect(q.id, val)}
             />
-          ))}
-        </div>
+            ))}
+          </div>
 
-        {/* Progress dots */}
-        <div className="mt-8 flex items-center justify-center gap-1.5">
-          {questions.map((q, i) => {
+          {/* Progress dots */}
+          <div className="mt-8 flex items-center justify-center gap-1.5">
+            {visibleQuestions.map((q, i) => {
             const answered = answers[q.id] != null && answers[q.id] !== "";
             return (
               <div
@@ -85,31 +103,70 @@ export function QuestionFlow({
                 )}
               />
             );
-          })}
-        </div>
+            })}
+          </div>
 
-        {/* Actions */}
-        <div className="mt-8 flex items-center justify-between">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onSkip}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            Skip
-          </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={!allRequiredAnswered}
-            className="gap-2"
-          >
-            Continue
-            <IconChevronRight className="h-4 w-4" />
-          </Button>
+          {/* Actions */}
+          <div className="sticky bottom-0 -mx-4 mt-8 flex items-center justify-between border-t border-border bg-background/95 px-4 py-4 backdrop-blur sm:-mx-8 sm:px-8">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onSkip}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              Skip
+            </Button>
+            <Button
+              onClick={handleSubmit}
+              disabled={!allRequiredAnswered}
+              className="gap-2"
+            >
+              Continue
+              <IconChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
     </div>
   );
+}
+
+const DESIGN_SYSTEM_COLOR_KEYS: Array<
+  [keyof DesignSystemData["colors"], string]
+> = [
+  ["primary", "Primary"],
+  ["secondary", "Secondary"],
+  ["accent", "Accent"],
+  ["background", "Background"],
+  ["surface", "Surface"],
+];
+
+function isUsableColor(value: string | undefined): value is string {
+  if (!value) return false;
+  const color = value.trim();
+  return (
+    /^#[0-9a-f]{3,8}$/i.test(color) ||
+    /^rgba?\(/i.test(color) ||
+    /^hsla?\(/i.test(color)
+  );
+}
+
+function designSystemColorOptions(
+  designSystem: DesignSystemData,
+  fallback: NonNullable<QuestionFlowQuestion["options"]>,
+): NonNullable<QuestionFlowQuestion["options"]> {
+  const seen = new Set<string>();
+  const options = DESIGN_SYSTEM_COLOR_KEYS.flatMap(([key, label]) => {
+    const color = designSystem.colors[key]?.trim();
+    const normalized = color?.toLowerCase();
+    if (!isUsableColor(color) || !normalized || seen.has(normalized)) {
+      return [];
+    }
+    seen.add(normalized);
+    return [{ label, value: color, color }];
+  });
+
+  return options.length >= 2 ? options : fallback;
 }
 
 function QuestionRenderer({

@@ -1202,10 +1202,14 @@ export function createProductionAgentHandler(
     } = body;
     const requestMode: AgentExecutionMode =
       body.mode === "plan" ? "plan" : "act";
-    if (!message) {
+    const hasMessageText =
+      typeof message === "string" && message.trim().length > 0;
+    const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+    if (!hasMessageText && !hasAttachments) {
       setResponseStatus(event, 400);
       return { error: "message is required" };
     }
+    const requestMessage = hasMessageText ? message : "Use the attached context.";
 
     // Resolve owner first so we can look up a per-owner API key. Users
     // who bring their own key use their key for this request (durable
@@ -1311,7 +1315,7 @@ export function createProductionAgentHandler(
     // Run all independent pre-send steps in parallel. Each of these hits
     // the DB or invokes an action; running them sequentially was the
     // single biggest contributor to pre-LLM latency.
-    const enrichedMessage = enrichMessage(message, references);
+    const enrichedMessage = enrichMessage(requestMessage, references);
     const loopSettingsPromise = readAgentLoopSettings({
       userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
       orgId: getRequestOrgId() ?? null,

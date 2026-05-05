@@ -211,6 +211,7 @@ export function useBuilderConnectFlow(
       setOrgName(org);
       if (s.configured && !notifiedConnectedRef.current) {
         notifiedConnectedRef.current = true;
+        notifyAgentEngineConfiguredChanged("builder-status");
         try {
           await onConnectedRef.current?.({ orgName: org });
         } catch {
@@ -275,6 +276,7 @@ export function useBuilderConnectFlow(
         const org = s.orgName ?? null;
         setOrgName(org);
         setConnecting(false);
+        notifiedConnectedRef.current = true;
         notifyAgentEngineConfiguredChanged("builder-connect");
         try {
           await onConnectedRef.current?.({ orgName: org });
