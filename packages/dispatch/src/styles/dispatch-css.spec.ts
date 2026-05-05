@@ -39,3 +39,17 @@ describe("dispatch Tailwind styles", () => {
     );
   });
 });
+
+describe("dispatch route shells", () => {
+  it("re-exports the index route redirects from the Dispatch template", () => {
+    const indexRoute = fs.readFileSync(
+      path.join(repoRoot, "templates/dispatch/app/routes/_index.tsx"),
+      "utf-8",
+    );
+
+    expect(indexRoute).toContain("loader");
+    expect(indexRoute).toContain("clientLoader");
+    expect(indexRoute).toContain("HydrateFallback");
+    expect(indexRoute).toContain("@agent-native/dispatch/routes/pages/_index");
+  });
+});
