@@ -235,7 +235,7 @@ function useClientOnly() {
   return mounted;
 }
 
-export function AgentPanel({
+function AgentPanelInner({
   defaultMode = "chat",
   className,
   apiUrl,
@@ -1485,6 +1485,57 @@ function ScreenRefreshBoundary({ children }: { children: React.ReactNode }) {
     queryClient.invalidateQueries({ refetchType: "none" });
   }
   return <React.Fragment key={key}>{children}</React.Fragment>;
+}
+
+class AgentPanelErrorBoundary extends React.Component<
+  { children: React.ReactNode; onReset: () => void },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("[agent-native] Agent panel crashed", error, errorInfo);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+        <div className="max-w-[260px] space-y-1">
+          <p className="text-sm font-medium text-foreground">
+            Agent panel hit an internal UI error.
+          </p>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            The app is still usable. Reset the panel to reload the chat UI.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+          onClick={() => {
+            this.setState({ error: null });
+            this.props.onReset();
+          }}
+        >
+          Reset agent panel
+        </button>
+      </div>
+    );
+  }
+}
+
+export function AgentPanel(props: AgentPanelProps) {
+  const [resetKey, setResetKey] = useState(0);
+  return (
+    <AgentPanelErrorBoundary onReset={() => setResetKey((key) => key + 1)}>
+      <AgentPanelInner key={resetKey} {...props} />
+    </AgentPanelErrorBoundary>
+  );
 }
 
 // ─── AgentSidebar — wraps content with a toggleable agent panel ─────────────
