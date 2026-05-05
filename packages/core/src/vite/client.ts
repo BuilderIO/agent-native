@@ -110,6 +110,15 @@ function hasDep(pkg: string, cwd: string): boolean {
   }
 }
 
+function canResolveDep(specifier: string, cwd: string): boolean {
+  try {
+    require.resolve(specifier, { paths: [cwd] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Build the `resolve.dedupe` list dynamically. Reads core's package.json and
  * collects every peerDependency that the consuming app also declares. This
@@ -174,7 +183,11 @@ function getClientDedupe(cwd: string): string[] {
 }
 
 function getDefaultOptimizeDeps(cwd: string): string[] {
-  const entries: Array<{ specifier: string; packageName?: string }> = [
+  const entries: Array<{
+    specifier: string;
+    packageName?: string;
+    optionalResolve?: boolean;
+  }> = [
     { specifier: "@agent-native/core" },
     {
       specifier: "@agent-native/core/client",
@@ -193,6 +206,26 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       // Keep so deployed templates that haven't been updated still resolve.
       specifier: "@agent-native/core/client/tools",
       packageName: "@agent-native/core",
+    },
+    {
+      specifier: "@agent-native/dispatch/components",
+      packageName: "@agent-native/dispatch",
+      optionalResolve: true,
+    },
+    {
+      specifier: "@agent-native/dispatch/routes/pages/overview",
+      packageName: "@agent-native/dispatch",
+      optionalResolve: true,
+    },
+    {
+      specifier: "@agent-native/dispatch/routes/pages/apps",
+      packageName: "@agent-native/dispatch",
+      optionalResolve: true,
+    },
+    {
+      specifier: "@agent-native/dispatch/routes/pages/metrics",
+      packageName: "@agent-native/dispatch",
+      optionalResolve: true,
     },
     { specifier: "@libsql/client" },
     { specifier: "@radix-ui/react-accordion" },
@@ -238,8 +271,10 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
   ];
 
   return entries
-    .filter(({ specifier, packageName }) =>
-      hasDep(packageName ?? specifier, cwd),
+    .filter(
+      ({ specifier, packageName, optionalResolve }) =>
+        hasDep(packageName ?? specifier, cwd) &&
+        (!optionalResolve || canResolveDep(specifier, cwd)),
     )
     .map(({ specifier }) => specifier);
 }
