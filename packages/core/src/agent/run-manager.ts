@@ -46,11 +46,11 @@ function isHostedRuntime(): boolean {
   }
   return Boolean(
     process.env.CF_PAGES ||
-      process.env.VERCEL ||
-      process.env.VERCEL_ENV ||
-      process.env.RENDER ||
-      process.env.FLY_APP_NAME ||
-      process.env.K_SERVICE,
+    process.env.VERCEL ||
+    process.env.VERCEL_ENV ||
+    process.env.RENDER ||
+    process.env.FLY_APP_NAME ||
+    process.env.K_SERVICE,
   );
 }
 

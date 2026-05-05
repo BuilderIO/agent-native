@@ -83,9 +83,9 @@ function autoContinueMessage(signal: AgentAutoContinueSignal): string {
       ? "The previous run reached an internal step budget."
       : signal.reason === "no_progress"
         ? "The previous run stopped producing progress events while the connection stayed open."
-      : signal.reason === "stream_ended"
-        ? "The previous stream ended before the agent sent a final completion signal."
-        : "The previous run reached an internal execution budget.";
+        : signal.reason === "stream_ended"
+          ? "The previous stream ended before the agent sent a final completion signal."
+          : "The previous run reached an internal execution budget.";
   return `${AUTO_CONTINUE_PROMPT}\n\nInternal note: ${reason}`;
 }
 
@@ -361,13 +361,10 @@ export function createAgentChatAdapter(options?: {
         const abortCurrentRun = async (): Promise<void> => {
           if (!runId) return;
           try {
-            await fetch(
-              `${apiUrl}/runs/${encodeURIComponent(runId)}/abort`,
-              {
-                method: "POST",
-                signal: abortSignal,
-              },
-            );
+            await fetch(`${apiUrl}/runs/${encodeURIComponent(runId)}/abort`, {
+              method: "POST",
+              signal: abortSignal,
+            });
           } catch {
             // Best effort. The follow-up POST will still reconnect or 409 if
             // the producer is alive and cannot be aborted cross-isolate.
