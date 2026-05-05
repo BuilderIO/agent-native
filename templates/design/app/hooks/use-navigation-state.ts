@@ -29,6 +29,8 @@ export function useNavigationState() {
       state.designId = params.id;
     } else if (location.pathname.startsWith("/examples")) {
       state.view = "examples";
+    } else if (location.pathname.startsWith("/settings")) {
+      state.view = "settings";
     }
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
@@ -82,6 +84,8 @@ export function useNavigationState() {
         path = `/present/${cmd.designId}`;
       } else if (cmd.view === "examples") {
         path = "/examples";
+      } else if (cmd.view === "settings") {
+        path = "/settings";
       } else {
         path = "/";
       }

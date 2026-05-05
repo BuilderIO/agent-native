@@ -1261,8 +1261,10 @@ export function createCoreRoutesPlugin(
     // not in the env-status list (OpenRouter, Groq, Ollama, …).
     getH3App(nitroApp).use(
       `${P}/agent-engine/status`,
-      defineEventHandler(async () => {
+      defineEventHandler(async (event) => {
         try {
+          const session = await getSession(event).catch(() => null);
+          const userEmail = session?.email;
           const stored = (await getSetting("agent-engine")) as {
             engine?: string;
           } | null;
@@ -1288,7 +1290,10 @@ export function createCoreRoutesPlugin(
           // their own provider key) may not have any deploy-level env vars
           // set, so check their per-user secret store before reporting "no
           // engine configured" and re-showing the onboarding gate.
-          const detectedFromUser = await detectEngineFromUserSecrets();
+          const detectedFromUser = await runWithRequestContext(
+            { userEmail },
+            () => detectEngineFromUserSecrets(),
+          );
           if (detectedFromUser) {
             return {
               configured: true,
