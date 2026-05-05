@@ -13,7 +13,7 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state including which design is open, which view they are on (list, editor, design-systems, present, examples), plus any pending question overlay or variant grid. Always call this first before taking any action.",
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design is open, which view they are on (list, editor, design-systems, present, examples, settings), plus any pending question overlay or variant grid. Always call this first before taking any action.",
   schema: z.object({}),
   http: false,
   run: async () => {

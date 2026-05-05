@@ -30,6 +30,11 @@ import type {
   AnimatedPropertyConfig,
 } from "@/types/elementAnimations";
 import type { EasingKey } from "@/types";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 /**
  * ANIMATION PROPERTY DEFAULTS
@@ -704,62 +709,84 @@ export const CurrentElementPanel: React.FC = () => {
         <div className="flex items-center justify-between">
           <Label className="text-xs">Cursor Type</Label>
           {storedCursorType && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 w-6 p-0"
-              onClick={handleDeleteCursorType}
-              title="Reset to default"
-            >
-              <IconTrash className="w-3 h-3 text-muted-foreground hover:text-green-400" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                  onClick={handleDeleteCursorType}
+                >
+                  <IconTrash className="w-3 h-3 text-muted-foreground hover:text-green-400" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Reset to default</TooltipContent>
+            </Tooltip>
           )}
         </div>
         <div className="grid grid-cols-3 gap-2">
           {/* Default Arrow */}
-          <button
-            onClick={() => handleUpdateCursorType("default")}
-            className={`h-12 rounded-lg border-2 flex items-center justify-center ${
-              effectiveCursorType === "default"
-                ? "border-green-500 bg-green-500/10"
-                : "border-border bg-secondary/50 hover:bg-secondary"
-            }`}
-            title="Arrow (Default)"
-          >
-            <div style={{ transform: "scale(0.5)", transformOrigin: "center" }}>
-              <DefaultCursor />
-            </div>
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => handleUpdateCursorType("default")}
+                className={`h-12 rounded-lg border-2 flex items-center justify-center ${
+                  effectiveCursorType === "default"
+                    ? "border-green-500 bg-green-500/10"
+                    : "border-border bg-secondary/50 hover:bg-secondary"
+                }`}
+              >
+                <div
+                  style={{ transform: "scale(0.5)", transformOrigin: "center" }}
+                >
+                  <DefaultCursor />
+                </div>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Arrow (Default)</TooltipContent>
+          </Tooltip>
 
           {/* Pointer Hand */}
-          <button
-            onClick={() => handleUpdateCursorType("pointer")}
-            className={`h-12 rounded-lg border-2 flex items-center justify-center ${
-              effectiveCursorType === "pointer"
-                ? "border-green-500 bg-green-500/10"
-                : "border-border bg-secondary/50 hover:bg-secondary"
-            }`}
-            title="Pointer (Hand)"
-          >
-            <div style={{ transform: "scale(0.5)", transformOrigin: "center" }}>
-              <PointerCursor />
-            </div>
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => handleUpdateCursorType("pointer")}
+                className={`h-12 rounded-lg border-2 flex items-center justify-center ${
+                  effectiveCursorType === "pointer"
+                    ? "border-green-500 bg-green-500/10"
+                    : "border-border bg-secondary/50 hover:bg-secondary"
+                }`}
+              >
+                <div
+                  style={{ transform: "scale(0.5)", transformOrigin: "center" }}
+                >
+                  <PointerCursor />
+                </div>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Pointer (Hand)</TooltipContent>
+          </Tooltip>
 
           {/* Text I-Beam */}
-          <button
-            onClick={() => handleUpdateCursorType("text")}
-            className={`h-12 rounded-lg border-2 flex items-center justify-center ${
-              effectiveCursorType === "text"
-                ? "border-green-500 bg-green-500/10"
-                : "border-border bg-secondary/50 hover:bg-secondary"
-            }`}
-            title="Text (I-beam)"
-          >
-            <div style={{ transform: "scale(0.5)", transformOrigin: "center" }}>
-              <TextCursor />
-            </div>
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => handleUpdateCursorType("text")}
+                className={`h-12 rounded-lg border-2 flex items-center justify-center ${
+                  effectiveCursorType === "text"
+                    ? "border-green-500 bg-green-500/10"
+                    : "border-border bg-secondary/50 hover:bg-secondary"
+                }`}
+              >
+                <div
+                  style={{ transform: "scale(0.5)", transformOrigin: "center" }}
+                >
+                  <TextCursor />
+                </div>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Text (I-beam)</TooltipContent>
+          </Tooltip>
         </div>
         <p className="text-xs text-muted-foreground">
           {storedCursorType

@@ -942,16 +942,20 @@ export function EventDetailPopover({
               >
                 <IconMapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                 {locationIsUrl ? (
-                  <a
-                    href={event.location}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-primary hover:underline truncate block max-w-full"
-                    title={event.location}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {event.location}
-                  </a>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <a
+                        href={event.location}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-primary hover:underline truncate block max-w-full"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {event.location}
+                      </a>
+                    </TooltipTrigger>
+                    <TooltipContent>{event.location}</TooltipContent>
+                  </Tooltip>
                 ) : (
                   <span className="text-sm text-muted-foreground">
                     {event.location}

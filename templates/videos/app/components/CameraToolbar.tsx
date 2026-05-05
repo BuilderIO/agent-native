@@ -10,6 +10,11 @@ import {
 import { cn } from "@/lib/utils";
 import type { AnimationTrack } from "@/types";
 import { getPropValueKeyframed } from "@/remotion/trackAnimation";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface CameraToolbarProps {
   currentFrame: number;
@@ -338,32 +343,41 @@ export const CameraToolbar: React.FC<CameraToolbarProps> = ({
           const isActive = activeTool === tool.id;
 
           return (
-            <button
-              key={tool.id}
-              className={cn(
-                "flex items-center gap-1 px-2 py-1.5 sm:py-1 rounded text-[11px] font-medium select-none flex-shrink-0",
-                isActive
-                  ? "bg-blue-500 text-white shadow-md"
-                  : "bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground",
-              )}
-              onMouseDown={(e) => handleMouseDown(e, tool.id)}
-              title={tool.hint}
-            >
-              <Icon className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
-              <span className="hidden sm:inline">{tool.label}</span>
-            </button>
+            <Tooltip key={tool.id}>
+              <TooltipTrigger asChild>
+                <button
+                  className={cn(
+                    "flex items-center gap-1 px-2 py-1.5 sm:py-1 rounded text-[11px] font-medium select-none flex-shrink-0",
+                    isActive
+                      ? "bg-blue-500 text-white shadow-md"
+                      : "bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground",
+                  )}
+                  onMouseDown={(e) => handleMouseDown(e, tool.id)}
+                >
+                  <Icon className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
+                  <span className="hidden sm:inline">{tool.label}</span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{tool.hint}</TooltipContent>
+            </Tooltip>
           );
         })}
 
         <div className="h-3.5 w-px bg-border mx-0.5 flex-shrink-0" />
-        <button
-          onClick={addKeyframe}
-          className="flex items-center gap-1 px-2 py-1.5 sm:py-1 rounded text-[11px] font-medium bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 flex-shrink-0"
-          title="Create camera keyframe at current frame"
-        >
-          <IconPlus className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
-          <span className="hidden sm:inline">Add Keyframe</span>
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={addKeyframe}
+              className="flex items-center gap-1 px-2 py-1.5 sm:py-1 rounded text-[11px] font-medium bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 flex-shrink-0"
+            >
+              <IconPlus className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
+              <span className="hidden sm:inline">Add Keyframe</span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            Create camera keyframe at current frame
+          </TooltipContent>
+        </Tooltip>
 
         {isDragging && (
           <div className="ml-2 text-[11px] text-blue-400 font-mono animate-pulse flex-shrink-0">

@@ -27,6 +27,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -214,18 +219,27 @@ function ExpressionPropRow({
         )}
 
         {/* Expand toggle */}
-        <button
-          type="button"
-          onClick={() => setExpanded((e) => !e)}
-          className="flex items-center gap-0.5 flex-shrink-0 px-1 py-0.5 rounded hover:bg-zinc-800/30 transition-colors text-[9px] font-mono"
-          style={{ color: `${EXPR_COLOR}70` }}
-          title={expanded ? "Hide code" : "View expression code"}
-        >
-          <span className="uppercase tracking-wider">
-            {expanded ? "hide" : "code"}
-          </span>
-          <IconChevronDown size={10} className={cn(expanded && "rotate-180")} />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => setExpanded((e) => !e)}
+              className="flex items-center gap-0.5 flex-shrink-0 px-1 py-0.5 rounded hover:bg-zinc-800/30 transition-colors text-[9px] font-mono"
+              style={{ color: `${EXPR_COLOR}70` }}
+            >
+              <span className="uppercase tracking-wider">
+                {expanded ? "hide" : "code"}
+              </span>
+              <IconChevronDown
+                size={10}
+                className={cn(expanded && "rotate-180")}
+              />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {expanded ? "Hide code" : "View expression code"}
+          </TooltipContent>
+        </Tooltip>
 
         <button
           onClick={onRemove}
@@ -445,18 +459,26 @@ function AnimatedPropRow({
 
         {/* Code indicator — only if there's a description or snippet */}
         {hasCode && (
-          <button
-            type="button"
-            title={codeOpen ? "Hide details" : "How this works"}
-            onClick={() => setCodeOpen((o) => !o)}
-            className="flex-shrink-0 flex items-center gap-0.5 px-1 py-0.5 rounded transition-colors"
-            style={{
-              color: codeOpen ? accentColor : `${accentColor}50`,
-              backgroundColor: codeOpen ? `${accentColor}15` : "transparent",
-            }}
-          >
-            <IconCode size={10} />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => setCodeOpen((o) => !o)}
+                className="flex-shrink-0 flex items-center gap-0.5 px-1 py-0.5 rounded transition-colors"
+                style={{
+                  color: codeOpen ? accentColor : `${accentColor}50`,
+                  backgroundColor: codeOpen
+                    ? `${accentColor}15`
+                    : "transparent",
+                }}
+              >
+                <IconCode size={10} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {codeOpen ? "Hide details" : "How this works"}
+            </TooltipContent>
+          </Tooltip>
         )}
 
         <button
@@ -537,12 +559,19 @@ function AnimatedPropRow({
                   onUpdate({ ...prop, easing: val as EasingKey })
                 }
               >
-                <SelectTrigger
-                  className="w-full h-auto text-[10px] bg-background border border-border/60 rounded px-1.5 py-1 text-foreground/80 focus:outline-none focus:ring-1 focus:ring-primary/40"
-                  title="Applies to all keyframe segments"
-                >
-                  <SelectValue />
-                </SelectTrigger>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <SelectTrigger
+                      className="w-full h-auto text-[10px] bg-background border border-border/60 rounded px-1.5 py-1 text-foreground/80 focus:outline-none focus:ring-1 focus:ring-primary/40"
+                      aria-label="Applies to all keyframe segments"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Applies to all keyframe segments
+                  </TooltipContent>
+                </Tooltip>
                 <SelectContent>
                   {EASING_OPTIONS.map((opt) => (
                     <SelectItem key={opt.value} value={opt.value}>

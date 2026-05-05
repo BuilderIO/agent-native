@@ -4,6 +4,11 @@ import { IconStarFilled, IconCheck, IconClock } from "@tabler/icons-react";
 import type { EmailMessage } from "@shared/types";
 import type { ThreadSummary } from "@/lib/threads";
 import { useAccountFilter } from "@/hooks/use-account-filter";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface EmailListItemProps {
   email: EmailMessage;
@@ -471,18 +476,22 @@ export const EmailListItem = memo(function EmailListItem({
 
         {/* Hover actions — overlay on top of time */}
         <div className="hover-actions items-center gap-0.5">
-          <button
-            onClick={onStar}
-            className={cn(
-              "flex h-6 w-6 items-center justify-center rounded transition-colors",
-              isStarred
-                ? "text-amber-400"
-                : "text-muted-foreground hover:text-foreground hover:bg-accent",
-            )}
-            title="Pin"
-          >
-            <IconStarFilled className="h-3.5 w-3.5" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={onStar}
+                className={cn(
+                  "flex h-6 w-6 items-center justify-center rounded transition-colors",
+                  isStarred
+                    ? "text-amber-400"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent",
+                )}
+              >
+                <IconStarFilled className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Pin</TooltipContent>
+          </Tooltip>
         </div>
       </div>
     </div>

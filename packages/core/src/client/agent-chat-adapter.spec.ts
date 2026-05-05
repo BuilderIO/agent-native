@@ -227,6 +227,55 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("treats authentication failures as auth errors, not AI setup", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ error: "Authentication required" }, 401),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-auth",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "make a video" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:auth-error" }),
+    );
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:missing-api-key" }),
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("sends plan mode as request metadata without polluting the message", async () => {
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -719,5 +768,85 @@ describe("createAgentChatAdapter", () => {
       .map((part: any) => part.text)
       .join("");
     expect(finalText).not.toContain("checking the dashboard");
+  });
+
+  it("does not exhaust stalled recovery attempts while each continuation makes progress", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ error: "unexpected" }, 500);
+      }
+
+      postCount += 1;
+      if (postCount <= 9) {
+        const tool = `generate-chart-${postCount}`;
+        return sseResponse([
+          { type: "tool_start", tool, input: { chart: String(postCount) } },
+          { type: "tool_done", tool, result: `chart ${postCount} saved` },
+          {
+            type: "error",
+            error: "Builder gateway timed out after 45s",
+            errorCode: "builder_gateway_timeout",
+          },
+        ]);
+      }
+
+      return sseResponse([
+        { type: "text", text: "finished after progressive recovery" },
+        { type: "done" },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-progressive-recovery",
+      threadId: "thread-progressive-recovery",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "build a large dashboard" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    expect(postCount).toBe(10);
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:run-error" }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.content).toEqual([
+      ...Array.from({ length: 9 }, (_, index) =>
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: `generate-chart-${index + 1}`,
+          result: `chart ${index + 1} saved`,
+        }),
+      ),
+      { type: "text", text: "finished after progressive recovery" },
+    ]);
   });
 });

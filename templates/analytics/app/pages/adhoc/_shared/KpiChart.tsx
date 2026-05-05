@@ -18,6 +18,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { IconCode } from "@tabler/icons-react";
 import { formatDate } from "./format";
+import {
+  Tooltip as ShadcnTooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface KpiChartProps {
   title: string;
@@ -80,15 +85,19 @@ export function KpiChart({
               </span>
             )}
             {onEditSql && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onEditSql}
-                className="h-7 w-7 p-0"
-                title="Edit SQL Query"
-              >
-                <IconCode className="h-3.5 w-3.5" />
-              </Button>
+              <ShadcnTooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onEditSql}
+                    className="h-7 w-7 p-0"
+                  >
+                    <IconCode className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Edit SQL Query</TooltipContent>
+              </ShadcnTooltip>
             )}
           </div>
         </div>

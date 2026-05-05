@@ -9,6 +9,11 @@ import {
 import { cn } from "@/lib/utils";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { FeedbackButton, appPath } from "@agent-native/core/client";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const navItems = [
   { icon: IconStack2, label: "Decks", href: "/" },
@@ -35,34 +40,41 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
     return (
       <aside className="flex h-full w-12 shrink-0 flex-col items-center gap-1 border-r border-border bg-sidebar py-2 text-sidebar-foreground">
         {onToggleCollapsed && (
-          <button
-            onClick={onToggleCollapsed}
-            title="Expand sidebar"
-            aria-label="Expand sidebar"
-            className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
-          >
-            <IconLayoutSidebarLeftExpand className="h-4 w-4" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={onToggleCollapsed}
+                aria-label="Expand sidebar"
+                className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+              >
+                <IconLayoutSidebarLeftExpand className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Expand sidebar</TooltipContent>
+          </Tooltip>
         )}
         <nav className="flex flex-1 flex-col items-center gap-1 pt-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = isItemActive(item.href);
             return (
-              <Link
-                key={item.href}
-                to={item.href}
-                title={item.label}
-                aria-label={item.label}
-                className={cn(
-                  "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
-                )}
-              >
-                <Icon className="h-4 w-4" />
-              </Link>
+              <Tooltip key={item.href}>
+                <TooltipTrigger asChild>
+                  <Link
+                    to={item.href}
+                    aria-label={item.label}
+                    className={cn(
+                      "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
+                      isActive
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                        : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent>{item.label}</TooltipContent>
+              </Tooltip>
             );
           })}
         </nav>
@@ -89,14 +101,18 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
           <span className="text-sm font-semibold tracking-tight">Slides</span>
         </div>
         {onToggleCollapsed && (
-          <button
-            onClick={onToggleCollapsed}
-            title="Collapse sidebar"
-            aria-label="Collapse sidebar"
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
-          >
-            <IconLayoutSidebarLeftCollapse className="h-4 w-4" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={onToggleCollapsed}
+                aria-label="Collapse sidebar"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+              >
+                <IconLayoutSidebarLeftCollapse className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Collapse sidebar</TooltipContent>
+          </Tooltip>
         )}
       </div>
 

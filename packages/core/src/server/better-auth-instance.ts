@@ -21,6 +21,7 @@ import {
 import { getAppProductionUrl } from "./app-url.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
+import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
 import { identify, track } from "../tracking/index.js";
 import {
@@ -728,6 +729,18 @@ async function createBetterAuthInstance(
               // Never block signup on invite bookkeeping — log and continue.
               console.error(
                 "[auth] failed to auto-accept pending invitations",
+                err,
+              );
+            }
+            try {
+              // Auto-join orgs whose `allowed_domain` matches this email
+              // domain. Lets a fresh `@builder.io` (or any org-domain)
+              // signup land inside the company org on first page load
+              // without going through the picker. No-ops when no match.
+              await autoJoinDomainMatchingOrgs(email);
+            } catch (err) {
+              console.error(
+                "[auth] failed to auto-join domain-matching orgs",
                 err,
               );
             }

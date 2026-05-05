@@ -24,6 +24,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export type VideoPlayerHandle = {
   seekTo: (frame: number) => void;
@@ -361,39 +366,53 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           {/* Buttons + time */}
           <div className="flex items-center justify-between gap-1">
             <div className="flex items-center gap-0.5">
-              <button
-                onClick={restart}
-                title="Go to start"
-                aria-label="Go to start"
-                className="p-2.5 sm:p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary"
-              >
-                <IconPlayerSkipBack size={16} />
-              </button>
-              <button
-                onClick={togglePlay}
-                title={playing ? "Pause" : "Play"}
-                aria-label={playing ? "Pause" : "Play"}
-                className="p-2.5 sm:p-2 text-foreground hover:bg-secondary rounded-lg"
-              >
-                {playing ? (
-                  <IconPlayerPause size={18} />
-                ) : (
-                  <IconPlayerPlay size={18} />
-                )}
-              </button>
-              <button
-                onClick={() => setRepeat((r) => !r)}
-                title={repeat ? "Loop: on" : "Loop: off"}
-                aria-label={repeat ? "Disable loop" : "Enable loop"}
-                className={cn(
-                  "p-2.5 sm:p-2 rounded-lg hover:bg-secondary",
-                  repeat
-                    ? "text-primary"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <IconRepeat size={15} />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={restart}
+                    aria-label="Go to start"
+                    className="p-2.5 sm:p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary"
+                  >
+                    <IconPlayerSkipBack size={16} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Go to start</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={togglePlay}
+                    aria-label={playing ? "Pause" : "Play"}
+                    className="p-2.5 sm:p-2 text-foreground hover:bg-secondary rounded-lg"
+                  >
+                    {playing ? (
+                      <IconPlayerPause size={18} />
+                    ) : (
+                      <IconPlayerPlay size={18} />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{playing ? "Pause" : "Play"}</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setRepeat((r) => !r)}
+                    aria-label={repeat ? "Disable loop" : "Enable loop"}
+                    className={cn(
+                      "p-2.5 sm:p-2 rounded-lg hover:bg-secondary",
+                      repeat
+                        ? "text-primary"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <IconRepeat size={15} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {repeat ? "Loop: on" : "Loop: off"}
+                </TooltipContent>
+              </Tooltip>
             </div>
 
             <div className="flex items-center gap-1 sm:gap-2 flex-wrap justify-end">
@@ -419,12 +438,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 value={String(playbackRate)}
                 onValueChange={(val) => onPlaybackRateChange?.(parseFloat(val))}
               >
-                <SelectTrigger
-                  className="h-auto text-[10px] px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono cursor-pointer w-auto gap-1"
-                  title="Playback speed"
-                >
-                  <SelectValue />
-                </SelectTrigger>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <SelectTrigger
+                      className="h-auto text-[10px] px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono cursor-pointer w-auto gap-1"
+                      aria-label="Playback speed"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>Playback speed</TooltipContent>
+                </Tooltip>
                 <SelectContent>
                   <SelectItem value="0.25">0.25×</SelectItem>
                   <SelectItem value="0.5">0.5×</SelectItem>
@@ -436,18 +460,24 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 </SelectContent>
               </Select>
 
-              <button
-                onClick={toggleFullscreen}
-                title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-                aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-                className="p-2.5 sm:p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary"
-              >
-                {isFullscreen ? (
-                  <IconArrowsMinimize size={14} />
-                ) : (
-                  <IconArrowsMaximize size={14} />
-                )}
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={toggleFullscreen}
+                    aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                    className="p-2.5 sm:p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary"
+                  >
+                    {isFullscreen ? (
+                      <IconArrowsMinimize size={14} />
+                    ) : (
+                      <IconArrowsMaximize size={14} />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                </TooltipContent>
+              </Tooltip>
             </div>
           </div>
         </div>

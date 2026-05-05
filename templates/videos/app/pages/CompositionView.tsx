@@ -39,6 +39,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type CompositionViewProps = {
   onCameraKeyframeClick?: (trackType: "camera" | "cursor") => void;
@@ -449,71 +454,95 @@ export default function CompositionView({
 
           {/* Composition details */}
           <div className="flex items-center gap-1.5 sm:ml-auto flex-shrink-0 flex-wrap">
-            <button
-              onClick={onCompSettingsClick}
-              className="text-[10px] px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono cursor-pointer"
-              title="Click to edit output size"
-            >
-              {composition.width}x{composition.height}
-            </button>
-            <button
-              onClick={onCompSettingsClick}
-              className="text-[10px] px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono cursor-pointer"
-              title="Click to edit frame rate"
-            >
-              {composition.fps}fps
-            </button>
-            <button
-              onClick={onCompSettingsClick}
-              className="text-[10px] px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono cursor-pointer"
-              title="Click to edit duration"
-            >
-              {(composition.durationInFrames / composition.fps).toFixed(1)}s
-            </button>
-            <button
-              onClick={() => setTweaksVisible((v) => !v)}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium cursor-pointer",
-                tweaksVisible
-                  ? "bg-primary/10 text-primary border border-primary/30"
-                  : "bg-secondary/50 hover:bg-secondary text-muted-foreground border border-border/50",
-              )}
-              title="Toggle tweaks panel"
-            >
-              <IconAdjustments className="w-3.5 h-3.5" />
-              Tweaks
-            </button>
-            <button
-              onClick={handleSaveAsDefault}
-              disabled={!canSave}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium",
-                !canSave
-                  ? "bg-secondary/30 text-muted-foreground/40 border border-border/30 cursor-not-allowed"
-                  : hasUnsavedChanges
-                    ? "bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/30"
-                    : "bg-secondary/50 hover:bg-secondary text-muted-foreground border border-border/50",
-              )}
-              title={
-                !canSave
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onCompSettingsClick}
+                  className="text-[10px] px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono cursor-pointer"
+                >
+                  {composition.width}x{composition.height}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Click to edit output size</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onCompSettingsClick}
+                  className="text-[10px] px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono cursor-pointer"
+                >
+                  {composition.fps}fps
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Click to edit frame rate</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onCompSettingsClick}
+                  className="text-[10px] px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono cursor-pointer"
+                >
+                  {(composition.durationInFrames / composition.fps).toFixed(1)}s
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Click to edit duration</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setTweaksVisible((v) => !v)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium cursor-pointer",
+                    tweaksVisible
+                      ? "bg-primary/10 text-primary border border-primary/30"
+                      : "bg-secondary/50 hover:bg-secondary text-muted-foreground border border-border/50",
+                  )}
+                >
+                  <IconAdjustments className="w-3.5 h-3.5" />
+                  Tweaks
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Toggle tweaks panel</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={handleSaveAsDefault}
+                  disabled={!canSave}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium",
+                    !canSave
+                      ? "bg-secondary/30 text-muted-foreground/40 border border-border/30 cursor-not-allowed"
+                      : hasUnsavedChanges
+                        ? "bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/30"
+                        : "bg-secondary/50 hover:bg-secondary text-muted-foreground border border-border/50",
+                  )}
+                >
+                  <IconDeviceFloppy className="w-3.5 h-3.5" />
+                  Save
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {!canSave
                   ? "Save to registry requires local development mode"
                   : hasUnsavedChanges
                     ? "Save current settings as default for this composition"
                     : composition.storage === "database"
                       ? "All changes saved to database"
-                      : "All changes saved to registry"
-              }
-            >
-              <IconDeviceFloppy className="w-3.5 h-3.5" />
-              Save
-            </button>
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 border border-transparent hover:border-destructive/20"
-              title="Delete composition"
-            >
-              <IconTrash className="w-3.5 h-3.5" />
-            </button>
+                      : "All changes saved to registry"}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 border border-transparent hover:border-destructive/20"
+                >
+                  <IconTrash className="w-3.5 h-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Delete composition</TooltipContent>
+            </Tooltip>
           </div>
         </div>
 

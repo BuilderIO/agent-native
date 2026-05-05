@@ -27,6 +27,11 @@ import {
   buildDocumentTree,
 } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 function nanoid(size = 12): string {
   const chars =
@@ -197,20 +202,28 @@ export function DocumentSidebar({
   if (collapsed) {
     return (
       <div className="flex flex-col h-full w-12 border-r border-border bg-muted/30 items-center py-3 gap-1">
-        <button
-          className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-          onClick={onToggleCollapsed}
-          title="Expand sidebar"
-        >
-          <IconLayoutSidebarLeftExpand size={18} />
-        </button>
-        <button
-          className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-          onClick={() => handleCreatePage()}
-          title="New page"
-        >
-          <IconPlus size={16} />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
+              onClick={onToggleCollapsed}
+            >
+              <IconLayoutSidebarLeftExpand size={18} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Expand sidebar</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
+              onClick={() => handleCreatePage()}
+            >
+              <IconPlus size={16} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>New page</TooltipContent>
+        </Tooltip>
       </div>
     );
   }
@@ -243,20 +256,28 @@ export function DocumentSidebar({
           </span>
         </div>
         <div className="flex items-center gap-0.5">
-          <button
-            className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-            onClick={() => setIsSearching(!isSearching)}
-            title="Search"
-          >
-            <IconSearch size={16} />
-          </button>
-          <button
-            className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-            onClick={onToggleCollapsed}
-            title="Collapse sidebar"
-          >
-            <IconLayoutSidebarLeftCollapse size={16} />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
+                onClick={() => setIsSearching(!isSearching)}
+              >
+                <IconSearch size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Search</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
+                onClick={onToggleCollapsed}
+              >
+                <IconLayoutSidebarLeftCollapse size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Collapse sidebar</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 

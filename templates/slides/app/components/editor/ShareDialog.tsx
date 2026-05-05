@@ -15,6 +15,11 @@ import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
 import type { Deck } from "@/context/DeckContext";
 import { appBasePath } from "@agent-native/core/client";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface ShareDialogProps {
   deck: Deck;
@@ -158,18 +163,22 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
                       value={shareUrl}
                       className="flex-1 bg-accent/50 border border-border rounded-lg px-3 py-2 text-sm text-foreground/90 outline-none"
                     />
-                    <button
-                      onClick={handleCopy}
-                      className="flex-shrink-0 p-2 rounded-lg bg-accent hover:bg-accent border border-border transition-colors"
-                      title="Copy link"
-                      aria-label="Copy link"
-                    >
-                      {copied ? (
-                        <IconCheck className="w-4 h-4 text-green-400" />
-                      ) : (
-                        <IconCopy className="w-4 h-4 text-muted-foreground" />
-                      )}
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={handleCopy}
+                          className="flex-shrink-0 p-2 rounded-lg bg-accent hover:bg-accent border border-border transition-colors"
+                          aria-label="Copy link"
+                        >
+                          {copied ? (
+                            <IconCheck className="w-4 h-4 text-green-400" />
+                          ) : (
+                            <IconCopy className="w-4 h-4 text-muted-foreground" />
+                          )}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Copy link</TooltipContent>
+                    </Tooltip>
                   </div>
 
                   <a

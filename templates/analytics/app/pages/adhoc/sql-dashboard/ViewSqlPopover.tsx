@@ -9,6 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   IconAlertTriangle,
   IconCheck,
   IconCopy,
@@ -117,34 +122,42 @@ export function ViewSqlPopover({
           </div>
           <div className="flex items-center gap-1">
             {dirty && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={handleReset}
-                disabled={saving}
-                className="h-7 px-2 text-xs"
-                title="Discard changes"
-              >
-                <IconRotate className="h-3.5 w-3.5 mr-1" />
-                Reset
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleReset}
+                    disabled={saving}
+                    className="h-7 px-2 text-xs"
+                  >
+                    <IconRotate className="h-3.5 w-3.5 mr-1" />
+                    Reset
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Discard changes</TooltipContent>
+              </Tooltip>
             )}
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={handleCopy}
-              className="h-7 px-2 text-xs"
-              title={
-                showResolved && resolvedSql ? "Copy resolved SQL" : "Copy SQL"
-              }
-            >
-              {copied ? (
-                <IconCheck className="h-3.5 w-3.5 mr-1" />
-              ) : (
-                <IconCopy className="h-3.5 w-3.5 mr-1" />
-              )}
-              {copied ? "Copied" : "Copy"}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleCopy}
+                  className="h-7 px-2 text-xs"
+                >
+                  {copied ? (
+                    <IconCheck className="h-3.5 w-3.5 mr-1" />
+                  ) : (
+                    <IconCopy className="h-3.5 w-3.5 mr-1" />
+                  )}
+                  {copied ? "Copied" : "Copy"}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {showResolved && resolvedSql ? "Copy resolved SQL" : "Copy SQL"}
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
 

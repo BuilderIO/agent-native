@@ -11,6 +11,11 @@ import {
 } from "@tabler/icons-react";
 import type { IntegrationStatus } from "./useIntegrationStatus.js";
 import { agentNativePath } from "../api-path.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const platformIcons: Record<string, React.ComponentType<any>> = {
@@ -125,13 +130,21 @@ export function IntegrationCard({
                 <code className="flex-1 truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground">
                   {status.webhookUrl}
                 </code>
-                <button
-                  onClick={handleCopy}
-                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                  title="Copy webhook URL"
-                >
-                  {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={handleCopy}
+                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                    >
+                      {copied ? (
+                        <IconCheck size={12} />
+                      ) : (
+                        <IconCopy size={12} />
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Copy webhook URL</TooltipContent>
+                </Tooltip>
               </div>
             </div>
           )}

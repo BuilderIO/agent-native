@@ -1,6 +1,11 @@
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { formatMs } from "@/lib/timestamp-mapping";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export interface TimelineChapter {
   startMs: number;
@@ -154,16 +159,19 @@ export function Timeline({
           {chapters.map((c, i) => {
             const x = (c.startMs / Math.max(durationMs, 1)) * width;
             return (
-              <button
-                type="button"
-                key={`ch-${i}-${c.startMs}`}
-                onClick={() => onClickChapter?.(c)}
-                className="absolute top-0 h-full px-2 text-[10px] text-foreground/80 hover:bg-foreground/10 flex items-center border-l border-border"
-                style={{ left: x, maxWidth: 140 }}
-                title={`${c.title} · ${formatMs(c.startMs)}`}
-              >
-                <span className="truncate">{c.title}</span>
-              </button>
+              <Tooltip key={`ch-${i}-${c.startMs}`}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => onClickChapter?.(c)}
+                    className="absolute top-0 h-full px-2 text-[10px] text-foreground/80 hover:bg-foreground/10 flex items-center border-l border-border"
+                    style={{ left: x, maxWidth: 140 }}
+                  >
+                    <span className="truncate">{c.title}</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{`${c.title} · ${formatMs(c.startMs)}`}</TooltipContent>
+              </Tooltip>
             );
           })}
         </div>

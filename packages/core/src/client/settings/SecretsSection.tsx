@@ -16,6 +16,11 @@ import {
   IconTrash,
   IconRefresh,
 } from "@tabler/icons-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 
 interface SecretStatus {
   key: string;
@@ -706,14 +711,18 @@ function AdHocKeysSection() {
                     </button>
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmDeleteName(key.name)}
-                    className="text-muted-foreground hover:text-red-500"
-                    title="Delete"
-                  >
-                    <IconTrash size={12} />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteName(key.name)}
+                        className="text-muted-foreground hover:text-red-500"
+                      >
+                        <IconTrash size={12} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Delete</TooltipContent>
+                  </Tooltip>
                 )}
               </div>
             </div>

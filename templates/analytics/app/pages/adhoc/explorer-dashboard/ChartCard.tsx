@@ -28,6 +28,11 @@ import { buildSql } from "../explorer/sql-builder";
 import type { ExplorerConfig } from "../explorer/types";
 import type { DashboardChart } from "./index";
 import { appApiPath } from "@agent-native/core/client";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface ChartCardProps {
   chart: DashboardChart;
@@ -108,31 +113,45 @@ export function DashboardChartCard({
             {config?.name ?? configName}
           </CardTitle>
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button
-              onClick={onToggleWidth}
-              className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
-              title={chart.width === 2 ? "Half width" : "Full width"}
-            >
-              {chart.width === 2 ? (
-                <IconArrowsMinimize className="h-3.5 w-3.5" />
-              ) : (
-                <IconArrowsMaximize className="h-3.5 w-3.5" />
-              )}
-            </button>
-            <button
-              onClick={onEdit}
-              className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
-              title="Edit in Explorer"
-            >
-              <IconExternalLink className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={() => setConfirmOpen(true)}
-              className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
-              title="Remove chart"
-            >
-              <IconTrash className="h-3.5 w-3.5" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onToggleWidth}
+                  className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {chart.width === 2 ? (
+                    <IconArrowsMinimize className="h-3.5 w-3.5" />
+                  ) : (
+                    <IconArrowsMaximize className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {chart.width === 2 ? "Half width" : "Full width"}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onEdit}
+                  className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <IconExternalLink className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Edit in Explorer</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setConfirmOpen(true)}
+                  className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <IconTrash className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Remove chart</TooltipContent>
+            </Tooltip>
           </div>
         </CardHeader>
         <CardContent className="pt-0">

@@ -264,13 +264,17 @@ export function DocumentToolbar({
         variant="compact"
       />
 
-      <button
-        onClick={() => setHistoryOpen(true)}
-        className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-        title="Version history"
-      >
-        <IconHistory size={16} />
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => setHistoryOpen(true)}
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+          >
+            <IconHistory size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Version history</TooltipContent>
+      </Tooltip>
 
       <VersionHistoryPanel
         documentId={documentId}
@@ -279,40 +283,44 @@ export function DocumentToolbar({
       />
 
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <button
-            className={cn(
-              "flex h-9 w-9 items-center justify-center rounded-lg hover:bg-accent",
-              isLinked
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-            title={
-              isLinked
-                ? "Linked to Notion"
-                : isConnected
-                  ? "Link to Notion"
-                  : "Connect Notion"
-            }
-          >
-            {hasConflict ? (
-              <div className="relative">
-                <NotionIcon className="h-4 w-4" />
-                <IconAlertTriangle
-                  size={8}
-                  className="absolute -right-1 -top-1 text-amber-500"
-                />
-              </div>
-            ) : isLinked && autoSync ? (
-              <div className="relative">
-                <NotionIcon className="h-4 w-4" />
-                <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500" />
-              </div>
-            ) : (
-              <NotionIcon className="h-4 w-4" />
-            )}
-          </button>
-        </PopoverTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <button
+                className={cn(
+                  "flex h-9 w-9 items-center justify-center rounded-lg hover:bg-accent",
+                  isLinked
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {hasConflict ? (
+                  <div className="relative">
+                    <NotionIcon className="h-4 w-4" />
+                    <IconAlertTriangle
+                      size={8}
+                      className="absolute -right-1 -top-1 text-amber-500"
+                    />
+                  </div>
+                ) : isLinked && autoSync ? (
+                  <div className="relative">
+                    <NotionIcon className="h-4 w-4" />
+                    <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500" />
+                  </div>
+                ) : (
+                  <NotionIcon className="h-4 w-4" />
+                )}
+              </button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent>
+            {isLinked
+              ? "Linked to Notion"
+              : isConnected
+                ? "Link to Notion"
+                : "Connect Notion"}
+          </TooltipContent>
+        </Tooltip>
 
         <PopoverContent
           side="bottom"

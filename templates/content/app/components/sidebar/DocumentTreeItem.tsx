@@ -25,6 +25,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface DocumentTreeItemProps {
   node: DocumentTreeNode;
@@ -142,16 +147,20 @@ export function DocumentTreeItem({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <button
-            className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCreateChild(node.id);
-            }}
-            title="Add sub-page"
-          >
-            <IconPlus size={14} />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCreateChild(node.id);
+                }}
+              >
+                <IconPlus size={14} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Add sub-page</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 

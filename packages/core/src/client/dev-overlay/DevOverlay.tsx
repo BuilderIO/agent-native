@@ -43,6 +43,11 @@ import type {
   DevStringOption,
 } from "./types.js";
 import "./builtins.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 
 const PANEL_OPEN_KEY = `${DEV_OVERLAY_STORAGE_PREFIX}open`;
 const COLLAPSED_KEY_PREFIX = `${DEV_OVERLAY_STORAGE_PREFIX}collapsed-`;
@@ -109,15 +114,19 @@ function DevOverlayPanel({ onClose }: { onClose: () => void }) {
           <div style={styles.headerTitle}>Dev Overlay</div>
           <div style={styles.headerSub}>Cmd+Ctrl+A · localStorage-backed</div>
         </div>
-        <button
-          type="button"
-          style={styles.iconBtn}
-          onClick={onClose}
-          aria-label="Close"
-          title="Close (Esc)"
-        >
-          <IconX size={16} />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              style={styles.iconBtn}
+              onClick={onClose}
+              aria-label="Close"
+            >
+              <IconX size={16} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Close (Esc)</TooltipContent>
+        </Tooltip>
       </div>
 
       <div style={styles.body}>
@@ -132,17 +141,23 @@ function DevOverlayPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       <div style={styles.footer}>
-        <button
-          type="button"
-          style={{ ...styles.footerBtn, ...styles.footerBtnDanger }}
-          onClick={() => {
-            clearAllDevOverlayStorage();
-          }}
-          title="Reset every dev-overlay value back to its default"
-        >
-          <IconTrash size={13} />
-          Clear all dev-overlay values
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              style={{ ...styles.footerBtn, ...styles.footerBtnDanger }}
+              onClick={() => {
+                clearAllDevOverlayStorage();
+              }}
+            >
+              <IconTrash size={13} />
+              Clear all dev-overlay values
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            Reset every dev-overlay value back to its default
+          </TooltipContent>
+        </Tooltip>
       </div>
     </div>
   );

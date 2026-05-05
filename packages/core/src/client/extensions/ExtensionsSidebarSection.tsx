@@ -26,6 +26,11 @@ import {
   getToolsOrder,
   setToolsOrder,
 } from "./extension-order.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 
 interface Extension {
   id: string;
@@ -323,25 +328,29 @@ export function ExtensionsSidebarSection() {
                     "bg-accent/60",
                 )}
               >
-                <button
-                  type="button"
-                  draggable
-                  onDragStart={(e) => {
-                    setDraggingId(extension.id);
-                    setDragOverId(null);
-                    e.dataTransfer.effectAllowed = "move";
-                    e.dataTransfer.setData("text/plain", extension.id);
-                  }}
-                  onDragEnd={() => {
-                    setDraggingId(null);
-                    setDragOverId(null);
-                  }}
-                  className="-ml-2 cursor-grab rounded p-0.5 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/70 active:cursor-grabbing group-hover/extension:opacity-100 group-focus-within/extension:opacity-100"
-                  aria-label={`Reorder ${extension.name}`}
-                  title="Drag to reorder"
-                >
-                  <IconGripVertical className="h-3 w-3" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      draggable
+                      onDragStart={(e) => {
+                        setDraggingId(extension.id);
+                        setDragOverId(null);
+                        e.dataTransfer.effectAllowed = "move";
+                        e.dataTransfer.setData("text/plain", extension.id);
+                      }}
+                      onDragEnd={() => {
+                        setDraggingId(null);
+                        setDragOverId(null);
+                      }}
+                      className="-ml-2 cursor-grab rounded p-0.5 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/70 active:cursor-grabbing group-hover/extension:opacity-100 group-focus-within/extension:opacity-100"
+                      aria-label={`Reorder ${extension.name}`}
+                    >
+                      <IconGripVertical className="h-3 w-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Drag to reorder</TooltipContent>
+                </Tooltip>
                 <Link
                   to={`/extensions/${extension.id}`}
                   className={cn(

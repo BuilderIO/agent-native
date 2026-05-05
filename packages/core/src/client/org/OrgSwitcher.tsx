@@ -16,6 +16,7 @@ import {
   useCreateOrg,
   useInviteMember,
   useAcceptInvitation,
+  useJoinByDomain,
 } from "./hooks.js";
 import { agentNativePath } from "../api-path.js";
 
@@ -66,11 +67,13 @@ export function OrgSwitcher({
   const createOrg = useCreateOrg();
   const inviteMember = useInviteMember();
   const acceptInvitation = useAcceptInvitation();
+  const joinByDomain = useJoinByDomain();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<Mode>("list");
   const [newName, setNewName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [signingOut, setSigningOut] = useState(false);
+  const [joiningOrgId, setJoiningOrgId] = useState<string | null>(null);
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
@@ -103,14 +106,21 @@ export function OrgSwitcher({
 
   const orgs = org.orgs ?? [];
   const pendingInvitations = org.pendingInvitations ?? [];
+  const domainMatches = org.domainMatches ?? [];
   const orgCount = orgs.length;
-  const hasAny = orgCount > 0 || pendingInvitations.length > 0;
+  const hasAny =
+    orgCount > 0 || pendingInvitations.length > 0 || domainMatches.length > 0;
   if (!hasAny && !org.email) {
     return reserveSpace ? (
       <div aria-hidden="true" className={`h-8 ${className ?? ""}`} />
     ) : null;
   }
-  if (hideWhenSingle && orgCount < 2 && pendingInvitations.length === 0) {
+  if (
+    hideWhenSingle &&
+    orgCount < 2 &&
+    pendingInvitations.length === 0 &&
+    domainMatches.length === 0
+  ) {
     return reserveSpace ? (
       <div aria-hidden="true" className={`h-8 ${className ?? ""}`} />
     ) : null;
@@ -228,6 +238,52 @@ export function OrgSwitcher({
                 </>
               )}
 
+              {domainMatches.length > 0 && (
+                <>
+                  {(orgs.length > 0 || pendingInvitations.length > 0) && (
+                    <div className="my-1 h-px bg-border" />
+                  )}
+                  <div className={SECTION_LABEL_CLASS}>Join your team</div>
+                  {domainMatches.map((match) => {
+                    const isJoining =
+                      joinByDomain.isPending && joiningOrgId === match.orgId;
+                    return (
+                      <div
+                        key={match.orgId}
+                        className="flex items-center gap-2 px-2.5 py-1.5 text-xs"
+                      >
+                        <IconBuilding className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span className="truncate flex-1 text-foreground">
+                          {match.orgName}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setJoiningOrgId(match.orgId);
+                            try {
+                              await joinByDomain.mutateAsync(match.orgId);
+                              setOpen(false);
+                            } catch {
+                              /* error surfaced via joinByDomain.error */
+                            } finally {
+                              setJoiningOrgId(null);
+                            }
+                          }}
+                          disabled={joinByDomain.isPending}
+                          className="rounded px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/10 disabled:opacity-50 cursor-pointer"
+                        >
+                          {isJoining ? (
+                            <IconLoader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            "Join"
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+
               <div className="my-1 h-px bg-border" />
               <button
                 type="button"
@@ -270,11 +326,16 @@ export function OrgSwitcher({
                 </span>
               </button>
 
-              {(switchOrg.error || acceptInvitation.error) && (
+              {(switchOrg.error ||
+                acceptInvitation.error ||
+                joinByDomain.error) && (
                 <div className="px-2.5 pt-1 text-[11px] text-destructive">
                   {
-                    ((switchOrg.error || acceptInvitation.error) as Error)
-                      .message
+                    (
+                      (switchOrg.error ||
+                        acceptInvitation.error ||
+                        joinByDomain.error) as Error
+                    ).message
                   }
                 </div>
               )}

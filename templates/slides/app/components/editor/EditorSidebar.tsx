@@ -212,28 +212,36 @@ function SortableSlideThumb({
 
       {/* Actions - always visible on touch devices */}
       <div className="absolute top-2 right-2 flex gap-0.5 sm:opacity-0 sm:group-hover:opacity-100">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onDuplicate();
-          }}
-          className="p-1.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80"
-          title="Duplicate"
-          aria-label="Duplicate slide"
-        >
-          <IconCopy className="w-3 h-3 text-white/60" />
-        </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
-          className="p-1.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-red-900/80"
-          title="Delete"
-          aria-label="Delete slide"
-        >
-          <IconTrash className="w-3 h-3 text-white/60" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDuplicate();
+              }}
+              className="p-1.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80"
+              aria-label="Duplicate slide"
+            >
+              <IconCopy className="w-3 h-3 text-white/60" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Duplicate</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              className="p-1.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-red-900/80"
+              aria-label="Delete slide"
+            >
+              <IconTrash className="w-3 h-3 text-white/60" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Delete</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   );
@@ -460,15 +468,19 @@ export default function EditorSidebar({
         {addSlideGenerating ? (
           <IconLoader2 className="w-4 h-4 text-muted-foreground animate-spin" />
         ) : (
-          <button
-            ref={headerAddRef}
-            onClick={() => setAddOpen(!addOpen)}
-            className="p-2 rounded-md hover:bg-accent transition-colors"
-            title="Add slides"
-            aria-label="Add slides"
-          >
-            <IconPlus className="w-4 h-4 text-muted-foreground" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                ref={headerAddRef}
+                onClick={() => setAddOpen(!addOpen)}
+                className="p-2 rounded-md hover:bg-accent transition-colors"
+                aria-label="Add slides"
+              >
+                <IconPlus className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Add slides</TooltipContent>
+          </Tooltip>
         )}
       </div>
 

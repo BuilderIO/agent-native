@@ -25,6 +25,11 @@ import { cn } from "@/lib/utils";
 import { ShareButton } from "@agent-native/core/client";
 import { SaveStatusIndicator } from "@/components/visual-editor";
 import type { ViewportTab } from "./types";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export type EditorMode = "comment" | "edit" | "draw";
 
@@ -189,36 +194,44 @@ export function DesignToolbar({
 
       {/* Draw on canvas */}
       {onToggleDrawMode && (
-        <Button
-          variant="ghost"
-          size="icon"
-          data-toolbar-draw-button
-          className={cn(
-            "h-8 w-8 cursor-pointer",
-            drawMode && "bg-muted text-foreground",
-          )}
-          onClick={onToggleDrawMode}
-          title="Draw on canvas"
-        >
-          <IconPencilPlus className="h-4 w-4" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              data-toolbar-draw-button
+              className={cn(
+                "h-8 w-8 cursor-pointer",
+                drawMode && "bg-muted text-foreground",
+              )}
+              onClick={onToggleDrawMode}
+            >
+              <IconPencilPlus className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Draw on canvas</TooltipContent>
+        </Tooltip>
       )}
 
       {/* Drop comment pin */}
       {onTogglePinMode && (
-        <Button
-          variant="ghost"
-          size="icon"
-          data-toolbar-pin-button
-          className={cn(
-            "h-8 w-8 cursor-pointer",
-            pinMode && "bg-muted text-foreground",
-          )}
-          onClick={onTogglePinMode}
-          title="Drop comment pin"
-        >
-          <IconPin className="h-4 w-4" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              data-toolbar-pin-button
+              className={cn(
+                "h-8 w-8 cursor-pointer",
+                pinMode && "bg-muted text-foreground",
+              )}
+              onClick={onTogglePinMode}
+            >
+              <IconPin className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Drop comment pin</TooltipContent>
+        </Tooltip>
       )}
 
       {/* Save status */}
@@ -227,19 +240,22 @@ export function DesignToolbar({
       {/* Mode switcher */}
       <div className="flex overflow-hidden rounded-md border border-border">
         {MODE_ITEMS.map(({ mode: m, icon: Icon, label }) => (
-          <button
-            key={m}
-            onClick={() => onModeChange(m)}
-            title={label}
-            className={cn(
-              "cursor-pointer px-2 py-1.5",
-              mode === m
-                ? "bg-muted text-foreground"
-                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-            )}
-          >
-            <Icon className="h-3.5 w-3.5" />
-          </button>
+          <Tooltip key={m}>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => onModeChange(m)}
+                className={cn(
+                  "cursor-pointer px-2 py-1.5",
+                  mode === m
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{label}</TooltipContent>
+          </Tooltip>
         ))}
       </div>
 

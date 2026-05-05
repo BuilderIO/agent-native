@@ -38,6 +38,11 @@ import {
   type DashboardView,
 } from "@/hooks/use-dashboard-views";
 import { FILTER_PARAM_PREFIX } from "./DashboardFilterBar";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface ViewsMenuProps {
   dashboardId: string;
@@ -151,18 +156,18 @@ export function ViewsMenu({ dashboardId }: ViewsMenuProps) {
   return (
     <>
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 text-xs gap-1.5"
-            title="Saved views"
-          >
-            <IconLayoutGrid className="h-3.5 w-3.5" />
-            <span className="max-w-[160px] truncate">{triggerLabel}</span>
-            <IconChevronDown className="h-3 w-3 opacity-60" />
-          </Button>
-        </DropdownMenuTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5">
+                <IconLayoutGrid className="h-3.5 w-3.5" />
+                <span className="max-w-[160px] truncate">{triggerLabel}</span>
+                <IconChevronDown className="h-3 w-3 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Saved views</TooltipContent>
+        </Tooltip>
         <DropdownMenuContent align="start" className="w-60">
           <DropdownMenuLabel className="text-xs text-muted-foreground">
             Saved views
@@ -182,20 +187,24 @@ export function ViewsMenu({ dashboardId }: ViewsMenuProps) {
                 }}
               >
                 <span className="truncate flex-1">{v.name}</span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-5 w-5 shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setDeleteTarget(v);
-                    setMenuOpen(false);
-                  }}
-                  title={`Delete ${v.name}`}
-                >
-                  <IconTrash className="h-3 w-3" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDeleteTarget(v);
+                        setMenuOpen(false);
+                      }}
+                    >
+                      <IconTrash className="h-3 w-3" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{`Delete ${v.name}`}</TooltipContent>
+                </Tooltip>
               </DropdownMenuItem>
             ))
           )}

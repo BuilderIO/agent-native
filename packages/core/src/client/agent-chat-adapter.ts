@@ -22,7 +22,8 @@ const AUTO_CONTINUE_PROMPT =
   "Continue from where you left off and finish the user's original request. Do not repeat completed work, do not mention internal reconnects, time limits, or step limits, and continue as if this is the same uninterrupted run.";
 const MAX_RECONNECT_ATTEMPTS = 5;
 const MAX_STARTUP_RECOVERY_ATTEMPTS = 8;
-const MAX_TRANSIENT_CONTINUATIONS = 8;
+const MAX_STALLED_TRANSIENT_CONTINUATIONS = 8;
+const MAX_TOTAL_TRANSIENT_CONTINUATIONS = 32;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 8_000;
 
@@ -68,6 +69,14 @@ function visibleTransientContinuationContent(
 ): ContentPart[] {
   return content.filter(
     (part) => part.type === "tool-call" && part.result !== undefined,
+  );
+}
+
+function hasContinuationProgress(content: ContentPart[]): boolean {
+  return content.some((part) =>
+    part.type === "text"
+      ? part.text.trim().length > 0
+      : part.result !== undefined,
   );
 }
 
@@ -158,6 +167,33 @@ function isRetryableStartupError(message: string): boolean {
     msg.includes("503") ||
     msg.includes("504") ||
     msg.includes("529")
+  );
+}
+
+function isAuthErrorMessage(message: string): boolean {
+  const msg = message.toLowerCase();
+  return (
+    msg.includes("authentication required") ||
+    msg.includes("unauthorized") ||
+    msg.includes("not authenticated") ||
+    msg.includes("session expired") ||
+    msg.includes("401") ||
+    msg.includes("403") ||
+    msg.includes("405")
+  );
+}
+
+function isMissingCredentialMessage(message: string): boolean {
+  const msg = message.toLowerCase();
+  return (
+    msg.includes("apikey") ||
+    msg.includes("authtoken") ||
+    msg.includes("anthropic_api_key") ||
+    msg.includes("missing_api_key") ||
+    msg.includes("missing api key") ||
+    msg.includes("missing credentials") ||
+    msg.includes("no llm provider") ||
+    msg.includes("llm provider is connected")
   );
 }
 
@@ -296,7 +332,8 @@ export function createAgentChatAdapter(options?: {
       let includeAttachments = attachments.length > 0;
       let includeReferences = Boolean(runConfig?.custom?.references);
       let startupRecoveryAttempts = 0;
-      let transientContinuationAttempts = 0;
+      let stalledTransientContinuationAttempts = 0;
+      let totalTransientContinuationAttempts = 0;
       const continuationHistoryFragments: string[] = [];
       let visibleContinuationPrefix: ContentPart[] = [];
 
@@ -428,16 +465,28 @@ export function createAgentChatAdapter(options?: {
           signal: AgentAutoContinueSignal,
         ): { ok: boolean; resetVisibleContent: boolean } => {
           const isTransient = signal.reason !== "loop_limit";
+          const visibleContent = visibleContentForContinuation();
+          const currentPartialHistory =
+            contentToContinuationHistory(visibleContent);
+          const madeProgress = hasContinuationProgress(visibleContent);
+
           if (signal.reason === "loop_limit") {
-            transientContinuationAttempts = 0;
-          } else if (
-            ++transientContinuationAttempts > MAX_TRANSIENT_CONTINUATIONS
-          ) {
-            return { ok: false, resetVisibleContent: false };
+            stalledTransientContinuationAttempts = 0;
+          } else {
+            totalTransientContinuationAttempts += 1;
+            stalledTransientContinuationAttempts = madeProgress
+              ? 0
+              : stalledTransientContinuationAttempts + 1;
+            if (
+              stalledTransientContinuationAttempts >
+                MAX_STALLED_TRANSIENT_CONTINUATIONS ||
+              totalTransientContinuationAttempts >
+                MAX_TOTAL_TRANSIENT_CONTINUATIONS
+            ) {
+              return { ok: false, resetVisibleContent: false };
+            }
           }
-          const currentPartialHistory = contentToContinuationHistory(
-            visibleContentForContinuation(),
-          );
+
           if (isTransient && currentPartialHistory) {
             continuationHistoryFragments.push(currentPartialHistory);
           }
@@ -539,6 +588,25 @@ export function createAgentChatAdapter(options?: {
                 }
               }
 
+              if (res.status === 401 || res.status === 403) {
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(
+                    new CustomEvent("agent-chat:auth-error", {
+                      detail: { reason: "auth-required" },
+                    }),
+                  );
+                }
+                content.push({ type: "text", text: "" });
+                yield {
+                  content: [...content],
+                  status: {
+                    type: "incomplete" as const,
+                    reason: "error" as const,
+                  },
+                } as ChatModelRunResult;
+                return;
+              }
+
               // 405 Method Not Allowed usually means the session is broken/expired
               // (e.g. a redirect to a login page that only accepts GET).
               if (res.status === 405) {
@@ -563,12 +631,25 @@ export function createAgentChatAdapter(options?: {
               let errorText = `Server error: ${res.status}`;
               try {
                 const body = await res.text();
-                if (
-                  body.includes("apiKey") ||
-                  body.includes("authToken") ||
-                  body.includes("ANTHROPIC_API_KEY") ||
-                  body.includes("authentication")
-                ) {
+                if (isAuthErrorMessage(body)) {
+                  if (typeof window !== "undefined") {
+                    window.dispatchEvent(
+                      new CustomEvent("agent-chat:auth-error", {
+                        detail: { reason: "auth-required" },
+                      }),
+                    );
+                  }
+                  content.push({ type: "text", text: "" });
+                  yield {
+                    content: [...content],
+                    status: {
+                      type: "incomplete" as const,
+                      reason: "error" as const,
+                    },
+                  } as ChatModelRunResult;
+                  return;
+                }
+                if (isMissingCredentialMessage(body)) {
                   if (typeof window !== "undefined") {
                     window.dispatchEvent(
                       new Event("agent-chat:missing-api-key"),
@@ -683,17 +764,28 @@ export function createAgentChatAdapter(options?: {
 
             const errMsg =
               err instanceof Error ? err.message : "Something went wrong.";
-            const isAuthError =
-              errMsg.includes("Unauthorized") ||
-              errMsg.includes("Not authenticated") ||
-              errMsg.includes("401") ||
-              errMsg.includes("403") ||
-              errMsg.includes("405");
+            const isAuthError = isAuthErrorMessage(errMsg);
 
             // Don't try to reconnect for auth/client errors — show error directly
             if (isAuthError) {
               if (typeof window !== "undefined") {
                 window.dispatchEvent(new Event("agent-chat:auth-error"));
+              }
+              content.push({ type: "text", text: "" });
+              yield {
+                content: [...content],
+                status: {
+                  type: "incomplete" as const,
+                  reason: "error" as const,
+                },
+              };
+              clearActiveRun();
+              return;
+            }
+
+            if (isMissingCredentialMessage(errMsg)) {
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(new Event("agent-chat:missing-api-key"));
               }
               content.push({ type: "text", text: "" });
               yield {
