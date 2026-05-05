@@ -140,13 +140,10 @@ jobs:
           # package actually present in the workspace. Catches the class of
           # bug Sami hit: a template depended on @agent-native/dispatch
           # (a published package, not a workspace member) and `pnpm install`
-          # blew up with ERR_PNPM_WORKSPACE_PKG_NOT_FOUND. We allow
-          # workspace:* for @<workspace-scope>/* (the shared package).
+          # blew up with ERR_PNPM_WORKSPACE_PKG_NOT_FOUND.
           node -e '
             const fs = require("fs");
             const path = require("path");
-            const wsPkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-            const wsScope = wsPkg.name ? "@" + wsPkg.name + "/" : "";
             const wsMembers = new Set();
             for (const dir of ["apps", "packages"]) {
               if (!fs.existsSync(dir)) continue;
@@ -168,7 +165,6 @@ jobs:
                 for (const dt of ["dependencies","devDependencies","peerDependencies"]) {
                   for (const [name, ver] of Object.entries(pkg[dt] || {})) {
                     if (typeof ver === "string" && ver.startsWith("workspace:")) {
-                      if (wsScope && name.startsWith(wsScope)) continue;
                       if (!wsMembers.has(name)) {
                         offenders.push(pj + ": " + dt + "." + name + "=" + ver);
                       }
