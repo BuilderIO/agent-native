@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.8.1
+
+### Patch Changes
+
+- e3a8798: Recover agent chat runs automatically when streams time out, disconnect, or stay open without producing progress.
+
 ## 0.8.0
 
 ### Minor Changes
