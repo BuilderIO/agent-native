@@ -59,14 +59,33 @@ export async function resolveGoogleRealtimeCredentials(opts: {
   userEmail?: string | null;
   orgId?: string | null;
 }): Promise<string | null> {
+  const secretRefs: Array<{
+    scope: "user" | "org" | "workspace";
+    scopeId: string;
+  }> = [];
   if (opts.userEmail) {
-    const userSecret = await readAppSecret({
+    secretRefs.push({ scope: "user", scopeId: opts.userEmail });
+    if (opts.orgId) {
+      secretRefs.push(
+        { scope: "org", scopeId: opts.orgId },
+        { scope: "workspace", scopeId: opts.orgId },
+      );
+    } else {
+      secretRefs.push({
+        scope: "workspace",
+        scopeId: `solo:${opts.userEmail}`,
+      });
+    }
+  }
+
+  for (const ref of secretRefs) {
+    const secret = await readAppSecret({
       key: "GOOGLE_APPLICATION_CREDENTIALS",
-      scope: "user",
-      scopeId: opts.userEmail,
+      scope: ref.scope,
+      scopeId: ref.scopeId,
     }).catch(() => null);
-    const fromUserSecret = userSecret?.value?.trim();
-    if (fromUserSecret) return fromUserSecret;
+    const fromSecret = secret?.value?.trim();
+    if (fromSecret) return fromSecret;
   }
 
   const stored = await resolveCredential("GOOGLE_APPLICATION_CREDENTIALS", {

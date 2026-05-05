@@ -6,10 +6,8 @@
  * `{ error }` on failure.
  *
  * Key resolution order for BYOK providers:
- *   1. User-scoped encrypted secret (`readAppSecret` — set via the sidebar
- *      settings UI).
- *   2. `resolveCredential("<PROVIDER>_API_KEY")` — env var + SQL settings
- *      store.
+ *   1. Request-scoped encrypted secret (`app_secrets`: user, org, workspace).
+ *   2. Env var fallback only outside authenticated request contexts.
  *
  * If no server provider is configured, returns 400 with an error the
  * composer UI can surface (the client falls back to Web Speech when possible).
@@ -27,11 +25,12 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { readAppSecret } from "../secrets/storage.js";
-import { resolveCredential } from "../credentials/index.js";
 import { getSession } from "./auth.js";
 import { appStateGet } from "../application-state/store.js";
-import { resolveHasBuilderPrivateKey } from "./credential-provider.js";
+import {
+  resolveHasBuilderPrivateKey,
+  resolveSecret,
+} from "./credential-provider.js";
 import { transcribeWithBuilder } from "../transcription/builder-transcription.js";
 import { runWithRequestContext } from "./request-context.js";
 import { getOrgContext } from "../org/context.js";
@@ -226,17 +225,7 @@ export function createTranscribeVoiceHandler() {
     // Per-user-or-fallback API key resolution. Hoisted up so the Gemini
     // path below can use it without duplicating logic.
     async function resolveApiKey(key: string): Promise<string | undefined> {
-      const ctx = { userEmail: session?.email };
-      if (!session?.email)
-        return (await resolveCredential(key, ctx)) ?? undefined;
-      const userSecret = await readAppSecret({
-        key,
-        scope: "user",
-        scopeId: session.email,
-      }).catch(() => null);
-      return (
-        userSecret?.value || (await resolveCredential(key, ctx)) || undefined
-      );
+      return (await withRequestContext(() => resolveSecret(key))) ?? undefined;
     }
 
     if (transcriptText) {
