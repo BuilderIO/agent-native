@@ -336,6 +336,23 @@ export function createAgentChatAdapter(options?: {
       let totalTransientContinuationAttempts = 0;
       const continuationHistoryFragments: string[] = [];
       let visibleContinuationPrefix: ContentPart[] = [];
+      let lastAutoContinueReason: string | null = null;
+      const attemptedRunIds: string[] = [];
+
+      const connectionRecoveryDetails = (): string => {
+        return [
+          lastAutoContinueReason
+            ? `last_auto_continue_reason: ${lastAutoContinueReason}`
+            : "",
+          `stalled_transient_continuations: ${stalledTransientContinuationAttempts}`,
+          `total_transient_continuations: ${totalTransientContinuationAttempts}`,
+          attemptedRunIds.length > 0
+            ? `attempted_runs: ${attemptedRunIds.join(", ")}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+      };
 
       try {
         const headers: Record<string, string> = {
@@ -429,6 +446,9 @@ export function createAgentChatAdapter(options?: {
               if (active?.active && active.runId) {
                 const activeRunId = String(active.runId);
                 runId = activeRunId;
+                if (!attemptedRunIds.includes(activeRunId)) {
+                  attemptedRunIds.push(activeRunId);
+                }
                 lastSeq = -1;
                 setActiveRun({ threadId, runId: activeRunId, lastSeq: -1 });
                 const reconnected = yield* reconnectCurrentRun();
@@ -464,6 +484,7 @@ export function createAgentChatAdapter(options?: {
         const prepareAutoContinuation = (
           signal: AgentAutoContinueSignal,
         ): { ok: boolean; resetVisibleContent: boolean } => {
+          lastAutoContinueReason = signal.reason;
           const isTransient = signal.reason !== "loop_limit";
           const visibleContent = visibleContentForContinuation();
           const currentPartialHistory =
@@ -571,6 +592,9 @@ export function createAgentChatAdapter(options?: {
                   if (body?.activeRunId) {
                     handledConflict = true;
                     runId = String(body.activeRunId);
+                    if (!attemptedRunIds.includes(runId)) {
+                      attemptedRunIds.push(runId);
+                    }
                     lastSeq = -1;
                     if (threadId) {
                       setActiveRun({ threadId, runId, lastSeq: -1 });
@@ -680,6 +704,9 @@ export function createAgentChatAdapter(options?: {
 
             // Track the run ID for reconnection
             runId = res.headers.get("X-Run-Id");
+            if (runId && !attemptedRunIds.includes(runId)) {
+              attemptedRunIds.push(runId);
+            }
             if (runId && threadId) {
               setActiveRun({ threadId, runId, lastSeq: -1 });
             }
@@ -724,6 +751,7 @@ export function createAgentChatAdapter(options?: {
                   "The agent connection kept failing after several automatic recovery attempts.";
                 const runError = {
                   message,
+                  details: connectionRecoveryDetails(),
                   errorCode: "connection_error",
                   recoverable: true,
                   ...(runId ? { runId } : {}),
@@ -816,6 +844,7 @@ export function createAgentChatAdapter(options?: {
                   "The agent connection kept failing after several automatic recovery attempts.";
                 const runError = {
                   message,
+                  details: connectionRecoveryDetails(),
                   errorCode: "connection_error",
                   recoverable: true,
                   ...(runId ? { runId } : {}),

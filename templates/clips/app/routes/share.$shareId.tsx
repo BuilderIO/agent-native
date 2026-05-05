@@ -18,6 +18,7 @@ import { CommentsPanel } from "@/components/player/comments-panel";
 import { ReactionsTray } from "@/components/player/reactions-tray";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
+import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { Button } from "@/components/ui/button";
@@ -209,6 +210,11 @@ export default function ShareRoute() {
     const message = explicitFailure
       ? ((recording as any).failureReason ?? "The creator may need to retry.")
       : "Uploading and assembling the video. This page will update automatically.";
+    const storageSetupFailure =
+      explicitFailure &&
+      /file upload provider|storage provider|connect builder|s3-compatible/i.test(
+        message,
+      );
 
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground px-6">
@@ -227,14 +233,25 @@ export default function ShareRoute() {
             />
           </div>
         ) : null}
-        <Button
-          onClick={() => dataQ.refetch()}
-          variant="outline"
-          size="sm"
-          className="border-foreground/20 bg-muted/50 hover:bg-accent text-foreground"
-        >
-          Check again
-        </Button>
+        {storageSetupFailure ? (
+          <div className="mb-4 w-full">
+            <StorageSetupCard
+              title="Connect storage to finish saving"
+              description="If this is your clip, connect Builder.io here and this page will check again."
+              onConfigured={() => dataQ.refetch()}
+            />
+          </div>
+        ) : null}
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => dataQ.refetch()}
+            variant="outline"
+            size="sm"
+            className="border-foreground/20 bg-muted/50 hover:bg-accent text-foreground"
+          >
+            Check again
+          </Button>
+        </div>
       </div>
     );
   }

@@ -18,7 +18,27 @@
  * (e.g. additional Builder-hosted services) without rewrites.
  */
 
-import { getRequestUserEmail } from "./request-context.js";
+import { getRequestUserEmail, getRequestOrgId } from "./request-context.js";
+
+/**
+ * Decide which `app_secrets` scope a Builder/credential write should use.
+ *
+ * Org scope ("everyone in this org sees these credentials") wins when the
+ * connecting user is an owner or admin of an active org — the write
+ * privileges shared infra. A plain member or a user without an active
+ * org falls through to per-user scope so a teammate can't silently
+ * overwrite the org-shared connection.
+ */
+export function resolveCredentialWriteScope(
+  email: string,
+  orgId: string | null | undefined,
+  role: string | null | undefined,
+): { scope: "user" | "org"; scopeId: string } {
+  if (orgId && (role === "owner" || role === "admin")) {
+    return { scope: "org", scopeId: orgId };
+  }
+  return { scope: "user", scopeId: email };
+}
 
 export class FeatureNotConfiguredError extends Error {
   readonly requiredCredential: string;
@@ -82,20 +102,37 @@ export async function resolveBuilderCredential(
   const envValue = readDeployCredentialEnv(key);
   if (envValue) return envValue;
 
-  // No env value: per-user OAuth fallback.
   const email = getRequestUserEmail();
-  if (email) {
-    try {
-      const { readAppSecret } = await import("../secrets/storage.js");
-      const secret = await readAppSecret({
+  if (!email) return null;
+
+  try {
+    const { readAppSecret } = await import("../secrets/storage.js");
+
+    // 1. Per-user override: a user can paste their own key in settings to
+    //    overrule the org-shared one (handy for a personal sandbox).
+    const userSecret = await readAppSecret({
+      key,
+      scope: "user",
+      scopeId: email,
+    });
+    if (userSecret) return userSecret.value;
+
+    // 2. Per-org shared credential: when one teammate connects Builder
+    //    as an owner/admin we write the OAuth result at org scope so
+    //    every member of that org gets the AI chat working without
+    //    re-running the connect flow. Resolution falls back here
+    //    silently — the caller never has to know which scope answered.
+    const orgId = getRequestOrgId();
+    if (orgId) {
+      const orgSecret = await readAppSecret({
         key,
-        scope: "user",
-        scopeId: email,
+        scope: "org",
+        scopeId: orgId,
       });
-      if (secret) return secret.value;
-    } catch {
-      // Secrets table not ready — treat as missing.
+      if (orgSecret) return orgSecret.value;
     }
+  } catch {
+    // Secrets table not ready — treat as missing.
   }
   return null;
 }
@@ -159,8 +196,27 @@ export async function resolveBuilderCredentials(): Promise<{
   return { privateKey, publicKey, userId, orgName, orgKind };
 }
 
+const BUILDER_CREDENTIAL_KEYS = [
+  "BUILDER_PRIVATE_KEY",
+  "BUILDER_PUBLIC_KEY",
+  "BUILDER_USER_ID",
+  "BUILDER_ORG_NAME",
+  "BUILDER_ORG_KIND",
+] as const;
+
 /**
- * Write Builder credentials for the current user to per-user app_secrets.
+ * Write Builder credentials to `app_secrets`.
+ *
+ * Scope decision (see `resolveCredentialWriteScope`): when the connecting
+ * user is owner/admin of an active org we write at `scope: "org"` so every
+ * member of that org auto-resolves the credentials via
+ * `resolveBuilderCredential`'s org fallback — no per-user re-connect
+ * needed. A plain member or a user with no active org writes at
+ * `scope: "user"` (the safe default that doesn't trample the org's shared
+ * connection).
+ *
+ * Returns the actual scope/scopeId used so the caller can show "Connected
+ * for Builder.io" vs "Connected (personal)" in the UI.
  */
 export async function writeBuilderCredentials(
   email: string,
@@ -171,8 +227,15 @@ export async function writeBuilderCredentials(
     orgName?: string | null;
     orgKind?: string | null;
   },
-): Promise<void> {
+  options?: { orgId?: string | null; role?: string | null },
+): Promise<{ scope: "user" | "org"; scopeId: string }> {
   const { writeAppSecret } = await import("../secrets/storage.js");
+  const target = resolveCredentialWriteScope(
+    email,
+    options?.orgId ?? null,
+    options?.role ?? null,
+  );
+
   const entries: Array<{ key: string; value: string }> = [
     { key: "BUILDER_PRIVATE_KEY", value: creds.privateKey },
     { key: "BUILDER_PUBLIC_KEY", value: creds.publicKey },
@@ -188,28 +251,47 @@ export async function writeBuilderCredentials(
   }
   await Promise.all(
     entries.map(({ key, value }) =>
-      writeAppSecret({ key, value, scope: "user", scopeId: email }),
+      writeAppSecret({
+        key,
+        value,
+        scope: target.scope,
+        scopeId: target.scopeId,
+      }),
     ),
   );
+  return target;
 }
 
 /**
- * Delete Builder credentials for the current user from app_secrets.
+ * Delete Builder credentials.
+ *
+ * Default behaviour: clears only this user's per-user override (so a
+ * member can disconnect their personal Builder identity without
+ * collapsing the org-wide connection for every teammate). To revoke the
+ * org's shared connection, pass `{ orgId, role }` for an owner/admin —
+ * matching the same authority gate `writeBuilderCredentials` uses on
+ * write. Plain members can never reach the org-scoped row.
  */
-export async function deleteBuilderCredentials(email: string): Promise<void> {
+export async function deleteBuilderCredentials(
+  email: string,
+  options?: { orgId?: string | null; role?: string | null },
+): Promise<{ scope: "user" | "org"; scopeId: string }> {
   const { deleteAppSecret } = await import("../secrets/storage.js");
-  const keys = [
-    "BUILDER_PRIVATE_KEY",
-    "BUILDER_PUBLIC_KEY",
-    "BUILDER_USER_ID",
-    "BUILDER_ORG_NAME",
-    "BUILDER_ORG_KIND",
-  ];
+  const target = resolveCredentialWriteScope(
+    email,
+    options?.orgId ?? null,
+    options?.role ?? null,
+  );
   await Promise.all(
-    keys.map((key) =>
-      deleteAppSecret({ key, scope: "user", scopeId: email }).catch(() => {}),
+    BUILDER_CREDENTIAL_KEYS.map((key) =>
+      deleteAppSecret({
+        key,
+        scope: target.scope,
+        scopeId: target.scopeId,
+      }).catch(() => {}),
     ),
   );
+  return target;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,12 +316,26 @@ export async function resolveSecret(key: string): Promise<string | null> {
   if (email) {
     try {
       const { readAppSecret } = await import("../secrets/storage.js");
-      const secret = await readAppSecret({
+      // Per-user override first.
+      const userSecret = await readAppSecret({
         key,
         scope: "user",
         scopeId: email,
       });
-      if (secret?.value) return secret.value;
+      if (userSecret?.value) return userSecret.value;
+
+      // Fall back to the active org's shared row, when present. Lets a
+      // teammate set up an integration once and everyone in that org
+      // benefits without each member pasting the key.
+      const orgId = getRequestOrgId();
+      if (orgId) {
+        const orgSecret = await readAppSecret({
+          key,
+          scope: "org",
+          scopeId: orgId,
+        });
+        if (orgSecret?.value) return orgSecret.value;
+      }
     } catch {
       // Secrets table not ready — treat as missing.
     }

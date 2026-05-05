@@ -188,6 +188,14 @@ function assertWorkspaceApp(
   assert.equal(pkg.dependencies[workspaceCoreName], "workspace:*");
 }
 
+function assertDispatchPackageDependency(pkg: any, context: string): void {
+  assert.equal(
+    pkg.dependencies["@agent-native/dispatch"],
+    "latest",
+    `${context} must resolve @agent-native/dispatch from npm`,
+  );
+}
+
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-cli-smoke-"));
 
 try {
@@ -242,13 +250,7 @@ try {
   );
   assertNoWorkspaceProtocolDeps(dispatchPkg);
   assertScaffoldBasics(dispatchDir);
-  assert.equal(
-    fs.existsSync(
-      path.join(dispatchDir, "actions", "send-platform-message.ts"),
-    ),
-    true,
-    "dispatch standalone scaffold must include dispatch actions",
-  );
+  assertDispatchPackageDependency(dispatchPkg, "dispatch standalone scaffold");
 
   const workspaceOutput = runCli(
     ["create", "qa-workspace", "--template=starter,dispatch,calendar"],
@@ -288,6 +290,10 @@ try {
   assertWorkspaceApp(workspaceDir, "starter", workspaceCoreName);
   assertWorkspaceApp(workspaceDir, "dispatch", workspaceCoreName);
   assertWorkspaceApp(workspaceDir, "calendar", workspaceCoreName);
+  assertDispatchPackageDependency(
+    readJson(path.join(workspaceDir, "apps", "dispatch", "package.json")),
+    "dispatch workspace scaffold",
+  );
   assert.equal(
     fs.existsSync(path.join(workspaceDir, "scripts", "workspace-dev.ts")),
     false,
