@@ -40,6 +40,8 @@ export interface AppWebviewHandle {
   stopFindInPage(
     action?: "clearSelection" | "keepSelection" | "activateSelection",
   ): void;
+  goBack(): void;
+  goForward(): void;
 }
 
 /**
@@ -99,6 +101,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         },
         stopFindInPage(action = "clearSelection") {
           webviewRef.current?.stopFindInPage(action);
+        },
+        goBack() {
+          const wv = webviewRef.current;
+          if (wv?.canGoBack()) wv.goBack();
+        },
+        goForward() {
+          const wv = webviewRef.current;
+          if (wv?.canGoForward()) wv.goForward();
         },
       }),
       [],
