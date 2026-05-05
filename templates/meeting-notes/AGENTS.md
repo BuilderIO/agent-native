@@ -220,12 +220,9 @@ Templates control the output structure. Built-in templates include things like "
 
 ## Authentication
 
-Auth is automatic and environment-driven:
+This template uses the framework's default auth — Better Auth, with email/password and optional Google / GitHub social providers. Use `getSession(event)` server-side and `useSession()` client-side.
 
-- **Dev mode.** Auth is bypassed. `getSession()` returns `{ email: "local@localhost" }`.
-- **Production** (`ACCESS_TOKEN` set). Auth middleware auto-mounts.
-
-Use `getSession(event)` server-side and `useSession()` client-side.
+See the `authentication` skill for the full mode matrix (`AUTH_MODE=local`, `ACCESS_TOKEN`, `AUTH_DISABLED`, BYOA) and the `security` skill for the access-control model. List/get actions in this template filter via `accessFilter(schema.meetings, schema.meetingShares)`.
 
 ## UI Components
 

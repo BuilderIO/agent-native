@@ -338,7 +338,7 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 | Action                  | Args                                                                 | Purpose                                                                       |
 | ----------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `import-from-url`       | `--url <websiteUrl>`                                                 | Analyze a website and extract design tokens, colors, fonts (static HTML only) |
-| `import-github`         | `--repoUrl <url-or-org/repo>`                                        | Extract tokens from a public GitHub repo (Tailwind, CSS, theme)               |
+| `import-github`         | `--repoUrl <url-or-org/repo>`                                        | Extract tokens from a GitHub repo (Tailwind, CSS, theme)                      |
 | `import-code`           | `--files '[{"filename":"...","content":"..."}]'`                     | Extract tokens from uploaded code files                                       |
 | `import-document`       | `--files '[{"filename":"...","fileType":"...","sizeBytes":...}]'`    | Process document metadata (DOCX, PPTX, PDF) for design cues                   |
 | `import-design-project` | `--designId <id> [--designSystemId <id>]`                            | Extract tokens from existing project or fork a design system                  |
@@ -346,6 +346,8 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 | `analyze-brand-assets`  | `[--websiteUrl "..."] [--companyName "..."] [--designSystemId <id>]` | Gather brand data from multiple sources                                       |
 
 **Browser-powered URL import (recommended):** For website URLs, prefer browser automation over `import-from-url`. Most modern sites use JS-rendered styles (CSS-in-JS, Tailwind JIT, SPAs) that plain HTML fetch misses entirely. Call `activate-browser`, navigate to the URL with chrome-devtools tools, then use `evaluate_script` to extract `getComputedStyle()` values, CSS custom properties, rendered font families, and actual color palette. Take a screenshot for visual reference. Fall back to `import-from-url` only when Builder is not connected.
+
+**Private GitHub repositories:** `import-github` reads public repositories without setup and private repositories through the saved `GITHUB_TOKEN` secret. If GitHub denies access, tell the user to save a fine-grained personal access token in Settings > Secrets as `GITHUB_TOKEN`, limited to the target repository with Repository permissions > Contents: Read-only. Never ask the user to paste a PAT into chat or pass it as an action argument. If they do not want to connect GitHub, ask them to upload the relevant CSS, Tailwind config, theme, token, and package files instead.
 
 ### Export
 
@@ -1867,12 +1869,9 @@ As you build out this app, follow this checklist for each new feature:
 
 ### Authentication
 
-Auth is automatic and environment-driven:
+This template uses the framework's default auth — Better Auth, with email/password and optional Google / GitHub social providers. Use `getSession(event)` server-side and `useSession()` client-side.
 
-- **Dev mode**: Auth is bypassed. `getSession()` returns `{ email: "local@localhost" }`.
-- **Production** (`ACCESS_TOKEN` set): Auth middleware auto-mounts.
-
-Use `getSession(event)` server-side and `useSession()` client-side.
+See the `authentication` skill for the full mode matrix (`AUTH_MODE=local`, `ACCESS_TOKEN`, `AUTH_DISABLED`, BYOA) and the `security` skill for the access-control model (`ownableColumns`, `accessFilter`, `assertAccess`).
 
 ### UI Components
 

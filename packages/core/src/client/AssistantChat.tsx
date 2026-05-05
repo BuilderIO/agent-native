@@ -2889,7 +2889,7 @@ const AssistantChatInner = forwardRef<
                     </button>
                   </div>
                 </div>
-              ) : missingApiKey ? (
+              ) : missingApiKey && messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full px-2">
                   <BuilderSetupCard />
                 </div>
@@ -2939,6 +2939,7 @@ const AssistantChatInner = forwardRef<
                       AssistantMessage,
                     }}
                   />
+                  {missingApiKey && <BuilderSetupCard />}
                   {visibleLoopLimit && !showRunningInUI && (
                     <LoopLimitContinueCard
                       info={visibleLoopLimit}

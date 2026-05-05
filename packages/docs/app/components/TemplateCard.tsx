@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router";
-import { IconBook2, IconTerminal2 } from "@tabler/icons-react";
 import { trackEvent } from "@agent-native/core/client";
 
 export { trackEvent };
@@ -301,9 +300,8 @@ function TemplateLaunchButton({ template }: { template: Template }) {
               });
             setShowCli(!showCli);
           }}
-          className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
+          className="inline-flex flex-1 items-center justify-center rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
         >
-          <IconTerminal2 size={14} stroke={2} />
           Run Locally
         </button>
         <Link
@@ -315,9 +313,8 @@ function TemplateLaunchButton({ template }: { template: Template }) {
               location: "card",
             })
           }
-          className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+          className="inline-flex flex-1 items-center justify-center rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
         >
-          <IconBook2 size={14} stroke={2} />
           View Docs
         </Link>
       </div>

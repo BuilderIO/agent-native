@@ -219,7 +219,7 @@ export default defineAction({
       if (!upload?.url) {
         throw new Error(
           upload === null
-            ? "No file upload provider configured. Connect Builder.io or S3-compatible storage in Settings."
+            ? "No file upload provider configured. Connect Builder.io here, or configure S3-compatible storage in Settings."
             : "File upload returned no URL. Check your storage provider configuration.",
         );
       }

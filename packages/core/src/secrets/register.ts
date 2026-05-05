@@ -7,7 +7,7 @@
  * secrets are picked up without a restart.
  */
 
-export type SecretScope = "user" | "workspace";
+export type SecretScope = "user" | "workspace" | "org";
 export type SecretKind = "api-key" | "oauth";
 
 export interface ValidatorResult {
@@ -78,9 +78,13 @@ export function registerRequiredSecret(secret: RegisteredSecret): void {
   if (!secret || typeof secret.key !== "string" || !secret.key) {
     throw new Error("registerRequiredSecret: secret.key is required");
   }
-  if (secret.scope !== "user" && secret.scope !== "workspace") {
+  if (
+    secret.scope !== "user" &&
+    secret.scope !== "workspace" &&
+    secret.scope !== "org"
+  ) {
     throw new Error(
-      `registerRequiredSecret: secret.scope must be "user" or "workspace" (got "${secret.scope}")`,
+      `registerRequiredSecret: secret.scope must be "user", "workspace", or "org" (got "${secret.scope}")`,
     );
   }
   if (secret.kind !== "api-key" && secret.kind !== "oauth") {

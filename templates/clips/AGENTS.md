@@ -374,12 +374,9 @@ All standard CRUD (list, get, create, update) goes through `/_agent-native/actio
 
 ## Authentication
 
-Auth is automatic and environment-driven:
+This template uses the framework's default auth — Better Auth, with email/password and optional Google / GitHub social providers. Better Auth's organization plugin owns the team primitives (`organization` / `member` / `invitation` tables, see [Team & Recordings Data Model](#team--recordings-data-model)). Use `getSession(event)` server-side and `useSession()` client-side; per-user scoping inside actions / handlers reads `getRequestUserEmail()` from `@agent-native/core/server/request-context`.
 
-- **Dev mode.** Auth is bypassed. `getSession()` returns `{ email: "local@localhost" }`.
-- **Production** (`ACCESS_TOKEN` set). Auth middleware auto-mounts.
-
-Use `getSession(event)` server-side and `useSession()` client-side. All per-user scoping uses `getRequestUserEmail()` from `@agent-native/core/server/request-context`.
+See the `authentication` skill for the full mode matrix (`AUTH_MODE=local`, `ACCESS_TOKEN`, `AUTH_DISABLED`, BYOA) and the `security` skill for the access-control model (`ownableColumns`, `accessFilter`, `assertAccess`).
 
 ## Meetings & Dictate
 

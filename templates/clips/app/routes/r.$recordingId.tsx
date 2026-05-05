@@ -41,6 +41,7 @@ import { ReactionsTray } from "@/components/player/reactions-tray";
 import { SettingsPanel } from "@/components/player/settings-panel";
 import { InsightsPanel } from "@/components/player/insights-panel";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
+import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 
@@ -272,6 +273,11 @@ export default function RecordingPage() {
       : stuckFailure
         ? `Processing hasn't completed after 30 seconds (status=${recording.status}). The clip may not have finished uploading — check the server logs for [chunk]/[finalize] messages.`
         : "Uploading and assembling your video — this usually takes just a few seconds.";
+    const storageSetupFailure =
+      isFailure &&
+      /file upload provider|storage provider|connect builder|s3-compatible/i.test(
+        failureReason,
+      );
     return (
       <div className="flex flex-col items-center justify-center h-screen w-full bg-background px-6">
         {!isFailure ? <Spinner className="h-8 w-8 mb-4" /> : null}
@@ -284,6 +290,18 @@ export default function RecordingPage() {
             <div
               className="h-full bg-foreground"
               style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+            />
+          </div>
+        ) : null}
+        {storageSetupFailure ? (
+          <div className="mb-4 w-full">
+            <StorageSetupCard
+              title="Connect storage to finish saving"
+              description="Clips needs storage before it can save and share this recording."
+              onConfigured={() => {
+                setProcessingTimeout(false);
+                playerDataQ.refetch();
+              }}
             />
           </div>
         ) : null}
