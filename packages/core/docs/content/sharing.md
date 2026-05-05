@@ -51,7 +51,7 @@ Every template that stores user-authored work uses this model. Concretely:
 - **Forms** — form definitions
 - **Calendar** — events and booking links
 - **Analytics** — dashboards (rolling out — see the analytics template's `AGENTS.md`)
-- **Tools** — sandboxed mini-apps (see [Tools](/docs/tools#sharing))
+- **Extensions** — sandboxed mini-apps (see [Extensions](/docs/extensions#sharing))
 
 Every one of these uses the same `ownableColumns()` schema helper, the same `share-resource` action, and the same `<ShareButton>` UI. Move from one template to another and the share dialog looks identical.
 
@@ -151,5 +151,5 @@ See [Security & Data Scoping](/docs/security) for the full model and threat surf
 
 - [Security & Data Scoping](/docs/security) — the access-filter and ownership model that sharing rides on.
 - [Authentication](/docs/authentication) — sessions, organizations, and how identity flows into the request context.
-- [Tools](/docs/tools#sharing) — sharing in the sandboxed mini-app surface.
+- [Extensions](/docs/extensions#sharing) — sharing in the sandboxed mini-app surface.
 - [Creating Templates](/docs/creating-templates) — wiring `ownableColumns` into a new template's schema.

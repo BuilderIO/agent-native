@@ -14,7 +14,7 @@ function resolveTitle(pathname: string): string {
   if (pageTitles[pathname]) return pageTitles[pathname];
 
   if (pathname.startsWith("/page/")) return "Document";
-  if (pathname.startsWith("/extensions")) return "Tools";
+  if (pathname.startsWith("/extensions")) return "Extensions";
 
   return "Content";
 }

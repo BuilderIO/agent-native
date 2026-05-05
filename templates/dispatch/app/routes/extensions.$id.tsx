@@ -1,1 +1,1 @@
-export { default } from "@agent-native/dispatch/routes/pages/tools.$id";
+export { default } from "@agent-native/dispatch/routes/pages/extensions.$id";

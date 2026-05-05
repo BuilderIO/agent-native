@@ -6,7 +6,7 @@ export default function ExtensionsRoute() {
     <>
       <PageHeader>
         <h1 className="text-base font-semibold tracking-tight truncate">
-          Tools
+          Extensions
         </h1>
       </PageHeader>
       <ExtensionsListPage />

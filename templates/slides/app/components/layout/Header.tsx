@@ -8,7 +8,7 @@ const pageTitles: Record<string, string> = {
   "/design-systems": "Design Systems",
   "/team": "Team",
   "/settings": "Settings",
-  "/extensions": "Tools",
+  "/extensions": "Extensions",
 };
 
 function DeckTitle({ id }: { id: string }) {

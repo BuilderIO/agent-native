@@ -1,7 +1,7 @@
 import { ExtensionsListPage } from "@agent-native/core/client/extensions";
 
 export function meta() {
-  return [{ title: "Tools — Starter" }];
+  return [{ title: "Extensions — Starter" }];
 }
 
 export default function ExtensionsRoute() {

@@ -6,7 +6,7 @@ export default function ExtensionViewerRoute() {
   const controls = useMemo(
     () => ({
       left: (
-        <h1 className="text-lg font-semibold tracking-tight truncate">Tools</h1>
+        <h1 className="text-lg font-semibold tracking-tight truncate">Extensions</h1>
       ),
     }),
     [],

@@ -122,7 +122,7 @@ The framework mounts its own routes under `/_agent-native/`. Treat that namespac
 | `/_agent-native/agent-chat`      | Agent chat loop                      |
 | `/_agent-native/poll`            | SQL-backed UI sync                   |
 | `/_agent-native/resources/*`     | Workspace resources                  |
-| `/_agent-native/tools/*`         | Runtime tools and tool proxy         |
+| `/_agent-native/extensions/*`    | Runtime extensions and extension proxy (legacy alias: `/_agent-native/tools/*`) |
 | `/_agent-native/integrations/*`  | Messaging/webhook integrations       |
 | `/_agent-native/a2a`             | Agent-to-agent JSON-RPC              |
 | `/_agent-native/mcp`             | MCP endpoint                         |

@@ -22,7 +22,7 @@ function resolveTitle(pathname: string): string {
   if (pathname.startsWith("/spaces/")) return "Space";
   if (pathname.startsWith("/views/")) return "Saved View";
   if (pathname.startsWith("/snippets/")) return "Snippet";
-  if (pathname.startsWith("/extensions")) return "Tools";
+  if (pathname.startsWith("/extensions")) return "Extensions";
 
   return "Calls";
 }

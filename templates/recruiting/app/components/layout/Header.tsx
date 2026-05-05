@@ -11,7 +11,7 @@ const pageTitles: Record<string, string> = {
   "/interviews": "Interviews",
   "/settings": "Settings",
   "/team": "Team",
-  "/extensions": "Tools",
+  "/extensions": "Extensions",
 };
 
 function resolveTitle(pathname: string): string {
@@ -19,7 +19,7 @@ function resolveTitle(pathname: string): string {
   if (pathname.startsWith("/jobs")) return "Jobs";
   if (pathname.startsWith("/candidates")) return "Candidates";
   if (pathname.startsWith("/interviews")) return "Interviews";
-  if (pathname.startsWith("/extensions")) return "Tools";
+  if (pathname.startsWith("/extensions")) return "Extensions";
   return "Recruiting";
 }
 

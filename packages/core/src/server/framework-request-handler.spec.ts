@@ -38,18 +38,18 @@ describe("framework request handler", () => {
 
   it("dispatches bare framework routes with a mount-relative pathname", async () => {
     const nitroApp = createNitroApp();
-    getH3App(nitroApp).use("/_agent-native/tools", (event: any) => ({
+    getH3App(nitroApp).use("/_agent-native/extensions", (event: any) => ({
       mountPrefix: event.context._mountPrefix,
       mountedPathname: event.context._mountedPathname,
       pathname: event.url.pathname,
     }));
 
     await expect(
-      dispatch(nitroApp, "/_agent-native/tools/tool-1/render"),
+      dispatch(nitroApp, "/_agent-native/extensions/extension-1/render"),
     ).resolves.toEqual({
-      mountPrefix: "/_agent-native/tools",
-      mountedPathname: "/_agent-native/tools/tool-1/render",
-      pathname: "/tool-1/render",
+      mountPrefix: "/_agent-native/extensions",
+      mountedPathname: "/_agent-native/extensions/extension-1/render",
+      pathname: "/extension-1/render",
     });
   });
 
@@ -163,12 +163,12 @@ describe("framework request handler", () => {
   it("does not treat similar non-prefixed paths as framework routes", async () => {
     process.env.APP_BASE_PATH = "/docs";
     const nitroApp = createNitroApp();
-    getH3App(nitroApp).use("/_agent-native/tools", () => ({
+    getH3App(nitroApp).use("/_agent-native/extensions", () => ({
       matched: true,
     }));
 
     await expect(
-      dispatch(nitroApp, "/docs-extra/_agent-native/tools"),
+      dispatch(nitroApp, "/docs-extra/_agent-native/extensions"),
     ).resolves.toEqual({ fellThrough: true });
   });
 });

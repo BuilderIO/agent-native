@@ -1,7 +1,7 @@
 import { ExtensionsListPage } from "@agent-native/core/client/extensions";
 
 export function meta() {
-  return [{ title: "Tools — Issues" }];
+  return [{ title: "Extensions — Issues" }];
 }
 
 export default function ExtensionsRoute() {

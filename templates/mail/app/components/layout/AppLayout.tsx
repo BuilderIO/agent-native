@@ -967,11 +967,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 />
               </button>
 
-              {/* Tools */}
+              {/* Extensions */}
               <Link
                 to="/extensions"
                 className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
-                title="Tools"
+                title="Extensions"
               >
                 <IconTool className="h-4 w-4" />
               </Link>
@@ -1450,7 +1450,7 @@ function StandardLayout({ children }: AppLayoutProps) {
     if (location.pathname === "/settings") return "Settings";
     if (location.pathname === "/team") return "Team";
     if (location.pathname.startsWith("/draft-queue")) return "Draft queue";
-    if (location.pathname.startsWith("/extensions")) return "Tools";
+    if (location.pathname.startsWith("/extensions")) return "Extensions";
     return "Mail";
   })();
 

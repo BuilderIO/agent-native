@@ -15,7 +15,7 @@ function resolveTitle(pathname: string): string {
     return "Responses";
   }
   if (pathname.startsWith("/forms/")) return "Form";
-  if (pathname.startsWith("/extensions")) return "Tools";
+  if (pathname.startsWith("/extensions")) return "Extensions";
 
   return "Forms";
 }
