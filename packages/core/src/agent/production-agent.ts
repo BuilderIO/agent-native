@@ -515,7 +515,9 @@ function isRetryableError(err: unknown): boolean {
 
 /** Wait with exponential backoff, respecting abort signal */
 function retryDelay(attempt: number, signal: AbortSignal): Promise<void> {
-  const ms = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+  const baseMs = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+  const jitter = baseMs * 0.1;
+  const ms = Math.max(0, baseMs + (Math.random() * 2 - 1) * jitter);
   return new Promise((resolve, reject) => {
     if (signal.aborted) return reject(new Error("aborted"));
     const timer = setTimeout(resolve, ms);
@@ -907,12 +909,10 @@ export async function runAgentLoop(opts: {
         }
         if (retry < MAX_RETRIES && isRetryableError(err)) {
           // Clear partial text from the failed attempt so the retry
-          // doesn't produce garbled duplicate output
+          // doesn't produce garbled duplicate output. Keep the retry itself
+          // silent so transient provider/backend failures do not leak into
+          // the assistant's final answer.
           send({ type: "clear" });
-          send({
-            type: "text",
-            text: `*Retrying in ${(RETRY_BASE_DELAY_MS * Math.pow(2, retry)) / 1000}s...*\n\n`,
-          });
           await retryDelay(retry, signal);
           continue;
         }
@@ -1550,8 +1550,8 @@ export function createProductionAgentHandler(
     // If there's already an active run for this thread, reject with 409 so
     // the client can queue or wait rather than silently aborting the existing run.
     if (threadId) {
-      const existingRun = getActiveRunForThread(threadId);
-      if (existingRun && existingRun.status === "running") {
+      const existingRun = await getActiveRunForThreadAsync(threadId);
+      if (existingRun?.status === "running") {
         setResponseStatus(event, 409);
         return {
           error: "Run already in progress for this thread",

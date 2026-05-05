@@ -20,6 +20,30 @@ function sseResponse(events: unknown[]): Response {
   );
 }
 
+function emptySseResponse(runId = "run-empty"): Response {
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close();
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "text/event-stream",
+        "X-Run-Id": runId,
+      },
+    },
+  );
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 async function drain(iterable: AsyncIterable<unknown>) {
   const results: unknown[] = [];
   for await (const result of iterable) {
@@ -30,6 +54,7 @@ async function drain(iterable: AsyncIterable<unknown>) {
 
 describe("createAgentChatAdapter", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -304,5 +329,198 @@ describe("createAgentChatAdapter", () => {
     expect(secondBody.history).toEqual([
       { role: "user", content: "keep using tools" },
     ]);
+  });
+
+  it("reconnects to an active run when the initial POST loses its response", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        throw new TypeError("Failed to fetch");
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-existing",
+          threadId: "thread-recover",
+          status: "running",
+          heartbeatAt: Date.now(),
+        });
+      }
+      if (url.includes("/runs/run-existing/events")) {
+        return sseResponse([
+          { type: "text", text: "recovered from active run" },
+          { type: "done" },
+        ]);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-recover",
+      threadId: "thread-recover",
+    });
+
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "keep going" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/_agent-native/agent-chat/runs/active?threadId=thread-recover",
+      expect.any(Object),
+    );
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/_agent-native/agent-chat/runs/run-existing/events?after=0",
+      expect.any(Object),
+    );
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toBe("recovered from active run");
+  });
+
+  it("continues automatically when an SSE stream closes before any terminal event", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        postCount += 1;
+        return postCount === 1
+          ? emptySseResponse("run-empty")
+          : sseResponse([
+              { type: "text", text: "finished after empty-stream recovery" },
+              { type: "done" },
+            ]);
+      }
+      if (url.includes("/runs/run-empty/events")) {
+        return jsonResponse({ error: "gone" }, 404);
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-empty",
+      threadId: "thread-empty",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "do the thing" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const results = await promise;
+
+    expect(postCount).toBe(2);
+    const secondBody = JSON.parse(fetchSpy.mock.calls[3][1].body);
+    expect(secondBody.message).toContain("Continue from where you left off");
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toBe(
+      "finished after empty-stream recovery",
+    );
+  });
+
+  it("continues automatically after a recoverable gateway timeout event", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "error",
+            error: "Builder gateway timed out after 45s",
+            errorCode: "builder_gateway_timeout",
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: "text", text: "finished after timeout recovery" },
+          { type: "done" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-timeout",
+      threadId: "thread-timeout",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "long analytics query" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const results = await promise;
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const secondBody = JSON.parse(fetchSpy.mock.calls[1][1].body);
+    expect(secondBody.message).toContain("Continue from where you left off");
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toBe("finished after timeout recovery");
   });
 });
