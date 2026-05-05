@@ -359,6 +359,7 @@ describe("run manager soft timeout", () => {
       status: "completed",
       startedAt: Date.now() - 1000,
       heartbeatAt: Date.now() - 1000,
+      completedAt: Date.now() - 500,
     });
 
     const result = await getActiveRunForThreadAsync("thread-recent");
@@ -376,17 +377,64 @@ describe("run manager soft timeout", () => {
   });
 
   it("ignores stale terminal runs older than the reconnect window", async () => {
+    const completedAt = Date.now() - TERMINAL_RUN_RECONNECT_WINDOW_MS - 60_000;
     vi.mocked(getRunByThread).mockResolvedValue({
       id: "run-old-completed",
       threadId: "thread-old",
       status: "completed",
-      startedAt: Date.now() - TERMINAL_RUN_RECONNECT_WINDOW_MS - 60_000,
+      startedAt: completedAt - 5_000,
       heartbeatAt: null,
+      completedAt,
     });
 
     const result = await getActiveRunForThreadAsync("thread-old");
 
     expect(result).toBeNull();
+  });
+
+  it("uses completed_at (not started_at) for the reconnect window so long-running tasks are still reachable", async () => {
+    // The run started long enough ago that it would fall outside the window
+    // if we measured from startedAt — but it completed seconds ago, which is
+    // when the user actually disconnected. A senior engineer reconnecting
+    // here expects to replay the synthesized terminal events, not to retry
+    // the POST.
+    const startedAt = Date.now() - TERMINAL_RUN_RECONNECT_WINDOW_MS - 120_000;
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-long-then-recent-complete",
+      threadId: "thread-long",
+      status: "completed",
+      startedAt,
+      heartbeatAt: Date.now() - 5_000,
+      completedAt: Date.now() - 2_000,
+    });
+
+    const result = await getActiveRunForThreadAsync("thread-long");
+
+    expect(result).toMatchObject({
+      runId: "run-long-then-recent-complete",
+      status: "completed",
+    });
+  });
+
+  it("falls back to heartbeat_at when completed_at is missing on legacy rows", async () => {
+    // Older deployments may have terminal rows without a completed_at value.
+    // The reconnect window should still work — fall back to the freshest
+    // signal we have (heartbeat) before reaching for startedAt.
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-legacy-no-completed-at",
+      threadId: "thread-legacy",
+      status: "errored",
+      startedAt: Date.now() - TERMINAL_RUN_RECONNECT_WINDOW_MS - 120_000,
+      heartbeatAt: Date.now() - 3_000,
+      completedAt: null,
+    });
+
+    const result = await getActiveRunForThreadAsync("thread-legacy");
+
+    expect(result).toMatchObject({
+      runId: "run-legacy-no-completed-at",
+      status: "errored",
+    });
   });
 
   it("returns recently-errored SQL runs so the client can reconnect to the synthesized error", async () => {
@@ -396,6 +444,7 @@ describe("run manager soft timeout", () => {
       status: "errored",
       startedAt: Date.now() - 1000,
       heartbeatAt: null,
+      completedAt: Date.now() - 500,
     });
 
     const result = await getActiveRunForThreadAsync("thread-errored");

@@ -684,10 +684,18 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
     if (sqlRun.status === "completed" || sqlRun.status === "errored") {
       // Cap how far back we'll surface terminal runs as "active". The goal
       // is to catch the recently-completed-but-reconnecting case, not to
-      // resurrect ancient turns when the user reopens an old thread. The
-      // window mirrors the initial reconnect adapter's retry budget on the
-      // client side.
-      const terminalAge = Date.now() - sqlRun.startedAt;
+      // resurrect ancient turns when the user reopens an old thread.
+      //
+      // Measure age from the run's terminal timestamp, not its start. A
+      // long-running task that ran 11 minutes and completed five seconds
+      // ago should still be reachable — the client's disconnect happened
+      // around completion, so completion time is what matters for the
+      // "is the user still here waiting?" question. Fall back to the last
+      // heartbeat (older deployments may have unset completed_at) and
+      // finally to startedAt for ancient rows.
+      const referenceAt =
+        sqlRun.completedAt ?? sqlRun.heartbeatAt ?? sqlRun.startedAt;
+      const terminalAge = Date.now() - referenceAt;
       if (terminalAge > TERMINAL_RUN_RECONNECT_WINDOW_MS) return null;
       return {
         runId: sqlRun.id,

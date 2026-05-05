@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import type { AuthSession } from "../server/auth.js";
-import { trackSessionStatus } from "./analytics.js";
+import { setSentryUser, trackSessionStatus } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
 
 export type { AuthSession };
@@ -28,6 +28,7 @@ export function useSession(): UseSessionResult {
 
     async function fetchSession() {
       let signedIn = false;
+      let resolved: AuthSession | null = null;
       try {
         const res = await fetch(agentNativePath("/_agent-native/auth/session"));
         if (!res.ok) {
@@ -40,7 +41,8 @@ export function useSession(): UseSessionResult {
           if (data.error) {
             setSession(null);
           } else {
-            setSession(data as AuthSession);
+            resolved = data as AuthSession;
+            setSession(resolved);
             signedIn = true;
           }
         }
@@ -49,6 +51,18 @@ export function useSession(): UseSessionResult {
       } finally {
         if (!cancelled) {
           setIsLoading(false);
+          if (resolved) {
+            setSentryUser(
+              {
+                id: resolved.userId,
+                email: resolved.email,
+                username: resolved.name,
+              },
+              resolved.orgId ?? null,
+            );
+          } else {
+            setSentryUser(null, null);
+          }
           if (!trackedRef.current) {
             trackedRef.current = true;
             trackSessionStatus(signedIn);
