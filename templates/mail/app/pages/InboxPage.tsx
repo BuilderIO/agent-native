@@ -75,14 +75,14 @@ function ThreadListSidebar({
   emails,
   activeThreadId,
   view,
-  labelSuffix,
+  routeSearchSuffix,
   selectedIds,
   setSelectedIds,
 }: {
   emails: EmailMessage[];
   activeThreadId: string;
   view: string;
-  labelSuffix: string;
+  routeSearchSuffix: string;
   selectedIds: Set<string>;
   setSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
 }) {
@@ -112,7 +112,7 @@ function ThreadListSidebar({
                     isRead: true,
                     accountEmail: email.accountEmail,
                   });
-                navigate(`/${view}/${threadKey}${labelSuffix}`);
+                navigate(`/${view}/${threadKey}${routeSearchSuffix}`);
               }}
               className={cn(
                 "w-full text-left px-3 h-[38px] flex items-center border-b border-border/10 transition-colors",
@@ -189,8 +189,8 @@ export function InboxPage() {
   const { data: settings } = useSettings();
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
-  const labelSuffix = activeLabel
-    ? `?label=${encodeURIComponent(activeLabel)}`
+  const routeSearchSuffix = searchParams.toString()
+    ? `?${searchParams.toString()}`
     : "";
 
   // Always fetch from the URL view (inbox, starred, etc.)
@@ -546,7 +546,7 @@ export function InboxPage() {
           emails={emails}
           activeThreadId={threadId!}
           view={view}
-          labelSuffix={labelSuffix}
+          routeSearchSuffix={routeSearchSuffix}
           selectedIds={selectedIds}
           setSelectedIds={setSelectedIds}
         />

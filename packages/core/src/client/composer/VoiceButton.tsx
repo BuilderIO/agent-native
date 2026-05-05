@@ -16,6 +16,11 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import type { VoiceDictationApi } from "./useVoiceDictation.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 
 export interface VoiceButtonProps {
   voice: VoiceDictationApi;
@@ -43,27 +48,31 @@ export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
   };
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled || transcribing}
-      title={label}
-      aria-label={label}
-      aria-pressed={recording}
-      className={`shrink-0 flex h-7 w-7 items-center justify-center rounded-md disabled:opacity-30 disabled:cursor-not-allowed ${
-        recording
-          ? "text-[#625DF5] bg-[#625DF5]/10 hover:bg-[#625DF5]/20"
-          : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-      }`}
-    >
-      {transcribing ? (
-        <IconLoader2 className="h-4 w-4 animate-spin" />
-      ) : recording ? (
-        <IconPlayerStopFilled className="h-3.5 w-3.5" />
-      ) : (
-        <IconMicrophone className="h-4 w-4" />
-      )}
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={disabled || transcribing}
+          aria-label={label}
+          aria-pressed={recording}
+          className={`shrink-0 flex h-7 w-7 items-center justify-center rounded-md disabled:opacity-30 disabled:cursor-not-allowed ${
+            recording
+              ? "text-[#625DF5] bg-[#625DF5]/10 hover:bg-[#625DF5]/20"
+              : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+          }`}
+        >
+          {transcribing ? (
+            <IconLoader2 className="h-4 w-4 animate-spin" />
+          ) : recording ? (
+            <IconPlayerStopFilled className="h-3.5 w-3.5" />
+          ) : (
+            <IconMicrophone className="h-4 w-4" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -82,27 +91,35 @@ export function VoiceRecordingOverlay({ voice }: VoiceRecordingOverlayProps) {
         className="mx-2 mt-1 flex items-start gap-2 rounded-md border border-red-500/40 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-500"
       >
         <span className="flex-1 min-w-0">{errorMessage}</span>
-        <button
-          type="button"
-          onClick={() => {
-            dismissError();
-            void start();
-          }}
-          className="shrink-0 cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-medium text-red-500 hover:bg-red-500/20"
-          title="Try again"
-          aria-label="Try again"
-        >
-          Try again
-        </button>
-        <button
-          type="button"
-          onClick={dismissError}
-          className="shrink-0 flex h-4 w-4 cursor-pointer items-center justify-center rounded text-red-500 hover:bg-red-500/20"
-          title="Dismiss"
-          aria-label="Dismiss"
-        >
-          <IconX className="h-3 w-3" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => {
+                dismissError();
+                void start();
+              }}
+              className="shrink-0 cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-medium text-red-500 hover:bg-red-500/20"
+              aria-label="Try again"
+            >
+              Try again
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Try again</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={dismissError}
+              className="shrink-0 flex h-4 w-4 cursor-pointer items-center justify-center rounded text-red-500 hover:bg-red-500/20"
+              aria-label="Dismiss"
+            >
+              <IconX className="h-3 w-3" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Dismiss</TooltipContent>
+        </Tooltip>
       </div>
     );
   }
@@ -115,15 +132,19 @@ export function VoiceRecordingOverlay({ voice }: VoiceRecordingOverlayProps) {
       className="flex items-center gap-2 mx-2 mt-2 mb-1 h-[2rem] rounded-md border border-[#625DF5]/40 bg-[#625DF5]/10 px-2"
       aria-live="polite"
     >
-      <button
-        type="button"
-        onClick={cancel}
-        className="shrink-0 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/40"
-        title="Cancel (Esc)"
-        aria-label="Cancel recording"
-      >
-        <IconX className="h-3 w-3" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={cancel}
+            className="shrink-0 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/40"
+            aria-label="Cancel recording"
+          >
+            <IconX className="h-3 w-3" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Cancel (Esc)</TooltipContent>
+      </Tooltip>
 
       <div className="flex-1 flex items-center gap-[2px] min-w-0 h-4">
         {state === "transcribing" ? (

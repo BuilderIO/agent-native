@@ -1961,15 +1961,19 @@ export function focusAgentChat() {
  */
 export function AgentToggleButton({ className }: { className?: string }) {
   return (
-    <button
-      onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
-      className={cn(
-        "ml-1.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
-        className,
-      )}
-      title="Toggle agent"
-    >
-      <IconMessage size={16} />
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
+          className={cn(
+            "ml-1.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+            className,
+          )}
+        >
+          <IconMessage size={16} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>Toggle agent</TooltipContent>
+    </Tooltip>
   );
 }

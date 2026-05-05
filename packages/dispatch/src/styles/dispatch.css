@@ -1,0 +1,9 @@
+/*
+ * Tailwind v4 does not scan package sources in node_modules unless the
+ * consuming app opts in. Import this stylesheet from a Dispatch app's global
+ * CSS so Tailwind includes the utilities used by packaged Dispatch routes and
+ * components.
+ */
+@source "../components/**/*.{js,mjs,ts,tsx}";
+@source "../hooks/**/*.{js,mjs,ts,tsx}";
+@source "../routes/**/*.{js,mjs,ts,tsx}";

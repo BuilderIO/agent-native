@@ -15,6 +15,11 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { cn } from "../utils.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 
 interface SlotDeclaration {
   id: string;
@@ -201,16 +206,20 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
                 if (!o) setConfirmingDelete(false);
               }}
             >
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                  title="More options"
-                  aria-label="More options"
-                >
-                  <IconDots className="h-4 w-4" />
-                </button>
-              </PopoverTrigger>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                      aria-label="More options"
+                    >
+                      <IconDots className="h-4 w-4" />
+                    </button>
+                  </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent>More options</TooltipContent>
+              </Tooltip>
               <PopoverContent align="end" sideOffset={4} className="w-72 p-0">
                 {!confirmingDelete ? (
                   <>
@@ -239,15 +248,21 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
                             <span className="flex-1 truncate font-mono text-[11px] text-muted-foreground">
                               {s.slotId}
                             </span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveFromSlot(s.slotId)}
-                              className="rounded p-1 text-muted-foreground/60 hover:bg-accent hover:text-foreground cursor-pointer"
-                              title="Remove from this widget area (for me)"
-                              aria-label="Remove from this widget area"
-                            >
-                              <IconX className="h-3.5 w-3.5" />
-                            </button>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveFromSlot(s.slotId)}
+                                  className="rounded p-1 text-muted-foreground/60 hover:bg-accent hover:text-foreground cursor-pointer"
+                                  aria-label="Remove from this widget area"
+                                >
+                                  <IconX className="h-3.5 w-3.5" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Remove from this widget area (for me)
+                              </TooltipContent>
+                            </Tooltip>
                           </div>
                         ))}
                       </div>

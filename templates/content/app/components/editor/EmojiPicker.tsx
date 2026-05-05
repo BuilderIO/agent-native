@@ -5,6 +5,11 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { IconMoodSmile } from "@tabler/icons-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const EMOJI_CATEGORIES: { name: string; emojis: string[] }[] = [
   {
@@ -358,20 +363,24 @@ export function EmojiPicker({ icon, onSelect }: EmojiPickerProps) {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         {icon ? (
-          <button
-            className="text-5xl leading-none cursor-pointer hover:bg-accent/50 rounded-md p-1 -ml-1"
-            title="Change icon"
-          >
-            {icon}
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button className="text-5xl leading-none cursor-pointer hover:bg-accent/50 rounded-md p-1 -ml-1">
+                {icon}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Change icon</TooltipContent>
+          </Tooltip>
         ) : (
-          <button
-            className="flex items-center gap-1.5 text-sm text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/50 rounded-md px-1.5 py-1 -ml-1.5 cursor-pointer opacity-0 group-hover/title:opacity-100 data-[state=open]:opacity-100"
-            title="Add icon"
-          >
-            <IconMoodSmile size={18} />
-            <span>Add icon</span>
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button className="flex items-center gap-1.5 text-sm text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/50 rounded-md px-1.5 py-1 -ml-1.5 cursor-pointer opacity-0 group-hover/title:opacity-100 data-[state=open]:opacity-100">
+                <IconMoodSmile size={18} />
+                <span>Add icon</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Add icon</TooltipContent>
+          </Tooltip>
         )}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-0">

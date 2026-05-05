@@ -1,4 +1,11 @@
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import {
   Area,
   AreaChart,
@@ -28,7 +35,6 @@ import {
   IconInfoCircle,
   IconTrendingUp,
   IconTrendingDown,
-  IconDownload,
 } from "@tabler/icons-react";
 import {
   Select,
@@ -169,9 +175,14 @@ interface SqlChartProps {
   /** SQL with dashboard variables already interpolated. Falls back to panel.sql. */
   resolvedSql?: string;
   className?: string;
+  onExportCsvChange?: (handler: (() => void) | null) => void;
 }
 
-export function SqlChart({ panel, resolvedSql }: SqlChartProps) {
+export function SqlChart({
+  panel,
+  resolvedSql,
+  onExportCsvChange,
+}: SqlChartProps) {
   // Section panels are pure layout — no query, no chart. Render a header with
   // optional description and skip the SQL pipeline entirely.
   if (panel.chartType === "section") {
@@ -243,7 +254,13 @@ export function SqlChart({ panel, resolvedSql }: SqlChartProps) {
   }
 
   if (chartType === "table") {
-    return <TableRenderer rows={rows} panel={panel} />;
+    return (
+      <TableRenderer
+        rows={rows}
+        panel={panel}
+        onExportCsvChange={onExportCsvChange}
+      />
+    );
   }
 
   if (chartType === "pie") {
@@ -389,9 +406,11 @@ function renderDeltaCell(value: unknown): ReactNode {
 function TableRenderer({
   rows,
   panel,
+  onExportCsvChange,
 }: {
   rows: Record<string, unknown>[];
   panel: SqlPanel;
+  onExportCsvChange?: (handler: (() => void) | null) => void;
 }) {
   const config = panel.config;
   const sortable = config?.sortable !== false; // default on
@@ -448,7 +467,7 @@ function TableRenderer({
     setPage(0);
   };
 
-  const handleExportCsv = () => {
+  const handleExportCsv = useCallback(() => {
     const headers = columns.map((col) => col.label ?? col.key);
     const rowsCsv = sortedRows.map((row) =>
       columns.map((col) => formatCell(row[col.key], col.format)).map(csvEscape),
@@ -467,20 +486,16 @@ function TableRenderer({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  };
+  }, [columns, panel.id, sortedRows]);
+
+  useEffect(() => {
+    onExportCsvChange?.(handleExportCsv);
+    return () => onExportCsvChange?.(null);
+  }, [handleExportCsv, onExportCsvChange]);
 
   return (
     <div className="space-y-1">
       <div className="relative overflow-x-auto">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="absolute right-1 top-1 h-6 w-6 z-10"
-          onClick={handleExportCsv}
-          title="Export CSV"
-        >
-          <IconDownload className="h-3.5 w-3.5" />
-        </Button>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">

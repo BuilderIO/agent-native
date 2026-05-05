@@ -10,6 +10,11 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface ComposeBubbleToolbarProps {
   editor: Editor;
@@ -262,13 +267,17 @@ export function ComposeBubbleToolbar({
                 }}
                 className="bg-transparent border-none outline-none text-white text-sm w-52 px-1 py-0.5 placeholder:text-gray-400 resize-none leading-snug"
               />
-              <button
-                onClick={() => void handleAiAssist()}
-                title="Generate (⌘Enter)"
-                className="text-xs text-blue-400 hover:text-blue-300 px-1.5 py-0.5 font-medium shrink-0 self-end pb-1"
-              >
-                Generate
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => void handleAiAssist()}
+                    className="text-xs text-blue-400 hover:text-blue-300 px-1.5 py-0.5 font-medium shrink-0 self-end pb-1"
+                  >
+                    Generate
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Generate (⌘Enter)</TooltipContent>
+              </Tooltip>
             </>
           )}
         </div>
@@ -292,34 +301,41 @@ export function ComposeBubbleToolbar({
               active: boolean;
             };
             return (
-              <button
-                key={title}
-                onClick={action}
-                title={title}
-                className={cn(
-                  "p-1.5 rounded transition-colors",
-                  active
-                    ? "bg-gray-600 text-white"
-                    : "text-gray-300 hover:bg-gray-700 hover:text-white",
-                )}
-              >
-                <Icon size={14} strokeWidth={2.5} />
-              </button>
+              <Tooltip key={title}>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={action}
+                    className={cn(
+                      "p-1.5 rounded transition-colors",
+                      active
+                        ? "bg-gray-600 text-white"
+                        : "text-gray-300 hover:bg-gray-700 hover:text-white",
+                    )}
+                  >
+                    <Icon size={14} strokeWidth={2.5} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{title}</TooltipContent>
+              </Tooltip>
             );
           })}
           <div className="w-px h-5 bg-gray-600 mx-0.5" />
-          <button
-            onMouseDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setShowAiInput(true);
-              setShowLinkInput(false);
-            }}
-            title="AI Assist"
-            className="p-1.5 rounded transition-colors text-gray-300 hover:bg-gray-700 hover:text-white"
-          >
-            <IconPencil size={14} strokeWidth={2.5} />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowAiInput(true);
+                  setShowLinkInput(false);
+                }}
+                className="p-1.5 rounded transition-colors text-gray-300 hover:bg-gray-700 hover:text-white"
+              >
+                <IconPencil size={14} strokeWidth={2.5} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>AI Assist</TooltipContent>
+          </Tooltip>
         </div>
       )}
     </div>

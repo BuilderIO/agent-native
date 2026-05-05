@@ -4,6 +4,11 @@ import { agentChat } from "@agent-native/core";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export interface CanvasPin {
   id: string;
@@ -217,16 +222,20 @@ export function CanvasCommentPins({
             style={{ left, top }}
           >
             {/* Pin marker */}
-            <button
-              onClick={() => setActivePinId(pin.id)}
-              className={cn(
-                "absolute -translate-x-1/2 -translate-y-full -mt-1 flex items-center justify-center w-7 h-7 rounded-full rounded-bl-none shadow-lg cursor-pointer",
-                "bg-[#609FF8] text-black hover:scale-110 transition-transform",
-              )}
-              title={pin.draft || "Comment"}
-            >
-              <IconMessage className="w-3.5 h-3.5" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setActivePinId(pin.id)}
+                  className={cn(
+                    "absolute -translate-x-1/2 -translate-y-full -mt-1 flex items-center justify-center w-7 h-7 rounded-full rounded-bl-none shadow-lg cursor-pointer",
+                    "bg-[#609FF8] text-black hover:scale-110 transition-transform",
+                  )}
+                >
+                  <IconMessage className="w-3.5 h-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{pin.draft || "Comment"}</TooltipContent>
+            </Tooltip>
 
             {/* Inline composer */}
             {isActive && !pin.submitted && (

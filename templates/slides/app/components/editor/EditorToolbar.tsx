@@ -248,26 +248,34 @@ export default function EditorToolbar({
   return (
     <div className="flex h-12 shrink-0 items-center gap-0.5 overflow-x-auto whitespace-nowrap border-b border-border bg-background px-1 sm:gap-1 sm:px-3">
       {/* Back button */}
-      <Link
-        to="/"
-        className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0"
-        title="Back to decks"
-        aria-label="Back to decks"
-      >
-        <IconArrowLeft className="w-4 h-4 text-muted-foreground" />
-      </Link>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Link
+            to="/"
+            className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0"
+            aria-label="Back to decks"
+          >
+            <IconArrowLeft className="w-4 h-4 text-muted-foreground" />
+          </Link>
+        </TooltipTrigger>
+        <TooltipContent>Back to decks</TooltipContent>
+      </Tooltip>
 
       {/* Slide-list toggle (mobile only — desktop uses the app sidebar rail) */}
-      <button
-        onClick={onToggleSidebar}
-        className={`md:hidden p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0 ${
-          sidebarOpen ? "text-muted-foreground" : "text-muted-foreground/70"
-        }`}
-        title="Toggle slide list"
-        aria-label="Toggle slide list"
-      >
-        <IconLayoutSidebar className="w-4 h-4" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={onToggleSidebar}
+            className={`md:hidden p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0 ${
+              sidebarOpen ? "text-muted-foreground" : "text-muted-foreground/70"
+            }`}
+            aria-label="Toggle slide list"
+          >
+            <IconLayoutSidebar className="w-4 h-4" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Toggle slide list</TooltipContent>
+      </Tooltip>
 
       {/* Deck title */}
       <input
@@ -289,22 +297,26 @@ export default function EditorToolbar({
       {/* Slide settings cog menu */}
       {currentSlide && onUpdateSlide && (
         <>
-          <button
-            ref={layoutRef}
-            onClick={() => {
-              closeAll();
-              setLayoutOpen(!layoutOpen);
-            }}
-            className={`flex items-center gap-1 p-2.5 sm:px-2 sm:py-1.5 rounded-md text-xs transition-colors flex-shrink-0 ${
-              layoutOpen
-                ? "text-foreground/90 bg-accent"
-                : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
-            }`}
-            title="Slide settings"
-            aria-label="Slide settings"
-          >
-            <IconSettings className="w-3.5 h-3.5" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                ref={layoutRef}
+                onClick={() => {
+                  closeAll();
+                  setLayoutOpen(!layoutOpen);
+                }}
+                className={`flex items-center gap-1 p-2.5 sm:px-2 sm:py-1.5 rounded-md text-xs transition-colors flex-shrink-0 ${
+                  layoutOpen
+                    ? "text-foreground/90 bg-accent"
+                    : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
+                }`}
+                aria-label="Slide settings"
+              >
+                <IconSettings className="w-3.5 h-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Slide settings</TooltipContent>
+          </Tooltip>
           <ToolbarPopover
             open={layoutOpen}
             anchorRef={layoutRef}
@@ -511,18 +523,21 @@ graph TD
                     {ASPECT_RATIO_VALUES.map((r) => {
                       const active = activeAspectRatio === r;
                       return (
-                        <button
-                          key={r}
-                          onClick={() => onSetAspectRatio(r)}
-                          className={`px-1.5 py-1 rounded text-[10px] font-medium border ${
-                            active
-                              ? "bg-[#609FF8]/20 text-[#609FF8] border-[#609FF8]/30"
-                              : "text-white/40 hover:text-white/70 hover:bg-white/[0.04] border-transparent"
-                          }`}
-                          title={`Set deck to ${r}`}
-                        >
-                          {r}
-                        </button>
+                        <Tooltip key={r}>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={() => onSetAspectRatio(r)}
+                              className={`px-1.5 py-1 rounded text-[10px] font-medium border ${
+                                active
+                                  ? "bg-[#609FF8]/20 text-[#609FF8] border-[#609FF8]/30"
+                                  : "text-white/40 hover:text-white/70 hover:bg-white/[0.04] border-transparent"
+                              }`}
+                            >
+                              {r}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>{`Set deck to ${r}`}</TooltipContent>
+                        </Tooltip>
                       );
                     })}
                   </div>
@@ -553,7 +568,6 @@ graph TD
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
                 }`}
-                title="Slide tools"
                 aria-label="Slide tools"
               >
                 <IconWand className="w-4 h-4" />
@@ -653,40 +667,52 @@ graph TD
 
       {/* Undo/Redo */}
       <div className="flex items-center flex-shrink-0">
-        <button
-          onClick={onUndo}
-          disabled={!canUndo}
-          className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent disabled:opacity-20 transition-colors"
-          title="Undo (Cmd+Z)"
-          aria-label="Undo"
-        >
-          <IconArrowBackUp className="w-3.5 h-3.5 text-muted-foreground" />
-        </button>
-        <button
-          onClick={onRedo}
-          disabled={!canRedo}
-          className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent disabled:opacity-20 transition-colors"
-          title="Redo (Cmd+Shift+Z)"
-          aria-label="Redo"
-        >
-          <IconArrowForwardUp className="w-3.5 h-3.5 text-muted-foreground" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onUndo}
+              disabled={!canUndo}
+              className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent disabled:opacity-20 transition-colors"
+              aria-label="Undo"
+            >
+              <IconArrowBackUp className="w-3.5 h-3.5 text-muted-foreground" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Undo (Cmd+Z)</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onRedo}
+              disabled={!canRedo}
+              className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent disabled:opacity-20 transition-colors"
+              aria-label="Redo"
+            >
+              <IconArrowForwardUp className="w-3.5 h-3.5 text-muted-foreground" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Redo (Cmd+Shift+Z)</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* IconHistory - hide on narrow / mid widths to keep the bar compact */}
-      <button
-        ref={historyButtonRef}
-        onClick={onShowHistory}
-        className={`p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0 hidden lg:block ${
-          historyOpen
-            ? "text-foreground/90 bg-accent"
-            : "text-muted-foreground hover:text-foreground/70"
-        }`}
-        title="Edit history"
-        aria-label="Edit history"
-      >
-        <IconHistory className="w-3.5 h-3.5" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            ref={historyButtonRef}
+            onClick={onShowHistory}
+            className={`p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0 hidden lg:block ${
+              historyOpen
+                ? "text-foreground/90 bg-accent"
+                : "text-muted-foreground hover:text-foreground/70"
+            }`}
+            aria-label="Edit history"
+          >
+            <IconHistory className="w-3.5 h-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Edit history</TooltipContent>
+      </Tooltip>
 
       {/* Separator */}
       <div className="w-px h-5 bg-accent flex-shrink-0 hidden sm:block" />
@@ -726,23 +752,27 @@ graph TD
 
       {/* Comments toggle */}
       {onToggleComments && (
-        <button
-          onClick={onToggleComments}
-          className={`relative p-2.5 sm:p-1.5 rounded-md transition-colors flex-shrink-0 ${
-            commentsOpen
-              ? "text-foreground bg-accent"
-              : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
-          }`}
-          title="Comments"
-          aria-label="Comments"
-        >
-          <IconMessage className="w-3.5 h-3.5" />
-          {unresolvedCommentCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-[#609FF8] text-[8px] font-bold text-black flex items-center justify-center leading-none">
-              {unresolvedCommentCount > 9 ? "9+" : unresolvedCommentCount}
-            </span>
-          )}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onToggleComments}
+              className={`relative p-2.5 sm:p-1.5 rounded-md transition-colors flex-shrink-0 ${
+                commentsOpen
+                  ? "text-foreground bg-accent"
+                  : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
+              }`}
+              aria-label="Comments"
+            >
+              <IconMessage className="w-3.5 h-3.5" />
+              {unresolvedCommentCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-[#609FF8] text-[8px] font-bold text-black flex items-center justify-center leading-none">
+                  {unresolvedCommentCount > 9 ? "9+" : unresolvedCommentCount}
+                </span>
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Comments</TooltipContent>
+        </Tooltip>
       )}
 
       {/* Save-state indicator (icon-only — text label was wrapping at narrow

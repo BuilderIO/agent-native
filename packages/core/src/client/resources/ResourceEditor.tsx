@@ -23,6 +23,11 @@ import {
   parseFrontmatter,
   serializeFrontmatter,
 } from "../../resources/metadata.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 
 export interface ResourceEditorProps {
   resource: Resource;
@@ -687,18 +692,21 @@ function InlineBubbleToolbar({ editor }: { editor: any }) {
               style?: React.CSSProperties;
             };
             return (
-              <button
-                key={title}
-                onClick={action}
-                title={title}
-                className={cn(
-                  "re-bubble-btn",
-                  isActive() && "re-bubble-btn--active",
-                )}
-                style={style}
-              >
-                {label}
-              </button>
+              <Tooltip key={title}>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={action}
+                    className={cn(
+                      "re-bubble-btn",
+                      isActive() && "re-bubble-btn--active",
+                    )}
+                    style={style}
+                  >
+                    {label}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{title}</TooltipContent>
+              </Tooltip>
             );
           })}
         </div>

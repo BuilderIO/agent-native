@@ -13,6 +13,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ZOOM_PRESETS } from "./types";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface ZoomControlsProps {
   zoom: number;
@@ -128,15 +133,19 @@ export function ZoomControls({ zoom, onZoomChange }: ZoomControlsProps) {
 
       <div className="w-px h-4 bg-border mx-0.5" />
 
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-6 w-6"
-        onClick={handleFitToScreen}
-        title="Fit to screen"
-      >
-        <IconMaximize className="w-3.5 h-3.5" />
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={handleFitToScreen}
+          >
+            <IconMaximize className="w-3.5 h-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Fit to screen</TooltipContent>
+      </Tooltip>
     </div>
   );
 }

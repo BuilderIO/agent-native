@@ -32,6 +32,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import type { Alias } from "@shared/types";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface RecipientInputProps {
   value: string;
@@ -118,22 +123,30 @@ function AliasPopover({
         <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] font-medium text-indigo-300">
           {alias.emails.length} recipients
         </span>
-        <button
-          type="button"
-          title="Edit alias"
-          onClick={handleEdit}
-          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <IconPencil className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          title="Expand to individual emails"
-          onClick={handleExpand}
-          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <IconArrowsDiagonal className="size-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={handleEdit}
+              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <IconPencil className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Edit alias</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={handleExpand}
+              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <IconArrowsDiagonal className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Expand to individual emails</TooltipContent>
+        </Tooltip>
       </div>
       {/* Email list */}
       <div className="max-h-[180px] overflow-y-auto p-1.5">

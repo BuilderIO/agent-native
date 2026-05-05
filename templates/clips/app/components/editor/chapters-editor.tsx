@@ -11,6 +11,11 @@ import { cn } from "@/lib/utils";
 import { formatMs } from "@/lib/timestamp-mapping";
 import { useActionMutation } from "@agent-native/core/client";
 import { toast } from "sonner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export interface Chapter {
   startMs: number;
@@ -130,28 +135,36 @@ export function ChaptersEditor({
               )}
             >
               <IconGripVertical className="w-3.5 h-3.5 text-muted-foreground cursor-grab" />
-              <button
-                type="button"
-                onClick={() => onSeek?.(c.startMs)}
-                className="text-[11px] font-mono text-muted-foreground w-14 shrink-0 text-left hover:text-foreground"
-                title={`Seek to ${formatMs(c.startMs)}`}
-              >
-                {formatMs(c.startMs)}
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => onSeek?.(c.startMs)}
+                    className="text-[11px] font-mono text-muted-foreground w-14 shrink-0 text-left hover:text-foreground"
+                  >
+                    {formatMs(c.startMs)}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{`Seek to ${formatMs(c.startMs)}`}</TooltipContent>
+              </Tooltip>
               <Input
                 value={c.title}
                 onChange={(e) => rename(i, e.target.value)}
                 className="h-7 text-xs"
               />
-              <Button
-                size="sm"
-                variant="ghost"
-                className="opacity-0 group-hover:opacity-100 h-7 w-7 p-0"
-                onClick={() => remove(i)}
-                title="Remove chapter"
-              >
-                <IconTrash className="w-3.5 h-3.5" />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="opacity-0 group-hover:opacity-100 h-7 w-7 p-0"
+                    onClick={() => remove(i)}
+                  >
+                    <IconTrash className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Remove chapter</TooltipContent>
+              </Tooltip>
             </div>
           ))
         )}

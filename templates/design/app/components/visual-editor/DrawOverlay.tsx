@@ -18,6 +18,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export interface DrawAnnotation {
   id: string;
@@ -314,18 +319,21 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
         {/* Color picker */}
         <div className="flex gap-1">
           {PRESET_COLORS.map((preset) => (
-            <button
-              key={preset.color}
-              onClick={() => setColor(preset.color)}
-              className={cn(
-                "h-5 w-5 cursor-pointer rounded-full",
-                color === preset.color
-                  ? "ring-2 ring-foreground ring-offset-1 ring-offset-popover"
-                  : "ring-1 ring-border",
-              )}
-              style={{ backgroundColor: preset.color }}
-              title={preset.label}
-            />
+            <Tooltip key={preset.color}>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setColor(preset.color)}
+                  className={cn(
+                    "h-5 w-5 cursor-pointer rounded-full",
+                    color === preset.color
+                      ? "ring-2 ring-foreground ring-offset-1 ring-offset-popover"
+                      : "ring-1 ring-border",
+                  )}
+                  style={{ backgroundColor: preset.color }}
+                />
+              </TooltipTrigger>
+              <TooltipContent>{preset.label}</TooltipContent>
+            </Tooltip>
           ))}
         </div>
 
@@ -334,60 +342,75 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
         {/* Line widths */}
         <div className="flex gap-1">
           {LINE_WIDTHS.map((lw) => (
-            <button
-              key={lw.value}
-              onClick={() => setLineWidth(lw.value)}
-              className={cn(
-                "flex h-6 w-6 cursor-pointer items-center justify-center rounded",
-                lineWidth === lw.value
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              title={lw.label}
-            >
-              <div
-                className="rounded-full bg-current"
-                style={{ width: lw.value + 2, height: lw.value + 2 }}
-              />
-            </button>
+            <Tooltip key={lw.value}>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setLineWidth(lw.value)}
+                  className={cn(
+                    "flex h-6 w-6 cursor-pointer items-center justify-center rounded",
+                    lineWidth === lw.value
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <div
+                    className="rounded-full bg-current"
+                    style={{ width: lw.value + 2, height: lw.value + 2 }}
+                  />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{lw.label}</TooltipContent>
+            </Tooltip>
           ))}
         </div>
 
         <div className="mx-1 h-4 w-px bg-border" />
 
         {/* Text mode */}
-        <button
-          onClick={() => setTextMode(!textMode)}
-          className={cn(
-            "flex h-6 w-6 cursor-pointer items-center justify-center rounded",
-            textMode
-              ? "bg-accent text-foreground"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-          title="Type anywhere on the canvas"
-        >
-          <IconCursorText className="h-3.5 w-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => setTextMode(!textMode)}
+              className={cn(
+                "flex h-6 w-6 cursor-pointer items-center justify-center rounded",
+                textMode
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <IconCursorText className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Type anywhere on the canvas</TooltipContent>
+        </Tooltip>
 
         {/* Undo last stroke */}
-        <button
-          onClick={undo}
-          disabled={strokes.length === 0}
-          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
-          title="Undo stroke"
-        >
-          <IconArrowBackUp className="h-3.5 w-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={undo}
+              disabled={strokes.length === 0}
+              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
+            >
+              <IconArrowBackUp className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Undo stroke</TooltipContent>
+        </Tooltip>
 
         {/* Clear all */}
-        <button
-          onClick={clear}
-          disabled={strokes.length === 0 && textAnnotations.length === 0}
-          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
-          title="Clear all"
-        >
-          <IconEraser className="h-3.5 w-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={clear}
+              disabled={strokes.length === 0 && textAnnotations.length === 0}
+              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
+            >
+              <IconEraser className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Clear all</TooltipContent>
+        </Tooltip>
 
         <div className="mx-1 h-4 w-px bg-border" />
 
@@ -415,13 +438,17 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
         </Button>
 
         {/* Close */}
-        <button
-          onClick={onClose}
-          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground"
-          title="Exit draw mode"
-        >
-          <IconX className="h-3.5 w-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onClose}
+              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground"
+            >
+              <IconX className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Exit draw mode</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   );

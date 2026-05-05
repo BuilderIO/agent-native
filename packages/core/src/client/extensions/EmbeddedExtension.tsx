@@ -19,6 +19,11 @@ import {
   checkBridgePolicy,
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 
 interface Extension {
   id: string;
@@ -308,16 +313,20 @@ function EmbeddedToolMenu({
         if (!o) setConfirmingDelete(false);
       }}
     >
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-md bg-background/60 text-muted-foreground/60 opacity-0 hover:bg-accent hover:text-foreground hover:opacity-100 group-hover/embedded-extension:opacity-100 cursor-pointer transition-opacity"
-          title={`${toolName} options`}
-          aria-label={`${toolName} options`}
-        >
-          <IconDots className="h-3.5 w-3.5" />
-        </button>
-      </PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-md bg-background/60 text-muted-foreground/60 opacity-0 hover:bg-accent hover:text-foreground hover:opacity-100 group-hover/embedded-extension:opacity-100 cursor-pointer transition-opacity"
+              aria-label={`${toolName} options`}
+            >
+              <IconDots className="h-3.5 w-3.5" />
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{`${toolName} options`}</TooltipContent>
+      </Tooltip>
       <PopoverContent align="end" sideOffset={4} className="w-56 p-1">
         {!confirmingDelete ? (
           <div className="flex flex-col">

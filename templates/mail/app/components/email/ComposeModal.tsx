@@ -489,13 +489,17 @@ export function ComposeModal({
             })
           )}
           {/* + button: always visible, right after title/tabs */}
-          <button
-            onClick={onNewDraft}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/30 transition-colors"
-            title="New draft"
-          >
-            <IconPlus className="h-3 w-3" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={onNewDraft}
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/30 transition-colors"
+              >
+                <IconPlus className="h-3 w-3" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>New draft</TooltipContent>
+          </Tooltip>
         </div>
 
         {/* Right side: minimize & close */}
@@ -759,13 +763,17 @@ export function ComposeModal({
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => onDiscard(activeId)}
-                className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground/40 hover:text-red-400 hover:bg-red-400/10 transition-colors"
-                title="Delete draft"
-              >
-                <IconTrash className="h-4 w-4" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => onDiscard(activeId)}
+                    className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground/40 hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                  >
+                    <IconTrash className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Delete draft</TooltipContent>
+              </Tooltip>
               <SendLaterButton
                 onSend={handleSend}
                 onSendLater={handleSendLater}

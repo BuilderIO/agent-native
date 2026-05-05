@@ -24,7 +24,8 @@
     "./server": "./dist/server/index.js",
     "./actions": "./dist/actions/index.js",
     "./db": "./dist/db/index.js",
-    "./components": "./dist/components/index.js"
+    "./components": "./dist/components/index.js",
+    "./styles/dispatch.css": "./src/styles/dispatch.css"
   },
   "files": [
     "dist",

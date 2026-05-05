@@ -1049,17 +1049,21 @@ export default function BookingLinksPage({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-3">
                     <Label>URL</Label>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => openPreview(draft.slug)}
-                      className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                      title="Open in new tab"
-                      aria-label="Open booking page in new tab"
-                    >
-                      <IconExternalLink className="h-4 w-4" />
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => openPreview(draft.slug)}
+                          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                          aria-label="Open booking page in new tab"
+                        >
+                          <IconExternalLink className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Open in new tab</TooltipContent>
+                    </Tooltip>
                   </div>
                   {/* Editable URL parts (username / slug) — shared package component */}
                   <SlugEditor
@@ -1716,34 +1720,46 @@ function BookingPreview({
               </Badge>
             )}
             {onCollapse && (
-              <button
-                type="button"
-                onClick={onCollapse}
-                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60"
-                title="Collapse preview"
-              >
-                <IconChevronRight className="h-3.5 w-3.5" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={onCollapse}
+                    className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60"
+                  >
+                    <IconChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Collapse preview</TooltipContent>
+              </Tooltip>
             )}
             {onCopy && (
-              <button
-                type="button"
-                onClick={onCopy}
-                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60"
-                title="Copy link"
-              >
-                <IconCopy className="h-3.5 w-3.5" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={onCopy}
+                    className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60"
+                  >
+                    <IconCopy className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Copy link</TooltipContent>
+              </Tooltip>
             )}
             {onOpen && (
-              <button
-                type="button"
-                onClick={onOpen}
-                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60"
-                title="Open in new tab"
-              >
-                <IconExternalLink className="h-3.5 w-3.5" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={onOpen}
+                    className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60"
+                  >
+                    <IconExternalLink className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Open in new tab</TooltipContent>
+              </Tooltip>
             )}
           </div>
         </div>

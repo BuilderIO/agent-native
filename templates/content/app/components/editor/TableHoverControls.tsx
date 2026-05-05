@@ -2,6 +2,11 @@ import { useEffect, useState, useRef } from "react";
 import { Editor } from "@tiptap/react";
 import { IconPlus, IconMinus } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface TableHoverControlsProps {
   editor: Editor;
@@ -183,40 +188,56 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
         className="table-hover-controls flex items-center gap-0.5 absolute z-50 transform -translate-x-1/2 -translate-y-full bg-background shadow-sm border border-border rounded-md p-0.5 transition-opacity"
         style={{ left: colLeft, top: colTop }}
       >
-        <button
-          onClick={() => handleAction("addCol")}
-          title="Add column"
-          className="p-1 hover:bg-accent rounded text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <IconPlus size={14} strokeWidth={2.5} />
-        </button>
-        <button
-          onClick={() => handleAction("delCol")}
-          title="Delete column"
-          className="p-1 hover:bg-destructive/10 rounded text-muted-foreground hover:text-destructive transition-colors"
-        >
-          <IconMinus size={14} strokeWidth={2.5} />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => handleAction("addCol")}
+              className="p-1 hover:bg-accent rounded text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <IconPlus size={14} strokeWidth={2.5} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Add column</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => handleAction("delCol")}
+              className="p-1 hover:bg-destructive/10 rounded text-muted-foreground hover:text-destructive transition-colors"
+            >
+              <IconMinus size={14} strokeWidth={2.5} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Delete column</TooltipContent>
+        </Tooltip>
       </div>
 
       <div
         className="table-hover-controls flex flex-col items-center gap-0.5 absolute z-50 transform -translate-x-full -translate-y-1/2 bg-background shadow-sm border border-border rounded-md p-0.5 transition-opacity"
         style={{ left: rowLeft, top: rowTop }}
       >
-        <button
-          onClick={() => handleAction("addRow")}
-          title="Add row"
-          className="p-1 hover:bg-accent rounded text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <IconPlus size={14} strokeWidth={2.5} />
-        </button>
-        <button
-          onClick={() => handleAction("delRow")}
-          title="Delete row"
-          className="p-1 hover:bg-destructive/10 rounded text-muted-foreground hover:text-destructive transition-colors"
-        >
-          <IconMinus size={14} strokeWidth={2.5} />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => handleAction("addRow")}
+              className="p-1 hover:bg-accent rounded text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <IconPlus size={14} strokeWidth={2.5} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Add row</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => handleAction("delRow")}
+              className="p-1 hover:bg-destructive/10 rounded text-muted-foreground hover:text-destructive transition-colors"
+            >
+              <IconMinus size={14} strokeWidth={2.5} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Delete row</TooltipContent>
+        </Tooltip>
       </div>
     </>
   );

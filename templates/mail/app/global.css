@@ -205,14 +205,14 @@
   --width: min(36rem, calc(100vw - 2rem)) !important;
 }
 [data-sonner-toast] {
-  width: var(--width) !important;
+  width: fit-content !important;
   min-width: min(20rem, calc(100vw - 2rem)) !important;
   max-width: var(--width) !important;
   overflow-wrap: normal !important;
 }
 [data-sonner-toast] [data-content] {
   flex: 1 1 auto !important;
-  min-width: min(16rem, calc(100vw - 14rem)) !important;
+  min-width: 0 !important;
   overflow-wrap: break-word !important;
 }
 [data-sonner-toast] [data-title],

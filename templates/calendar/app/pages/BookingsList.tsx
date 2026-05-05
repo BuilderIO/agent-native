@@ -118,15 +118,19 @@ export default function BookingsList() {
                   </TableCell>
                   <TableCell>
                     {booking.status === "confirmed" && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleCancel(booking)}
-                        disabled={deleteBooking.isPending}
-                        title="Cancel booking"
-                      >
-                        <IconCircleX className="h-4 w-4 text-destructive" />
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleCancel(booking)}
+                            disabled={deleteBooking.isPending}
+                          >
+                            <IconCircleX className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Cancel booking</TooltipContent>
+                      </Tooltip>
                     )}
                   </TableCell>
                 </TableRow>

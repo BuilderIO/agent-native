@@ -1,6 +1,11 @@
 import { useEffect, useState, useRef, forwardRef } from "react";
 import { IconUnlink, IconExternalLink } from "@tabler/icons-react";
 import type { Editor } from "@tiptap/react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface LinkHoverPreviewProps {
   editor: Editor;
@@ -129,22 +134,30 @@ export function LinkHoverPreview({ editor }: LinkHoverPreviewProps) {
         >
           {domain}
         </a>
-        <a
-          href={hoveredLink.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-accent"
-          title="Open link"
-        >
-          <IconExternalLink className="h-3.5 w-3.5" />
-        </a>
-        <button
-          onClick={handleRemoveLink}
-          className="text-muted-foreground hover:text-destructive p-1 rounded hover:bg-destructive/10"
-          title="Remove link"
-        >
-          <IconUnlink className="h-3.5 w-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <a
+              href={hoveredLink.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-accent"
+            >
+              <IconExternalLink className="h-3.5 w-3.5" />
+            </a>
+          </TooltipTrigger>
+          <TooltipContent>Open link</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={handleRemoveLink}
+              className="text-muted-foreground hover:text-destructive p-1 rounded hover:bg-destructive/10"
+            >
+              <IconUnlink className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Remove link</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   );

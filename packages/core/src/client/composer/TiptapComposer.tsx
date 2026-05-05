@@ -59,6 +59,11 @@ import {
   reasoningEffortLabel,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 
 export interface TiptapComposerHandle {
   focus(): void;
@@ -263,20 +268,24 @@ function ModeSelector({
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
       <PopoverPrimitive.Trigger asChild>
-        <button
-          type="button"
-          aria-label={mode === "build" ? "Act mode" : "Plan mode"}
-          title="Shift+Tab toggles Act and Plan"
-          className={`shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium hover:bg-accent/50 ${
-            mode === "plan"
-              ? "text-amber-700 dark:text-amber-300"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          <ActiveIcon className="h-3.5 w-3.5" />
-          {mode === "build" ? "Act" : "Plan"}
-          <IconChevronDown className="h-3 w-3 opacity-60" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={mode === "build" ? "Act mode" : "Plan mode"}
+              className={`shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium hover:bg-accent/50 ${
+                mode === "plan"
+                  ? "text-amber-700 dark:text-amber-300"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <ActiveIcon className="h-3.5 w-3.5" />
+              {mode === "build" ? "Act" : "Plan"}
+              <IconChevronDown className="h-3 w-3 opacity-60" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Shift+Tab toggles Act and Plan</TooltipContent>
+        </Tooltip>
       </PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
@@ -1567,15 +1576,19 @@ export function TiptapComposer({
               <VoiceButton voice={voice} isMac={isMac} disabled={disabled} />
             )}
             {extraActionButton}
-            <button
-              type="button"
-              onClick={submitComposer}
-              disabled={!canSend}
-              className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Send message"
-            >
-              <IconArrowUp className="h-3.5 w-3.5" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={submitComposer}
+                  disabled={!canSend}
+                  className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <IconArrowUp className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Send message</TooltipContent>
+            </Tooltip>
           </>
         )}
       </div>

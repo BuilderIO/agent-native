@@ -27,6 +27,11 @@ import type {
   OnboardingMethod,
   OnboardingStepStatus,
 } from "../../onboarding/types.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 
 type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
 
@@ -87,24 +92,30 @@ export function OnboardingPanel({
   if (!expanded) {
     return (
       <div className={className} style={styles.compactBanner}>
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          style={styles.compactBannerBtn}
-          title="Expand setup"
-          aria-label="Expand setup"
-        >
-          <span style={allComplete ? styles.checkDone : styles.checkTodo}>
-            {allComplete ? <IconCheck size={12} strokeWidth={3} /> : null}
-          </span>
-          <span style={styles.headerTitle}>{title}</span>
-          <span style={styles.headerCounter}>
-            {completeCount} of {totalCount}
-          </span>
-          <span style={{ marginLeft: "auto", opacity: 0.5, display: "flex" }}>
-            <IconChevronDown size={14} />
-          </span>
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              style={styles.compactBannerBtn}
+              aria-label="Expand setup"
+            >
+              <span style={allComplete ? styles.checkDone : styles.checkTodo}>
+                {allComplete ? <IconCheck size={12} strokeWidth={3} /> : null}
+              </span>
+              <span style={styles.headerTitle}>{title}</span>
+              <span style={styles.headerCounter}>
+                {completeCount} of {totalCount}
+              </span>
+              <span
+                style={{ marginLeft: "auto", opacity: 0.5, display: "flex" }}
+              >
+                <IconChevronDown size={14} />
+              </span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Expand setup</TooltipContent>
+        </Tooltip>
       </div>
     );
   }
@@ -125,15 +136,19 @@ export function OnboardingPanel({
             {completeCount} of {totalCount}
           </span>
         </div>
-        <button
-          type="button"
-          onClick={() => setExpanded(false)}
-          title="Collapse"
-          aria-label="Collapse onboarding"
-          style={styles.dismissBtn}
-        >
-          <IconChevronUp size={14} />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => setExpanded(false)}
+              aria-label="Collapse onboarding"
+              style={styles.dismissBtn}
+            >
+              <IconChevronUp size={14} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Collapse</TooltipContent>
+        </Tooltip>
       </div>
 
       <div style={styles.list}>

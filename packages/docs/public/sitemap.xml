@@ -86,6 +86,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://agent-native.com/docs/extensions</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://agent-native.com/docs/faq</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -176,6 +181,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://agent-native.com/docs/sharing</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://agent-native.com/docs/skills-guide</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -232,11 +242,6 @@
   </url>
   <url>
     <loc>https://agent-native.com/docs/template-video</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://agent-native.com/docs/tools</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>

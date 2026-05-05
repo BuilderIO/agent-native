@@ -3,6 +3,11 @@ import { IconScissors } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatMs, isExcluded, type EditsJson } from "@/lib/timestamp-mapping";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export interface TranscriptSegment {
   startMs: number;
@@ -90,20 +95,23 @@ export function TranscriptEditor({
       const excluded = isExcluded(s.startMs, edits);
       const active = currentMs >= s.startMs && currentMs < s.endMs;
       return (
-        <span
-          key={`${s.startMs}-${i}`}
-          data-start-ms={s.startMs}
-          data-end-ms={s.endMs}
-          onClick={() => onSeek?.(s.startMs)}
-          className={cn(
-            "inline cursor-pointer px-0.5 rounded",
-            active && "bg-primary/20 text-foreground",
-            excluded && "line-through text-muted-foreground/70",
-          )}
-          title={`${formatMs(s.startMs)} – ${formatMs(s.endMs)}`}
-        >
-          {s.text.trim()}{" "}
-        </span>
+        <Tooltip key={`${s.startMs}-${i}`}>
+          <TooltipTrigger asChild>
+            <span
+              data-start-ms={s.startMs}
+              data-end-ms={s.endMs}
+              onClick={() => onSeek?.(s.startMs)}
+              className={cn(
+                "inline cursor-pointer px-0.5 rounded",
+                active && "bg-primary/20 text-foreground",
+                excluded && "line-through text-muted-foreground/70",
+              )}
+            >
+              {s.text.trim()}{" "}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{`${formatMs(s.startMs)} – ${formatMs(s.endMs)}`}</TooltipContent>
+        </Tooltip>
       );
     });
   }, [segments, edits, currentMs, onSeek]);

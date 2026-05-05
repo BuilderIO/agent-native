@@ -502,6 +502,7 @@ const THREAD_CANDIDATE_PAGE_TTL = 5 * 60 * 1000;
 const THREAD_CANDIDATE_PAGE_MAX = 25;
 const THREAD_CANDIDATE_PAGE_PREFIX = "__an_thread_candidates__:";
 const THREAD_CANDIDATE_PAGE_SETTING = "mail-thread-candidate-pages";
+const THREAD_METADATA_RANK_LIMIT = 120;
 
 type ThreadCandidatePageEntry = {
   email: string;
@@ -626,6 +627,46 @@ function latestThreadMessageTime(thread: any): number {
     }
   }
   return latest;
+}
+
+function compareHistoryDesc(a: any, b: any): number {
+  try {
+    const ah = BigInt(a.historyId || 0);
+    const bh = BigInt(b.historyId || 0);
+    return ah === bh ? 0 : ah > bh ? -1 : 1;
+  } catch {
+    return Number(b.historyId || 0) - Number(a.historyId || 0);
+  }
+}
+
+function uniqueIds(ids: Array<string | undefined | null>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const id of ids) {
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    result.push(id);
+  }
+  return result;
+}
+
+async function listRecentMatchingThreadIds(
+  accessToken: string,
+  query: string,
+  maxResults: number,
+): Promise<string[]> {
+  try {
+    const listRes = await gmailListMessages(accessToken, {
+      q: query,
+      maxResults,
+    });
+    return uniqueIds((listRes.messages || []).map((m: any) => m.threadId));
+  } catch (err: any) {
+    console.warn(
+      `[listGmailMessages] Recent message candidates failed: ${err.message}`,
+    );
+    return [];
+  }
 }
 
 async function fetchThreadBatchWithRefill(
@@ -1309,14 +1350,37 @@ async function fetchAccountThreads(
   onEstimate(listRes.resultSizeEstimate || 0);
 
   const threadStubs = listRes.threads || [];
-  let candidateIds = threadStubs.map((t: any) => t.id).filter(Boolean);
+  let candidateIds = uniqueIds(threadStubs.map((t: any) => t.id));
   let candidateMetadataById: Map<string, any> | undefined;
   if (useCandidateWindow && candidateIds.length > maxResults) {
+    const rankLimit = Math.min(
+      Math.max(maxResults, THREAD_METADATA_RANK_LIMIT),
+      candidateLimit ?? THREAD_METADATA_RANK_LIMIT,
+    );
+    const historyRankedIds = [...threadStubs]
+      .sort(compareHistoryDesc)
+      .map((t: any) => t.id);
+    const recentMatchingThreadIds = await listRecentMatchingThreadIds(
+      accessToken,
+      query,
+      rankLimit,
+    );
+    const hydrationCandidateIds = uniqueIds([
+      ...recentMatchingThreadIds,
+      ...historyRankedIds,
+      ...candidateIds,
+    ]).slice(0, rankLimit);
     const ranked = await rankThreadCandidatesByLatestMessage(
       accessToken,
-      candidateIds,
+      hydrationCandidateIds,
     );
-    candidateIds = ranked.ids;
+    const rankedSet = new Set(ranked.ids);
+    candidateIds = [
+      ...ranked.ids,
+      ...uniqueIds([...historyRankedIds, ...candidateIds]).filter(
+        (id) => !rankedSet.has(id),
+      ),
+    ];
     candidateMetadataById = ranked.metadataById;
   }
 

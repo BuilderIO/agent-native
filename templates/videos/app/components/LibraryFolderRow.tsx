@@ -11,6 +11,11 @@ import { cn } from "@/lib/utils";
 import { CompositionCard } from "@/components/CompositionCard";
 import type { CompositionEntry } from "@/remotion/registry";
 import type { VideoFolder } from "@/hooks/use-folders";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type LibraryFolderRowProps = {
   folder: VideoFolder;
@@ -161,20 +166,28 @@ export function LibraryFolderRow({
             className="flex items-center gap-0.5"
             onClick={(e) => e.stopPropagation()}
           >
-            <button
-              onClick={handleRenameStart}
-              className="p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-              title="Rename folder"
-            >
-              <IconPencil className="h-3 w-3" />
-            </button>
-            <button
-              onClick={() => onDeleteFolder(folder.id)}
-              className="p-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-              title="Delete folder"
-            >
-              <IconTrash className="h-3 w-3" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={handleRenameStart}
+                  className="p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <IconPencil className="h-3 w-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Rename folder</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => onDeleteFolder(folder.id)}
+                  className="p-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  <IconTrash className="h-3 w-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Delete folder</TooltipContent>
+            </Tooltip>
           </div>
         )}
       </div>
@@ -196,13 +209,17 @@ export function LibraryFolderRow({
                   onDelete={onDelete}
                   draggable
                 />
-                <button
-                  onClick={() => onRemoveFromFolder(comp.id)}
-                  className="absolute top-1 right-7 p-0.5 rounded opacity-0 group-hover/item:opacity-100 bg-secondary/80 hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-all"
-                  title="Remove from folder"
-                >
-                  <IconX className="h-2.5 w-2.5" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => onRemoveFromFolder(comp.id)}
+                      className="absolute top-1 right-7 p-0.5 rounded opacity-0 group-hover/item:opacity-100 bg-secondary/80 hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-all"
+                    >
+                      <IconX className="h-2.5 w-2.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Remove from folder</TooltipContent>
+                </Tooltip>
               </div>
             ))
           )}

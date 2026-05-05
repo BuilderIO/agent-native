@@ -63,6 +63,11 @@ import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { useQueuedDraftCount } from "@/hooks/use-draft-queue";
 import { appApiPath } from "@/lib/api-path";
 import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const BARE_ROUTES = new Set(["/email"]);
 
@@ -743,14 +748,18 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             {/* Top nav bar */}
             <header className="relative z-20 flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2 inbox-zero-header">
               {/* Hamburger menu */}
-              <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
-                aria-label="Toggle menu"
-                title="Menu"
-              >
-                <IconMenu2 className="h-4 w-4" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setSidebarOpen(!sidebarOpen)}
+                    className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+                    aria-label="Toggle menu"
+                  >
+                    <IconMenu2 className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Menu</TooltipContent>
+              </Tooltip>
 
               {/* Visible tabs — hidden during search */}
               {!activeSearchQuery && (
@@ -851,20 +860,24 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         if (!open) setLabelSearch("");
                       }}
                     >
-                      <PopoverTrigger asChild>
-                        <button
-                          className={cn(
-                            "flex h-6 w-6 items-center justify-center rounded transition-colors",
-                            tabSettingsOpen
-                              ? "text-foreground bg-accent/50"
-                              : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30",
-                          )}
-                          aria-label="Configure tabs"
-                          title="Configure tabs"
-                        >
-                          <IconSettings className="h-3.5 w-3.5" />
-                        </button>
-                      </PopoverTrigger>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <PopoverTrigger asChild>
+                            <button
+                              className={cn(
+                                "flex h-6 w-6 items-center justify-center rounded transition-colors",
+                                tabSettingsOpen
+                                  ? "text-foreground bg-accent/50"
+                                  : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30",
+                              )}
+                              aria-label="Configure tabs"
+                            >
+                              <IconSettings className="h-3.5 w-3.5" />
+                            </button>
+                          </PopoverTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent>Configure tabs</TooltipContent>
+                      </Tooltip>
                       <PopoverContent
                         align="start"
                         className="w-60 max-w-[calc(100vw-2rem)] p-0"
@@ -908,14 +921,18 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   }}
                 />
               ) : (
-                <button
-                  onClick={() => setSearchFocused(true)}
-                  className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-                  aria-label="Search"
-                  title="Search (/)"
-                >
-                  <IconSearch className="h-4 w-4" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setSearchFocused(true)}
+                      className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                      aria-label="Search"
+                    >
+                      <IconSearch className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Search (/)</TooltipContent>
+                </Tooltip>
               )}
 
               {/* Hidden input for keyboard shortcut target */}
@@ -929,65 +946,84 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               )}
 
               {/* Draft queue */}
-              <Link
-                to="/draft-queue"
-                className={cn(
-                  "relative flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded transition-colors shrink-0",
-                  view === "draft-queue"
-                    ? "text-foreground bg-accent/50"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                )}
-                title="Draft queue"
-              >
-                <IconClock className="h-4 w-4" />
-                {queuedDrafts.count > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-amber-400 px-1 text-center text-[10px] font-semibold leading-4 text-black">
-                    {queuedDrafts.count > 9 ? "9+" : queuedDrafts.count}
-                  </span>
-                )}
-              </Link>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    to="/draft-queue"
+                    className={cn(
+                      "relative flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded transition-colors shrink-0",
+                      view === "draft-queue"
+                        ? "text-foreground bg-accent/50"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                    )}
+                  >
+                    <IconClock className="h-4 w-4" />
+                    {queuedDrafts.count > 0 && (
+                      <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-amber-400 px-1 text-center text-[10px] font-semibold leading-4 text-black">
+                        {queuedDrafts.count > 9 ? "9+" : queuedDrafts.count}
+                      </span>
+                    )}
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent>Draft queue</TooltipContent>
+              </Tooltip>
 
               {/* Manual refresh — auto-poll backs off on error, but users
                   still want a button to force a fresh fetch on demand. */}
-              <button
-                onClick={() => {
-                  if (inboxIsFetching) return;
-                  qc.invalidateQueries({ queryKey: ["emails"] });
-                  qc.invalidateQueries({ queryKey: ["labels"] });
-                }}
-                disabled={inboxIsFetching}
-                className={cn(
-                  "flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-muted-foreground",
-                )}
-                aria-label="Refresh inbox"
-                title="Refresh inbox"
-              >
-                <IconRefresh
-                  className={cn("h-4 w-4", inboxIsFetching && "animate-spin")}
-                />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => {
+                      if (inboxIsFetching) return;
+                      qc.invalidateQueries({ queryKey: ["emails"] });
+                      qc.invalidateQueries({ queryKey: ["labels"] });
+                    }}
+                    disabled={inboxIsFetching}
+                    className={cn(
+                      "flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-muted-foreground",
+                    )}
+                    aria-label="Refresh inbox"
+                  >
+                    <IconRefresh
+                      className={cn(
+                        "h-4 w-4",
+                        inboxIsFetching && "animate-spin",
+                      )}
+                    />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Refresh inbox</TooltipContent>
+              </Tooltip>
 
               {/* Extensions */}
-              <Link
-                to="/extensions"
-                className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
-                title="Extensions"
-              >
-                <IconTool className="h-4 w-4" />
-              </Link>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    to="/extensions"
+                    className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+                  >
+                    <IconTool className="h-4 w-4" />
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent>Extensions</TooltipContent>
+              </Tooltip>
 
               {/* Theme toggle */}
               <ThemeToggle />
 
               {/* Compose (pen) icon */}
-              <button
-                onClick={handleCompose}
-                className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-                aria-label="Compose email"
-                title="Compose (C)"
-              >
-                <IconPencil className="h-4 w-4" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={handleCompose}
+                    className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                    aria-label="Compose email"
+                  >
+                    <IconPencil className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Compose (C)</TooltipContent>
+              </Tooltip>
 
               {/* Account avatars — overlapping stack like Figma */}
               {hasAccounts && (
@@ -995,51 +1031,53 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   open={accountPopoverOpen}
                   onOpenChange={setAccountPopoverOpen}
                 >
-                  <PopoverTrigger asChild>
-                    <button
-                      className="flex items-center hover:opacity-90 transition-opacity ml-1"
-                      title="Accounts"
-                    >
-                      <div
-                        className="flex items-center"
-                        style={{
-                          marginRight: accounts.length > 1 ? 0 : undefined,
-                        }}
-                      >
-                        {accounts.map((account, i) => {
-                          const isActive =
-                            activeAccounts.size === 0 ||
-                            activeAccounts.has(account.email);
-                          return (
-                            <div
-                              key={account.email}
-                              className={cn(
-                                "relative rounded-full ring-2 ring-card transition-opacity",
-                                !isActive && "opacity-30",
-                              )}
-                              style={{
-                                marginLeft: i === 0 ? 0 : -8,
-                                zIndex: accounts.length - i,
-                              }}
-                            >
-                              {account.photoUrl ? (
-                                <img
-                                  src={account.photoUrl}
-                                  alt=""
-                                  className="h-7 w-7 rounded-full object-cover"
-                                  referrerPolicy="no-referrer"
-                                />
-                              ) : (
-                                <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center text-[11px] font-semibold text-primary">
-                                  {account.email[0]?.toUpperCase()}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <PopoverTrigger asChild>
+                        <button className="flex items-center hover:opacity-90 transition-opacity ml-1">
+                          <div
+                            className="flex items-center"
+                            style={{
+                              marginRight: accounts.length > 1 ? 0 : undefined,
+                            }}
+                          >
+                            {accounts.map((account, i) => {
+                              const isActive =
+                                activeAccounts.size === 0 ||
+                                activeAccounts.has(account.email);
+                              return (
+                                <div
+                                  key={account.email}
+                                  className={cn(
+                                    "relative rounded-full ring-2 ring-card transition-opacity",
+                                    !isActive && "opacity-30",
+                                  )}
+                                  style={{
+                                    marginLeft: i === 0 ? 0 : -8,
+                                    zIndex: accounts.length - i,
+                                  }}
+                                >
+                                  {account.photoUrl ? (
+                                    <img
+                                      src={account.photoUrl}
+                                      alt=""
+                                      className="h-7 w-7 rounded-full object-cover"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  ) : (
+                                    <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center text-[11px] font-semibold text-primary">
+                                      {account.email[0]?.toUpperCase()}
+                                    </div>
+                                  )}
                                 </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </button>
-                  </PopoverTrigger>
+                              );
+                            })}
+                          </div>
+                        </button>
+                      </PopoverTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>Accounts</TooltipContent>
+                  </Tooltip>
                   <PopoverContent
                     align="end"
                     className="w-72 max-w-[calc(100vw-2rem)] p-0"
@@ -1470,14 +1508,18 @@ function StandardLayout({ children }: AppLayoutProps) {
         <div className="relative flex flex-1 flex-col overflow-hidden">
           {!pageOwnsToolbar && (
             <header className="relative z-20 flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-3">
-              <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 cursor-pointer"
-                aria-label="Toggle menu"
-                title="Menu"
-              >
-                <IconMenu2 className="h-4 w-4" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setSidebarOpen(!sidebarOpen)}
+                    className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 cursor-pointer"
+                    aria-label="Toggle menu"
+                  >
+                    <IconMenu2 className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Menu</TooltipContent>
+              </Tooltip>
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 {headerTitle ?? (
                   <h1 className="text-lg font-semibold tracking-tight truncate">
@@ -1811,16 +1853,20 @@ function TabSettingsPopover({
                     )}
                   </div>
                   {isPinned && !isEditing && (
-                    <button
-                      onClick={() => {
-                        setEditingId(label.id);
-                        setEditValue(alias || "");
-                      }}
-                      className="shrink-0 mr-2 px-1 py-0.5 text-[10px] text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 rounded hover:bg-accent/50"
-                      title="Rename tab"
-                    >
-                      Rename
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => {
+                            setEditingId(label.id);
+                            setEditValue(alias || "");
+                          }}
+                          className="shrink-0 mr-2 px-1 py-0.5 text-[10px] text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 rounded hover:bg-accent/50"
+                        >
+                          Rename
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Rename tab</TooltipContent>
+                    </Tooltip>
                   )}
                 </div>
               );

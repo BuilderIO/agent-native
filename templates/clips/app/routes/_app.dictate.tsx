@@ -23,6 +23,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { DayHeader } from "@/components/meetings/day-header";
 import { PageHeader } from "@/components/library/page-header";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export function meta() {
   return [{ title: "Dictate · Clips" }];
@@ -305,21 +310,25 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
           {formatDuration(dictation.durationMs)}
         </div>
         <div className="col-span-1 flex justify-end">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={(e) => {
-              e.stopPropagation();
-              void copyToClipboard(
-                dictation.cleanedText || dictation.fullText || "",
-                "text",
-              );
-            }}
-            className="h-7 w-7 p-0 cursor-pointer"
-            title="Copy"
-          >
-            <IconCopy className="h-3.5 w-3.5" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void copyToClipboard(
+                    dictation.cleanedText || dictation.fullText || "",
+                    "text",
+                  );
+                }}
+                className="h-7 w-7 p-0 cursor-pointer"
+              >
+                <IconCopy className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Copy</TooltipContent>
+          </Tooltip>
         </div>
       </div>
       {expanded && (
@@ -374,21 +383,27 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
                         <IconCopy className="h-3 w-3" />
                         Copy
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={handleReplaceOriginal}
-                        disabled={replaceOriginal.isPending}
-                        className="h-6 gap-1 text-[10px] cursor-pointer"
-                        title="Replace original with cleaned"
-                      >
-                        {replaceOriginal.isPending ? (
-                          <IconLoader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <IconArrowsExchange className="h-3 w-3" />
-                        )}
-                        Replace
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={handleReplaceOriginal}
+                            disabled={replaceOriginal.isPending}
+                            className="h-6 gap-1 text-[10px] cursor-pointer"
+                          >
+                            {replaceOriginal.isPending ? (
+                              <IconLoader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <IconArrowsExchange className="h-3 w-3" />
+                            )}
+                            Replace
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          Replace original with cleaned
+                        </TooltipContent>
+                      </Tooltip>
                     </>
                   )}
                   <Button

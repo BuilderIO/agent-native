@@ -32,6 +32,11 @@ import { usePlayback } from "@/contexts/PlaybackContext";
 import { useFolders } from "@/hooks/use-folders";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { FeedbackButton } from "@agent-native/core/client";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type SidebarProps = {
   open: boolean;
@@ -326,13 +331,17 @@ export function Sidebar({
                     onGeneratingChange={onGeneratingChange}
                   />
                 </div>
-                <button
-                  onClick={() => createFolder("New Folder")}
-                  title="New folder"
-                  className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-md border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-border/60 hover:bg-secondary/60 transition-colors"
-                >
-                  <IconFolderPlus className="h-3.5 w-3.5" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => createFolder("New Folder")}
+                      className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-md border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-border/60 hover:bg-secondary/60 transition-colors"
+                    >
+                      <IconFolderPlus className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>New folder</TooltipContent>
+                </Tooltip>
               </div>
 
               {/* Folders (always at the top) */}

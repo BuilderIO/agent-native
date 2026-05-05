@@ -1,6 +1,11 @@
 import { useRef, useState, useCallback } from "react";
 import type { AnimationTrack } from "@/types";
 import { getPropValueKeyframed } from "@/remotion/trackAnimation";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface CursorPositioningOverlayProps {
   compositionWidth: number;
@@ -202,25 +207,29 @@ export const CursorPositioningOverlay: React.FC<
   }
 
   return (
-    <div
-      ref={overlayRef}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
-      style={{
-        position: "absolute",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 56, // Exclude control bar at bottom
-        cursor: isDragging ? "grabbing" : "crosshair",
-        zIndex: 10,
-        pointerEvents: isPlaying ? "none" : "auto",
-      }}
-      title="Click and drag to position cursor"
-    >
-      {/* Invisible overlay for click-and-drag */}
-    </div>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          ref={overlayRef}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 56, // Exclude control bar at bottom
+            cursor: isDragging ? "grabbing" : "crosshair",
+            zIndex: 10,
+            pointerEvents: isPlaying ? "none" : "auto",
+          }}
+        >
+          {/* Invisible overlay for click-and-drag */}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent>Click and drag to position cursor</TooltipContent>
+    </Tooltip>
   );
 };

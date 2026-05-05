@@ -55,6 +55,11 @@ import type {
 import { ZOOM_PRESETS } from "@/components/design/types";
 import { prettyScreenName } from "@/lib/screen-names";
 import type { TweakDefinition } from "@shared/api";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const TAB_ID = generateTabId();
 
@@ -382,62 +387,84 @@ export default function DesignEditor() {
 
           {/* Overview / single-screen toggle. Clicking Overview shows every
               file in the design as a Figma-style pannable lineup. */}
-          <Button
-            variant={viewMode === "overview" ? "secondary" : "ghost"}
-            size="icon"
-            className="h-7 w-7 cursor-pointer"
-            onClick={() =>
-              setViewMode((v) => (v === "overview" ? "single" : "overview"))
-            }
-            title={viewMode === "overview" ? "Single screen" : "All screens"}
-          >
-            <IconLayoutGrid className="w-3.5 h-3.5" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={viewMode === "overview" ? "secondary" : "ghost"}
+                size="icon"
+                className="h-7 w-7 cursor-pointer"
+                onClick={() =>
+                  setViewMode((v) => (v === "overview" ? "single" : "overview"))
+                }
+              >
+                <IconLayoutGrid className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {viewMode === "overview" ? "Single screen" : "All screens"}
+            </TooltipContent>
+          </Tooltip>
 
           <div className="w-px h-5 bg-accent mx-1" />
 
           {/* Device frame — only meaningful in single-screen mode. */}
           <div className="flex items-center gap-0.5">
-            <Button
-              variant={deviceFrame === "none" ? "secondary" : "ghost"}
-              size="icon"
-              className="h-7 w-7 cursor-pointer"
-              onClick={() => setDeviceFrame("none")}
-              disabled={viewMode === "overview"}
-              title="No frame"
-            >
-              <IconDeviceDesktopOff className="w-3.5 h-3.5" />
-            </Button>
-            <Button
-              variant={deviceFrame === "desktop" ? "secondary" : "ghost"}
-              size="icon"
-              className="h-7 w-7 cursor-pointer"
-              onClick={() => setDeviceFrame("desktop")}
-              disabled={viewMode === "overview"}
-              title="Desktop"
-            >
-              <IconDeviceDesktop className="w-3.5 h-3.5" />
-            </Button>
-            <Button
-              variant={deviceFrame === "tablet" ? "secondary" : "ghost"}
-              size="icon"
-              className="h-7 w-7 cursor-pointer"
-              onClick={() => setDeviceFrame("tablet")}
-              disabled={viewMode === "overview"}
-              title="Tablet"
-            >
-              <IconDeviceTablet className="w-3.5 h-3.5" />
-            </Button>
-            <Button
-              variant={deviceFrame === "mobile" ? "secondary" : "ghost"}
-              size="icon"
-              className="h-7 w-7 cursor-pointer"
-              onClick={() => setDeviceFrame("mobile")}
-              disabled={viewMode === "overview"}
-              title="Mobile"
-            >
-              <IconDeviceMobile className="w-3.5 h-3.5" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={deviceFrame === "none" ? "secondary" : "ghost"}
+                  size="icon"
+                  className="h-7 w-7 cursor-pointer"
+                  onClick={() => setDeviceFrame("none")}
+                  disabled={viewMode === "overview"}
+                >
+                  <IconDeviceDesktopOff className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>No frame</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={deviceFrame === "desktop" ? "secondary" : "ghost"}
+                  size="icon"
+                  className="h-7 w-7 cursor-pointer"
+                  onClick={() => setDeviceFrame("desktop")}
+                  disabled={viewMode === "overview"}
+                >
+                  <IconDeviceDesktop className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Desktop</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={deviceFrame === "tablet" ? "secondary" : "ghost"}
+                  size="icon"
+                  className="h-7 w-7 cursor-pointer"
+                  onClick={() => setDeviceFrame("tablet")}
+                  disabled={viewMode === "overview"}
+                >
+                  <IconDeviceTablet className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Tablet</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={deviceFrame === "mobile" ? "secondary" : "ghost"}
+                  size="icon"
+                  className="h-7 w-7 cursor-pointer"
+                  onClick={() => setDeviceFrame("mobile")}
+                  disabled={viewMode === "overview"}
+                >
+                  <IconDeviceMobile className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Mobile</TooltipContent>
+            </Tooltip>
           </div>
 
           <div className="w-px h-5 bg-accent mx-1" />
@@ -468,45 +495,57 @@ export default function DesignEditor() {
           <div className="w-px h-5 bg-accent mx-1" />
 
           {/* Actions */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 cursor-pointer"
-            onClick={() => setTweaksVisible(!tweaksVisible)}
-            title="Tweaks"
-          >
-            <IconSettings className="w-3.5 h-3.5" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 cursor-pointer"
+                onClick={() => setTweaksVisible(!tweaksVisible)}
+              >
+                <IconSettings className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Tweaks</TooltipContent>
+          </Tooltip>
 
           {/* Draw on canvas — overlays the iframe with pencil + text. */}
-          <Button
-            variant={drawMode ? "secondary" : "ghost"}
-            size="icon"
-            className="h-7 w-7 cursor-pointer"
-            data-toolbar-draw-button
-            onClick={() => {
-              setDrawMode((d) => !d);
-              setPinMode(false);
-            }}
-            title="Draw on canvas"
-          >
-            <IconPencilPlus className="w-3.5 h-3.5" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={drawMode ? "secondary" : "ghost"}
+                size="icon"
+                className="h-7 w-7 cursor-pointer"
+                data-toolbar-draw-button
+                onClick={() => {
+                  setDrawMode((d) => !d);
+                  setPinMode(false);
+                }}
+              >
+                <IconPencilPlus className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Draw on canvas</TooltipContent>
+          </Tooltip>
 
           {/* Drop comment pin — overlays the iframe with click-to-comment. */}
-          <Button
-            variant={pinMode ? "secondary" : "ghost"}
-            size="icon"
-            className="h-7 w-7 cursor-pointer"
-            data-toolbar-pin-button
-            onClick={() => {
-              setPinMode((p) => !p);
-              setDrawMode(false);
-            }}
-            title="Drop comment pin"
-          >
-            <IconPin className="w-3.5 h-3.5" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={pinMode ? "secondary" : "ghost"}
+                size="icon"
+                className="h-7 w-7 cursor-pointer"
+                data-toolbar-pin-button
+                onClick={() => {
+                  setPinMode((p) => !p);
+                  setDrawMode(false);
+                }}
+              >
+                <IconPin className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Drop comment pin</TooltipContent>
+          </Tooltip>
 
           {/* Save state — currently the design template doesn't expose a
               dedicated "save in flight" signal (file edits go through Yjs +
@@ -530,18 +569,21 @@ export default function DesignEditor() {
       {viewportTabs.length > 1 && (
         <div className="h-8 border-b border-border flex items-center gap-1 px-3 shrink-0">
           {viewportTabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveFileId(tab.id)}
-              title={tab.filename}
-              className={`px-2.5 py-1 rounded text-xs cursor-pointer ${
-                tab.id === activeFileId
-                  ? "bg-accent text-foreground/90"
-                  : "text-muted-foreground hover:text-muted-foreground"
-              }`}
-            >
-              {prettyScreenName(tab.filename)}
-            </button>
+            <Tooltip key={tab.id}>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setActiveFileId(tab.id)}
+                  className={`px-2.5 py-1 rounded text-xs cursor-pointer ${
+                    tab.id === activeFileId
+                      ? "bg-accent text-foreground/90"
+                      : "text-muted-foreground hover:text-muted-foreground"
+                  }`}
+                >
+                  {prettyScreenName(tab.filename)}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{tab.filename}</TooltipContent>
+            </Tooltip>
           ))}
         </div>
       )}

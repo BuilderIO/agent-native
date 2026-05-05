@@ -1,6 +1,11 @@
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { useState } from "react";
 import { IconTrash } from "@tabler/icons-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export function ImageBlock({
   node,
@@ -33,13 +38,17 @@ export function ImageBlock({
 
         {(isHovered || selected) && (
           <div className="media-block__overlay">
-            <button
-              onClick={deleteNode}
-              className="media-block__btn media-block__btn--danger"
-              title="Remove image"
-            >
-              <IconTrash size={14} />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={deleteNode}
+                  className="media-block__btn media-block__btn--danger"
+                >
+                  <IconTrash size={14} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Remove image</TooltipContent>
+            </Tooltip>
           </div>
         )}
       </div>

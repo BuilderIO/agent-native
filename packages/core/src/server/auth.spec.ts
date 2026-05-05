@@ -1217,10 +1217,25 @@ describe("server/auth", () => {
       expect(html).toContain('id="verify-continue"');
       expect(html).toContain('id="resend-verification"');
       expect(html).toContain('id="back-to-signup"');
-      expect(html).toContain("showVerificationStep(email)");
+      expect(html).toContain("showVerificationStep(email, pass)");
       expect(html).toContain("callbackURL: __anGetReturnPath()");
       expect(html).not.toContain(
         "Account created! Check your email to verify, then sign in.",
+      );
+    });
+
+    it("silently signs in after verification completes outside the app", async () => {
+      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const html = getOnboardingHtml();
+
+      expect(html).toContain("var pendingSignupPassword = ''");
+      expect(html).toContain("async function signInWithPendingSignup()");
+      expect(html).toContain("__anPath('/_agent-native/auth/login')");
+      expect(html).toContain(
+        "window.addEventListener('focus', maybeCompleteVerificationAfterReturn)",
+      );
+      expect(html).toContain(
+        "checkVerificationSession(null, { silent: true })",
       );
     });
   });

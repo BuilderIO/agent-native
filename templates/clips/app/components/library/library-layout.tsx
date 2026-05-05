@@ -44,6 +44,11 @@ import { OrganizationSwitcher } from "./organization-switcher";
 import { PageHeaderSlotProvider } from "./page-header";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { toast } from "sonner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface LibraryLayoutProps {
   children: ReactNode;
@@ -233,14 +238,18 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                       Folders
                     </span>
-                    <button
-                      type="button"
-                      className="rounded p-1 text-muted-foreground hover:bg-accent"
-                      title="New folder"
-                      onClick={() => setNewFolderOpen(true)}
-                    >
-                      <IconFolderPlus className="h-3.5 w-3.5" />
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="rounded p-1 text-muted-foreground hover:bg-accent"
+                          onClick={() => setNewFolderOpen(true)}
+                        >
+                          <IconFolderPlus className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>New folder</TooltipContent>
+                    </Tooltip>
                   </div>
                   <FolderTree
                     folders={libFolderList}
@@ -340,15 +349,19 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   <Button asChild size="sm" className="shrink-0">
                     <NavLink to="/download">Download</NavLink>
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
-                    onClick={dismiss}
-                    title="I already have it"
-                  >
-                    <IconX className="h-4 w-4" />
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                        onClick={dismiss}
+                      >
+                        <IconX className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>I already have it</TooltipContent>
+                  </Tooltip>
                 </div>
               )}
               <main className="flex flex-1 flex-col min-h-0 overflow-y-auto">

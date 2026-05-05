@@ -19,6 +19,11 @@ import {
   type IntegrationStatus,
 } from "./useIntegrationStatus.js";
 import { agentNativePath } from "../api-path.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 
 // ─── Platform config ─────────────────────────────────────────────────────────
 
@@ -249,13 +254,17 @@ function IntegrationDetail({
             <code className="flex-1 truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground">
               {serviceAccountEmail}
             </code>
-            <button
-              onClick={() => handleCopy(serviceAccountEmail)}
-              className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/50"
-              title="Copy service account email"
-            >
-              {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => handleCopy(serviceAccountEmail)}
+                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                >
+                  {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Copy service account email</TooltipContent>
+            </Tooltip>
           </div>
         </div>
       )}
@@ -299,13 +308,17 @@ function IntegrationDetail({
             <code className="flex-1 truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground">
               {serverStatus.webhookUrl}
             </code>
-            <button
-              onClick={() => handleCopy(serverStatus.webhookUrl!)}
-              className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/50"
-              title="Copy"
-            >
-              {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => handleCopy(serverStatus.webhookUrl!)}
+                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                >
+                  {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Copy</TooltipContent>
+            </Tooltip>
           </div>
         </div>
       )}
@@ -456,13 +469,17 @@ export function IntegrationsPanel() {
             Talk to this agent from other platforms
           </div>
         </div>
-        <button
-          onClick={() => setShowPicker(true)}
-          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
-          title="Add integration"
-        >
-          <IconPlus size={12} />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => setShowPicker(true)}
+              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+            >
+              <IconPlus size={12} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Add integration</TooltipContent>
+        </Tooltip>
       </div>
 
       {loading ? (

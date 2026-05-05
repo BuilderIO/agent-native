@@ -8,6 +8,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface MotionCurveSelectProps {
   value: EasingKey;
@@ -26,12 +31,19 @@ export const MotionCurveSelect: React.FC<MotionCurveSelectProps> = ({
     <div className="space-y-1.5 pt-2 border-t border-border/40">
       <Label className="text-xs text-muted-foreground">{label}</Label>
       <Select value={value} onValueChange={(val) => onChange(val as EasingKey)}>
-        <SelectTrigger
-          className={`w-full h-auto text-xs bg-secondary border border-border rounded-lg pl-2.5 py-1.5 text-foreground focus:outline-none focus:ring-2 focus:ring-${accentColor}/40`}
-          title="Controls how the animation moves TO this keyframe"
-        >
-          <SelectValue />
-        </SelectTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <SelectTrigger
+              className={`w-full h-auto text-xs bg-secondary border border-border rounded-lg pl-2.5 py-1.5 text-foreground focus:outline-none focus:ring-2 focus:ring-${accentColor}/40`}
+              aria-label="Controls how the animation moves to this keyframe"
+            >
+              <SelectValue />
+            </SelectTrigger>
+          </TooltipTrigger>
+          <TooltipContent>
+            Controls how the animation moves to this keyframe
+          </TooltipContent>
+        </Tooltip>
         <SelectContent>
           {EASING_OPTIONS.map((opt) => (
             <SelectItem key={opt.value} value={opt.value}>

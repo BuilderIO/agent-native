@@ -12,6 +12,11 @@ import {
   snapToCorner,
   type BubblePosition,
 } from "./camera-positioner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export interface RecordingToolbarProps {
   elapsedMs: number;
@@ -127,31 +132,41 @@ export function RecordingToolbar({
         touchAction: "none",
       }}
     >
-      <button
-        data-toolbar-btn
-        type="button"
-        onClick={onTogglePause}
-        className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/15"
-        aria-label={isPaused ? "Resume recording" : "Pause recording"}
-        title={isPaused ? "Resume (⌥⇧P)" : "Pause (⌥⇧P)"}
-      >
-        {isPaused ? (
-          <IconPlayerPlay className="h-4 w-4" />
-        ) : (
-          <IconPlayerPause className="h-4 w-4" />
-        )}
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            data-toolbar-btn
+            type="button"
+            onClick={onTogglePause}
+            className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/15"
+            aria-label={isPaused ? "Resume recording" : "Pause recording"}
+          >
+            {isPaused ? (
+              <IconPlayerPlay className="h-4 w-4" />
+            ) : (
+              <IconPlayerPause className="h-4 w-4" />
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {isPaused ? "Resume (⌥⇧P)" : "Pause (⌥⇧P)"}
+        </TooltipContent>
+      </Tooltip>
 
-      <button
-        data-toolbar-btn
-        type="button"
-        onClick={onStop}
-        className="flex h-9 w-9 items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-600"
-        aria-label="Stop recording"
-        title="Stop recording"
-      >
-        <IconPlayerStop className="h-4 w-4" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            data-toolbar-btn
+            type="button"
+            onClick={onStop}
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-600"
+            aria-label="Stop recording"
+          >
+            <IconPlayerStop className="h-4 w-4" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Stop recording</TooltipContent>
+      </Tooltip>
 
       <div
         className="mx-2 flex h-9 items-center gap-2 rounded-full bg-white/10 px-3 text-sm font-mono tabular-nums"
@@ -169,44 +184,56 @@ export function RecordingToolbar({
         )}
       </div>
 
-      <button
-        data-toolbar-btn
-        type="button"
-        onClick={onToggleDrawing}
-        className={
-          "flex h-9 w-9 items-center justify-center rounded-full " +
-          (isDrawing
-            ? "bg-primary text-primary-foreground"
-            : "hover:bg-white/15")
-        }
-        aria-label="Toggle drawing"
-        aria-pressed={isDrawing}
-        title="Draw (⌘⇧D)"
-      >
-        <IconPencil className="h-4 w-4" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            data-toolbar-btn
+            type="button"
+            onClick={onToggleDrawing}
+            className={
+              "flex h-9 w-9 items-center justify-center rounded-full " +
+              (isDrawing
+                ? "bg-primary text-primary-foreground"
+                : "hover:bg-white/15")
+            }
+            aria-label="Toggle drawing"
+            aria-pressed={isDrawing}
+          >
+            <IconPencil className="h-4 w-4" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Draw (⌘⇧D)</TooltipContent>
+      </Tooltip>
 
-      <button
-        data-toolbar-btn
-        type="button"
-        onClick={onConfetti}
-        className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/15"
-        aria-label="Confetti"
-        title="Confetti (⌃⌘C)"
-      >
-        <IconConfetti className="h-4 w-4" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            data-toolbar-btn
+            type="button"
+            onClick={onConfetti}
+            className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/15"
+            aria-label="Confetti"
+          >
+            <IconConfetti className="h-4 w-4" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Confetti (⌃⌘C)</TooltipContent>
+      </Tooltip>
 
-      <button
-        data-toolbar-btn
-        type="button"
-        onClick={onCancel}
-        className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/15"
-        aria-label="Cancel recording"
-        title="Cancel (⌥⇧C)"
-      >
-        <IconX className="h-4 w-4" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            data-toolbar-btn
+            type="button"
+            onClick={onCancel}
+            className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/15"
+            aria-label="Cancel recording"
+          >
+            <IconX className="h-4 w-4" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Cancel (⌥⇧C)</TooltipContent>
+      </Tooltip>
     </div>
   );
 }

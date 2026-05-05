@@ -16,6 +16,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { msToClock } from "./scrubber";
 import { agentNativePath, getCallbackOrigin } from "@agent-native/core/client";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export interface TranscriptSegment {
   startMs: number;
@@ -154,26 +159,26 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
             className="pl-8 h-8 text-xs"
           />
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={copyAll}
-          title="Copy transcript"
-        >
-          {copied ? (
-            <IconCheck className="h-4 w-4 text-green-600" />
-          ) : (
-            <IconCopy className="h-4 w-4" />
-          )}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={downloadSrt}
-          title="Download .srt"
-        >
-          <IconDownload className="h-4 w-4" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" onClick={copyAll}>
+              {copied ? (
+                <IconCheck className="h-4 w-4 text-green-600" />
+              ) : (
+                <IconCopy className="h-4 w-4" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Copy transcript</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" onClick={downloadSrt}>
+              <IconDownload className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Download .srt</TooltipContent>
+        </Tooltip>
       </div>
 
       <div className="flex-1 overflow-y-auto">

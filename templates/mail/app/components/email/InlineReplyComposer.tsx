@@ -300,13 +300,17 @@ export const InlineReplyComposer = forwardRef<
             <span className="text-[13px] font-semibold text-green-400">
               Forward
             </span>
-            <button
-              onClick={() => onPopOut(draft.id)}
-              className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
-              title="Pop out to compose window"
-            >
-              <IconExternalLink className="h-3.5 w-3.5" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => onPopOut(draft.id)}
+                  className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+                >
+                  <IconExternalLink className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Pop out to compose window</TooltipContent>
+            </Tooltip>
           </div>
           <div className="flex items-center border-b border-border/30 px-4 pb-2">
             <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
@@ -329,13 +333,17 @@ export const InlineReplyComposer = forwardRef<
               to {recipientDisplay}
             </span>
           </div>
-          <button
-            onClick={() => onPopOut(draft.id)}
-            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors shrink-0"
-            title="Pop out to compose window"
-          >
-            <IconExternalLink className="h-3.5 w-3.5" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => onPopOut(draft.id)}
+                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors shrink-0"
+              >
+                <IconExternalLink className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Pop out to compose window</TooltipContent>
+          </Tooltip>
         </div>
       )}
 

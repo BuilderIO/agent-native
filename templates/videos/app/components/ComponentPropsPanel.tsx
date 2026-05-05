@@ -7,6 +7,11 @@ import {
   IconFileText,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type ComponentPropsPanelProps = {
   component: LibraryComponentEntry;
@@ -31,13 +36,17 @@ export function ComponentPropsPanel({
       {/* Header */}
       <div className="px-4 py-3 border-b border-border flex items-center justify-between">
         <h2 className="text-sm font-semibold text-foreground">Properties</h2>
-        <button
-          onClick={onClose}
-          className="p-1 hover:bg-secondary rounded transition-colors"
-          title="Close panel"
-        >
-          <IconX className="w-4 h-4" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onClose}
+              className="p-1 hover:bg-secondary rounded transition-colors"
+            >
+              <IconX className="w-4 h-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Close panel</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Content */}

@@ -124,6 +124,37 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   );
 }
 
+function isAuthFailureText(message: string, errorCode?: string): boolean {
+  const code = String(errorCode ?? "").toLowerCase();
+  const msg = message.toLowerCase();
+  return (
+    code === "unauthorized" ||
+    code === "authentication_error" ||
+    code === "permission_error" ||
+    msg.includes("authentication required") ||
+    msg.includes("unauthorized") ||
+    msg.includes("not authenticated") ||
+    msg.includes("session expired")
+  );
+}
+
+function isMissingCredentialText(message: string, errorCode?: string): boolean {
+  const code = String(errorCode ?? "").toLowerCase();
+  const msg = message.toLowerCase();
+  return (
+    code === "missing_api_key" ||
+    code === "missing_credentials" ||
+    msg.includes("apikey") ||
+    msg.includes("authtoken") ||
+    msg.includes("anthropic_api_key") ||
+    msg.includes("missing_api_key") ||
+    msg.includes("missing api key") ||
+    msg.includes("missing credentials") ||
+    msg.includes("no llm provider") ||
+    msg.includes("llm provider is connected")
+  );
+}
+
 /**
  * Process a single SSE event and update the content accumulator.
  * Returns: "continue" to keep going, "done" to stop, or a yield-ready result.
@@ -341,6 +372,27 @@ export function processEvent(
 
   if (ev.type === "error") {
     const errMsg = ev.error ?? "Unknown error";
+    if (isAuthFailureText(errMsg, ev.errorCode)) {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:auth-error", {
+            detail: {
+              reason: errMsg.toLowerCase().includes("session")
+                ? "session-expired"
+                : "auth-required",
+            },
+          }),
+        );
+      }
+      content.push({ type: "text", text: "" });
+      return {
+        action: "error",
+        result: {
+          content: [...content],
+          status: { type: "incomplete" as const, reason: "error" as const },
+        } as ChatModelRunResult,
+      };
+    }
     if (
       (ev.errorCode === "run_timeout" && ev.recoverable) ||
       isAutoRecoverableError(ev, errMsg)
@@ -358,12 +410,7 @@ export function processEvent(
       };
     }
     const normalized = normalizeChatError(errMsg);
-    if (
-      errMsg.includes("apiKey") ||
-      errMsg.includes("authToken") ||
-      errMsg.includes("ANTHROPIC_API_KEY") ||
-      errMsg.includes("authentication")
-    ) {
+    if (isMissingCredentialText(errMsg, ev.errorCode)) {
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("agent-chat:missing-api-key"));
       }

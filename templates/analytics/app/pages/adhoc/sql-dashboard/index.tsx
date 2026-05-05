@@ -19,6 +19,11 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
 import {
   ShareButton,
@@ -605,16 +610,21 @@ export default function SqlDashboardPage() {
           </Button>
         </AddPanelPopover>
         <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-muted-foreground hover:text-foreground"
-              title="Delete dashboard"
-            >
-              <IconTrash className="h-4 w-4" />
-            </Button>
-          </AlertDialogTrigger>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <AlertDialogTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="Delete dashboard"
+                >
+                  <IconTrash className="h-4 w-4" />
+                </Button>
+              </AlertDialogTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Delete dashboard</TooltipContent>
+          </Tooltip>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Delete dashboard?</AlertDialogTitle>
@@ -768,11 +778,16 @@ export default function SqlDashboardPage() {
                   : panel;
                 const remoteEditor = remoteEditingPanels.get(panel.id);
                 const isSection = panel.chartType === "section";
+                const isFullWidth = panel.width === 2;
                 return (
                   <div
                     key={panel.id}
                     className={
-                      isSection ? "relative md:col-span-2" : "relative h-full"
+                      isSection
+                        ? "relative md:col-span-2"
+                        : isFullWidth
+                          ? "relative h-full md:col-span-2"
+                          : "relative h-full"
                     }
                     style={
                       remoteEditor

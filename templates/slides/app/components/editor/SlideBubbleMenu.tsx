@@ -32,6 +32,11 @@ import {
   setBrandPalette,
   type CopiedStyle,
 } from "./style-clipboard";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyIcon = React.ComponentType<any>;
@@ -147,34 +152,42 @@ function ColorPicker({
         <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
           Brand Colors
         </span>
-        <button
-          onClick={() => setEditMode((v) => !v)}
-          className={cn(
-            "p-0.5 rounded",
-            editMode
-              ? "text-[#00E5FF]"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-          title="Edit palette"
-        >
-          <IconPencil size={11} />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => setEditMode((v) => !v)}
+              className={cn(
+                "p-0.5 rounded",
+                editMode
+                  ? "text-[#00E5FF]"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <IconPencil size={11} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Edit palette</TooltipContent>
+        </Tooltip>
       </div>
 
       <div className="grid grid-cols-6 gap-1.5">
         {palette.map((color) => (
           <div key={color} className="relative group">
-            <button
-              title={color}
-              onClick={() => (editMode ? undefined : applyColor(color))}
-              className={cn(
-                "w-6 h-6 rounded-md border transition-transform",
-                currentColor?.toLowerCase() === color.toLowerCase()
-                  ? "border-foreground scale-110"
-                  : "border-border hover:scale-110",
-              )}
-              style={{ background: color }}
-            />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => (editMode ? undefined : applyColor(color))}
+                  className={cn(
+                    "w-6 h-6 rounded-md border transition-transform",
+                    currentColor?.toLowerCase() === color.toLowerCase()
+                      ? "border-foreground scale-110"
+                      : "border-border hover:scale-110",
+                  )}
+                  style={{ background: color }}
+                />
+              </TooltipTrigger>
+              <TooltipContent>{color}</TooltipContent>
+            </Tooltip>
             {editMode && (
               <button
                 onClick={() => removeFromPalette(color)}
@@ -188,13 +201,17 @@ function ColorPicker({
 
         {/* Add color button */}
         {!addingColor && (
-          <button
-            onClick={() => setAddingColor(true)}
-            className="w-6 h-6 rounded-md border border-dashed border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-foreground/40"
-            title="Add color"
-          >
-            <IconPlus size={10} />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setAddingColor(true)}
+                className="w-6 h-6 rounded-md border border-dashed border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-foreground/40"
+              >
+                <IconPlus size={10} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Add color</TooltipContent>
+          </Tooltip>
         )}
       </div>
 
@@ -366,48 +383,55 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
               const Icon = btn.icon;
               const active = btn.isActive() ?? false;
               return (
-                <button
-                  key={i}
-                  title={btn.title}
-                  onClick={btn.action}
-                  className={cn(
-                    "p-1.5 rounded",
-                    active
-                      ? "bg-accent text-foreground"
-                      : "text-foreground/80 hover:text-foreground hover:bg-accent",
-                  )}
-                >
-                  <Icon size={14} stroke={2} />
-                </button>
+                <Tooltip key={i}>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={btn.action}
+                      className={cn(
+                        "p-1.5 rounded",
+                        active
+                          ? "bg-accent text-foreground"
+                          : "text-foreground/80 hover:text-foreground hover:bg-accent",
+                      )}
+                    >
+                      <Icon size={14} stroke={2} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{btn.title}</TooltipContent>
+                </Tooltip>
               );
             })}
 
             {/* Color picker */}
             <div className="w-px h-4 bg-border mx-0.5" />
             <Popover open={colorOpen} onOpenChange={setColorOpen}>
-              <PopoverTrigger asChild>
-                <button
-                  title="Text color"
-                  className={cn(
-                    "p-1.5 rounded relative",
-                    colorOpen
-                      ? "bg-accent text-foreground"
-                      : "text-foreground/80 hover:text-foreground hover:bg-accent",
-                  )}
-                >
-                  <IconPalette size={14} stroke={2} />
-                  {/* Color indicator underline */}
-                  <div
-                    className="absolute bottom-0.5 left-1.5 right-1.5 h-0.5 rounded-full"
-                    style={{
-                      background: currentColor ?? "transparent",
-                      border: currentColor
-                        ? "none"
-                        : "1px solid hsl(var(--border))",
-                    }}
-                  />
-                </button>
-              </PopoverTrigger>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <PopoverTrigger asChild>
+                    <button
+                      className={cn(
+                        "p-1.5 rounded relative",
+                        colorOpen
+                          ? "bg-accent text-foreground"
+                          : "text-foreground/80 hover:text-foreground hover:bg-accent",
+                      )}
+                    >
+                      <IconPalette size={14} stroke={2} />
+                      {/* Color indicator underline */}
+                      <div
+                        className="absolute bottom-0.5 left-1.5 right-1.5 h-0.5 rounded-full"
+                        style={{
+                          background: currentColor ?? "transparent",
+                          border: currentColor
+                            ? "none"
+                            : "1px solid hsl(var(--border))",
+                        }}
+                      />
+                    </button>
+                  </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent>Text color</TooltipContent>
+              </Tooltip>
               <PopoverContent
                 side="bottom"
                 align="end"
@@ -428,21 +452,25 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
             {hasCommentBtn && (
               <>
                 <div className="w-px h-4 bg-border mx-0.5" />
-                <button
-                  title="Comment"
-                  onClick={() => {
-                    const { from, to } = editor.state.selection;
-                    const quotedText = editor.state.doc.textBetween(
-                      from,
-                      to,
-                      " ",
-                    );
-                    onComment!(quotedText);
-                  }}
-                  className="p-1.5 rounded text-foreground/80 hover:text-foreground hover:bg-accent"
-                >
-                  <IconMessageCircle size={14} stroke={2} />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => {
+                        const { from, to } = editor.state.selection;
+                        const quotedText = editor.state.doc.textBetween(
+                          from,
+                          to,
+                          " ",
+                        );
+                        onComment!(quotedText);
+                      }}
+                      className="p-1.5 rounded text-foreground/80 hover:text-foreground hover:bg-accent"
+                    >
+                      <IconMessageCircle size={14} stroke={2} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Comment</TooltipContent>
+                </Tooltip>
               </>
             )}
           </>

@@ -1,5 +1,10 @@
 import { IconPalette, IconStar, IconStarFilled } from "@tabler/icons-react";
 import type { DesignSystemData } from "../../../shared/api";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface DesignSystemCardProps {
   id: string;
@@ -101,20 +106,26 @@ export function DesignSystemCard({
         </div>
 
         {/* Star button */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onSetDefault();
-          }}
-          className="shrink-0 p-1 rounded hover:bg-accent cursor-pointer"
-          title={isDefault ? "Default design system" : "Set as default"}
-        >
-          {isDefault ? (
-            <IconStarFilled className="w-4 h-4 text-[#609FF8]" />
-          ) : (
-            <IconStar className="w-4 h-4 text-muted-foreground/60 group-hover:text-muted-foreground" />
-          )}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSetDefault();
+              }}
+              className="shrink-0 p-1 rounded hover:bg-accent cursor-pointer"
+            >
+              {isDefault ? (
+                <IconStarFilled className="w-4 h-4 text-[#609FF8]" />
+              ) : (
+                <IconStar className="w-4 h-4 text-muted-foreground/60 group-hover:text-muted-foreground" />
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {isDefault ? "Default design system" : "Set as default"}
+          </TooltipContent>
+        </Tooltip>
       </div>
     </div>
   );

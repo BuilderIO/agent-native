@@ -38,6 +38,11 @@ import { SecretsSection } from "./SecretsSection.js";
 import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 
 const IntegrationsPanel = lazy(() =>
   import("../integrations/IntegrationsPanel.js").then((m) => ({
@@ -925,13 +930,20 @@ function LLMSectionInner({
                     </button>
                   )}
                   {settingsStatus != null && (
-                    <button
-                      onClick={handleDisconnect}
-                      className="ml-auto rounded border border-border px-2.5 py-1 text-[10px] font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40"
-                      title="Clear the saved engine — the app will fall back to the default until you re-apply."
-                    >
-                      Disconnect
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={handleDisconnect}
+                          className="ml-auto rounded border border-border px-2.5 py-1 text-[10px] font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40"
+                        >
+                          Disconnect
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Clear the saved engine — the app will fall back to the
+                        default until you re-apply.
+                      </TooltipContent>
+                    </Tooltip>
                   )}
                 </div>
                 {testResult && testResult.ok && (
@@ -1540,16 +1552,20 @@ export function SettingsPanel({
               label="Environment"
               labelAdornment={
                 devAppUrl ? (
-                  <a
-                    href={devAppUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Open app in new tab"
-                    aria-label="Open app in new tab"
-                    className="flex items-center text-muted-foreground hover:text-foreground"
-                  >
-                    <IconExternalLink size={14} />
-                  </a>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <a
+                        href={devAppUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label="Open app in new tab"
+                        className="flex items-center text-muted-foreground hover:text-foreground"
+                      >
+                        <IconExternalLink size={14} />
+                      </a>
+                    </TooltipTrigger>
+                    <TooltipContent>Open app in new tab</TooltipContent>
+                  </Tooltip>
                 ) : undefined
               }
               value={isDevMode ? "development" : "production"}

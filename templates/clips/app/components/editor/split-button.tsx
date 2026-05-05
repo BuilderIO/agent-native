@@ -2,6 +2,11 @@ import { IconCut } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { useActionMutation } from "@agent-native/core/client";
 import { toast } from "sonner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export interface SplitButtonProps {
   recordingId: string;
@@ -31,15 +36,19 @@ export function SplitButton({
   };
 
   return (
-    <Button
-      size="sm"
-      variant="ghost"
-      onClick={handleClick}
-      disabled={disabled || split.isPending}
-      title="Split at playhead (S)"
-    >
-      <IconCut className="w-4 h-4 mr-1" />
-      Split
-    </Button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={handleClick}
+          disabled={disabled || split.isPending}
+        >
+          <IconCut className="w-4 h-4 mr-1" />
+          Split
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>Split at playhead (S)</TooltipContent>
+    </Tooltip>
   );
 }

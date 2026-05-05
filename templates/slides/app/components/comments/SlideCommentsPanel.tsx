@@ -16,6 +16,11 @@ import {
   type CommentThread,
   type SlideComment,
 } from "@/hooks/use-slide-comments";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface SlideCommentsPanelProps {
   deckId: string | null;
@@ -72,13 +77,17 @@ function CommentItem({
               {formatRelativeTime(comment.created_at)}
             </span>
             {hovered && (
-              <button
-                onClick={onDelete}
-                className="p-0.5 rounded text-muted-foreground hover:text-red-400"
-                title="Delete comment"
-              >
-                <IconTrash size={11} />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={onDelete}
+                    className="p-0.5 rounded text-muted-foreground hover:text-red-400"
+                  >
+                    <IconTrash size={11} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Delete comment</TooltipContent>
+              </Tooltip>
             )}
           </div>
         </div>
@@ -281,22 +290,32 @@ function ThreadCard({
               </span>
               {hovered && !thread.resolved && (
                 <>
-                  <button
-                    onClick={() =>
-                      resolveComment.mutate({ id: rootComment.id })
-                    }
-                    className="p-0.5 rounded text-muted-foreground hover:text-green-400"
-                    title="Resolve thread"
-                  >
-                    <IconCheck size={11} />
-                  </button>
-                  <button
-                    onClick={() => deleteComment.mutate({ id: rootComment.id })}
-                    className="p-0.5 rounded text-muted-foreground hover:text-red-400"
-                    title="Delete comment"
-                  >
-                    <IconTrash size={11} />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() =>
+                          resolveComment.mutate({ id: rootComment.id })
+                        }
+                        className="p-0.5 rounded text-muted-foreground hover:text-green-400"
+                      >
+                        <IconCheck size={11} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Resolve thread</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() =>
+                          deleteComment.mutate({ id: rootComment.id })
+                        }
+                        className="p-0.5 rounded text-muted-foreground hover:text-red-400"
+                      >
+                        <IconTrash size={11} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Delete comment</TooltipContent>
+                  </Tooltip>
                 </>
               )}
             </div>
@@ -394,21 +413,29 @@ export function SlideCommentsPanel({
         </span>
         <div className="flex items-center gap-1">
           {!showInput && deckId && slideId && (
-            <button
-              onClick={() => setAddingComment(true)}
-              className="p-1 rounded text-muted-foreground hover:text-foreground/80 hover:bg-accent"
-              title="Add comment"
-            >
-              <IconMessageCircle size={14} />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setAddingComment(true)}
+                  className="p-1 rounded text-muted-foreground hover:text-foreground/80 hover:bg-accent"
+                >
+                  <IconMessageCircle size={14} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Add comment</TooltipContent>
+            </Tooltip>
           )}
-          <button
-            onClick={onClose}
-            className="p-1 rounded text-muted-foreground hover:text-foreground/80 hover:bg-accent"
-            title="Close"
-          >
-            <IconX size={14} />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={onClose}
+                className="p-1 rounded text-muted-foreground hover:text-foreground/80 hover:bg-accent"
+              >
+                <IconX size={14} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Close</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 

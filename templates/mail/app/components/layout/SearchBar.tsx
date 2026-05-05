@@ -10,6 +10,11 @@ import { useNavigate } from "react-router";
 import { IconX } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useContacts, type Contact } from "@/hooks/use-emails";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface SearchBarProps {
   onClose: () => void;
@@ -193,17 +198,21 @@ export function SearchBar({
           )}
         />
         {(hasActiveSearch || query) && (
-          <button
-            type="button"
-            onMouseDown={(e) => {
-              e.preventDefault();
-              handleClear();
-            }}
-            title="Clear search (Esc)"
-            className="flex h-5 w-5 mr-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
-          >
-            <IconX className="h-3.5 w-3.5" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  handleClear();
+                }}
+                className="flex h-5 w-5 mr-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
+              >
+                <IconX className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Clear search (Esc)</TooltipContent>
+          </Tooltip>
         )}
       </div>
 

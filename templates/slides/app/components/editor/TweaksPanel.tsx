@@ -1,5 +1,10 @@
 import { IconX } from "@tabler/icons-react";
 import type { TweakDefinition } from "@/lib/design-systems";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface TweaksPanelProps {
   tweaks: TweakDefinition[];
@@ -58,17 +63,20 @@ function TweakControl({
       {tweak.type === "color-swatches" && (
         <div className="flex gap-2">
           {tweak.options?.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => onChange(opt.value)}
-              className={`w-7 h-7 rounded-full cursor-pointer ${
-                value === opt.value
-                  ? "ring-2 ring-foreground ring-offset-2 ring-offset-card"
-                  : ""
-              }`}
-              style={{ backgroundColor: opt.color || opt.value }}
-              title={opt.label}
-            />
+            <Tooltip key={opt.value}>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => onChange(opt.value)}
+                  className={`w-7 h-7 rounded-full cursor-pointer ${
+                    value === opt.value
+                      ? "ring-2 ring-foreground ring-offset-2 ring-offset-card"
+                      : ""
+                  }`}
+                  style={{ backgroundColor: opt.color || opt.value }}
+                />
+              </TooltipTrigger>
+              <TooltipContent>{opt.label}</TooltipContent>
+            </Tooltip>
           ))}
         </div>
       )}

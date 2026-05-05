@@ -56,6 +56,7 @@ describe("listGmailMessages", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAccount();
+    vi.mocked(gmailListMessagesApi).mockResolvedValue({ messages: [] } as any);
   });
 
   it("uses Gmail thread search when requested so duplicate matching messages do not consume result slots", async () => {
@@ -186,7 +187,10 @@ describe("listGmailMessages", () => {
     expect(gmailBatchGetThreads).toHaveBeenNthCalledWith(
       1,
       "access-token",
-      threads.map((thread) => thread.id),
+      [
+        "thread-slack-marketplace",
+        ...Array.from({ length: 59 }, (_, index) => `thread-${59 - index}`),
+      ],
       "metadata",
     );
     expect(gmailBatchGetThreads).toHaveBeenNthCalledWith(
@@ -288,6 +292,50 @@ describe("listGmailMessages", () => {
       "full",
     );
     expect(result.messages.map((m) => m.id)).toEqual(["recent-full"]);
+  });
+
+  it("limits expensive metadata ranking while keeping recent matching messages in the shortlist", async () => {
+    const threads = Array.from({ length: 200 }, (_, index) => ({
+      id: `thread-${index + 1}`,
+      historyId: String(index + 1),
+    }));
+    vi.mocked(gmailListThreads).mockResolvedValue({ threads } as any);
+    vi.mocked(gmailListMessagesApi).mockResolvedValue({
+      messages: [{ id: "message-recent", threadId: "thread-25" }],
+    } as any);
+    vi.mocked(gmailBatchGetThreads).mockImplementation(
+      async (_accessToken, ids, format) =>
+        (ids as string[]).map((id) => ({
+          id,
+          data: {
+            messages: [
+              {
+                id: `${format}-${id}`,
+                threadId: id,
+                internalDate: id === "thread-25" ? "9999" : id.slice(7),
+              },
+            ],
+          },
+        })),
+    );
+
+    const result = await listGmailMessages(
+      "slack",
+      2,
+      "owner@example.com",
+      undefined,
+      { mode: "threads", threadCandidateLimit: 500 },
+    );
+
+    const rankedIds = vi.mocked(gmailBatchGetThreads).mock.calls[0][1];
+    expect(rankedIds).toHaveLength(120);
+    expect(rankedIds[0]).toBe("thread-25");
+    expect(rankedIds).toContain("thread-200");
+    expect(rankedIds).not.toContain("thread-24");
+    expect(result.messages.map((m) => m.id)).toEqual([
+      "full-thread-25",
+      "full-thread-200",
+    ]);
   });
 
   it("refills missing thread batch parts before returning search results", async () => {

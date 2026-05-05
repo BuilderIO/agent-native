@@ -25,6 +25,11 @@ import {
   type McpServerScope,
 } from "../resources/use-mcp-servers.js";
 import type { ComposerMode } from "./types.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 
 interface ComposerPlusMenuProps {
   onSelectMode?: (mode: ComposerMode) => void;
@@ -57,15 +62,19 @@ function UploadOnlyAttachButton() {
           aria-hidden
         />
       </ComposerPrimitive.AddAttachment>
-      <button
-        type="button"
-        onClick={() => hiddenRef.current?.click()}
-        className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
-        title="Upload file"
-        aria-label="Upload file"
-      >
-        <IconPlus className="h-4 w-4" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => hiddenRef.current?.click()}
+            className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+            aria-label="Upload file"
+          >
+            <IconPlus className="h-4 w-4" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Upload file</TooltipContent>
+      </Tooltip>
     </>
   );
 }
@@ -276,15 +285,19 @@ function ComposerPlusMenuFull({
       </ComposerPrimitive.AddAttachment>
 
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Add..."
-          >
-            <IconPlus className="h-4 w-4" />
-          </button>
-        </PopoverTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <IconPlus className="h-4 w-4" />
+              </button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Add...</TooltipContent>
+        </Tooltip>
         <PopoverContent
           side="top"
           align="start"
@@ -339,30 +352,34 @@ function ComposerPlusMenuFull({
                   >
                     Personal
                   </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      hasOrg && canCreateOrgMcp && setMcpScope("org")
-                    }
-                    disabled={!hasOrg || !canCreateOrgMcp}
-                    title={
-                      !hasOrg
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          hasOrg && canCreateOrgMcp && setMcpScope("org")
+                        }
+                        disabled={!hasOrg || !canCreateOrgMcp}
+                        className={cn(
+                          "flex-1 rounded px-2 py-1 text-[11px] font-medium",
+                          mcpScope === "org"
+                            ? "bg-accent text-foreground"
+                            : "text-muted-foreground hover:text-foreground",
+                          (!hasOrg || !canCreateOrgMcp) &&
+                            "cursor-not-allowed opacity-40 hover:text-muted-foreground",
+                        )}
+                      >
+                        Organization
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {!hasOrg
                         ? "Join an organization to share MCP servers"
                         : !canCreateOrgMcp
                           ? "Only owners and admins can add org-scope servers"
-                          : undefined
-                    }
-                    className={cn(
-                      "flex-1 rounded px-2 py-1 text-[11px] font-medium",
-                      mcpScope === "org"
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:text-foreground",
-                      (!hasOrg || !canCreateOrgMcp) &&
-                        "cursor-not-allowed opacity-40 hover:text-muted-foreground",
-                    )}
-                  >
-                    Organization
-                  </button>
+                          : undefined}
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
                 <input
                   ref={inputRef}

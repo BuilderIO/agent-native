@@ -327,8 +327,6 @@ export function Layout({
 }) {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const hasEmbeddedAgentChat =
-    location.pathname === "/" || location.pathname === "/overview";
 
   if (CHROMELESS_PATHS.some((path) => location.pathname === path)) {
     return <>{children}</>;
@@ -337,12 +335,7 @@ export function Layout({
   const showHeader = !pageOwnsToolbar(location.pathname);
   const appContent = (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
-      {showHeader ? (
-        <Header
-          onOpenMobile={() => setMobileOpen(true)}
-          showAgentToggle={!hasEmbeddedAgentChat}
-        />
-      ) : null}
+      {showHeader ? <Header onOpenMobile={() => setMobileOpen(true)} /> : null}
       <InvitationBanner />
       <main className="flex-1 overflow-y-auto">
         {showHeader ? (
@@ -359,7 +352,7 @@ export function Layout({
   return (
     <HeaderActionsProvider>
       <div className="flex h-screen w-full overflow-hidden bg-background">
-        <aside className="hidden 2xl:flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
+        <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
           <NavContent extensions={extensions} />
         </aside>
 
@@ -383,8 +376,7 @@ export function Layout({
 
         {/*
          * Always mount AgentSidebar so home composer's sendToAgentChat
-         * fallback can pop it via agent-panel:open. The toggle button stays
-         * hidden on overview because the home composer is the primary input.
+         * fallback can pop it via agent-panel:open.
          */}
         <AgentSidebar
           position="right"

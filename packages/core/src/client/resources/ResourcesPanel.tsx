@@ -521,17 +521,21 @@ The result should be a reusable agent profile, not a one-off task response.`,
 
   return (
     <div className="relative">
-      <button
-        ref={buttonRef}
-        onClick={() => setOpen(!open)}
-        className={cn(
-          "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
-          open && "bg-accent/50 text-foreground",
-        )}
-        title="Create new..."
-      >
-        <IconPlus className="h-3.5 w-3.5" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            ref={buttonRef}
+            onClick={() => setOpen(!open)}
+            className={cn(
+              "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
+              open && "bg-accent/50 text-foreground",
+            )}
+          >
+            <IconPlus className="h-3.5 w-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Create new...</TooltipContent>
+      </Tooltip>
       {open && (
         <div
           ref={popoverRef}
@@ -785,30 +789,34 @@ The result should be a reusable agent profile, not a one-off task response.`,
                   >
                     Personal
                   </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      hasOrg && canCreateOrgMcp && setMcpScope("org")
-                    }
-                    disabled={!hasOrg || !canCreateOrgMcp}
-                    title={
-                      !hasOrg
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          hasOrg && canCreateOrgMcp && setMcpScope("org")
+                        }
+                        disabled={!hasOrg || !canCreateOrgMcp}
+                        className={cn(
+                          "flex-1 rounded px-2 py-1 text-[11px] font-medium",
+                          mcpScope === "org"
+                            ? "bg-accent text-foreground"
+                            : "text-muted-foreground hover:text-foreground",
+                          (!hasOrg || !canCreateOrgMcp) &&
+                            "cursor-not-allowed opacity-40 hover:text-muted-foreground",
+                        )}
+                      >
+                        Organization
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {!hasOrg
                         ? "Join an organization to share MCP servers"
                         : !canCreateOrgMcp
                           ? "Only owners and admins can add org-scope servers"
-                          : undefined
-                    }
-                    className={cn(
-                      "flex-1 rounded px-2 py-1 text-[11px] font-medium",
-                      mcpScope === "org"
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:text-foreground",
-                      (!hasOrg || !canCreateOrgMcp) &&
-                        "cursor-not-allowed opacity-40 hover:text-muted-foreground",
-                    )}
-                  >
-                    Organization
-                  </button>
+                          : undefined}
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
                 <input
                   value={mcpName}

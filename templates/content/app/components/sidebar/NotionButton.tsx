@@ -21,6 +21,11 @@ import { useNotionConnection, useDisconnectNotion } from "@/hooks/use-notion";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { agentNativePath, appApiPath } from "@agent-native/core/client";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 // ─── Notion SVG icon ────────────────────────────────────────────────────────
 
@@ -239,15 +244,19 @@ export function NotionButton() {
   if (showWizard) {
     return (
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <button
-            className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
-            title="Connect Notion"
-            onClick={() => setOpen(true)}
-          >
-            <NotionIcon className="h-4 w-4" />
-          </button>
-        </PopoverTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <button
+                className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+                onClick={() => setOpen(true)}
+              >
+                <NotionIcon className="h-4 w-4" />
+              </button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Connect Notion</TooltipContent>
+        </Tooltip>
         <PopoverContent
           side="right"
           align="end"
@@ -590,23 +599,27 @@ export function NotionButton() {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          className={cn(
-            "w-7 h-7 flex items-center justify-center rounded hover:bg-accent",
-            isConnected
-              ? "text-foreground"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-          title={
-            isConnected
-              ? `Notion: ${connection?.workspaceName ?? "Connected"}`
-              : "Connect Notion"
-          }
-        >
-          <NotionIcon className="h-4 w-4" />
-        </button>
-      </PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button
+              className={cn(
+                "w-7 h-7 flex items-center justify-center rounded hover:bg-accent",
+                isConnected
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <NotionIcon className="h-4 w-4" />
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          {isConnected
+            ? `Notion: ${connection?.workspaceName ?? "Connected"}`
+            : "Connect Notion"}
+        </TooltipContent>
+      </Tooltip>
       <PopoverContent
         side="right"
         align="end"

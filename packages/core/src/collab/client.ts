@@ -79,6 +79,24 @@ export function emailToName(email: string): string {
   return local.charAt(0).toUpperCase() + local.slice(1);
 }
 
+function normalizeCollabEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+export function dedupeCollabUsersByEmail(users: CollabUser[]): CollabUser[] {
+  const byEmail = new Map<string, CollabUser>();
+  for (const user of users) {
+    const email = normalizeCollabEmail(user.email);
+    if (!email || byEmail.has(email)) continue;
+    byEmail.set(email, {
+      name: user.name || emailToName(email),
+      email,
+      color: user.color || emailToColor(email),
+    });
+  }
+  return Array.from(byEmail.values());
+}
+
 // Base64 helpers
 function uint8ArrayToBase64(arr: Uint8Array): string {
   let binary = "";
@@ -158,7 +176,7 @@ export function useCollaborativeDoc(
           }
         }
       });
-      setActiveUsers(users);
+      setActiveUsers(dedupeCollabUsersByEmail(users));
       setAgentPresent(hasAgent);
     };
 

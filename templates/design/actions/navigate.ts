@@ -7,10 +7,11 @@
  *   pnpm action navigate --view=list
  *   pnpm action navigate --view=editor --designId=abc123
  *   pnpm action navigate --view=design-systems
+ *   pnpm action navigate --view=settings
  *   pnpm action navigate --path=/some/route
  *
  * Options:
- *   --view       View name (list, editor, design-systems, present, examples)
+ *   --view       View name (list, editor, design-systems, present, examples, settings)
  *   --designId   Design ID (for editor/present views)
  *   --path       URL path to navigate to
  */
@@ -21,10 +22,17 @@ import { writeAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view or path. Views: list, editor, design-systems, present, examples. Use --designId with editor/present views.",
+    "Navigate the UI to a specific view or path. Views: list, editor, design-systems, present, examples, settings. Use --designId with editor/present views.",
   schema: z.object({
     view: z
-      .enum(["list", "editor", "design-systems", "present", "examples"])
+      .enum([
+        "list",
+        "editor",
+        "design-systems",
+        "present",
+        "examples",
+        "settings",
+      ])
       .optional()
       .describe("View name to navigate to"),
     designId: z.string().optional().describe("Design ID for editor/present"),

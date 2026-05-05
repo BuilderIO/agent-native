@@ -1,9 +1,16 @@
 import { useMemo } from "react";
 import {
   type CollabUser,
+  dedupeCollabUsersByEmail,
   emailToColor,
   emailToName,
 } from "../../collab/client.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip.js";
 
 export interface PresenceBarProps {
   /** Active collaborators on this document. */
@@ -67,21 +74,27 @@ function injectStyles() {
 }
 
 function UserAvatar({ user, isFirst }: { user: CollabUser; isFirst: boolean }) {
-  const color = emailToColor(user.email);
-  const name = emailToName(user.email);
+  const color = user.color || emailToColor(user.email);
+  const name = user.name || emailToName(user.email);
   const initial = name.charAt(0).toUpperCase();
 
   return (
-    <div
-      style={{
-        ...baseAvatarStyle,
-        backgroundColor: color,
-        marginLeft: isFirst ? 0 : OVERLAP,
-      }}
-      title={name}
-    >
-      {initial}
-    </div>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          style={{
+            ...baseAvatarStyle,
+            backgroundColor: color,
+            marginLeft: isFirst ? 0 : OVERLAP,
+          }}
+          aria-label={`${name} (${user.email})`}
+          tabIndex={0}
+        >
+          {initial}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{user.email}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -176,10 +189,15 @@ export function PresenceBar({
   className,
 }: PresenceBarProps) {
   const { humanUsers, showAgent } = useMemo(() => {
-    const humans = activeUsers.filter(
-      (u) => u.email !== currentUserEmail && u.email !== "agent@system",
+    const currentEmail = currentUserEmail?.trim().toLowerCase();
+    const uniqueUsers = dedupeCollabUsersByEmail(activeUsers);
+    const humans = uniqueUsers.filter((u) => {
+      const email = u.email.trim().toLowerCase();
+      return email !== currentEmail && email !== "agent@system";
+    });
+    const hasAgentUser = uniqueUsers.some(
+      (u) => u.email.trim().toLowerCase() === "agent@system",
     );
-    const hasAgentUser = activeUsers.some((u) => u.email === "agent@system");
     return {
       humanUsers: humans,
       showAgent: agentPresent || agentActive || hasAgentUser,
@@ -192,24 +210,26 @@ export function PresenceBar({
   if (!showAgent && humanUsers.length === 0) return null;
 
   return (
-    <div style={containerStyle} className={className}>
-      {showAgent && <AgentAvatar active={!!agentActive} />}
-      {visibleUsers.length > 0 && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            marginLeft: showAgent ? 6 : 0,
-          }}
-        >
-          {visibleUsers.map((u, i) => (
-            <UserAvatar key={`${u.email}-${i}`} user={u} isFirst={i === 0} />
-          ))}
-          {overflowCount > 0 && (
-            <OverflowBadge count={overflowCount} isFirst={false} />
-          )}
-        </div>
-      )}
-    </div>
+    <TooltipProvider delayDuration={150}>
+      <div style={containerStyle} className={className}>
+        {showAgent && <AgentAvatar active={!!agentActive} />}
+        {visibleUsers.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              marginLeft: showAgent ? 6 : 0,
+            }}
+          >
+            {visibleUsers.map((u, i) => (
+              <UserAvatar key={u.email} user={u} isFirst={i === 0} />
+            ))}
+            {overflowCount > 0 && (
+              <OverflowBadge count={overflowCount} isFirst={false} />
+            )}
+          </div>
+        )}
+      </div>
+    </TooltipProvider>
   );
 }

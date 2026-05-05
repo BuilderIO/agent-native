@@ -18,6 +18,11 @@ import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@/components/layout/HeaderActions";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface DesignSystem {
   id: string;
@@ -202,19 +207,23 @@ export default function DesignSystems() {
                       />
                     </div>
                     {/* Star button */}
-                    <button
-                      onClick={() => handleSetDefault(ds.id)}
-                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-md bg-black/60 hover:bg-black/80 cursor-pointer"
-                      title={
-                        ds.isDefault ? "Currently default" : "Set as default"
-                      }
-                    >
-                      {ds.isDefault ? (
-                        <IconStarFilled className="w-3.5 h-3.5 text-yellow-400" />
-                      ) : (
-                        <IconStar className="w-3.5 h-3.5 text-muted-foreground" />
-                      )}
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => handleSetDefault(ds.id)}
+                          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-md bg-black/60 hover:bg-black/80 cursor-pointer"
+                        >
+                          {ds.isDefault ? (
+                            <IconStarFilled className="w-3.5 h-3.5 text-yellow-400" />
+                          ) : (
+                            <IconStar className="w-3.5 h-3.5 text-muted-foreground" />
+                          )}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {ds.isDefault ? "Currently default" : "Set as default"}
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                 );
               })}
