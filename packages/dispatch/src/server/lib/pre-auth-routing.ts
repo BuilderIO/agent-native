@@ -12,6 +12,7 @@ function normalizePathname(value: string): string {
 
 const DISPATCH_PAGE_PATHS = new Set([
   "/overview",
+  "/metrics",
   "/login",
   "/signup",
   "/apps",
