@@ -3,7 +3,6 @@ import { format } from "date-fns";
 import { IconArrowLeft, IconDownload, IconRefresh } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useForm } from "@/hooks/use-forms";
 import { useFormResponses } from "@/hooks/use-responses";
@@ -144,9 +143,9 @@ export function ResponsesPage() {
           </p>
         </div>
       ) : (
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-auto">
           <div className="min-w-max">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm whitespace-nowrap">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   <th
@@ -209,7 +208,7 @@ export function ResponsesPage() {
               </tbody>
             </table>
           </div>
-        </ScrollArea>
+        </div>
       )}
     </div>
   );

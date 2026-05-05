@@ -18,6 +18,9 @@ export const forms = table("forms", {
     .default("draft"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+  // ISO timestamp when soft-deleted, NULL while live. Soft delete keeps
+  // responses queryable from the Archive view; restore-form clears this.
+  deletedAt: text("deleted_at"),
   ...ownableColumns(),
 });
 
