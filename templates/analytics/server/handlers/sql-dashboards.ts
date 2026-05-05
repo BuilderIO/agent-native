@@ -166,7 +166,8 @@ async function validatePanelSql(
   const vars = buildDryRunVars(config);
   for (let i = 0; i < panels.length; i++) {
     const p = panels[i] as Record<string, unknown>;
-    // Sections are layout-only — no SQL to dry-run.
+    // Sections are layout-only — no SQL to dry-run. heatmap, callout, and other
+    // query panels still validate normally below.
     if (p.chartType === "section") continue;
     const raw = typeof p.sql === "string" ? p.sql : "";
     if (!raw.trim()) continue;
