@@ -172,7 +172,10 @@ export function createFetchToolEntry(
             const redirectUrl = location
               ? new URL(location, resolvedUrl).href
               : null;
-            if (redirectUrl && (await isBlockedExtensionUrlWithDns(redirectUrl))) {
+            if (
+              redirectUrl &&
+              (await isBlockedExtensionUrlWithDns(redirectUrl))
+            ) {
               return "Redirect to private/internal address blocked.";
             }
             if (redirectUrl && opts.validateUrl && allUsedKeys.length > 0) {

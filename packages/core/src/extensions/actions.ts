@@ -1,5 +1,10 @@
 import type { ActionEntry } from "../agent/production-agent.js";
-import { createExtension, getExtension, updateExtension, updateExtensionContent } from "./store.js";
+import {
+  createExtension,
+  getExtension,
+  updateExtension,
+  updateExtensionContent,
+} from "./store.js";
 import {
   addExtensionSlotTarget,
   installExtensionSlot,
@@ -183,7 +188,10 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         parameters: {
           type: "object",
           properties: {
-            extensionId: { type: "string", description: "Extension id to install." },
+            extensionId: {
+              type: "string",
+              description: "Extension id to install.",
+            },
             slotId: {
               type: "string",
               description:

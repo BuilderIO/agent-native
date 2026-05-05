@@ -46,15 +46,21 @@ export async function ensureExtensionsTables(): Promise<void> {
         client.execute(pg ? EXTENSIONS_CREATE_SQL_PG : EXTENSIONS_CREATE_SQL),
       );
       await retryOnDdlRace(() =>
-        client.execute(pg ? EXTENSION_SHARES_CREATE_SQL_PG : EXTENSION_SHARES_CREATE_SQL),
+        client.execute(
+          pg ? EXTENSION_SHARES_CREATE_SQL_PG : EXTENSION_SHARES_CREATE_SQL,
+        ),
       );
       await retryOnDdlRace(() =>
-        client.execute(pg ? EXTENSION_DATA_CREATE_SQL_PG : EXTENSION_DATA_CREATE_SQL),
+        client.execute(
+          pg ? EXTENSION_DATA_CREATE_SQL_PG : EXTENSION_DATA_CREATE_SQL,
+        ),
       );
       await ensureExtensionDataItemId(client, pg);
       await ensureExtensionDataScope(client, pg);
       await client.execute(
-        pg ? EXTENSION_DATA_DROP_OLD_INDEX_SQL_PG : EXTENSION_DATA_DROP_OLD_INDEX_SQL,
+        pg
+          ? EXTENSION_DATA_DROP_OLD_INDEX_SQL_PG
+          : EXTENSION_DATA_DROP_OLD_INDEX_SQL,
       );
       await retryOnDdlRace(() =>
         client.execute(
@@ -172,7 +178,9 @@ export async function listExtensions(): Promise<ExtensionRow[]> {
   return db
     .select()
     .from(extensions)
-    .where(accessFilter(extensions, extensionShares)) as Promise<ExtensionRow[]>;
+    .where(accessFilter(extensions, extensionShares)) as Promise<
+    ExtensionRow[]
+  >;
 }
 
 export async function getExtension(id: string): Promise<ExtensionRow | null> {
@@ -188,7 +196,9 @@ export interface CreateExtensionData {
   icon?: string;
 }
 
-export async function createExtension(data: CreateExtensionData): Promise<ExtensionRow> {
+export async function createExtension(
+  data: CreateExtensionData,
+): Promise<ExtensionRow> {
   await ensureExtensionsTables();
   const db = getDb();
   const userEmail = getRequestUserEmail();
@@ -260,7 +270,10 @@ export async function updateExtensionContent(
   if (opts.content !== undefined) {
     newContent = opts.content;
   } else if (opts.patches) {
-    const rows = await db.select().from(extensions).where(eq(extensions.id, id));
+    const rows = await db
+      .select()
+      .from(extensions)
+      .where(eq(extensions.id, id));
     if (!rows[0]) return null;
     newContent = (rows[0] as ExtensionRow).content;
     for (const patch of opts.patches) {

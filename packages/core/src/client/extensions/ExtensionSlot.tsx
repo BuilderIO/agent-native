@@ -210,7 +210,9 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
               className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-accent cursor-pointer"
             >
               <div className="flex-1 min-w-0">
-                <p className="text-[12px] font-medium truncate">{extension.name}</p>
+                <p className="text-[12px] font-medium truncate">
+                  {extension.name}
+                </p>
                 {extension.description && (
                   <p className="text-[11px] text-muted-foreground/70 truncate">
                     {extension.description}

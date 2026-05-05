@@ -88,7 +88,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   // AgentToggleButton). Layout still mounts Sidebar + AgentSidebar, but skips
   // its own header so there's no double-header.
   const pageOwnsToolbar =
-    location.pathname === "/extensions" || location.pathname.startsWith("/extensions/");
+    location.pathname === "/extensions" ||
+    location.pathname.startsWith("/extensions/");
 
   useEffect(() => {
     setSidebarOpen(false);

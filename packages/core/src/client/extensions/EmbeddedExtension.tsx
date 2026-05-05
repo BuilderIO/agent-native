@@ -239,7 +239,11 @@ export function EmbeddedExtension({
           );
         }}
       />
-      <EmbeddedToolMenu extensionId={extensionId} slotId={slotId} toolName={extension.name} />
+      <EmbeddedToolMenu
+        extensionId={extensionId}
+        slotId={slotId}
+        toolName={extension.name}
+      />
     </div>
   );
 }

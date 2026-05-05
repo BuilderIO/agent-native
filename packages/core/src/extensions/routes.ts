@@ -115,7 +115,13 @@ async function dispatch(
 
   // DELETE /data/:extensionId/:collection/:itemId — delete an item
   if (method === "DELETE" && parts.length === 4 && parts[0] === "data") {
-    return handleExtensionDataDelete(event, parts[1], parts[2], parts[3], userEmail);
+    return handleExtensionDataDelete(
+      event,
+      parts[1],
+      parts[2],
+      parts[3],
+      userEmail,
+    );
   }
 
   // POST /proxy
@@ -157,12 +163,18 @@ async function dispatch(
     // dangerous bridge helpers in iframe-bridge.ts (audit H4).
     const isAuthor = extension.ownerEmail === userEmail;
 
-    const html = buildExtensionHtml(extension.content, themeVars, isDark, parts[0], {
-      authorEmail: extension.ownerEmail,
-      viewerEmail: userEmail,
-      isAuthor,
-      role: access.role,
-    });
+    const html = buildExtensionHtml(
+      extension.content,
+      themeVars,
+      isDark,
+      parts[0],
+      {
+        authorEmail: extension.ownerEmail,
+        viewerEmail: userEmail,
+        isAuthor,
+        role: access.role,
+      },
+    );
     // Security headers per render. We set these explicitly here (rather than
     // rely on the global security-headers middleware) because:
     //   - The global middleware sets X-Frame-Options: DENY which would break
@@ -642,7 +654,9 @@ async function handleSqlQuery(event: H3Event): Promise<unknown> {
   }
   if (SENSITIVE_SQL_RE.test(cleanSql)) {
     setResponseStatus(event, 403);
-    return { error: "Sensitive framework tables are not readable from extensions" };
+    return {
+      error: "Sensitive framework tables are not readable from extensions",
+    };
   }
 
   try {
@@ -715,12 +729,15 @@ async function handleSqlExec(event: H3Event): Promise<unknown> {
   if (DESTRUCTIVE_SQL_RE.test(cleanSql)) {
     setResponseStatus(event, 403);
     return {
-      error: "Schema changes and destructive SQL are not allowed from extensions",
+      error:
+        "Schema changes and destructive SQL are not allowed from extensions",
     };
   }
   if (SENSITIVE_SQL_RE.test(cleanSql)) {
     setResponseStatus(event, 403);
-    return { error: "Sensitive framework tables are not writable from extensions" };
+    return {
+      error: "Sensitive framework tables are not writable from extensions",
+    };
   }
   if (POSITIONAL_INSERT_RE.test(cleanSql)) {
     setResponseStatus(event, 400);

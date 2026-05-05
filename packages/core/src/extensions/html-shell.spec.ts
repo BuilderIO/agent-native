@@ -22,7 +22,12 @@ describe("buildExtensionHtml", () => {
   });
 
   it("keeps frame-ancestors in the HTTP header CSP only", () => {
-    const html = buildExtensionHtml("<div>Hello</div>", ":root{}", false, "extension-1");
+    const html = buildExtensionHtml(
+      "<div>Hello</div>",
+      ":root{}",
+      false,
+      "extension-1",
+    );
 
     expect(EXTENSION_IFRAME_CSP).toContain("frame-ancestors 'self'");
     expect(EXTENSION_IFRAME_META_CSP).not.toContain("frame-ancestors");
@@ -35,7 +40,12 @@ describe("buildExtensionHtml", () => {
   });
 
   it("only accepts runtime messages from the parent window", () => {
-    const html = buildExtensionHtml("<div>Hello</div>", ":root{}", false, "extension-1");
+    const html = buildExtensionHtml(
+      "<div>Hello</div>",
+      ":root{}",
+      false,
+      "extension-1",
+    );
 
     expect(html).toContain("if (event.source !== window.parent) return;");
   });
@@ -84,7 +94,11 @@ describe("extension iframe sandbox attribute (CI guard)", () => {
   // SECURITY: the host-side iframe MUST be rendered with a sandbox attribute
   // that does NOT include `allow-same-origin`. Adding it would let the
   // attacker-authored content reach the parent's DOM. See audit C1/H3.
-  const HOST_FILES = ["ExtensionViewer.tsx", "EmbeddedExtension.tsx", "ExtensionEditor.tsx"];
+  const HOST_FILES = [
+    "ExtensionViewer.tsx",
+    "EmbeddedExtension.tsx",
+    "ExtensionEditor.tsx",
+  ];
 
   for (const file of HOST_FILES) {
     it(`${file} renders the iframe without allow-same-origin`, () => {

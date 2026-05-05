@@ -116,19 +116,19 @@ Migrations must be additive. Never put destructive SQL in startup plugins.
 
 The framework mounts its own routes under `/_agent-native/`. Treat that namespace as reserved.
 
-| Route prefix                     | Purpose                              |
-| -------------------------------- | ------------------------------------ |
-| `/_agent-native/actions/:name`   | Action HTTP endpoints                |
-| `/_agent-native/agent-chat`      | Agent chat loop                      |
-| `/_agent-native/poll`            | SQL-backed UI sync                   |
-| `/_agent-native/resources/*`     | Workspace resources                  |
+| Route prefix                     | Purpose                                                                         |
+| -------------------------------- | ------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | Action HTTP endpoints                                                           |
+| `/_agent-native/agent-chat`      | Agent chat loop                                                                 |
+| `/_agent-native/poll`            | SQL-backed UI sync                                                              |
+| `/_agent-native/resources/*`     | Workspace resources                                                             |
 | `/_agent-native/extensions/*`    | Runtime extensions and extension proxy (legacy alias: `/_agent-native/tools/*`) |
-| `/_agent-native/integrations/*`  | Messaging/webhook integrations       |
-| `/_agent-native/a2a`             | Agent-to-agent JSON-RPC              |
-| `/_agent-native/mcp`             | MCP endpoint                         |
-| `/_agent-native/onboarding/*`    | Setup checklist                      |
-| `/_agent-native/observability/*` | Traces, feedback, evals, experiments |
-| `/_agent-native/file-upload`     | File upload provider endpoint        |
+| `/_agent-native/integrations/*`  | Messaging/webhook integrations                                                  |
+| `/_agent-native/a2a`             | Agent-to-agent JSON-RPC                                                         |
+| `/_agent-native/mcp`             | MCP endpoint                                                                    |
+| `/_agent-native/onboarding/*`    | Setup checklist                                                                 |
+| `/_agent-native/observability/*` | Traces, feedback, evals, experiments                                            |
+| `/_agent-native/file-upload`     | File upload provider endpoint                                                   |
 
 Custom app routes should use `/api/*`, public app paths, or provider-specific callback paths that do not collide with `/_agent-native/`.
 

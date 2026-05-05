@@ -2570,9 +2570,8 @@ export function createAgentChatPlugin(
       } catch {}
       let fetchTool: Record<string, ActionEntry> = {};
       try {
-        const { createFetchToolEntry } = await import(
-          "../extensions/fetch-tool.js"
-        );
+        const { createFetchToolEntry } =
+          await import("../extensions/fetch-tool.js");
         const { resolveKeyReferences, validateUrlAllowlist, getKeyAllowlist } =
           await import("../secrets/substitution.js");
         fetchTool = createFetchToolEntry({
@@ -2599,9 +2598,8 @@ export function createAgentChatPlugin(
       } catch {}
       let toolActions: Record<string, ActionEntry> = {};
       try {
-        const { createExtensionActionEntries } = await import(
-          "../extensions/actions.js"
-        );
+        const { createExtensionActionEntries } =
+          await import("../extensions/actions.js");
         toolActions = createExtensionActionEntries();
       } catch {}
 

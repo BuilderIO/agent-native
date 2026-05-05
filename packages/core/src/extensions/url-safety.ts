@@ -124,7 +124,9 @@ function isIpLiteralHost(hostname: string): boolean {
  * guard catches literals and known rebinding domains; this closes the common
  * "public hostname resolves to a private address" gap before dispatch.
  */
-export async function isBlockedExtensionUrlWithDns(url: string): Promise<boolean> {
+export async function isBlockedExtensionUrlWithDns(
+  url: string,
+): Promise<boolean> {
   if (isBlockedExtensionUrl(url)) return true;
 
   let hostname: string;

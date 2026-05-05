@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { isBlockedExtensionUrl, isBlockedExtensionUrlWithDns } from "./url-safety.js";
+import {
+  isBlockedExtensionUrl,
+  isBlockedExtensionUrlWithDns,
+} from "./url-safety.js";
 
 describe("isBlockedExtensionUrl", () => {
   it.each([

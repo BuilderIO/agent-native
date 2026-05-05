@@ -166,17 +166,17 @@ Extensions run in a secure sandbox:
 
 Every extension runs inside a sandboxed iframe with the following helpers injected on `window`. They are the complete surface area — anything else an extension needs has to go through one of these.
 
-| Helper                                           | Purpose                     | Example                                            |
-| ------------------------------------------------ | --------------------------- | -------------------------------------------------- |
-| `extensionData.set(collection, id, data, opts?)` | Persist data per-extension  | `extensionData.set('notes', id, { text: '...' })`  |
-| `extensionData.list(collection, opts?)`          | List persisted items        | `extensionData.list('notes', { scope: 'all' })`    |
-| `extensionData.get(collection, id, opts?)`       | Get a single item           | `extensionData.get('notes', 'note-1')`             |
-| `extensionData.remove(collection, id, opts?)`    | Delete persisted item       | `extensionData.remove('notes', 'note-1')`          |
-| `appAction(name, params)`                        | Call any app action         | `appAction('list-emails', { view: 'inbox' })`      |
-| `dbQuery(sql, args)`                             | Read from SQL               | `dbQuery('SELECT * FROM tools')`                   |
-| `dbExec(sql, args)`                              | Write to SQL                | `dbExec('INSERT INTO ...')`                        |
-| `appFetch(path, options)`                        | Call any app endpoint       | `appFetch('/api/settings')`                        |
-| `extensionFetch(url, options)`                   | External API via proxy      | `extensionFetch('https://api.github.com/...')`     |
+| Helper                                           | Purpose                    | Example                                           |
+| ------------------------------------------------ | -------------------------- | ------------------------------------------------- |
+| `extensionData.set(collection, id, data, opts?)` | Persist data per-extension | `extensionData.set('notes', id, { text: '...' })` |
+| `extensionData.list(collection, opts?)`          | List persisted items       | `extensionData.list('notes', { scope: 'all' })`   |
+| `extensionData.get(collection, id, opts?)`       | Get a single item          | `extensionData.get('notes', 'note-1')`            |
+| `extensionData.remove(collection, id, opts?)`    | Delete persisted item      | `extensionData.remove('notes', 'note-1')`         |
+| `appAction(name, params)`                        | Call any app action        | `appAction('list-emails', { view: 'inbox' })`     |
+| `dbQuery(sql, args)`                             | Read from SQL              | `dbQuery('SELECT * FROM tools')`                  |
+| `dbExec(sql, args)`                              | Write to SQL               | `dbExec('INSERT INTO ...')`                       |
+| `appFetch(path, options)`                        | Call any app endpoint      | `appFetch('/api/settings')`                       |
+| `extensionFetch(url, options)`                   | External API via proxy     | `extensionFetch('https://api.github.com/...')`    |
 
 `appAction` is the preferred way to trigger app behavior — it routes through the same actions the agent and the frontend use, so authorization and access scoping happen automatically. Drop down to `dbQuery`/`dbExec` only when there's no action that fits.
 
@@ -200,11 +200,11 @@ The framework mounts the following endpoints under `/_agent-native/extensions/`.
 
 The agent uses three actions to manage extensions on your behalf:
 
-| Action              | What it does                                                              |
-| ------------------- | ------------------------------------------------------------------------- |
-| `create-extension`  | Create a new extension (name, description, Alpine.js HTML content)        |
-| `update-extension`  | Update an extension — use `patches` array for find/replace diffs          |
-| `navigate`          | Navigate to `--view=extensions` or `--view=extensions --extensionId=<id>` |
+| Action             | What it does                                                              |
+| ------------------ | ------------------------------------------------------------------------- |
+| `create-extension` | Create a new extension (name, description, Alpine.js HTML content)        |
+| `update-extension` | Update an extension — use `patches` array for find/replace diffs          |
+| `navigate`         | Navigate to `--view=extensions` or `--view=extensions --extensionId=<id>` |
 
 > **Legacy action names.** `create-tool` and `update-tool` continue to work as aliases for `create-extension` and `update-extension`. New code should use the `*-extension` names.
 

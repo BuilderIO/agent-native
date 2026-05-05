@@ -226,7 +226,9 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
         if (message.type === "agent-native-extension-consent-granted") {
           // Invalidate the cached extension record — author may have edited
           // since the cache was warmed.
-          queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
+          queryClient.invalidateQueries({
+            queryKey: ["extension", extensionId],
+          });
           setRefreshKey((k) => k + 1);
         }
         return;
@@ -424,7 +426,9 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
       old ? { ...old, name: trimmed } : old,
     );
     queryClient.setQueryData<Extension[]>(["extensions"], (old) =>
-      (old ?? []).map((t) => (t.id === extensionId ? { ...t, name: trimmed } : t)),
+      (old ?? []).map((t) =>
+        t.id === extensionId ? { ...t, name: trimmed } : t,
+      ),
     );
     setIsRenaming(false);
     try {

@@ -27,7 +27,8 @@ function isDetailRoute(pathname: string): boolean {
   if (/^\/availability\/[^/]+/.test(pathname)) return true;
   if (/^\/routing-forms\/[^/]+/.test(pathname)) return true;
   if (/^\/workflows\/[^/]+/.test(pathname)) return true;
-  if (pathname === "/extensions" || pathname.startsWith("/extensions/")) return true;
+  if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
+    return true;
   return false;
 }
 

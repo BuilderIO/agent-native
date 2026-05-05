@@ -21,7 +21,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import { applyToolsOrder, getToolsOrder, setToolsOrder } from "./extension-order.js";
+import {
+  applyToolsOrder,
+  getToolsOrder,
+  setToolsOrder,
+} from "./extension-order.js";
 
 interface Extension {
   id: string;
@@ -146,17 +150,22 @@ export function ExtensionsSidebarSection() {
       const existing = prev?.find((t) => t.id === extensionId);
       if (!existing || trimmed === existing.name) return;
       queryClient.setQueryData<Extension[]>(["extensions"], (old) =>
-        (old ?? []).map((t) => (t.id === extensionId ? { ...t, name: trimmed } : t)),
+        (old ?? []).map((t) =>
+          t.id === extensionId ? { ...t, name: trimmed } : t,
+        ),
       );
       queryClient.setQueryData<Extension>(["extension", extensionId], (old) =>
         old ? { ...old, name: trimmed } : old,
       );
       try {
-        await fetch(agentNativePath(`/_agent-native/extensions/${extensionId}`), {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: trimmed }),
-        });
+        await fetch(
+          agentNativePath(`/_agent-native/extensions/${extensionId}`),
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: trimmed }),
+          },
+        );
         queryClient.invalidateQueries({ queryKey: ["extensions"] });
         queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
       } catch {
@@ -281,7 +290,8 @@ export function ExtensionsSidebarSection() {
               location.pathname === `/extensions/${extension.id}/edit`;
             const isFav = favoriteIds.has(extension.id);
             const isRenamingThis = renamingId === extension.id;
-            const actionsVisible = menuOpenId === extension.id || isRenamingThis;
+            const actionsVisible =
+              menuOpenId === extension.id || isRenamingThis;
 
             return (
               <div
@@ -397,7 +407,9 @@ export function ExtensionsSidebarSection() {
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        setMenuOpenId(menuOpenId === extension.id ? null : extension.id);
+                        setMenuOpenId(
+                          menuOpenId === extension.id ? null : extension.id,
+                        );
                       }}
                       className="pointer-events-auto cursor-pointer rounded p-0.5 text-muted-foreground/40 transition-colors hover:text-foreground"
                       aria-label="Extension actions"

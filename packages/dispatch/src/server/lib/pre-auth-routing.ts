@@ -42,7 +42,9 @@ const MOUNTED_DISPATCH_ALIASES = new Map<string, string>([
 function isDispatchPagePath(pathname: string): boolean {
   if (DISPATCH_PAGE_PATHS.has(pathname)) return true;
   if (pathname === "/approval" || pathname === "/extensions") return true;
-  return /^\/extensions\/[^/]+$/.test(pathname) || /^\/apps\/[^/]+$/.test(pathname);
+  return (
+    /^\/extensions\/[^/]+$/.test(pathname) || /^\/apps\/[^/]+$/.test(pathname)
+  );
 }
 
 function isDispatchAssetOrFrameworkPath(pathname: string): boolean {

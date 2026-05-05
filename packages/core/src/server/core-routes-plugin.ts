@@ -157,8 +157,7 @@ export function resolveLegacyToolsRedirect(
   }
   const pathname = stripAppBasePath(rawPath);
   if (pathname !== "/tools" && !pathname.startsWith("/tools/")) return null;
-  const suffix =
-    pathname === "/tools" ? "" : pathname.slice("/tools".length);
+  const suffix = pathname === "/tools" ? "" : pathname.slice("/tools".length);
   const basePath = normalizeAppBasePath(
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
   );
@@ -1626,9 +1625,8 @@ export function createCoreRoutesPlugin(
     try {
       const { ensureExtensionsTables, registerExtensionsShareable } =
         await import("../extensions/store.js");
-      const { createExtensionsHandler } = await import(
-        "../extensions/routes.js"
-      );
+      const { createExtensionsHandler } =
+        await import("../extensions/routes.js");
       ensureExtensionsTables().catch(() => {});
       registerExtensionsShareable();
       const extensionsHandler = createExtensionsHandler();
@@ -1640,9 +1638,8 @@ export function createCoreRoutesPlugin(
 
       // Extension-point slots — sub-system of extensions.
       const { ensureSlotTables } = await import("../extensions/slots/store.js");
-      const { createSlotsHandler } = await import(
-        "../extensions/slots/routes.js"
-      );
+      const { createSlotsHandler } =
+        await import("../extensions/slots/routes.js");
       ensureSlotTables().catch(() => {});
       getH3App(nitroApp).use(`${P}/slots`, createSlotsHandler());
     } catch {

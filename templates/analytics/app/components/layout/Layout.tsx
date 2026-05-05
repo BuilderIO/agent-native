@@ -23,7 +23,8 @@ export function Layout({ children }: LayoutProps) {
   // toolbar with NotificationsBell + AgentToggleButton. Skip the framework
   // Header so there's no double-header.
   const isExtensionsRoute =
-    location.pathname === "/extensions" || location.pathname.startsWith("/extensions/");
+    location.pathname === "/extensions" ||
+    location.pathname.startsWith("/extensions/");
   return (
     <HeaderActionsProvider>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">

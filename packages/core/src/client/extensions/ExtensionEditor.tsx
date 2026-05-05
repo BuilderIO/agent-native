@@ -223,7 +223,8 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
                         </p>
                       ) : (
                         <p className="text-[11px] text-muted-foreground/70 mt-0.5">
-                          This extension can render in {slots.length} widget area
+                          This extension can render in {slots.length} widget
+                          area
                           {slots.length === 1 ? "" : "s"}.
                         </p>
                       )}

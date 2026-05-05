@@ -22,7 +22,12 @@ import {
   EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL,
 } from "./schema.js";
 
-const getDb = createGetDb({ extensions, extensionShares, extensionSlots, extensionSlotInstalls });
+const getDb = createGetDb({
+  extensions,
+  extensionShares,
+  extensionSlots,
+  extensionSlotInstalls,
+});
 
 let _initPromise: Promise<void> | undefined;
 
@@ -38,7 +43,9 @@ export async function ensureSlotTables(): Promise<void> {
       await client.execute(EXTENSION_SLOTS_BY_EXTENSION_INDEX_SQL);
       await client.execute(EXTENSION_SLOTS_UNIQUE_INDEX_SQL);
       await client.execute(
-        pg ? EXTENSION_SLOT_INSTALLS_CREATE_SQL_PG : EXTENSION_SLOT_INSTALLS_CREATE_SQL,
+        pg
+          ? EXTENSION_SLOT_INSTALLS_CREATE_SQL_PG
+          : EXTENSION_SLOT_INSTALLS_CREATE_SQL,
       );
       await client.execute(EXTENSION_SLOT_INSTALLS_BY_USER_SLOT_INDEX_SQL);
       await client.execute(EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL);
@@ -100,7 +107,12 @@ export async function addExtensionSlotTarget(
       const existing = await db
         .select()
         .from(extensionSlots)
-        .where(and(eq(extensionSlots.extensionId, extensionId), eq(extensionSlots.slotId, slotId)));
+        .where(
+          and(
+            eq(extensionSlots.extensionId, extensionId),
+            eq(extensionSlots.slotId, slotId),
+          ),
+        );
       if (existing[0]) return existing[0] as ExtensionSlotRow;
     }
     throw err;
@@ -117,11 +129,18 @@ export async function removeExtensionSlotTarget(
   const db = getDb();
   await db
     .delete(extensionSlots)
-    .where(and(eq(extensionSlots.extensionId, extensionId), eq(extensionSlots.slotId, slotId)));
+    .where(
+      and(
+        eq(extensionSlots.extensionId, extensionId),
+        eq(extensionSlots.slotId, slotId),
+      ),
+    );
   return true;
 }
 
-export async function listSlotsForExtension(extensionId: string): Promise<ExtensionSlotRow[]> {
+export async function listSlotsForExtension(
+  extensionId: string,
+): Promise<ExtensionSlotRow[]> {
   await ensureSlotTables();
   await assertAccess("extension", extensionId, "viewer");
   const db = getDb();
@@ -162,7 +181,12 @@ export async function listExtensionsForSlot(slotId: string): Promise<
   const declarations = await db
     .select()
     .from(extensionSlots)
-    .where(and(eq(extensionSlots.slotId, slotId), inArray(extensionSlots.extensionId, ids)));
+    .where(
+      and(
+        eq(extensionSlots.slotId, slotId),
+        inArray(extensionSlots.extensionId, ids),
+      ),
+    );
   const byId = new Map(accessible.map((t: any) => [t.id, t]));
   return (declarations as ExtensionSlotRow[]).map((d) => {
     const t = byId.get(d.extensionId)!;
@@ -317,11 +341,17 @@ export async function listSlotInstallsForUser(slotId: string): Promise<
 }
 
 /** Delete every slot/install row referencing a extension. Called from deleteExtension. */
-export async function cascadeDeleteExtensionSlots(extensionId: string): Promise<void> {
+export async function cascadeDeleteExtensionSlots(
+  extensionId: string,
+): Promise<void> {
   await ensureSlotTables();
   const db = getDb();
-  await db.delete(extensionSlots).where(eq(extensionSlots.extensionId, extensionId));
-  await db.delete(extensionSlotInstalls).where(eq(extensionSlotInstalls.extensionId, extensionId));
+  await db
+    .delete(extensionSlots)
+    .where(eq(extensionSlots.extensionId, extensionId));
+  await db
+    .delete(extensionSlotInstalls)
+    .where(eq(extensionSlotInstalls.extensionId, extensionId));
 }
 
 function requireUserEmail(): string {

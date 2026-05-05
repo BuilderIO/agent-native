@@ -190,6 +190,12 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(calPkg.dependencies["@agent-native/scheduling"]).toBe("workspace:*");
   });
 
+  it("resolves @agent-native/dispatch to latest in workspacified apps", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["dispatch"]);
+    const dispatchPkg = readPkg(path.join(wsDir, "apps", "dispatch"));
+    expect(dispatchPkg.dependencies["@agent-native/dispatch"]).toBe("latest");
+  });
+
   it("adds postinstall script for required packages", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["calendar"]);
     const rootPkg = readPkg(wsDir);

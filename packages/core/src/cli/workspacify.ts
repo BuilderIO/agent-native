@@ -5,7 +5,7 @@
  * workspace. The transform:
  *
  *   1. Rewrites package.json:
- *      - @agent-native/core stays as a regular npm dep
+ *      - @agent-native/core and package-backed apps stay as regular npm deps
  *      - Adds @<workspace-scope>/shared as a workspace:* dep so the app
  *        inherits shared plugins/skills/AGENTS.md via the three-layer model.
  *   2. Removes files that only make sense in standalone apps
@@ -45,10 +45,10 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
   const coreDependencyVersion = opts.coreDependencyVersion ?? "latest";
 
   // 1) Rewrite package.json to add the workspace core dep and resolve
-  //    @agent-native/core workspace:* refs to the CLI package's published
-  //    range (it's an npm package, not a workspace member). Other workspace:* deps (e.g.
-  //    @agent-native/scheduling) stay as-is — they resolve within the workspace
-  //    because the required package is scaffolded alongside the app.
+  //    @agent-native/core / @agent-native/dispatch workspace:* refs to
+  //    published package ranges. Other workspace:* deps (e.g.
+  //    @agent-native/scheduling) stay as-is — they resolve within the
+  //    workspace because the required package is scaffolded alongside the app.
   const pkgPath = path.join(appDir, "package.json");
   if (fs.existsSync(pkgPath)) {
     try {
@@ -61,12 +61,13 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
         const deps = pkg[depType];
         if (!deps) continue;
         for (const [key, val] of Object.entries(deps)) {
-          if (
-            typeof val === "string" &&
-            val.startsWith("workspace:") &&
-            key === "@agent-native/core"
-          ) {
-            deps[key] = coreDependencyVersion;
+          if (typeof val === "string" && val.startsWith("workspace:")) {
+            if (key === "@agent-native/core") {
+              deps[key] = coreDependencyVersion;
+            }
+            if (key === "@agent-native/dispatch") {
+              deps[key] = "latest";
+            }
           }
         }
       }

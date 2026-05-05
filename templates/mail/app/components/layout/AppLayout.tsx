@@ -1444,7 +1444,8 @@ function StandardLayout({ children }: AppLayoutProps) {
   // toolbar with NotificationsBell + AgentToggleButton inside the shared
   // ExtensionViewer / ExtensionsListPage components. Skip our header to avoid stacking.
   const pageOwnsToolbar =
-    location.pathname === "/extensions" || location.pathname.startsWith("/extensions/");
+    location.pathname === "/extensions" ||
+    location.pathname.startsWith("/extensions/");
 
   const fallbackTitle = (() => {
     if (location.pathname === "/settings") return "Settings";

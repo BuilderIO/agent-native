@@ -431,7 +431,7 @@ export function buildExtensionHtml(
 	    };
 
 	    // Legacy aliases — extension bodies authored before the rename use
-	    // `toolFetch`, `toolData`, `toolId`. Keep these working forever.
+	    // toolFetch, toolData, toolId. Keep these working forever.
 	    var toolFetch = extensionFetch;
 	    var toolData = extensionData;
 	    var _toolId = _extensionId;

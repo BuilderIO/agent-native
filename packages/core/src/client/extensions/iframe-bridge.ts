@@ -43,7 +43,10 @@ const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
  * If a template needs a extension to reach a custom route, expose it via an
  * action (`defineAction` auto-mounts under `/_agent-native/actions/<name>`).
  */
-export function isAllowedExtensionPath(path: string, extensionId: string): boolean {
+export function isAllowedExtensionPath(
+  path: string,
+  extensionId: string,
+): boolean {
   if (!path.startsWith("/") || path.startsWith("//")) return false;
   if (path.includes("\\") || path.includes("\0")) return false;
 
