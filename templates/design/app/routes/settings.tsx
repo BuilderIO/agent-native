@@ -1,5 +1,4 @@
-import { useDevMode } from "@agent-native/core/client";
-import { SettingsPanel } from "@agent-native/core/client/settings";
+import { SettingsPanel, useDevMode } from "@agent-native/core/client";
 
 export function meta() {
   return [{ title: "Settings — Design" }];
