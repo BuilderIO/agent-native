@@ -5,11 +5,10 @@
  * current user. The desktop Settings UI uses this to show "Connect" vs
  * "Connected" status pills next to each provider option.
  *
- * Resolution mirrors `transcribe-voice.ts`: we try the user-scoped
- * encrypted secret first (set via the sidebar settings UI) and fall back
- * to `resolveCredential()` (env var + SQL settings store). Each lookup is
- * wrapped in try/catch — one provider's failure must never break the
- * whole response.
+ * Resolution mirrors `transcribe-voice.ts`: we read request-scoped encrypted
+ * secrets (user, org, workspace), with env fallback only outside authenticated
+ * request contexts. Each lookup is wrapped in try/catch — one provider's
+ * failure must never break the whole response.
  *
  * Returns booleans only — never the actual key material.
  */
@@ -19,10 +18,11 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { readAppSecret } from "../secrets/storage.js";
-import { resolveCredential } from "../credentials/index.js";
 import { getSession } from "./auth.js";
-import { resolveHasBuilderPrivateKey } from "./credential-provider.js";
+import {
+  resolveHasBuilderPrivateKey,
+  resolveSecret,
+} from "./credential-provider.js";
 import { getOrgContext } from "../org/context.js";
 import { runWithRequestContext } from "./request-context.js";
 import { resolveGoogleRealtimeCredentials } from "./google-realtime-session.js";
@@ -58,32 +58,29 @@ export function createVoiceProvidersStatusHandler() {
     }
 
     const session = await getSession(event).catch(() => null);
+    const orgCtx = session?.email
+      ? await getOrgContext(event).catch(() => null)
+      : null;
+    const requestContext = {
+      userEmail: session?.email,
+      orgId: orgCtx?.orgId ?? undefined,
+    };
+    const withRequestContext = async <T>(fn: () => Promise<T>): Promise<T> =>
+      requestContext.userEmail
+        ? runWithRequestContext(requestContext, fn)
+        : fn();
 
     async function hasKey(key: string): Promise<boolean> {
       try {
         if (key === "GOOGLE_APPLICATION_CREDENTIALS") {
-          const orgCtx = session?.email
-            ? await getOrgContext(event).catch(() => null)
-            : null;
           const resolved = await resolveGoogleRealtimeCredentials({
             userEmail: session?.email,
             orgId: orgCtx?.orgId ?? undefined,
           });
           return typeof resolved === "string" && resolved.length > 0;
         }
-        const ctx = { userEmail: session?.email };
-        if (!session?.email) {
-          const v = await resolveCredential(key, ctx);
-          return typeof v === "string" && v.length > 0;
-        }
-        const userSecret = await readAppSecret({
-          key,
-          scope: "user",
-          scopeId: session.email,
-        }).catch(() => null);
-        if (userSecret?.value && userSecret.value.length > 0) return true;
-        const fallback = await resolveCredential(key, ctx);
-        return typeof fallback === "string" && fallback.length > 0;
+        const resolved = await withRequestContext(() => resolveSecret(key));
+        return typeof resolved === "string" && resolved.length > 0;
       } catch {
         return false;
       }
@@ -91,20 +88,9 @@ export function createVoiceProvidersStatusHandler() {
 
     let builder = false;
     try {
-      const orgCtx = session?.email
-        ? await getOrgContext(event).catch(() => null)
-        : null;
-      const resolve = () => resolveHasBuilderPrivateKey();
       builder =
-        (session?.email
-          ? await runWithRequestContext(
-              {
-                userEmail: session.email,
-                orgId: orgCtx?.orgId ?? undefined,
-              },
-              resolve,
-            )
-          : await resolve()) === true;
+        (await withRequestContext(() => resolveHasBuilderPrivateKey())) ===
+        true;
     } catch {
       builder = false;
     }

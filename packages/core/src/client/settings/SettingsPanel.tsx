@@ -30,7 +30,11 @@ import {
   IconGauge,
 } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
-import { useBuilderStatus } from "./useBuilderStatus.js";
+import {
+  type BuilderConnectFlow,
+  useBuilderConnectFlow,
+  useBuilderStatus,
+} from "./useBuilderStatus.js";
 import { BuilderBMark } from "../builder-mark.js";
 import { AgentsSection } from "./AgentsSection.js";
 import { UsageSection } from "./UsageSection.js";
@@ -311,25 +315,29 @@ function DisconnectBuilderButton() {
 // ─── "Connect Builder.io" card (shared across all sections) ─────────────────
 
 function UseBuilderCard({
+  builderFlow,
   connectUrl,
   connected,
   orgName,
+  envManaged,
   label = "Connect Builder.io",
   subtitle = "Free credits to start — no API key needed.",
   dim,
 }: {
+  builderFlow: BuilderConnectFlow;
   connectUrl?: string;
   connected: boolean;
   orgName?: string;
+  envManaged?: boolean;
   label?: string;
   subtitle?: string;
   dim?: boolean;
 }) {
-  const { status } = useBuilderStatus();
-  const envManaged = !!status?.envManaged;
+  const effectiveConnected = connected || builderFlow.configured;
+  const effectiveOrgName = builderFlow.orgName ?? orgName;
   const bgClass = dim ? "" : "bg-accent/30";
 
-  if (connected) {
+  if (effectiveConnected) {
     return (
       <div className={`rounded-md border border-border px-2.5 py-2 ${bgClass}`}>
         <div className="flex items-center justify-between">
@@ -341,8 +349,10 @@ function UseBuilderCard({
             Connected
           </span>
         </div>
-        {orgName && (
-          <p className="text-[10px] text-muted-foreground mt-0.5">{orgName}</p>
+        {effectiveOrgName && (
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            {effectiveOrgName}
+          </p>
         )}
         {envManaged ? (
           <p className="text-[10px] text-muted-foreground mt-1">
@@ -371,11 +381,11 @@ function UseBuilderCard({
   if (!connectUrl) return null;
 
   return (
-    <a
-      href={connectUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={`block rounded-md border border-border px-3 py-3 no-underline bg-gradient-to-br from-teal-500/10 via-transparent to-transparent hover:border-foreground/30 transition-colors`}
+    <button
+      type="button"
+      onClick={builderFlow.start}
+      disabled={builderFlow.connecting}
+      className={`block w-full rounded-md border border-border px-3 py-3 text-left no-underline bg-gradient-to-br from-teal-500/10 via-transparent to-transparent hover:border-foreground/30 transition-colors disabled:cursor-wait disabled:opacity-70`}
     >
       <div className="flex items-start gap-2.5">
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
@@ -384,19 +394,30 @@ function UseBuilderCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[12px] font-semibold text-foreground">
-              {label}
+              {builderFlow.connecting ? "Connecting Builder.io..." : label}
             </span>
+            {builderFlow.connecting && (
+              <IconLoader2
+                size={12}
+                className="shrink-0 animate-spin text-muted-foreground"
+              />
+            )}
           </div>
           <p className="text-[10.5px] text-muted-foreground mt-0.5 leading-snug">
             {subtitle}
           </p>
+          {builderFlow.error && (
+            <p className="mt-1 text-[10px] text-destructive">
+              {builderFlow.error}
+            </p>
+          )}
         </div>
         <IconExternalLink
           size={12}
           className="shrink-0 text-muted-foreground mt-0.5"
         />
       </div>
-    </a>
+    </button>
   );
 }
 
@@ -543,17 +564,21 @@ const PROVIDER_DOCS: Record<string, string> = {
 };
 
 function LLMSectionInner({
+  builderFlow,
   builderLoading,
   connectUrl,
   connected,
   orgName,
+  envManaged,
   open,
   onToggle,
 }: {
+  builderFlow: BuilderConnectFlow;
   builderLoading?: boolean;
   connectUrl?: string;
   connected: boolean;
   orgName?: string;
+  envManaged?: boolean;
   open?: boolean;
   onToggle?: () => void;
 }) {
@@ -816,9 +841,11 @@ function LLMSectionInner({
       ) : (
         <div className="space-y-2">
           <UseBuilderCard
+            builderFlow={builderFlow}
             connectUrl={connectUrl}
             connected={connected}
             orgName={orgName}
+            envManaged={envManaged}
             label="Connect Builder.io"
           />
           {!connected && (
@@ -1504,6 +1531,8 @@ export function SettingsPanel({
   const connected = builder?.configured ?? false;
   const connectUrl = builder?.connectUrl;
   const orgName = builder?.orgName;
+  const envManaged = !!builder?.envManaged;
+  const builderFlow = useBuilderConnectFlow({ popupUrl: connectUrl });
 
   // Detect whether the app registered any secrets — controls whether the
   // "API Keys & Connections" section renders at all.
@@ -1581,10 +1610,12 @@ export function SettingsPanel({
 
       {/* LLM */}
       <LLMSectionInner
+        builderFlow={builderFlow}
         builderLoading={builderLoading}
         connectUrl={connectUrl}
         connected={connected}
         orgName={orgName}
+        envManaged={envManaged}
         open={openSection === "llm"}
         onToggle={() => toggle("llm")}
       />
@@ -1639,9 +1670,11 @@ export function SettingsPanel({
       >
         <div className="space-y-2">
           <UseBuilderCard
+            builderFlow={builderFlow}
             connectUrl={connectUrl}
             connected={connected}
             orgName={orgName}
+            envManaged={envManaged}
           />
           <ManualSetupCard
             hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
@@ -1662,9 +1695,11 @@ export function SettingsPanel({
       >
         <div className="space-y-2">
           <UseBuilderCard
+            builderFlow={builderFlow}
             connectUrl={connectUrl}
             connected={connected}
             orgName={orgName}
+            envManaged={envManaged}
           />
           <ManualSetupCard
             hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, or any Postgres/SQLite database."
@@ -1685,9 +1720,11 @@ export function SettingsPanel({
       >
         <div className="space-y-2">
           <UseBuilderCard
+            builderFlow={builderFlow}
             connectUrl={connectUrl}
             connected={connected}
             orgName={orgName}
+            envManaged={envManaged}
           />
           <ManualSetupCard
             hint="Without a provider, files are stored as base64 in your database. Fine for dev, not recommended for production."
@@ -1708,9 +1745,11 @@ export function SettingsPanel({
       >
         <div className="space-y-2">
           <UseBuilderCard
+            builderFlow={builderFlow}
             connectUrl={connectUrl}
             connected={connected}
             orgName={orgName}
+            envManaged={envManaged}
           />
           <ManualSetupCard
             hint="Configure Better Auth with BETTER_AUTH_SECRET and optional Google/GitHub OAuth providers."
@@ -1736,9 +1775,11 @@ export function SettingsPanel({
         onToggle={() => toggle("browser")}
       >
         <UseBuilderCard
+          builderFlow={builderFlow}
           connectUrl={connectUrl}
           connected={connected}
           orgName={orgName}
+          envManaged={envManaged}
         />
       </SettingsSection>
 
@@ -1752,9 +1793,11 @@ export function SettingsPanel({
         onToggle={() => toggle("background")}
       >
         <UseBuilderCard
+          builderFlow={builderFlow}
           connectUrl={connectUrl}
           connected={connected}
           orgName={orgName}
+          envManaged={envManaged}
         />
       </SettingsSection>
 

@@ -150,6 +150,7 @@ export const DEFAULT_PLUGIN_REGISTRY: Record<string, string> = {
   onboarding: "defaultOnboardingPlugin",
   org: "defaultOrgPlugin",
   resources: "defaultResourcesPlugin",
+  sentry: "defaultSentryPlugin",
   terminal: "defaultTerminalPlugin",
 };
 

@@ -71,9 +71,10 @@ export function SearchBar({
 
   const executeSearch = useCallback(
     (q: string) => {
-      if (q.trim()) {
-        lastSyncedQueryRef.current = q.trim();
-        navigate(`/inbox?q=${encodeURIComponent(q.trim())}`);
+      const trimmed = q.trim();
+      if (trimmed && trimmed !== lastSyncedQueryRef.current) {
+        lastSyncedQueryRef.current = trimmed;
+        navigate(`/inbox?q=${encodeURIComponent(trimmed)}`);
       }
     },
     [navigate],
@@ -97,7 +98,7 @@ export function SearchBar({
     if (q.length >= 3) {
       debounceRef.current = setTimeout(() => {
         executeSearch(q);
-      }, 400);
+      }, 700);
     }
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);

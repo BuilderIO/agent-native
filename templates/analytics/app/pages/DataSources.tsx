@@ -664,35 +664,51 @@ function DataSourceCard({
                 );
               })()}
 
-              {/* Step navigation */}
-              <div className="flex items-center gap-2 pt-2 pb-4">
-                {currentStep > 0 && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setCurrentStep((s) => s - 1);
-                    }}
-                    className="text-xs"
-                  >
-                    Back
-                  </Button>
-                )}
-                {currentStep < totalSteps - 1 && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setCurrentStep((s) => s + 1);
-                    }}
-                    className="text-xs"
-                  >
-                    Continue
-                  </Button>
-                )}
-              </div>
+              {/* Step navigation. Continue is gated on completing the
+                  current step's input — otherwise the progress bar advances
+                  while the user hasn't actually done anything, which feels
+                  misleading. Steps with no input (just a link to a console)
+                  or marked optional always allow Continue. */}
+              {(() => {
+                const step = source.walkthroughSteps[currentStep];
+                const stepKey = step.inputKey;
+                const stepFilled = stepKey
+                  ? !!inputValues[stepKey]?.trim() ||
+                    !!envStatus.find((s) => s.key === stepKey)?.configured
+                  : true;
+                const canAdvance = !stepKey || step.optional || stepFilled;
+                return (
+                  <div className="flex items-center gap-2 pt-2 pb-4">
+                    {currentStep > 0 && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCurrentStep((s) => s - 1);
+                        }}
+                        className="text-xs"
+                      >
+                        Back
+                      </Button>
+                    )}
+                    {currentStep < totalSteps - 1 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!canAdvance}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCurrentStep((s) => s + 1);
+                        }}
+                        className="text-xs"
+                      >
+                        Continue
+                      </Button>
+                    )}
+                  </div>
+                );
+              })()}
 
               <div className="flex items-center gap-2 pt-4 border-t border-border/30">
                 {hasInputValues && (

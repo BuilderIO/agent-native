@@ -40,6 +40,15 @@ interface SecretStatus {
 
 const ENDPOINT = agentNativePath("/_agent-native/secrets");
 
+function notifySecretsChanged() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("agent-engine:configured-changed", {
+      detail: { source: "secrets" },
+    }),
+  );
+}
+
 export interface SecretsSectionProps {
   /** Optional hash fragment to focus a specific secret (e.g. "secrets:OPENAI_API_KEY"). */
   focusKey?: string;
@@ -161,6 +170,7 @@ function SecretCard({ secret, onChanged, focusInput }: SecretCardProps) {
       setValue("");
       setConfirmDelete(false);
       setToastAndClear("ok", "Saved");
+      notifySecretsChanged();
       onChanged();
     } finally {
       setBusy(null);
@@ -185,6 +195,7 @@ function SecretCard({ secret, onChanged, focusInput }: SecretCardProps) {
       }
       setToastAndClear("ok", "Removed");
       setConfirmDelete(false);
+      notifySecretsChanged();
       onChanged();
     } finally {
       setBusy(null);

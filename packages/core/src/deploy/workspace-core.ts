@@ -40,6 +40,7 @@ export type PluginSlot =
   | "integrations"
   | "org"
   | "resources"
+  | "sentry"
   | "terminal";
 
 export interface WorkspaceCoreExports {
@@ -192,6 +193,7 @@ async function discoverPluginExports(
     integrations: ["integrationsPlugin"],
     org: ["orgPlugin"],
     resources: ["resourcesPlugin"],
+    sentry: ["sentryPlugin"],
     terminal: ["terminalPlugin"],
   };
 

@@ -46,6 +46,7 @@ import "./builtins.js";
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 
@@ -108,58 +109,60 @@ function DevOverlayPanel({ onClose }: { onClose: () => void }) {
   );
 
   return (
-    <div style={styles.shell} role="dialog" aria-label="Dev overlay">
-      <div style={styles.header}>
-        <div>
-          <div style={styles.headerTitle}>Dev Overlay</div>
-          <div style={styles.headerSub}>Cmd+Ctrl+A · localStorage-backed</div>
-        </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              style={styles.iconBtn}
-              onClick={onClose}
-              aria-label="Close"
-            >
-              <IconX size={16} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Close (Esc)</TooltipContent>
-        </Tooltip>
-      </div>
-
-      <div style={styles.body}>
-        {panels.length === 0 ? (
-          <div style={styles.empty}>
-            No panels registered. Call <code>registerDevPanel(...)</code> from
-            your template to add options here.
+    <TooltipProvider delayDuration={200}>
+      <div style={styles.shell} role="dialog" aria-label="Dev overlay">
+        <div style={styles.header}>
+          <div>
+            <div style={styles.headerTitle}>Dev Overlay</div>
+            <div style={styles.headerSub}>Cmd+Ctrl+A · localStorage-backed</div>
           </div>
-        ) : (
-          panels.map((panel) => <DevPanelCard key={panel.id} panel={panel} />)
-        )}
-      </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                style={styles.iconBtn}
+                onClick={onClose}
+                aria-label="Close"
+              >
+                <IconX size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Close (Esc)</TooltipContent>
+          </Tooltip>
+        </div>
 
-      <div style={styles.footer}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              style={{ ...styles.footerBtn, ...styles.footerBtnDanger }}
-              onClick={() => {
-                clearAllDevOverlayStorage();
-              }}
-            >
-              <IconTrash size={13} />
-              Clear all dev-overlay values
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>
-            Reset every dev-overlay value back to its default
-          </TooltipContent>
-        </Tooltip>
+        <div style={styles.body}>
+          {panels.length === 0 ? (
+            <div style={styles.empty}>
+              No panels registered. Call <code>registerDevPanel(...)</code> from
+              your template to add options here.
+            </div>
+          ) : (
+            panels.map((panel) => <DevPanelCard key={panel.id} panel={panel} />)
+          )}
+        </div>
+
+        <div style={styles.footer}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                style={{ ...styles.footerBtn, ...styles.footerBtnDanger }}
+                onClick={() => {
+                  clearAllDevOverlayStorage();
+                }}
+              >
+                <IconTrash size={13} />
+                Clear all dev-overlay values
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Reset every dev-overlay value back to its default
+            </TooltipContent>
+          </Tooltip>
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }
 

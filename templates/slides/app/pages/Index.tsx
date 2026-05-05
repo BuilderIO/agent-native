@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
 import { IconPlus, IconStack2 } from "@tabler/icons-react";
@@ -11,7 +11,7 @@ import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@/components/layout/HeaderActions";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, useSession } from "@agent-native/core/client";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   AlertDialog,
@@ -27,6 +27,8 @@ import {
 import { Button } from "@/components/ui/button";
 
 const MAX_SOURCE_CONTEXT_CHARS = 60_000;
+const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
+const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
 
 function summarizePromptForChat(prompt: string): string {
   const singleLine = prompt.trim().replace(/\s+/g, " ");
@@ -50,9 +52,11 @@ function truncateSourceForContext(prompt: string): {
 
 export default function Index() {
   const { decks, createDeck, deleteDeck, updateDeck, loading } = useDecks();
+  const { session } = useSession();
   const navigate = useNavigate();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(false);
+  const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [duplicating, setDuplicating] = useState<string | null>(null);
   const { generating, submit: agentSubmit } = useAgentGenerating();
   const anchorElRef = useRef<HTMLElement | null>(null);
@@ -64,6 +68,36 @@ export default function Index() {
     anchorElRef.current = e.currentTarget;
     setShowNewDeckPrompt(true);
   }, []);
+
+  // Restore a prompt that was held back when the user wasn't signed in:
+  // we wrote the text to sessionStorage before redirecting to sign-in,
+  // and now that they're back and authenticated, replay it into the
+  // composer's localStorage draft and pop the new-deck dialog open so
+  // they can hit submit without retyping.
+  useEffect(() => {
+    if (!session) return;
+    let saved: string | null = null;
+    try {
+      saved = sessionStorage.getItem(PENDING_PROMPT_KEY);
+    } catch {}
+    if (!saved) return;
+    try {
+      const escaped = saved
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      const paragraphs = escaped
+        .split(/\n+/)
+        .map((line) => `<p>${line || "<br/>"}</p>`)
+        .join("");
+      localStorage.setItem(
+        `an-composer-draft:${encodeURIComponent(NEW_DECK_DRAFT_SCOPE)}`,
+        paragraphs,
+      );
+      sessionStorage.removeItem(PENDING_PROMPT_KEY);
+    } catch {}
+    setShowNewDeckPrompt(true);
+  }, [session]);
 
   const handleCreateDeckBlank = () => {
     let deck: ReturnType<typeof createDeck> | undefined;
@@ -78,6 +112,20 @@ export default function Index() {
     prompt: string,
     files: UploadedFile[],
   ) => {
+    // Pre-flight auth check. The /api/decks POST returns 403 silently
+    // when unauthenticated, leaving the user stuck on a deck page that
+    // doesn't exist server-side and a small auth error in the chat
+    // sidebar. Catch it here so the user sees a clear sign-in prompt
+    // and the typed prompt isn't lost when they come back.
+    if (!session) {
+      try {
+        sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
+      } catch {}
+      setShowNewDeckPrompt(false);
+      setShowSignInDialog(true);
+      return;
+    }
+
     let deck: ReturnType<typeof createDeck> | undefined;
     flushSync(() => {
       deck = createDeck(undefined, { noDefaultSlides: true });
@@ -285,7 +333,36 @@ export default function Index() {
         onSubmit={handleCreateDeckWithPrompt}
         loading={generating}
         anchorRef={anchorRef}
+        draftScope={NEW_DECK_DRAFT_SCOPE}
       />
+
+      {/* Sign-in required to create a deck. Shown when an unauthenticated
+          user submits a prompt — the typed prompt is preserved in
+          sessionStorage and replayed into the composer after sign-in. */}
+      <AlertDialog open={showSignInDialog} onOpenChange={setShowSignInDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sign in to create a deck</AlertDialogTitle>
+            <AlertDialogDescription>
+              You need to sign in before generating a deck. We've saved your
+              prompt — once you're back, it'll be ready to go.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const ret = window.location.pathname + window.location.search;
+                window.location.href =
+                  agentNativePath("/_agent-native/sign-in") +
+                  `?return=${encodeURIComponent(ret)}`;
+              }}
+            >
+              Sign in
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
   );
 }

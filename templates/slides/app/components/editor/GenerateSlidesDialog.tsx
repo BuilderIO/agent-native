@@ -121,7 +121,7 @@ export default function GenerateSlidesDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {[4, 6, 8, 10, 12, 15].map((n) => (
+                  {[4, 6, 8, 10].map((n) => (
                     <SelectItem key={n} value={String(n)}>
                       {n} slides
                     </SelectItem>

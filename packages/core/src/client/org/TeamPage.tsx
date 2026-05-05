@@ -39,6 +39,7 @@ import type { DomainMatchOrg } from "../../org/types.js";
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 
@@ -878,5 +879,9 @@ export function TeamPage({
     </div>
   );
 
-  return layout ? <>{layout(content)}</> : content;
+  const wrapped = (
+    <TooltipProvider delayDuration={200}>{content}</TooltipProvider>
+  );
+
+  return layout ? <>{layout(wrapped)}</> : wrapped;
 }

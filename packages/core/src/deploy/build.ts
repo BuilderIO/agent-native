@@ -49,6 +49,11 @@ function normalizeConfiguredAppBasePath(): string {
 /** Plugins that require Node.js runtime and cannot run on edge/serverless */
 const NODE_ONLY_PLUGINS = new Set([
   "terminal", // PTY requires child_process
+  // @sentry/node ships node:fs / node:async_hooks bindings that don't load
+  // on workerd / Cloudflare Workers. Templates running on edge presets can
+  // mount their own edge-compatible Sentry wrapper if they want server
+  // observability there; the framework default is the Node SDK.
+  "sentry",
 ]);
 
 function isNodeOnlyPlugin(filePath: string): boolean {

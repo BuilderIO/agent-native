@@ -12,12 +12,9 @@ import {
   IconAppWindow,
   IconX,
   IconMenu2,
+  IconLayoutSidebarRightExpand,
 } from "@tabler/icons-react";
-import {
-  AgentSidebar,
-  AgentToggleButton,
-  FeedbackButton,
-} from "@agent-native/core/client";
+import { AgentSidebar, FeedbackButton } from "@agent-native/core/client";
 import { RequireActiveOrg } from "@agent-native/core/client/org";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -52,6 +49,24 @@ import {
 
 interface LibraryLayoutProps {
   children: ReactNode;
+}
+
+function ClipsAgentToggleButton() {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
+          className="ml-1.5 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          aria-label="Toggle agent panel"
+        >
+          <IconLayoutSidebarRightExpand className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>Toggle agent</TooltipContent>
+    </Tooltip>
+  );
 }
 
 export function LibraryLayout({ children }: LibraryLayoutProps) {
@@ -331,7 +346,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                     className="flex min-w-0 flex-1 flex-wrap items-center gap-3"
                   />
                   <div className="ml-auto flex items-center gap-2">
-                    <AgentToggleButton />
+                    <ClipsAgentToggleButton />
                   </div>
                 </header>
               )}

@@ -8,6 +8,7 @@
 import {
   defineEventHandler,
   getRouterParam,
+  readBody,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -18,7 +19,6 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import {
   writeAppState,
   deleteAppStateByPrefix,
-  deleteAppState,
 } from "@agent-native/core/application-state";
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -29,6 +29,14 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   const ownerEmail = await getEventOwnerEmail(event);
+  const body = (await readBody(event).catch(() => null)) as {
+    reason?: unknown;
+  } | null;
+  const failureReason =
+    typeof body?.reason === "string" && body.reason.trim()
+      ? body.reason.trim().slice(0, 1000)
+      : "Upload aborted by user";
+
   return runWithRequestContext({ userEmail: ownerEmail }, async () => {
     const db = getDb();
 
@@ -50,18 +58,23 @@ export default defineEventHandler(async (event: H3Event) => {
     const cleared = await deleteAppStateByPrefix(
       `recording-chunks-${recordingId}-`,
     );
-    await deleteAppState(`recording-upload-${recordingId}`);
 
     const now = new Date().toISOString();
     await db
       .update(schema.recordings)
       .set({
         status: "failed",
-        failureReason: "Upload aborted by user",
+        failureReason,
         updatedAt: now,
       })
       .where(eq(schema.recordings.id, recordingId));
 
+    await writeAppState(`recording-upload-${recordingId}`, {
+      recordingId,
+      status: "failed",
+      failureReason,
+      updatedAt: now,
+    });
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     return { ok: true, recordingId, chunksCleared: cleared };

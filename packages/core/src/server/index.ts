@@ -47,6 +47,14 @@ export {
   getChangesSince,
 } from "./poll.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
+export {
+  initServerSentry,
+  isServerSentryEnabled,
+  setSentryUserForRequest,
+  captureRouteError,
+  type RouteErrorContext,
+} from "./sentry.js";
+export { createSentryPlugin, defaultSentryPlugin } from "./sentry-plugin.js";
 // Re-export the org plugin so the auto-discovery's DEFAULT_PLUGIN_REGISTRY
 // (which references "defaultOrgPlugin" from @agent-native/core/server) can
 // resolve it during the deploy build worker-entry generation.

@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.fn();
-const mockReadAppSecret = vi.fn();
-const mockResolveCredential = vi.fn();
 const mockResolveHasBuilderPrivateKey = vi.fn();
+const mockResolveSecret = vi.fn();
 const mockGetOrgContext = vi.fn();
 const mockResolveGoogleRealtimeCredentials = vi.fn();
 
@@ -17,14 +16,6 @@ vi.mock("h3", () => ({
   },
 }));
 
-vi.mock("../secrets/storage.js", () => ({
-  readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
-}));
-
-vi.mock("../credentials/index.js", () => ({
-  resolveCredential: (...args: any[]) => mockResolveCredential(...args),
-}));
-
 vi.mock("./auth.js", () => ({
   getSession: (...args: any[]) => mockGetSession(...args),
 }));
@@ -32,6 +23,7 @@ vi.mock("./auth.js", () => ({
 vi.mock("./credential-provider.js", () => ({
   resolveHasBuilderPrivateKey: (...args: any[]) =>
     mockResolveHasBuilderPrivateKey(...args),
+  resolveSecret: (...args: any[]) => mockResolveSecret(...args),
 }));
 
 vi.mock("../org/context.js", () => ({
@@ -61,8 +53,7 @@ describe("voice providers status route", () => {
     lastStatus = 200;
     delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
     mockGetSession.mockResolvedValue({ email: "voice+qa@example.com" });
-    mockReadAppSecret.mockResolvedValue(null);
-    mockResolveCredential.mockResolvedValue(undefined);
+    mockResolveSecret.mockResolvedValue(null);
     mockResolveHasBuilderPrivateKey.mockResolvedValue(false);
     mockGetOrgContext.mockResolvedValue({ orgId: "org-123" });
     mockResolveGoogleRealtimeCredentials.mockResolvedValue(null);
@@ -78,11 +69,12 @@ describe("voice providers status route", () => {
 
   it("reports user secrets and fallback credentials without returning key material", async () => {
     mockResolveHasBuilderPrivateKey.mockResolvedValue(true);
-    mockReadAppSecret.mockImplementation(async ({ key }) =>
-      key === "OPENAI_API_KEY" ? { value: "sk-openai-secret" } : null,
-    );
-    mockResolveCredential.mockImplementation(async (key: string) =>
-      key === "GROQ_API_KEY" ? "configured-secret" : undefined,
+    mockResolveSecret.mockImplementation(async (key: string) =>
+      key === "OPENAI_API_KEY"
+        ? "sk-openai-secret"
+        : key === "GROQ_API_KEY"
+          ? "configured-secret"
+          : null,
     );
     mockResolveGoogleRealtimeCredentials.mockResolvedValue(
       '{"type":"service_account"}',
@@ -101,15 +93,13 @@ describe("voice providers status route", () => {
       native: true,
     });
     expect(JSON.stringify(result)).not.toContain("secret");
-    expect(mockResolveCredential).toHaveBeenCalledWith("GROQ_API_KEY", {
-      userEmail: "voice+qa@example.com",
-    });
+    expect(mockResolveSecret).toHaveBeenCalledWith("GROQ_API_KEY");
   });
 
-  it("falls back to process/sql credentials when there is no session", async () => {
+  it("uses the unscoped resolver when there is no session", async () => {
     mockGetSession.mockResolvedValue(null);
-    mockResolveCredential.mockImplementation(async (key: string) =>
-      key === "GEMINI_API_KEY" ? "gemini-key" : undefined,
+    mockResolveSecret.mockImplementation(async (key: string) =>
+      key === "GEMINI_API_KEY" ? "gemini-key" : null,
     );
 
     const handler = createVoiceProvidersStatusHandler();
@@ -121,10 +111,7 @@ describe("voice providers status route", () => {
       groq: false,
       googleRealtime: false,
     });
-    expect(mockReadAppSecret).not.toHaveBeenCalled();
-    expect(mockResolveCredential).toHaveBeenCalledWith("GEMINI_API_KEY", {
-      userEmail: undefined,
-    });
+    expect(mockResolveSecret).toHaveBeenCalledWith("GEMINI_API_KEY");
   });
 
   it("reports deploy-managed Google credentials only when they resolve cleanly", async () => {

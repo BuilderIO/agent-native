@@ -117,6 +117,12 @@ function threadCacheKey(ownerEmail: string, threadId: string) {
   return `${ownerEmail}:${threadId}`;
 }
 
+function gmailLabelSearchClause(label: string): string {
+  const value = label.trim().replace(/\s+/g, "-").replace(/"/g, '\\"');
+  if (!value) return "";
+  return /[/"()]/.test(value) ? `label:"${value}"` : `label:${value}`;
+}
+
 export function invalidateThreadCache(ownerEmail: string, threadId: string) {
   threadMessagesCache.delete(threadCacheKey(ownerEmail, threadId));
 }
@@ -399,10 +405,12 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         }
       }
 
-      // Map view to Gmail search query
+      // Map view to Gmail search query.
+      // `-in:sent` excludes user-sent messages (replies the user wrote get
+      // both INBOX and SENT labels in Gmail) so they don't pollute the inbox.
       const gmailQuery: Record<string, string> = {
-        inbox: "in:inbox",
-        unread: "is:unread in:inbox",
+        inbox: "in:inbox -in:sent",
+        unread: "is:unread in:inbox -in:sent",
         starred: "is:starred",
         sent: "in:sent",
         drafts: "in:drafts",
@@ -451,8 +459,12 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         } else {
           // User-created label: Gmail's `label:` operator wants the display
           // name with spaces replaced by hyphens; nested labels use `/`.
-          labelClause = `label:${label.replace(/\s+/g, "-")}`;
+          labelClause = gmailLabelSearchClause(label);
         }
+        // Gmail-like label views are not limited to Inbox: archived mail with
+        // that label should still appear. Category/Important filters remain
+        // valid without an explicit `in:inbox` clause.
+        if (!q) searchQuery = "";
         searchQuery = searchQuery
           ? `${searchQuery} ${labelClause}`
           : labelClause;
@@ -465,7 +477,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         await listGmailMessages(searchQuery, undefined, email, pageTokens, {
           mode: "threads",
           threadFormat: "metadata",
-          threadCandidateLimit: q ? 500 : undefined,
+          threadCandidateLimit: q ? 160 : undefined,
         });
       if (messages.length === 0 && errors.length > 0) {
         // All accounts failed — surface as error
@@ -2153,7 +2165,13 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
       // Deduplicate by derived short-name id (not Gmail label ID)
       const labelMap = new Map<
         string,
-        { id: string; name: string; type: "system" | "user" }
+        {
+          id: string;
+          name: string;
+          type: "system" | "user";
+          unreadCount: number;
+          totalCount: number;
+        }
       >();
       // Fetch labels from each account sequentially to avoid race conditions on the shared map
       for (const { accessToken } of accountTokens) {
@@ -2164,27 +2182,48 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
             const gmailId = label.id;
             const name = label.name;
             const isSystem = !gmailId.startsWith("Label_");
-            // Use the full label name (preserving hierarchy) as the id,
-            // but display the short name (last segment, underscores -> spaces)
-            const fullId = name.toLowerCase().replace(/_/g, " ");
-            let shortName = name;
-            const lastSlash = shortName.lastIndexOf("/");
-            if (lastSlash >= 0) shortName = shortName.slice(lastSlash + 1);
-            shortName = shortName.replace(/_/g, " ");
-            if (!labelMap.has(fullId)) {
+            const systemLabelIds: Record<string, { id: string; name: string }> =
+              {
+                INBOX: { id: "inbox", name: "Inbox" },
+                STARRED: { id: "starred", name: "Starred" },
+                SENT: { id: "sent", name: "Sent" },
+                DRAFT: { id: "drafts", name: "Drafts" },
+                TRASH: { id: "trash", name: "Trash" },
+                IMPORTANT: { id: "important", name: "Important" },
+                CATEGORY_PERSONAL: { id: "personal", name: "Primary" },
+                CATEGORY_SOCIAL: { id: "social", name: "Social" },
+                CATEGORY_UPDATES: { id: "updates", name: "Updates" },
+                CATEGORY_PROMOTIONS: { id: "promotions", name: "Promotions" },
+                CATEGORY_FORUMS: { id: "forums", name: "Forums" },
+              };
+            const unreadCount =
+              Number(label.threadsUnread ?? label.messagesUnread ?? 0) || 0;
+            const totalCount =
+              Number(label.threadsTotal ?? label.messagesTotal ?? 0) || 0;
+            // Use and display the full label name so Gmail nesting survives
+            // import. The sidebar indents slash-delimited paths.
+            const normalizedSystem = systemLabelIds[gmailId];
+            const fullId =
+              normalizedSystem?.id ?? name.toLowerCase().replace(/_/g, " ");
+            const displayName =
+              normalizedSystem?.name ?? name.replace(/_/g, " ");
+            const existing = labelMap.get(fullId);
+            if (existing) {
+              existing.unreadCount += unreadCount;
+              existing.totalCount += totalCount;
+            } else {
               labelMap.set(fullId, {
                 id: fullId,
-                name: shortName,
+                name: displayName,
                 type: isSystem ? ("system" as const) : ("user" as const),
+                unreadCount,
+                totalCount,
               });
             }
           }
         } catch {}
       }
-      const labels: Label[] = Array.from(labelMap.values()).map((l) => ({
-        ...l,
-        unreadCount: 0,
-      }));
+      const labels: Label[] = Array.from(labelMap.values());
 
       // Normalize Gmail category labels with friendly names
       const gmailCategories: Record<string, string> = {
@@ -2201,7 +2240,13 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
           // Fix casing (Gmail returns "IMPORTANT", we want "Important")
           labels[existing].name = name;
         } else {
-          labels.push({ id, name, type: "system", unreadCount: 0 });
+          labels.push({
+            id,
+            name,
+            type: "system",
+            unreadCount: 0,
+            totalCount: 0,
+          });
         }
       }
 

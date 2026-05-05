@@ -9,6 +9,7 @@
 import { appBasePath } from "@agent-native/core/client";
 
 export type RecordingMode = "screen" | "camera" | "screen+camera";
+export const NO_MIC_DEVICE_ID = "__clips_no_microphone__";
 
 export type RecorderState =
   | "idle"
@@ -75,22 +76,24 @@ export interface RecorderFinalizeResult {
 const DEFAULT_CHUNK_MS = 2000;
 
 /** Pick a MediaRecorder mimeType the current browser actually supports. */
-export function pickMimeType(): string {
-  // Prefer MP4 (H.264) — produces faststart-friendly files that stream well
-  // with HTTP range requests. Chrome 121+ and Safari both support MP4 in
-  // MediaRecorder; Firefox falls back to WebM.
-  const candidates = [
-    "video/mp4;codecs=avc1,opus",
+export function pickMimeTypeCandidates(): string[] {
+  // Chrome can report MP4 support but still reject the encoder configuration
+  // for some display-capture streams. Prefer the WebM combinations that are
+  // broadly supported by MediaRecorder, then fall back to MP4/Safari.
+  return [
+    "video/webm;codecs=vp8,opus",
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8",
+    "video/webm;codecs=vp9",
+    "video/webm",
     "video/mp4;codecs=avc1",
     "video/mp4",
-    "video/webm;codecs=vp9,opus",
-    "video/webm;codecs=vp8,opus",
-    "video/webm;codecs=vp9",
-    "video/webm;codecs=vp8",
-    "video/webm",
   ];
+}
+
+export function pickMimeType(): string {
   if (typeof MediaRecorder === "undefined") return "video/webm";
-  for (const type of candidates) {
+  for (const type of pickMimeTypeCandidates()) {
     try {
       if (MediaRecorder.isTypeSupported(type)) return type;
     } catch {
@@ -119,6 +122,7 @@ export class RecorderEngine {
   private startedAtMs: number | null = null;
   private pausedAccumMs = 0;
   private pausedStartedMs: number | null = null;
+  private uploadFailure: Error | null = null;
 
   private state: RecorderState = "idle";
 
@@ -187,17 +191,19 @@ export class RecorderEngine {
         });
       }
 
-      // Mic is separate so user can pick explicitly; combined with system audio later.
-      try {
-        this.micStream = await navigator.mediaDevices.getUserMedia({
-          audio: this.opts.micDeviceId
-            ? { deviceId: { exact: this.opts.micDeviceId } }
-            : true,
-          video: false,
-        });
-      } catch {
-        // Mic is optional — if denied we still record without it.
-        this.micStream = null;
+      if (this.opts.micDeviceId !== NO_MIC_DEVICE_ID) {
+        // Mic is separate so user can pick explicitly; combined with system audio later.
+        try {
+          this.micStream = await navigator.mediaDevices.getUserMedia({
+            audio: this.opts.micDeviceId
+              ? { deviceId: { exact: this.opts.micDeviceId } }
+              : true,
+            video: false,
+          });
+        } catch {
+          // Mic is optional — if denied we still record without it.
+          this.micStream = null;
+        }
       }
 
       // If the display stream's video track ends (user hit "Stop sharing" in
@@ -260,12 +266,39 @@ export class RecorderEngine {
     // so the browser's screen/camera indicator doesn't linger after
     // the caller's error handler.
     try {
-      const preferred = pickMimeType();
-      this.recorder = new MediaRecorder(this.combinedStream, {
-        mimeType: preferred || undefined,
-        videoBitsPerSecond: 4_000_000,
+      if (typeof MediaRecorder === "undefined") {
+        throw new Error(
+          "Your browser doesn't support screen recording. Try a recent Chrome, Edge, Safari, or Firefox.",
+        );
+      }
+      const candidates = pickMimeTypeCandidates().filter((type) => {
+        try {
+          return MediaRecorder.isTypeSupported(type);
+        } catch {
+          return false;
+        }
       });
-      this.mimeType = preferred || this.recorder.mimeType;
+      candidates.push("");
+      let lastError: unknown = null;
+
+      for (const type of candidates) {
+        try {
+          this.recorder = new MediaRecorder(
+            this.combinedStream,
+            type ? { mimeType: type } : undefined,
+          );
+          this.mimeType = this.recorder.mimeType || type;
+          lastError = null;
+          break;
+        } catch (err) {
+          lastError = err;
+          this.recorder = null;
+        }
+      }
+
+      if (!this.recorder && lastError) {
+        throw lastError;
+      }
       if (!this.mimeType) {
         throw new Error(
           "Your browser doesn't support any of the video codecs Clips needs. Try a recent Chrome, Edge, Safari, or Firefox.",
@@ -277,6 +310,7 @@ export class RecorderEngine {
     }
 
     this.chunkIndex = 0;
+    this.uploadFailure = null;
 
     this.recorder.addEventListener("dataavailable", (event) => {
       const blob = event.data;
@@ -360,7 +394,8 @@ export class RecorderEngine {
       // Yield to the event loop so any pending dataavailable event from the
       // auto-stop can fire and be queued before we drain chunkQueue.
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      await this.chunkQueue.catch(() => {});
+      await this.chunkQueue;
+      if (this.uploadFailure) throw this.uploadFailure;
       const dimensions = this.readDimensions();
       const durationMs = Math.round(this.getElapsedMs());
       const hasAudio = this.hasAudioTrack();
@@ -430,7 +465,8 @@ export class RecorderEngine {
     const finalIndex = this.chunkIndex++;
 
     // Wait for all pending in-flight chunks before we send the isFinal one.
-    await this.chunkQueue.catch(() => {});
+    await this.chunkQueue;
+    if (this.uploadFailure) throw this.uploadFailure;
 
     const dimensions = this.readDimensions();
     const durationMs = Math.round(this.getElapsedMs());
@@ -477,6 +513,7 @@ export class RecorderEngine {
     }
     this.cleanupTracks();
     this.chunkIndex = 0;
+    this.uploadFailure = null;
     this.startedAtMs = null;
     this.pausedAccumMs = 0;
     this.pausedStartedMs = null;
@@ -533,18 +570,39 @@ export class RecorderEngine {
   }
 
   private queueChunk(blob: Blob, index: number, isFinal: boolean): void {
-    this.chunkQueue = this.chunkQueue.then(() =>
-      this.uploadChunk(blob, index, { isFinal, mimeType: this.mimeType }).then(
-        () => {
-          this.opts.onChunk?.({
-            index,
-            bytes: blob.size,
-            total: null,
-          });
-        },
-        (err) => this.emitError(err),
-      ),
-    );
+    this.chunkQueue = this.chunkQueue.then(async () => {
+      if (this.uploadFailure) return;
+      try {
+        await this.uploadChunk(blob, index, {
+          isFinal,
+          mimeType: this.mimeType,
+        });
+        this.opts.onChunk?.({
+          index,
+          bytes: blob.size,
+          total: null,
+        });
+      } catch (err) {
+        const failure = err instanceof Error ? err : new Error(String(err));
+        await this.markUploadFailed(failure);
+        this.emitError(failure);
+      }
+    });
+  }
+
+  private async markUploadFailed(err: Error): Promise<void> {
+    if (!this.uploadFailure) {
+      this.uploadFailure = err;
+    }
+    try {
+      await fetch(this.opts.abortUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: err.message }),
+      });
+    } catch {
+      // ignore — the stop path will surface the original upload error.
+    }
   }
 
   private async uploadChunk(
@@ -661,7 +719,7 @@ export class RecorderEngine {
       err instanceof Error ? err.message : String(err || "Unknown error");
     if (/Permission denied|NotAllowedError|denied/i.test(message)) {
       return new Error(
-        "Screen or camera access was denied. On macOS, grant access in System Settings → Privacy & Security → Screen Recording and reload.",
+        "Screen, camera, or microphone access was blocked. In Chrome, open Site settings for this app and allow Camera and Microphone. On macOS, also check System Settings > Privacy & Security for Screen Recording, Camera, and Microphone, then quit and reopen Chrome.",
       );
     }
     if (/NotFoundError|no device/i.test(message)) {

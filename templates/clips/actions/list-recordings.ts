@@ -190,6 +190,8 @@ export default defineAction({
       animatedThumbnailUrl: r.animatedThumbnailUrl,
       durationMs: r.durationMs,
       status: r.status,
+      uploadProgress: r.uploadProgress,
+      failureReason: r.failureReason,
       visibility: r.visibility,
       ownerEmail: r.ownerEmail,
       folderId: r.folderId,

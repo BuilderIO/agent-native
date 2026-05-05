@@ -134,6 +134,15 @@ export interface BuilderConnectFlow {
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
+function notifyAgentEngineConfiguredChanged(source: string) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("agent-engine:configured-changed", {
+      detail: { source },
+    }),
+  );
+}
+
 export function useBuilderConnectFlow(
   opts: BuilderConnectFlowOptions = {},
 ): BuilderConnectFlow {
@@ -147,6 +156,7 @@ export function useBuilderConnectFlow(
   const [hasFetchedStatus, setHasFetchedStatus] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+  const notifiedConnectedRef = useRef(false);
   // Keep onConnected in a ref so start() doesn't need to re-create when the
   // caller passes an inline arrow function.
   const onConnectedRef = useRef(onConnected);
@@ -197,7 +207,19 @@ export function useBuilderConnectFlow(
       setConfigured(!!s.configured);
       setEnvManaged(!!s.envManaged);
       setBuilderEnabled(!!s.builderEnabled);
-      setOrgName(s.orgName ?? null);
+      const org = s.orgName ?? null;
+      setOrgName(org);
+      if (s.configured && !notifiedConnectedRef.current) {
+        notifiedConnectedRef.current = true;
+        notifyAgentEngineConfiguredChanged("builder-status");
+        try {
+          await onConnectedRef.current?.({ orgName: org });
+        } catch {
+          // The caller's callback is a UI convenience; status is already set.
+        }
+      } else if (!s.configured) {
+        notifiedConnectedRef.current = false;
+      }
     };
     refresh();
     const onVisible = () => {
@@ -249,9 +271,13 @@ export function useBuilderConnectFlow(
       if (s?.configured) {
         stopPoll();
         setConfigured(true);
+        setEnvManaged(!!s.envManaged);
+        setBuilderEnabled(!!s.builderEnabled);
         const org = s.orgName ?? null;
         setOrgName(org);
         setConnecting(false);
+        notifiedConnectedRef.current = true;
+        notifyAgentEngineConfiguredChanged("builder-connect");
         try {
           await onConnectedRef.current?.({ orgName: org });
         } catch {

@@ -1751,10 +1751,7 @@ export function gmailToEmailMessage(
           CATEGORY_FORUMS: "forums",
         };
         if (categoryMap[l]) return categoryMap[l];
-        let name = labelMap?.get(l) || l;
-        // Use last segment of nested labels (e.g. "[Superhuman]/AI/Respond" -> "Respond")
-        const lastSlash = name.lastIndexOf("/");
-        if (lastSlash >= 0) name = name.slice(lastSlash + 1);
+        const name = labelMap?.get(l) || l;
         return name.replace(/_/g, " ").toLowerCase();
       }),
     attachments: attachments.length > 0 ? attachments : undefined,

@@ -935,15 +935,10 @@ function openOAuthWindow(
     scheduleClose();
   });
 
-  // Builder's callback writes credentials server-side, so reload after it
-  // closes. Google success already reloads through the agentnative:// handoff;
-  // Google failures are delivered to the app through desktop-exchange, so an
-  // unconditional reload here would erase the in-app recovery panel.
-  oauthWin.on("closed", () => {
-    if (provider.name !== "google") {
-      reloadAllWebviews();
-    }
-  });
+  // Builder credentials now land in SQL-backed app_secrets and the webview
+  // side polls /builder/status, so closing the popup should leave the current
+  // chat mounted. Google success still reloads through the agentnative://
+  // session-cookie handoff in handleDeepLink().
 }
 
 const webviewOAuthNavigationHandlers = new WeakSet<Electron.WebContents>();

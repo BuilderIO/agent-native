@@ -64,6 +64,30 @@ type UiState =
 
 const MAC_SCREEN_RECORDING_PREF_URL =
   "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
+const MAC_CAMERA_PREF_URL =
+  "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera";
+const MAC_MICROPHONE_PREF_URL =
+  "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
+
+function isMacPlatform(): boolean {
+  return /^darwin|mac/i.test(
+    typeof navigator !== "undefined" ? navigator.platform : "",
+  );
+}
+
+function isPermissionError(message: string): boolean {
+  return /screen|camera|microphone|mic|permission|blocked|denied|not allowed/i.test(
+    message,
+  );
+}
+
+function permissionGuidance(message: string): string | null {
+  if (!isPermissionError(message)) return null;
+  if (isMacPlatform()) {
+    return "Check Chrome Site settings first. If it still fails, open macOS System Settings > Privacy & Security and enable Screen Recording, Camera, and Microphone for Chrome, then quit and reopen Chrome.";
+  }
+  return "Open Chrome Site settings for this app and allow Camera and Microphone, then reload this page.";
+}
 
 function captureThumbnailFromPreview(
   video: HTMLVideoElement | null,
@@ -188,6 +212,23 @@ export default function RecordRoute() {
     }
   }, [previewStream]);
 
+  const showRecordingErrorToast = useCallback((message: string) => {
+    const guidance = permissionGuidance(message);
+    toast.error("Couldn't start recording", {
+      description: guidance ?? message,
+      duration: guidance ? 20_000 : 10_000,
+      action:
+        guidance && isMacPlatform()
+          ? {
+              label: "Open settings",
+              onClick: () => {
+                window.location.href = MAC_SCREEN_RECORDING_PREF_URL;
+              },
+            }
+          : undefined,
+    });
+  }, []);
+
   // -------------------------------------------------------------------------
   // Create recording row, acquire media, start countdown.
   // -------------------------------------------------------------------------
@@ -269,7 +310,7 @@ export default function RecordRoute() {
           abortUrl: `${appBasePath()}${info.abortUrl!}`,
           onError: (err) => {
             console.error("[recorder] error:", err);
-            toast.error(err.message);
+            showRecordingErrorToast(err.message);
             setError(err.message);
             setUiState("error");
           },
@@ -327,11 +368,11 @@ export default function RecordRoute() {
           !message.includes("No video storage configured") &&
           message !== "SESSION_EXPIRED"
         ) {
-          toast.error(message);
+          showRecordingErrorToast(message);
         }
       }
     },
-    [],
+    [showRecordingErrorToast],
   );
 
   // -------------------------------------------------------------------------
@@ -432,12 +473,18 @@ export default function RecordRoute() {
           );
         }
         const created = (await res.json()) as {
-          result?: { id: string; uploadChunkUrl: string };
+          result?: { id: string; uploadChunkUrl: string; abortUrl?: string };
           id?: string;
           uploadChunkUrl?: string;
+          abortUrl?: string;
         };
         const info =
-          created.result ?? (created as { id: string; uploadChunkUrl: string });
+          created.result ??
+          (created as {
+            id: string;
+            uploadChunkUrl: string;
+            abortUrl?: string;
+          });
         if (!info?.id) {
           throw new Error("create-recording did not return an id");
         }
@@ -492,18 +539,22 @@ export default function RecordRoute() {
         }, 50);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Upload failed";
-        // Trash the orphaned row so it doesn't sit in the library forever
-        // in 'uploading' status.
         if (createdId) {
-          fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+          fetch(`${appBasePath()}/api/uploads/${createdId}/abort`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: createdId }),
+            body: JSON.stringify({ reason: message }),
           }).catch(() => {});
         }
         setError(message);
         setUiState("error");
-        if (message !== "SESSION_EXPIRED") toast.error(message);
+        if (message !== "SESSION_EXPIRED") {
+          toast.error("Upload failed", {
+            description:
+              "The clip was marked failed in your library. You can remove it from the card menu.",
+            duration: 12_000,
+          });
+        }
       }
     },
     [navigate, probeVideoMetadata],
@@ -527,9 +578,9 @@ export default function RecordRoute() {
         err instanceof Error ? err.message : "Could not start recorder";
       setError(message);
       setUiState("error");
-      toast.error(message);
+      showRecordingErrorToast(message);
     }
-  }, [liveTranscription]);
+  }, [liveTranscription, showRecordingErrorToast]);
 
   // -------------------------------------------------------------------------
   // Stop / upload / navigate.
@@ -593,9 +644,17 @@ export default function RecordRoute() {
       }, 50);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed";
+      fetch(pending.abortUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: message }),
+      }).catch(() => {});
       setError(message);
       setUiState("error");
-      toast.error(message);
+      toast.error("Upload failed", {
+        description: message,
+        duration: 12_000,
+      });
     }
   }, [navigate, liveTranscription]);
 
@@ -975,10 +1034,17 @@ export default function RecordRoute() {
           ) : (
             <div className="max-w-md rounded-xl border border-border bg-card p-6">
               <div className="mb-2 text-sm font-semibold text-foreground">
-                Couldn't start recording
+                {/upload failed|chunk/i.test(error)
+                  ? "Upload failed"
+                  : "Couldn't start recording"}
               </div>
               <div className="text-sm text-muted-foreground">{error}</div>
-              <div className="mt-4 flex justify-center gap-2">
+              {permissionGuidance(error) && (
+                <div className="mt-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-left text-xs text-muted-foreground">
+                  {permissionGuidance(error)}
+                </div>
+              )}
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -987,19 +1053,34 @@ export default function RecordRoute() {
                 >
                   Try again
                 </Button>
-                {/screen|permission|denied|not allowed/i.test(error) &&
-                  /^darwin|mac/i.test(
-                    typeof navigator !== "undefined" ? navigator.platform : "",
-                  ) && (
+                {isPermissionError(error) && isMacPlatform() && (
+                  <>
                     <Button
                       variant="ghost"
                       onClick={() => {
                         window.location.href = MAC_SCREEN_RECORDING_PREF_URL;
                       }}
                     >
-                      Open Screen Recording settings
+                      Screen settings
                     </Button>
-                  )}
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        window.location.href = MAC_CAMERA_PREF_URL;
+                      }}
+                    >
+                      Camera settings
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        window.location.href = MAC_MICROPHONE_PREF_URL;
+                      }}
+                    >
+                      Mic settings
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           )}

@@ -237,6 +237,54 @@ describe("resolveSecret (generic)", () => {
     expect(await resolveSecret("OPENAI_API_KEY")).toBe("sk-...shared");
   });
 
+  it("falls back to workspace scope for registered shared secrets", async () => {
+    mockGetRequestUserEmail.mockReturnValue("teammate@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret
+      .mockResolvedValueOnce(null) // user scope miss
+      .mockResolvedValueOnce(null) // org scope miss
+      .mockResolvedValueOnce({
+        value: "workspace-secret",
+        last4: "cret",
+        updatedAt: 1,
+      });
+    expect(await resolveSecret("GOOGLE_CLIENT_SECRET")).toBe(
+      "workspace-secret",
+    );
+    expect(mockReadAppSecret.mock.calls.map((c) => c[0].scope)).toEqual([
+      "user",
+      "org",
+      "workspace",
+    ]);
+  });
+
+  it("checks solo workspace scope when an authenticated user has no org", async () => {
+    mockGetRequestUserEmail.mockReturnValue("solo@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockReadAppSecret
+      .mockResolvedValueOnce(null) // user scope miss
+      .mockResolvedValueOnce({
+        value: "solo-workspace-secret",
+        last4: "cret",
+        updatedAt: 1,
+      });
+    expect(await resolveSecret("GOOGLE_CLIENT_SECRET")).toBe(
+      "solo-workspace-secret",
+    );
+    expect(mockReadAppSecret.mock.calls.map((c) => c[0])).toEqual([
+      {
+        key: "GOOGLE_CLIENT_SECRET",
+        scope: "user",
+        scopeId: "solo@b.com",
+      },
+      {
+        key: "GOOGLE_CLIENT_SECRET",
+        scope: "workspace",
+        scopeId: "solo:solo@b.com",
+      },
+    ]);
+  });
+
   it("does not consult process.env in an authenticated request", async () => {
     process.env.OPENAI_API_KEY = "deploy-key";
     mockGetRequestUserEmail.mockReturnValue("a@b.com");

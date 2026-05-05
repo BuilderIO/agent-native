@@ -22,6 +22,7 @@ import {
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 
@@ -313,20 +314,22 @@ function EmbeddedToolMenu({
         if (!o) setConfirmingDelete(false);
       }}
     >
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-md bg-background/60 text-muted-foreground/60 opacity-0 hover:bg-accent hover:text-foreground hover:opacity-100 group-hover/embedded-extension:opacity-100 cursor-pointer transition-opacity"
-              aria-label={`${toolName} options`}
-            >
-              <IconDots className="h-3.5 w-3.5" />
-            </button>
-          </PopoverTrigger>
-        </TooltipTrigger>
-        <TooltipContent>{`${toolName} options`}</TooltipContent>
-      </Tooltip>
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-md bg-background/60 text-muted-foreground/60 opacity-0 hover:bg-accent hover:text-foreground hover:opacity-100 group-hover/embedded-extension:opacity-100 cursor-pointer transition-opacity"
+                aria-label={`${toolName} options`}
+              >
+                <IconDots className="h-3.5 w-3.5" />
+              </button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent>{`${toolName} options`}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       <PopoverContent align="end" sideOffset={4} className="w-56 p-1">
         {!confirmingDelete ? (
           <div className="flex flex-col">

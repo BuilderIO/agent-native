@@ -299,6 +299,10 @@ export function createAgentChatAdapter(options?: {
           }
         }
       }
+      const userMessageText =
+        rawMessageText.trim() || attachments.length === 0
+          ? rawMessageText
+          : "Use the attached context.";
 
       const history = messages
         .slice(0, -1) // exclude the latest user message
@@ -327,7 +331,7 @@ export function createAgentChatAdapter(options?: {
       const toolCallCounter = { value: 0 };
       let runId: string | null = null;
       let lastSeq = -1;
-      let currentMessageText = normalizeMentions(rawMessageText);
+      let currentMessageText = normalizeMentions(userMessageText);
       let currentHistory: AdapterHistoryMessage[] = history;
       let includeAttachments = attachments.length > 0;
       let includeReferences = Boolean(runConfig?.custom?.references);
@@ -518,7 +522,7 @@ export function createAgentChatAdapter(options?: {
           );
           currentHistory = [
             ...history,
-            { role: "user", content: normalizeMentions(rawMessageText) },
+            { role: "user", content: normalizeMentions(userMessageText) },
             ...(partialHistory
               ? [{ role: "assistant" as const, content: partialHistory }]
               : []),

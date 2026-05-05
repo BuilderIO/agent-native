@@ -295,20 +295,21 @@ export async function deleteBuilderCredentials(
 }
 
 // ---------------------------------------------------------------------------
-// Generic per-user secret resolution
+// Generic request-scoped secret resolution
 //
 // New consumers should prefer this over reading `process.env.X` directly.
-// User-pasted secrets live in `app_secrets` (encrypted, scope=user); the
-// settings UI / onboarding panels write here. Deploy-level env vars are
-// the fallback for unauthenticated/CLI/background contexts where there's
-// no user to scope by — never the silent fallback for an authenticated
-// request, since on a multi-tenant deploy that would silently identify
-// every user as whoever set the deploy-level key (KVesta Space, 2026-04).
+// User-pasted and shared secrets live in `app_secrets` (encrypted). The
+// settings UI / onboarding panels can write user, org, or workspace rows.
+// Deploy-level env vars are the fallback for unauthenticated/CLI/background
+// contexts where there's no user to scope by — never the silent fallback
+// for an authenticated request, since on a multi-tenant deploy that would
+// silently identify every user as whoever set the deploy-level key
+// (KVesta Space, 2026-04).
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve a per-user secret. Reads from `app_secrets` first (scoped by
- * the current request's authenticated user); falls back to `process.env`
+ * Resolve a request-scoped secret. Reads from `app_secrets` first (current
+ * user override, active org, then workspace row); falls back to `process.env`
  * only for unauthenticated/CLI/background contexts.
  */
 export async function resolveSecret(key: string): Promise<string | null> {
@@ -324,17 +325,33 @@ export async function resolveSecret(key: string): Promise<string | null> {
       });
       if (userSecret?.value) return userSecret.value;
 
-      // Fall back to the active org's shared row, when present. Lets a
-      // teammate set up an integration once and everyone in that org
-      // benefits without each member pasting the key.
       const orgId = getRequestOrgId();
       if (orgId) {
+        // Fall back to the active org's shared row, when present. Builder
+        // Connect uses this first-class org scope.
         const orgSecret = await readAppSecret({
           key,
           scope: "org",
           scopeId: orgId,
         });
         if (orgSecret?.value) return orgSecret.value;
+
+        // Registered secrets historically used "workspace" scope for
+        // org-shared configuration. Keep reading it so Settings status and
+        // runtime resolution agree.
+        const workspaceSecret = await readAppSecret({
+          key,
+          scope: "workspace",
+          scopeId: orgId,
+        });
+        if (workspaceSecret?.value) return workspaceSecret.value;
+      } else {
+        const soloWorkspaceSecret = await readAppSecret({
+          key,
+          scope: "workspace",
+          scopeId: `solo:${email}`,
+        });
+        if (soloWorkspaceSecret?.value) return soloWorkspaceSecret.value;
       }
     } catch {
       // Secrets table not ready — treat as missing.

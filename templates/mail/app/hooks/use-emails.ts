@@ -272,11 +272,11 @@ export function useEmails(
     // ~255 units (messages.list + 50 × messages.get). Aggressive polling
     // easily trips quota on multi-account users — keep refetches conservative
     // and rely on mutation invalidations for the hot edits. Search queries
-    // get a zero staleTime so a fresh search always re-fetches — the user
-    // expects the results to reflect their latest mailbox state.
+    // get a short cache window so repeated renders/back navigation do not
+    // re-hydrate the same expensive Gmail search immediately.
     // refetchOnWindowFocus stays off: with useInfiniteQuery it replays every
     // cached page (50+ Gmail calls each) on tab focus and trips the quota.
-    staleTime: search ? 0 : 60_000,
+    staleTime: search ? 30_000 : 60_000,
     // On error, back off (don't disable polling entirely). One transient
     // 429 / network blip used to stop auto-refresh forever — now we stretch
     // the interval based on consecutive failures, capped at 5 minutes, so the
@@ -284,6 +284,7 @@ export function useEmails(
     refetchInterval: (query: {
       state: { status: string; fetchFailureCount: number };
     }) => {
+      if (search) return false;
       const base = 2 * 60_000;
       if (query.state.status === "error") {
         return Math.min(base * (1 + query.state.fetchFailureCount), 5 * 60_000);

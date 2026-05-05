@@ -880,6 +880,30 @@ export function TiptapComposer({
 
         return false;
       },
+      handleDrop: (_view, event) => {
+        // Drag-and-drop files (decks, images, PDFs, etc.) into the composer.
+        // Without this, the browser navigates to the dropped file, which is
+        // surprising — users expect drop to attach the file like the "+" menu.
+        const dataTransfer = (event as DragEvent).dataTransfer;
+        const droppedFiles = Array.from(dataTransfer?.files ?? []);
+        if (droppedFiles.length === 0) return false;
+
+        event.preventDefault();
+        // Make image filenames unique so consecutive screenshots (all named
+        // `image.png`) don't collide on the attachment id, mirroring the
+        // paste handler's behavior.
+        const attachments = droppedFiles.map((file) => {
+          if (!file.type.startsWith("image/")) return file;
+          const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2)}-${file.name}`;
+          return new File([file], uniqueName, { type: file.type });
+        });
+        void Promise.all(
+          attachments.map((file) => composerRuntime.addAttachment(file)),
+        ).catch((error) => {
+          console.error("Error adding dropped attachment:", error);
+        });
+        return true;
+      },
       handleKeyDown: (view, event) => {
         const pop = popoverStateRef.current;
 

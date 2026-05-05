@@ -22,6 +22,8 @@ interface PromptPopoverProps {
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
+  /** Forwarded to PromptComposer/TipTap for draft persistence in localStorage. */
+  draftScope?: string;
 }
 
 export default function PromptPopover({
@@ -35,6 +37,7 @@ export default function PromptPopover({
   loading = false,
   anchorRef,
   centered = false,
+  draftScope,
 }: PromptPopoverProps) {
   const [uploading, setUploading] = useState(false);
   const [promptText, setPromptText] = useState("");
@@ -167,6 +170,7 @@ export default function PromptPopover({
             placeholder={placeholder}
             onSubmit={handleSubmit}
             onTextChange={setPromptText}
+            draftScope={draftScope}
           />
         </div>
 
