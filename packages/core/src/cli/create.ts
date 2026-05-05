@@ -23,6 +23,19 @@ const TEMPLATES_DIR = "templates";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
 
 /**
+ * Tagged error for input that fails CLI-level validation (repo names, app
+ * names, etc.). The Sentry `beforeSend` hook in cli/index.ts drops events
+ * whose top-level exception type is `ValidationError` so we don't pollute
+ * Sentry with expected user-input rejections.
+ */
+export class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ValidationError";
+  }
+}
+
+/**
  * Move "starter" to the top of the list so it lines up with clack's default
  * highlight on the first option — otherwise users have to scroll to see that
  * Starter is pre-selected.
@@ -895,7 +908,7 @@ export {
 
 function validateRepoName(repo: string): void {
   if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repo)) {
-    throw new Error(
+    throw new ValidationError(
       `Invalid repository name "${repo}". Expected format: user/repo`,
     );
   }

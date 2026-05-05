@@ -5,6 +5,7 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import type { Duplex } from "node:stream";
+import * as Sentry from "@sentry/node";
 
 interface WorkspaceApp {
   id: string;
@@ -41,8 +42,28 @@ function readJson(file: string): any {
 
 function discoverApps(): WorkspaceApp[] {
   if (!fs.existsSync(appsDir)) return [];
-  return fs
-    .readdirSync(appsDir, { withFileTypes: true })
+  // existsSync → readdirSync is a TOCTOU race — appsDir can vanish between
+  // the two calls (e.g. user running `git checkout` on the workspace mid-dev).
+  // Treat ENOENT as "no apps right now" and let the next 2s sync recover.
+  // Other errors get surfaced to Sentry so we learn about new failure modes.
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(appsDir, { withFileTypes: true });
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      console.warn(
+        `[workspace] Could not read ${appsDir} (${code ?? "unknown"}): ` +
+          `${(err as Error).message}`,
+      );
+      Sentry.captureException(err, {
+        tags: { handled: "dev-discover-readdir" },
+        level: "warning",
+      });
+    }
+    return [];
+  }
+  return entries
     .filter((entry) => entry.isDirectory())
     .map((entry) => {
       const dir = path.join(appsDir, entry.name);
@@ -345,14 +366,62 @@ function proxyUpgrade(
 let shuttingDown = false;
 let workspaceStarted = false;
 
+function handleWatcherError(err: NodeJS.ErrnoException): void {
+  // ENOSPC: system inotify watcher limit hit (Linux). Userland-fixable;
+  // capture as a warning so we still see frequency in Sentry but don't get
+  // paged. Print actionable guidance and continue without watching — the
+  // 2s polling interval below keeps app discovery working.
+  if (err.code === "ENOSPC") {
+    console.warn(
+      `[workspace] Recursive file watcher hit the system limit (ENOSPC). ` +
+        `New apps will still be detected via polling every ~2s. ` +
+        `On Linux you can raise the limit with ` +
+        `\`sudo sysctl fs.inotify.max_user_watches=524288\` ` +
+        `(persist via /etc/sysctl.d/*.conf). On macOS/Windows this usually ` +
+        `means too many other watchers are running.`,
+    );
+    Sentry.captureException(err, {
+      tags: { handled: "dev-watch-enospc" },
+      level: "warning",
+    });
+    return;
+  }
+  // ENOENT: a watched directory disappeared (or a transient subdir under
+  // appsDir vanished mid-enumeration). Benign — the polling fallback and
+  // future scheduleSync calls will re-establish state. Don't capture.
+  if (err.code === "ENOENT") {
+    console.debug(
+      `[workspace] Recursive file watcher saw a directory disappear ` +
+        `(ENOENT: ${err.path ?? "unknown"}). Polling fallback will recover.`,
+    );
+    return;
+  }
+  // Unknown failure mode — keep the dev experience alive (polling still
+  // runs) but surface to Sentry as a warning so we learn about new cases.
+  console.warn(
+    `[workspace] Recursive file watcher failed (${err.code ?? "unknown"}): ${err.message}. ` +
+      `Falling back to polling.`,
+  );
+  Sentry.captureException(err, {
+    tags: { handled: "dev-watch-unknown" },
+    level: "warning",
+  });
+}
+
 function startWorkspaceProcesses(): void {
   if (workspaceStarted) return;
   workspaceStarted = true;
   for (const app of apps) startApp(app);
   try {
-    fs.watch(appsDir, { recursive: true }, scheduleSync);
-  } catch {
-    // Some platforms do not support recursive directory watches.
+    const watcher = fs.watch(appsDir, { recursive: true }, scheduleSync);
+    // Async errors (e.g. ENOENT when a subdir vanishes mid-watch) surface on
+    // the watcher rather than the original call site. Without an `error`
+    // listener, Node would treat them as uncaught and crash the dev process.
+    watcher.on("error", (err) => {
+      handleWatcherError(err as NodeJS.ErrnoException);
+    });
+  } catch (err) {
+    handleWatcherError(err as NodeJS.ErrnoException);
   }
   setInterval(syncApps, 2_000).unref();
 }

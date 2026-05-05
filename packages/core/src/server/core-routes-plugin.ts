@@ -446,7 +446,21 @@ export function createCoreRoutesPlugin(
           return envStatus;
         }
 
-        return runWithRequestContext({ userEmail }, async () => {
+        // Pass the user's active orgId so the status read can fall back
+        // to org-scoped credentials. Without it, an admin's org-scope
+        // OAuth result is invisible to every other org member's status
+        // poller and the UI would show "not connected" forever even
+        // though the chat actually resolves the org-shared credential.
+        let orgId: string | null = null;
+        try {
+          const { getOrgContext } = await import("../org/context.js");
+          const orgCtx = await getOrgContext(event);
+          orgId = orgCtx.orgId ?? null;
+        } catch {
+          /* org module not present in this template — keep userEmail-only */
+        }
+
+        return runWithRequestContext({ userEmail, orgId }, async () => {
           // Per-user OAuth mode: read the user's app_secrets-stored creds.
           try {
             const { resolveBuilderCredentials } =

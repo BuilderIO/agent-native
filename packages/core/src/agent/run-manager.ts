@@ -37,6 +37,14 @@ export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 55_000;
 /** Default SQL retention for completed/errored run event logs (24 hours). */
 export const DEFAULT_COMPLETED_RUN_RETENTION_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * How recently a terminal run must have started for `/runs/active` to surface
+ * it. Reconnect after this window won't replay the run — typical real-world
+ * disconnects resolve in seconds, so 10 minutes is generous while keeping us
+ * from resurrecting ancient turns when the user reopens an old thread.
+ */
+export const TERMINAL_RUN_RECONNECT_WINDOW_MS = 10 * 60 * 1000;
+
 export interface StartRunOptions {
   /** Optional internal run chunk budget. When reached, the framework emits an
    * auto-continuation signal instead of a user-facing timeout. Leave unset for
@@ -650,15 +658,45 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       heartbeatAt: Date.now(),
     };
   }
-  // Fall back to SQL
+  // Fall back to SQL — also surface recently terminated runs so the client
+  // can reconnect and replay synthesized done/error events instead of
+  // retrying the original POST. Without this, a POST that fails after the
+  // server already accepted (and finished) the run would re-execute the
+  // turn and double-apply mutations: the in-memory branch above already
+  // returns terminal runs whose events are still buffered, but the SQL
+  // path is the only authority once memory has been evicted.
   try {
-    const sqlRun = await getRunByThread(threadId);
-    if (sqlRun && sqlRun.status === "running") {
+    const sqlRun = await getRunByThread(threadId, { includeTerminal: true });
+    if (!sqlRun) return null;
+    if (sqlRun.status === "running") {
       // If the producer is dead (no recent heartbeat), reap before the
       // client can see a stale "running" status and enter a reconnect
       // loop it can never exit.
       const reaped = await reapIfStale(sqlRun.id).catch(() => false);
       if (reaped) return null;
+      return {
+        runId: sqlRun.id,
+        threadId: sqlRun.threadId,
+        status: sqlRun.status,
+        heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
+      };
+    }
+    if (sqlRun.status === "completed" || sqlRun.status === "errored") {
+      // Cap how far back we'll surface terminal runs as "active". The goal
+      // is to catch the recently-completed-but-reconnecting case, not to
+      // resurrect ancient turns when the user reopens an old thread.
+      //
+      // Measure age from the run's terminal timestamp, not its start. A
+      // long-running task that ran 11 minutes and completed five seconds
+      // ago should still be reachable — the client's disconnect happened
+      // around completion, so completion time is what matters for the
+      // "is the user still here waiting?" question. Fall back to the last
+      // heartbeat (older deployments may have unset completed_at) and
+      // finally to startedAt for ancient rows.
+      const referenceAt =
+        sqlRun.completedAt ?? sqlRun.heartbeatAt ?? sqlRun.startedAt;
+      const terminalAge = Date.now() - referenceAt;
+      if (terminalAge > TERMINAL_RUN_RECONNECT_WINDOW_MS) return null;
       return {
         runId: sqlRun.id,
         threadId: sqlRun.threadId,

@@ -139,6 +139,105 @@ describe("secrets routes", () => {
     });
   });
 
+  it("writes registered org-scope secrets at the active org id when caller is admin", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "ORG_SHARED_TOKEN",
+      label: "Org shared token",
+      scope: "org",
+      kind: "api-key",
+    });
+    mockGetOrgContext.mockResolvedValue({
+      orgId: "org-qa",
+      email: "alice+qa@example.com",
+      role: "admin",
+    });
+
+    const handler = createWriteSecretHandler();
+    const result = await handler(
+      event("/ORG_SHARED_TOKEN", "POST", { value: "shared" }),
+    );
+
+    expect(result).toEqual({ ok: true, status: "set" });
+    expect(mockWriteAppSecret).toHaveBeenCalledWith({
+      key: "ORG_SHARED_TOKEN",
+      value: "shared",
+      scope: "org",
+      scopeId: "org-qa",
+    });
+  });
+
+  it("rejects org-scope secret writes from a plain member", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "ORG_SHARED_TOKEN",
+      label: "Org shared token",
+      scope: "org",
+      kind: "api-key",
+    });
+    mockGetOrgContext.mockResolvedValue({
+      orgId: "org-qa",
+      email: "bob+qa@example.com",
+      role: "member",
+    });
+
+    const handler = createWriteSecretHandler();
+    const result = await handler(
+      event("/ORG_SHARED_TOKEN", "POST", { value: "shared" }),
+    );
+
+    expect(lastStatus).toBe(403);
+    expect(result).toEqual({
+      error: "Only organization owners and admins can set org-scoped secrets",
+    });
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("rejects org-scope secret writes when the user has no active org", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "ORG_SHARED_TOKEN",
+      label: "Org shared token",
+      scope: "org",
+      kind: "api-key",
+    });
+    mockGetOrgContext.mockResolvedValue({
+      orgId: null,
+      email: "alice+qa@example.com",
+      role: null,
+    });
+
+    const handler = createWriteSecretHandler();
+    const result = await handler(
+      event("/ORG_SHARED_TOKEN", "POST", { value: "shared" }),
+    );
+
+    expect(lastStatus).toBe(401);
+    expect(result).toEqual({ error: "No active organization" });
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("rejects org-scope secret deletes from a plain member", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "ORG_SHARED_TOKEN",
+      label: "Org shared token",
+      scope: "org",
+      kind: "api-key",
+    });
+    mockGetOrgContext.mockResolvedValue({
+      orgId: "org-qa",
+      email: "bob+qa@example.com",
+      role: "member",
+    });
+
+    const handler = createWriteSecretHandler();
+    const result = await handler(event("/ORG_SHARED_TOKEN", "DELETE"));
+
+    expect(lastStatus).toBe(403);
+    expect(result).toEqual({
+      error:
+        "Only organization owners and admins can delete org-scoped secrets",
+    });
+    expect(mockDeleteAppSecret).not.toHaveBeenCalled();
+  });
+
   it("normalizes ad-hoc URL allowlists to unique origins", async () => {
     const handler = createAdHocSecretHandler();
     const result = await handler(
