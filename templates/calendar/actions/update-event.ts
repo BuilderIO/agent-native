@@ -29,6 +29,9 @@ export default defineAction({
     start: z.string().optional().describe("New start time/date as ISO string"),
     end: z.string().optional().describe("New end time/date as ISO string"),
     allDay: cliBoolean.optional().describe("Whether the event is all-day"),
+    addGoogleMeet: cliBoolean
+      .optional()
+      .describe("Generate and attach a Google Meet link to the event"),
     recurrence: z
       .union([z.string(), z.array(z.string())])
       .optional()
@@ -63,7 +66,8 @@ export default defineAction({
       args.start !== undefined ||
       args.end !== undefined ||
       args.allDay !== undefined ||
-      recurrence !== undefined;
+      recurrence !== undefined ||
+      args.addGoogleMeet === true;
 
     if (!hasPatch) {
       throw new Error("No event updates provided.");
@@ -80,8 +84,9 @@ export default defineAction({
     if (args.allDay !== undefined) updates.allDay = args.allDay;
     if (recurrence !== undefined) updates.recurrence = recurrence;
 
-    await googleCalendar.updateEvent(googleEventId, updates, {
+    const result = await googleCalendar.updateEvent(googleEventId, updates, {
       sendUpdates: args.sendUpdates,
+      addGoogleMeet: args.addGoogleMeet,
     });
 
     return {
@@ -89,6 +94,8 @@ export default defineAction({
       id: `google-${googleEventId}`,
       accountEmail,
       updated: Object.keys(updates).filter((key) => key !== "accountEmail"),
+      hangoutLink: result.meetLink,
+      conferenceData: result.conferenceData,
     };
   },
 });

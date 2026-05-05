@@ -34,6 +34,7 @@ import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
 import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import { useUpdateEvent } from "@/hooks/use-events";
+import { toast } from "sonner";
 import {
   RenderedDescription,
   AutoGrowTextarea,
@@ -278,7 +279,7 @@ export function EventDetailPopover({
 
   // Save a field update
   const saveField = useCallback(
-    (updates: Partial<CalendarEvent>) => {
+    (updates: Partial<CalendarEvent> & { addGoogleMeet?: boolean }) => {
       if (!event.id) return;
       updateEvent.mutate({
         id: event.id,
@@ -288,6 +289,21 @@ export function EventDetailPopover({
     },
     [event.id, event.accountEmail, updateEvent],
   );
+
+  const handleAddGoogleMeet = useCallback(() => {
+    if (!event.id || updateEvent.isPending) return;
+    updateEvent.mutate(
+      {
+        id: event.id,
+        accountEmail: event.accountEmail,
+        addGoogleMeet: true,
+      },
+      {
+        onSuccess: () => toast("Google Meet added"),
+        onError: () => toast.error("Failed to add Google Meet"),
+      },
+    );
+  }, [event.id, event.accountEmail, updateEvent]);
 
   const handleSaveDescription = useCallback(() => {
     const trimmed = editDescription.trim();
@@ -829,14 +845,30 @@ export function EventDetailPopover({
                     </div>
                   </div>
                 ) : (
-                  <div
-                    className="flex items-center gap-3 px-4 py-1.5 cursor-pointer hover:bg-muted/50 rounded-md mx-0"
-                    onClick={() => setEditingField("meetingLink")}
-                  >
-                    <IconVideo className="h-4 w-4 shrink-0 text-muted-foreground/40" />
-                    <span className="text-sm text-muted-foreground/40">
-                      Add video conferencing
-                    </span>
+                  <div className="px-4 py-1.5">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 flex-1 justify-center gap-1.5 text-xs"
+                        disabled={updateEvent.isPending}
+                        onClick={handleAddGoogleMeet}
+                      >
+                        <IconVideo className="h-3.5 w-3.5" />
+                        Google Meet
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 flex-1 justify-center gap-1.5 text-xs text-muted-foreground"
+                        onClick={() => setEditingField("meetingLink")}
+                      >
+                        <IconPlus className="h-3.5 w-3.5" />
+                        Paste link
+                      </Button>
+                    </div>
                   </div>
                 )}
               </>

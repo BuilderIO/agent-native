@@ -13,7 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { useCreateEvent, useDeleteEvent } from "@/hooks/use-events";
 import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
-import { IconPlus } from "@tabler/icons-react";
+import { IconPlus, IconVideo } from "@tabler/icons-react";
 
 interface CreateEventPopoverProps {
   open: boolean;
@@ -40,6 +40,7 @@ export function CreateEventPopover({
   const [endTime, setEndTime] = useState(defaultEnd || "10:00");
   const [location, setLocation] = useState("");
   const [allDay, setAllDay] = useState(false);
+  const [addGoogleMeet, setAddGoogleMeet] = useState(false);
 
   const createEvent = useCreateEvent();
   const delEvent = useDeleteEvent();
@@ -55,6 +56,7 @@ export function CreateEventPopover({
       setEndTime(defaultEnd || "10:00");
       setLocation("");
       setAllDay(false);
+      setAddGoogleMeet(false);
     }
   }, [open, defaultDate, defaultStart, defaultEnd]);
 
@@ -93,6 +95,7 @@ export function CreateEventPopover({
         end: endISO,
         location,
         allDay,
+        addGoogleMeet,
         color: undefined,
       },
       {
@@ -220,6 +223,21 @@ export function CreateEventPopover({
               onChange={(e) => setLocation(e.target.value)}
               placeholder="Optional location"
               className="h-8 text-sm"
+            />
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+            <Label
+              htmlFor="event-google-meet"
+              className="flex items-center gap-2 text-xs"
+            >
+              <IconVideo className="h-4 w-4 text-muted-foreground" />
+              Google Meet
+            </Label>
+            <Switch
+              id="event-google-meet"
+              checked={addGoogleMeet}
+              onCheckedChange={setAddGoogleMeet}
             />
           </div>
 

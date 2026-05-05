@@ -56,6 +56,27 @@ function contentToContinuationHistory(content: ContentPart[]): string {
   return truncateForContinuation(chunks.join("\n\n"), 40_000).trim();
 }
 
+function combineContinuationHistory(fragments: string[]): string {
+  return truncateForContinuation(
+    fragments.filter(Boolean).join("\n\n"),
+    40_000,
+  ).trim();
+}
+
+function visibleTransientContinuationContent(
+  content: ContentPart[],
+): ContentPart[] {
+  return content.filter(
+    (part) => part.type === "tool-call" && part.result !== undefined,
+  );
+}
+
+function snapshotContent(content: ContentPart[]): ContentPart[] {
+  return content.map((part) =>
+    part.type === "text" ? { ...part } : { ...part, args: { ...part.args } },
+  );
+}
+
 function autoContinueMessage(signal: AgentAutoContinueSignal): string {
   const reason =
     signal.reason === "loop_limit"
@@ -274,6 +295,8 @@ export function createAgentChatAdapter(options?: {
       let includeReferences = Boolean(runConfig?.custom?.references);
       let startupRecoveryAttempts = 0;
       let transientContinuationAttempts = 0;
+      const continuationHistoryFragments: string[] = [];
+      let visibleContinuationPrefix: ContentPart[] = [];
 
       try {
         const headers: Record<string, string> = {
@@ -367,17 +390,40 @@ export function createAgentChatAdapter(options?: {
           return false;
         };
 
+        const visibleContentForContinuation = (): ContentPart[] => {
+          if (
+            visibleContinuationPrefix.length > 0 &&
+            visibleContinuationPrefix.every(
+              (part, index) => content[index] === part,
+            )
+          ) {
+            return content.slice(visibleContinuationPrefix.length);
+          }
+          return content;
+        };
+
         const prepareAutoContinuation = (
           signal: AgentAutoContinueSignal,
-        ): boolean => {
+        ): { ok: boolean; resetVisibleContent: boolean } => {
+          const isTransient = signal.reason !== "loop_limit";
           if (signal.reason === "loop_limit") {
             transientContinuationAttempts = 0;
           } else if (
             ++transientContinuationAttempts > MAX_TRANSIENT_CONTINUATIONS
           ) {
-            return false;
+            return { ok: false, resetVisibleContent: false };
           }
-          const partialHistory = contentToContinuationHistory(content);
+          const currentPartialHistory = contentToContinuationHistory(
+            visibleContentForContinuation(),
+          );
+          if (isTransient && currentPartialHistory) {
+            continuationHistoryFragments.push(currentPartialHistory);
+          }
+          const partialHistory = combineContinuationHistory(
+            isTransient
+              ? continuationHistoryFragments
+              : [...continuationHistoryFragments, currentPartialHistory],
+          );
           currentHistory = [
             ...history,
             { role: "user", content: normalizeMentions(rawMessageText) },
@@ -390,7 +436,14 @@ export function createAgentChatAdapter(options?: {
           includeReferences = false;
           startupRecoveryAttempts = 0;
           clearActiveRun();
-          return true;
+          if (!isTransient) {
+            return { ok: true, resetVisibleContent: false };
+          }
+
+          const preservedContent = visibleTransientContinuationContent(content);
+          content.splice(0, content.length, ...preservedContent);
+          visibleContinuationPrefix = preservedContent;
+          return { ok: true, resetVisibleContent: true };
         };
 
         while (true) {
@@ -559,7 +612,8 @@ export function createAgentChatAdapter(options?: {
                 const activeReconnected = yield* reconnectActiveRunForThread();
                 if (activeReconnected) return;
               }
-              if (!prepareAutoContinuation(err)) {
+              const continuation = prepareAutoContinuation(err);
+              if (!continuation.ok) {
                 const message =
                   "The agent connection kept failing after several automatic recovery attempts.";
                 const runError = {
@@ -591,6 +645,11 @@ export function createAgentChatAdapter(options?: {
                 };
                 clearActiveRun();
                 return;
+              }
+              if (continuation.resetVisibleContent) {
+                yield {
+                  content: snapshotContent(content),
+                } as ChatModelRunResult;
               }
               await delay(250, abortSignal);
               if (abortSignal.aborted) return;
@@ -632,11 +691,10 @@ export function createAgentChatAdapter(options?: {
             // Reconnect failed or not possible — keep going from the partial
             // streamed content instead of surfacing a transient transport error.
             if (content.length > 0) {
-              if (
-                !prepareAutoContinuation(
-                  new AgentAutoContinueSignal({ reason: "stream_ended" }),
-                )
-              ) {
+              const continuation = prepareAutoContinuation(
+                new AgentAutoContinueSignal({ reason: "stream_ended" }),
+              );
+              if (!continuation.ok) {
                 const message =
                   "The agent connection kept failing after several automatic recovery attempts.";
                 const runError = {
@@ -668,6 +726,11 @@ export function createAgentChatAdapter(options?: {
                 };
                 clearActiveRun();
                 return;
+              }
+              if (continuation.resetVisibleContent) {
+                yield {
+                  content: snapshotContent(content),
+                } as ChatModelRunResult;
               }
               await delay(250, abortSignal);
               if (abortSignal.aborted) return;

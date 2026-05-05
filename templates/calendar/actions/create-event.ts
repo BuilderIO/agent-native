@@ -4,6 +4,7 @@ import { emit } from "@agent-native/core/event-bus";
 import { z } from "zod";
 import type { CalendarEvent } from "../shared/api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
+import { cliBoolean } from "./event-action-helpers.js";
 
 export default defineAction({
   description: "Create a calendar event on Google Calendar",
@@ -13,6 +14,10 @@ export default defineAction({
     end: z.string().describe("End time, ISO format"),
     description: z.string().optional().describe("Event description"),
     location: z.string().optional().describe("Event location"),
+    allDay: cliBoolean.optional().describe("Whether the event is all-day"),
+    addGoogleMeet: cliBoolean
+      .optional()
+      .describe("Generate and attach a Google Meet link to the event"),
     accountEmail: z
       .string()
       .optional()
@@ -46,18 +51,22 @@ export default defineAction({
       location: args.location || "",
       start: new Date(args.start).toISOString(),
       end: new Date(args.end).toISOString(),
-      allDay: false,
+      allDay: args.allDay ?? false,
       source: "google",
       accountEmail: acctEmail,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
-    const result = await googleCalendar.createEvent(calEvent);
+    const result = await googleCalendar.createEvent(calEvent, {
+      addGoogleMeet: args.addGoogleMeet,
+    });
     if (result.id) {
       calEvent.id = `google-${result.id}`;
       calEvent.googleEventId = result.id;
     }
+    if (result.meetLink) calEvent.hangoutLink = result.meetLink;
+    if (result.conferenceData) calEvent.conferenceData = result.conferenceData;
 
     try {
       emit(

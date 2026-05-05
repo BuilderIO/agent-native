@@ -463,6 +463,78 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("uses partial stream-ended text as history without keeping it visible", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        postCount += 1;
+        return postCount === 1
+          ? sseResponse([{ type: "text", text: "still working..." }])
+          : sseResponse([
+              { type: "text", text: "finished after stream recovery" },
+              { type: "done" },
+            ]);
+      }
+      if (url.includes("/runs/run-qa/events")) {
+        return jsonResponse({ error: "gone" }, 404);
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-stream-ended",
+      threadId: "thread-stream-ended",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish the report" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const results = await promise;
+
+    expect(postCount).toBe(2);
+    const secondBody = JSON.parse(fetchSpy.mock.calls[3][1].body);
+    expect(secondBody.history).toEqual([
+      { role: "user", content: "finish the report" },
+      { role: "assistant", content: "still working..." },
+    ]);
+    expect((results[1] as any).content).toEqual([]);
+    const last = results.at(-1) as any;
+    const finalText = last.content
+      .filter((part: any) => part.type === "text")
+      .map((part: any) => part.text)
+      .join("");
+    expect(finalText).toBe("finished after stream recovery");
+    expect(finalText).not.toContain("still working");
+  });
+
   it("continues automatically after a recoverable gateway timeout event", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
@@ -482,6 +554,17 @@ describe("createAgentChatAdapter", () => {
       .fn()
       .mockResolvedValueOnce(
         sseResponse([
+          {
+            type: "tool_start",
+            tool: "search-docs",
+            input: { query: "analytics" },
+          },
+          {
+            type: "tool_done",
+            tool: "search-docs",
+            result: "found relevant dashboard notes",
+          },
+          { type: "text", text: "checking the dashboard..." },
           {
             type: "error",
             error: "Builder gateway timed out after 45s",
@@ -520,7 +603,27 @@ describe("createAgentChatAdapter", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     const secondBody = JSON.parse(fetchSpy.mock.calls[1][1].body);
     expect(secondBody.message).toContain("Continue from where you left off");
+    expect(secondBody.history).toEqual([
+      { role: "user", content: "long analytics query" },
+      {
+        role: "assistant",
+        content:
+          'Tool: search-docs\nInput: {"query":"analytics"}\nResult:\nfound relevant dashboard notes\n\nchecking the dashboard...',
+      },
+    ]);
     const last = results.at(-1) as any;
-    expect(last.content.at(-1).text).toBe("finished after timeout recovery");
+    expect(last.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "search-docs",
+        result: "found relevant dashboard notes",
+      }),
+      { type: "text", text: "finished after timeout recovery" },
+    ]);
+    const finalText = last.content
+      .filter((part: any) => part.type === "text")
+      .map((part: any) => part.text)
+      .join("");
+    expect(finalText).not.toContain("checking the dashboard");
   });
 });

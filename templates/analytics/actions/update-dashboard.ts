@@ -18,7 +18,27 @@ import {
  * Same shape as the server-side validator in `server/handlers/sql-dashboards.ts`.
  * Variables declared on the dashboard take priority; filter `default` values
  * fill in anything missing so parametric SQL validates against a real value.
+ *
+ * date-range filters expand into `<id>Start` / `<id>End` to match the runtime
+ * expansion in DashboardFilterBar; without this, any panel that uses
+ * `{{dateStart}}` / `{{dateEnd}}` fails the dry-run.
  */
+function todayUtc(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function resolveDateDefault(raw: string | undefined): string {
+  if (!raw) return "";
+  const m = /^(\d+)d$/.exec(raw);
+  if (m) {
+    const d = new Date();
+    d.setDate(d.getDate() - parseInt(m[1], 10));
+    return d.toISOString().slice(0, 10);
+  }
+  if (raw === "today") return todayUtc();
+  return raw;
+}
+
 function buildDryRunVars(
   config: Record<string, unknown>,
 ): Record<string, string> {
@@ -30,8 +50,15 @@ function buildDryRunVars(
     const key =
       typeof f.key === "string" ? f.key : typeof f.id === "string" ? f.id : "";
     if (!key) continue;
-    const def = f.default;
-    if (typeof def === "string" && def) vars[key] = def;
+    const def = typeof f.default === "string" ? f.default : "";
+    if (f.type === "date-range") {
+      vars[`${key}Start`] = resolveDateDefault(def);
+      vars[`${key}End`] = todayUtc();
+    } else if (f.type === "date" || f.type === "toggle-date") {
+      if (def) vars[key] = resolveDateDefault(def);
+    } else {
+      if (def) vars[key] = def;
+    }
   }
   const declared =
     config.variables && typeof config.variables === "object"
@@ -197,14 +224,13 @@ function validateDashboardConfig(
     if (!p || typeof p !== "object") {
       return `panel[${i}] must be an object`;
     }
-    const required = [
-      "id",
-      "title",
-      "sql",
-      "source",
-      "chartType",
-      "width",
-    ] as const;
+    // Section panels are pure layout dividers — they have no query, so source
+    // and sql are optional. They still need id/title/chartType/width so the
+    // grid renders them.
+    const isSection = p.chartType === "section";
+    const required = isSection
+      ? (["id", "title", "chartType", "width"] as const)
+      : (["id", "title", "sql", "source", "chartType", "width"] as const);
     for (const field of required) {
       const v = p[field];
       if (field === "width") {
@@ -215,7 +241,7 @@ function validateDashboardConfig(
         return `panel[${i}].${field} is required (non-empty string)`;
       }
     }
-    if (!validSources.has(p.source as string)) {
+    if (!isSection && !validSources.has(p.source as string)) {
       return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', or 'first-party' (got '${p.source}'). source selects the backend — put the table name in sql, not here.`;
     }
   }
@@ -235,6 +261,8 @@ async function validatePanelSql(
   const vars = buildDryRunVars(config);
   for (let i = 0; i < panels.length; i++) {
     const p = panels[i] as Record<string, unknown>;
+    // Sections are layout-only — no SQL, nothing to validate.
+    if (p.chartType === "section") continue;
     if (p.source === "amplitude") {
       const raw = typeof p.sql === "string" ? p.sql : "";
       if (raw.trim()) {
