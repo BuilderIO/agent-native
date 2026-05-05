@@ -170,6 +170,33 @@ function isRetryableStartupError(message: string): boolean {
   );
 }
 
+function isAuthErrorMessage(message: string): boolean {
+  const msg = message.toLowerCase();
+  return (
+    msg.includes("authentication required") ||
+    msg.includes("unauthorized") ||
+    msg.includes("not authenticated") ||
+    msg.includes("session expired") ||
+    msg.includes("401") ||
+    msg.includes("403") ||
+    msg.includes("405")
+  );
+}
+
+function isMissingCredentialMessage(message: string): boolean {
+  const msg = message.toLowerCase();
+  return (
+    msg.includes("apikey") ||
+    msg.includes("authtoken") ||
+    msg.includes("anthropic_api_key") ||
+    msg.includes("missing_api_key") ||
+    msg.includes("missing api key") ||
+    msg.includes("missing credentials") ||
+    msg.includes("no llm provider") ||
+    msg.includes("llm provider is connected")
+  );
+}
+
 /**
  * The composer's exec mode is sent as explicit request metadata. The server
  * owns the plan-mode prompt and read-only tool filtering so the chat history
@@ -561,6 +588,25 @@ export function createAgentChatAdapter(options?: {
                 }
               }
 
+              if (res.status === 401 || res.status === 403) {
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(
+                    new CustomEvent("agent-chat:auth-error", {
+                      detail: { reason: "auth-required" },
+                    }),
+                  );
+                }
+                content.push({ type: "text", text: "" });
+                yield {
+                  content: [...content],
+                  status: {
+                    type: "incomplete" as const,
+                    reason: "error" as const,
+                  },
+                } as ChatModelRunResult;
+                return;
+              }
+
               // 405 Method Not Allowed usually means the session is broken/expired
               // (e.g. a redirect to a login page that only accepts GET).
               if (res.status === 405) {
@@ -585,12 +631,25 @@ export function createAgentChatAdapter(options?: {
               let errorText = `Server error: ${res.status}`;
               try {
                 const body = await res.text();
-                if (
-                  body.includes("apiKey") ||
-                  body.includes("authToken") ||
-                  body.includes("ANTHROPIC_API_KEY") ||
-                  body.includes("authentication")
-                ) {
+                if (isAuthErrorMessage(body)) {
+                  if (typeof window !== "undefined") {
+                    window.dispatchEvent(
+                      new CustomEvent("agent-chat:auth-error", {
+                        detail: { reason: "auth-required" },
+                      }),
+                    );
+                  }
+                  content.push({ type: "text", text: "" });
+                  yield {
+                    content: [...content],
+                    status: {
+                      type: "incomplete" as const,
+                      reason: "error" as const,
+                    },
+                  } as ChatModelRunResult;
+                  return;
+                }
+                if (isMissingCredentialMessage(body)) {
                   if (typeof window !== "undefined") {
                     window.dispatchEvent(
                       new Event("agent-chat:missing-api-key"),
@@ -705,17 +764,28 @@ export function createAgentChatAdapter(options?: {
 
             const errMsg =
               err instanceof Error ? err.message : "Something went wrong.";
-            const isAuthError =
-              errMsg.includes("Unauthorized") ||
-              errMsg.includes("Not authenticated") ||
-              errMsg.includes("401") ||
-              errMsg.includes("403") ||
-              errMsg.includes("405");
+            const isAuthError = isAuthErrorMessage(errMsg);
 
             // Don't try to reconnect for auth/client errors — show error directly
             if (isAuthError) {
               if (typeof window !== "undefined") {
                 window.dispatchEvent(new Event("agent-chat:auth-error"));
+              }
+              content.push({ type: "text", text: "" });
+              yield {
+                content: [...content],
+                status: {
+                  type: "incomplete" as const,
+                  reason: "error" as const,
+                },
+              };
+              clearActiveRun();
+              return;
+            }
+
+            if (isMissingCredentialMessage(errMsg)) {
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(new Event("agent-chat:missing-api-key"));
               }
               content.push({ type: "text", text: "" });
               yield {

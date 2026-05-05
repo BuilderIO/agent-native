@@ -43,7 +43,6 @@ import { cn } from "./utils.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
-import { useOnboarding } from "./onboarding/use-onboarding.js";
 import {
   Tooltip,
   TooltipContent,
@@ -1418,19 +1417,6 @@ function ThinkingIndicator({ label = "Thinking" }: { label?: string } = {}) {
 // which opens the flow in an Electron BrowserWindow that shares the webview's
 // session. See packages/desktop-app/src/main/index.ts.
 
-/**
- * The OnboardingPanel sidebar checklist also surfaces the Builder Connect
- * step (id `llm`). When that's visible, dropping a duplicate "Connect Builder"
- * button into the empty-state chat card just confuses the user — they see two
- * primary CTAs that do the same thing. This hook returns true when we should
- * suppress the in-chat Connect CTA in favor of the sidebar checklist.
- */
-function useSuppressInChatBuilderCta(): boolean {
-  const onboarding = useOnboarding();
-  if (onboarding.loading || onboarding.dismissed) return false;
-  return onboarding.steps.some((step) => step.id === "llm" && !step.complete);
-}
-
 function BuilderConnectCta({
   variant = "primary",
 }: {
@@ -1500,111 +1486,38 @@ function BuilderConnectCta({
   );
 }
 
-// ─── API Key Setup Card ─────────────────────────────────────────────────────
+// ─── Builder Setup Card ─────────────────────────────────────────────────────
 
-function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
-  const [apiKey, setApiKey] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const suppressBuilderCta = useSuppressInChatBuilderCta();
-  const handleSave = async () => {
-    if (!apiKey.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await fetch(`${apiUrl}/save-key`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: apiKey.trim(), provider: "anthropic" }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to save");
-      }
-      setSaved(true);
-      setTimeout(() => window.location.reload(), 1000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (saved) {
-    return (
-      <div className="mx-4 my-6 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
-        <div className="flex items-center gap-2 text-sm text-emerald-400">
-          <IconCheck className="h-4 w-4" />
-          API key saved. Reloading...
-        </div>
-      </div>
-    );
-  }
-
+function BuilderSetupCard() {
   return (
     <div className="mx-4 my-6 rounded-lg border border-border bg-card p-5">
       <div className="flex items-center gap-3 mb-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
           <IconMessage className="h-4.5 w-4.5 text-muted-foreground" />
         </div>
-        <h3 className="text-sm font-medium text-foreground">Connect your AI</h3>
+        <div>
+          <h3 className="text-sm font-medium text-foreground">
+            Connect Builder.io
+          </h3>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Use the hosted agent without adding a separate model provider key.
+          </p>
+        </div>
       </div>
 
       <div className="space-y-3">
-        {suppressBuilderCta ? null : (
-          <>
-            <BuilderConnectCta />
-
-            <div className="relative flex items-center">
-              <div className="flex-grow border-t border-border" />
-              <span className="mx-2 text-[10px] uppercase tracking-wider text-muted-foreground/60">
-                or
-              </span>
-              <div className="flex-grow border-t border-border" />
-            </div>
-          </>
-        )}
-
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => {
-            setApiKey(e.target.value);
-            setError(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleSave();
-          }}
-          placeholder="sk-ant-..."
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none focus:ring-1 focus:ring-ring"
-          autoComplete="off"
-        />
-
-        {error && <p className="text-xs text-destructive">{error}</p>}
-
-        {apiKey.trim() && (
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {saving ? "Saving..." : "Save API key"}
-          </button>
-        )}
-
-        <p className="text-[10px] text-muted-foreground/60 text-center">
-          <a
-            href="https://console.anthropic.com/settings/keys"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline hover:text-foreground/80"
-          >
-            Get an Anthropic key
-          </a>
-        </p>
+        <BuilderConnectCta />
       </div>
     </div>
+  );
+}
+
+function isLocalAuthHost(): boolean {
+  if (typeof window === "undefined") return false;
+  return (
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1" ||
+    window.location.hostname === "::1"
   );
 }
 
@@ -2881,6 +2794,7 @@ const AssistantChatInner = forwardRef<
     !!visibleRunError &&
     !showRunningInUI &&
     visibleRunErrorKey !== dismissedRunErrorKey;
+  const showLocalAuthHint = isLocalAuthHost();
 
   return (
     <CheckpointContext.Provider value={checkpointCtx}>
@@ -2938,7 +2852,7 @@ const AssistantChatInner = forwardRef<
                     <p className="text-xs text-muted-foreground leading-relaxed">
                       {authError.sessionExpired ? (
                         "Your session may have expired. Log out and log back in to reconnect."
-                      ) : (
+                      ) : showLocalAuthHint ? (
                         <>
                           You need to log in to use the agent. If you&apos;re
                           running locally, add{" "}
@@ -2951,10 +2865,26 @@ const AssistantChatInner = forwardRef<
                           </code>{" "}
                           file and restart the dev server.
                         </>
+                      ) : (
+                        "You need to log in to use the agent."
                       )}
                     </p>
                   </div>
                   <div className="flex gap-2">
+                    {!showLocalAuthHint && !authError.sessionExpired && (
+                      <button
+                        onClick={() => {
+                          const ret =
+                            window.location.pathname + window.location.search;
+                          window.location.href =
+                            agentNativePath("/_agent-native/sign-in") +
+                            `?return=${encodeURIComponent(ret)}`;
+                        }}
+                        className="text-xs text-background bg-foreground hover:opacity-90 px-3 py-1.5 rounded-md"
+                      >
+                        Log in
+                      </button>
+                    )}
                     {authError.sessionExpired && (
                       <button
                         onClick={async () => {
@@ -2986,7 +2916,7 @@ const AssistantChatInner = forwardRef<
                 </div>
               ) : missingApiKey ? (
                 <div className="flex flex-col items-center justify-center h-full px-2">
-                  <ApiKeySetupCard apiUrl={apiUrl} />
+                  <BuilderSetupCard />
                 </div>
               ) : isRestoring ? (
                 <div className="flex flex-col gap-3 p-4">
