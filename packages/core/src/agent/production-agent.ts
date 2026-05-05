@@ -1916,7 +1916,10 @@ export function createProductionAgentHandler(
       options.onRunComplete
         ? (run) => options.onRunComplete!(run, threadId)
         : undefined,
-      { softTimeoutMs: options.runSoftTimeoutMs },
+      {
+        softTimeoutMs: options.runSoftTimeoutMs,
+        useHostedSoftTimeoutDefault: true,
+      },
     );
 
     // Subscribe to the run and stream events to the client

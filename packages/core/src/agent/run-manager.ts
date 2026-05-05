@@ -5,7 +5,7 @@ import {
   insertRunEvent,
   updateRunStatus,
   markRunAborted,
-  isRunAborted,
+  getRunAbortState,
   getRunEventsSince,
   getRunById,
   getRunByThread,
@@ -21,6 +21,7 @@ export interface ActiveRun {
   status: RunStatus;
   subscribers: Set<(event: RunEvent) => void>;
   abort: AbortController;
+  abortReason?: string;
   startedAt: number;
 }
 
@@ -38,6 +39,13 @@ export interface StartRunOptions {
    * auto-continuation signal instead of a user-facing timeout. Leave unset for
    * no framework-imposed run timeout. */
   softTimeoutMs?: number;
+  /** Opt into the hosted/serverless default chunk budget. Only callers with
+   * automatic continuation support should enable this. */
+  useHostedSoftTimeoutDefault?: boolean;
+}
+
+export interface ResolveRunSoftTimeoutOptions {
+  useHostedDefault?: boolean;
 }
 
 function isHostedRuntime(): boolean {
@@ -54,7 +62,10 @@ function isHostedRuntime(): boolean {
   );
 }
 
-export function resolveRunSoftTimeoutMs(overrideMs?: number): number {
+export function resolveRunSoftTimeoutMs(
+  overrideMs?: number,
+  options?: ResolveRunSoftTimeoutOptions,
+): number {
   if (typeof overrideMs === "number" && Number.isFinite(overrideMs)) {
     return Math.max(0, overrideMs);
   }
@@ -63,7 +74,9 @@ export function resolveRunSoftTimeoutMs(overrideMs?: number): number {
     const raw = Number(envValue);
     if (Number.isFinite(raw) && raw >= 0) return raw;
   }
-  return isHostedRuntime() ? DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS : 0;
+  return options?.useHostedDefault && isHostedRuntime()
+    ? DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS
+    : 0;
 }
 
 function isTerminalRunEvent(event: AgentChatEvent): boolean {
@@ -74,6 +87,23 @@ function isTerminalRunEvent(event: AgentChatEvent): boolean {
     event.type === "loop_limit" ||
     event.type === "auto_continue"
   );
+}
+
+function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
+  run.abortReason = reason;
+  run.status = "aborted";
+  if (threadToRun.get(run.threadId) === run.runId) {
+    threadToRun.delete(run.threadId);
+  }
+  run.abort.abort(reason);
+  for (const subscriber of run.subscribers) {
+    try {
+      subscriber({ seq: run.events.length, event: { type: "done" } });
+    } catch {
+      // ignore — subscriber is being removed below
+    }
+  }
+  run.subscribers.clear();
 }
 
 /**
@@ -117,14 +147,32 @@ export function startRun(
   // Persist run to SQL (fire-and-forget — don't block the response)
   insertRun(runId, threadId).catch(() => {});
 
+  // Periodic SQL abort check interval (for cross-isolate abort on Workers)
+  let lastAbortCheck = Date.now() - 3000;
+  const checkSqlAbort = () => {
+    const now = Date.now();
+    if (now - lastAbortCheck < 3000) return;
+    lastAbortCheck = now;
+    getRunAbortState(runId)
+      .then((state) => {
+        if (state.aborted && !abort.signal.aborted) {
+          abortInMemoryRun(run, state.reason ?? "user");
+        }
+      })
+      .catch(() => {});
+  };
+
   // Heartbeat: bump heartbeat_at every 1.5s so watchers can detect a dead
   // producer (process crash, HMR restart, isolate eviction) quickly and
   // reap the row. Paired with RUN_STALE_MS (6s) — 4x the interval to
   // tolerate transient DB slowness without false positives.
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
     updateRunHeartbeat(runId).catch(() => {});
+    checkSqlAbort();
   }, 1500);
-  const softTimeoutMs = resolveRunSoftTimeoutMs(options?.softTimeoutMs);
+  const softTimeoutMs = resolveRunSoftTimeoutMs(options?.softTimeoutMs, {
+    useHostedDefault: options?.useHostedSoftTimeoutDefault === true,
+  });
   const softTimeoutTimer =
     softTimeoutMs > 0
       ? setTimeout(() => {
@@ -137,9 +185,6 @@ export function startRun(
           abort.abort();
         }, softTimeoutMs)
       : null;
-
-  // Periodic SQL abort check interval (for cross-isolate abort on Workers)
-  let lastAbortCheck = Date.now();
 
   const send = (event: AgentChatEvent) => {
     if (run.status === "aborted" && abort.signal.aborted) return;
@@ -159,16 +204,7 @@ export function startRun(
     // Persist event to SQL (fire-and-forget)
     insertRunEvent(runId, runEvent.seq, JSON.stringify(event)).catch(() => {});
 
-    // Check SQL for cross-isolate abort every 3 seconds
-    const now = Date.now();
-    if (now - lastAbortCheck > 3000) {
-      lastAbortCheck = now;
-      isRunAborted(runId)
-        .then((aborted) => {
-          if (aborted && !abort.signal.aborted) abort.abort();
-        })
-        .catch(() => {});
-    }
+    checkSqlAbort();
   };
 
   // Run in background — intentionally detached from any HTTP connection
@@ -242,7 +278,10 @@ export function startRun(
       //    still ticking so the run doesn't look stale to any concurrent
       //    /runs/active check while we wait for SQL writes to land.
       let completionError: unknown = null;
-      if (onComplete && run.status !== "aborted") {
+      if (
+        onComplete &&
+        !(run.status === "aborted" && run.abortReason === "no_progress")
+      ) {
         try {
           await onComplete(run);
         } catch (err) {
@@ -434,7 +473,7 @@ function subscribeFromSQL(
               cancelled = true;
               return;
             }
-            lastSeq = seq;
+            lastSeq = seq + 1;
 
             // Close on terminal events
             if (isTerminalRunEvent(parsed)) {
@@ -465,6 +504,24 @@ function subscribeFromSQL(
                   controller.enqueue(
                     encoder.encode(
                       `data: ${JSON.stringify({ ...parsed, seq })}\n\n`,
+                    ),
+                  );
+                } catch {
+                  cancelled = true;
+                  return;
+                }
+                lastSeq = seq + 1;
+                if (isTerminalRunEvent(parsed)) {
+                  if (pingTimer) clearInterval(pingTimer);
+                  controller.close();
+                  return;
+                }
+              }
+              if (run?.status === "aborted") {
+                try {
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({ type: "done", seq: lastSeq })}\n\n`,
                     ),
                   );
                 } catch {
@@ -579,19 +636,12 @@ export function getRun(runId: string): ActiveRun | null {
 }
 
 /** Explicitly abort a run (e.g. Stop button) */
-export function abortRun(runId: string): boolean {
+export function abortRun(runId: string, reason: string = "user"): boolean {
   const run = activeRuns.get(runId);
   if (run) {
-    run.status = "aborted";
-    if (threadToRun.get(run.threadId) === runId) {
-      threadToRun.delete(run.threadId);
-    }
-    run.abort.abort();
-    for (const subscriber of run.subscribers) {
-      run.subscribers.delete(subscriber);
-    }
+    abortInMemoryRun(run, reason);
   }
   // Also mark as aborted in SQL (for cross-isolate abort on Workers)
-  markRunAborted(runId).catch(() => {});
+  markRunAborted(runId, reason).catch(() => {});
   return !!run;
 }
