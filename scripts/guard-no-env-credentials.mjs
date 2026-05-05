@@ -76,6 +76,13 @@ const ALLOWLIST_EXACT = new Set([
   "NODE_ENV",
   "CI",
   "DEBUG",
+  // Hosting/runtime detection flags. These are deployment metadata, not user
+  // credentials.
+  "NETLIFY",
+  "VERCEL",
+  "RENDER",
+  "FLY_APP_NAME",
+  "K_SERVICE",
   // Better-auth
   "BETTER_AUTH_SECRET",
   "BETTER_AUTH_URL",

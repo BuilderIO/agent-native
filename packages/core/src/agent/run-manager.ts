@@ -5,7 +5,7 @@ import {
   insertRunEvent,
   updateRunStatus,
   markRunAborted,
-  isRunAborted,
+  getRunAbortState,
   getRunEventsSince,
   getRunById,
   getRunByThread,
@@ -21,6 +21,7 @@ export interface ActiveRun {
   status: RunStatus;
   subscribers: Set<(event: RunEvent) => void>;
   abort: AbortController;
+  abortReason?: string;
   startedAt: number;
 }
 
@@ -117,12 +118,29 @@ export function startRun(
   // Persist run to SQL (fire-and-forget — don't block the response)
   insertRun(runId, threadId).catch(() => {});
 
+  // Periodic SQL abort check interval (for cross-isolate abort on Workers)
+  let lastAbortCheck = 0;
+  const checkSqlAbort = () => {
+    const now = Date.now();
+    if (now - lastAbortCheck <= 3000) return;
+    lastAbortCheck = now;
+    getRunAbortState(runId)
+      .then((state) => {
+        if (state.aborted && !abort.signal.aborted) {
+          run.abortReason = state.reason;
+          abort.abort(state.reason);
+        }
+      })
+      .catch(() => {});
+  };
+
   // Heartbeat: bump heartbeat_at every 1.5s so watchers can detect a dead
   // producer (process crash, HMR restart, isolate eviction) quickly and
   // reap the row. Paired with RUN_STALE_MS (6s) — 4x the interval to
   // tolerate transient DB slowness without false positives.
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
     updateRunHeartbeat(runId).catch(() => {});
+    checkSqlAbort();
   }, 1500);
   const softTimeoutMs = resolveRunSoftTimeoutMs(options?.softTimeoutMs);
   const softTimeoutTimer =
@@ -137,9 +155,6 @@ export function startRun(
           abort.abort();
         }, softTimeoutMs)
       : null;
-
-  // Periodic SQL abort check interval (for cross-isolate abort on Workers)
-  let lastAbortCheck = Date.now();
 
   const send = (event: AgentChatEvent) => {
     if (run.status === "aborted" && abort.signal.aborted) return;
@@ -159,16 +174,7 @@ export function startRun(
     // Persist event to SQL (fire-and-forget)
     insertRunEvent(runId, runEvent.seq, JSON.stringify(event)).catch(() => {});
 
-    // Check SQL for cross-isolate abort every 3 seconds
-    const now = Date.now();
-    if (now - lastAbortCheck > 3000) {
-      lastAbortCheck = now;
-      isRunAborted(runId)
-        .then((aborted) => {
-          if (aborted && !abort.signal.aborted) abort.abort();
-        })
-        .catch(() => {});
-    }
+    checkSqlAbort();
   };
 
   // Run in background — intentionally detached from any HTTP connection
@@ -242,7 +248,10 @@ export function startRun(
       //    still ticking so the run doesn't look stale to any concurrent
       //    /runs/active check while we wait for SQL writes to land.
       let completionError: unknown = null;
-      if (onComplete && run.status !== "aborted") {
+      if (
+        onComplete &&
+        !(run.status === "aborted" && run.abortReason === "no_progress")
+      ) {
         try {
           await onComplete(run);
         } catch (err) {
@@ -579,19 +588,20 @@ export function getRun(runId: string): ActiveRun | null {
 }
 
 /** Explicitly abort a run (e.g. Stop button) */
-export function abortRun(runId: string): boolean {
+export function abortRun(runId: string, reason: string = "user"): boolean {
   const run = activeRuns.get(runId);
   if (run) {
+    run.abortReason = reason;
     run.status = "aborted";
     if (threadToRun.get(run.threadId) === runId) {
       threadToRun.delete(run.threadId);
     }
-    run.abort.abort();
+    run.abort.abort(reason);
     for (const subscriber of run.subscribers) {
       run.subscribers.delete(subscriber);
     }
   }
   // Also mark as aborted in SQL (for cross-isolate abort on Workers)
-  markRunAborted(runId).catch(() => {});
+  markRunAborted(runId, reason).catch(() => {});
   return !!run;
 }

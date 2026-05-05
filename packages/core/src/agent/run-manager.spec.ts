@@ -7,6 +7,7 @@ vi.mock("./run-store.js", () => ({
   updateRunStatus: vi.fn(() => Promise.resolve()),
   markRunAborted: vi.fn(() => Promise.resolve()),
   isRunAborted: vi.fn(() => Promise.resolve(false)),
+  getRunAbortState: vi.fn(() => Promise.resolve({ aborted: false })),
   getRunEventsSince: vi.fn(() => Promise.resolve([])),
   getRunById: vi.fn(() => Promise.resolve(null)),
   getRunByThread: vi.fn(() => Promise.resolve(null)),
@@ -21,6 +22,7 @@ import {
   resolveRunSoftTimeoutMs,
   startRun,
 } from "./run-manager.js";
+import { getRunAbortState, markRunAborted } from "./run-store.js";
 
 const originalTimeoutEnv = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
 const originalNetlify = process.env.NETLIFY;
@@ -32,38 +34,50 @@ const originalRender = process.env.RENDER;
 const originalFlyAppName = process.env.FLY_APP_NAME;
 const originalKService = process.env.K_SERVICE;
 
-function restoreEnv(key: string, value: string | undefined) {
-  if (value === undefined) {
-    delete process.env[key];
-  } else {
-    process.env[key] = value;
-  }
+function clearHostedEnvForTest() {
+  delete process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
+  delete process.env.NETLIFY;
+  delete process.env.NETLIFY_LOCAL;
+  delete process.env.CF_PAGES;
+  delete process.env.VERCEL;
+  delete process.env.VERCEL_ENV;
+  delete process.env.RENDER;
+  delete process.env.FLY_APP_NAME;
+  delete process.env.K_SERVICE;
+}
+
+function restoreHostedEnvAfterTest() {
+  if (originalTimeoutEnv === undefined)
+    delete process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
+  else process.env.AGENT_RUN_SOFT_TIMEOUT_MS = originalTimeoutEnv;
+  if (originalNetlify === undefined) delete process.env.NETLIFY;
+  else process.env.NETLIFY = originalNetlify;
+  if (originalNetlifyLocal === undefined) delete process.env.NETLIFY_LOCAL;
+  else process.env.NETLIFY_LOCAL = originalNetlifyLocal;
+  if (originalCfPages === undefined) delete process.env.CF_PAGES;
+  else process.env.CF_PAGES = originalCfPages;
+  if (originalVercel === undefined) delete process.env.VERCEL;
+  else process.env.VERCEL = originalVercel;
+  if (originalVercelEnv === undefined) delete process.env.VERCEL_ENV;
+  else process.env.VERCEL_ENV = originalVercelEnv;
+  if (originalRender === undefined) delete process.env.RENDER;
+  else process.env.RENDER = originalRender;
+  if (originalFlyAppName === undefined) delete process.env.FLY_APP_NAME;
+  else process.env.FLY_APP_NAME = originalFlyAppName;
+  if (originalKService === undefined) delete process.env.K_SERVICE;
+  else process.env.K_SERVICE = originalKService;
 }
 
 describe("run manager soft timeout", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    delete process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
-    delete process.env.NETLIFY;
-    delete process.env.NETLIFY_LOCAL;
-    delete process.env.CF_PAGES;
-    delete process.env.VERCEL;
-    delete process.env.VERCEL_ENV;
-    delete process.env.RENDER;
-    delete process.env.FLY_APP_NAME;
-    delete process.env.K_SERVICE;
+    clearHostedEnvForTest();
+    vi.mocked(getRunAbortState).mockResolvedValue({ aborted: false });
+    vi.mocked(markRunAborted).mockClear();
   });
 
   afterEach(() => {
-    restoreEnv("AGENT_RUN_SOFT_TIMEOUT_MS", originalTimeoutEnv);
-    restoreEnv("NETLIFY", originalNetlify);
-    restoreEnv("NETLIFY_LOCAL", originalNetlifyLocal);
-    restoreEnv("CF_PAGES", originalCfPages);
-    restoreEnv("VERCEL", originalVercel);
-    restoreEnv("VERCEL_ENV", originalVercelEnv);
-    restoreEnv("RENDER", originalRender);
-    restoreEnv("FLY_APP_NAME", originalFlyAppName);
-    restoreEnv("K_SERVICE", originalKService);
+    restoreHostedEnvAfterTest();
     vi.useRealTimers();
   });
 
@@ -129,7 +143,7 @@ describe("run manager soft timeout", () => {
     expect(resolveRunSoftTimeoutMs()).toBe(0);
   });
 
-  it("retires explicitly aborted in-memory runs without completing them", async () => {
+  it("retires explicitly aborted in-memory runs while preserving completion callbacks", async () => {
     const onComplete = vi.fn();
     const run = startRun(
       "run-explicit-abort",
@@ -150,6 +164,65 @@ describe("run manager soft timeout", () => {
 
     expect(run.status).toBe("aborted");
     expect(run.events).toHaveLength(0);
+    await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    expect(markRunAborted).toHaveBeenCalledWith("run-explicit-abort", "user");
+  });
+
+  it("skips completion callbacks for no-progress recovery aborts", async () => {
+    const onComplete = vi.fn();
+    const run = startRun(
+      "run-no-progress-abort",
+      "thread-no-progress-abort",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      onComplete,
+      { softTimeoutMs: 0 },
+    );
+
+    expect(abortRun("run-no-progress-abort", "no_progress")).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(run.status).toBe("aborted");
     expect(onComplete).not.toHaveBeenCalled();
+    expect(markRunAborted).toHaveBeenCalledWith(
+      "run-no-progress-abort",
+      "no_progress",
+    );
+  });
+
+  it("observes cross-isolate SQL aborts even when the run is idle", async () => {
+    vi.mocked(getRunAbortState).mockResolvedValue({
+      aborted: true,
+      reason: "no_progress",
+    });
+    let abortReason: unknown;
+
+    const run = startRun(
+      "run-sql-abort",
+      "thread-sql-abort",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              abortReason = signal.reason;
+              resolve();
+            },
+            { once: true },
+          );
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.advanceTimersByTimeAsync(1501);
+
+    expect(abortReason).toBe("no_progress");
+    expect(run.abortReason).toBe("no_progress");
   });
 });

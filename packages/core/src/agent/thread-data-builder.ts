@@ -10,6 +10,41 @@ interface ContentPart {
   result?: string;
 }
 
+function isInternalContinuationError(event: {
+  error: string;
+  errorCode?: string;
+  recoverable?: boolean;
+}): boolean {
+  const code = String(event.errorCode ?? "").toLowerCase();
+  const msg = event.error.toLowerCase();
+  return (
+    event.recoverable === true ||
+    code === "builder_gateway_timeout" ||
+    code === "stale_run" ||
+    code === "timeout" ||
+    code === "timeout_error" ||
+    code === "http_408" ||
+    code === "http_429" ||
+    code === "http_500" ||
+    code === "http_502" ||
+    code === "http_503" ||
+    code === "http_504" ||
+    code === "rate_limited" ||
+    code === "too_many_concurrent_requests" ||
+    code === "overloaded_error" ||
+    msg.includes("timeout") ||
+    msg.includes("gateway timeout") ||
+    msg.includes("inactivity timeout") ||
+    msg.includes("stream ended") ||
+    msg.includes("stream closed") ||
+    msg.includes("temporarily unavailable") ||
+    msg.includes("502") ||
+    msg.includes("503") ||
+    msg.includes("504") ||
+    msg.includes("529")
+  );
+}
+
 /**
  * Reconstruct an assistant-ui message from raw agent run events.
  * Mirrors the client-side processEvent logic so the server can persist
@@ -35,6 +70,7 @@ export function buildAssistantMessage(
     details?: string;
     recoverable?: boolean;
   } | null = null;
+  let endedAtInternalContinuationBoundary = false;
 
   const appendText = (text: string) => {
     const last = content[content.length - 1];
@@ -88,15 +124,18 @@ export function buildAssistantMessage(
     if (event.type === "loop_limit") {
       // Older servers emitted this as a user-visible terminal event. Treat it
       // as an internal continuation boundary when rebuilding persisted turns.
+      endedAtInternalContinuationBoundary = true;
       continue;
     }
 
     if (event.type === "auto_continue") {
+      endedAtInternalContinuationBoundary = true;
       continue;
     }
 
     if (event.type === "error") {
-      if (event.errorCode === "run_timeout" && event.recoverable) {
+      if (isInternalContinuationError(event)) {
+        endedAtInternalContinuationBoundary = true;
         continue;
       }
       runError = {
@@ -112,7 +151,7 @@ export function buildAssistantMessage(
     // done, missing_api_key — terminal signals, not content
   }
 
-  if (content.length === 0) return null;
+  if (content.length === 0 || endedAtInternalContinuationBoundary) return null;
 
   const metadata: Record<string, unknown> = {};
   if (runId) metadata.runId = runId;
