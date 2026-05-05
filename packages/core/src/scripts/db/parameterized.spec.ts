@@ -45,6 +45,7 @@ describe("db scripts parameterized SQL", () => {
   }
 
   it("passes db-query bind args through to libsql", async () => {
+    vi.stubEnv("AGENT_USER_EMAIL", "params+qa@test.com");
     const execute = vi.fn(async (input: unknown) => {
       if (typeof input === "object" && input) {
         return { rows: [["ada"]], columns: ["name"] };
@@ -71,6 +72,7 @@ describe("db scripts parameterized SQL", () => {
   });
 
   it("passes db-exec bind args through to libsql", async () => {
+    vi.stubEnv("AGENT_USER_EMAIL", "params+qa@test.com");
     const execute = vi.fn(async () => ({
       rows: [],
       columns: [],
@@ -97,12 +99,21 @@ describe("db scripts parameterized SQL", () => {
   });
 
   it("executes db-exec statement batches in one SQLite transaction", async () => {
-    const execute = vi.fn(async () => ({
-      rows: [],
-      columns: [],
-      rowsAffected: 1,
-      lastInsertRowid: undefined,
-    }));
+    vi.stubEnv("AGENT_USER_EMAIL", "params+qa@test.com");
+    // Return an empty sqlite_master so scoping introspection doesn't generate
+    // setup views — keeps this test focused on the BEGIN/INSERT/UPDATE/COMMIT
+    // ordering. The first call is the introspection SELECT that returns [].
+    const execute = vi.fn(async (input: unknown) => {
+      if (typeof input === "string" && input.includes("sqlite_master")) {
+        return { rows: [], columns: [] };
+      }
+      return {
+        rows: [],
+        columns: [],
+        rowsAffected: 1,
+        lastInsertRowid: undefined,
+      };
+    });
     mockSqliteClient(execute);
 
     const { default: dbExec } = await import("./exec.js");
@@ -123,16 +134,19 @@ describe("db scripts parameterized SQL", () => {
       "json",
     ]);
 
-    expect(execute).toHaveBeenNthCalledWith(1, "BEGIN");
-    expect(execute).toHaveBeenNthCalledWith(2, {
+    const txCalls = execute.mock.calls.filter(
+      ([arg]) => !(typeof arg === "string" && arg.includes("sqlite_master")),
+    );
+    expect(txCalls[0]?.[0]).toBe("BEGIN");
+    expect(txCalls[1]?.[0]).toEqual({
       sql: "INSERT INTO notes (id, title) VALUES (?, ?)",
       args: ["note-1", "One"],
     });
-    expect(execute).toHaveBeenNthCalledWith(3, {
+    expect(txCalls[2]?.[0]).toEqual({
       sql: "UPDATE notes SET title = ? WHERE id = ?",
       args: ["Two", "note-1"],
     });
-    expect(execute).toHaveBeenNthCalledWith(4, "COMMIT");
+    expect(txCalls[3]?.[0]).toBe("COMMIT");
   });
 
   it("rejects ad-hoc schema changes through db-exec", async () => {

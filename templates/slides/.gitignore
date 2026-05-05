@@ -41,6 +41,16 @@ data/app.db
 data/app.db-wal
 data/app.db-shm
 
+# Stray SQLite files at the template root. The real DB lives under data/;
+# anything that creates app.db / local.db here is a misconfigured cwd or an
+# explicit `--db ./app.db` override.
+/app.db
+/app.db-shm
+/app.db-wal
+/local.db
+/local.db-shm
+/local.db-wal
+
 # Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
 learnings.md
 

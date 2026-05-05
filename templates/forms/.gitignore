@@ -33,6 +33,12 @@ data/app.db
 data/app.db-wal
 data/app.db-shm
 
+# Stray SQLite files at the template root (real DB lives under data/)
+/app.db
+/app.db-shm
+/app.db-wal
+/local.db
+
 # Learnings
 learnings.md
 

@@ -35,6 +35,12 @@ data/settings.json
 data/.sessions.json
 data/app.db
 
+# Stray SQLite files at the template root (real DB lives under data/)
+/app.db
+/app.db-shm
+/app.db-wal
+/local.db
+
 # Build
 build/
 
