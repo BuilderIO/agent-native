@@ -1512,15 +1512,6 @@ function BuilderSetupCard() {
   );
 }
 
-function isLocalAuthHost(): boolean {
-  if (typeof window === "undefined") return false;
-  return (
-    window.location.hostname === "localhost" ||
-    window.location.hostname === "127.0.0.1" ||
-    window.location.hostname === "::1"
-  );
-}
-
 // ─── Loop Limit Continue Card ───────────────────────────────────────────────
 
 type LoopLimitInfo = { maxIterations?: number };
@@ -2794,7 +2785,6 @@ const AssistantChatInner = forwardRef<
     !!visibleRunError &&
     !showRunningInUI &&
     visibleRunErrorKey !== dismissedRunErrorKey;
-  const showLocalAuthHint = isLocalAuthHost();
 
   return (
     <CheckpointContext.Provider value={checkpointCtx}>
@@ -2850,28 +2840,13 @@ const AssistantChatInner = forwardRef<
                         : "Authentication required"}
                     </p>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      {authError.sessionExpired ? (
-                        "Your session may have expired. Log out and log back in to reconnect."
-                      ) : showLocalAuthHint ? (
-                        <>
-                          You need to log in to use the agent. If you&apos;re
-                          running locally, add{" "}
-                          <code className="bg-muted px-1 py-0.5 rounded text-[10px]">
-                            AUTH_MODE=local
-                          </code>{" "}
-                          to your{" "}
-                          <code className="bg-muted px-1 py-0.5 rounded text-[10px]">
-                            .env
-                          </code>{" "}
-                          file and restart the dev server.
-                        </>
-                      ) : (
-                        "You need to log in to use the agent."
-                      )}
+                      {authError.sessionExpired
+                        ? "Your session may have expired. Log out and log back in to reconnect."
+                        : "You need to log in to use the agent."}
                     </p>
                   </div>
                   <div className="flex gap-2">
-                    {!showLocalAuthHint && !authError.sessionExpired && (
+                    {!authError.sessionExpired && (
                       <button
                         onClick={() => {
                           const ret =
