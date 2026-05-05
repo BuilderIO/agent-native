@@ -628,10 +628,7 @@ export default function MetricsRoute() {
               <Panel title="Spend By App" icon={<IconChartBar size={16} />}>
                 <AppSpendRows rows={metrics.byApp} />
               </Panel>
-              <Panel
-                title="Daily Activity"
-                icon={<IconClockHour4 size={16} />}
-              >
+              <Panel title="Daily Activity" icon={<IconClockHour4 size={16} />}>
                 <DailyActivity rows={metrics.daily} />
               </Panel>
             </div>

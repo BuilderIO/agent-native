@@ -20,6 +20,7 @@ const DISPATCH_PAGE_PATHS = new Set([
   "/integrations",
   "/agents",
   "/workspace",
+  "/tools",
   "/messaging",
   "/destinations",
   "/identities",
@@ -32,6 +33,7 @@ const DISPATCH_ROOT_ALIASES = new Map<string, string>([
   ...Array.from(DISPATCH_PAGE_PATHS, (path) => [path, path] as const),
   ["/approval", "/approval"],
   ["/extensions", "/extensions"],
+  ["/tools", "/tools"],
   ["/apps/new-app", "/new-app"],
 ]);
 
@@ -42,8 +44,11 @@ const MOUNTED_DISPATCH_ALIASES = new Map<string, string>([
 function isDispatchPagePath(pathname: string): boolean {
   if (DISPATCH_PAGE_PATHS.has(pathname)) return true;
   if (pathname === "/approval" || pathname === "/extensions") return true;
+  if (pathname === "/tools") return true;
   return (
-    /^\/extensions\/[^/]+$/.test(pathname) || /^\/apps\/[^/]+$/.test(pathname)
+    /^\/extensions\/[^/]+$/.test(pathname) ||
+    /^\/tools\/[^/]+$/.test(pathname) ||
+    /^\/apps\/[^/]+$/.test(pathname)
   );
 }
 

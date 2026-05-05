@@ -172,6 +172,7 @@ const CHROMELESS_PATHS = ["/approval"];
 // Layout still mounts the sidebar + AgentSidebar, but skips its own Header so
 // there's no double-header.
 function pageOwnsToolbar(pathname: string): boolean {
+  if (pathname === "/tools" || pathname.startsWith("/tools/")) return true;
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
     return true;
   return false;

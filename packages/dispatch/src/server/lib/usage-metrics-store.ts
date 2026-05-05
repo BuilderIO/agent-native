@@ -184,9 +184,7 @@ async function getViewerOrgRole(
   return typeof role === "string" ? role : null;
 }
 
-async function listOrgMembers(
-  orgId: string | null,
-): Promise<MemberRecord[]> {
+async function listOrgMembers(orgId: string | null): Promise<MemberRecord[]> {
   if (!orgId) return [];
   const rows = await queryRows<Record<string, unknown>>(
     `SELECT email, role, joined_at AS joined_at FROM org_members WHERE org_id = ? ORDER BY joined_at ASC`,
@@ -489,9 +487,12 @@ export async function listDispatchUsageMetrics(input: {
     const date = new Date(numberField(row, "created_at"))
       .toISOString()
       .slice(0, 10);
-    const current =
-      dailyMap.get(date) ??
-      { costX100: 0, calls: 0, chatCalls: 0, users: new Set<string>() };
+    const current = dailyMap.get(date) ?? {
+      costX100: 0,
+      calls: 0,
+      chatCalls: 0,
+      users: new Set<string>(),
+    };
     current.costX100 += numberField(row, "cost_cents_x100");
     current.calls += 1;
     if (stringField(row, "label") === "chat") current.chatCalls += 1;
