@@ -10,6 +10,10 @@ interface ContentPart {
   result?: string;
 }
 
+interface BuildAssistantMessageOptions {
+  suppressInternalContinuation?: boolean;
+}
+
 function isInternalContinuationError(event: {
   error: string;
   errorCode?: string;
@@ -53,6 +57,7 @@ function isInternalContinuationError(event: {
 export function buildAssistantMessage(
   events: RunEvent[],
   runId?: string,
+  options: BuildAssistantMessageOptions = {},
 ): {
   id: string;
   role: "assistant";
@@ -124,18 +129,28 @@ export function buildAssistantMessage(
     if (event.type === "loop_limit") {
       // Older servers emitted this as a user-visible terminal event. Treat it
       // as an internal continuation boundary when rebuilding persisted turns.
-      endedAtInternalContinuationBoundary = true;
+      if (options.suppressInternalContinuation) {
+        endedAtInternalContinuationBoundary = true;
+      }
       continue;
     }
 
     if (event.type === "auto_continue") {
-      endedAtInternalContinuationBoundary = true;
+      if (options.suppressInternalContinuation) {
+        endedAtInternalContinuationBoundary = true;
+      }
       continue;
     }
 
     if (event.type === "error") {
-      if (isInternalContinuationError(event)) {
+      if (
+        options.suppressInternalContinuation &&
+        isInternalContinuationError(event)
+      ) {
         endedAtInternalContinuationBoundary = true;
+        continue;
+      }
+      if (event.errorCode === "run_timeout" && event.recoverable) {
         continue;
       }
       runError = {

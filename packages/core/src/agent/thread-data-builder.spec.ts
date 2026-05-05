@@ -9,10 +9,14 @@ describe("buildAssistantMessage", () => {
       { seq: 1, event: { type: "auto_continue", reason: "run_timeout" } },
     ];
 
-    expect(buildAssistantMessage(events, "run-timeout")).toBeNull();
+    expect(
+      buildAssistantMessage(events, "run-timeout", {
+        suppressInternalContinuation: true,
+      }),
+    ).toBeNull();
   });
 
-  it("does not persist partial output from recoverable gateway errors", () => {
+  it("does not persist partial output from recoverable gateway errors when suppressed", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "checking..." } },
       {
@@ -25,7 +29,35 @@ describe("buildAssistantMessage", () => {
       },
     ];
 
-    expect(buildAssistantMessage(events, "run-gateway-timeout")).toBeNull();
+    expect(
+      buildAssistantMessage(events, "run-gateway-timeout", {
+        suppressInternalContinuation: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("persists recoverable errors by default for non-continuation server paths", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "checking..." } },
+      {
+        seq: 1,
+        event: {
+          type: "error",
+          error: "Builder gateway timed out after 45s",
+          errorCode: "builder_gateway_timeout",
+        },
+      },
+    ];
+
+    const message = buildAssistantMessage(events, "run-gateway-timeout");
+
+    expect(message?.content).toEqual([
+      {
+        type: "text",
+        text: "checking...\n\nError: Builder gateway timed out after 45s",
+      },
+    ]);
+    expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
   });
 
   it("still persists non-recoverable errors", () => {

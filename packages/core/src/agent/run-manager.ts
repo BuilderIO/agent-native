@@ -77,6 +77,18 @@ function isTerminalRunEvent(event: AgentChatEvent): boolean {
   );
 }
 
+function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
+  run.abortReason = reason;
+  run.status = "aborted";
+  if (threadToRun.get(run.threadId) === run.runId) {
+    threadToRun.delete(run.threadId);
+  }
+  run.abort.abort(reason);
+  for (const subscriber of run.subscribers) {
+    run.subscribers.delete(subscriber);
+  }
+}
+
 /**
  * Start a new agent run in the background.
  * `runFn` receives a `send` callback and an `AbortSignal`.
@@ -119,16 +131,15 @@ export function startRun(
   insertRun(runId, threadId).catch(() => {});
 
   // Periodic SQL abort check interval (for cross-isolate abort on Workers)
-  let lastAbortCheck = 0;
+  let lastAbortCheck = Date.now() - 3000;
   const checkSqlAbort = () => {
     const now = Date.now();
-    if (now - lastAbortCheck <= 3000) return;
+    if (now - lastAbortCheck < 3000) return;
     lastAbortCheck = now;
     getRunAbortState(runId)
       .then((state) => {
         if (state.aborted && !abort.signal.aborted) {
-          run.abortReason = state.reason;
-          abort.abort(state.reason);
+          abortInMemoryRun(run, state.reason);
         }
       })
       .catch(() => {});
@@ -591,15 +602,7 @@ export function getRun(runId: string): ActiveRun | null {
 export function abortRun(runId: string, reason: string = "user"): boolean {
   const run = activeRuns.get(runId);
   if (run) {
-    run.abortReason = reason;
-    run.status = "aborted";
-    if (threadToRun.get(run.threadId) === runId) {
-      threadToRun.delete(run.threadId);
-    }
-    run.abort.abort(reason);
-    for (const subscriber of run.subscribers) {
-      run.subscribers.delete(subscriber);
-    }
+    abortInMemoryRun(run, reason);
   }
   // Also mark as aborted in SQL (for cross-isolate abort on Workers)
   markRunAborted(runId, reason).catch(() => {});

@@ -3149,6 +3149,7 @@ export function createAgentChatPlugin(
             const assistantMsg = buildAssistantMessage(
               run.events ?? [],
               run.runId,
+              { suppressInternalContinuation: true },
             );
             if (!assistantMsg) {
               // No content produced — just bump timestamp
