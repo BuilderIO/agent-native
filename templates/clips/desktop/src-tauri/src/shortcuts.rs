@@ -74,8 +74,15 @@ fn swap_custom_shortcut<R: tauri::Runtime>(
     if let Some(next) = next {
         if let Err(err) = gs.register(next) {
             if let Some(old) = old {
-                let _ = gs.register(old);
-                *current = Some(old);
+                // Only restore the prior state if re-registration actually
+                // succeeded — otherwise the OS rejected `old` and there is
+                // nothing registered for this slot. Tracking it as Some(old)
+                // would lie to future operations (is_registered/unregister
+                // would fail); leaving it None keeps state and reality in
+                // sync at the cost of forgetting the prior shortcut.
+                if gs.register(old).is_ok() {
+                    *current = Some(old);
+                }
             }
             return Err(format!("failed to register {label} shortcut: {err}"));
         }
