@@ -9,7 +9,7 @@ export interface TrimHandlesProps {
   /** Current selection range (original ms) — drives the left/right handles. */
   value: { startMs: number; endMs: number };
   onChange: (next: { startMs: number; endMs: number }) => void;
-  /** Fires when the user releases the mouse after drag — triggers trim-recording. */
+  /** Fires when the user releases the mouse after drag. */
   onCommit?: (value: { startMs: number; endMs: number }) => void;
   durationMs: number;
   /** Scroll offset of the parent container so handles track with zoom. */

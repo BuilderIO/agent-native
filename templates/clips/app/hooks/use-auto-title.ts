@@ -1,13 +1,13 @@
 /**
- * Auto-title bridge
+ * Clips AI request bridge
  *
- * Watches the `clips-ai-request-:id` application_state queue for default-title
- * follow-up. The bridge sends queued title work to the agent chat exactly
- * once per (recordingId, requestedAt).
+ * Watches the `clips-ai-request-:id` application_state queue. The bridge sends
+ * queued recording work to the agent chat exactly once per
+ * (recordingId, kind, requestedAt).
  *
  * Once handled we DELETE the request entry so the next page load / tab switch
- * doesn't re-fire. The polling layer flips the skeleton in `recording-card` /
- * `r.$recordingId` over to the real title when `update-recording` lands.
+ * doesn't re-fire. The polling layer flips UI back to ready when the requested
+ * action lands its writes.
  */
 
 import { useEffect, useRef } from "react";
@@ -31,8 +31,19 @@ interface AiRequest {
   currentTitle?: string;
   transcriptStatus?: string;
   transcriptText?: string;
+  segmentsJson?: string;
+  thresholdMs?: number;
   message?: string;
 }
+
+const DISPATCHABLE_REQUESTS = new Set([
+  "regenerate-title",
+  "regenerate-summary",
+  "regenerate-chapters",
+  "remove-filler-words",
+  "remove-silences",
+  "generate-workflow",
+]);
 
 async function readRequest(recordingId: string): Promise<AiRequest | null> {
   const url = agentNativePath(
@@ -64,61 +75,58 @@ async function clearRequest(recordingId: string): Promise<void> {
 
 /**
  * Mount this once in the app shell. It polls the recording list and fires
- * `sendToAgentChat` for every pending auto-title request queued by the server.
- * Idempotent — a given (recordingId, requestedAt) is only dispatched once per
- * tab session.
+ * `sendToAgentChat` for every pending request queued by a clips action.
+ * Idempotent — a given (recordingId, kind, requestedAt) is only dispatched
+ * once per tab session.
  */
 export function useAutoTitleBridge(): void {
   // Use the "all" view so we catch recordings regardless of where the user
   // is currently browsing (library root vs. a folder vs. a space).
-  // Polling is disabled by default; it only activates when untitled recordings
-  // exist (handled by useRecordings' conditional refetchInterval).
   const { data } = useRecordings({ view: "all", limit: 200 });
   const recordings: RecordingSummary[] = data?.recordings ?? [];
   const dispatched = useRef<Set<string>>(new Set());
   const inflight = useRef<boolean>(false);
 
-  const untitledRecordings = recordings.filter(
-    (r) => r.status === "ready" && isDefaultTitle(r.title),
-  );
+  const readyRecordings = recordings.filter((r) => r.status === "ready");
 
   useEffect(() => {
-    if (untitledRecordings.length === 0) return;
+    if (readyRecordings.length === 0) return;
     let cancelled = false;
 
     async function tick() {
       if (cancelled || inflight.current) return;
       inflight.current = true;
       try {
-        for (const rec of untitledRecordings) {
+        for (const rec of readyRecordings) {
           if (cancelled) return;
 
           const request = await readRequest(rec.id);
 
-          if (request?.kind === "regenerate-title") {
+          if (
+            request?.kind &&
+            DISPATCHABLE_REQUESTS.has(request.kind) &&
+            request.recordingId === rec.id
+          ) {
             // Server queued a delegation — use the full context it provided.
             // Key includes requestedAt so each distinct server request fires
             // exactly once, independent of any prior fallback dispatch.
-            const dispatchKey = `${rec.id}:${request.requestedAt ?? "0"}`;
+            const dispatchKey = `${rec.id}:${request.kind}:${
+              request.requestedAt ?? "0"
+            }`;
             if (dispatched.current.has(dispatchKey)) continue;
             dispatched.current.add(dispatchKey);
 
             sendToAgentChat({
               message:
                 request.message ??
-                `Generate a concise 3-8 word title for recording ${rec.id} from its transcript, then call update-recording --id=${rec.id} --title="...".`,
-              context: JSON.stringify({
-                recordingId: rec.id,
-                currentTitle: request.currentTitle ?? rec.title,
-                transcript: request.transcriptText ?? "",
-                transcriptStatus: request.transcriptStatus ?? "ready",
-              }),
+                `Handle queued ${request.kind} work for recording ${rec.id}.`,
+              context: JSON.stringify(buildRequestContext(rec, request)),
               submit: true,
               openSidebar: false,
             });
 
             void clearRequest(rec.id);
-          } else {
+          } else if (isDefaultTitle(rec.title)) {
             // No server-queued delegation. Only dispatch the fallback for
             // recordings that are old enough (>2 min) that the server has had
             // ample time to write its own clips-ai-request entry. For freshly-
@@ -154,5 +162,26 @@ export function useAutoTitleBridge(): void {
       clearInterval(handle);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [untitledRecordings.map((r) => r.id).join(",")]);
+  }, [readyRecordings.map((r) => r.id).join(",")]);
+}
+
+function buildRequestContext(rec: RecordingSummary, request: AiRequest) {
+  return {
+    recordingId: rec.id,
+    currentTitle: request.currentTitle ?? rec.title,
+    transcript: request.transcriptText ?? "",
+    transcriptStatus: request.transcriptStatus ?? "ready",
+    transcriptSegments: parseJsonArray(request.segmentsJson),
+    request,
+  };
+}
+
+function parseJsonArray(raw: string | undefined): unknown[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }

@@ -79,16 +79,13 @@ const WAVEFORM_HEIGHT = 120;
 
 export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   // --- server state -------------------------------------------------------
-  const recQuery = useActionQuery(
-    "get-recording" as any,
-    { id: recordingId } as any,
-  );
-  const transcriptQuery = useActionQuery(
-    "get-transcript" as any,
-    { id: recordingId } as any,
+  const playerDataQuery = useActionQuery(
+    "get-recording-player-data" as any,
+    { recordingId } as any,
   );
 
-  const recording: any = (recQuery.data as any)?.recording ?? recQuery.data;
+  const playerData: any = playerDataQuery.data;
+  const recording: any = playerData?.recording;
   const durationMs = recording?.durationMs ?? 0;
   const videoUrl: string | null = recording?.videoUrl ?? null;
   const videoFormat: "webm" | "mp4" = recording?.videoFormat ?? "webm";
@@ -98,12 +95,13 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     [recording?.editsJson],
   );
   const chapters: Array<{ startMs: number; title: string }> = useMemo(() => {
+    if (Array.isArray(playerData?.chapters)) return playerData.chapters;
     try {
       return recording?.chaptersJson ? JSON.parse(recording.chaptersJson) : [];
     } catch {
       return [];
     }
-  }, [recording?.chaptersJson]);
+  }, [playerData?.chapters, recording?.chaptersJson]);
 
   const excludedRanges = useMemo(() => getExcludedRanges(edits), [edits]);
   const splitPoints = useMemo(
@@ -119,9 +117,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     endMs: number;
     text: string;
   }> = useMemo(() => {
-    const raw =
-      (transcriptQuery.data as any)?.segments ??
-      (transcriptQuery.data as any)?.segmentsJson;
+    const raw = playerData?.transcript?.segments;
     if (Array.isArray(raw)) return raw;
     if (typeof raw === "string") {
       try {
@@ -131,7 +127,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
       }
     }
     return [];
-  }, [transcriptQuery.data]);
+  }, [playerData?.transcript?.segments]);
 
   // --- player state -------------------------------------------------------
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -322,7 +318,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     endMs: Math.min(durationMs || 1_000, playheadMs + 1000),
   };
 
-  if (recQuery.isLoading) {
+  if (playerDataQuery.isLoading) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
         Loading recording…
@@ -424,10 +420,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                     height={WAVEFORM_HEIGHT}
                     value={effectiveSelection}
                     onChange={setSelectionRange}
-                    onCommit={(v) => {
-                      // User just dropped a handle — commit the trim.
-                      callTrim(v);
-                    }}
                     durationMs={durationMs}
                     scrollLeft={scrollLeft}
                   />
