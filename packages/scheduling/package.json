@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/scheduling",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "Scheduling primitives for agent-native apps — event types, availability, bookings, team scheduling, workflows, routing forms. Powers the scheduling and calendar templates.",
   "license": "MIT",
@@ -62,7 +62,7 @@
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "@agent-native/core": ">=0.7.84",
+    "@agent-native/core": ">=0.7.85",
     "@tabler/icons-react": ">=3",
     "drizzle-orm": ">=0.45",
     "react": ">=18",

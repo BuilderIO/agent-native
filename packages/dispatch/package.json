@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/dispatch",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "Dispatch — workspace control plane for agent-native apps. Vault, integrations, destinations, scheduled jobs, and cross-app delegation, shipped as a single drop-in package.",
   "license": "MIT",
@@ -39,7 +39,7 @@
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
-    "@agent-native/core": ">=0.7.84",
+    "@agent-native/core": ">=0.7.85",
     "react": ">=18",
     "react-dom": ">=18",
     "react-router": ">=7"
