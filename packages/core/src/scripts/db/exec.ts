@@ -487,7 +487,32 @@ function printResult(
     if (result.lastInsertRowid && changes > 0) {
       console.log(`Last Insert Row ID: ${result.lastInsertRowid}`);
     }
+    if (changes === 0) {
+      console.log(zeroChangesHint(sql));
+    }
   }
+}
+
+/**
+ * Hint emitted when an UPDATE/DELETE/REPLACE matches zero rows. Matches the
+ * wording used by db-patch's "no rows matched" error so the agent gets the
+ * same scoping nudge from both tools — without this hint, the agent reports
+ * "Changes: 0" as success and the user sees no UI update because the row
+ * either didn't exist or wasn't visible to the current user under per-user
+ * scoping.
+ */
+function zeroChangesHint(sql: string): string {
+  const upper = sql.toUpperCase(); // leading whitespace already stripped by normalizeUserSql
+  if (upper.startsWith("INSERT")) {
+    // INSERT changes=0 means INSERT OR IGNORE skipped a duplicate — different
+    // failure mode, not a scoping issue.
+    return "Hint: 0 rows inserted. The row likely violated a UNIQUE / PRIMARY KEY constraint and was skipped (INSERT OR IGNORE).";
+  }
+  return (
+    "Hint: 0 rows changed. The WHERE clause matched no rows — either the row " +
+    "doesn't exist, or it exists but is owned by a different user (per-user " +
+    "and per-org scoping is automatic for db-exec)."
+  );
 }
 
 function printBatchResult(results: DbExecResult[], format?: string): void {
@@ -542,7 +567,11 @@ function printBatchResult(results: DbExecResult[], format?: string): void {
       console.log(`[${result.index}] Returned ${result.rows.length} row(s):`);
       console.log(JSON.stringify(result.rows, null, 2));
     } else {
-      console.log(`[${result.index}] Changes: ${result.changes ?? 0}`);
+      const changes = Number(result.changes ?? 0);
+      console.log(`[${result.index}] Changes: ${changes}`);
+      if (changes === 0) {
+        console.log(`[${result.index}] ${zeroChangesHint(result.sql)}`);
+      }
     }
   }
   console.log(`Total changes: ${totalChanges}`);
