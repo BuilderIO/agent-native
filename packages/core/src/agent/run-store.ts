@@ -34,6 +34,7 @@ async function ensureRunTables(): Promise<void> {
           id TEXT PRIMARY KEY,
           thread_id TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'running',
+          abort_reason TEXT,
           started_at ${intType()} NOT NULL,
           completed_at ${intType()},
           heartbeat_at ${intType()}
@@ -45,9 +46,21 @@ async function ensureRunTables(): Promise<void> {
           await client.execute(
             `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS heartbeat_at ${intType()}`,
           );
+          await client.execute(
+            `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS abort_reason TEXT`,
+          );
         } else {
           await client.execute(
             `ALTER TABLE agent_runs ADD COLUMN heartbeat_at ${intType()}`,
+          );
+        }
+      } catch {
+        // Column already exists — ignore
+      }
+      try {
+        if (!isPostgres()) {
+          await client.execute(
+            `ALTER TABLE agent_runs ADD COLUMN abort_reason TEXT`,
           );
         }
       } catch {
@@ -125,25 +138,39 @@ export async function updateRunStatus(
   });
 }
 
-export async function markRunAborted(runId: string): Promise<void> {
+export async function markRunAborted(
+  runId: string,
+  reason?: string,
+): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
   await client.execute({
-    sql: `UPDATE agent_runs SET status = 'aborted', completed_at = ? WHERE id = ?`,
-    args: [Date.now(), runId],
+    sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ? WHERE id = ?`,
+    args: [reason ?? "user", Date.now(), runId],
   });
+  await appendTerminalRunEvent(runId, { type: "done" }).catch(() => {});
 }
 
 export async function isRunAborted(runId: string): Promise<boolean> {
+  return (await getRunAbortState(runId)).aborted;
+}
+
+export async function getRunAbortState(
+  runId: string,
+): Promise<{ aborted: boolean; reason?: string }> {
   await ensureRunTables();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT status FROM agent_runs WHERE id = ?`,
+    sql: `SELECT status, abort_reason FROM agent_runs WHERE id = ?`,
     args: [runId],
   });
-  return (
-    rows.length > 0 && (rows[0] as { status: string }).status === "aborted"
-  );
+  if (rows.length === 0) return { aborted: false };
+  const row = rows[0] as { status: string; abort_reason?: string | null };
+  if (row.status !== "aborted") return { aborted: false };
+  return {
+    aborted: true,
+    ...(row.abort_reason ? { reason: row.abort_reason } : {}),
+  };
 }
 
 export async function insertRunEvent(
@@ -331,7 +358,8 @@ async function appendTerminalRunEvent(
         parsed?.type === "done" ||
         parsed?.type === "error" ||
         parsed?.type === "missing_api_key" ||
-        parsed?.type === "loop_limit"
+        parsed?.type === "loop_limit" ||
+        parsed?.type === "auto_continue"
       ) {
         return;
       }

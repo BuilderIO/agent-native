@@ -363,6 +363,8 @@ export function createAgentChatAdapter(options?: {
           try {
             await fetch(`${apiUrl}/runs/${encodeURIComponent(runId)}/abort`, {
               method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ reason: "no_progress" }),
               signal: abortSignal,
             });
           } catch {

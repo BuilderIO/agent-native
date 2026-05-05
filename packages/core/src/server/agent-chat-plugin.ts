@@ -3149,6 +3149,7 @@ export function createAgentChatPlugin(
             const assistantMsg = buildAssistantMessage(
               run.events ?? [],
               run.runId,
+              { suppressInternalContinuation: true },
             );
             if (!assistantMsg) {
               // No content produced — just bump timestamp
@@ -4268,7 +4269,16 @@ export function createAgentChatPlugin(
             url.match(/^\/([^/?]+)\/abort/);
           if (abortMatch && method === "POST") {
             const runId = decodeURIComponent(abortMatch[1]);
-            abortRun(runId); // Aborts in-memory + marks aborted in SQL
+            let reason = "user";
+            try {
+              const body = await readBody(event);
+              if (body?.reason === "no_progress") {
+                reason = "no_progress";
+              }
+            } catch {
+              // Empty/invalid body — keep the default user abort reason.
+            }
+            abortRun(runId, reason); // Aborts in-memory + marks aborted in SQL
             return { ok: true };
           }
 
