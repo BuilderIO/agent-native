@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockExecute = vi.fn();
 const mockPutUserSetting = vi.fn();
+const mockGetUserSetting = vi.fn();
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: mockExecute }),
@@ -9,6 +10,7 @@ vi.mock("../db/client.js", () => ({
 }));
 vi.mock("../settings/user-settings.js", () => ({
   putUserSetting: (...args: any[]) => mockPutUserSetting(...args),
+  getUserSetting: (...args: any[]) => mockGetUserSetting(...args),
 }));
 
 import { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
@@ -23,6 +25,7 @@ describe("autoJoinDomainMatchingOrgs", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockExecute.mockResolvedValue({ rows: [] });
+    mockGetUserSetting.mockResolvedValue(null);
   });
 
   it("returns empty when no orgs match the domain", async () => {
@@ -42,18 +45,21 @@ describe("autoJoinDomainMatchingOrgs", () => {
     queueSelect(
       [{ orgId: "builder_io" }], // domain matches
       [], // INSERT org_members result
-      [], // SELECT settings for active-org-id (no row → not active)
     );
+    mockGetUserSetting.mockResolvedValueOnce(null);
     const out = await autoJoinDomainMatchingOrgs("new@builder.io");
 
     const sqls = mockExecute.mock.calls.map((c) => c[0].sql);
     expect(sqls[0]).toContain("FROM organizations");
     expect(sqls[0]).toContain("LOWER(o.allowed_domain)");
     expect(sqls[1]).toContain("INSERT INTO org_members");
-    expect(sqls[2]).toContain("SELECT value FROM settings");
 
     expect(out.joined).toEqual([{ orgId: "builder_io" }]);
     expect(out.activeOrgId).toBe("builder_io");
+    expect(mockGetUserSetting).toHaveBeenCalledWith(
+      "new@builder.io",
+      "active-org-id",
+    );
     expect(mockPutUserSetting).toHaveBeenCalledWith(
       "new@builder.io",
       "active-org-id",
@@ -65,8 +71,8 @@ describe("autoJoinDomainMatchingOrgs", () => {
     queueSelect(
       [{ orgId: "builder_io" }],
       [], // INSERT org_members
-      [{ value: JSON.stringify({ orgId: "other_org" }) }], // settings already populated
     );
+    mockGetUserSetting.mockResolvedValueOnce({ orgId: "other_org" });
     const out = await autoJoinDomainMatchingOrgs("new@builder.io");
     expect(out.joined).toEqual([{ orgId: "builder_io" }]);
     expect(out.activeOrgId).toBeNull();
@@ -90,7 +96,6 @@ describe("autoJoinDomainMatchingOrgs", () => {
       [{ orgId: "orgA" }, { orgId: "orgB" }],
       [], // INSERT for orgA
       [], // INSERT for orgB
-      [], // settings check
     );
     const out = await autoJoinDomainMatchingOrgs("multi@builder.io");
     expect(out.joined).toEqual([{ orgId: "orgA" }, { orgId: "orgB" }]);
@@ -103,7 +108,6 @@ describe("autoJoinDomainMatchingOrgs", () => {
     });
     mockExecute.mockRejectedValueOnce(new Error("UNIQUE constraint failed"));
     mockExecute.mockResolvedValueOnce({ rows: [] }); // INSERT orgB succeeds
-    mockExecute.mockResolvedValueOnce({ rows: [] }); // settings check
 
     const out = await autoJoinDomainMatchingOrgs("race@builder.io");
     expect(out.joined).toEqual([{ orgId: "orgB" }]);

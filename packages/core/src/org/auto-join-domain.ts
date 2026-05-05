@@ -1,5 +1,5 @@
 import { getDbExec } from "../db/client.js";
-import { putUserSetting } from "../settings/user-settings.js";
+import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
 
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
@@ -87,20 +87,8 @@ export async function autoJoinDomainMatchingOrgs(
   let activeOrgId: string | null = null;
   if (joined[0]) {
     try {
-      const existing = await db.execute({
-        sql: `SELECT value FROM settings WHERE key = ? LIMIT 1`,
-        args: [`u:${email}:active-org-id`],
-      });
-      const hasActive =
-        existing.rows.length > 0 &&
-        (() => {
-          try {
-            const parsed = JSON.parse(String(existing.rows[0].value));
-            return Boolean(parsed?.orgId);
-          } catch {
-            return false;
-          }
-        })();
+      const existing = await getUserSetting(email, "active-org-id");
+      const hasActive = Boolean(existing?.orgId);
       if (!hasActive) {
         activeOrgId = joined[0].orgId;
         await putUserSetting(email, "active-org-id", { orgId: activeOrgId });
