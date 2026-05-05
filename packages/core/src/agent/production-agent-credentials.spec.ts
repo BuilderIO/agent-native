@@ -35,9 +35,9 @@ describe("getOwnerApiKey", () => {
       updatedAt: 1,
     });
 
-    await expect(
-      getOwnerApiKey("openai", "owner@example.com"),
-    ).resolves.toBe("user-openai-key");
+    await expect(getOwnerApiKey("openai", "owner@example.com")).resolves.toBe(
+      "user-openai-key",
+    );
     expect(mockReadAppSecret).toHaveBeenCalledTimes(1);
     expect(mockReadAppSecret).toHaveBeenCalledWith({
       key: "OPENAI_API_KEY",
@@ -48,17 +48,15 @@ describe("getOwnerApiKey", () => {
 
   it("falls back to org-scoped app secrets for the active org", async () => {
     mockGetRequestOrgId.mockReturnValue("org-1");
-    mockReadAppSecret
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        value: "org-openai-key",
-        last4: "-key",
-        updatedAt: 1,
-      });
+    mockReadAppSecret.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      value: "org-openai-key",
+      last4: "-key",
+      updatedAt: 1,
+    });
 
-    await expect(
-      getOwnerApiKey("openai", "owner@example.com"),
-    ).resolves.toBe("org-openai-key");
+    await expect(getOwnerApiKey("openai", "owner@example.com")).resolves.toBe(
+      "org-openai-key",
+    );
     expect(mockReadAppSecret.mock.calls.map((c) => c[0])).toEqual([
       {
         key: "OPENAI_API_KEY",
@@ -80,9 +78,9 @@ describe("getOwnerApiKey", () => {
         updatedAt: 1,
       });
 
-    await expect(
-      getOwnerApiKey("openai", "owner@example.com"),
-    ).resolves.toBe("workspace-openai-key");
+    await expect(getOwnerApiKey("openai", "owner@example.com")).resolves.toBe(
+      "workspace-openai-key",
+    );
     expect(mockReadAppSecret.mock.calls.map((c) => c[0].scope)).toEqual([
       "user",
       "org",
@@ -91,17 +89,15 @@ describe("getOwnerApiKey", () => {
   });
 
   it("checks solo workspace scope when no active org exists", async () => {
-    mockReadAppSecret
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        value: "solo-openai-key",
-        last4: "-key",
-        updatedAt: 1,
-      });
+    mockReadAppSecret.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      value: "solo-openai-key",
+      last4: "-key",
+      updatedAt: 1,
+    });
 
-    await expect(
-      getOwnerApiKey("openai", "solo@example.com"),
-    ).resolves.toBe("solo-openai-key");
+    await expect(getOwnerApiKey("openai", "solo@example.com")).resolves.toBe(
+      "solo-openai-key",
+    );
     expect(mockReadAppSecret.mock.calls.map((c) => c[0])).toEqual([
       {
         key: "OPENAI_API_KEY",
