@@ -41,6 +41,21 @@ async function canMutateWorkspaceScope(
   if (!ctx?.orgId) return true;
   return ctx.role === "owner" || ctx.role === "admin";
 }
+
+/**
+ * Org-scoped secrets (`scope: "org"`) live alongside `workspace` scope but
+ * are stricter: they always require an active org and an owner/admin role.
+ * No solo fallback — if the caller has no org, an org-scoped write makes no
+ * sense and we refuse rather than write to an ambiguous row.
+ */
+async function canMutateOrgScope(
+  event: H3Event,
+  scopeId: string,
+): Promise<boolean> {
+  const ctx = await getOrgContext(event).catch(() => null);
+  if (!ctx?.orgId || ctx.orgId !== scopeId) return false;
+  return ctx.role === "owner" || ctx.role === "admin";
+}
 import { listOAuthAccountsByOwner } from "../oauth-tokens/store.js";
 import {
   listRequiredSecrets,
@@ -109,6 +124,13 @@ async function resolveScopeId(
       return { scopeId: null, reason: "Authentication required" };
     }
     return { scopeId: session.email };
+  }
+  if (scope === "org") {
+    // Org-scoped secrets require an active org — there's no solo fallback
+    // because an "org" key without an org would land in an ambiguous row.
+    const ctx = await getOrgContext(event).catch(() => null);
+    if (ctx?.orgId) return { scopeId: ctx.orgId };
+    return { scopeId: null, reason: "No active organization" };
   }
   // workspace
   const ctx = await getOrgContext(event).catch(() => null);
@@ -242,6 +264,12 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
         "Only organization owners and admins can set workspace-scoped secrets",
     };
   }
+  if (secret.scope === "org" && !(await canMutateOrgScope(event, scopeId))) {
+    setResponseStatus(event, 403);
+    return {
+      error: "Only organization owners and admins can set org-scoped secrets",
+    };
+  }
 
   // Run validator if registered — return the validator's error on failure.
   if (secret.validator) {
@@ -310,6 +338,13 @@ async function handleDelete(event: H3Event, secret: RegisteredSecret) {
     return {
       error:
         "Only organization owners and admins can delete workspace-scoped secrets",
+    };
+  }
+  if (secret.scope === "org" && !(await canMutateOrgScope(event, scopeId))) {
+    setResponseStatus(event, 403);
+    return {
+      error:
+        "Only organization owners and admins can delete org-scoped secrets",
     };
   }
   const removed = await deleteAppSecret({

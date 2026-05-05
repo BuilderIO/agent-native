@@ -20,14 +20,17 @@ import {
   abortRun,
   DEFAULT_COMPLETED_RUN_RETENTION_MS,
   DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
+  getActiveRunForThreadAsync,
   resolveCompletedRunRetentionMs,
   resolveRunSoftTimeoutMs,
   startRun,
   subscribeToRun,
+  TERMINAL_RUN_RECONNECT_WINDOW_MS,
 } from "./run-manager.js";
 import {
   getRunAbortState,
   getRunById,
+  getRunByThread,
   getRunEventsSince,
   markRunAborted,
 } from "./run-store.js";
@@ -345,6 +348,62 @@ describe("run manager soft timeout", () => {
     }
 
     expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
+  });
+
+  it("returns recently-completed SQL runs from /runs/active so reconnect can replay them", async () => {
+    // Memory miss — different isolate than the producer.
+    // SQL has the run in completed status with a recent startedAt.
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-recent-completed",
+      threadId: "thread-recent",
+      status: "completed",
+      startedAt: Date.now() - 1000,
+      heartbeatAt: Date.now() - 1000,
+    });
+
+    const result = await getActiveRunForThreadAsync("thread-recent");
+
+    expect(result).toEqual({
+      runId: "run-recent-completed",
+      threadId: "thread-recent",
+      status: "completed",
+      heartbeatAt: expect.any(Number),
+    });
+    // Confirm we passed includeTerminal so SQL surfaced a non-running row.
+    expect(getRunByThread).toHaveBeenCalledWith("thread-recent", {
+      includeTerminal: true,
+    });
+  });
+
+  it("ignores stale terminal runs older than the reconnect window", async () => {
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-old-completed",
+      threadId: "thread-old",
+      status: "completed",
+      startedAt: Date.now() - TERMINAL_RUN_RECONNECT_WINDOW_MS - 60_000,
+      heartbeatAt: null,
+    });
+
+    const result = await getActiveRunForThreadAsync("thread-old");
+
+    expect(result).toBeNull();
+  });
+
+  it("returns recently-errored SQL runs so the client can reconnect to the synthesized error", async () => {
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-recent-errored",
+      threadId: "thread-errored",
+      status: "errored",
+      startedAt: Date.now() - 1000,
+      heartbeatAt: null,
+    });
+
+    const result = await getActiveRunForThreadAsync("thread-errored");
+
+    expect(result).toMatchObject({
+      runId: "run-recent-errored",
+      status: "errored",
+    });
   });
 
   it("synthesizes an explicit error for errored SQL runs missing terminal events", async () => {
