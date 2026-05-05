@@ -647,8 +647,8 @@ ${
       </div>
       <div class="verification-panel">
         <p class="verification-kicker">Verification email sent</p>
-        <p class="verification-copy">We sent a secure link to <strong id="verify-email"></strong>. When you click it, this app will finish signing you in automatically.</p>
-        <p class="verification-note">You can keep this tab open. After verifying, use Continue if the app has not refreshed yet.</p>
+        <p class="verification-copy">We sent a secure link to <strong id="verify-email"></strong>. Click it, return here, and this app will finish signing you in automatically.</p>
+        <p class="verification-note">You can keep this tab open. If it has not refreshed after you come back, use Continue.</p>
       </div>
       <button type="button" class="btn-primary" id="verify-continue">Continue</button>
       <div class="inline-actions">
@@ -733,6 +733,8 @@ ${
     var subtitles = { signup: 'Create an account to get started', login: 'Sign in to your account' };
     var headings = { signup: 'Welcome', login: 'Welcome back' };
     var pendingSignupEmail = '';
+    var pendingSignupPassword = '';
+    var verificationCheckInFlight = false;
     function setActiveTab(name, opts) {
       if (name !== 'signup' && name !== 'login') return;
       var form = document.getElementById(name + '-form');
@@ -752,8 +754,9 @@ ${
         try { localStorage.setItem(TAB_STORAGE_KEY, name); } catch (e) {}
       }
     }
-    function showVerificationStep(email) {
+    function showVerificationStep(email, password) {
       pendingSignupEmail = email || '';
+      pendingSignupPassword = password || '';
       tabs.forEach(function(x) { x.classList.remove('active'); });
       forms.forEach(function(x) { x.classList.remove('active'); });
       var card = document.querySelector('.card');
@@ -780,9 +783,67 @@ ${
       }
       return document.getElementById('l-msg') || document.getElementById('verify-msg');
     }
-    async function checkVerificationSession(fallbackText) {
-      var msg = getVerificationMessageNode();
+    function isVerificationStepActive() {
+      var verifyStep = document.getElementById('verification-step');
+      return !!(verifyStep && verifyStep.classList.contains('active'));
+    }
+    function getPendingSignupEmail() {
+      var signupEmail = document.getElementById('s-email');
+      var loginEmail = document.getElementById('l-email');
+      return (pendingSignupEmail || (signupEmail && signupEmail.value) || (loginEmail && loginEmail.value) || '').trim();
+    }
+    function getPendingSignupPassword() {
+      var signupPassword = document.getElementById('s-pass');
+      return pendingSignupPassword || (signupPassword && signupPassword.value) || '';
+    }
+    function movePendingSignupToLogin(message) {
+      var email = getPendingSignupEmail();
+      setActiveTab('login', { persist: true });
+      var loginEmail = document.getElementById('l-email');
+      var loginPassword = document.getElementById('l-pass');
+      var msg = document.getElementById('l-msg');
+      if (loginEmail && email) loginEmail.value = email;
       if (msg) {
+        msg.textContent = message || 'Sign in to continue.';
+        msg.classList.remove('error');
+        msg.classList.add('show', 'success');
+      }
+      setTimeout(function() { if (loginPassword) loginPassword.focus(); }, 0);
+    }
+    async function signInWithPendingSignup() {
+      var email = getPendingSignupEmail();
+      var password = getPendingSignupPassword();
+      if (!email || !password) {
+        return { ok: false, needsManualSignIn: true };
+      }
+      var res = await fetch(__anPath('/_agent-native/auth/login'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email, password: password }),
+      });
+      if (res.ok) {
+        window.location.reload();
+        return { ok: true };
+      }
+      var data = await res.json().catch(function() { return {}; });
+      var error = (data && (data.error || data.message)) || 'Could not finish sign-in automatically.';
+      return {
+        ok: false,
+        error: error,
+        isWaitingForVerification: /not verified|verification/i.test(error),
+      };
+    }
+    async function checkVerificationSession(fallbackText, opts) {
+      opts = opts || {};
+      if (verificationCheckInFlight) return;
+      verificationCheckInFlight = true;
+      var msg = getVerificationMessageNode();
+      var continueBtn = document.getElementById('verify-continue');
+      if (continueBtn && !opts.silent) {
+        continueBtn.disabled = true;
+        continueBtn.textContent = 'Checking...';
+      }
+      if (msg && !opts.silent) {
         msg.textContent = 'Checking your verification...';
         msg.classList.remove('error');
         msg.classList.add('show', 'success');
@@ -796,18 +857,42 @@ ${
           window.location.reload();
           return;
         }
-        if (msg) {
+        var loginResult = await signInWithPendingSignup();
+        if (loginResult.ok) return;
+        if (loginResult.needsManualSignIn) {
+          if (!opts.silent) {
+            movePendingSignupToLogin(fallbackText || 'Enter your password after verifying your email.');
+          }
+          return;
+        }
+        if (loginResult.error && !loginResult.isWaitingForVerification) {
+          if (!opts.silent) {
+            movePendingSignupToLogin('We could not finish sign-in automatically. Sign in to continue.');
+          }
+          return;
+        }
+        if (msg && !opts.silent) {
           msg.textContent = fallbackText || 'Still waiting on verification. Click the link in your email, then try Continue again.';
           msg.classList.remove('success');
           msg.classList.add('show', 'error');
         }
       } catch (err) {
-        if (msg) {
+        if (msg && !opts.silent) {
           msg.textContent = 'Could not check verification. Please try again.';
           msg.classList.remove('success');
           msg.classList.add('show', 'error');
         }
+      } finally {
+        verificationCheckInFlight = false;
+        if (continueBtn && !opts.silent) {
+          continueBtn.disabled = false;
+          continueBtn.textContent = 'Continue';
+        }
       }
+    }
+    function maybeCompleteVerificationAfterReturn() {
+      if (!isVerificationStepActive()) return;
+      checkVerificationSession(null, { silent: true });
     }
     async function resendVerificationEmail() {
       var btn = document.getElementById('resend-verification');
@@ -941,7 +1026,7 @@ ${
         }
           btn.disabled = false;
           btn.textContent = originalLabel;
-          showVerificationStep(email);
+          showVerificationStep(email, pass);
           return;
         }
       msg.textContent = data.error || 'Registration failed';
@@ -960,6 +1045,10 @@ ${
     if (verifyContinue) verifyContinue.addEventListener('click', function(e) {
       e.preventDefault();
       checkVerificationSession();
+    });
+    window.addEventListener('focus', maybeCompleteVerificationAfterReturn);
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'visible') maybeCompleteVerificationAfterReturn();
     });
     var resendBtn = document.getElementById('resend-verification');
     if (resendBtn) resendBtn.addEventListener('click', function(e) {
