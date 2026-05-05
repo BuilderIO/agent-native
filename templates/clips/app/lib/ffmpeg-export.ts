@@ -54,48 +54,75 @@ export interface ExportResult {
 export const LONG_EXPORT_THRESHOLD_MS = 10 * 60 * 1000;
 
 let ffmpegInstancePromise: Promise<any> | null = null;
+let ffmpegLogListeners: Array<(msg: string) => void> = [];
 
 /**
  * Lazy-load ffmpeg.wasm once per tab. Subsequent calls resolve to the same
  * instance. The wasm core is fetched from the CDN matching the version we
  * declared in package.json.
+ *
+ * Multiple callers may pass `onLog` — every listener registered through this
+ * function is invoked for every wasm log line. Pair each `onLog` with a later
+ * `removeFfmpegLogListener(onLog)` so failed paths (e.g. compression error)
+ * don't leak subscribers across recordings.
  */
 export async function loadFfmpeg(onLog?: (msg: string) => void): Promise<any> {
   if (typeof window === "undefined") {
     throw new Error("ffmpeg.wasm is only available in the browser");
   }
-  if (ffmpegInstancePromise) return ffmpegInstancePromise;
-
-  ffmpegInstancePromise = (async () => {
-    const [{ FFmpeg }, util] = await Promise.all([
-      import("@ffmpeg/ffmpeg"),
-      import("@ffmpeg/util"),
-    ]);
-    const ffmpeg = new FFmpeg();
-    if (onLog) {
+  if (!ffmpegInstancePromise) {
+    ffmpegInstancePromise = (async () => {
+      const [{ FFmpeg }, util] = await Promise.all([
+        import("@ffmpeg/ffmpeg"),
+        import("@ffmpeg/util"),
+      ]);
+      const ffmpeg = new FFmpeg();
+      // Single shared `log` subscription that fans out to every caller's
+      // optional logger. Subscribing per-call against the wasm instance
+      // would mean we'd have to track every (instance, listener) pair
+      // for cleanup; instead we keep one wasm subscription and a small
+      // module-level listener list.
       ffmpeg.on("log", ({ message }: { message: string }) => {
-        onLog(message);
+        for (const listener of ffmpegLogListeners) {
+          try {
+            listener(message);
+          } catch {
+            // a busted listener must not block the others.
+          }
+        }
       });
-    }
-    // Match the version of @ffmpeg/ffmpeg installed in package.json.
-    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
-    await ffmpeg.load({
-      coreURL: await util.toBlobURL(
-        `${baseURL}/ffmpeg-core.js`,
-        "text/javascript",
-      ),
-      wasmURL: await util.toBlobURL(
-        `${baseURL}/ffmpeg-core.wasm`,
-        "application/wasm",
-      ),
+      // Match the version of @ffmpeg/ffmpeg installed in package.json.
+      const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+      await ffmpeg.load({
+        coreURL: await util.toBlobURL(
+          `${baseURL}/ffmpeg-core.js`,
+          "text/javascript",
+        ),
+        wasmURL: await util.toBlobURL(
+          `${baseURL}/ffmpeg-core.wasm`,
+          "application/wasm",
+        ),
+      });
+      return ffmpeg;
+    })().catch((err) => {
+      ffmpegInstancePromise = null;
+      throw err;
     });
-    return ffmpeg;
-  })().catch((err) => {
-    ffmpegInstancePromise = null;
-    throw err;
-  });
+  }
+
+  if (onLog) {
+    ffmpegLogListeners.push(onLog);
+  }
 
   return ffmpegInstancePromise;
+}
+
+/**
+ * Remove a log listener registered via `loadFfmpeg`. Safe to call with a
+ * listener that was never registered.
+ */
+export function removeFfmpegLogListener(listener: (msg: string) => void): void {
+  ffmpegLogListeners = ffmpegLogListeners.filter((l) => l !== listener);
 }
 
 /**

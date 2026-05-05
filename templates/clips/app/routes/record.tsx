@@ -58,6 +58,7 @@ type UiState =
   | "pickingSources"
   | "countdown"
   | "recording"
+  | "compressing"
   | "uploading"
   | "complete"
   | "error";
@@ -137,6 +138,12 @@ export default function RecordRoute() {
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [recordingMode, setRecordingMode] =
     useState<RecordingMode>("screen+camera");
+  // Surfaced during the post-stop compression pass so the spinner can show
+  // "Compressing… 42%" instead of "Saving your recording…" — otherwise
+  // multi-minute encodes on long screen recordings look frozen.
+  const [compressionProgress, setCompressionProgress] = useState<number | null>(
+    null,
+  );
 
   const [storageConfigured, setStorageConfigured] = useState<boolean | null>(
     null,
@@ -314,6 +321,23 @@ export default function RecordRoute() {
             setError(err.message);
             setUiState("error");
           },
+          onState: (state) => {
+            // Mirror the engine's compression pass into the UI so the
+            // "Saving your recording…" spinner becomes "Compressing…" for
+            // the duration. Other engine states are managed by the UI's
+            // own state machine in startFlow / doStop.
+            if (state === "compressing") {
+              setUiState("compressing");
+            } else if (state === "uploading") {
+              // Reset compression progress when the engine moves on to
+              // upload — applies whether or not we just came from
+              // compressing.
+              setCompressionProgress(null);
+              // Always sync the UI back to "uploading"; if we were already
+              // there from doStop's pre-stop transition, this is a no-op.
+              setUiState("uploading");
+            }
+          },
           onChunk: ({ index, bytes }) => {
             void writeAppState(`recording-upload-${info.id}`, {
               recordingId: info.id,
@@ -330,6 +354,19 @@ export default function RecordRoute() {
           // though startFlow itself has empty deps.
           onDisplayTrackEnded: () => {
             void doStopRef.current();
+          },
+          onCompressionProgress: ({ stage, progress }) => {
+            // The recorder engine is responsible for transitioning into the
+            // `compressing` state. We mirror that into the UI via the
+            // generic onState handler below; here we just track the
+            // numeric progress so the spinner can show a percentage.
+            if (stage === "encoding" && typeof progress === "number") {
+              setCompressionProgress(progress);
+            } else if (stage === "loading-ffmpeg" || stage === "preparing") {
+              setCompressionProgress(null);
+            } else if (stage === "finalizing") {
+              setCompressionProgress(1);
+            }
           },
         });
         engineRef.current = engine;
@@ -850,7 +887,10 @@ export default function RecordRoute() {
   // -------------------------------------------------------------------------
   // Render.
   // -------------------------------------------------------------------------
-  const showRecordingUi = uiState === "recording" || uiState === "uploading";
+  const showRecordingUi =
+    uiState === "recording" ||
+    uiState === "uploading" ||
+    uiState === "compressing";
   const showCameraBubble =
     cameraStream !== null && recordingMode !== "screen" && uiState !== "idle";
 
@@ -986,11 +1026,27 @@ export default function RecordRoute() {
         />
       )}
 
-      {/* Uploading overlay */}
-      {uiState === "uploading" && (
+      {/* Uploading overlay (also covers the compressing pass which can run
+          for several minutes on long recordings — without a distinct copy
+          users wonder if the app froze). */}
+      {(uiState === "uploading" || uiState === "compressing") && (
         <div className="fixed inset-0 z-[120] flex flex-col items-center justify-center gap-3 bg-black/70 text-white backdrop-blur">
           <Spinner className="h-10 w-10 text-white/70" />
-          <div className="text-sm">Saving your recording…</div>
+          {uiState === "compressing" ? (
+            <>
+              <div className="text-sm">
+                Compressing your recording
+                {compressionProgress !== null
+                  ? ` — ${Math.round(compressionProgress * 100)}%`
+                  : "…"}
+              </div>
+              <div className="text-[11px] text-white/50">
+                Large clips need a quick re-encode before upload.
+              </div>
+            </>
+          ) : (
+            <div className="text-sm">Saving your recording…</div>
+          )}
           <button
             onClick={doCancel}
             className="mt-1 text-xs text-white/50 underline-offset-2 hover:text-white/80 hover:underline"
