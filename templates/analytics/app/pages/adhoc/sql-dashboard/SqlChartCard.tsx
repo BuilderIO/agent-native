@@ -77,7 +77,7 @@ export function SqlChartCard({
       <div
         ref={setNodeRef}
         style={style}
-        className="group relative md:col-span-2 mt-2 first:mt-0"
+        className="group relative mt-2 first:mt-0"
       >
         <div className="flex items-center gap-2 border-b border-border pb-2">
           <h2 className="text-base font-semibold flex-1">{panel.title}</h2>

@@ -18,6 +18,7 @@ import {
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
+import { getThemeInitScript } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { TAB_ID } from "@/lib/tab-id";
 import type { LinksFunction } from "react-router";
@@ -34,6 +35,8 @@ export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
 
+const THEME_INIT_SCRIPT = getThemeInitScript();
+
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
@@ -43,6 +46,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           name="viewport"
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
         <meta name="theme-color" content="#2563EB" />
         <meta name="mobile-web-app-capable" content="yes" />
@@ -132,13 +136,14 @@ function DbSyncSetup() {
 }
 
 function ThemeToggleItem() {
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
   return (
     <CommandMenu.Item
-      onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
+      onSelect={() => setTheme(isDark ? "light" : "dark")}
       keywords={["theme", "dark", "light", "mode"]}
     >
-      {theme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
+      {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
       Toggle theme
     </CommandMenu.Item>
   );

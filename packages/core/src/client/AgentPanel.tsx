@@ -227,6 +227,8 @@ export interface AgentPanelProps extends Omit<
   devAppUrl?: string;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
   storageKey?: string;
+  /** Optional notice rendered below the main header while Chat mode is active. */
+  chatNotice?: React.ReactNode;
 }
 
 function useClientOnly() {
@@ -247,6 +249,7 @@ function AgentPanelInner({
   onToggleFullscreen,
   devAppUrl,
   storageKey,
+  chatNotice,
 }: AgentPanelProps) {
   const mounted = useClientOnly();
   const keyPrefix = storageKey ? `:${storageKey}` : "";
@@ -621,6 +624,9 @@ function AgentPanelInner({
             {renderHeaderActions()}
           </div>
         </div>
+        {mode === "chat" && chatNotice ? (
+          <div className="border-b border-border">{chatNotice}</div>
+        ) : null}
         {/* Tab bar: always visible for chat and CLI */}
         {(mode === "chat" || mode === "cli") &&
           (() => {
@@ -1060,6 +1066,7 @@ function AgentPanelInner({
       mode,
       renderHeaderActions,
       renderModeButtons,
+      chatNotice,
       cliTabs,
       activeCliTab,
       addCliTab,

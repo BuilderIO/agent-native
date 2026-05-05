@@ -28,6 +28,7 @@ import type { LinksFunction } from "react-router";
 import { dispatchExtensions } from "./dispatch-extensions";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
+import { getThemeInitScript } from "@agent-native/core/client";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -39,6 +40,8 @@ export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
 
+const THEME_INIT_SCRIPT = getThemeInitScript();
+
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
@@ -48,6 +51,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           name="viewport"
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#0f172a" />
         <meta name="mobile-web-app-capable" content="yes" />
@@ -140,13 +144,14 @@ function useThreadDeepLink() {
 }
 
 function ThemeToggleItem() {
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
   return (
     <CommandMenu.Item
-      onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
+      onSelect={() => setTheme(isDark ? "light" : "dark")}
       keywords={["theme", "dark", "light", "mode"]}
     >
-      {theme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
+      {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
       Toggle theme
     </CommandMenu.Item>
   );

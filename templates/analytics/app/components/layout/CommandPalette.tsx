@@ -80,7 +80,8 @@ async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
   const { data: savedCharts = [] } = useQuery({
     queryKey: ["explorer-configs-palette"],
@@ -179,15 +180,15 @@ export function CommandPalette() {
 
         <CommandGroup heading="Appearance">
           <CommandItem
-            onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
+            onSelect={() => setTheme(isDark ? "light" : "dark")}
             keywords={["theme", "dark", "light", "mode"]}
           >
-            {theme === "dark" ? (
+            {isDark ? (
               <IconSun className="mr-2 h-4 w-4 text-muted-foreground" />
             ) : (
               <IconMoon className="mr-2 h-4 w-4 text-muted-foreground" />
             )}
-            Toggle {theme === "dark" ? "light" : "dark"} mode
+            Toggle {isDark ? "light" : "dark"} mode
           </CommandItem>
         </CommandGroup>
 
