@@ -13,6 +13,10 @@
     "url": "https://github.com/BuilderIO/agent-native/issues"
   },
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "exports": {
     ".": "./dist/index.js",
     "./routes": "./dist/routes/index.js",
