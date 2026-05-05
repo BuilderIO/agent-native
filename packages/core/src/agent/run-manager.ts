@@ -34,6 +34,9 @@ const CLEANUP_DELAY_MS = 5 * 60 * 1000;
 /** Default run chunk budget for hosted/serverless deploys. */
 export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 55_000;
 
+/** Default SQL retention for completed/errored run event logs (24 hours). */
+export const DEFAULT_COMPLETED_RUN_RETENTION_MS = 24 * 60 * 60 * 1000;
+
 export interface StartRunOptions {
   /** Optional internal run chunk budget. When reached, the framework emits an
    * auto-continuation signal instead of a user-facing timeout. Leave unset for
@@ -77,6 +80,15 @@ export function resolveRunSoftTimeoutMs(
   return options?.useHostedDefault && isHostedRuntime()
     ? DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS
     : 0;
+}
+
+export function resolveCompletedRunRetentionMs(): number {
+  const envValue = process.env.AGENT_RUN_RETENTION_MS;
+  if (envValue !== undefined) {
+    const raw = Number(envValue);
+    if (Number.isFinite(raw) && raw >= 0) return raw;
+  }
+  return DEFAULT_COMPLETED_RUN_RETENTION_MS;
 }
 
 function isTerminalRunEvent(event: AgentChatEvent): boolean {
@@ -320,7 +332,7 @@ export function startRun(
           threadToRun.delete(threadId);
         }
       }, CLEANUP_DELAY_MS);
-      cleanupOldRuns(30 * 60 * 1000).catch(() => {});
+      cleanupOldRuns(resolveCompletedRunRetentionMs()).catch(() => {});
     });
 
   // On Cloudflare Workers, keep the isolate alive for this run
@@ -522,6 +534,36 @@ function subscribeFromSQL(
                   controller.enqueue(
                     encoder.encode(
                       `data: ${JSON.stringify({ type: "done", seq: lastSeq })}\n\n`,
+                    ),
+                  );
+                } catch {
+                  cancelled = true;
+                  return;
+                }
+              } else if (run?.status === "completed") {
+                try {
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({ type: "done", seq: lastSeq })}\n\n`,
+                    ),
+                  );
+                } catch {
+                  cancelled = true;
+                  return;
+                }
+              } else if (run?.status === "errored") {
+                try {
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({
+                        type: "error",
+                        error:
+                          "Agent run ended before its final error event was persisted.",
+                        errorCode: "run_terminal_event_missing",
+                        details:
+                          "The persisted run status is errored, but no terminal SSE event was available during reconnect.",
+                        seq: lastSeq,
+                      })}\n\n`,
                     ),
                   );
                 } catch {

@@ -131,6 +131,17 @@ export interface UrlExtractionResult {
   favicon?: string;
 }
 
+export interface GitHubFetchOptions {
+  token?: string | null;
+}
+
+export interface GitHubJsonResult<T = unknown> {
+  ok: boolean;
+  status: number;
+  data: T | null;
+  message?: string;
+}
+
 // ---------------------------------------------------------------------------
 // SSRF Guard
 // ---------------------------------------------------------------------------
@@ -174,20 +185,75 @@ export function parseOwnerRepo(raw: string): {
   owner: string;
   repo: string;
 } {
-  const shorthand = raw.match(/^([^/]+)\/([^/]+)$/);
+  const cleaned = raw
+    .trim()
+    .replace(/[?#].*$/, "")
+    .replace(/\/+$/, "");
+
+  const sshMatch = cleaned.match(
+    /^(?:ssh:\/\/)?git@github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/,
+  );
+  if (sshMatch) {
+    return { owner: sshMatch[1], repo: sshMatch[2] };
+  }
+
+  const shorthand = cleaned.match(/^([^/\s]+)\/([^/\s]+?)(?:\.git)?$/);
   if (shorthand) {
     return { owner: shorthand[1], repo: shorthand[2] };
   }
-  const urlMatch = raw.match(
-    /github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/.*)?$/,
+  const urlMatch = cleaned.match(
+    /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?(?:\/.*)?$/,
   );
   if (urlMatch) {
     return { owner: urlMatch[1], repo: urlMatch[2] };
   }
   throw new Error(
     "Could not parse GitHub owner/repo from URL. " +
-      'Expected format: "https://github.com/org/repo" or "org/repo"',
+      'Expected format: "https://github.com/org/repo", "org/repo", or "git@github.com:org/repo.git"',
   );
+}
+
+/** Fetch a path from the GitHub Contents API as JSON. Returns null on error. */
+function githubHeaders(
+  accept: string,
+  options: GitHubFetchOptions = {},
+): Record<string, string> {
+  return {
+    Accept: accept,
+    "User-Agent": "AgentNative/1.0",
+    ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+  };
+}
+
+/** Fetch a path from the GitHub Contents API as JSON with status details. */
+export async function fetchGitHubJsonResult<T = unknown>(
+  owner: string,
+  repo: string,
+  path: string,
+  options: GitHubFetchOptions = {},
+): Promise<GitHubJsonResult<T>> {
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+  validateUrl(url);
+  const res = await fetch(url, {
+    headers: githubHeaders("application/vnd.github.v3+json", options),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT),
+  });
+  if (!res.ok) {
+    let message: string | undefined;
+    try {
+      const body = (await res.json()) as { message?: unknown };
+      if (typeof body.message === "string") message = body.message;
+    } catch {
+      try {
+        const text = await res.text();
+        if (text) message = text.slice(0, 200);
+      } catch {
+        // Keep the status-only result.
+      }
+    }
+    return { ok: false, status: res.status, data: null, message };
+  }
+  return { ok: true, status: res.status, data: (await res.json()) as T };
 }
 
 /** Fetch a path from the GitHub Contents API as JSON. Returns null on error. */
@@ -195,18 +261,10 @@ export async function fetchGitHubJson(
   owner: string,
   repo: string,
   path: string,
+  options: GitHubFetchOptions = {},
 ): Promise<unknown> {
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
-  validateUrl(url);
-  const res = await fetch(url, {
-    headers: {
-      Accept: "application/vnd.github.v3+json",
-      "User-Agent": "AgentNative/1.0",
-    },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT),
-  });
-  if (!res.ok) return null;
-  return res.json();
+  const result = await fetchGitHubJsonResult(owner, repo, path, options);
+  return result.ok ? result.data : null;
 }
 
 /** Fetch raw file content from the GitHub Contents API. Returns null on error or oversize. */
@@ -214,14 +272,12 @@ export async function fetchGitHubRaw(
   owner: string,
   repo: string,
   path: string,
+  options: GitHubFetchOptions = {},
 ): Promise<string | null> {
   const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
   validateUrl(url);
   const res = await fetch(url, {
-    headers: {
-      Accept: "application/vnd.github.v3.raw",
-      "User-Agent": "AgentNative/1.0",
-    },
+    headers: githubHeaders("application/vnd.github.v3.raw", options),
     signal: AbortSignal.timeout(FETCH_TIMEOUT),
   });
   if (!res.ok) return null;

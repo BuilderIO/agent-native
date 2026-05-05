@@ -84,12 +84,9 @@ As you build out this app, follow this checklist for each new feature:
 
 ### Authentication
 
-Auth is automatic and environment-driven:
+This template uses the framework's default auth — Better Auth, with email/password and optional Google / GitHub social providers. New users create an account on first visit. Use `getSession(event)` server-side and `useSession()` client-side.
 
-- **Dev mode**: Auth is bypassed. `getSession()` returns `{ email: "local@localhost" }`.
-- **Production** (`ACCESS_TOKEN` set): Auth middleware auto-mounts.
-
-Use `getSession(event)` server-side and `useSession()` client-side.
+See the `authentication` skill for the full mode matrix (`AUTH_MODE=local` for solo dev, `ACCESS_TOKEN` for shared-token deploys, `AUTH_DISABLED` for infrastructure auth, BYOA for custom providers) and the `security` skill for per-user / per-org data scoping.
 
 ### UI Components
 

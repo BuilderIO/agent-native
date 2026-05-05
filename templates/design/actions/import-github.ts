@@ -1,9 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+import { resolveSecret } from "@agent-native/core/server";
 import {
   validateUrl,
   parseOwnerRepo,
   fetchGitHubJson,
+  fetchGitHubJsonResult,
   fetchGitHubRaw,
   parseTailwindConfig,
   parseCss,
@@ -15,11 +17,45 @@ import {
   COLOR_VAR_PATTERN,
 } from "@agent-native/core/server/design-token-utils";
 
+function githubAccessError(
+  owner: string,
+  repo: string,
+  status: number,
+  hasToken: boolean,
+  message?: string,
+): Error {
+  const repoLabel = `${owner}/${repo}`;
+  const suffix = message ? ` GitHub said: ${message}` : "";
+
+  if (!hasToken && (status === 401 || status === 403 || status === 404)) {
+    return new Error(
+      `Could not access ${repoLabel}. Public repositories work without setup; private repositories require a fine-grained GitHub personal access token saved as GITHUB_TOKEN in Settings > Secrets. Limit the token to this repository and grant Repository permissions > Contents: Read-only.${suffix}`,
+    );
+  }
+
+  if (hasToken && (status === 401 || status === 403 || status === 404)) {
+    return new Error(
+      `Could not access ${repoLabel} with the saved GITHUB_TOKEN. Check that the token is not expired, the repository is selected for the token, organization SSO/approval is complete, and Repository permissions > Contents is set to Read-only.${suffix}`,
+    );
+  }
+
+  if (status === 429) {
+    return new Error(
+      `GitHub rate-limited requests for ${repoLabel}. Save a GITHUB_TOKEN in Settings > Secrets or try again after the rate limit resets.${suffix}`,
+    );
+  }
+
+  return new Error(
+    `Could not list repository contents for ${repoLabel} (GitHub returned ${status || "an error"}).${suffix}`,
+  );
+}
+
 export default defineAction({
   description:
-    "Import design tokens from a public GitHub repository. " +
+    "Import design tokens from a GitHub repository. " +
     "Reads Tailwind configs, CSS files, theme/token files, and package.json " +
-    "to extract colors, fonts, spacing, and CSS custom properties.",
+    "to extract colors, fonts, spacing, and CSS custom properties. " +
+    "Private repositories require a saved GITHUB_TOKEN secret; never ask users to paste a token into chat.",
   schema: z.object({
     repoUrl: z
       .string()
@@ -31,6 +67,8 @@ export default defineAction({
   http: { method: "GET" },
   run: async ({ repoUrl }) => {
     const { owner, repo } = parseOwnerRepo(repoUrl.trim());
+    const githubToken = await resolveSecret("GITHUB_TOKEN");
+    const githubOptions = { token: githubToken };
 
     validateUrl(`https://api.github.com/repos/${owner}/${repo}`);
 
@@ -39,7 +77,7 @@ export default defineAction({
 
     async function collectFile(path: string): Promise<void> {
       if (fetchedCount >= MAX_FILES) return;
-      const content = await fetchGitHubRaw(owner, repo, path);
+      const content = await fetchGitHubRaw(owner, repo, path, githubOptions);
       if (content) {
         rawFiles[path] = content;
         fetchedCount++;
@@ -47,16 +85,22 @@ export default defineAction({
     }
 
     // 1. List repository root
-    const rootListing = (await fetchGitHubJson(owner, repo, "")) as Array<{
-      name: string;
-      type: string;
-      size?: number;
-    }> | null;
+    const rootResult = await fetchGitHubJsonResult<
+      Array<{
+        name: string;
+        type: string;
+        size?: number;
+      }>
+    >(owner, repo, "", githubOptions);
+    const rootListing = rootResult.data;
 
-    if (!rootListing || !Array.isArray(rootListing)) {
-      throw new Error(
-        `Could not list repository contents for ${owner}/${repo}. ` +
-          "Ensure the repository is public and the URL is correct.",
+    if (!rootResult.ok || !Array.isArray(rootListing)) {
+      throw githubAccessError(
+        owner,
+        repo,
+        rootResult.status,
+        !!githubToken,
+        rootResult.message,
       );
     }
 
@@ -86,6 +130,7 @@ export default defineAction({
               owner,
               repo,
               path,
+              githubOptions,
             )) as Array<{
               name: string;
               type: string;

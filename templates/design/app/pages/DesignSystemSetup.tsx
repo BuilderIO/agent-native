@@ -252,7 +252,7 @@ export default function DesignSystemSetup() {
 
     if (githubLinks.length > 0) {
       parts.push(
-        `\n## GitHub Repositories\nExtract design tokens from code. Call \`import-github\` for each:\n${githubLinks.map((l) => `- ${l.url}`).join("\n")}`,
+        `\n## GitHub Repositories\nExtract design tokens from code. Call \`import-github\` for each:\n${githubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nIf a repository is private or GitHub denies access, tell me to save a fine-grained GitHub token as \`GITHUB_TOKEN\` in Settings > Secrets. The token should be limited to the repository with Repository permissions > Contents: Read-only. Do not ask me to paste a PAT into chat.`,
       );
     }
 
@@ -479,6 +479,16 @@ export default function DesignSystemSetup() {
                     Add
                   </Button>
                 </div>
+                <p className="mt-2 text-xs text-muted-foreground/80">
+                  Private repos need a fine-grained token saved as{" "}
+                  <a
+                    href="/settings#secrets:GITHUB_TOKEN"
+                    className="font-medium text-foreground/80 underline-offset-2 hover:underline"
+                  >
+                    GITHUB_TOKEN
+                  </a>{" "}
+                  with Contents read access.
+                </p>
                 {githubLinks.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {githubLinks.map((link) => (

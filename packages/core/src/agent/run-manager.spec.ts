@@ -18,7 +18,9 @@ vi.mock("./run-store.js", () => ({
 
 import {
   abortRun,
+  DEFAULT_COMPLETED_RUN_RETENTION_MS,
   DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
+  resolveCompletedRunRetentionMs,
   resolveRunSoftTimeoutMs,
   startRun,
   subscribeToRun,
@@ -31,6 +33,7 @@ import {
 } from "./run-store.js";
 
 const originalTimeoutEnv = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
+const originalRetentionEnv = process.env.AGENT_RUN_RETENTION_MS;
 const originalNetlify = process.env.NETLIFY;
 const originalNetlifyLocal = process.env.NETLIFY_LOCAL;
 const originalCfPages = process.env.CF_PAGES;
@@ -42,6 +45,7 @@ const originalKService = process.env.K_SERVICE;
 
 function clearHostedEnvForTest() {
   delete process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
+  delete process.env.AGENT_RUN_RETENTION_MS;
   delete process.env.NETLIFY;
   delete process.env.NETLIFY_LOCAL;
   delete process.env.CF_PAGES;
@@ -56,6 +60,9 @@ function restoreHostedEnvAfterTest() {
   if (originalTimeoutEnv === undefined)
     delete process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
   else process.env.AGENT_RUN_SOFT_TIMEOUT_MS = originalTimeoutEnv;
+  if (originalRetentionEnv === undefined)
+    delete process.env.AGENT_RUN_RETENTION_MS;
+  else process.env.AGENT_RUN_RETENTION_MS = originalRetentionEnv;
   if (originalNetlify === undefined) delete process.env.NETLIFY;
   else process.env.NETLIFY = originalNetlify;
   if (originalNetlifyLocal === undefined) delete process.env.NETLIFY_LOCAL;
@@ -161,6 +168,18 @@ describe("run manager soft timeout", () => {
     expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
       0,
     );
+  });
+
+  it("keeps persisted run events for a day by default", () => {
+    expect(resolveCompletedRunRetentionMs()).toBe(
+      DEFAULT_COMPLETED_RUN_RETENTION_MS,
+    );
+  });
+
+  it("allows run event retention to be configured by environment", () => {
+    process.env.AGENT_RUN_RETENTION_MS = "60000";
+
+    expect(resolveCompletedRunRetentionMs()).toBe(60000);
   });
 
   it("retires explicitly aborted in-memory runs while preserving completion callbacks", async () => {
@@ -302,5 +321,55 @@ describe("run manager soft timeout", () => {
 
     expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
     expect(getRunEventsSince).toHaveBeenCalledWith("run-sql-aborted", 0);
+  });
+
+  it("synthesizes done for completed SQL runs missing terminal events", async () => {
+    vi.mocked(getRunById).mockResolvedValue({
+      id: "run-sql-completed",
+      threadId: "thread-sql-completed",
+      status: "completed",
+      startedAt: Date.now(),
+    });
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+
+    const stream = subscribeToRun("run-sql-completed", 0);
+    expect(stream).not.toBeNull();
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
+  });
+
+  it("synthesizes an explicit error for errored SQL runs missing terminal events", async () => {
+    vi.mocked(getRunById).mockResolvedValue({
+      id: "run-sql-errored",
+      threadId: "thread-sql-errored",
+      status: "errored",
+      startedAt: Date.now(),
+    });
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+
+    const stream = subscribeToRun("run-sql-errored", 0);
+    expect(stream).not.toBeNull();
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    const output = chunks.join("");
+    expect(output).toContain('"type":"error"');
+    expect(output).toContain('"errorCode":"run_terminal_event_missing"');
   });
 });

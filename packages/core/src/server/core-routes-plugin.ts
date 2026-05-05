@@ -910,17 +910,31 @@ export function createCoreRoutesPlugin(
         try {
           const { writeBuilderCredentials } =
             await import("./credential-provider.js");
-          await writeBuilderCredentials(session.email, {
-            privateKey,
-            publicKey,
-            userId,
-            orgName,
-            orgKind,
-          });
+          // Resolve the user's active org / role so the credentials land
+          // at org scope when an owner/admin is connecting (everyone in
+          // the org auto-resolves them on next chat call). Members and
+          // users with no active org silently fall back to user scope.
+          // Failure to read org context is non-fatal — we just keep the
+          // legacy per-user behaviour for that connection.
+          let orgId: string | null = null;
+          let role: string | null = null;
+          try {
+            const { getOrgContext } = await import("../org/context.js");
+            const orgCtx = await getOrgContext(event);
+            orgId = orgCtx.orgId ?? null;
+            role = orgCtx.role ?? null;
+          } catch {
+            /* org module not present in this template — keep user scope */
+          }
+          await writeBuilderCredentials(
+            session.email,
+            { privateKey, publicKey, userId, orgName, orgKind },
+            { orgId, role },
+          );
         } catch (err) {
           writeError = (err as Error)?.message ?? String(err);
           console.error(
-            "[builder] Failed to persist per-user credentials:",
+            "[builder] Failed to persist Builder credentials:",
             writeError,
           );
         }
@@ -1006,9 +1020,25 @@ export function createCoreRoutesPlugin(
           };
         }
 
-        // Delete per-user Builder credentials from app_secrets.
+        // Mirror the connect-side scope decision so disconnect undoes
+        // exactly what connect wrote: owner/admin connections land at
+        // org scope and tear down at org scope; member or no-org
+        // connections stay user-scoped on both ends. Symmetric, so a
+        // single Disconnect press always reverses what the same user's
+        // Connect press did.
+        let orgId: string | null = null;
+        let role: string | null = null;
         try {
-          await deleteBuilderCredentials(session.email);
+          const { getOrgContext } = await import("../org/context.js");
+          const orgCtx = await getOrgContext(event);
+          orgId = orgCtx.orgId ?? null;
+          role = orgCtx.role ?? null;
+        } catch {
+          /* org module not present — keep user scope */
+        }
+
+        try {
+          await deleteBuilderCredentials(session.email, { orgId, role });
         } catch (err) {
           trackBuilderLifecycle("builder disconnect failed", session.email, {
             reason: "credential_delete_failed",

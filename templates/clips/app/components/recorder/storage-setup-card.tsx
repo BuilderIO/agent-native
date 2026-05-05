@@ -27,9 +27,15 @@ function BuilderBMark({ className }: { className?: string }) {
 
 export interface StorageSetupCardProps {
   onConfigured: () => void;
+  title?: string;
+  description?: string;
 }
 
-export function StorageSetupCard({ onConfigured }: StorageSetupCardProps) {
+export function StorageSetupCard({
+  onConfigured,
+  title = "Set up video storage",
+  description = "Connect a storage provider to start recording clips.",
+}: StorageSetupCardProps) {
   const [connecting, setConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -109,11 +115,9 @@ export function StorageSetupCard({ onConfigured }: StorageSetupCardProps) {
       <div>
         <div className="mb-1 flex items-center gap-2">
           <IconCloud className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-lg font-semibold">Set up video storage</h2>
+          <h2 className="text-lg font-semibold">{title}</h2>
         </div>
-        <p className="text-sm text-muted-foreground">
-          Connect a storage provider to start recording clips.
-        </p>
+        <p className="text-sm text-muted-foreground">{description}</p>
       </div>
 
       {/* Builder.io — primary option, one-click Connect flow. */}
