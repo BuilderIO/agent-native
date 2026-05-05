@@ -11,8 +11,10 @@ import {
 import { z } from "zod";
 
 const VIEW_QUERIES: Record<string, string> = {
-  inbox: "in:inbox",
-  unread: "is:unread in:inbox",
+  // Exclude SENT so replies the user wrote (which Gmail labels with both
+  // INBOX and SENT) don't appear in the inbox alongside received messages.
+  inbox: "in:inbox -in:sent",
+  unread: "is:unread in:inbox -in:sent",
   starred: "is:starred",
   sent: "in:sent",
   drafts: "in:drafts",
@@ -121,7 +123,7 @@ export default defineAction({
       const viewPrefix = VIEW_QUERIES[view] ?? `label:${view}`;
       const gmailQuery = [viewPrefix, query].filter(Boolean).join(" ");
       const effectiveQuery =
-        view === "all" && !query ? "" : gmailQuery || "in:inbox";
+        view === "all" && !query ? "" : gmailQuery || "in:inbox -in:sent";
       const { messages, errors } = await listGmailMessages(
         effectiveQuery,
         limit,

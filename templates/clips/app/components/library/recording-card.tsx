@@ -12,6 +12,7 @@ import {
   IconTrash,
   IconEdit,
   IconCheck,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -125,6 +126,14 @@ export function RecordingCard({
     [onToggleSelect, recording.id],
   );
 
+  const handleRemoveFailed = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onTrash?.(recording);
+    },
+    [onTrash, recording],
+  );
+
   return (
     <div
       role="article"
@@ -189,6 +198,29 @@ export function RecordingCard({
         {recording.status !== "ready" && (
           <div className="absolute top-2 right-2 rounded-full bg-black/80 px-2 py-0.5 text-[10px] font-medium text-white uppercase tracking-wide">
             {recording.status}
+          </div>
+        )}
+
+        {recording.status === "failed" && (
+          <div className="absolute inset-x-2 bottom-2 rounded-md border border-destructive/30 bg-background/95 p-2 text-left shadow-sm backdrop-blur">
+            <div className="flex items-start gap-2">
+              <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] font-medium text-foreground">
+                  Upload failed
+                </div>
+                <div className="line-clamp-2 text-[10px] leading-snug text-muted-foreground">
+                  {recording.failureReason ?? "Remove this failed clip."}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleRemoveFailed}
+                className="rounded border border-border px-1.5 py-0.5 text-[10px] text-foreground hover:bg-accent"
+              >
+                Remove
+              </button>
+            </div>
           </div>
         )}
       </div>

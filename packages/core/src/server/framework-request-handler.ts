@@ -335,6 +335,34 @@ function registerMiddleware(
         `[agent-native] ${event.method ?? ""} ${reqPath} failed (${status}):`,
         e?.stack || e?.message || e,
       );
+      // Forward 5xx to server-side Sentry — Nitro's own `error` hook may not
+      // fire here because we convert the throw into a normal JSON response,
+      // and a console.error alone is invisible in deployed environments.
+      // 4xx are user-input errors (validation, auth) and aren't worth
+      // alerting on. Lazy-loaded so the framework-request-handler module
+      // doesn't pull @sentry/node into bundles that don't need it.
+      if (status >= 500) {
+        // Static `import` would create a cycle (sentry.ts imports auth.ts
+        // which imports… eventually, framework-request-handler.ts).
+        import("./sentry.js")
+          .then(({ captureRouteError, isServerSentryEnabled }) => {
+            if (!isServerSentryEnabled()) return;
+            captureRouteError(err, {
+              route: reqPath,
+              method: event.method,
+              userAgent: (() => {
+                try {
+                  return event.headers?.get("user-agent") ?? undefined;
+                } catch {
+                  return undefined;
+                }
+              })(),
+            });
+          })
+          .catch(() => {
+            // Sentry is observability — never let it break a response path.
+          });
+      }
       try {
         setResponseStatus(event, status);
         setResponseHeader(event, "content-type", "application/json");
@@ -406,6 +434,7 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
       onboarding: (onboardingModule as any).defaultOnboardingPlugin,
       org: (orgModule as any).defaultOrgPlugin,
       resources: (serverModule as any).defaultResourcesPlugin,
+      sentry: (serverModule as any).defaultSentryPlugin,
       terminal: (terminalModule as any).defaultTerminalPlugin,
     };
 

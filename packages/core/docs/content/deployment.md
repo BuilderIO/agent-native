@@ -90,17 +90,21 @@ node .output/server/index.mjs
 
 Set `PORT` to configure the listen port (default: `3000`).
 
+Use the current Node.js LTS line for production deploys. As of May 2026, that
+is Node.js 24; Node.js 20 reached end-of-life on April 30, 2026 and no longer
+receives upstream security updates.
+
 ### Docker {#docker}
 
 ```dockerfile
-FROM node:20-slim AS build
+FROM node:24-slim AS build
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
 
-FROM node:20-slim
+FROM node:24-slim
 WORKDIR /app
 COPY --from=build /app/.output .output
 COPY --from=build /app/data data

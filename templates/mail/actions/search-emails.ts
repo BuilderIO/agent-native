@@ -11,8 +11,8 @@ import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
 const VIEW_QUERIES: Record<string, string> = {
-  inbox: "in:inbox",
-  unread: "is:unread in:inbox",
+  inbox: "in:inbox -in:sent",
+  unread: "is:unread in:inbox -in:sent",
   starred: "is:starred",
   sent: "in:sent",
   drafts: "in:drafts",

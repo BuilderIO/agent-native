@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { RecordingMode } from "./recorder-engine";
+import { NO_MIC_DEVICE_ID, type RecordingMode } from "./recorder-engine";
 
 export interface PreRecordPanelProps {
   onStart: (opts: {
@@ -72,16 +72,6 @@ export function PreRecordPanel({
     let cancelled = false;
     async function enumerate() {
       try {
-        // Prompt so device labels become available.
-        let temp: MediaStream | null = null;
-        try {
-          temp = await navigator.mediaDevices.getUserMedia({
-            audio: true,
-            video: true,
-          });
-        } catch {
-          // proceed even if prompt declined — labels will be blank.
-        }
         const devices = await navigator.mediaDevices.enumerateDevices();
         if (cancelled) return;
         setMics(
@@ -96,9 +86,6 @@ export function PreRecordPanel({
               d.kind === "videoinput" && d.deviceId && d.deviceId !== "default",
           ),
         );
-        if (temp) {
-          for (const t of temp.getTracks()) t.stop();
-        }
       } catch (err) {
         setEnumError(
           err instanceof Error ? err.message : "Could not enumerate devices",
@@ -163,6 +150,7 @@ export function PreRecordPanel({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="default">Default microphone</SelectItem>
+              <SelectItem value={NO_MIC_DEVICE_ID}>No microphone</SelectItem>
               {mics.map((m) => (
                 <SelectItem key={m.deviceId} value={m.deviceId}>
                   {m.label || `Mic ${m.deviceId.slice(0, 4)}`}

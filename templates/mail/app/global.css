@@ -653,20 +653,29 @@
 /* Inbox Zero — negative margin pulls content up behind the header (keeps header in flow so it doesn't overlap the agent sidebar) */
 .inbox-zero .inbox-zero-header {
   margin-bottom: -2.75rem;
-  background: transparent !important;
-  border-color: transparent !important;
+  background: rgba(0, 0, 0, 0.48) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-/* Inbox Zero — tab text: active white, inactive white/60, icons white/40 */
+/* Inbox Zero — keep header controls above contrast thresholds on bright photos. */
 .inbox-zero .inbox-zero-header a,
 .inbox-zero .inbox-zero-header button,
 .inbox-zero .inbox-zero-header span {
-  color: rgba(255, 255, 255, 0.6) !important;
+  color: rgba(255, 255, 255, 0.82) !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
 }
 
 .inbox-zero .inbox-zero-header a[aria-current],
 .inbox-zero .inbox-zero-header a.font-semibold {
   color: rgba(255, 255, 255, 1) !important;
+}
+
+.inbox-zero .inbox-zero-header button:hover,
+.inbox-zero .inbox-zero-header a:hover {
+  background: rgba(255, 255, 255, 0.14) !important;
 }
 
 /* Inbox Zero — frosted glass effect on the agent chat sidebar */

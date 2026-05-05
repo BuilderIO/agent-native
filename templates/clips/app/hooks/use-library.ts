@@ -8,6 +8,8 @@ export interface RecordingSummary {
   animatedThumbnailUrl: string | null;
   durationMs: number;
   status: "uploading" | "processing" | "ready" | "failed";
+  uploadProgress?: number;
+  failureReason?: string | null;
   visibility: "private" | "org" | "public";
   ownerEmail: string;
   folderId: string | null;

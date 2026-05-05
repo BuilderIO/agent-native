@@ -18,8 +18,8 @@ import {
 } from "../server/lib/queued-drafts.js";
 
 const VIEW_QUERIES: Record<string, string> = {
-  inbox: "in:inbox",
-  unread: "is:unread in:inbox",
+  inbox: "in:inbox -in:sent",
+  unread: "is:unread in:inbox -in:sent",
   starred: "is:starred",
   sent: "in:sent",
   drafts: "in:drafts",
@@ -68,7 +68,7 @@ async function fetchEmailList(
       const viewPrefix = VIEW_QUERIES[view] ?? `label:${view}`;
       const gmailQuery = [viewPrefix, search].filter(Boolean).join(" ");
       const effectiveQuery =
-        view === "all" && !search ? "" : gmailQuery || "in:inbox";
+        view === "all" && !search ? "" : gmailQuery || "in:inbox -in:sent";
       const { messages } = await listGmailMessages(
         effectiveQuery,
         50,

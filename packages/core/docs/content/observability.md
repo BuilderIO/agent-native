@@ -182,3 +182,50 @@ await putSetting("observability-config", {
 ```
 
 The framework emits `gen_ai.*` semantic convention spans compatible with the OpenTelemetry GenAI spec.
+
+## Error Reporting (Sentry)
+
+Server-side errors that escape Nitro route handlers are reported to Sentry when a DSN is configured. Without it the SDK silently no-ops, so it's safe to leave the env vars unset in dev. Three independent Sentry projects cover the framework:
+
+| Surface             | SDK              | Env var                   | Notes                                                                 |
+| ------------------- | ---------------- | ------------------------- | --------------------------------------------------------------------- |
+| Browser / SPA       | `@sentry/browser`| `VITE_SENTRY_CLIENT_DSN`  | Captures unhandled errors and route-change breadcrumbs in the client. |
+| Nitro server        | `@sentry/node`   | `SENTRY_SERVER_DSN`       | Captures 5xx responses and Nitro lifecycle errors. Per-request user.  |
+| `agent-native` CLI  | `@sentry/node`   | _hardcoded_               | Crash reports from the published CLI binary; not user-configurable.   |
+
+### Server-side configuration
+
+Set `SENTRY_SERVER_DSN` in the deploy environment (Netlify dashboard, Cloudflare secrets, etc.). The framework auto-mounts a Nitro plugin that:
+
+1. Calls `Sentry.init` once at startup (idempotent — safe to call from multiple plugins).
+2. Resolves the user via `getSession(event)` on every API/framework request and attaches `id` / `email` / `username` plus an `orgId` tag to Sentry's per-request isolation scope. Static-asset paths are skipped to avoid extra DB hits.
+3. Captures every framework-route 5xx with searchable `route`, `method`, and `userAgent` tags.
+
+Optional knobs:
+
+- `SENTRY_SERVER_TRACES_SAMPLE_RATE` (float `0`–`1`) — opt in to performance tracing. Defaults to `0` (errors only). Invalid values clamp to `0`.
+- `AGENT_NATIVE_RELEASE` — overrides the `release` tag. Defaults to `agent-native-server@<core-version>`.
+
+### Templates
+
+Every template inherits this automatically — there's nothing to import. Templates that want custom behavior (extra tags, different DSN per template, hard-disable Sentry) can override by exporting their own plugin from `server/plugins/sentry.ts`:
+
+```ts
+// server/plugins/sentry.ts
+import { createSentryPlugin } from "@agent-native/core/server";
+export default createSentryPlugin();
+```
+
+The CLI's hardcoded DSN is intentional — the published binary needs to phone home crashes regardless of which environment runs it. The server module never hardcodes a DSN because it runs inside customer environments where operators decide whether errors should reach Sentry at all.
+
+### Privacy & PII
+
+Both server and CLI initialize with `sendDefaultPii: false` and a `beforeSend` hook that strips:
+
+- `request.headers.authorization`, `cookie`, `set-cookie`, `proxy-authorization`
+- `request.cookies`
+- `user.ip_address` (auto-collected without consent)
+- `contexts.runtime_env` (process env snapshot)
+- Any event whose top-level exception type is `ValidationError` (treated as expected user-input rejection, not a bug).
+
+Identity fields explicitly set via `setUser({ id, email, username })` are preserved.

@@ -39,6 +39,8 @@ import {
   IconTool,
   IconClock,
   IconRefresh,
+  IconPin,
+  IconPinnedFilled,
 } from "@tabler/icons-react";
 import {
   Popover,
@@ -94,6 +96,10 @@ function shortLabelName(name: string): string {
   const lastSlash = name.lastIndexOf("/");
   if (lastSlash >= 0) return name.slice(lastSlash + 1).replace(/_/g, " ");
   return name;
+}
+
+function labelDepth(name: string): number {
+  return Math.max(0, name.split("/").length - 1);
 }
 
 interface AppLayoutProps {
@@ -256,6 +262,18 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const tabsLoading =
     labelsLoading || settingsLoading || emailsLoading || allLocalEmailsLoading;
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarPinned, setSidebarPinned] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("mail-sidebar-pinned") === "true";
+  });
+  useEffect(() => {
+    if (sidebarPinned) localStorage.setItem("mail-sidebar-pinned", "true");
+    else localStorage.removeItem("mail-sidebar-pinned");
+  }, [sidebarPinned]);
+  const showSidebar = sidebarOpen || (sidebarPinned && !isMobile);
+  const closeSidebar = useCallback(() => {
+    if (!sidebarPinned || isMobile) setSidebarOpen(false);
+  }, [sidebarPinned, isMobile]);
 
   // Drag-to-reorder tabs
   const [dragPinnedId, setDragPinnedId] = useState<string | null>(null);
@@ -264,7 +282,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     side: "left" | "right";
   } | null>(null);
 
-  // Compute thread counts per label from inbox emails, filtered by active accounts
+  // Compute unread thread counts for virtual labels and local/demo mail. Gmail
+  // system/user labels use server-provided unread counts when available.
   const labelCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     const pinnedShorts = pinnedLabels.map((l) =>
@@ -282,20 +301,25 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             (e) => e.accountEmail && activeAccounts.has(e.accountEmail),
           )
         : inboxEmails;
-    // Find the latest message per thread (to mirror Superhuman's thread-level label logic)
-    const latestByThread = new Map<string, (typeof filtered)[0]>();
+    // Find the latest message + unread state per thread.
+    const threadState = new Map<
+      string,
+      { latest: (typeof filtered)[0]; hasUnread: boolean }
+    >();
     for (const e of filtered) {
       const key = e.threadId || e.id;
-      const existing = latestByThread.get(key);
-      if (!existing || new Date(e.date) > new Date(existing.date)) {
-        latestByThread.set(key, e);
+      const existing = threadState.get(key);
+      if (!existing) {
+        threadState.set(key, { latest: e, hasUnread: !e.isRead });
+      } else {
+        existing.hasUnread ||= !e.isRead;
+        if (new Date(e.date) > new Date(existing.latest.date)) {
+          existing.latest = e;
+        }
       }
     }
-    const latestMessages = [...latestByThread.values()];
-    // Count inbox threads: latest message must NOT belong to any pinned label
-    counts["inbox"] = latestMessages.filter(
-      (e) => !e.labelIds.some((lid) => pinnedShorts.includes(lid)),
-    ).length;
+    const threadRows = [...threadState.values()];
+    counts["inbox"] = threadRows.filter((row) => row.hasUnread).length;
     // Count threads per pinned label: latest message must have that label
     // For "important", exclude threads that belong to any other pinned tab
     for (let i = 0; i < pinnedLabels.length; i++) {
@@ -305,43 +329,42 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         e.labelIds.some((lid) => lid === short || lid === full);
       if (full === "important") {
         const otherShorts = pinnedShorts.filter((_, j) => j !== i);
-        counts[full] = latestMessages.filter(
-          (e) =>
-            hasLabel(e) && !e.labelIds.some((lid) => otherShorts.includes(lid)),
+        counts[full] = threadRows.filter(
+          ({ latest, hasUnread }) =>
+            hasUnread &&
+            hasLabel(latest) &&
+            !latest.labelIds.some((lid) => otherShorts.includes(lid)),
         ).length;
       } else {
-        counts[full] = latestMessages.filter((e) => hasLabel(e)).length;
+        counts[full] = threadRows.filter(
+          ({ latest, hasUnread }) => hasUnread && hasLabel(latest),
+        ).length;
       }
     }
     return counts;
   }, [inboxEmails, pinnedLabels, activeAccounts]);
 
-  // Tabs to show in the bar: Inbox + pinned items (system views or labels)
-  // Check if any pinned labels are category/label filters (not system views like starred/sent)
-  const hasPinnedFilters = pinnedLabels.some(
-    (id) => !collapsibleViews.some((v) => v.id === id),
-  );
-
+  // Full pinned navigation used by the left sidebar. The top bar intentionally
+  // renders only primary/system views so nested labels do not crowd it.
   const visibleTabs = useMemo(() => {
     const tabs: {
       id: string;
       pinnedId?: string;
       label: string;
+      fullLabel?: string;
       href: string;
       isActive: boolean;
       color?: string;
+      type: "system" | "label";
     }[] = [];
 
-    // When there are pinned label/category filters, add them first,
-    // then "Other" (inbox minus pinned). Otherwise just show "Inbox".
-    if (!hasPinnedFilters) {
-      tabs.push({
-        id: "inbox",
-        label: "Inbox",
-        href: "/inbox",
-        isActive: view === "inbox" && !activeLabel,
-      });
-    }
+    tabs.push({
+      id: "inbox",
+      label: "Inbox",
+      href: "/inbox",
+      isActive: view === "inbox" && !activeLabel,
+      type: "system",
+    });
 
     const seenLabels = new Set<string>(["inbox"]);
     for (const id of pinnedLabels) {
@@ -356,6 +379,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           label: sysView.label,
           href: `/${sysView.id}`,
           isActive: view === sysView.id,
+          type: "system",
         });
         continue;
       }
@@ -382,26 +406,34 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           id: lbl.id,
           pinnedId: id,
           label: aliasedName,
+          fullLabel: lbl.name,
           href: `/inbox?label=${encodeURIComponent(lbl.id)}`,
           isActive: activeLabel === lbl.id,
           color: lbl.color,
+          type: "label",
         });
       }
     }
 
-    // When there are pinned label/category filters, add "Other" at the end
-    // (shows inbox emails not in any pinned label)
-    if (hasPinnedFilters) {
-      tabs.push({
-        id: "inbox",
-        label: "Other",
-        href: "/inbox",
-        isActive: view === "inbox" && !activeLabel,
-      });
-    }
-
     return tabs;
-  }, [labels, pinnedLabels, labelAliases, view, activeLabel, hasPinnedFilters]);
+  }, [labels, pinnedLabels, labelAliases, view, activeLabel]);
+
+  const topBarTabs = useMemo(() => {
+    const primaryIds = new Set(["inbox", ...collapsibleViews.map((v) => v.id)]);
+    const tabs = visibleTabs.filter(
+      (tab) => tab.type === "system" && primaryIds.has(tab.id),
+    );
+    if (activeLabel) {
+      const active = visibleTabs.find((tab) => tab.id === activeLabel);
+      if (active) {
+        tabs.push({
+          ...active,
+          label: shortLabelName(active.fullLabel ?? active.label),
+        });
+      }
+    }
+    return tabs;
+  }, [activeLabel, visibleTabs]);
 
   // System views NOT pinned (go in the "more" dropdown)
   const hiddenViews = useMemo(
@@ -719,11 +751,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   // Get unread counts for tabs
   const getTotalCount = (viewId: string) => {
-    // Use our computed counts from inbox emails for pinned labels
-    if (labelCounts[viewId] !== undefined) return labelCounts[viewId];
-    // Fall back to server-reported label counts for system views
     const label = labels.find((l) => l.id === viewId);
-    return label?.totalCount ?? 0;
+    if (label?.unreadCount !== undefined) return label.unreadCount;
+    if (labelCounts[viewId] !== undefined) return labelCounts[viewId];
+    return 0;
   };
 
   const accountFilterValue = useMemo(
@@ -761,147 +792,149 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 <TooltipContent>Menu</TooltipContent>
               </Tooltip>
 
-              {/* Visible tabs — hidden during search */}
-              {!activeSearchQuery && (
-                <>
-                  {tabsLoading ? (
-                    <nav className="flex items-center gap-2 overflow-x-auto hide-scrollbar">
-                      {[1, 2, 3].map((i) => (
-                        <span
-                          key={i}
-                          className="h-4 rounded bg-muted animate-pulse"
-                          style={{ width: `${48 + i * 12}px` }}
-                        />
-                      ))}
-                    </nav>
-                  ) : (
-                    <nav className="flex items-center gap-0.5 overflow-x-auto hide-scrollbar">
-                      {visibleTabs.map((tab, idx) => {
-                        const count = getTotalCount(tab.id);
-                        const isDragging = dragPinnedId === tab.pinnedId;
-                        const canDrag =
-                          !!tab.pinnedId && tab.pinnedId !== "important";
-                        const showLeft =
-                          dropIndicator?.tabIndex === idx &&
-                          dropIndicator.side === "left";
-                        const showRight =
-                          dropIndicator?.tabIndex === idx &&
-                          dropIndicator.side === "right";
-                        return (
-                          <div
-                            key={tab.pinnedId || tab.id}
-                            className="relative flex items-center"
-                            onDragOver={(e) => handleTabDragOver(e, idx)}
-                            onDrop={handleTabDrop}
+              {/* Primary tabs stay mounted during search so navigation does not jump. */}
+              <>
+                {tabsLoading ? (
+                  <nav className="flex items-center gap-2 overflow-x-auto hide-scrollbar">
+                    {[1, 2, 3].map((i) => (
+                      <span
+                        key={i}
+                        className="h-4 rounded bg-muted animate-pulse"
+                        style={{ width: `${48 + i * 12}px` }}
+                      />
+                    ))}
+                  </nav>
+                ) : (
+                  <nav className="flex min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar">
+                    {topBarTabs.map((tab, idx) => {
+                      const visibleIndex = visibleTabs.findIndex(
+                        (item) => item.id === tab.id,
+                      );
+                      const tabIndex = visibleIndex >= 0 ? visibleIndex : idx;
+                      const count = getTotalCount(tab.id);
+                      const isDragging = dragPinnedId === tab.pinnedId;
+                      const canDrag =
+                        !!tab.pinnedId && tab.pinnedId !== "important";
+                      const showLeft =
+                        dropIndicator?.tabIndex === tabIndex &&
+                        dropIndicator.side === "left";
+                      const showRight =
+                        dropIndicator?.tabIndex === tabIndex &&
+                        dropIndicator.side === "right";
+                      return (
+                        <div
+                          key={tab.pinnedId || tab.id}
+                          className="relative flex items-center"
+                          onDragOver={(e) => handleTabDragOver(e, tabIndex)}
+                          onDrop={handleTabDrop}
+                        >
+                          {showLeft && (
+                            <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
+                          )}
+                          <Link
+                            to={tab.href}
+                            draggable={canDrag}
+                            onDragStart={(e) =>
+                              canDrag &&
+                              tab.pinnedId &&
+                              handleTabDragStart(e, tab.pinnedId)
+                            }
+                            onDragEnd={handleTabDragEnd}
+                            className={cn(
+                              "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px] select-none",
+                              tab.isActive
+                                ? "text-foreground font-semibold"
+                                : "text-muted-foreground font-medium hover:text-foreground/80",
+                              isDragging && "opacity-40",
+                              canDrag && "cursor-grab",
+                            )}
                           >
-                            {showLeft && (
-                              <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
+                            {tab.color && (
+                              <span
+                                className="h-1.5 w-1.5 rounded-full shrink-0"
+                                style={{ backgroundColor: tab.color }}
+                              />
                             )}
-                            <Link
-                              to={tab.href}
-                              draggable={canDrag}
-                              onDragStart={(e) =>
-                                canDrag &&
-                                tab.pinnedId &&
-                                handleTabDragStart(e, tab.pinnedId)
-                              }
-                              onDragEnd={handleTabDragEnd}
-                              className={cn(
-                                "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px] select-none",
-                                tab.isActive
-                                  ? "text-foreground font-semibold"
-                                  : "text-muted-foreground font-medium hover:text-foreground/80",
-                                isDragging && "opacity-40",
-                                canDrag && "cursor-grab",
-                              )}
-                            >
-                              {tab.color && (
-                                <span
-                                  className="h-1.5 w-1.5 rounded-full shrink-0"
-                                  style={{ backgroundColor: tab.color }}
-                                />
-                              )}
-                              {tab.label}
-                              {count > 0 && (
-                                <span
-                                  className={cn(
-                                    "text-[11px] tabular-nums",
-                                    tab.isActive
-                                      ? "text-foreground/60"
-                                      : "text-muted-foreground/70",
-                                  )}
-                                >
-                                  {count}
-                                </span>
-                              )}
-                            </Link>
-                            {showRight && (
-                              <div className="absolute right-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
+                            {tab.label}
+                            {count > 0 && (
+                              <span
+                                className={cn(
+                                  "text-[11px] tabular-nums",
+                                  tab.isActive
+                                    ? "text-foreground/60"
+                                    : "text-muted-foreground/70",
+                                )}
+                              >
+                                {count}
+                              </span>
                             )}
-                          </div>
-                        );
-                      })}
+                          </Link>
+                          {showRight && (
+                            <div className="absolute right-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
+                          )}
+                        </div>
+                      );
+                    })}
 
-                      {/* If navigated to an unpinned view (e.g. via keyboard shortcut), show it */}
-                      {currentInHidden && (
-                        <span className="flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
-                          {collapsibleViews.find((v) => v.id === view)?.label}
-                        </span>
-                      )}
-                    </nav>
-                  )}
+                    {/* If navigated to an unpinned view (e.g. via keyboard shortcut), show it */}
+                    {currentInHidden && (
+                      <span className="flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
+                        {collapsibleViews.find((v) => v.id === view)?.label}
+                      </span>
+                    )}
+                  </nav>
+                )}
 
-                  {/* Tab settings cog */}
-                  <div className={cn("relative", tabsLoading && "invisible")}>
-                    <Popover
-                      open={tabSettingsOpen}
-                      onOpenChange={(open) => {
-                        setTabSettingsOpen(open);
-                        if (!open) setLabelSearch("");
-                      }}
+                {/* Tab settings cog */}
+                <div className={cn("relative", tabsLoading && "invisible")}>
+                  <Popover
+                    open={tabSettingsOpen}
+                    onOpenChange={(open) => {
+                      setTabSettingsOpen(open);
+                      if (!open) setLabelSearch("");
+                    }}
+                  >
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <PopoverTrigger asChild>
+                          <button
+                            className={cn(
+                              "flex h-6 w-6 items-center justify-center rounded transition-colors",
+                              tabSettingsOpen
+                                ? "text-foreground bg-accent/50"
+                                : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30",
+                            )}
+                            aria-label="Configure tabs"
+                          >
+                            <IconSettings className="h-3.5 w-3.5" />
+                          </button>
+                        </PopoverTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent>Configure tabs</TooltipContent>
+                    </Tooltip>
+                    <PopoverContent
+                      align="start"
+                      className="w-60 max-w-[calc(100vw-2rem)] p-0"
                     >
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <PopoverTrigger asChild>
-                            <button
-                              className={cn(
-                                "flex h-6 w-6 items-center justify-center rounded transition-colors",
-                                tabSettingsOpen
-                                  ? "text-foreground bg-accent/50"
-                                  : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30",
-                              )}
-                              aria-label="Configure tabs"
-                            >
-                              <IconSettings className="h-3.5 w-3.5" />
-                            </button>
-                          </PopoverTrigger>
-                        </TooltipTrigger>
-                        <TooltipContent>Configure tabs</TooltipContent>
-                      </Tooltip>
-                      <PopoverContent
-                        align="start"
-                        className="w-60 max-w-[calc(100vw-2rem)] p-0"
-                      >
-                        <TabSettingsPopover
-                          systemViews={collapsibleViews}
-                          userLabels={userLabels}
-                          pinnedLabels={pinnedLabels}
-                          labelAliases={labelAliases}
-                          search={labelSearch}
-                          onSearchChange={setLabelSearch}
-                          onToggle={togglePinned}
-                          onRename={(id, alias) => {
-                            const next = { ...labelAliases };
-                            if (alias) next[id] = alias;
-                            else delete next[id];
-                            updateSettings.mutate({ labelAliases: next });
-                          }}
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                </>
-              )}
+                      <TabSettingsPopover
+                        systemViews={collapsibleViews}
+                        userLabels={userLabels}
+                        pinnedLabels={pinnedLabels}
+                        labelAliases={labelAliases}
+                        search={labelSearch}
+                        onSearchChange={setLabelSearch}
+                        onToggle={togglePinned}
+                        onRename={(id, alias) => {
+                          const next = { ...labelAliases };
+                          if (alias) next[id] = alias;
+                          else delete next[id];
+                          updateSettings.mutate({ labelAliases: next });
+                        }}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </>
 
               <div className="flex-1" />
 
@@ -1121,14 +1154,55 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               <AgentToggleButton />
             </header>
 
-            {/* Sidebar overlay */}
-            {sidebarOpen && (
+            {/* Sidebar overlay / pinned rail */}
+            {showSidebar && (
               <>
+                {(!sidebarPinned || isMobile) && (
+                  <div
+                    className="fixed inset-0 z-30 bg-black/20"
+                    onClick={() => setSidebarOpen(false)}
+                  />
+                )}
                 <div
-                  className="fixed inset-0 z-30 bg-black/20"
-                  onClick={() => setSidebarOpen(false)}
-                />
-                <div className="fixed left-0 top-0 bottom-0 z-40 w-64 bg-background/70 backdrop-blur-2xl border-r border-border/30 shadow-2xl overflow-y-auto">
+                  className={cn(
+                    "w-64 bg-background/85 backdrop-blur-2xl border-r border-border/30 shadow-2xl overflow-y-auto",
+                    sidebarPinned && !isMobile
+                      ? "absolute left-0 top-11 bottom-0 z-10"
+                      : "fixed left-0 top-0 bottom-0 z-40",
+                  )}
+                >
+                  <div className="flex items-center justify-between border-b border-border/20 px-4 py-3">
+                    <span className="text-[13px] font-medium text-foreground">
+                      Mail
+                    </span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSidebarPinned((value) => !value);
+                            setSidebarOpen(true);
+                          }}
+                          className={cn(
+                            "flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                            sidebarPinned && "text-foreground bg-accent/50",
+                          )}
+                          aria-label={
+                            sidebarPinned ? "Unpin sidebar" : "Pin sidebar"
+                          }
+                        >
+                          {sidebarPinned ? (
+                            <IconPinnedFilled className="h-4 w-4" />
+                          ) : (
+                            <IconPin className="h-4 w-4" />
+                          )}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {sidebarPinned ? "Unpin sidebar" : "Pin sidebar"}
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
                   {/* Accounts */}
                   {hasAccounts && (
                     <div className="px-4 pt-5 pb-4 border-b border-border/20">
@@ -1210,7 +1284,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         <Link
                           key={item.id}
                           to={item.href}
-                          onClick={() => setSidebarOpen(false)}
+                          onClick={closeSidebar}
                           className={cn(
                             "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
                             view === item.id
@@ -1244,7 +1318,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       <div className="space-y-0.5">
                         <Link
                           to="/settings"
-                          onClick={() => setSidebarOpen(false)}
+                          onClick={closeSidebar}
                           className={cn(
                             "flex items-center rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
                             location.pathname === "/settings"
@@ -1274,17 +1348,18 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         <div className="space-y-0.5">
                           {visibleTabs
                             .filter(
-                              (t) =>
-                                t.id !== "inbox" &&
-                                !collapsibleViews.some((v) => v.id === t.id),
+                              (t) => t.id !== "inbox" && t.type === "label",
                             )
                             .map((tab) => {
                               const count = getTotalCount(tab.id);
+                              const depth = labelDepth(
+                                tab.fullLabel ?? tab.label,
+                              );
                               return (
                                 <Link
                                   key={tab.id}
                                   to={tab.href}
-                                  onClick={() => setSidebarOpen(false)}
+                                  onClick={closeSidebar}
                                   className={cn(
                                     "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
                                     tab.isActive
@@ -1292,14 +1367,24 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                                       : "text-foreground/70 hover:bg-accent/30",
                                   )}
                                 >
-                                  <span className="flex items-center gap-2">
+                                  <span
+                                    className="flex min-w-0 items-center gap-2"
+                                    style={{ paddingLeft: depth * 12 }}
+                                  >
                                     {tab.color && (
                                       <span
                                         className="h-2 w-2 rounded-full shrink-0"
                                         style={{ backgroundColor: tab.color }}
                                       />
                                     )}
-                                    {tab.label}
+                                    <span
+                                      className="truncate"
+                                      title={tab.fullLabel}
+                                    >
+                                      {shortLabelName(
+                                        tab.fullLabel ?? tab.label,
+                                      )}
+                                    </span>
                                   </span>
                                   {count > 0 && (
                                     <span className="text-[12px] text-muted-foreground/50 tabular-nums">
@@ -1328,7 +1413,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             view !== "draft-queue" ? (
               <GoogleConnectBanner variant="hero" />
             ) : (
-              <main className="flex flex-1 overflow-hidden">{children}</main>
+              <main
+                className={cn(
+                  "flex flex-1 overflow-hidden",
+                  sidebarPinned && !isMobile && "pl-64",
+                )}
+              >
+                {children}
+              </main>
             )}
           </div>
         </AgentSidebar>

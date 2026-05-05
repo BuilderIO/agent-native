@@ -12,7 +12,7 @@ By the end of this page, you'll have a working app — Mail, Calendar, Forms, or
 There are two ways to use agent-native, depending on how hands-on you want to be:
 
 - **You want to use a hosted version.** Try a template right now at [agent-native.com/templates](/templates). Each template is a live, hosted app — you sign in, start using it, and the agent is already there. No install, no setup. You can stop reading this page and head straight to the [template gallery](/templates).
-- **You want to run locally or customize it.** You'll clone a template, run it on your machine, and shape it however you want — branding, features, integrations. The rest of this page is for you. You'll need [Node.js](https://nodejs.org) and [pnpm](https://pnpm.io) installed.
+- **You want to run locally or customize it.** You'll clone a template, run it on your machine, and shape it however you want — branding, features, integrations. The rest of this page is for you. You'll need [Node.js 24 LTS](https://nodejs.org) and [pnpm](https://pnpm.io) installed.
 
 Not sure which path? If you've never written code, the hosted version is for you. If you have a developer or AI coding tool ready, the local path gives you total control.
 
