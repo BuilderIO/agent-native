@@ -127,6 +127,32 @@ export default defineAction({
         ? "mp4"
         : "webm";
 
+      // The recorder stashes compression metadata at
+      // `recording-upload-{id}.compression` when its browser-side
+      // ffmpeg.wasm pass ran to bring the assembled blob under Builder.io's
+      // 100 MB upload cap. Surface it into the Sentry payload on any
+      // upload failure so we can tell at a glance whether the user hit
+      // the limit on the original blob or on the compressed one.
+      const compressionMeta: {
+        originalBytes?: number;
+        compressedBytes?: number;
+        ratio?: number;
+        elapsedMs?: number;
+        outputMimeType?: string;
+      } | null =
+        uploadState &&
+        typeof uploadState === "object" &&
+        uploadState.compression &&
+        typeof uploadState.compression === "object"
+          ? (uploadState.compression as {
+              originalBytes?: number;
+              compressedBytes?: number;
+              ratio?: number;
+              elapsedMs?: number;
+              outputMimeType?: string;
+            })
+          : null;
+
       // Flip to 'processing' while we assemble.
       await db
         .update(schema.recordings)
@@ -209,12 +235,39 @@ export default defineAction({
         }
       }
 
-      const upload = await uploadFile({
-        data: uploadData,
-        filename: `${id}.${videoFormat}`,
-        mimeType,
-        ownerEmail,
-      });
+      let upload: Awaited<ReturnType<typeof uploadFile>>;
+      try {
+        upload = await uploadFile({
+          data: uploadData,
+          filename: `${id}.${videoFormat}`,
+          mimeType,
+          ownerEmail,
+        });
+      } catch (err) {
+        // Log structured context so a "Builder.io upload failed (500)" can be
+        // diagnosed without round-tripping with the user. Especially important
+        // alongside the new browser-side compression — we want to know whether
+        // the user hit Builder.io's 100 MB cap on the original recording or
+        // on the compressed result.
+        // (The PR adding `captureRouteError` here lives in a sibling branch;
+        // when it merges, this console.error is replaced with the Sentry
+        // capture call — see PR description.)
+        console.error("[finalize] upload failed", {
+          recordingId: id,
+          dataBytes: uploadData.byteLength,
+          mimeType,
+          videoFormat,
+          ownerEmail,
+          originalBytes: compressionMeta?.originalBytes ?? assembled.byteLength,
+          compressedBytes: compressionMeta?.compressedBytes,
+          compressionRatio: compressionMeta?.ratio,
+          compressionElapsedMs: compressionMeta?.elapsedMs,
+          compressionOutputMimeType: compressionMeta?.outputMimeType,
+          compressionRan: !!compressionMeta,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
 
       if (!upload?.url) {
         throw new Error(
