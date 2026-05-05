@@ -1,8 +1,9 @@
 /**
  * Defense-in-depth CSRF check for framework state-changing routes.
  *
- * Threat model: action endpoints (`/_agent-native/actions/*`), tool endpoints
- * (`/_agent-native/tools/*`), and a handful of other state-changing
+ * Threat model: action endpoints (`/_agent-native/actions/*`), extension
+ * endpoints (`/_agent-native/extensions/*` and the legacy
+ * `/_agent-native/tools/*` alias), and a handful of other state-changing
  * `/_agent-native/*` routes use the better-auth session cookie, which is
  * configured with `SameSite=None; Secure; Partitioned` so the iframe editor
  * (and other cross-site embeds) can authenticate. `SameSite=None` means the

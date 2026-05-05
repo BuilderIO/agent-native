@@ -1,65 +1,65 @@
 import { describe, expect, it } from "vitest";
 import {
-  isAllowedToolPath,
-  sanitizeToolRequestOptions,
+  isAllowedExtensionPath,
+  sanitizeExtensionRequestOptions,
   checkBridgePolicy,
 } from "./iframe-bridge.js";
 
-describe("tool iframe bridge", () => {
+describe("extension iframe bridge", () => {
   it("allows documented helper paths under /_agent-native/", () => {
-    expect(isAllowedToolPath("/_agent-native/tools/proxy", "tool-1")).toBe(
+    expect(isAllowedExtensionPath("/_agent-native/extensions/proxy", "extension-1")).toBe(
       true,
     );
-    expect(isAllowedToolPath("/_agent-native/tools/sql/query", "tool-1")).toBe(
+    expect(isAllowedExtensionPath("/_agent-native/extensions/sql/query", "extension-1")).toBe(
       true,
     );
     expect(
-      isAllowedToolPath(
-        "/_agent-native/tools/data/tool-1/notes?scope=user",
-        "tool-1",
+      isAllowedExtensionPath(
+        "/_agent-native/extensions/data/extension-1/notes?scope=user",
+        "extension-1",
       ),
     ).toBe(true);
     expect(
-      isAllowedToolPath("/_agent-native/actions/list-items", "tool-1"),
+      isAllowedExtensionPath("/_agent-native/actions/list-items", "extension-1"),
     ).toBe(true);
     expect(
-      isAllowedToolPath(
+      isAllowedExtensionPath(
         "/_agent-native/application-state/navigation",
-        "tool-1",
+        "extension-1",
       ),
     ).toBe(true);
   });
 
-  it("blocks template /api/* routes — tools must use actions", () => {
-    expect(isAllowedToolPath("/api/custom-endpoint", "tool-1")).toBe(false);
-    expect(isAllowedToolPath("/api/uploads", "tool-1")).toBe(false);
-    expect(isAllowedToolPath("/api/billing/charge", "tool-1")).toBe(false);
-    expect(isAllowedToolPath("/auth/sign-out", "tool-1")).toBe(false);
+  it("blocks template /api/* routes — extensions must use actions", () => {
+    expect(isAllowedExtensionPath("/api/custom-endpoint", "extension-1")).toBe(false);
+    expect(isAllowedExtensionPath("/api/uploads", "extension-1")).toBe(false);
+    expect(isAllowedExtensionPath("/api/billing/charge", "extension-1")).toBe(false);
+    expect(isAllowedExtensionPath("/auth/sign-out", "extension-1")).toBe(false);
   });
 
-  it("blocks sensitive framework paths and cross-tool data paths", () => {
-    expect(isAllowedToolPath("/_agent-native/secrets/adhoc", "tool-1")).toBe(
+  it("blocks sensitive framework paths and cross-extension data paths", () => {
+    expect(isAllowedExtensionPath("/_agent-native/secrets/adhoc", "extension-1")).toBe(
       false,
     );
-    expect(isAllowedToolPath("/_agent-native/tools/tool-1", "tool-1")).toBe(
+    expect(isAllowedExtensionPath("/_agent-native/extensions/extension-1", "extension-1")).toBe(
       false,
     );
     expect(
-      isAllowedToolPath("/_agent-native/tools/data/tool-2/notes", "tool-1"),
+      isAllowedExtensionPath("/_agent-native/extensions/data/extension-2/notes", "extension-1"),
     ).toBe(false);
   });
 
   it("blocks path traversal and absolute URL forms", () => {
-    expect(isAllowedToolPath("//evil.example/path", "tool-1")).toBe(false);
+    expect(isAllowedExtensionPath("//evil.example/path", "extension-1")).toBe(false);
     expect(
-      isAllowedToolPath("/api/%2e%2e/_agent-native/secrets", "tool-1"),
+      isAllowedExtensionPath("/api/%2e%2e/_agent-native/secrets", "extension-1"),
     ).toBe(false);
-    expect(isAllowedToolPath("/api\\secret", "tool-1")).toBe(false);
+    expect(isAllowedExtensionPath("/api\\secret", "extension-1")).toBe(false);
   });
 
   it("drops ambient browser headers and rejects unsupported methods", () => {
     expect(
-      sanitizeToolRequestOptions({
+      sanitizeExtensionRequestOptions({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -75,8 +75,8 @@ describe("tool iframe bridge", () => {
       body: '{"ok":true}',
     });
 
-    expect(() => sanitizeToolRequestOptions({ method: "TRACE" })).toThrowError(
-      "Tool request method is not allowed",
+    expect(() => sanitizeExtensionRequestOptions({ method: "TRACE" })).toThrowError(
+      "Extension request method is not allowed",
     );
   });
 });
@@ -91,10 +91,10 @@ describe("checkBridgePolicy (audit H4)", () => {
       checkBridgePolicy("/_agent-native/actions/foo", "POST", owner).ok,
     ).toBe(true);
     expect(
-      checkBridgePolicy("/_agent-native/tools/sql/exec", "POST", owner).ok,
+      checkBridgePolicy("/_agent-native/extensions/sql/exec", "POST", owner).ok,
     ).toBe(true);
     expect(
-      checkBridgePolicy("/_agent-native/tools/proxy", "POST", owner).ok,
+      checkBridgePolicy("/_agent-native/extensions/proxy", "POST", owner).ok,
     ).toBe(true);
   });
 
@@ -103,16 +103,16 @@ describe("checkBridgePolicy (audit H4)", () => {
       checkBridgePolicy("/_agent-native/actions/foo", "POST", editor).ok,
     ).toBe(true);
     expect(
-      checkBridgePolicy("/_agent-native/tools/sql/exec", "POST", editor).ok,
+      checkBridgePolicy("/_agent-native/extensions/sql/exec", "POST", editor).ok,
     ).toBe(true);
     expect(
-      checkBridgePolicy("/_agent-native/tools/proxy", "POST", editor).ok,
+      checkBridgePolicy("/_agent-native/extensions/proxy", "POST", editor).ok,
     ).toBe(true);
   });
 
   it("denies SQL helpers entirely for viewers", () => {
     const queryRes = checkBridgePolicy(
-      "/_agent-native/tools/sql/query",
+      "/_agent-native/extensions/sql/query",
       "POST",
       viewer,
     );
@@ -120,7 +120,7 @@ describe("checkBridgePolicy (audit H4)", () => {
     expect(queryRes.error).toMatch(/dbQuery/);
 
     const execRes = checkBridgePolicy(
-      "/_agent-native/tools/sql/exec",
+      "/_agent-native/extensions/sql/exec",
       "POST",
       viewer,
     );
@@ -147,26 +147,26 @@ describe("checkBridgePolicy (audit H4)", () => {
     expect(getRes.ok).toBe(false);
   });
 
-  it("denies toolFetch for viewers (the proxy POST surface)", () => {
-    const res = checkBridgePolicy("/_agent-native/tools/proxy", "POST", viewer);
+  it("denies extensionFetch for viewers (the proxy POST surface)", () => {
+    const res = checkBridgePolicy("/_agent-native/extensions/proxy", "POST", viewer);
     expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/toolFetch/);
+    expect(res.error).toMatch(/extensionFetch/);
   });
 
-  it("allows viewers to read tool-data (GET) but not write/delete", () => {
+  it("allows viewers to read extension-data (GET) but not write/delete", () => {
     expect(
-      checkBridgePolicy("/_agent-native/tools/data/tool-1/notes", "GET", viewer)
+      checkBridgePolicy("/_agent-native/extensions/data/extension-1/notes", "GET", viewer)
         .ok,
     ).toBe(true);
     const writeRes = checkBridgePolicy(
-      "/_agent-native/tools/data/tool-1/notes",
+      "/_agent-native/extensions/data/extension-1/notes",
       "POST",
       viewer,
     );
     expect(writeRes.ok).toBe(false);
-    expect(writeRes.error).toMatch(/toolData/);
+    expect(writeRes.error).toMatch(/extensionData/);
     const delRes = checkBridgePolicy(
-      "/_agent-native/tools/data/tool-1/notes/x",
+      "/_agent-native/extensions/data/extension-1/notes/x",
       "DELETE",
       viewer,
     );

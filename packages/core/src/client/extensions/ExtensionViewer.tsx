@@ -21,10 +21,10 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import {
-  isAllowedToolPath,
-  sanitizeToolRequestOptions,
+  isAllowedExtensionPath,
+  sanitizeExtensionRequestOptions,
   checkBridgePolicy,
-  type ToolBridgeRole,
+  type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
 
 const THEME_CSS_VARS = [
@@ -68,7 +68,7 @@ function getParentThemeVars(): Record<string, string> {
   return vars;
 }
 
-interface Tool {
+interface Extension {
   id: string;
   name: string;
   description?: string;
@@ -76,15 +76,15 @@ interface Tool {
   updatedAt?: string;
 }
 
-export interface ToolViewerProps {
-  toolId: string;
+export interface ExtensionViewerProps {
+  extensionId: string;
 }
 
-function EditToolPopover({ tool }: { tool: Tool }) {
+function EditToolPopover({ extension }: { extension: Extension }) {
   const [open, setOpen] = useState(false);
 
   // Radix's outside-click detection runs in the parent document, so a click
-  // inside the tool iframe (or any other iframe) never fires it. The browser
+  // inside the extension iframe (or any other iframe) never fires it. The browser
   // does shift focus to the iframe though, which blurs the parent window — we
   // hook that to close the popover so it behaves like a normal click-outside.
   useEffect(() => {
@@ -105,7 +105,7 @@ function EditToolPopover({ tool }: { tool: Tool }) {
     if (!trimmed) return;
     sendToAgentChat({
       message: trimmed,
-      context: `The user is viewing tool "${tool.name}" (id: ${tool.id}) and wants to edit it.`,
+      context: `The user is viewing extension "${extension.name}" (id: ${extension.id}) and wants to edit it.`,
       submit: true,
       openSidebar: true,
     });
@@ -125,12 +125,12 @@ function EditToolPopover({ tool }: { tool: Tool }) {
       </PopoverTrigger>
       <PopoverContent align="end" sideOffset={6} className="w-[420px] p-3">
         <p className="px-1 pb-2 text-sm font-semibold text-foreground">
-          Edit tool
+          Edit extension
         </p>
         <PromptComposer
           autoFocus
           placeholder="What would you like to change?"
-          draftScope={`tools:edit:${tool.id}`}
+          draftScope={`extensions:edit:${extension.id}`}
           onSubmit={handleSubmit}
         />
       </PopoverContent>
@@ -138,11 +138,11 @@ function EditToolPopover({ tool }: { tool: Tool }) {
   );
 }
 
-export function ToolViewer({ toolId }: ToolViewerProps) {
+export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
   const [isDark, setIsDark] = useState(false);
   const [iframeReady, setIframeReady] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const toolRef = useRef<Tool | null>(null);
+  const toolRef = useRef<Extension | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
@@ -150,10 +150,10 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
   const queryClient = useQueryClient();
   // (audit H4) Role plumbed through from the iframe's render binding. Until
   // the iframe announces its role we deny non-trivial helper calls — that
-  // way a malicious tool body that races the announcement can't briefly
+  // way a malicious extension body that races the announcement can't briefly
   // operate at higher privilege than the viewer's actual role.
   const bridgeContextRef = useRef<{
-    role: ToolBridgeRole;
+    role: ExtensionBridgeRole;
     isAuthor: boolean;
   }>({
     role: "viewer",
@@ -197,12 +197,12 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
       const message = event.data;
       if (!message) return;
 
-      if (message.type === "agent-native-tool-binding") {
+      if (message.type === "agent-native-extension-binding") {
         // (audit H4) The iframe announced its render binding. Trust the role
         // value because the iframe's binding is generated server-side in
-        // tools/routes.ts (resolveAccess), not by user-authored content.
+        // extensions/routes.ts (resolveAccess), not by user-authored content.
         const binding = message.binding ?? {};
-        const role: ToolBridgeRole =
+        const role: ExtensionBridgeRole =
           binding.role === "owner" ||
           binding.role === "admin" ||
           binding.role === "editor" ||
@@ -217,22 +217,22 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
       }
 
       if (
-        message.type === "agent-native-tool-consent-granted" ||
-        message.type === "agent-native-tool-consent-cancelled"
+        message.type === "agent-native-extension-consent-granted" ||
+        message.type === "agent-native-extension-consent-cancelled"
       ) {
         // (audit C1) The consent stub fired; force a reload of the iframe so
-        // the next render returns the tool body (granted) or stays on the
+        // the next render returns the extension body (granted) or stays on the
         // stub (cancelled — viewer can also navigate away).
-        if (message.type === "agent-native-tool-consent-granted") {
-          // Invalidate the cached tool record — author may have edited
+        if (message.type === "agent-native-extension-consent-granted") {
+          // Invalidate the cached extension record — author may have edited
           // since the cache was warmed.
-          queryClient.invalidateQueries({ queryKey: ["tool", toolId] });
+          queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
           setRefreshKey((k) => k + 1);
         }
         return;
       }
 
-      if (message.type === "agent-native-tool-keydown") {
+      if (message.type === "agent-native-extension-keydown") {
         document.dispatchEvent(
           new KeyboardEvent("keydown", {
             key: message.key,
@@ -248,7 +248,7 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
         return;
       }
 
-      if (message.type === "agent-native-tool-error-fix") {
+      if (message.type === "agent-native-extension-error-fix") {
         const t = toolRef.current;
         if (!t) return;
         const errors: string[] = message.errors || [];
@@ -269,7 +269,7 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
           .join("\n\n");
 
         const contextParts = [
-          `The user is viewing tool "${t.name}" (id: ${t.id}) and there are runtime errors that need fixing.`,
+          `The user is viewing extension "${t.name}" (id: ${t.id}) and there are runtime errors that need fixing.`,
           `\nFull error details:\n${detailedTrace}`,
         ];
 
@@ -291,7 +291,7 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
         }
 
         sendToAgentChat({
-          message: `Fix runtime errors in this tool:\n${errors.join("\n")}`,
+          message: `Fix runtime errors in this extension:\n${errors.join("\n")}`,
           context: contextParts.join("\n"),
           submit: true,
           openSidebar: true,
@@ -299,14 +299,14 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
         return;
       }
 
-      if (message.type !== "agent-native-tool-request") return;
+      if (message.type !== "agent-native-extension-request") return;
 
       const requestId = String(message.requestId ?? "");
       const path = String(message.path ?? "");
       const respond = (payload: Record<string, unknown>) => {
         iframeRef.current?.contentWindow?.postMessage(
           {
-            type: "agent-native-tool-response",
+            type: "agent-native-extension-response",
             requestId,
             ...payload,
           },
@@ -314,14 +314,14 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
         );
       };
 
-      if (!requestId || !isAllowedToolPath(path, toolId)) {
-        respond({ error: "Tool request path is not allowed" });
+      if (!requestId || !isAllowedExtensionPath(path, extensionId)) {
+        respond({ error: "Extension request path is not allowed" });
         return;
       }
 
       try {
-        const options = sanitizeToolRequestOptions(message.options);
-        // (audit H4) Role-aware policy gate: viewer-shared tools can read
+        const options = sanitizeExtensionRequestOptions(message.options);
+        // (audit H4) Role-aware policy gate: viewer-shared extensions can read
         // but not write. Decided here in the parent before the request
         // leaves; the server enforces a second layer.
         const policy = checkBridgePolicy(
@@ -341,13 +341,13 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
           return;
         }
         // (audit H5) Tag every outbound bridge request with the
-        // X-Agent-Native-Tool-Bridge sentinel so the action-routes layer can
+        // X-Agent-Native-Extension-Bridge sentinel so the action-routes layer can
         // enforce per-action `toolCallable` opt-in. The header is added by
         // the parent — it is NOT taken from the iframe-supplied options
-        // (which were filtered by sanitizeToolRequestOptions).
+        // (which were filtered by sanitizeExtensionRequestOptions).
         const finalHeaders = new Headers(options.headers ?? undefined);
-        finalHeaders.set("X-Agent-Native-Tool-Bridge", "1");
-        finalHeaders.set("X-Agent-Native-Tool-Id", toolId);
+        finalHeaders.set("X-Agent-Native-Extension-Bridge", "1");
+        finalHeaders.set("X-Agent-Native-Extension-Id", extensionId);
         const res = await fetch(agentNativePath(path), {
           ...options,
           headers: finalHeaders,
@@ -371,33 +371,33 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
           },
         });
       } catch (err: any) {
-        respond({ error: err?.message ?? "Tool host request failed" });
+        respond({ error: err?.message ?? "Extension host request failed" });
       }
     };
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [toolId, queryClient]);
+  }, [extensionId, queryClient]);
 
-  const { data: tool, isLoading } = useQuery<Tool>({
-    queryKey: ["tool", toolId],
+  const { data: extension, isLoading } = useQuery<Extension>({
+    queryKey: ["extension", extensionId],
     queryFn: async () => {
       const res = await fetch(
-        agentNativePath(`/_agent-native/tools/${toolId}`),
+        agentNativePath(`/_agent-native/extensions/${extensionId}`),
       );
-      if (!res.ok) throw new Error("Failed to fetch tool");
+      if (!res.ok) throw new Error("Failed to fetch extension");
       return res.json();
     },
   });
 
-  toolRef.current = tool ?? null;
+  toolRef.current = extension ?? null;
 
   const iframeSrc = useMemo(
     () =>
       agentNativePath(
-        `/_agent-native/tools/${toolId}/render?dark=${document.documentElement.classList.contains("dark")}&v=${encodeURIComponent(tool?.updatedAt ?? "")}&r=${refreshKey}`,
+        `/_agent-native/extensions/${extensionId}/render?dark=${document.documentElement.classList.contains("dark")}&v=${encodeURIComponent(extension?.updatedAt ?? "")}&r=${refreshKey}`,
       ),
-    [toolId, tool?.updatedAt, refreshKey],
+    [extensionId, extension?.updatedAt, refreshKey],
   );
 
   useEffect(() => {
@@ -405,41 +405,41 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
     // Reset role to deny-by-default on every reload — the new render's
     // binding announcement re-establishes the role before any helper call.
     bridgeContextRef.current = { role: "viewer", isAuthor: false };
-  }, [toolId, tool?.updatedAt, refreshKey]);
+  }, [extensionId, extension?.updatedAt, refreshKey]);
 
   const startRename = useCallback(() => {
-    if (!tool) return;
-    setRenameValue(tool.name);
+    if (!extension) return;
+    setRenameValue(extension.name);
     setIsRenaming(true);
     requestAnimationFrame(() => renameInputRef.current?.select());
-  }, [tool]);
+  }, [extension]);
 
   const submitRename = useCallback(async () => {
     const trimmed = renameValue.trim();
-    if (!trimmed || !tool || trimmed === tool.name) {
+    if (!trimmed || !extension || trimmed === extension.name) {
       setIsRenaming(false);
       return;
     }
-    queryClient.setQueryData<Tool>(["tool", toolId], (old) =>
+    queryClient.setQueryData<Extension>(["extension", extensionId], (old) =>
       old ? { ...old, name: trimmed } : old,
     );
-    queryClient.setQueryData<Tool[]>(["tools"], (old) =>
-      (old ?? []).map((t) => (t.id === toolId ? { ...t, name: trimmed } : t)),
+    queryClient.setQueryData<Extension[]>(["extensions"], (old) =>
+      (old ?? []).map((t) => (t.id === extensionId ? { ...t, name: trimmed } : t)),
     );
     setIsRenaming(false);
     try {
-      await fetch(agentNativePath(`/_agent-native/tools/${toolId}`), {
+      await fetch(agentNativePath(`/_agent-native/extensions/${extensionId}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: trimmed }),
       });
-      queryClient.invalidateQueries({ queryKey: ["tool", toolId] });
-      queryClient.invalidateQueries({ queryKey: ["tools"] });
+      queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
+      queryClient.invalidateQueries({ queryKey: ["extensions"] });
     } catch {
-      queryClient.invalidateQueries({ queryKey: ["tool", toolId] });
-      queryClient.invalidateQueries({ queryKey: ["tools"] });
+      queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
+      queryClient.invalidateQueries({ queryKey: ["extensions"] });
     }
-  }, [renameValue, tool, toolId, queryClient]);
+  }, [renameValue, extension, extensionId, queryClient]);
 
   if (isLoading) {
     return (
@@ -453,10 +453,10 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
     );
   }
 
-  if (!tool) {
+  if (!extension) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        Tool not found
+        Extension not found
       </div>
     );
   }
@@ -479,7 +479,7 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
             />
           ) : (
             <>
-              <span className="text-sm font-medium">{tool.name}</span>
+              <span className="text-sm font-medium">{extension.name}</span>
               <button
                 type="button"
                 onClick={startRename}
@@ -500,13 +500,13 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
           >
             <IconRefresh className="h-4 w-4" />
           </button>
-          <EditToolPopover tool={tool} />
+          <EditToolPopover extension={extension} />
           <ShareButton
-            resourceType="tool"
-            resourceId={toolId}
-            resourceTitle={tool.name}
+            resourceType="extension"
+            resourceId={extensionId}
+            resourceTitle={extension.name}
           />
-          <ToolMoreMenu toolId={toolId} toolName={tool.name} />
+          <ToolMoreMenu extensionId={extensionId} toolName={extension.name} />
           <NotificationsBell />
           <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
         </div>
@@ -523,11 +523,11 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
         )}
         <iframe
           ref={iframeRef}
-          key={`${tool.updatedAt}-${refreshKey}`}
+          key={`${extension.updatedAt}-${refreshKey}`}
           src={iframeSrc}
           className="h-full w-full border-0"
           sandbox="allow-scripts allow-forms"
-          title={tool.name}
+          title={extension.name}
           onLoad={() => {
             sendThemeToIframe();
             setTimeout(() => setIframeReady(true), 150);
@@ -540,15 +540,15 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
 
 interface SlotDeclaration {
   id: string;
-  toolId: string;
+  extensionId: string;
   slotId: string;
 }
 
 function ToolMoreMenu({
-  toolId,
+  extensionId,
   toolName,
 }: {
-  toolId: string;
+  extensionId: string;
   toolName: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -557,10 +557,10 @@ function ToolMoreMenu({
   const navigate = useNavigate();
 
   const { data: slots = [] } = useQuery<SlotDeclaration[]>({
-    queryKey: ["tool-slots", toolId],
+    queryKey: ["extension-slots", extensionId],
     queryFn: async () => {
       const res = await fetch(
-        agentNativePath(`/_agent-native/slots/tool/${toolId}`),
+        agentNativePath(`/_agent-native/slots/extension/${extensionId}`),
       );
       if (!res.ok) return [];
       return res.json();
@@ -577,7 +577,7 @@ function ToolMoreMenu({
     try {
       await fetch(
         agentNativePath(
-          `/_agent-native/slots/${encodeURIComponent(slotId)}/install/${encodeURIComponent(toolId)}`,
+          `/_agent-native/slots/${encodeURIComponent(slotId)}/install/${encodeURIComponent(extensionId)}`,
         ),
         { method: "DELETE" },
       );
@@ -586,21 +586,21 @@ function ToolMoreMenu({
     }
   };
 
-  const deleteTool = async () => {
+  const deleteExtension = async () => {
     closeMenu();
     try {
-      await fetch(agentNativePath(`/_agent-native/tools/${toolId}`), {
+      await fetch(agentNativePath(`/_agent-native/extensions/${extensionId}`), {
         method: "DELETE",
       });
     } finally {
-      queryClient.invalidateQueries({ queryKey: ["tool", toolId] });
-      queryClient.invalidateQueries({ queryKey: ["tools"] });
+      queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
+      queryClient.invalidateQueries({ queryKey: ["extensions"] });
       slots.forEach((s) =>
         queryClient.invalidateQueries({
           queryKey: ["slot-installs", s.slotId],
         }),
       );
-      navigate("/tools");
+      navigate("/extensions");
     }
   };
 
@@ -634,7 +634,7 @@ function ToolMoreMenu({
                 </p>
               ) : (
                 <p className="text-[11px] text-muted-foreground/70 mt-0.5">
-                  This tool can render in {slots.length} widget area
+                  This extension can render in {slots.length} widget area
                   {slots.length === 1 ? "" : "s"}.
                 </p>
               )}
@@ -669,7 +669,7 @@ function ToolMoreMenu({
                 className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10 cursor-pointer text-left"
               >
                 <IconTrash className="h-3.5 w-3.5" />
-                <span>Delete tool…</span>
+                <span>Delete extension…</span>
               </button>
             </div>
           </>
@@ -677,7 +677,7 @@ function ToolMoreMenu({
           <div className="flex flex-col gap-2 p-3">
             <p className="text-[12px]">
               Delete <span className="font-medium">{toolName}</span>? This
-              removes the tool everywhere, for everyone it's shared with.
+              removes the extension everywhere, for everyone it's shared with.
             </p>
             <div className="flex justify-end gap-1">
               <button
@@ -689,7 +689,7 @@ function ToolMoreMenu({
               </button>
               <button
                 type="button"
-                onClick={deleteTool}
+                onClick={deleteExtension}
                 className="rounded-md bg-destructive px-2 py-1 text-[12px] text-destructive-foreground hover:bg-destructive/90 cursor-pointer"
               >
                 Delete

@@ -13,58 +13,58 @@ import {
 } from "../server/request-context.js";
 import { registerShareableResource } from "../sharing/registry.js";
 import {
-  tools,
-  toolShares,
-  TOOLS_CREATE_SQL,
-  TOOLS_CREATE_SQL_PG,
-  TOOL_SHARES_CREATE_SQL,
-  TOOL_SHARES_CREATE_SQL_PG,
-  TOOL_DATA_CREATE_SQL,
-  TOOL_DATA_CREATE_SQL_PG,
-  TOOL_DATA_ITEM_INDEX_SQL,
-  TOOL_DATA_ITEM_INDEX_SQL_PG,
-  TOOL_DATA_DROP_OLD_INDEX_SQL,
-  TOOL_DATA_DROP_OLD_INDEX_SQL_PG,
-  TOOLS_OWNER_INDEX_SQL,
-  TOOLS_ORG_INDEX_SQL,
-  TOOL_SHARES_RESOURCE_INDEX_SQL,
-  TOOL_CONSENTS_CREATE_SQL,
-  TOOL_CONSENTS_CREATE_SQL_PG,
-  TOOL_CONSENTS_VIEWER_INDEX_SQL,
+  extensions,
+  extensionShares,
+  EXTENSIONS_CREATE_SQL,
+  EXTENSIONS_CREATE_SQL_PG,
+  EXTENSION_SHARES_CREATE_SQL,
+  EXTENSION_SHARES_CREATE_SQL_PG,
+  EXTENSION_DATA_CREATE_SQL,
+  EXTENSION_DATA_CREATE_SQL_PG,
+  EXTENSION_DATA_ITEM_INDEX_SQL,
+  EXTENSION_DATA_ITEM_INDEX_SQL_PG,
+  EXTENSION_DATA_DROP_OLD_INDEX_SQL,
+  EXTENSION_DATA_DROP_OLD_INDEX_SQL_PG,
+  EXTENSIONS_OWNER_INDEX_SQL,
+  EXTENSIONS_ORG_INDEX_SQL,
+  EXTENSION_SHARES_RESOURCE_INDEX_SQL,
+  EXTENSION_CONSENTS_CREATE_SQL,
+  EXTENSION_CONSENTS_CREATE_SQL_PG,
+  EXTENSION_CONSENTS_VIEWER_INDEX_SQL,
 } from "./schema.js";
 
-const getDb = createGetDb({ tools, toolShares });
+const getDb = createGetDb({ extensions, extensionShares });
 
 let _initPromise: Promise<void> | undefined;
 
-export async function ensureToolsTables(): Promise<void> {
+export async function ensureExtensionsTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
       const pg = isPostgres();
       await retryOnDdlRace(() =>
-        client.execute(pg ? TOOLS_CREATE_SQL_PG : TOOLS_CREATE_SQL),
+        client.execute(pg ? EXTENSIONS_CREATE_SQL_PG : EXTENSIONS_CREATE_SQL),
       );
       await retryOnDdlRace(() =>
-        client.execute(pg ? TOOL_SHARES_CREATE_SQL_PG : TOOL_SHARES_CREATE_SQL),
+        client.execute(pg ? EXTENSION_SHARES_CREATE_SQL_PG : EXTENSION_SHARES_CREATE_SQL),
       );
       await retryOnDdlRace(() =>
-        client.execute(pg ? TOOL_DATA_CREATE_SQL_PG : TOOL_DATA_CREATE_SQL),
+        client.execute(pg ? EXTENSION_DATA_CREATE_SQL_PG : EXTENSION_DATA_CREATE_SQL),
       );
-      await ensureToolDataItemId(client, pg);
-      await ensureToolDataScope(client, pg);
+      await ensureExtensionDataItemId(client, pg);
+      await ensureExtensionDataScope(client, pg);
       await client.execute(
-        pg ? TOOL_DATA_DROP_OLD_INDEX_SQL_PG : TOOL_DATA_DROP_OLD_INDEX_SQL,
+        pg ? EXTENSION_DATA_DROP_OLD_INDEX_SQL_PG : EXTENSION_DATA_DROP_OLD_INDEX_SQL,
       );
       await retryOnDdlRace(() =>
         client.execute(
-          pg ? TOOL_DATA_ITEM_INDEX_SQL_PG : TOOL_DATA_ITEM_INDEX_SQL,
+          pg ? EXTENSION_DATA_ITEM_INDEX_SQL_PG : EXTENSION_DATA_ITEM_INDEX_SQL,
         ),
       );
-      await retryOnDdlRace(() => client.execute(TOOLS_OWNER_INDEX_SQL));
-      await retryOnDdlRace(() => client.execute(TOOLS_ORG_INDEX_SQL));
+      await retryOnDdlRace(() => client.execute(EXTENSIONS_OWNER_INDEX_SQL));
+      await retryOnDdlRace(() => client.execute(EXTENSIONS_ORG_INDEX_SQL));
       await retryOnDdlRace(() =>
-        client.execute(TOOL_SHARES_RESOURCE_INDEX_SQL),
+        client.execute(EXTENSION_SHARES_RESOURCE_INDEX_SQL),
       );
       // tool_consents was introduced for an audit-C1 per-viewer consent
       // gate that we removed once we settled on intra-org trust as the
@@ -73,18 +73,18 @@ export async function ensureToolsTables(): Promise<void> {
       // is gone. Idempotent CREATE IF NOT EXISTS for fresh schemas.
       await retryOnDdlRace(() =>
         client.execute(
-          pg ? TOOL_CONSENTS_CREATE_SQL_PG : TOOL_CONSENTS_CREATE_SQL,
+          pg ? EXTENSION_CONSENTS_CREATE_SQL_PG : EXTENSION_CONSENTS_CREATE_SQL,
         ),
       );
       await retryOnDdlRace(() =>
-        client.execute(TOOL_CONSENTS_VIEWER_INDEX_SQL),
+        client.execute(EXTENSION_CONSENTS_VIEWER_INDEX_SQL),
       );
     })();
   }
   return _initPromise;
 }
 
-async function ensureToolDataItemId(
+async function ensureExtensionDataItemId(
   client: ReturnType<typeof getDbExec>,
   pg: boolean,
 ): Promise<void> {
@@ -110,7 +110,7 @@ async function ensureToolDataItemId(
   }
 }
 
-async function ensureToolDataScope(
+async function ensureExtensionDataScope(
   client: ReturnType<typeof getDbExec>,
   pg: boolean,
 ): Promise<void> {
@@ -142,18 +142,18 @@ async function ensureToolDataScope(
   );
 }
 
-export function registerToolsShareable() {
+export function registerExtensionsShareable() {
   registerShareableResource({
-    type: "tool",
-    resourceTable: tools,
-    sharesTable: toolShares,
-    displayName: "Tool",
+    type: "extension",
+    resourceTable: extensions,
+    sharesTable: extensionShares,
+    displayName: "Extension",
     titleColumn: "name",
     getDb: () => getDb(),
   });
 }
 
-export interface ToolRow {
+export interface ExtensionRow {
   id: string;
   name: string;
   description: string;
@@ -166,37 +166,37 @@ export interface ToolRow {
   visibility: "private" | "org" | "public";
 }
 
-export async function listTools(): Promise<ToolRow[]> {
-  await ensureToolsTables();
+export async function listExtensions(): Promise<ExtensionRow[]> {
+  await ensureExtensionsTables();
   const db = getDb();
   return db
     .select()
-    .from(tools)
-    .where(accessFilter(tools, toolShares)) as Promise<ToolRow[]>;
+    .from(extensions)
+    .where(accessFilter(extensions, extensionShares)) as Promise<ExtensionRow[]>;
 }
 
-export async function getTool(id: string): Promise<ToolRow | null> {
-  await ensureToolsTables();
-  const access = await resolveAccess("tool", id);
-  return (access?.resource as ToolRow | undefined) ?? null;
+export async function getExtension(id: string): Promise<ExtensionRow | null> {
+  await ensureExtensionsTables();
+  const access = await resolveAccess("extension", id);
+  return (access?.resource as ExtensionRow | undefined) ?? null;
 }
 
-export interface CreateToolData {
+export interface CreateExtensionData {
   name: string;
   description?: string;
   content?: string;
   icon?: string;
 }
 
-export async function createTool(data: CreateToolData): Promise<ToolRow> {
-  await ensureToolsTables();
+export async function createExtension(data: CreateExtensionData): Promise<ExtensionRow> {
+  await ensureExtensionsTables();
   const db = getDb();
   const userEmail = getRequestUserEmail();
   if (!userEmail) throw new Error("no authenticated user");
   const orgId = getRequestOrgId();
   const id = randomUUID();
   const now = new Date().toISOString();
-  const row: ToolRow = {
+  const row: ExtensionRow = {
     id,
     name: data.name,
     description: data.description ?? "",
@@ -207,29 +207,29 @@ export async function createTool(data: CreateToolData): Promise<ToolRow> {
     ownerEmail: userEmail,
     orgId: orgId ?? null,
     // Default to org-visibility when the user has an active organization so
-    // teammates see the tool in their sidebar — matching how analytics
+    // teammates see the extension in their sidebar — matching how analytics
     // dashboards/analyses are scoped (`templates/analytics/server/lib/
     // dashboards-store.ts:356`). Solo users (no org) get the private
-    // default. Owners can still flip back to private via update-tool.
+    // default. Owners can still flip back to private via update-extension.
     visibility: orgId ? "org" : "private",
   };
-  await db.insert(tools).values(row);
+  await db.insert(extensions).values(row);
   return row;
 }
 
-export interface UpdateToolData {
+export interface UpdateExtensionData {
   name?: string;
   description?: string;
   icon?: string;
   visibility?: "private" | "org" | "public";
 }
 
-export async function updateTool(
+export async function updateExtension(
   id: string,
-  data: UpdateToolData,
-): Promise<ToolRow | null> {
-  await ensureToolsTables();
-  await assertAccess("tool", id, "editor");
+  data: UpdateExtensionData,
+): Promise<ExtensionRow | null> {
+  await ensureExtensionsTables();
+  await assertAccess("extension", id, "editor");
   const db = getDb();
   const updates: Record<string, unknown> = {
     updatedAt: new Date().toISOString(),
@@ -238,31 +238,31 @@ export async function updateTool(
   if (data.description !== undefined) updates.description = data.description;
   if (data.icon !== undefined) updates.icon = data.icon;
   if (data.visibility !== undefined) updates.visibility = data.visibility;
-  await db.update(tools).set(updates).where(eq(tools.id, id));
-  const rows = await db.select().from(tools).where(eq(tools.id, id));
-  return (rows[0] as ToolRow) ?? null;
+  await db.update(extensions).set(updates).where(eq(extensions.id, id));
+  const rows = await db.select().from(extensions).where(eq(extensions.id, id));
+  return (rows[0] as ExtensionRow) ?? null;
 }
 
-export interface UpdateToolContentOpts {
+export interface UpdateExtensionContentOpts {
   content?: string;
   patches?: Array<{ find: string; replace: string }>;
 }
 
-export async function updateToolContent(
+export async function updateExtensionContent(
   id: string,
-  opts: UpdateToolContentOpts,
-): Promise<ToolRow | null> {
-  await ensureToolsTables();
-  await assertAccess("tool", id, "editor");
+  opts: UpdateExtensionContentOpts,
+): Promise<ExtensionRow | null> {
+  await ensureExtensionsTables();
+  await assertAccess("extension", id, "editor");
   const db = getDb();
 
   let newContent: string;
   if (opts.content !== undefined) {
     newContent = opts.content;
   } else if (opts.patches) {
-    const rows = await db.select().from(tools).where(eq(tools.id, id));
+    const rows = await db.select().from(extensions).where(eq(extensions.id, id));
     if (!rows[0]) return null;
-    newContent = (rows[0] as ToolRow).content;
+    newContent = (rows[0] as ExtensionRow).content;
     for (const patch of opts.patches) {
       newContent = newContent.replace(patch.find, patch.replace);
     }
@@ -271,26 +271,26 @@ export async function updateToolContent(
   }
 
   await db
-    .update(tools)
+    .update(extensions)
     .set({ content: newContent, updatedAt: new Date().toISOString() })
-    .where(eq(tools.id, id));
-  const rows = await db.select().from(tools).where(eq(tools.id, id));
-  return (rows[0] as ToolRow) ?? null;
+    .where(eq(extensions.id, id));
+  const rows = await db.select().from(extensions).where(eq(extensions.id, id));
+  return (rows[0] as ExtensionRow) ?? null;
 }
 
-export async function deleteTool(id: string): Promise<boolean> {
-  await ensureToolsTables();
-  await assertAccess("tool", id, "admin");
+export async function deleteExtension(id: string): Promise<boolean> {
+  await ensureExtensionsTables();
+  await assertAccess("extension", id, "admin");
   const db = getDb();
-  const rows = await db.select().from(tools).where(eq(tools.id, id));
+  const rows = await db.select().from(extensions).where(eq(extensions.id, id));
   if (!rows[0]) return false;
-  await db.delete(toolShares).where(eq(toolShares.resourceId, id));
+  await db.delete(extensionShares).where(eq(extensionShares.resourceId, id));
   await getDbExec().execute({
     sql: `DELETE FROM tool_data WHERE tool_id = ?`,
     args: [id],
   });
-  const { cascadeDeleteToolSlots } = await import("./slots/store.js");
-  await cascadeDeleteToolSlots(id);
-  await db.delete(tools).where(eq(tools.id, id));
+  const { cascadeDeleteExtensionSlots } = await import("./slots/store.js");
+  await cascadeDeleteExtensionSlots(id);
+  await db.delete(extensions).where(eq(extensions.id, id));
   return true;
 }

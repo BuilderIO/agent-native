@@ -17,9 +17,9 @@ import {
   TOOLS_ORDER_CHANGE_EVENT,
   applyToolsOrder,
   getToolsOrder,
-} from "./tool-order.js";
+} from "./extension-order.js";
 
-interface Tool {
+interface Extension {
   id: string;
   name: string;
   description?: string;
@@ -30,7 +30,7 @@ function submitCreateTool(prompt: string) {
   const trimmed = prompt.trim();
   if (!trimmed) return;
   sendToAgentChat({
-    message: `Create a tool: ${trimmed}`,
+    message: `Create a extension: ${trimmed}`,
     submit: true,
     openSidebar: true,
     newTab: true,
@@ -40,18 +40,18 @@ function submitCreateTool(prompt: string) {
 function CreateToolInput({ className }: { className?: string }) {
   return (
     <div className={cn("flex flex-col gap-2", className)}>
-      <p className="text-sm font-semibold text-foreground">New tool</p>
+      <p className="text-sm font-semibold text-foreground">New extension</p>
       <PromptComposer
         autoFocus
         placeholder="Describe what you'd like to build... e.g. a todo list, API dashboard, calculator"
-        draftScope="tools:create"
+        draftScope="extensions:create"
         onSubmit={(text) => submitCreateTool(text)}
       />
     </div>
   );
 }
 
-export function ToolsListPage() {
+export function ExtensionsListPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [toolOrderState, setToolOrderState] = useState<string[]>(() =>
     typeof window !== "undefined" ? getToolsOrder() : [],
@@ -61,7 +61,7 @@ export function ToolsListPage() {
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: { view: "tools" } }),
+      body: JSON.stringify({ value: { view: "extensions" } }),
     }).catch(() => {});
   }, []);
 
@@ -76,10 +76,10 @@ export function ToolsListPage() {
     };
   }, []);
 
-  const { data: tools, isLoading } = useQuery<Tool[]>({
-    queryKey: ["tools"],
+  const { data: extensions, isLoading } = useQuery<Extension[]>({
+    queryKey: ["extensions"],
     queryFn: async () => {
-      const res = await fetch(agentNativePath("/_agent-native/tools"));
+      const res = await fetch(agentNativePath("/_agent-native/extensions"));
       if (!res.ok) return [];
       return res.json();
     },
@@ -87,8 +87,8 @@ export function ToolsListPage() {
 
   const toolList =
     toolOrderState.length > 0
-      ? applyToolsOrder(tools ?? [], toolOrderState)
-      : (tools ?? []);
+      ? applyToolsOrder(extensions ?? [], toolOrderState)
+      : (extensions ?? []);
 
   const handleCreate = (text: string) => {
     submitCreateTool(text);
@@ -98,7 +98,7 @@ export function ToolsListPage() {
   return (
     <div className="flex h-full w-full flex-col">
       <header className="flex h-12 items-center justify-between border-b px-4 shrink-0">
-        <h1 className="text-sm font-semibold">Tools</h1>
+        <h1 className="text-sm font-semibold">Extensions</h1>
         <div className="flex items-center gap-2">
           <Popover open={showCreate} onOpenChange={setShowCreate}>
             <PopoverTrigger asChild>
@@ -107,7 +107,7 @@ export function ToolsListPage() {
                 className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
               >
                 <IconPlus className="h-4 w-4" />
-                New Tool
+                New Extension
               </button>
             </PopoverTrigger>
             <PopoverContent
@@ -116,12 +116,12 @@ export function ToolsListPage() {
               className="w-[420px] p-3"
             >
               <p className="px-1 pb-2 text-sm font-semibold text-foreground">
-                New tool
+                New extension
               </p>
               <PromptComposer
                 autoFocus
                 placeholder="Describe what you'd like to build..."
-                draftScope="tools:create-popover"
+                draftScope="extensions:create-popover"
                 onSubmit={handleCreate}
               />
             </PopoverContent>
@@ -149,7 +149,7 @@ export function ToolsListPage() {
           <div className="flex flex-col items-center justify-center gap-4 py-16 text-center">
             <IconTool className="h-10 w-10 text-muted-foreground/40" />
             <div>
-              <p className="text-sm font-medium">No tools yet</p>
+              <p className="text-sm font-medium">No extensions yet</p>
               <p className="text-xs text-muted-foreground mt-1">
                 Describe what you'd like to build
               </p>
@@ -158,10 +158,10 @@ export function ToolsListPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {toolList.map((tool) => (
+            {toolList.map((extension) => (
               <Link
-                key={tool.id}
-                to={`/tools/${tool.id}`}
+                key={extension.id}
+                to={`/extensions/${extension.id}`}
                 className={cn(
                   "group cursor-pointer rounded-lg border border-border bg-card p-5",
                   "hover:border-primary/30 hover:shadow-sm",
@@ -171,11 +171,11 @@ export function ToolsListPage() {
                   <IconTool className="h-5 w-5" />
                 </div>
                 <h3 className="mb-1 text-sm font-semibold text-foreground">
-                  {tool.name}
+                  {extension.name}
                 </h3>
-                {tool.description && (
+                {extension.description && (
                   <p className="line-clamp-2 text-xs text-muted-foreground">
-                    {tool.description}
+                    {extension.description}
                   </p>
                 )}
               </Link>

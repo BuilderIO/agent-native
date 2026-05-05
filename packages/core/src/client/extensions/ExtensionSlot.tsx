@@ -8,11 +8,11 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { sendToAgentChat } from "../agent-chat.js";
-import { EmbeddedTool } from "./EmbeddedTool.js";
+import { EmbeddedExtension } from "./EmbeddedExtension.js";
 
 interface SlotInstall {
   installId: string;
-  toolId: string;
+  extensionId: string;
   name: string;
   description: string;
   icon: string | null;
@@ -22,7 +22,7 @@ interface SlotInstall {
 }
 
 interface AvailableTool {
-  toolId: string;
+  extensionId: string;
   name: string;
   description: string;
   icon: string | null;
@@ -32,18 +32,18 @@ interface AvailableTool {
 export interface ExtensionSlotProps {
   /** Stable slot identifier — convention: `<app>.<area>.<position>`. */
   id: string;
-  /** Object pushed to each embedded tool as `slotContext`. */
+  /** Object pushed to each embedded extension as `slotContext`. */
   context?: Record<string, unknown> | null;
   /** Show a small "+" affordance when the slot has no installs. Default: false. */
   showEmptyAffordance?: boolean;
   /** Optional className applied to the wrapper. */
   className?: string;
-  /** Optional className applied to each EmbeddedTool. */
+  /** Optional className applied to each EmbeddedExtension. */
   toolClassName?: string;
 }
 
 /**
- * A named UI slot that user-installed tools can render into. Apps drop this
+ * A named UI slot that user-installed extensions can render into. Apps drop this
  * component wherever they want to allow extensions; the framework handles
  * fetching, sandboxing, context delivery, and lifecycle.
  *
@@ -91,9 +91,9 @@ export function ExtensionSlot({
   return (
     <div className={className}>
       {installs.map((install) => (
-        <EmbeddedTool
+        <EmbeddedExtension
           key={install.installId}
-          toolId={install.toolId}
+          extensionId={install.extensionId}
           slotId={id}
           context={context}
           className={toolClassName}
@@ -120,23 +120,23 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
   });
   const queryClient = useQueryClient();
 
-  const install = async (toolId: string) => {
+  const install = async (extensionId: string) => {
     queryClient.setQueryData<SlotInstall[]>(
       ["slot-installs", slotId],
       (old) => {
-        const tool = available.find((t) => t.toolId === toolId);
-        if (!tool || !old) return old;
+        const extension = available.find((t) => t.extensionId === extensionId);
+        if (!extension || !old) return old;
         return [
           ...old,
           {
-            installId: `optimistic-${toolId}`,
-            toolId,
-            name: tool.name,
-            description: tool.description,
-            icon: tool.icon,
+            installId: `optimistic-${extensionId}`,
+            extensionId,
+            name: extension.name,
+            description: extension.description,
+            icon: extension.icon,
             updatedAt: new Date().toISOString(),
             position: old.length,
-            config: tool.config,
+            config: extension.config,
           },
         ];
       },
@@ -150,7 +150,7 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ toolId }),
+          body: JSON.stringify({ extensionId }),
         },
       );
     } finally {
@@ -202,18 +202,18 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
               No widgets available for this slot yet.
             </div>
           )}
-          {available.map((tool) => (
+          {available.map((extension) => (
             <button
-              key={tool.toolId}
+              key={extension.extensionId}
               type="button"
-              onClick={() => install(tool.toolId)}
+              onClick={() => install(extension.extensionId)}
               className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-accent cursor-pointer"
             >
               <div className="flex-1 min-w-0">
-                <p className="text-[12px] font-medium truncate">{tool.name}</p>
-                {tool.description && (
+                <p className="text-[12px] font-medium truncate">{extension.name}</p>
+                {extension.description && (
                   <p className="text-[11px] text-muted-foreground/70 truncate">
-                    {tool.description}
+                    {extension.description}
                   </p>
                 )}
               </div>

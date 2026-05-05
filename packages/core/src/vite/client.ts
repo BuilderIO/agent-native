@@ -185,6 +185,12 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       packageName: "@agent-native/core",
     },
     {
+      specifier: "@agent-native/core/client/extensions",
+      packageName: "@agent-native/core",
+    },
+    {
+      // Legacy alias — prior name for @agent-native/core/client/extensions.
+      // Keep so deployed templates that haven't been updated still resolve.
       specifier: "@agent-native/core/client/tools",
       packageName: "@agent-native/core",
     },
@@ -271,9 +277,14 @@ function getCoreSourceAliases(
     "@agent-native/core": path.join(coreSrc, "index.browser.ts"),
     "@agent-native/core/server": path.join(coreSrc, "server/index.ts"),
     "@agent-native/core/client": path.join(coreSrc, "client/index.ts"),
+    "@agent-native/core/client/extensions": path.join(
+      coreSrc,
+      "client/extensions/index.ts",
+    ),
+    // Legacy alias — see exports map note above.
     "@agent-native/core/client/tools": path.join(
       coreSrc,
-      "client/tools/index.ts",
+      "client/extensions/index.ts",
     ),
     "@agent-native/core/client/org": path.join(coreSrc, "client/org/index.ts"),
     "@agent-native/core/client/observability": path.join(

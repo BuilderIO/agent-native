@@ -16,7 +16,7 @@ export function Layout({ children }: LayoutProps) {
     return <>{children}</>;
   }
 
-  const isToolsRoute = location.pathname.startsWith("/tools/");
+  const isToolsRoute = location.pathname.startsWith("/extensions/");
 
   return (
     <HeaderActionsProvider>

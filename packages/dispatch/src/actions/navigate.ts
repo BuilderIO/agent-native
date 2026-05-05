@@ -5,6 +5,7 @@
  *
  * Usage:
  *   pnpm action navigate --view=overview
+ *   pnpm action navigate --view=<custom-dispatch-extension-id>
  *   pnpm action navigate --path=/some/route
  *
  * Options:
@@ -21,24 +22,11 @@ export default defineAction({
     "Navigate the UI to a specific view or path. Writes a navigate command to application state which the UI reads and auto-deletes.",
   schema: z.object({
     view: z
-      .enum([
-        "overview",
-        "apps",
-        "new-app",
-        "vault",
-        "integrations",
-        "messaging",
-        "workspace",
-        "agents",
-        "destinations",
-        "routes",
-        "identities",
-        "approvals",
-        "audit",
-        "team",
-      ])
+      .string()
       .optional()
-      .describe("Named dispatch view to navigate to"),
+      .describe(
+        "Named dispatch view to navigate to. Built-in views include overview, apps, new-app, vault, integrations, messaging, workspace, agents, destinations, identities, approvals, audit, and team. Generated Dispatch extension tabs can also use their nav item id.",
+      ),
     path: z.string().optional().describe("URL path to navigate to"),
   }),
   http: false,

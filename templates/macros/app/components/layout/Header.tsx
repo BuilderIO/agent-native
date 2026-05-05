@@ -8,12 +8,12 @@ const pageTitles: Record<string, string> = {
   "/entry": "Entry",
   "/analytics": "Analytics",
   "/settings": "Settings",
-  "/tools": "Tools",
+  "/extensions": "Tools",
 };
 
 function resolveTitle(pathname: string): string {
   if (pageTitles[pathname]) return pageTitles[pathname];
-  if (pathname.startsWith("/tools")) return "Tools";
+  if (pathname.startsWith("/extensions")) return "Tools";
   return "Macros";
 }
 

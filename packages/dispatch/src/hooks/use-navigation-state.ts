@@ -6,13 +6,17 @@ import {
   appBasePath,
   appPath,
 } from "@agent-native/core/client";
+import type {
+  DispatchExtensionConfig,
+  DispatchNavItem,
+} from "../components/index.js";
 
 export interface NavigationState {
   view: string;
   path?: string;
 }
 
-export function useNavigationState() {
+export function useNavigationState(extensions?: DispatchExtensionConfig) {
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -20,7 +24,7 @@ export function useNavigationState() {
   // Sync current route to application state
   useEffect(() => {
     const state: NavigationState = {
-      view: resolveView(location.pathname),
+      view: resolveView(location.pathname, extensions),
       path: appPath(location.pathname),
     };
 
@@ -30,7 +34,7 @@ export function useNavigationState() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state),
     }).catch(() => {});
-  }, [location.pathname]);
+  }, [extensions, location.pathname]);
 
   // Listen for navigate commands from agent
   const { data: navCommand } = useQuery({
@@ -62,10 +66,12 @@ export function useNavigationState() {
     const cmd = navCommand as NavigationState;
 
     // Navigate to a specific path or resolve view name to path
-    const path = routerPath(cmd.path || resolvePath(cmd.view) || "/overview");
+    const path = routerPath(
+      cmd.path || resolvePath(cmd.view, extensions) || "/overview",
+    );
     navigate(path);
     qc.setQueryData(["navigate-command"], null);
-  }, [navCommand, navigate, qc]);
+  }, [extensions, navCommand, navigate, qc]);
 }
 
 function routerPath(path: string): string {
@@ -78,7 +84,43 @@ function routerPath(path: string): string {
   return path;
 }
 
-function resolveView(pathname: string): string {
+function extensionItemMatchesPath(
+  item: DispatchNavItem,
+  pathname: string,
+): boolean {
+  if (item.match) {
+    try {
+      if (item.match(pathname)) return true;
+    } catch {
+      return false;
+    }
+  }
+  return pathname === item.to || pathname.startsWith(`${item.to}/`);
+}
+
+function resolveExtensionView(
+  pathname: string,
+  extensions?: DispatchExtensionConfig,
+): string | undefined {
+  return extensions?.navItems?.find((item) =>
+    extensionItemMatchesPath(item, pathname),
+  )?.id;
+}
+
+function resolveExtensionPath(
+  view: string | undefined,
+  extensions?: DispatchExtensionConfig,
+): string | undefined {
+  if (!view) return undefined;
+  return extensions?.navItems?.find((item) => item.id === view)?.to;
+}
+
+function resolveView(
+  pathname: string,
+  extensions?: DispatchExtensionConfig,
+): string {
+  const extensionView = resolveExtensionView(pathname, extensions);
+  if (extensionView) return extensionView;
   if (pathname.startsWith("/apps")) return "apps";
   if (pathname.startsWith("/new-app")) return "new-app";
   if (pathname.startsWith("/vault")) return "vault";
@@ -94,7 +136,10 @@ function resolveView(pathname: string): string {
   return "overview";
 }
 
-function resolvePath(view?: string): string | undefined {
+function resolvePath(
+  view?: string,
+  extensions?: DispatchExtensionConfig,
+): string | undefined {
   switch (view) {
     case "overview":
       return "/overview";
@@ -127,6 +172,6 @@ function resolvePath(view?: string): string | undefined {
     case "team":
       return "/team";
     default:
-      return undefined;
+      return resolveExtensionPath(view, extensions);
   }
 }

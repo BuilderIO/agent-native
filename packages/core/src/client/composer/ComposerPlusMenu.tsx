@@ -239,7 +239,7 @@ function ComposerPlusMenuFull({
       label: "Create Tool",
       desc: "Build an interactive mini app",
       action: () => {
-        onSelectMode?.("tool");
+        onSelectMode?.("extension");
         setOpen(false);
       },
     },

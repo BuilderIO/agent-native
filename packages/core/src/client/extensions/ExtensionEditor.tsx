@@ -18,25 +18,25 @@ import { cn } from "../utils.js";
 
 interface SlotDeclaration {
   id: string;
-  toolId: string;
+  extensionId: string;
   slotId: string;
 }
 
-interface Tool {
+interface Extension {
   id: string;
   name: string;
   description?: string;
   content?: string;
 }
 
-export interface ToolEditorProps {
-  toolId?: string;
+export interface ExtensionEditorProps {
+  extensionId?: string;
 }
 
-export function ToolEditor({ toolId }: ToolEditorProps) {
+export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const isEdit = !!toolId;
+  const isEdit = !!extensionId;
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -47,10 +47,10 @@ export function ToolEditor({ toolId }: ToolEditorProps) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const { data: slots = [] } = useQuery<SlotDeclaration[]>({
-    queryKey: ["tool-slots", toolId],
+    queryKey: ["extension-slots", extensionId],
     queryFn: async () => {
       const res = await fetch(
-        agentNativePath(`/_agent-native/slots/tool/${toolId}`),
+        agentNativePath(`/_agent-native/slots/extension/${extensionId}`),
       );
       if (!res.ok) return [];
       return res.json();
@@ -58,13 +58,13 @@ export function ToolEditor({ toolId }: ToolEditorProps) {
     enabled: isEdit && menuOpen,
   });
 
-  const { data: existingTool } = useQuery<Tool>({
-    queryKey: ["tool", toolId],
+  const { data: existingTool } = useQuery<Extension>({
+    queryKey: ["extension", extensionId],
     queryFn: async () => {
       const res = await fetch(
-        agentNativePath(`/_agent-native/tools/${toolId}`),
+        agentNativePath(`/_agent-native/extensions/${extensionId}`),
       );
-      if (!res.ok) throw new Error("Failed to fetch tool");
+      if (!res.ok) throw new Error("Failed to fetch extension");
       return res.json();
     },
     enabled: isEdit,
@@ -90,7 +90,7 @@ export function ToolEditor({ toolId }: ToolEditorProps) {
 
       if (isEdit) {
         const res = await fetch(
-          agentNativePath(`/_agent-native/tools/${toolId}`),
+          agentNativePath(`/_agent-native/extensions/${extensionId}`),
           {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -98,19 +98,19 @@ export function ToolEditor({ toolId }: ToolEditorProps) {
           },
         );
         if (!res.ok) throw new Error("Update failed");
-        queryClient.invalidateQueries({ queryKey: ["tool", toolId] });
-        queryClient.invalidateQueries({ queryKey: ["tools"] });
-        navigate(`/tools/${toolId}`);
+        queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
+        queryClient.invalidateQueries({ queryKey: ["extensions"] });
+        navigate(`/extensions/${extensionId}`);
       } else {
-        const res = await fetch(agentNativePath("/_agent-native/tools"), {
+        const res = await fetch(agentNativePath("/_agent-native/extensions"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body,
         });
         if (!res.ok) throw new Error("Create failed");
         const created = await res.json();
-        queryClient.invalidateQueries({ queryKey: ["tools"] });
-        navigate(`/tools/${created.id}`);
+        queryClient.invalidateQueries({ queryKey: ["extensions"] });
+        navigate(`/extensions/${created.id}`);
       }
     } finally {
       setSaving(false);
@@ -118,32 +118,32 @@ export function ToolEditor({ toolId }: ToolEditorProps) {
   };
 
   const handleDelete = async () => {
-    if (!toolId) return;
+    if (!extensionId) return;
     setDeleting(true);
     try {
-      const prev = queryClient.getQueryData<Tool[]>(["tools"]);
-      queryClient.setQueryData<Tool[]>(["tools"], (old) =>
-        (old ?? []).filter((t) => t.id !== toolId),
+      const prev = queryClient.getQueryData<Extension[]>(["extensions"]);
+      queryClient.setQueryData<Extension[]>(["extensions"], (old) =>
+        (old ?? []).filter((t) => t.id !== extensionId),
       );
 
       const res = await fetch(
-        agentNativePath(`/_agent-native/tools/${toolId}`),
+        agentNativePath(`/_agent-native/extensions/${extensionId}`),
         {
           method: "DELETE",
         },
       );
       if (!res.ok) {
-        if (prev) queryClient.setQueryData(["tools"], prev);
+        if (prev) queryClient.setQueryData(["extensions"], prev);
         throw new Error("Delete failed");
       }
 
-      queryClient.invalidateQueries({ queryKey: ["tools"] });
+      queryClient.invalidateQueries({ queryKey: ["extensions"] });
       slots.forEach((s) =>
         queryClient.invalidateQueries({
           queryKey: ["slot-installs", s.slotId],
         }),
       );
-      navigate("/tools");
+      navigate("/extensions");
     } finally {
       setDeleting(false);
       setConfirmingDelete(false);
@@ -152,11 +152,11 @@ export function ToolEditor({ toolId }: ToolEditorProps) {
   };
 
   const handleRemoveFromSlot = async (slotId: string) => {
-    if (!toolId) return;
+    if (!extensionId) return;
     try {
       await fetch(
         agentNativePath(
-          `/_agent-native/slots/${encodeURIComponent(slotId)}/install/${encodeURIComponent(toolId)}`,
+          `/_agent-native/slots/${encodeURIComponent(slotId)}/install/${encodeURIComponent(extensionId)}`,
         ),
         { method: "DELETE" },
       );
@@ -170,14 +170,14 @@ export function ToolEditor({ toolId }: ToolEditorProps) {
       <header className="flex items-center justify-between border-b px-4 py-3">
         <div className="flex items-center gap-3">
           <Link
-            to={isEdit ? `/tools/${toolId}` : "/tools"}
+            to={isEdit ? `/extensions/${extensionId}` : "/extensions"}
             className="inline-flex cursor-pointer items-center justify-center rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
             aria-label="Back"
           >
             <IconArrowLeft className="h-4 w-4" />
           </Link>
           <h1 className="text-sm font-semibold">
-            {isEdit ? "Edit Tool" : "New Tool"}
+            {isEdit ? "Edit Extension" : "New Extension"}
           </h1>
         </div>
         <div className="flex items-center gap-2">
@@ -223,7 +223,7 @@ export function ToolEditor({ toolId }: ToolEditorProps) {
                         </p>
                       ) : (
                         <p className="text-[11px] text-muted-foreground/70 mt-0.5">
-                          This tool can render in {slots.length} widget area
+                          This extension can render in {slots.length} widget area
                           {slots.length === 1 ? "" : "s"}.
                         </p>
                       )}
@@ -258,7 +258,7 @@ export function ToolEditor({ toolId }: ToolEditorProps) {
                         className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10 cursor-pointer text-left"
                       >
                         <IconTrash className="h-3.5 w-3.5" />
-                        <span>Delete tool…</span>
+                        <span>Delete extension…</span>
                       </button>
                     </div>
                   </>
@@ -266,7 +266,7 @@ export function ToolEditor({ toolId }: ToolEditorProps) {
                   <div className="flex flex-col gap-2 p-3">
                     <p className="text-[12px]">
                       Delete <span className="font-medium">{name}</span>? This
-                      removes the tool everywhere, for everyone it's shared
+                      removes the extension everywhere, for everyone it's shared
                       with.
                     </p>
                     <div className="flex justify-end gap-1">
@@ -307,7 +307,7 @@ export function ToolEditor({ toolId }: ToolEditorProps) {
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="My Tool"
+              placeholder="My Extension"
               className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
             />
           </div>
@@ -319,7 +319,7 @@ export function ToolEditor({ toolId }: ToolEditorProps) {
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="What does this tool do?"
+              placeholder="What does this extension do?"
               rows={2}
               className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
             />
@@ -345,7 +345,7 @@ export function ToolEditor({ toolId }: ToolEditorProps) {
               srcDoc={content}
               className="h-full w-full border-0"
               sandbox="allow-scripts allow-forms"
-              title="Tool preview"
+              title="Extension preview"
             />
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">

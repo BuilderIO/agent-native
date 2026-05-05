@@ -1,25 +1,25 @@
 import { describe, expect, it } from "vitest";
 import {
-  MAX_TOOL_PROXY_RESPONSE_SIZE,
+  MAX_EXTENSION_PROXY_RESPONSE_SIZE,
   collectSecretValues,
-  normalizeToolProxyMethod,
+  normalizeExtensionProxyMethod,
   readResponseTextWithLimit,
   redactSecrets,
   redactString,
   sanitizeOutboundHeaders,
 } from "./proxy-security.js";
 
-describe("normalizeToolProxyMethod", () => {
+describe("normalizeExtensionProxyMethod", () => {
   it("accepts allowed methods (case-insensitive)", () => {
-    expect(normalizeToolProxyMethod("get")).toBe("GET");
-    expect(normalizeToolProxyMethod("POST")).toBe("POST");
-    expect(normalizeToolProxyMethod("Patch")).toBe("PATCH");
+    expect(normalizeExtensionProxyMethod("get")).toBe("GET");
+    expect(normalizeExtensionProxyMethod("POST")).toBe("POST");
+    expect(normalizeExtensionProxyMethod("Patch")).toBe("PATCH");
   });
 
   it("rejects unsupported methods", () => {
-    expect(normalizeToolProxyMethod("TRACE")).toBeNull();
-    expect(normalizeToolProxyMethod("CONNECT")).toBeNull();
-    expect(normalizeToolProxyMethod("PURGE")).toBeNull();
+    expect(normalizeExtensionProxyMethod("TRACE")).toBeNull();
+    expect(normalizeExtensionProxyMethod("CONNECT")).toBeNull();
+    expect(normalizeExtensionProxyMethod("PURGE")).toBeNull();
   });
 });
 
@@ -66,7 +66,7 @@ describe("sanitizeOutboundHeaders", () => {
 
 describe("readResponseTextWithLimit", () => {
   it("aborts response reading once size budget is exceeded", async () => {
-    const big = new Uint8Array(MAX_TOOL_PROXY_RESPONSE_SIZE + 1024);
+    const big = new Uint8Array(MAX_EXTENSION_PROXY_RESPONSE_SIZE + 1024);
     const stream = new ReadableStream({
       start(controller) {
         controller.enqueue(big);

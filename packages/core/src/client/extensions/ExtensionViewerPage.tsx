@@ -1,24 +1,24 @@
 import { agentNativePath } from "../api-path.js";
 import { useEffect } from "react";
 import { useParams } from "react-router";
-import { ToolViewer } from "./ToolViewer.js";
-import { ToolsListPage } from "./ToolsListPage.js";
+import { ExtensionViewer } from "./ExtensionViewer.js";
+import { ExtensionsListPage } from "./ExtensionsListPage.js";
 
-export function ToolViewerPage() {
+export function ExtensionViewerPage() {
   const { id } = useParams<{ id: string }>();
 
   useEffect(() => {
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: { view: "tools", toolId: id } }),
+      body: JSON.stringify({ value: { view: "extensions", extensionId: id } }),
     }).catch(() => {});
   }, [id]);
 
   if (id === "new") {
-    // No manual editor — tools are created via the agent
-    return <ToolsListPage />;
+    // No manual editor — extensions are created via the agent
+    return <ExtensionsListPage />;
   }
   if (!id) return null;
-  return <ToolViewer toolId={id} />;
+  return <ExtensionViewer extensionId={id} />;
 }

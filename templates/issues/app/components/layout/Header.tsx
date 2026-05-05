@@ -6,12 +6,12 @@ import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 const pageTitles: Record<string, string> = {
   "/team": "Team",
   "/settings": "Settings",
-  "/tools": "Tools",
+  "/extensions": "Tools",
 };
 
 function resolveTitle(pathname: string): string {
   if (pageTitles[pathname]) return pageTitles[pathname];
-  if (pathname.startsWith("/tools")) return "Tools";
+  if (pathname.startsWith("/extensions")) return "Tools";
   if (pathname.startsWith("/my-issues")) return "My Issues";
   if (pathname.startsWith("/projects")) return "Projects";
   if (pathname.startsWith("/board")) return "Board";

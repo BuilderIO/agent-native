@@ -1591,22 +1591,31 @@ export function createCoreRoutesPlugin(
     // DELETE /_agent-native/notifications/:id
     getH3App(nitroApp).use(`${P}/notifications`, createNotificationsHandler());
 
-    // ─── Tools (mini-app runtime + proxy) ───────────────────────────────
+    // ─── Extensions (sandboxed mini-app runtime + proxy) ────────────────
     try {
-      const { ensureToolsTables, registerToolsShareable } =
-        await import("../tools/store.js");
-      const { createToolsHandler } = await import("../tools/routes.js");
-      ensureToolsTables().catch(() => {});
-      registerToolsShareable();
-      getH3App(nitroApp).use(`${P}/tools`, createToolsHandler());
+      const { ensureExtensionsTables, registerExtensionsShareable } =
+        await import("../extensions/store.js");
+      const { createExtensionsHandler } = await import(
+        "../extensions/routes.js"
+      );
+      ensureExtensionsTables().catch(() => {});
+      registerExtensionsShareable();
+      const extensionsHandler = createExtensionsHandler();
+      getH3App(nitroApp).use(`${P}/extensions`, extensionsHandler);
+      // Legacy alias — the previous public API was /_agent-native/tools/*.
+      // Mounted in addition to /extensions/* so any deployed iframes mid-flight
+      // (or external integrations bookmarked the old path) keep working.
+      getH3App(nitroApp).use(`${P}/tools`, extensionsHandler);
 
-      // Tool extension-point slots — sub-system of tools.
-      const { ensureSlotTables } = await import("../tools/slots/store.js");
-      const { createSlotsHandler } = await import("../tools/slots/routes.js");
+      // Extension-point slots — sub-system of extensions.
+      const { ensureSlotTables } = await import("../extensions/slots/store.js");
+      const { createSlotsHandler } = await import(
+        "../extensions/slots/routes.js"
+      );
       ensureSlotTables().catch(() => {});
       getH3App(nitroApp).use(`${P}/slots`, createSlotsHandler());
     } catch {
-      // Tools module not available — skip
+      // Extensions module not available — skip
     }
 
     // ─── Agent run progress ───────────────────────────────────────────

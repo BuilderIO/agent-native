@@ -688,7 +688,7 @@ export default function SqlDashboardPage() {
             items={dashboard.panels.map((p) => p.id)}
             strategy={rectSortingStrategy}
           >
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid auto-rows-auto grid-cols-1 items-stretch gap-4 md:grid-cols-2">
               {dashboard.panels.map((panel) => {
                 const resolved = panel.config?.description
                   ? {
@@ -706,7 +706,7 @@ export default function SqlDashboardPage() {
                 return (
                   <div
                     key={panel.id}
-                    className="relative"
+                    className="relative h-full"
                     style={
                       remoteEditor
                         ? {
@@ -734,6 +734,7 @@ export default function SqlDashboardPage() {
                       onRemove={() => removePanel(panel.id)}
                       onToggleWidth={() => toggleWidth(panel.id)}
                       onEdit={() => openEditPanel(panel)}
+                      onSaveSql={(sql) => handleSavePanel({ ...panel, sql })}
                     />
                   </div>
                 );

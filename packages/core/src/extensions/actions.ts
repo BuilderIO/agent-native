@@ -1,32 +1,32 @@
 import type { ActionEntry } from "../agent/production-agent.js";
-import { createTool, getTool, updateTool, updateToolContent } from "./store.js";
+import { createExtension, getExtension, updateExtension, updateExtensionContent } from "./store.js";
 import {
-  addToolSlotTarget,
-  installToolSlot,
-  uninstallToolSlot,
-  listToolsForSlot,
-  listSlotsForTool,
+  addExtensionSlotTarget,
+  installExtensionSlot,
+  uninstallExtensionSlot,
+  listExtensionsForSlot,
+  listSlotsForExtension,
 } from "./slots/store.js";
 
-type ToolPatch = { find: string; replace: string };
+type ExtensionPatch = { find: string; replace: string };
 
-export function createToolActionEntries(): Record<string, ActionEntry> {
+export function createExtensionActionEntries(): Record<string, ActionEntry> {
   return {
-    "create-tool": {
+    "create-extension": {
       tool: {
         description:
-          "Create a sandboxed Alpine.js mini-app tool. Use this when the user asks to create, build, or make a tool/widget/dashboard/calculator. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), dbExec(), toolFetch(), and toolData.",
+          "Create a sandboxed Alpine.js mini-app extension. Use this when the user asks to create, build, or make an extension/widget/dashboard/calculator. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), and extensionData.",
         parameters: {
           type: "object",
           properties: {
             name: {
               type: "string",
               description:
-                'Short display name for the tool. Do not include "app" — e.g. name a todo app "Todos", a weather app "Weather".',
+                'Short display name for the extension. Do not include "app" — e.g. name a todo app "Todos", a weather app "Weather".',
             },
             description: {
               type: "string",
-              description: "One-sentence summary of what the tool does.",
+              description: "One-sentence summary of what the extension does.",
             },
             content: {
               type: "string",
@@ -47,7 +47,7 @@ export function createToolActionEntries(): Record<string, ActionEntry> {
         if (!name) return "Error: name is required.";
         if (!content) return "Error: content is required.";
 
-        const tool = await createTool({
+        const extension = await createExtension({
           name,
           description: String(args?.description ?? "").trim(),
           content,
@@ -56,22 +56,22 @@ export function createToolActionEntries(): Record<string, ActionEntry> {
 
         return {
           ok: true,
-          tool,
-          next: `Navigate to /tools/${tool.id} or use the navigate action with --view=tools --toolId=${tool.id}.`,
+          extension,
+          next: `Navigate to /extensions/${extension.id} or use the navigate action with --view=extensions --extensionId=${extension.id}.`,
         };
       },
     },
 
-    "update-tool": {
+    "update-extension": {
       tool: {
         description:
-          "Update an existing sandboxed Alpine.js mini-app tool. Prefer patches for surgical edits; use full content replacement only when necessary.",
+          "Update an existing sandboxed Alpine.js mini-app extension. Prefer patches for surgical edits; use full content replacement only when necessary.",
         parameters: {
           type: "object",
           properties: {
             id: {
               type: "string",
-              description: "Tool id to update.",
+              description: "Extension id to update.",
             },
             name: {
               type: "string",
@@ -114,7 +114,7 @@ export function createToolActionEntries(): Record<string, ActionEntry> {
           if (args?.patches !== undefined && !patches) {
             return "Error: patches must be a JSON array of { find, replace } objects.";
           }
-          result = await updateToolContent(id, {
+          result = await updateExtensionContent(id, {
             content:
               args?.content !== undefined ? String(args.content) : undefined,
             patches,
@@ -131,23 +131,23 @@ export function createToolActionEntries(): Record<string, ActionEntry> {
           meta.visibility = String(args.visibility);
         }
         if (Object.keys(meta).length > 0) {
-          result = await updateTool(id, meta as any);
+          result = await updateExtension(id, meta as any);
         }
 
-        if (!result) result = await getTool(id);
-        if (!result) return `Error: tool not found: ${id}`;
-        return { ok: true, tool: result };
+        if (!result) result = await getExtension(id);
+        if (!result) return `Error: extension not found: ${id}`;
+        return { ok: true, extension: result };
       },
     },
 
-    "add-tool-slot-target": {
+    "add-extension-slot-target": {
       tool: {
         description:
-          'Declare that a tool can render in a UI extension-point slot of an app (e.g. "mail.contact-sidebar.bottom"). Apps drop ExtensionSlot components in their UI; this action registers a tool as installable into one of those slots. Slot IDs follow the convention <app>.<area>.<position>. Caller must have editor access to the tool.',
+          'Declare that an extension can render in a UI extension-point slot of an app (e.g. "mail.contact-sidebar.bottom"). Apps drop ExtensionSlot components in their UI; this action registers an extension as installable into one of those slots. Slot IDs follow the convention <app>.<area>.<position>. Caller must have editor access to the extension.',
         parameters: {
           type: "object",
           properties: {
-            toolId: { type: "string", description: "Tool id." },
+            extensionId: { type: "string", description: "Extension id." },
             slotId: {
               type: "string",
               description:
@@ -159,16 +159,16 @@ export function createToolActionEntries(): Record<string, ActionEntry> {
                 "Optional JSON string with slot-specific config (defaults, hints, etc.).",
             },
           },
-          required: ["toolId", "slotId"],
+          required: ["extensionId", "slotId"],
         },
       },
       run: async (args) => {
-        const toolId = String(args?.toolId ?? "").trim();
+        const extensionId = String(args?.extensionId ?? "").trim();
         const slotId = String(args?.slotId ?? "").trim();
-        if (!toolId) return "Error: toolId is required.";
+        if (!extensionId) return "Error: extensionId is required.";
         if (!slotId) return "Error: slotId is required.";
-        const row = await addToolSlotTarget(
-          toolId,
+        const row = await addExtensionSlotTarget(
+          extensionId,
           slotId,
           args?.config ? String(args.config) : undefined,
         );
@@ -179,11 +179,11 @@ export function createToolActionEntries(): Record<string, ActionEntry> {
     "install-extension": {
       tool: {
         description:
-          "Install a tool as a widget in an extension-point slot for the current user. The tool must already declare the slot via add-tool-slot-target. Per-user installation — only affects the calling user's view. Use after creating a tool that targets a slot, or when the user asks to add an existing widget to a slot.",
+          "Install an extension as a widget in an extension-point slot for the current user. The extension must already declare the slot via add-extension-slot-target. Per-user installation — only affects the calling user's view. Use after creating an extension that targets a slot, or when the user asks to add an existing widget to a slot.",
         parameters: {
           type: "object",
           properties: {
-            toolId: { type: "string", description: "Tool id to install." },
+            extensionId: { type: "string", description: "Extension id to install." },
             slotId: {
               type: "string",
               description:
@@ -200,19 +200,19 @@ export function createToolActionEntries(): Record<string, ActionEntry> {
                 "Optional JSON string with per-install config (overrides, settings).",
             },
           },
-          required: ["toolId", "slotId"],
+          required: ["extensionId", "slotId"],
         },
       },
       run: async (args) => {
-        const toolId = String(args?.toolId ?? "").trim();
+        const extensionId = String(args?.extensionId ?? "").trim();
         const slotId = String(args?.slotId ?? "").trim();
-        if (!toolId) return "Error: toolId is required.";
+        if (!extensionId) return "Error: extensionId is required.";
         if (!slotId) return "Error: slotId is required.";
         const position =
           args?.position !== undefined && args.position !== null
             ? Number(args.position)
             : undefined;
-        const row = await installToolSlot(toolId, slotId, {
+        const row = await installExtensionSlot(extensionId, slotId, {
           position: Number.isFinite(position as number) ? position : undefined,
           config: args?.config ? String(args.config) : undefined,
         });
@@ -223,30 +223,30 @@ export function createToolActionEntries(): Record<string, ActionEntry> {
     "uninstall-extension": {
       tool: {
         description:
-          "Remove a tool from an extension-point slot for the current user. Does not delete the tool itself.",
+          "Remove an extension from an extension-point slot for the current user. Does not delete the extension itself.",
         parameters: {
           type: "object",
           properties: {
-            toolId: { type: "string", description: "Tool id." },
+            extensionId: { type: "string", description: "Extension id." },
             slotId: { type: "string", description: "Slot identifier." },
           },
-          required: ["toolId", "slotId"],
+          required: ["extensionId", "slotId"],
         },
       },
       run: async (args) => {
-        const toolId = String(args?.toolId ?? "").trim();
+        const extensionId = String(args?.extensionId ?? "").trim();
         const slotId = String(args?.slotId ?? "").trim();
-        if (!toolId) return "Error: toolId is required.";
+        if (!extensionId) return "Error: extensionId is required.";
         if (!slotId) return "Error: slotId is required.";
-        await uninstallToolSlot(toolId, slotId);
+        await uninstallExtensionSlot(extensionId, slotId);
         return { ok: true };
       },
     },
 
-    "list-tools-for-slot": {
+    "list-extensions-for-slot": {
       tool: {
         description:
-          "List tools the current user has access to that declare a given extension-point slot. Use to discover what's available to install into a slot the user mentioned.",
+          "List extensions the current user has access to that declare a given extension-point slot. Use to discover what's available to install into a slot the user mentioned.",
         parameters: {
           type: "object",
           properties: {
@@ -258,34 +258,34 @@ export function createToolActionEntries(): Record<string, ActionEntry> {
       run: async (args) => {
         const slotId = String(args?.slotId ?? "").trim();
         if (!slotId) return "Error: slotId is required.";
-        return { tools: await listToolsForSlot(slotId) };
+        return { extensions: await listExtensionsForSlot(slotId) };
       },
       readOnly: true,
     },
 
-    "list-tool-slots": {
+    "list-extension-slots": {
       tool: {
         description:
-          "List the extension-point slots a specific tool declares it can render in. Caller must have viewer access to the tool.",
+          "List the extension-point slots a specific extension declares it can render in. Caller must have viewer access to the extension.",
         parameters: {
           type: "object",
           properties: {
-            toolId: { type: "string", description: "Tool id." },
+            extensionId: { type: "string", description: "Extension id." },
           },
-          required: ["toolId"],
+          required: ["extensionId"],
         },
       },
       run: async (args) => {
-        const toolId = String(args?.toolId ?? "").trim();
-        if (!toolId) return "Error: toolId is required.";
-        return { slots: await listSlotsForTool(toolId) };
+        const extensionId = String(args?.extensionId ?? "").trim();
+        if (!extensionId) return "Error: extensionId is required.";
+        return { slots: await listSlotsForExtension(extensionId) };
       },
       readOnly: true,
     },
   };
 }
 
-function parsePatches(value: unknown): ToolPatch[] | undefined {
+function parsePatches(value: unknown): ExtensionPatch[] | undefined {
   if (value === undefined) return undefined;
   const parsed = typeof value === "string" ? JSON.parse(value) : value;
   if (!Array.isArray(parsed)) return undefined;

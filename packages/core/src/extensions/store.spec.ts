@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-describe("tools/store", () => {
+describe("extensions/store", () => {
   afterEach(() => {
     vi.resetModules();
     vi.restoreAllMocks();
   });
 
-  it("initializes tool tables without rebuilding existing tool_data", async () => {
+  it("initializes extension tables without rebuilding existing tool_data", async () => {
     const statements: string[] = [];
     const client = {
       execute: vi.fn(
@@ -30,9 +30,9 @@ describe("tools/store", () => {
       registerShareableResource: vi.fn(),
     }));
 
-    const { ensureToolsTables } = await import("./store.js");
+    const { ensureExtensionsTables } = await import("./store.js");
 
-    await ensureToolsTables();
+    await ensureExtensionsTables();
 
     expect(
       statements.some((sql) => /RENAME\s+TO\s+tool_data_old/i.test(sql)),

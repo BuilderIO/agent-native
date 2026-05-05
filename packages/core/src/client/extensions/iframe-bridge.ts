@@ -31,19 +31,19 @@ const BLOCKED_HEADERS = new Set([
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 
 /**
- * Path allowlist for the tool postMessage bridge.
+ * Path allowlist for the extension postMessage bridge.
  *
- * Tools can only call paths under `/_agent-native/*` (the framework's own
+ * Extensions can only call paths under `/_agent-native/*` (the framework's own
  * namespace). Template-defined `/api/*` routes are intentionally rejected:
  * those routes are written by app authors who may not consistently apply the
- * `accessFilter`/`assertAccess` access scoping helpers. A shared/org tool
+ * `accessFilter`/`assertAccess` access scoping helpers. A shared/org extension
  * running with the viewer's session should not be able to reach surfaces
  * outside the framework's own well-audited namespace.
  *
- * If a template needs a tool to reach a custom route, expose it via an
+ * If a template needs a extension to reach a custom route, expose it via an
  * action (`defineAction` auto-mounts under `/_agent-native/actions/<name>`).
  */
-export function isAllowedToolPath(path: string, toolId: string): boolean {
+export function isAllowedExtensionPath(path: string, extensionId: string): boolean {
   if (!path.startsWith("/") || path.startsWith("//")) return false;
   if (path.includes("\\") || path.includes("\0")) return false;
 
@@ -62,20 +62,20 @@ export function isAllowedToolPath(path: string, toolId: string): boolean {
   if (pathname.startsWith("/_agent-native/actions/")) return true;
   if (pathname.startsWith("/_agent-native/application-state/")) return true;
 
-  if (pathname === "/_agent-native/tools/proxy") return true;
-  if (pathname === "/_agent-native/tools/sql/query") return true;
-  if (pathname === "/_agent-native/tools/sql/exec") return true;
+  if (pathname === "/_agent-native/extensions/proxy") return true;
+  if (pathname === "/_agent-native/extensions/sql/query") return true;
+  if (pathname === "/_agent-native/extensions/sql/exec") return true;
 
   const parts = pathname.split("/");
   if (
     parts.length >= 6 &&
     parts.length <= 7 &&
     parts[1] === "_agent-native" &&
-    parts[2] === "tools" &&
+    parts[2] === "extensions" &&
     parts[3] === "data"
   ) {
     try {
-      return decodeURIComponent(parts[4]) === toolId;
+      return decodeURIComponent(parts[4]) === extensionId;
     } catch {
       return false;
     }
@@ -84,7 +84,7 @@ export function isAllowedToolPath(path: string, toolId: string): boolean {
   return false;
 }
 
-export function sanitizeToolRequestOptions(value: unknown): RequestInit {
+export function sanitizeExtensionRequestOptions(value: unknown): RequestInit {
   if (!value || typeof value !== "object") return {};
   const raw = value as Record<string, unknown>;
   const method =
@@ -92,7 +92,7 @@ export function sanitizeToolRequestOptions(value: unknown): RequestInit {
       ? raw.method.toUpperCase()
       : "GET";
   if (!ALLOWED_METHODS.has(method)) {
-    throw new Error("Tool request method is not allowed");
+    throw new Error("Extension request method is not allowed");
   }
 
   const headers =
@@ -134,11 +134,11 @@ function isAllowedHeader(name: string): boolean {
 // the very capabilities that motivate the C1 consent step. After consent has
 // been granted, we still want defense-in-depth: a viewer whose role is
 // "viewer" should not be able to (e.g.) chain `appAction('share-resource')`
-// or run `dbExec` writes against their own data through someone else's tool.
+// or run `dbExec` writes against their own data through someone else's extension.
 //
 // Role table (lowest tier first):
 //
-//   role     | appFetch        | toolFetch       | toolData       | dbQuery | dbExec | appAction
+//   role     | appFetch        | extensionFetch       | extensionData       | dbQuery | dbExec | appAction
 //   ---------|-----------------|-----------------|----------------|---------|--------|----------
 //   viewer   | GET only        | GET only        | get/list only  |  deny   |  deny  |  deny
 //   editor   | all methods     | all methods     | get/list/set/  |  allow  | allow* |  allow
@@ -156,14 +156,14 @@ function isAllowedHeader(name: string): boolean {
 // can leak other users' rows in template tables that aren't in
 // SENSITIVE_SQL_RE.
 
-export type ToolBridgeRole = "owner" | "admin" | "editor" | "viewer";
+export type ExtensionBridgeRole = "owner" | "admin" | "editor" | "viewer";
 
 const READ_METHODS = new Set(["GET", "HEAD"]);
 
 export interface BridgePolicyContext {
-  /** Resolved role of the viewer on this tool. */
-  role: ToolBridgeRole;
-  /** True when viewer is the tool's owner_email — equivalent to role "owner"
+  /** Resolved role of the viewer on this extension. */
+  role: ExtensionBridgeRole;
+  /** True when viewer is the extension's owner_email — equivalent to role "owner"
    *  but cheaper to plumb through from the render binding. */
   isAuthor: boolean;
 }
@@ -176,7 +176,7 @@ export interface BridgePolicyResult {
 
 /**
  * Decide whether the iframe is allowed to proxy this request given the
- * viewer's role on the tool. Authors (and owner/admin/editor in general)
+ * viewer's role on the extension. Authors (and owner/admin/editor in general)
  * keep the full bridge surface; viewers get a strictly read-only subset.
  *
  * Called BEFORE the request leaves the parent — so a denial is local-only
@@ -204,13 +204,13 @@ export function checkBridgePolicy(
 
   // SQL is denied for viewers entirely (defense-in-depth: dev mode bypasses
   // the production scoping shim).
-  if (path === "/_agent-native/tools/sql/query") {
+  if (path === "/_agent-native/extensions/sql/query") {
     return {
       ok: false,
       error: deniedMessage("dbQuery", ctx.role),
     };
   }
-  if (path === "/_agent-native/tools/sql/exec") {
+  if (path === "/_agent-native/extensions/sql/exec") {
     return {
       ok: false,
       error: deniedMessage("dbExec", ctx.role),
@@ -228,27 +228,27 @@ export function checkBridgePolicy(
     };
   }
 
-  // Tool-data writes/deletes are denied; reads (GET/HEAD) are allowed.
-  // Match /_agent-native/tools/data/<toolId>/<collection>[/<itemId>].
-  if (path.startsWith("/_agent-native/tools/data/")) {
+  // Extension-data writes/deletes are denied; reads (GET/HEAD) are allowed.
+  // Match /_agent-native/extensions/data/<extensionId>/<collection>[/<itemId>].
+  if (path.startsWith("/_agent-native/extensions/data/")) {
     if (READ_METHODS.has(upperMethod)) return { ok: true };
     return {
       ok: false,
-      error: deniedMessage("toolData.set/remove", ctx.role),
+      error: deniedMessage("extensionData.set/remove", ctx.role),
     };
   }
 
-  // toolFetch — outbound proxy. POSTed JSON body carries the upstream method.
+  // extensionFetch — outbound proxy. POSTed JSON body carries the upstream method.
   // The bridge can only see the path here, not the upstream method, so we
   // restrict by REQUEST method (POST to /proxy carries the actual upstream
   // method as { method: 'GET' | ... } in body). For viewers we pre-flight-
   // deny the proxy unless a future code path emits a GET to /proxy/preview.
-  // In practice, toolFetch always POSTs to /proxy, so a viewer's toolFetch
+  // In practice, extensionFetch always POSTs to /proxy, so a viewer's extensionFetch
   // is denied entirely. Adapt this if /proxy gains a GET preview surface.
-  if (path === "/_agent-native/tools/proxy") {
+  if (path === "/_agent-native/extensions/proxy") {
     return {
       ok: false,
-      error: deniedMessage("toolFetch", ctx.role),
+      error: deniedMessage("extensionFetch", ctx.role),
     };
   }
 
@@ -269,6 +269,6 @@ export function checkBridgePolicy(
   };
 }
 
-function deniedMessage(helper: string, role: ToolBridgeRole): string {
-  return `Helper '${helper}' is not allowed for role '${role}' on this tool`;
+function deniedMessage(helper: string, role: ExtensionBridgeRole): string {
+  return `Helper '${helper}' is not allowed for role '${role}' on this extension`;
 }

@@ -21,16 +21,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import { applyToolsOrder, getToolsOrder, setToolsOrder } from "./tool-order.js";
+import { applyToolsOrder, getToolsOrder, setToolsOrder } from "./extension-order.js";
 
-interface Tool {
+interface Extension {
   id: string;
   name: string;
   description?: string;
   icon?: string;
 }
 
-const FAVORITES_KEY = "tools-favorites";
+const FAVORITES_KEY = "extensions-favorites";
 
 function getFavorites(): Set<string> {
   try {
@@ -51,7 +51,7 @@ function saveFavorites(ids: Set<string>) {
   }
 }
 
-export function ToolsSidebarSection() {
+export function ExtensionsSidebarSection() {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -68,10 +68,10 @@ export function ToolsSidebarSection() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
-  const { data: tools, isLoading } = useQuery<Tool[]>({
-    queryKey: ["tools"],
+  const { data: extensions, isLoading } = useQuery<Extension[]>({
+    queryKey: ["extensions"],
     queryFn: async () => {
-      const res = await fetch(agentNativePath("/_agent-native/tools"));
+      const res = await fetch(agentNativePath("/_agent-native/extensions"));
       if (!res.ok) return [];
       return res.json();
     },
@@ -91,77 +91,77 @@ export function ToolsSidebarSection() {
   }, []);
 
   const handleDelete = useCallback(
-    async (toolId: string) => {
+    async (extensionId: string) => {
       setMenuOpenId(null);
-      const prev = queryClient.getQueryData<Tool[]>(["tools"]);
-      queryClient.setQueryData<Tool[]>(["tools"], (old) =>
-        (old ?? []).filter((t) => t.id !== toolId),
+      const prev = queryClient.getQueryData<Extension[]>(["extensions"]);
+      queryClient.setQueryData<Extension[]>(["extensions"], (old) =>
+        (old ?? []).filter((t) => t.id !== extensionId),
       );
       try {
         const res = await fetch(
-          agentNativePath(`/_agent-native/tools/${toolId}`),
+          agentNativePath(`/_agent-native/extensions/${extensionId}`),
           {
             method: "DELETE",
           },
         );
         if (!res.ok) throw new Error("Delete failed");
-        queryClient.removeQueries({ queryKey: ["tool", toolId] });
-        queryClient.invalidateQueries({ queryKey: ["tools"] });
+        queryClient.removeQueries({ queryKey: ["extension", extensionId] });
+        queryClient.invalidateQueries({ queryKey: ["extensions"] });
         setFavoriteIds((prev) => {
           const next = new Set(prev);
-          next.delete(toolId);
+          next.delete(extensionId);
           saveFavorites(next);
           return next;
         });
         setToolOrderState((prev) => {
-          const next = prev.filter((id) => id !== toolId);
+          const next = prev.filter((id) => id !== extensionId);
           if (next.length !== prev.length) setToolsOrder(next);
           return next;
         });
         if (
-          location.pathname === `/tools/${toolId}` ||
-          location.pathname === `/tools/${toolId}/edit`
+          location.pathname === `/extensions/${extensionId}` ||
+          location.pathname === `/extensions/${extensionId}/edit`
         ) {
-          navigate("/tools");
+          navigate("/extensions");
         }
       } catch {
-        if (prev) queryClient.setQueryData(["tools"], prev);
+        if (prev) queryClient.setQueryData(["extensions"], prev);
       }
     },
     [location.pathname, navigate, queryClient],
   );
 
-  const startRename = useCallback((tool: Tool) => {
+  const startRename = useCallback((extension: Extension) => {
     setMenuOpenId(null);
-    setRenameValue(tool.name);
-    setRenamingId(tool.id);
+    setRenameValue(extension.name);
+    setRenamingId(extension.id);
   }, []);
 
   const submitRename = useCallback(
-    async (toolId: string) => {
+    async (extensionId: string) => {
       const trimmed = renameValue.trim();
       setRenamingId(null);
       if (!trimmed) return;
-      const prev = queryClient.getQueryData<Tool[]>(["tools"]);
-      const existing = prev?.find((t) => t.id === toolId);
+      const prev = queryClient.getQueryData<Extension[]>(["extensions"]);
+      const existing = prev?.find((t) => t.id === extensionId);
       if (!existing || trimmed === existing.name) return;
-      queryClient.setQueryData<Tool[]>(["tools"], (old) =>
-        (old ?? []).map((t) => (t.id === toolId ? { ...t, name: trimmed } : t)),
+      queryClient.setQueryData<Extension[]>(["extensions"], (old) =>
+        (old ?? []).map((t) => (t.id === extensionId ? { ...t, name: trimmed } : t)),
       );
-      queryClient.setQueryData<Tool>(["tool", toolId], (old) =>
+      queryClient.setQueryData<Extension>(["extension", extensionId], (old) =>
         old ? { ...old, name: trimmed } : old,
       );
       try {
-        await fetch(agentNativePath(`/_agent-native/tools/${toolId}`), {
+        await fetch(agentNativePath(`/_agent-native/extensions/${extensionId}`), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: trimmed }),
         });
-        queryClient.invalidateQueries({ queryKey: ["tools"] });
-        queryClient.invalidateQueries({ queryKey: ["tool", toolId] });
+        queryClient.invalidateQueries({ queryKey: ["extensions"] });
+        queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
       } catch {
-        if (prev) queryClient.setQueryData(["tools"], prev);
-        queryClient.invalidateQueries({ queryKey: ["tool", toolId] });
+        if (prev) queryClient.setQueryData(["extensions"], prev);
+        queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
       }
     },
     [renameValue, queryClient],
@@ -176,8 +176,8 @@ export function ToolsSidebarSection() {
   }, [menuOpenId]);
 
   const sortedTools = useMemo(() => {
-    if (!tools) return [];
-    const defaultSorted = [...tools].sort((a, b) => {
+    if (!extensions) return [];
+    const defaultSorted = [...extensions].sort((a, b) => {
       const aFav = favoriteIds.has(a.id) ? 0 : 1;
       const bFav = favoriteIds.has(b.id) ? 0 : 1;
       if (aFav !== bFav) return aFav - bFav;
@@ -186,12 +186,12 @@ export function ToolsSidebarSection() {
     return toolOrderState.length > 0
       ? applyToolsOrder(defaultSorted, toolOrderState)
       : defaultSorted;
-  }, [tools, favoriteIds, toolOrderState]);
+  }, [extensions, favoriteIds, toolOrderState]);
 
   const reorderTool = useCallback(
     (activeId: string, overId: string) => {
       if (activeId === overId) return;
-      const ids = sortedTools.map((tool) => tool.id);
+      const ids = sortedTools.map((extension) => extension.id);
       const oldIndex = ids.indexOf(activeId);
       const newIndex = ids.indexOf(overId);
       if (oldIndex === -1 || newIndex === -1) return;
@@ -209,7 +209,7 @@ export function ToolsSidebarSection() {
     const trimmed = text.trim();
     if (!trimmed) return;
     sendToAgentChat({
-      message: `Create a tool: ${trimmed}`,
+      message: `Create a extension: ${trimmed}`,
       submit: true,
       openSidebar: true,
       newTab: true,
@@ -227,13 +227,13 @@ export function ToolsSidebarSection() {
       >
         <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           <IconTool className="h-3.5 w-3.5 shrink-0" />
-          Tools
+          Extensions
           <a
-            href="https://agent-native.com/docs/tools"
+            href="https://agent-native.com/docs/extensions"
             target="_blank"
             rel="noopener noreferrer"
             className="opacity-0 group-hover/help:opacity-100 transition-opacity text-muted-foreground/50 hover:text-muted-foreground"
-            aria-label="Tools documentation"
+            aria-label="Extensions documentation"
           >
             <IconHelpCircle className="h-3 w-3" />
           </a>
@@ -243,19 +243,19 @@ export function ToolsSidebarSection() {
             <button
               type="button"
               className="inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              aria-label="New tool"
+              aria-label="New extension"
             >
               <IconPlus className="h-3.5 w-3.5" />
             </button>
           </PopoverTrigger>
           <PopoverContent side="right" align="start" className="w-[420px] p-3">
             <p className="px-1 pb-2 text-sm font-semibold text-foreground">
-              New tool
+              New extension
             </p>
             <PromptComposer
               autoFocus
               placeholder="Describe what you'd like to build..."
-              draftScope="tools:sidebar-create"
+              draftScope="extensions:sidebar-create"
               onSubmit={handleCreate}
             />
           </PopoverContent>
@@ -275,26 +275,26 @@ export function ToolsSidebarSection() {
         </div>
       ) : sortedTools.length === 0 ? null : (
         <div className="min-w-0 space-y-0.5 px-1">
-          {sortedTools.map((tool) => {
+          {sortedTools.map((extension) => {
             const isActive =
-              location.pathname === `/tools/${tool.id}` ||
-              location.pathname === `/tools/${tool.id}/edit`;
-            const isFav = favoriteIds.has(tool.id);
-            const isRenamingThis = renamingId === tool.id;
-            const actionsVisible = menuOpenId === tool.id || isRenamingThis;
+              location.pathname === `/extensions/${extension.id}` ||
+              location.pathname === `/extensions/${extension.id}/edit`;
+            const isFav = favoriteIds.has(extension.id);
+            const isRenamingThis = renamingId === extension.id;
+            const actionsVisible = menuOpenId === extension.id || isRenamingThis;
 
             return (
               <div
-                key={tool.id}
+                key={extension.id}
                 onDragOver={(e) => {
-                  if (!draggingId || draggingId === tool.id) return;
+                  if (!draggingId || draggingId === extension.id) return;
                   e.preventDefault();
                   e.dataTransfer.dropEffect = "move";
-                  setDragOverId(tool.id);
+                  setDragOverId(extension.id);
                 }}
                 onDragLeave={() => {
                   setDragOverId((current) =>
-                    current === tool.id ? null : current,
+                    current === extension.id ? null : current,
                   );
                 }}
                 onDrop={(e) => {
@@ -303,13 +303,13 @@ export function ToolsSidebarSection() {
                     draggingId || e.dataTransfer.getData("text/plain");
                   setDraggingId(null);
                   setDragOverId(null);
-                  if (activeId) reorderTool(activeId, tool.id);
+                  if (activeId) reorderTool(activeId, extension.id);
                 }}
                 className={cn(
-                  "group/tool relative flex items-center min-w-0 rounded-md",
-                  draggingId === tool.id && "opacity-50",
-                  dragOverId === tool.id &&
-                    draggingId !== tool.id &&
+                  "group/extension relative flex items-center min-w-0 rounded-md",
+                  draggingId === extension.id && "opacity-50",
+                  dragOverId === extension.id &&
+                    draggingId !== extension.id &&
                     "bg-accent/60",
                 )}
               >
@@ -317,25 +317,25 @@ export function ToolsSidebarSection() {
                   type="button"
                   draggable
                   onDragStart={(e) => {
-                    setDraggingId(tool.id);
+                    setDraggingId(extension.id);
                     setDragOverId(null);
                     e.dataTransfer.effectAllowed = "move";
-                    e.dataTransfer.setData("text/plain", tool.id);
+                    e.dataTransfer.setData("text/plain", extension.id);
                   }}
                   onDragEnd={() => {
                     setDraggingId(null);
                     setDragOverId(null);
                   }}
-                  className="-ml-2 cursor-grab rounded p-0.5 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/70 active:cursor-grabbing group-hover/tool:opacity-100 group-focus-within/tool:opacity-100"
-                  aria-label={`Reorder ${tool.name}`}
+                  className="-ml-2 cursor-grab rounded p-0.5 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/70 active:cursor-grabbing group-hover/extension:opacity-100 group-focus-within/extension:opacity-100"
+                  aria-label={`Reorder ${extension.name}`}
                   title="Drag to reorder"
                 >
                   <IconGripVertical className="h-3 w-3" />
                 </button>
                 <Link
-                  to={`/tools/${tool.id}`}
+                  to={`/extensions/${extension.id}`}
                   className={cn(
-                    "flex min-w-0 flex-1 items-center rounded-md px-2 py-1.5 pr-12 text-xs transition-[padding,color,background-color] md:pr-2 md:group-hover/tool:pr-12 md:group-focus-within/tool:pr-12",
+                    "flex min-w-0 flex-1 items-center rounded-md px-2 py-1.5 pr-12 text-xs transition-[padding,color,background-color] md:pr-2 md:group-hover/extension:pr-12 md:group-focus-within/extension:pr-12",
                     actionsVisible && "md:pr-12",
                     isActive
                       ? "bg-accent text-accent-foreground font-medium"
@@ -347,9 +347,9 @@ export function ToolsSidebarSection() {
                       autoFocus
                       value={renameValue}
                       onChange={(e) => setRenameValue(e.target.value)}
-                      onBlur={() => submitRename(tool.id)}
+                      onBlur={() => submitRename(extension.id)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") submitRename(tool.id);
+                        if (e.key === "Enter") submitRename(extension.id);
                         if (e.key === "Escape") setRenamingId(null);
                       }}
                       onClick={(e) => {
@@ -359,13 +359,13 @@ export function ToolsSidebarSection() {
                       className="min-w-0 flex-1 truncate border-b border-primary bg-transparent px-0 py-0 text-xs outline-none"
                     />
                   ) : (
-                    <span className="block truncate">{tool.name}</span>
+                    <span className="block truncate">{extension.name}</span>
                   )}
                 </Link>
 
                 <div
                   className={cn(
-                    "pointer-events-none absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/tool:opacity-100 md:group-focus-within/tool:opacity-100",
+                    "pointer-events-none absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/extension:opacity-100 md:group-focus-within/extension:opacity-100",
                     actionsVisible && "md:opacity-100",
                   )}
                 >
@@ -374,7 +374,7 @@ export function ToolsSidebarSection() {
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      toggleFavorite(tool.id);
+                      toggleFavorite(extension.id);
                     }}
                     className={cn(
                       "pointer-events-auto cursor-pointer rounded p-0.5 transition-colors",
@@ -397,22 +397,22 @@ export function ToolsSidebarSection() {
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        setMenuOpenId(menuOpenId === tool.id ? null : tool.id);
+                        setMenuOpenId(menuOpenId === extension.id ? null : extension.id);
                       }}
                       className="pointer-events-auto cursor-pointer rounded p-0.5 text-muted-foreground/40 transition-colors hover:text-foreground"
-                      aria-label="Tool actions"
+                      aria-label="Extension actions"
                     >
                       <IconDots className="h-3 w-3" />
                     </button>
 
-                    {menuOpenId === tool.id && (
+                    {menuOpenId === extension.id && (
                       <div
                         className="absolute right-0 top-full z-50 mt-1 min-w-[120px] rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <button
                           type="button"
-                          onClick={() => startRename(tool)}
+                          onClick={() => startRename(extension)}
                           className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
                         >
                           <IconPencil className="h-3.5 w-3.5" />
@@ -420,7 +420,7 @@ export function ToolsSidebarSection() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDelete(tool.id)}
+                          onClick={() => handleDelete(extension.id)}
                           className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-destructive hover:bg-accent"
                         >
                           <IconTrash className="h-3.5 w-3.5" />

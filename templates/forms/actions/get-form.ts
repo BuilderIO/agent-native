@@ -38,6 +38,7 @@ export default defineAction({
       responseCount: count?.count ?? 0,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
+      deletedAt: row.deletedAt ?? null,
     };
   },
 });

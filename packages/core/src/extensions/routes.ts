@@ -16,15 +16,15 @@ import {
 import { getOrgContext } from "../org/context.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import {
-  listTools,
-  getTool,
-  createTool,
-  updateTool,
-  updateToolContent,
-  deleteTool,
-  ensureToolsTables,
+  listExtensions,
+  getExtension,
+  createExtension,
+  updateExtension,
+  updateExtensionContent,
+  deleteExtension,
+  ensureExtensionsTables,
 } from "./store.js";
-import { buildToolHtml, TOOL_IFRAME_CSP } from "./html-shell.js";
+import { buildExtensionHtml, EXTENSION_IFRAME_CSP } from "./html-shell.js";
 import { getThemeVars } from "./theme.js";
 import {
   resolveKeyReferences,
@@ -33,7 +33,7 @@ import {
 } from "../secrets/substitution.js";
 import {
   collectSecretValues,
-  normalizeToolProxyMethod,
+  normalizeExtensionProxyMethod,
   readResponseTextWithLimit,
   redactSecrets,
   redactString,
@@ -41,11 +41,11 @@ import {
 } from "./proxy-security.js";
 import {
   createSsrfSafeDispatcher,
-  isBlockedToolUrlWithDns,
+  isBlockedExtensionUrlWithDns,
 } from "./url-safety.js";
 import { ForbiddenError, resolveAccess } from "../sharing/access.js";
 
-export function createToolsHandler() {
+export function createExtensionsHandler() {
   return defineEventHandler(async (event: H3Event) => {
     const method = getMethod(event);
     const pathname = (event.url?.pathname || "")
@@ -83,7 +83,7 @@ async function dispatch(
   parts: string[],
   userEmail: string,
 ): Promise<unknown> {
-  // POST /sql/query — read-only SQL for tool iframes
+  // POST /sql/query — read-only SQL for extension iframes
   if (
     method === "POST" &&
     parts.length === 2 &&
@@ -93,7 +93,7 @@ async function dispatch(
     return handleSqlQuery(event);
   }
 
-  // POST /sql/exec — write SQL for tool iframes
+  // POST /sql/exec — write SQL for extension iframes
   if (
     method === "POST" &&
     parts.length === 2 &&
@@ -103,19 +103,19 @@ async function dispatch(
     return handleSqlExec(event);
   }
 
-  // GET /data/:toolId/:collection — list items in a collection
+  // GET /data/:extensionId/:collection — list items in a collection
   if (method === "GET" && parts.length === 3 && parts[0] === "data") {
-    return handleToolDataList(event, parts[1], parts[2], userEmail);
+    return handleExtensionDataList(event, parts[1], parts[2], userEmail);
   }
 
-  // POST /data/:toolId/:collection — create/upsert an item
+  // POST /data/:extensionId/:collection — create/upsert an item
   if (method === "POST" && parts.length === 3 && parts[0] === "data") {
-    return handleToolDataUpsert(event, parts[1], parts[2], userEmail);
+    return handleExtensionDataUpsert(event, parts[1], parts[2], userEmail);
   }
 
-  // DELETE /data/:toolId/:collection/:itemId — delete an item
+  // DELETE /data/:extensionId/:collection/:itemId — delete an item
   if (method === "DELETE" && parts.length === 4 && parts[0] === "data") {
-    return handleToolDataDelete(event, parts[1], parts[2], parts[3], userEmail);
+    return handleExtensionDataDelete(event, parts[1], parts[2], parts[3], userEmail);
   }
 
   // POST /proxy
@@ -125,7 +125,7 @@ async function dispatch(
 
   // GET / — list
   if (method === "GET" && parts.length === 0) {
-    return listTools();
+    return listExtensions();
   }
 
   // POST / — create
@@ -135,19 +135,19 @@ async function dispatch(
       setResponseStatus(event, 400);
       return { error: "name is required" };
     }
-    const tool = await createTool(body);
+    const extension = await createExtension(body);
     recordChange({ source: "action", type: "change" });
     setResponseStatus(event, 201);
-    return tool;
+    return extension;
   }
 
   // GET /:id/render
   if (method === "GET" && parts.length === 2 && parts[1] === "render") {
-    const access = await resolveAccess("tool", parts[0]);
-    const tool = access?.resource;
-    if (!tool) {
+    const access = await resolveAccess("extension", parts[0]);
+    const extension = access?.resource;
+    if (!extension) {
       setResponseStatus(event, 404);
-      return { error: "Tool not found" };
+      return { error: "Extension not found" };
     }
     const search = event.url?.search || "";
     const isDark = search.includes("dark=1") || search.includes("dark=true");
@@ -155,10 +155,10 @@ async function dispatch(
     // Compute viewer-vs-author binding so the iframe can warn when the
     // viewer is NOT the author. The role is plumbed through to gate
     // dangerous bridge helpers in iframe-bridge.ts (audit H4).
-    const isAuthor = tool.ownerEmail === userEmail;
+    const isAuthor = extension.ownerEmail === userEmail;
 
-    const html = buildToolHtml(tool.content, themeVars, isDark, parts[0], {
-      authorEmail: tool.ownerEmail,
+    const html = buildExtensionHtml(extension.content, themeVars, isDark, parts[0], {
+      authorEmail: extension.ownerEmail,
       viewerEmail: userEmail,
       isAuthor,
       role: access.role,
@@ -170,7 +170,7 @@ async function dispatch(
     //   - frame-ancestors in the CSP must be set as an HTTP header to be
     //     enforced; meta-CSP can't set it per spec.
     setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-    setResponseHeader(event, "Content-Security-Policy", TOOL_IFRAME_CSP);
+    setResponseHeader(event, "Content-Security-Policy", EXTENSION_IFRAME_CSP);
     setResponseHeader(event, "X-Frame-Options", "SAMEORIGIN");
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
     setResponseHeader(event, "Referrer-Policy", "no-referrer");
@@ -179,12 +179,12 @@ async function dispatch(
 
   // GET /:id
   if (method === "GET" && parts.length === 1) {
-    const tool = await getTool(parts[0]);
-    if (!tool) {
+    const extension = await getExtension(parts[0]);
+    if (!extension) {
       setResponseStatus(event, 404);
-      return { error: "Tool not found" };
+      return { error: "Extension not found" };
     }
-    return tool;
+    return extension;
   }
 
   // PUT /:id
@@ -200,20 +200,20 @@ async function dispatch(
 
     let result = null;
     if (hasContentUpdate) {
-      result = await updateToolContent(parts[0], {
+      result = await updateExtensionContent(parts[0], {
         content: body.content,
         patches: body.patches,
       });
     }
     if (hasMetaUpdate) {
-      result = await updateTool(parts[0], body);
+      result = await updateExtension(parts[0], body);
     }
     if (!hasContentUpdate && !hasMetaUpdate) {
-      result = await getTool(parts[0]);
+      result = await getExtension(parts[0]);
     }
     if (!result) {
       setResponseStatus(event, 404);
-      return { error: "Tool not found" };
+      return { error: "Extension not found" };
     }
     recordChange({ source: "action", type: "change" });
     return result;
@@ -221,10 +221,10 @@ async function dispatch(
 
   // DELETE /:id
   if (method === "DELETE" && parts.length === 1) {
-    const ok = await deleteTool(parts[0]);
+    const ok = await deleteExtension(parts[0]);
     if (!ok) {
       setResponseStatus(event, 404);
-      return { error: "Tool not found" };
+      return { error: "Extension not found" };
     }
     recordChange({ source: "action", type: "change" });
     return { ok: true };
@@ -234,17 +234,17 @@ async function dispatch(
   return { error: "Not found" };
 }
 
-async function handleToolDataList(
+async function handleExtensionDataList(
   event: H3Event,
-  toolId: string,
+  extensionId: string,
   collection: string,
   userEmail: string,
 ): Promise<unknown> {
-  await ensureToolsTables();
-  const tool = await getTool(toolId);
-  if (!tool) {
+  await ensureExtensionsTables();
+  const extension = await getExtension(extensionId);
+  if (!extension) {
     setResponseStatus(event, 404);
-    return { error: "Tool not found" };
+    return { error: "Extension not found" };
   }
   const client = getDbExec();
   const url = event.url;
@@ -266,7 +266,7 @@ async function handleToolDataList(
         WHERE tool_id = ? AND collection = ? AND scope = 'org' AND org_id = ?
         ORDER BY created_at DESC
         LIMIT ?`,
-      args: [toolId, collection, orgId, limit],
+      args: [extensionId, collection, orgId, limit],
     });
     return result.rows ?? [];
   }
@@ -279,7 +279,7 @@ async function handleToolDataList(
           AND ((scope = 'user' AND owner_email = ?) OR (scope = 'org' AND org_id = ?))
         ORDER BY created_at DESC
         LIMIT ?`,
-      args: [toolId, collection, userEmail, orgId ?? "", limit],
+      args: [extensionId, collection, userEmail, orgId ?? "", limit],
     });
     return result.rows ?? [];
   }
@@ -290,22 +290,22 @@ async function handleToolDataList(
       WHERE tool_id = ? AND collection = ? AND scope = 'user' AND owner_email = ?
       ORDER BY updated_at DESC
       LIMIT ?`,
-    args: [toolId, collection, userEmail, limit],
+    args: [extensionId, collection, userEmail, limit],
   });
   return result.rows ?? [];
 }
 
-async function handleToolDataUpsert(
+async function handleExtensionDataUpsert(
   event: H3Event,
-  toolId: string,
+  extensionId: string,
   collection: string,
   userEmail: string,
 ): Promise<unknown> {
-  await ensureToolsTables();
-  const tool = await getTool(toolId);
-  if (!tool) {
+  await ensureExtensionsTables();
+  const extension = await getExtension(extensionId);
+  if (!extension) {
     setResponseStatus(event, 404);
-    return { error: "Tool not found" };
+    return { error: "Extension not found" };
   }
   const body = await readBody(event);
   if (body.data === undefined) {
@@ -339,7 +339,7 @@ async function handleToolDataUpsert(
      ${conflictClause}`,
     args: [
       randomUUID(),
-      toolId,
+      extensionId,
       collection,
       itemId,
       data,
@@ -353,7 +353,7 @@ async function handleToolDataUpsert(
   });
   return {
     id: itemId,
-    toolId,
+    extensionId,
     collection,
     data,
     ownerEmail: userEmail,
@@ -364,18 +364,18 @@ async function handleToolDataUpsert(
   };
 }
 
-async function handleToolDataDelete(
+async function handleExtensionDataDelete(
   event: H3Event,
-  toolId: string,
+  extensionId: string,
   collection: string,
   itemId: string,
   userEmail: string,
 ): Promise<unknown> {
-  await ensureToolsTables();
-  const tool = await getTool(toolId);
-  if (!tool) {
+  await ensureExtensionsTables();
+  const extension = await getExtension(extensionId);
+  if (!extension) {
     setResponseStatus(event, 404);
-    return { error: "Tool not found" };
+    return { error: "Extension not found" };
   }
   const url = event.url;
   const scope = url?.searchParams?.get("scope") || "user";
@@ -389,14 +389,14 @@ async function handleToolDataDelete(
     }
     await client.execute({
       sql: `DELETE FROM tool_data WHERE COALESCE(item_id, id) = ? AND tool_id = ? AND collection = ? AND scope = 'org' AND org_id = ?`,
-      args: [itemId, toolId, collection, orgId],
+      args: [itemId, extensionId, collection, orgId],
     });
     return { ok: true };
   }
 
   await client.execute({
     sql: `DELETE FROM tool_data WHERE COALESCE(item_id, id) = ? AND tool_id = ? AND collection = ? AND scope = 'user' AND owner_email = ?`,
-    args: [itemId, toolId, collection, userEmail],
+    args: [itemId, extensionId, collection, userEmail],
   });
   return { ok: true };
 }
@@ -412,7 +412,7 @@ async function handleProxy(
     return { error: "url is required" };
   }
 
-  const method = normalizeToolProxyMethod(body.method || "GET");
+  const method = normalizeExtensionProxyMethod(body.method || "GET");
   if (!method) {
     setResponseStatus(event, 405);
     return {
@@ -460,7 +460,7 @@ async function handleProxy(
   }
   const secretValues = collectSecretValues(allSecretValues);
 
-  if (await isBlockedToolUrlWithDns(resolvedUrl)) {
+  if (await isBlockedExtensionUrlWithDns(resolvedUrl)) {
     setResponseStatus(event, 403);
     return { error: "Requests to private/internal addresses are not allowed" };
   }
@@ -488,7 +488,7 @@ async function handleProxy(
   // Best-effort connect-time SSRF guard. When undici is available (it ships
   // with Node 18+ but is not always exposed as an importable module), the
   // dispatcher re-checks the resolved IP at TCP-connect time, closing the
-  // TOCTOU between the pre-flight `isBlockedToolUrlWithDns` lookup and the
+  // TOCTOU between the pre-flight `isBlockedExtensionUrlWithDns` lookup and the
   // actual fetch lookup. If undici is not importable, fall through to plain
   // fetch — the pre-flight remains the primary protection.
   const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
@@ -528,7 +528,7 @@ async function handleProxy(
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
       const redirectUrl = location ? new URL(location, resolvedUrl).href : null;
-      if (redirectUrl && (await isBlockedToolUrlWithDns(redirectUrl))) {
+      if (redirectUrl && (await isBlockedExtensionUrlWithDns(redirectUrl))) {
         setResponseStatus(event, 403);
         return { error: "Redirect to private/internal address blocked" };
       }
@@ -638,11 +638,11 @@ async function handleSqlQuery(event: H3Event): Promise<unknown> {
   const cleanSql = stripSqlComments(sql);
   if (!/^\s*(SELECT|WITH)\b/i.test(cleanSql)) {
     setResponseStatus(event, 403);
-    return { error: "Only SELECT queries are allowed from tools" };
+    return { error: "Only SELECT queries are allowed from extensions" };
   }
   if (SENSITIVE_SQL_RE.test(cleanSql)) {
     setResponseStatus(event, 403);
-    return { error: "Sensitive framework tables are not readable from tools" };
+    return { error: "Sensitive framework tables are not readable from extensions" };
   }
 
   try {
@@ -669,7 +669,7 @@ async function handleSqlQuery(event: H3Event): Promise<unknown> {
 }
 
 // TODO(security): replace this regex blocklist with a SQL parser + an explicit
-// allowlist of tables a tool may read/write (e.g. only `tool_data`, plus a
+// allowlist of tables a extension may read/write (e.g. only `tool_data`, plus a
 // per-template list). The current blocklist is best-effort defense in depth
 // and is by design bypassable via SQL constructions that don't include the
 // blocklisted token literally (string concat, dynamic SQL, etc). The temp-
@@ -677,15 +677,15 @@ async function handleSqlQuery(event: H3Event): Promise<unknown> {
 const DESTRUCTIVE_SQL_RE =
   /\b(CREATE\s+(?:(?:LOCAL|GLOBAL)\s+)?(?:TEMPORARY|TEMP)?\s*(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER|FUNCTION|EXTENSION|ROLE|TABLESPACE|PUBLICATION|SUBSCRIPTION)|DROP\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER|FUNCTION|EXTENSION|ROLE)|TRUNCATE|DELETE\s+FROM\s+(?!tool_data\b)|ALTER\s+(TABLE|VIEW|SCHEMA|DATABASE|FUNCTION|ROLE|EXTENSION|PUBLICATION)\s+(?!tool_data\b)|ATTACH|DETACH|VACUUM|REINDEX|PRAGMA|GRANT|REVOKE|SET\s+ROLE|RESET\s+ROLE|COPY)\b/i;
 
-// Sensitive tables that tools must not touch directly. Includes Better Auth
+// Sensitive tables that extensions must not touch directly. Includes Better Auth
 // identity tables, framework infrastructure (tracing, evals, automations,
 // integrations, notifications, scheduling, sharing/orgs), and Postgres
-// catalogs that would let a tool enumerate or read internals.
+// catalogs that would let a extension enumerate or read internals.
 const SENSITIVE_SQL_RE =
-  /\b(app_secrets|user|users|session|sessions|account|accounts|verification|oauth_tokens|tools|tool_shares|tool_slots|tool_slot_installs|member|organization|invitation|jwks|agent_trace_spans|agent_trace_summaries|agent_feedback|agent_satisfaction_scores|agent_evals|agent_runs|agent_run_events|notifications|progress_runs|integration_configs|integration_pending_tasks|integration_thread_mappings|resources|org_members|org_invitations|bigquery_cache|dashboard_views|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
+  /\b(app_secrets|user|users|session|sessions|account|accounts|verification|oauth_tokens|extensions|tool_shares|tool_slots|tool_slot_installs|member|organization|invitation|jwks|agent_trace_spans|agent_trace_summaries|agent_feedback|agent_satisfaction_scores|agent_evals|agent_runs|agent_run_events|notifications|progress_runs|integration_configs|integration_pending_tasks|integration_thread_mappings|resources|org_members|org_invitations|bigquery_cache|dashboard_views|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
 
 // Refuses positional INSERTs (no column list). `INSERT INTO recordings VALUES
-// (...)` would let a tool stuff arbitrary owner_email values into a row.
+// (...)` would let a extension stuff arbitrary owner_email values into a row.
 // `INSERT INTO recordings (col1, col2) VALUES (...)` is required so the
 // downstream injectOwnership helper can append owner_email.
 const POSITIONAL_INSERT_RE = /\bINSERT\s+INTO\s+["'`]?\w+["'`]?\s+VALUES\b/i;
@@ -715,12 +715,12 @@ async function handleSqlExec(event: H3Event): Promise<unknown> {
   if (DESTRUCTIVE_SQL_RE.test(cleanSql)) {
     setResponseStatus(event, 403);
     return {
-      error: "Schema changes and destructive SQL are not allowed from tools",
+      error: "Schema changes and destructive SQL are not allowed from extensions",
     };
   }
   if (SENSITIVE_SQL_RE.test(cleanSql)) {
     setResponseStatus(event, 403);
-    return { error: "Sensitive framework tables are not writable from tools" };
+    return { error: "Sensitive framework tables are not writable from extensions" };
   }
   if (POSITIONAL_INSERT_RE.test(cleanSql)) {
     setResponseStatus(event, 400);

@@ -19,11 +19,11 @@ export function Layout({ children }: LayoutProps) {
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
   }
-  // Tools list (`/tools`) and viewer (`/tools/:id`) render their own h-12
+  // Extensions list (`/extensions`) and viewer (`/extensions/:id`) render their own h-12
   // toolbar with NotificationsBell + AgentToggleButton. Skip the framework
   // Header so there's no double-header.
   const isToolsRoute =
-    location.pathname === "/tools" || location.pathname.startsWith("/tools/");
+    location.pathname === "/extensions" || location.pathname.startsWith("/extensions/");
   return (
     <HeaderActionsProvider>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">

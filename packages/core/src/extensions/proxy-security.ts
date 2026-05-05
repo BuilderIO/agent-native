@@ -21,7 +21,7 @@ const BLOCKED_OUTBOUND_HEADERS = new Set([
   "x-forwarded-proto",
 ]);
 
-export const MAX_TOOL_PROXY_RESPONSE_SIZE = 1024 * 1024;
+export const MAX_EXTENSION_PROXY_RESPONSE_SIZE = 1024 * 1024;
 
 const ALLOWED_METHODS = new Set([
   "GET",
@@ -32,7 +32,7 @@ const ALLOWED_METHODS = new Set([
   "HEAD",
 ]);
 
-export function normalizeToolProxyMethod(value: unknown): string | null {
+export function normalizeExtensionProxyMethod(value: unknown): string | null {
   const method = String(value || "GET").toUpperCase();
   return ALLOWED_METHODS.has(method) ? method : null;
 }
@@ -110,7 +110,7 @@ function redactionCandidates(secret: string): string[] {
 
 export async function readResponseTextWithLimit(
   response: Response,
-  maxBytes = MAX_TOOL_PROXY_RESPONSE_SIZE,
+  maxBytes = MAX_EXTENSION_PROXY_RESPONSE_SIZE,
 ): Promise<{ text: string; truncated: boolean; size: number }> {
   const contentLength = response.headers.get("content-length");
   if (contentLength && Number(contentLength) > maxBytes) {

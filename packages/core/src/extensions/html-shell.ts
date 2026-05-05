@@ -1,24 +1,24 @@
-export const TOOL_IFRAME_CSP =
+export const EXTENSION_IFRAME_CSP =
   "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self';";
 
-export const TOOL_IFRAME_META_CSP = TOOL_IFRAME_CSP.replace(
+export const EXTENSION_IFRAME_META_CSP = EXTENSION_IFRAME_CSP.replace(
   /\s*frame-ancestors 'self';?$/,
   "",
 );
 
 /**
- * SECURITY — TOOL CONTENT IS UNTRUSTED.
+ * SECURITY — EXTENSION CONTENT IS UNTRUSTED.
  *
  * `${content}` (line ~Body) interpolates raw HTML/JS authored by a user. This
  * file is the boundary between framework-controlled HTML and user-controlled
  * HTML. Two non-negotiable invariants for every change here:
  *
  *   1. The iframe MUST be rendered with a `sandbox` attribute that does NOT
- *      include `allow-same-origin`. The viewer (`ToolViewer.tsx`,
- *      `EmbeddedTool.tsx`) sets `sandbox="allow-scripts allow-forms"` — and
- *      that is the only acceptable shape. Adding `allow-same-origin` would
- *      give the tool full DOM access to the parent window via cross-frame
- *      script.
+ *      include `allow-same-origin`. The viewer (`ExtensionViewer.tsx`,
+ *      `EmbeddedExtension.tsx`) sets `sandbox="allow-scripts allow-forms"` —
+ *      and that is the only acceptable shape. Adding `allow-same-origin`
+ *      would give the extension full DOM access to the parent window via
+ *      cross-frame script.
  *
  *   2. Every reachable parent action must treat the postMessage payload as
  *      hostile. The bridge in `iframe-bridge.ts` enforces a path allowlist,
@@ -26,13 +26,24 @@ export const TOOL_IFRAME_META_CSP = TOOL_IFRAME_CSP.replace(
  *      for "convenience" in this file or any caller.
  *
  * For the trust model rationale, see audit 05-tools-sandbox.md (C1) and the
- * `tools` skill. When in doubt, fail closed.
+ * `extensions` skill. When in doubt, fail closed.
+ *
+ * BACKWARDS COMPAT — the iframe injects helpers under both their canonical
+ * `extension*` names (`extensionFetch`, `extensionData`, `extensionId`,
+ * `extensionBinding`) AND legacy `tool*` aliases (`toolFetch`, `toolData`,
+ * `toolId`, `toolBinding`) so existing user-authored extension bodies that
+ * pre-date the rename keep working. Same for layout opt-ins:
+ * `data-extension-layout="full-bleed"` / `data-extension-padding="none"` /
+ * class `agent-native-extension-bleed` / CSS var
+ * `--agent-native-extension-padding` are canonical; the `data-tool-*`,
+ * `agent-native-tool-bleed`, and `--agent-native-tool-padding` variants are
+ * accepted as aliases.
  */
 
-export interface ToolRenderBinding {
-  /** Email of the user who authored / owns the tool. */
+export interface ExtensionRenderBinding {
+  /** Email of the user who authored / owns the extension. */
   authorEmail: string;
-  /** Email of the user currently viewing/running the tool. */
+  /** Email of the user currently viewing/running the extension. */
   viewerEmail: string;
   /** True when viewer === author. */
   isAuthor: boolean;
@@ -42,22 +53,22 @@ export interface ToolRenderBinding {
    * TODO(security, audit H4): the host-side bridge does not yet gate any
    * helper based on this value — every viewer gets the same powers as the
    * author. The role is plumbed through so a follow-up PR can constrain
-   * `appAction` / `dbExec` / `toolFetch` for non-author viewers (and
+   * `appAction` / `dbExec` / `extensionFetch` for non-author viewers (and
    * eventually require an explicit consent step before running a shared
-   * tool, audit C1). For now this is metadata only.
+   * extension, audit C1). For now this is metadata only.
    */
   role: "owner" | "admin" | "editor" | "viewer";
 }
 
-export function buildToolHtml(
+export function buildExtensionHtml(
   content: string,
   themeVars: string,
   isDark: boolean,
-  toolId?: string,
-  binding?: ToolRenderBinding,
+  extensionId?: string,
+  binding?: ExtensionRenderBinding,
 ): string {
-  const toolIdJson = JSON.stringify(toolId ?? "");
-  const toolIdAttr = escapeHtmlAttribute(toolId ?? "");
+  const extensionIdJson = JSON.stringify(extensionId ?? "");
+  const extensionIdAttr = escapeHtmlAttribute(extensionId ?? "");
   const bindingJson = JSON.stringify(
     binding ?? {
       authorEmail: "",
@@ -72,14 +83,14 @@ export function buildToolHtml(
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta http-equiv="Content-Security-Policy" content="${TOOL_IFRAME_META_CSP}" />
-  ${binding && !binding.isAuthor ? `<meta name="agent-native-tool-author" content="${escapeHtmlAttribute(binding.authorEmail)}" />` : ""}
+  <meta http-equiv="Content-Security-Policy" content="${EXTENSION_IFRAME_META_CSP}" />
+  ${binding && !binding.isAuthor ? `<meta name="agent-native-extension-author" content="${escapeHtmlAttribute(binding.authorEmail)}" />` : ""}
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&display=swap" rel="stylesheet" />
   <script>
-    var _toolErrors = [];
-    var _toolErrorDetails = [];
+    var _extensionErrors = [];
+    var _extensionErrorDetails = [];
     var _consoleLogs = [];
     var _networkLogs = [];
 
@@ -104,16 +115,16 @@ export function buildToolHtml(
     function _collectError(message, stack) {
       if (!message) return;
       if (message === 'Script error.' || message === 'Script error') message = 'Runtime error';
-      if (_toolErrors.indexOf(message) !== -1) return;
-      _toolErrors.push(message);
-      _toolErrorDetails.push({ message: message, stack: stack || '' });
-      var toast = document.getElementById('__tool-error-toast');
+      if (_extensionErrors.indexOf(message) !== -1) return;
+      _extensionErrors.push(message);
+      _extensionErrorDetails.push({ message: message, stack: stack || '' });
+      var toast = document.getElementById('__extension-error-toast');
       if (!toast) return;
-      var msg = document.getElementById('__tool-error-msg');
-      if (_toolErrors.length === 1) {
-        msg.textContent = _toolErrors[0];
+      var msg = document.getElementById('__extension-error-msg');
+      if (_extensionErrors.length === 1) {
+        msg.textContent = _extensionErrors[0];
       } else {
-        msg.textContent = _toolErrors.length + ' errors — ' + _toolErrors[_toolErrors.length - 1];
+        msg.textContent = _extensionErrors.length + ' errors — ' + _extensionErrors[_extensionErrors.length - 1];
       }
       toast.style.display = 'block';
     }
@@ -134,9 +145,9 @@ export function buildToolHtml(
   <!--
     SECURITY: pinned to exact patch versions + SRI integrity hashes. A
     malicious republish of @tailwindcss/browser@4.x or alpinejs@3.x would
-    otherwise inject code into every tool. To bump these versions:
+    otherwise inject code into every extension. To bump these versions:
       1. npm view @tailwindcss/browser version  (or alpinejs)
-      2. curl -sL https://cdn.jsdelivr.net/npm/@tailwindcss/browser@<v> \
+      2. curl -sL https://cdn.jsdelivr.net/npm/@tailwindcss/browser@<v> \\
          | openssl dgst -sha384 -binary | openssl base64 -A
       3. Update the URL + integrity hash below in lockstep.
   -->
@@ -190,13 +201,19 @@ export function buildToolHtml(
 	  <style>
 	    *, *::before, *::after { border-color: hsl(var(--border)); }
 	    body {
-	      --agent-native-tool-padding: clamp(16px, 2vw, 24px);
+	      --agent-native-extension-padding: clamp(16px, 2vw, 24px);
+	      /* Legacy alias for pre-rename extension content (do not remove). */
+	      --agent-native-tool-padding: var(--agent-native-extension-padding);
 	      box-sizing: border-box;
 	      font-family: 'Inter', sans-serif;
 	      margin: 0;
 	      min-height: 100vh;
-	      padding: var(--agent-native-tool-padding);
+	      padding: var(--agent-native-extension-padding);
 	    }
+	    body:has(> [data-extension-layout="full-bleed"]),
+	    body:has(> [data-extension-padding="none"]),
+	    body:has(> .agent-native-extension-bleed),
+	    /* Legacy aliases (do not remove). */
 	    body:has(> [data-tool-layout="full-bleed"]),
 	    body:has(> [data-tool-padding="none"]),
 	    body:has(> .agent-native-tool-bleed) {
@@ -204,16 +221,19 @@ export function buildToolHtml(
 	    }
 	  </style>
 	  <script>
-	    var _toolRequestSeq = 0;
-	    var _toolPendingRequests = {};
+	    var _extensionRequestSeq = 0;
+	    var _extensionPendingRequests = {};
 
 	    window.addEventListener('message', function(event) {
 	      if (event.source !== window.parent) return;
 	      var message = event.data || {};
-	      if (message.type !== 'agent-native-tool-response') return;
-	      var pending = _toolPendingRequests[message.requestId];
+	      if (
+	        message.type !== 'agent-native-extension-response' &&
+	        message.type !== 'agent-native-tool-response'
+	      ) return;
+	      var pending = _extensionPendingRequests[message.requestId];
 	      if (!pending) return;
-	      delete _toolPendingRequests[message.requestId];
+	      delete _extensionPendingRequests[message.requestId];
 	      if (message.error) {
 	        pending.reject(new Error(message.error));
 	      } else {
@@ -224,10 +244,10 @@ export function buildToolHtml(
 	    function hostRequest(path, options) {
 	      options = options || {};
 	      return new Promise(function(resolve, reject) {
-	        var requestId = 'tool-req-' + (++_toolRequestSeq);
-	        _toolPendingRequests[requestId] = { resolve: resolve, reject: reject };
+	        var requestId = 'extension-req-' + (++_extensionRequestSeq);
+	        _extensionPendingRequests[requestId] = { resolve: resolve, reject: reject };
 	        window.parent.postMessage({
-	          type: 'agent-native-tool-request',
+	          type: 'agent-native-extension-request',
 	          requestId: requestId,
 	          path: path,
 	          options: {
@@ -237,10 +257,10 @@ export function buildToolHtml(
 	          },
 	        }, '*');
 	        setTimeout(function() {
-	          var pending = _toolPendingRequests[requestId];
+	          var pending = _extensionPendingRequests[requestId];
 	          if (!pending) return;
-	          delete _toolPendingRequests[requestId];
-	          pending.reject(new Error('Tool host request timed out'));
+	          delete _extensionPendingRequests[requestId];
+	          pending.reject(new Error('Extension host request timed out'));
 	        }, 30000);
 	      });
 	    }
@@ -266,9 +286,9 @@ export function buildToolHtml(
 	      });
 	    };
 
-	    function toolFetch(url, options) {
+	    function extensionFetch(url, options) {
 	      var opts = options || {};
-	      return hostRequest('/_agent-native/tools/proxy', {
+	      return hostRequest('/_agent-native/extensions/proxy', {
 	        method: 'POST',
 	        headers: { 'Content-Type': 'application/json' },
 	        body: JSON.stringify({
@@ -324,7 +344,7 @@ export function buildToolHtml(
     async function dbQuery(sql, args) {
       var body = { sql: sql };
       if (args) body.args = args;
-      return appFetch('/_agent-native/tools/sql/query', {
+      return appFetch('/_agent-native/extensions/sql/query', {
         method: 'POST',
         body: JSON.stringify(body),
       });
@@ -333,54 +353,56 @@ export function buildToolHtml(
     async function dbExec(sql, args) {
       var body = { sql: sql };
       if (args) body.args = args;
-      return appFetch('/_agent-native/tools/sql/exec', {
+      return appFetch('/_agent-native/extensions/sql/exec', {
         method: 'POST',
         body: JSON.stringify(body),
       });
     }
 
-    var _toolId = ${toolIdJson};
-    var _toolBinding = ${bindingJson};
-    window.toolBinding = _toolBinding;
+    var _extensionId = ${extensionIdJson};
+    var _extensionBinding = ${bindingJson};
+    window.extensionBinding = _extensionBinding;
+    // Legacy alias for extension bodies authored before the rename.
+    window.toolBinding = _extensionBinding;
     // SECURITY (audit H4): announce the resolved binding to the parent so the
     // host bridge can gate dangerous helpers based on viewer role. Sent
     // BEFORE the user-authored content has a chance to run, so a malicious
-    // tool body cannot suppress or rewrite the announcement. The parent
+    // extension body cannot suppress or rewrite the announcement. The parent
     // ignores subsequent announcements for the same iframe; see
-    // ToolViewer.tsx / EmbeddedTool.tsx.
+    // ExtensionViewer.tsx / EmbeddedExtension.tsx.
     try {
       window.parent.postMessage(
         {
-          type: 'agent-native-tool-binding',
-          toolId: _toolId,
-          binding: _toolBinding,
+          type: 'agent-native-extension-binding',
+          extensionId: _extensionId,
+          binding: _extensionBinding,
         },
         '*',
       );
     } catch (_) {}
-    // SECURITY: when the viewer is not the author of this tool, emit a clear
-    // console warning. The bridge currently runs every helper with the
-    // viewer's session — a malicious shared tool can call any action, read
-    // any owned table row in scope, and resolve any user-scope secret. A
-    // full consent step is tracked as TODO C1 in audit 05-tools-sandbox.md.
-    if (_toolBinding && !_toolBinding.isAuthor) {
+    // SECURITY: when the viewer is not the author of this extension, emit a
+    // clear console warning. The bridge currently runs every helper with the
+    // viewer's session — a malicious shared extension can call any action,
+    // read any owned table row in scope, and resolve any user-scope secret.
+    // A full consent step is tracked as TODO C1 in audit 05-tools-sandbox.md.
+    if (_extensionBinding && !_extensionBinding.isAuthor) {
       try {
         console.warn(
-          '[agent-native] Shared tool — running with viewer\\'s session. ' +
-            'Author: ' + (_toolBinding.authorEmail || '<unknown>') + '. ' +
-            'Bridge calls (appAction, dbExec, toolFetch) execute under ' +
+          '[agent-native] Shared extension — running with viewer\\'s session. ' +
+            'Author: ' + (_extensionBinding.authorEmail || '<unknown>') + '. ' +
+            'Bridge calls (appAction, dbExec, extensionFetch) execute under ' +
             'your account; they are gated by your permissions, not the ' +
-            'author\\'s. Do not run untrusted shared tools.',
+            'author\\'s. Do not run untrusted shared extensions.',
         );
       } catch (_) {}
     }
 
-    var toolData = {
+    var extensionData = {
 	      async list(collection, opts) {
 	        var limit = (opts && opts.limit) || 100;
 	        var scope = (opts && opts.scope) || 'user';
-	        var res = await hostRequest('/_agent-native/tools/data/' + _toolId + '/' + encodeURIComponent(collection) + '?limit=' + limit + '&scope=' + scope);
-	        if (!res.ok) throw new Error('Failed to list tool data');
+	        var res = await hostRequest('/_agent-native/extensions/data/' + _extensionId + '/' + encodeURIComponent(collection) + '?limit=' + limit + '&scope=' + scope);
+	        if (!res.ok) throw new Error('Failed to list extension data');
 	        return res.body;
 	      },
       async get(collection, id, opts) {
@@ -390,26 +412,32 @@ export function buildToolHtml(
       },
       async set(collection, id, data, opts) {
 	        var scope = (opts && opts.scope) || 'user';
-	        var res = await hostRequest('/_agent-native/tools/data/' + _toolId + '/' + encodeURIComponent(collection), {
+	        var res = await hostRequest('/_agent-native/extensions/data/' + _extensionId + '/' + encodeURIComponent(collection), {
 	          method: 'POST',
 	          headers: { 'Content-Type': 'application/json' },
 	          body: JSON.stringify({ id: id, data: data, scope: scope }),
 	        });
-	        if (!res.ok) throw new Error('Failed to save tool data');
+	        if (!res.ok) throw new Error('Failed to save extension data');
 	        return res.body;
 	      },
 	      async remove(collection, id, opts) {
 	        var scope = (opts && opts.scope) || 'user';
-	        var res = await hostRequest('/_agent-native/tools/data/' + _toolId + '/' + encodeURIComponent(collection) + '/' + encodeURIComponent(id) + '?scope=' + scope, {
+	        var res = await hostRequest('/_agent-native/extensions/data/' + _extensionId + '/' + encodeURIComponent(collection) + '/' + encodeURIComponent(id) + '?scope=' + scope, {
 	          method: 'DELETE',
 	        });
-	        if (!res.ok) throw new Error('Failed to delete tool data');
+	        if (!res.ok) throw new Error('Failed to delete extension data');
 	        return res.body;
 	      },
 	    };
+
+	    // Legacy aliases — extension bodies authored before the rename use
+	    // `toolFetch`, `toolData`, `toolId`. Keep these working forever.
+	    var toolFetch = extensionFetch;
+	    var toolData = extensionData;
+	    var _toolId = _extensionId;
 	  </script>
 	  <style>
-	    #__tool-error-toast {
+	    #__extension-error-toast {
 	      display: none;
 	      position: fixed;
 	      bottom: 16px;
@@ -433,11 +461,12 @@ export function buildToolHtml(
 	    }
 	  </style>
 	  <script>
-	    // Extension-point slot context: when a tool is rendered embedded inside an
-	    // ExtensionSlot, the host pushes a context object via postMessage. Tools
-	    // read it synchronously via window.slotContext or subscribe to changes
-	    // via window.onSlotContext(fn). When rendered full-page (no ?slot= param),
-	    // slotContext stays null and tools branch on that.
+	    // Extension-point slot context: when an extension is rendered embedded
+	    // inside an ExtensionSlot, the host pushes a context object via
+	    // postMessage. Extensions read it synchronously via window.slotContext
+	    // or subscribe to changes via window.onSlotContext(fn). When rendered
+	    // full-page (no ?slot= param), slotContext stays null and extensions
+	    // branch on that.
 	    window.slotContext = null;
 	    var _slotContextSubscribers = [];
 	    window.onSlotContext = function(fn) {
@@ -460,7 +489,7 @@ export function buildToolHtml(
 	    });
 
 	    // Auto-resize the iframe to its content when running in slot mode. The
-	    // host listens for agent-native-tool-resize and adjusts the iframe height.
+	    // host listens for agent-native-extension-resize and adjusts the iframe height.
 	    if (new URLSearchParams(location.search).get('slot')) {
 	      var _lastH = 0;
 	      var _reportHeight = function() {
@@ -470,7 +499,7 @@ export function buildToolHtml(
 	        );
 	        if (h !== _lastH) {
 	          _lastH = h;
-	          window.parent.postMessage({ type: 'agent-native-tool-resize', height: h }, '*');
+	          window.parent.postMessage({ type: 'agent-native-extension-resize', height: h }, '*');
 	        }
 	      };
 	      if (typeof ResizeObserver !== 'undefined') {
@@ -509,7 +538,7 @@ export function buildToolHtml(
 	        e.preventDefault();
 	        e.stopPropagation();
 	        window.parent.postMessage({
-	          type: 'agent-native-tool-keydown',
+	          type: 'agent-native-extension-keydown',
 	          key: e.key, code: e.code,
 	          metaKey: e.metaKey, ctrlKey: e.ctrlKey,
 	          shiftKey: e.shiftKey, altKey: e.altKey,
@@ -518,7 +547,7 @@ export function buildToolHtml(
 	      }
 	      if (e.key === 'Escape') {
 	        window.parent.postMessage({
-	          type: 'agent-native-tool-keydown',
+	          type: 'agent-native-extension-keydown',
 	          key: e.key, code: e.code,
 	          metaKey: false, ctrlKey: false,
 	          shiftKey: false, altKey: false,
@@ -527,36 +556,36 @@ export function buildToolHtml(
 	    });
 
 	    document.addEventListener('DOMContentLoaded', function() {
-	      var fixBtn = document.getElementById('__tool-error-fix');
+	      var fixBtn = document.getElementById('__extension-error-fix');
 	      if (fixBtn) {
 	        fixBtn.addEventListener('click', function() {
 	          window.parent.postMessage({
-	            type: 'agent-native-tool-error-fix',
-	            errors: _toolErrors,
-	            errorDetails: _toolErrorDetails,
+	            type: 'agent-native-extension-error-fix',
+	            errors: _extensionErrors,
+	            errorDetails: _extensionErrorDetails,
 	            consoleLogs: _consoleLogs.slice(-30),
 	            networkLogs: _networkLogs.slice(-15)
 	          }, '*');
-	          document.getElementById('__tool-error-toast').style.display = 'none';
+	          document.getElementById('__extension-error-toast').style.display = 'none';
 	        });
 	      }
-	      var dismissBtn = document.getElementById('__tool-error-dismiss');
+	      var dismissBtn = document.getElementById('__extension-error-dismiss');
 	      if (dismissBtn) {
 	        dismissBtn.addEventListener('click', function() {
-	          document.getElementById('__tool-error-toast').style.display = 'none';
+	          document.getElementById('__extension-error-toast').style.display = 'none';
 	        });
 	      }
 	    });
 	  </script>
 	</head>
-	<body${toolId ? ` data-tool-id="${toolIdAttr}"` : ""} class="bg-background text-foreground">
+	<body${extensionId ? ` data-extension-id="${extensionIdAttr}" data-tool-id="${extensionIdAttr}"` : ""} class="bg-background text-foreground">
 	${content}
-	<div id="__tool-error-toast">
+	<div id="__extension-error-toast">
 	  <div style="display:flex;align-items:flex-start;gap:8px;">
 	    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-	    <span id="__tool-error-msg" style="flex:1;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;"></span>
-	    <button id="__tool-error-fix" style="cursor:pointer;border:none;background:rgba(255,255,255,.9);color:hsl(0 84.2% 40%);font-size:12px;font-weight:500;padding:4px 12px;border-radius:4px;flex-shrink:0;">Fix</button>
-	    <button id="__tool-error-dismiss" style="cursor:pointer;border:none;background:transparent;color:inherit;font-size:16px;padding:2px 6px;opacity:0.7;flex-shrink:0;">&#215;</button>
+	    <span id="__extension-error-msg" style="flex:1;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;"></span>
+	    <button id="__extension-error-fix" style="cursor:pointer;border:none;background:rgba(255,255,255,.9);color:hsl(0 84.2% 40%);font-size:12px;font-weight:500;padding:4px 12px;border-radius:4px;flex-shrink:0;">Fix</button>
+	    <button id="__extension-error-dismiss" style="cursor:pointer;border:none;background:transparent;color:inherit;font-size:16px;padding:2px 6px;opacity:0.7;flex-shrink:0;">&#215;</button>
 	  </div>
 	</div>
 	</body>

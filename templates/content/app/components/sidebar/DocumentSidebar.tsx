@@ -16,7 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton, appPath } from "@agent-native/core/client";
-import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { NotionButton } from "./NotionButton";
 import { DocumentTreeItem } from "./DocumentTreeItem";
 import {
@@ -427,7 +427,7 @@ export function DocumentSidebar({
       </div>
 
       <div className="border-t border-border px-3 py-1">
-        <ToolsSidebarSection />
+        <ExtensionsSidebarSection />
       </div>
 
       {/* Footer */}

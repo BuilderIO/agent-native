@@ -13,7 +13,7 @@ import {
   IconSettings,
 } from "@tabler/icons-react";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { AgentSidebar, appPath } from "@agent-native/core/client";
 import { ThemeToggle } from "./ThemeToggle";
 import { Header } from "./Header";
@@ -27,7 +27,7 @@ function isDetailRoute(pathname: string): boolean {
   if (/^\/availability\/[^/]+/.test(pathname)) return true;
   if (/^\/routing-forms\/[^/]+/.test(pathname)) return true;
   if (/^\/workflows\/[^/]+/.test(pathname)) return true;
-  if (pathname === "/tools" || pathname.startsWith("/tools/")) return true;
+  if (pathname === "/extensions" || pathname.startsWith("/extensions/")) return true;
   return false;
 }
 
@@ -102,7 +102,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             })}
           </nav>
           <div className="border-t border-border/60 mx-1 pt-1">
-            <ToolsSidebarSection />
+            <ExtensionsSidebarSection />
           </div>
           <div className="mt-auto border-t border-border/60 pt-2">
             <div className="flex items-center justify-between px-1">

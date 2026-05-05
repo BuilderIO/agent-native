@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { isBlockedToolUrl, isBlockedToolUrlWithDns } from "./url-safety.js";
+import { isBlockedExtensionUrl, isBlockedExtensionUrlWithDns } from "./url-safety.js";
 
-describe("isBlockedToolUrl", () => {
+describe("isBlockedExtensionUrl", () => {
   it.each([
     "http://127.0.0.1/",
     "http://10.0.0.1/",
@@ -21,16 +21,16 @@ describe("isBlockedToolUrl", () => {
     "http://[::ffff:7f00:1]/",
     "http://metadata.google.internal/",
   ])("blocks non-public target %s", (url) => {
-    expect(isBlockedToolUrl(url)).toBe(true);
+    expect(isBlockedExtensionUrl(url)).toBe(true);
   });
 
   it("allows ordinary public HTTP origins", () => {
-    expect(isBlockedToolUrl("https://93.184.216.34/api")).toBe(false);
-    expect(isBlockedToolUrl("https://example.com/api")).toBe(false);
+    expect(isBlockedExtensionUrl("https://93.184.216.34/api")).toBe(false);
+    expect(isBlockedExtensionUrl("https://example.com/api")).toBe(false);
   });
 });
 
-describe("isBlockedToolUrlWithDns (DNS rebinding guard)", () => {
+describe("isBlockedExtensionUrlWithDns (DNS rebinding guard)", () => {
   it("blocks a public hostname that resolves to a private IP", async () => {
     // Mock node:dns/promises so this test doesn't hit the network.
     vi.doMock("node:dns/promises", () => ({
@@ -39,7 +39,7 @@ describe("isBlockedToolUrlWithDns (DNS rebinding guard)", () => {
     vi.resetModules();
     const mod = await import("./url-safety.js");
     expect(
-      await mod.isBlockedToolUrlWithDns("https://attacker.example.com/"),
+      await mod.isBlockedExtensionUrlWithDns("https://attacker.example.com/"),
     ).toBe(true);
     vi.doUnmock("node:dns/promises");
     vi.resetModules();
@@ -54,7 +54,7 @@ describe("isBlockedToolUrlWithDns (DNS rebinding guard)", () => {
     }));
     vi.resetModules();
     const mod = await import("./url-safety.js");
-    expect(await mod.isBlockedToolUrlWithDns("https://example.com/")).toBe(
+    expect(await mod.isBlockedExtensionUrlWithDns("https://example.com/")).toBe(
       true,
     );
     vi.doUnmock("node:dns/promises");
@@ -67,7 +67,7 @@ describe("isBlockedToolUrlWithDns (DNS rebinding guard)", () => {
     }));
     vi.resetModules();
     const mod = await import("./url-safety.js");
-    expect(await mod.isBlockedToolUrlWithDns("https://example.com/")).toBe(
+    expect(await mod.isBlockedExtensionUrlWithDns("https://example.com/")).toBe(
       false,
     );
     vi.doUnmock("node:dns/promises");

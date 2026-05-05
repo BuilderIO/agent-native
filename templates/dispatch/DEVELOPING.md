@@ -86,6 +86,34 @@ export default function MyPageRoute() {
 }
 ```
 
+## Adding a Dispatch Tab
+
+Keep custom workspace management tools in local route files, and register their
+sidebar tab in `app/dispatch-extensions.tsx`:
+
+```tsx
+import { IconChartBar } from "@tabler/icons-react";
+import type { DispatchExtensionConfig } from "@agent-native/dispatch/components";
+
+export const dispatchExtensions = {
+  navItems: [
+    {
+      id: "reports",
+      to: "/reports",
+      label: "Reports",
+      icon: IconChartBar,
+      section: "operations",
+    },
+  ],
+  queryKeys: ["list-reports"],
+} satisfies DispatchExtensionConfig;
+```
+
+Then add `app/routes/reports.tsx` and render the page with
+`DispatchShell` from `@agent-native/dispatch/components`. Dispatch continues
+to inherit package updates because the package still owns the layout, sidebar,
+header, and built-in routes.
+
 **Do NOT fetch data server-side** in route loaders unless the page genuinely needs SEO content or og tags based on dynamic data. The standard pattern is: SSR renders a loading spinner, client hydrates, React Query hooks fetch from `/api/*`.
 
 ## Adding an API Route

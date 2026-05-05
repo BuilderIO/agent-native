@@ -90,7 +90,7 @@ function isPrivateHost(hostname: string): boolean {
   return false;
 }
 
-export function isBlockedToolUrl(url: string): boolean {
+export function isBlockedExtensionUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
@@ -124,8 +124,8 @@ function isIpLiteralHost(hostname: string): boolean {
  * guard catches literals and known rebinding domains; this closes the common
  * "public hostname resolves to a private address" gap before dispatch.
  */
-export async function isBlockedToolUrlWithDns(url: string): Promise<boolean> {
-  if (isBlockedToolUrl(url)) return true;
+export async function isBlockedExtensionUrlWithDns(url: string): Promise<boolean> {
+  if (isBlockedExtensionUrl(url)) return true;
 
   let hostname: string;
   try {
@@ -159,7 +159,7 @@ export async function isBlockedToolUrlWithDns(url: string): Promise<boolean> {
  *
  * Returns `null` if undici / node:dns are not available (e.g. some edge
  * runtimes); the caller should fall back to the regular `fetch` path —
- * `isBlockedToolUrlWithDns` will still have caught most rebinding cases.
+ * `isBlockedExtensionUrlWithDns` will still have caught most rebinding cases.
  */
 export async function createSsrfSafeDispatcher(): Promise<unknown | null> {
   // Dynamic import + `any`: undici is not a direct dependency, so the type
@@ -225,3 +225,12 @@ export async function createSsrfSafeDispatcher(): Promise<unknown | null> {
     },
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Legacy aliases — predate the Tools → Extensions rename. Templates import
+// these via the legacy `@agent-native/core/tools/url-safety` subpath; keep
+// the names exported so they keep resolving until every consumer updates.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export { isBlockedExtensionUrl as isBlockedToolUrl };
+export { isBlockedExtensionUrlWithDns as isBlockedToolUrlWithDns };

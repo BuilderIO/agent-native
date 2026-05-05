@@ -23,7 +23,7 @@ function resolveTitle(pathname: string): string {
   if (pathname.startsWith("/workflows")) return "Workflows";
   if (pathname.startsWith("/apps")) return "Integrations";
   if (pathname.startsWith("/settings")) return "Settings";
-  if (pathname.startsWith("/tools")) return "Tools";
+  if (pathname.startsWith("/extensions")) return "Tools";
 
   return "Scheduling";
 }

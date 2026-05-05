@@ -17,7 +17,7 @@ import {
   appPath,
 } from "@agent-native/core/client";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
-import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { cn } from "@/lib/utils";
 import { useProjects } from "@/hooks/use-projects";
 import { useBoards } from "@/hooks/use-boards";
@@ -208,7 +208,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="border-t border-border p-2">
             {!sidebarCollapsed && (
               <div className="mb-1">
-                <ToolsSidebarSection />
+                <ExtensionsSidebarSection />
               </div>
             )}
             {!sidebarCollapsed && (

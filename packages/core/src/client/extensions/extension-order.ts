@@ -1,6 +1,6 @@
-export const TOOLS_ORDER_CHANGE_EVENT = "tools-order-change";
+export const TOOLS_ORDER_CHANGE_EVENT = "extensions-order-change";
 
-const TOOLS_ORDER_KEY = "tools-order";
+const TOOLS_ORDER_KEY = "extensions-order";
 
 export function getToolsOrder(): string[] {
   if (typeof window === "undefined") return [];

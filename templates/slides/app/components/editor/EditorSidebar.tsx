@@ -26,7 +26,7 @@ import {
   type CollabUser,
   useAvatarUrl,
 } from "@agent-native/core/client";
-import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
 import {
   Tooltip,
@@ -493,7 +493,7 @@ export default function EditorSidebar({
         </SortableContext>
 
         <div className="border-t border-border mt-2 pt-1">
-          <ToolsSidebarSection />
+          <ExtensionsSidebarSection />
         </div>
       </div>
 

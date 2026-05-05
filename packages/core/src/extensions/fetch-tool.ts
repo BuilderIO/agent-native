@@ -1,6 +1,10 @@
 /**
  * Fetch tool — outbound HTTP for automations and agent use.
  *
+ * NOTE: this is an *agent* tool (LLM function call), not an *extension* (the
+ * sandboxed Alpine.js mini-app primitive). It lives in this directory because
+ * it shares SSRF-safe URL/proxy helpers with the extension iframe proxy.
+ *
  * Supports ${keys.NAME} reference substitution in URL, headers, and body.
  * Values are resolved server-side AFTER the model emits the tool call —
  * the raw secret never enters the model's context.
@@ -9,14 +13,14 @@
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   collectSecretValues,
-  MAX_TOOL_PROXY_RESPONSE_SIZE,
-  normalizeToolProxyMethod,
+  MAX_EXTENSION_PROXY_RESPONSE_SIZE,
+  normalizeExtensionProxyMethod,
   readResponseTextWithLimit,
   redactSecrets,
   redactString,
   sanitizeOutboundHeaders,
 } from "./proxy-security.js";
-import { isBlockedToolUrlWithDns } from "./url-safety.js";
+import { isBlockedExtensionUrlWithDns } from "./url-safety.js";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -40,7 +44,7 @@ export function createFetchToolEntry(
   return {
     "web-request": {
       tool: {
-        description: `Make an outbound HTTP request to EXTERNAL APIs, webhooks, and services only. Supports \${keys.NAME} placeholders in url, headers, and body — these are resolved server-side from the user's saved keys (the raw value never enters your context). Example: \${keys.SLACK_WEBHOOK} in the url field. IMPORTANT: Never use this to call internal /_agent-native/ endpoints or localhost action URLs — use the registered action tools directly (e.g. \`log-meal\`, \`bigquery\`, \`hubspot-deals\`). Actions are already available as native tools; calling them via HTTP is slower and bypasses validation.`,
+        description: `Make an outbound HTTP request to EXTERNAL APIs, webhooks, and services only. Supports \${keys.NAME} placeholders in url, headers, and body — these are resolved server-side from the user's saved keys (the raw value never enters your context). Example: \${keys.SLACK_WEBHOOK} in the url field. IMPORTANT: Never use this to call internal /_agent-native/ endpoints or localhost action URLs — use the registered actions directly (e.g. \`log-meal\`, \`bigquery\`, \`hubspot-deals\`). Actions are already available as native tools; calling them via HTTP is slower and bypasses validation.`,
         parameters: {
           type: "object" as const,
           properties: {
@@ -75,7 +79,7 @@ export function createFetchToolEntry(
       run: async (args: Record<string, string>) => {
         const startTime = Date.now();
         const rawUrl = args.url;
-        const method = normalizeToolProxyMethod(args.method || "GET");
+        const method = normalizeExtensionProxyMethod(args.method || "GET");
         if (!method) {
           return "Unsupported HTTP method. Allowed methods: GET, POST, PUT, PATCH, DELETE, HEAD.";
         }
@@ -118,7 +122,7 @@ export function createFetchToolEntry(
         const secretValues = collectSecretValues(allSecretValues);
 
         // Block SSRF targets regardless of key usage
-        if (await isBlockedToolUrlWithDns(resolvedUrl)) {
+        if (await isBlockedExtensionUrlWithDns(resolvedUrl)) {
           return `Requests to private/internal addresses are not allowed: "${rawUrl}".`;
         }
 
@@ -168,7 +172,7 @@ export function createFetchToolEntry(
             const redirectUrl = location
               ? new URL(location, resolvedUrl).href
               : null;
-            if (redirectUrl && (await isBlockedToolUrlWithDns(redirectUrl))) {
+            if (redirectUrl && (await isBlockedExtensionUrlWithDns(redirectUrl))) {
               return "Redirect to private/internal address blocked.";
             }
             if (redirectUrl && opts.validateUrl && allUsedKeys.length > 0) {
@@ -186,7 +190,7 @@ export function createFetchToolEntry(
           try {
             const result = await readResponseTextWithLimit(
               response,
-              MAX_TOOL_PROXY_RESPONSE_SIZE,
+              MAX_EXTENSION_PROXY_RESPONSE_SIZE,
             );
             body = result.text;
           } catch {
