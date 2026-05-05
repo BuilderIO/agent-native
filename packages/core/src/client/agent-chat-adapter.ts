@@ -81,6 +81,8 @@ function autoContinueMessage(signal: AgentAutoContinueSignal): string {
   const reason =
     signal.reason === "loop_limit"
       ? "The previous run reached an internal step budget."
+      : signal.reason === "no_progress"
+        ? "The previous run stopped producing progress events while the connection stayed open."
       : signal.reason === "stream_ended"
         ? "The previous stream ended before the agent sent a final completion signal."
         : "The previous run reached an internal execution budget.";
@@ -345,12 +347,33 @@ export function createAgentChatAdapter(options?: {
                 return true;
               }
               if (reconnectErr instanceof AgentAutoContinueSignal) {
+                if (reconnectErr.reason === "no_progress") {
+                  throw reconnectErr;
+                }
                 return false;
               }
               await retryDelay(attempt, abortSignal);
             }
           }
           return false;
+        };
+
+        const abortCurrentRun = async (): Promise<void> => {
+          if (!runId) return;
+          try {
+            await fetch(
+              `${apiUrl}/runs/${encodeURIComponent(runId)}/abort`,
+              {
+                method: "POST",
+                signal: abortSignal,
+              },
+            );
+          } catch {
+            // Best effort. The follow-up POST will still reconnect or 409 if
+            // the producer is alive and cannot be aborted cross-isolate.
+          } finally {
+            clearActiveRun();
+          }
         };
 
         const reconnectActiveRunForThread = async function* (): AsyncGenerator<
@@ -606,6 +629,9 @@ export function createAgentChatAdapter(options?: {
             }
 
             if (err instanceof AgentAutoContinueSignal) {
+              if (err.reason === "no_progress") {
+                await abortCurrentRun();
+              }
               if (err.reason === "stream_ended") {
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return;
