@@ -1,5 +1,14 @@
 # @agent-native/dispatch
 
+## 1.0.0
+
+### Patch Changes
+
+- e375642: Add `@agent-native/core/usage` subpath export for `getUsageSummary` so server-side consumers (Cloudflare Workers / Pages) can import it without hitting the curated browser entry. Switch dispatch's usage-metrics store to the new subpath, fixing the dispatch CF Pages build failure.
+- Updated dependencies [bcb2069]
+- Updated dependencies [e375642]
+  - @agent-native/core@0.8.0
+
 ## 0.2.1
 
 ### Patch Changes

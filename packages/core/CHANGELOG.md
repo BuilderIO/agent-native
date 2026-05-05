@@ -1,5 +1,16 @@
 # @agent-native/core
 
+## 0.8.0
+
+### Minor Changes
+
+- e375642: Add `@agent-native/core/usage` subpath export for `getUsageSummary` so server-side consumers (Cloudflare Workers / Pages) can import it without hitting the curated browser entry. Switch dispatch's usage-metrics store to the new subpath, fixing the dispatch CF Pages build failure.
+
+### Patch Changes
+
+- bcb2069: Hide partial assistant text from transient agent-chat continuations while retaining it as continuation history.
+  Recover agent chat streams that stay connected but stop producing progress events.
+
 ## 0.7.85
 
 ### Patch Changes
