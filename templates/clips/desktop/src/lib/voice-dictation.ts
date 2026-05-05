@@ -12,6 +12,7 @@ export type VoiceShortcutPreference =
   | "fn"
   | "cmd-shift-space"
   | "ctrl-shift-space"
+  | "custom"
   | "both";
 export type VoiceMode = "push-to-talk" | "toggle";
 
@@ -40,7 +41,11 @@ type ServerVoiceProvider =
   | "groq";
 
 type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
-type VoiceShortcutSource = "fn" | "cmd-shift-space" | "ctrl-shift-space";
+type VoiceShortcutSource =
+  | "fn"
+  | "cmd-shift-space"
+  | "ctrl-shift-space"
+  | "custom";
 
 interface ProviderStatus {
   builder: boolean;
@@ -1558,13 +1563,13 @@ export function installDesktopVoiceDictation(
   const isMainWindow = (label?: string) =>
     label === "main" || label === "popover";
   listen<FocusEventPayload>("tauri://blur", (ev) => {
-    if (!isMainWindow(ev.windowLabel)) return;
+    if (!isMainWindow(ev.payload.windowLabel)) return;
     invoke("recording_pill_set_detached", { detached: true }).catch(() => {});
   })
     .then((u) => unlistens.push(u))
     .catch(() => {});
   listen<FocusEventPayload>("tauri://focus", (ev) => {
-    if (!isMainWindow(ev.windowLabel)) return;
+    if (!isMainWindow(ev.payload.windowLabel)) return;
     invoke("recording_pill_set_detached", { detached: false }).catch(() => {});
   })
     .then((u) => unlistens.push(u))

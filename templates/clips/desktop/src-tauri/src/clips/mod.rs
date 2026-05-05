@@ -16,7 +16,7 @@ use crate::state::{
 };
 use crate::util::{
     build_overlay_url, hide_voice_wake_popover, mark_popover_shown, primary_monitor_physical_size,
-    set_capture_excluded, set_dictation_active,
+    set_capture_excluded, set_capture_included, set_dictation_active,
 };
 
 /// Native overlay windows for the recording experience. These render the same
@@ -475,7 +475,7 @@ pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
 /// whenever the height changes — gives us auto-sizing without having to
 /// pick a fixed popover size that fits every state.
 #[tauri::command]
-pub async fn resize_popover(app: AppHandle, height: f64) -> Result<(), String> {
+pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> Result<(), String> {
     // CRITICAL: bail out when the popover is parked at 2x2 for voice
     // wake-up. The React shell's ResizeObserver fires on every mount
     // and would un-park the window back to full size, making the
@@ -491,8 +491,9 @@ pub async fn resize_popover(app: AppHandle, height: f64) -> Result<(), String> {
     }
     if let Some(w) = app.get_webview_window("popover") {
         let clamped = height.clamp(200.0, 820.0);
+        let width = width.unwrap_or(360.0).clamp(320.0, 480.0);
         let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
-            360.0, clamped,
+            width, clamped,
         )));
         // Re-anchor to the tray icon so the window doesn't drift below the
         // bottom of the monitor after a growth.
@@ -859,6 +860,7 @@ pub async fn save_bubble_position(app: AppHandle, x: i32, y: i32) -> Result<(), 
 #[tauri::command]
 pub async fn show_popover(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("popover") {
+        set_capture_included(&window);
         // Restore the popover's normal size — it may have been shrunk to 2×2
         // during recording by `park_popover_offscreen` (kept the JS alive
         // while keeping the window out of the way). The content's
@@ -899,6 +901,7 @@ pub async fn show_popover(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn park_popover_offscreen(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("popover") {
+        set_capture_excluded(&window);
         // Anchor near the top-left of the primary display. We avoid (0,0)
         // exactly because on some macOS versions that corner falls under the
         // menu-bar cutout — 2,2 is safely inside every real display's bounds.
@@ -949,6 +952,7 @@ pub fn toggle_popover(app: &AppHandle) {
     // Restore normal size in case the window was shrunk to a pinhole
     // during recording / voice-wake — otherwise it would reappear as a
     // 2x2 dot.
+    set_capture_included(&window);
     let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(360.0, 520.0)));
     position_popover(app, &window);
     mark_popover_shown(app);

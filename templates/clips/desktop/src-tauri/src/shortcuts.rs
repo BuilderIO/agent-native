@@ -1,6 +1,8 @@
+use std::str::FromStr;
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
-use tauri::{Emitter, Listener, Manager, PhysicalPosition, PhysicalSize};
+use tauri::{AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
 use crate::clips::toggle_popover;
@@ -13,6 +15,102 @@ use crate::util::{
 
 fn escape_shortcut() -> Shortcut {
     Shortcut::new(None, Code::Escape)
+}
+
+static CUSTOM_VOICE_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
+static CUSTOM_POPOVER_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
+
+fn custom_voice_shortcut() -> &'static Mutex<Option<Shortcut>> {
+    CUSTOM_VOICE_SHORTCUT.get_or_init(|| Mutex::new(None))
+}
+
+fn custom_popover_shortcut() -> &'static Mutex<Option<Shortcut>> {
+    CUSTOM_POPOVER_SHORTCUT.get_or_init(|| Mutex::new(None))
+}
+
+fn current_custom_voice_shortcut() -> Option<Shortcut> {
+    custom_voice_shortcut().lock().ok().and_then(|g| *g)
+}
+
+fn current_custom_popover_shortcut() -> Option<Shortcut> {
+    custom_popover_shortcut().lock().ok().and_then(|g| *g)
+}
+
+fn parse_optional_shortcut(value: Option<String>) -> Result<Option<Shortcut>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    Shortcut::from_str(trimmed)
+        .map(Some)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub async fn set_custom_shortcuts(
+    app: AppHandle,
+    voice: Option<String>,
+    popover: Option<String>,
+) -> Result<(), String> {
+    let voice = parse_optional_shortcut(voice)?;
+    let popover = parse_optional_shortcut(popover)?;
+    if voice.is_some() && voice == popover {
+        return Err("Voice dictation and Open Clips need different shortcuts.".to_string());
+    }
+    let gs = app.global_shortcut();
+
+    {
+        let mut current = custom_voice_shortcut()
+            .lock()
+            .map_err(|_| "failed to lock custom voice shortcut state".to_string())?;
+        if *current != voice {
+            let old = current.take();
+            if let Some(old) = old {
+                if gs.is_registered(old) {
+                    let _ = gs.unregister(old);
+                }
+            }
+            if let Some(next) = voice {
+                if let Err(err) = gs.register(next) {
+                    if let Some(old) = old {
+                        let _ = gs.register(old);
+                        *current = Some(old);
+                    }
+                    return Err(format!("failed to register voice shortcut: {err}"));
+                }
+            }
+            *current = voice;
+        }
+    }
+
+    {
+        let mut current = custom_popover_shortcut()
+            .lock()
+            .map_err(|_| "failed to lock custom Clips shortcut state".to_string())?;
+        if *current != popover {
+            let old = current.take();
+            if let Some(old) = old {
+                if gs.is_registered(old) {
+                    let _ = gs.unregister(old);
+                }
+            }
+            if let Some(next) = popover {
+                if let Err(err) = gs.register(next) {
+                    if let Some(old) = old {
+                        let _ = gs.register(old);
+                        *current = Some(old);
+                    }
+                    return Err(format!("failed to register Clips shortcut: {err}"));
+                }
+            }
+            *current = popover;
+        }
+    }
+
+    Ok(())
 }
 
 pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -84,6 +182,12 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
         let is_voice_cmd_space = shortcut.matches(Modifiers::SUPER | Modifiers::SHIFT, Code::Space);
         let is_voice_ctrl_space =
             shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::Space);
+        let is_custom_voice = current_custom_voice_shortcut()
+            .map(|custom| custom == *shortcut)
+            .unwrap_or(false);
+        let is_custom_popover = current_custom_popover_shortcut()
+            .map(|custom| custom == *shortcut)
+            .unwrap_or(false);
         let is_escape = shortcut.matches(Modifiers::empty(), Code::Escape);
         if is_escape {
             if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
@@ -100,8 +204,10 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
             let _ = app.emit("clips:popover-visible", false);
             return;
         }
-        if is_voice_cmd_space || is_voice_ctrl_space {
-            let source = if is_voice_cmd_space {
+        if is_voice_cmd_space || is_voice_ctrl_space || is_custom_voice {
+            let source = if is_custom_voice {
+                "custom"
+            } else if is_voice_cmd_space {
                 "cmd-shift-space"
             } else {
                 "ctrl-shift-space"
@@ -137,7 +243,7 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
         if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
             return;
         }
-        if is_cmd || is_ctrl {
+        if is_cmd || is_ctrl || is_custom_popover {
             // Loom-style: if a recording is already active, the
             // global shortcut stops it rather than re-opening the
             // popover. Keeps parity with the tray-icon click
