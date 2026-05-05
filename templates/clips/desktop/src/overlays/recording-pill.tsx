@@ -83,6 +83,15 @@ export function RecordingPill() {
         // Reset timer on new context.
         startedAtRef.current = Date.now();
         setElapsed(0);
+        // The Rust side reuses the pill window across recordings, so the
+        // component never unmounts. Reset stop state explicitly when a
+        // new recording session begins, otherwise the Stop button stays
+        // disabled and a stale fallback timer can fire mid-session.
+        setStopping(false);
+        if (stopFallbackRef.current) {
+          clearTimeout(stopFallbackRef.current);
+          stopFallbackRef.current = null;
+        }
       }),
     );
     trackListen(

@@ -49,6 +49,41 @@ fn parse_optional_shortcut(value: Option<String>) -> Result<Option<Shortcut>, St
         .map_err(|err| err.to_string())
 }
 
+/// Swap a stored custom shortcut to `next`, returning the previous value on
+/// success so the caller can roll back later if a sibling registration fails.
+/// On failure the previous shortcut is re-registered locally and `state` is
+/// left untouched.
+fn swap_custom_shortcut<R: tauri::Runtime>(
+    gs: &tauri_plugin_global_shortcut::GlobalShortcut<R>,
+    state: &Mutex<Option<Shortcut>>,
+    next: Option<Shortcut>,
+    label: &str,
+) -> Result<Option<Shortcut>, String> {
+    let mut current = state
+        .lock()
+        .map_err(|_| format!("failed to lock {label} shortcut state"))?;
+    if *current == next {
+        return Ok(*current);
+    }
+    let old = current.take();
+    if let Some(old) = old {
+        if gs.is_registered(old) {
+            let _ = gs.unregister(old);
+        }
+    }
+    if let Some(next) = next {
+        if let Err(err) = gs.register(next) {
+            if let Some(old) = old {
+                let _ = gs.register(old);
+                *current = Some(old);
+            }
+            return Err(format!("failed to register {label} shortcut: {err}"));
+        }
+    }
+    *current = next;
+    Ok(old)
+}
+
 #[tauri::command]
 pub async fn set_custom_shortcuts(
     app: AppHandle,
@@ -62,52 +97,15 @@ pub async fn set_custom_shortcuts(
     }
     let gs = app.global_shortcut();
 
-    {
-        let mut current = custom_voice_shortcut()
-            .lock()
-            .map_err(|_| "failed to lock custom voice shortcut state".to_string())?;
-        if *current != voice {
-            let old = current.take();
-            if let Some(old) = old {
-                if gs.is_registered(old) {
-                    let _ = gs.unregister(old);
-                }
-            }
-            if let Some(next) = voice {
-                if let Err(err) = gs.register(next) {
-                    if let Some(old) = old {
-                        let _ = gs.register(old);
-                        *current = Some(old);
-                    }
-                    return Err(format!("failed to register voice shortcut: {err}"));
-                }
-            }
-            *current = voice;
-        }
-    }
-
-    {
-        let mut current = custom_popover_shortcut()
-            .lock()
-            .map_err(|_| "failed to lock custom Clips shortcut state".to_string())?;
-        if *current != popover {
-            let old = current.take();
-            if let Some(old) = old {
-                if gs.is_registered(old) {
-                    let _ = gs.unregister(old);
-                }
-            }
-            if let Some(next) = popover {
-                if let Err(err) = gs.register(next) {
-                    if let Some(old) = old {
-                        let _ = gs.register(old);
-                        *current = Some(old);
-                    }
-                    return Err(format!("failed to register Clips shortcut: {err}"));
-                }
-            }
-            *current = popover;
-        }
+    let prev_voice = swap_custom_shortcut(gs, custom_voice_shortcut(), voice, "voice")?;
+    if let Err(err) = swap_custom_shortcut(gs, custom_popover_shortcut(), popover, "Clips") {
+        // Popover registration failed after voice already mutated — roll the
+        // voice slot back to its previous value so callers see all-or-nothing
+        // behaviour. If the rollback itself fails we surface only the
+        // original popover error to the user; the local state always
+        // reflects whatever actually got registered.
+        let _ = swap_custom_shortcut(gs, custom_voice_shortcut(), prev_voice, "voice");
+        return Err(err);
     }
 
     Ok(())
