@@ -128,7 +128,7 @@ export type AgentChatEvent =
   | { type: "loop_limit"; maxIterations?: number }
   | {
       type: "auto_continue";
-      reason: "run_timeout" | "loop_limit" | "stream_ended";
+      reason: "run_timeout" | "loop_limit" | "no_progress" | "stream_ended";
       maxIterations?: number;
     }
   | { type: "clear" };

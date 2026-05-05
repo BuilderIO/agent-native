@@ -64,18 +64,16 @@ jobs:
 
       - uses: pnpm/action-setup@v4
 
+      # Node 24 ships with npm 11.6+ — required for Trusted Publishing OIDC
+      # (>= 11.5.1). Node 22 ships npm 10.x; the in-place self-upgrade
+      # (`npm install -g npm@latest`) is broken on the current runner image
+      # (actions/runner-images#13883), so we just use a Node version that
+      # already has the right npm baked in.
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: "pnpm"
           registry-url: "https://registry.npmjs.org"
-
-      # npm Trusted Publishing (OIDC auth, no NPM_TOKEN) requires npm
-      # >= 11.5.1. Node 22 ships with npm 10.x, which silently falls back
-      # to token auth and ENEEDAUTHs the publish. Force-upgrade the runner's
-      # npm before any publish call.
-      - name: Upgrade npm for Trusted Publishing (>= 11.5.1)
-        run: npm install -g npm@latest
 
       - run: pnpm install --frozen-lockfile
 

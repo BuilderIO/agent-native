@@ -147,6 +147,7 @@ export const getEvent = defineEventHandler(async (event: H3Event) => {
           "primary",
           googleEventId,
         );
+        const selfAttendee = evt.attendees?.find((a: any) => a.self === true);
         const calEvent: CalendarEvent = {
           id: `google-${evt.id}`,
           title: evt.summary || "Untitled",
@@ -158,6 +159,7 @@ export const getEvent = defineEventHandler(async (event: H3Event) => {
           source: "google",
           googleEventId: evt.id || undefined,
           accountEmail: acctEmail,
+          responseStatus: selfAttendee?.responseStatus || undefined,
           attendees: evt.attendees?.map((a: any) => ({
             email: a.email,
             displayName: a.displayName || undefined,
@@ -238,8 +240,10 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
 
     const acctEmail = await resolveAccountEmail(body.accountEmail, email);
 
+    const { addGoogleMeet, ...eventBody } = body;
+
     const calEvent: CalendarEvent = {
-      ...body,
+      ...eventBody,
       id: "",
       source: "google",
       accountEmail: acctEmail,
@@ -247,21 +251,25 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
       updatedAt: new Date().toISOString(),
     };
 
-    const result = await googleCalendar.createEvent(calEvent);
+    const result = await googleCalendar.createEvent(calEvent, {
+      addGoogleMeet: addGoogleMeet === true,
+    });
     if (result.id) {
       calEvent.id = `google-${result.id}`;
       calEvent.googleEventId = result.id;
     }
+    if (result.meetLink) calEvent.hangoutLink = result.meetLink;
+    if (result.conferenceData) calEvent.conferenceData = result.conferenceData;
 
     try {
       emit(
         "calendar.event.created",
         {
           eventId: calEvent.id,
-          title: calEvent.title || body.title || "",
+          title: calEvent.title || eventBody.title || "",
           startTime: calEvent.start,
           endTime: calEvent.end,
-          attendees: body.attendees ?? [],
+          attendees: eventBody.attendees ?? [],
           createdBy: email,
         },
         { owner: email },
@@ -298,7 +306,7 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
     const acctEmail = await resolveAccountEmail(body.accountEmail, email);
 
     try {
-      await googleCalendar.updateEvent(
+      const result = await googleCalendar.updateEvent(
         googleEventId,
         {
           ...body,
@@ -306,8 +314,11 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
         },
         {
           sendUpdates: body.sendUpdates,
+          addGoogleMeet: body.addGoogleMeet === true,
         },
       );
+      if (result.meetLink) body.hangoutLink = result.meetLink;
+      if (result.conferenceData) body.conferenceData = result.conferenceData;
     } catch (error: any) {
       setResponseStatus(event, 500);
       return { error: `Failed to update Google event: ${error.message}` };

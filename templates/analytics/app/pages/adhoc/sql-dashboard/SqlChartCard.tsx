@@ -69,6 +69,87 @@ export function SqlChartCard({
     opacity: isDragging ? 0.7 : 1,
   };
 
+  // Section panels render as a flush header row (no card chrome, full width)
+  // so they read as dividers between groups of panels rather than as another
+  // tile in the grid.
+  if (panel.chartType === "section") {
+    return (
+      <div
+        ref={setNodeRef}
+        style={style}
+        className="group relative md:col-span-2 mt-2 first:mt-0"
+      >
+        <div className="flex items-center gap-2 border-b border-border pb-2">
+          <h2 className="text-base font-semibold flex-1">{panel.title}</h2>
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="p-1 rounded text-muted-foreground hover:text-foreground"
+                  title="Section options"
+                >
+                  <IconDotsVertical className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40">
+                {onEdit && (
+                  <DropdownMenuItem onSelect={() => onEdit()}>
+                    <IconPencil className="h-4 w-4 mr-2" />
+                    Edit
+                  </DropdownMenuItem>
+                )}
+                {onEdit && <DropdownMenuSeparator />}
+                <DropdownMenuItem
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    setConfirmOpen(true);
+                  }}
+                >
+                  <IconTrash className="h-4 w-4 mr-2" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <button
+              className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
+              title="Drag to reorder"
+              {...attributes}
+              {...listeners}
+            >
+              <IconGripVertical className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+        {panel.config?.description && (
+          <p className="text-sm text-muted-foreground mt-1">
+            {panel.config.description}
+          </p>
+        )}
+        <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete section?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Delete &quot;{panel.title}&quot;? This cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  setConfirmOpen(false);
+                  onRemove();
+                }}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={setNodeRef}

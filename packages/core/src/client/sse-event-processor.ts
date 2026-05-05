@@ -42,6 +42,7 @@ export interface SSEEvent {
 export type AgentAutoContinueReason =
   | "run_timeout"
   | "loop_limit"
+  | "no_progress"
   | "stream_ended";
 
 export class AgentAutoContinueSignal extends Error {
@@ -58,6 +59,8 @@ export class AgentAutoContinueSignal extends Error {
     this.maxIterations = options.maxIterations;
   }
 }
+
+export const SSE_NO_PROGRESS_TIMEOUT_MS = 75_000;
 
 function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   const code = String(ev.errorCode ?? "").toLowerCase();
@@ -306,18 +309,22 @@ export function processEvent(
     const reason =
       ev.reason === "stream_ended" ||
       ev.reason === "loop_limit" ||
+      ev.reason === "no_progress" ||
       ev.reason === "run_timeout"
         ? ev.reason
         : ev.errorCode === "stream_ended" ||
             ev.errorCode === "loop_limit" ||
+            ev.errorCode === "no_progress" ||
             ev.errorCode === "run_timeout"
           ? ev.errorCode
           : ev.error === "stream_ended" ||
               ev.error === "loop_limit" ||
+              ev.error === "no_progress" ||
               ev.error === "run_timeout"
             ? ev.error
             : ev.status === "stream_ended" ||
                 ev.status === "loop_limit" ||
+                ev.status === "no_progress" ||
                 ev.status === "run_timeout"
               ? ev.status
               : "run_timeout";
@@ -428,6 +435,7 @@ export async function* readSSEStream(
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
+  let lastMeaningfulEventAt = Date.now();
 
   const withRunId = (r: ChatModelRunResult): ChatModelRunResult => {
     if (!runId) return r;
@@ -460,6 +468,7 @@ export async function* readSSEStream(
       buf += decoder.decode(value, { stream: true });
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
+      let sawDataEvent = false;
 
       for (const line of lines) {
         if (!line.startsWith("data: ")) continue;
@@ -472,6 +481,8 @@ export async function* readSSEStream(
         } catch {
           continue;
         }
+        sawDataEvent = true;
+        lastMeaningfulEventAt = Date.now();
 
         // Track sequence number for reconnection
         if (ev.seq !== undefined && onSeq) {
@@ -498,6 +509,13 @@ export async function* readSSEStream(
         ) {
           return;
         }
+      }
+
+      if (
+        !sawDataEvent &&
+        Date.now() - lastMeaningfulEventAt >= SSE_NO_PROGRESS_TIMEOUT_MS
+      ) {
+        throw new AgentAutoContinueSignal({ reason: "no_progress" });
       }
     }
   } finally {
@@ -527,6 +545,7 @@ export async function readSSEStreamRaw(
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
+  let lastMeaningfulEventAt = Date.now();
 
   try {
     while (true) {
@@ -538,6 +557,7 @@ export async function readSSEStreamRaw(
       buf = lines.pop() ?? "";
 
       let updated = false;
+      let sawDataEvent = false;
       for (const line of lines) {
         if (!line.startsWith("data: ")) continue;
         const raw = line.slice(6).trim();
@@ -549,6 +569,8 @@ export async function readSSEStreamRaw(
         } catch {
           continue;
         }
+        sawDataEvent = true;
+        lastMeaningfulEventAt = Date.now();
 
         const { action } = processEvent(ev, content, toolCallCounter, tabId);
 
@@ -576,6 +598,12 @@ export async function readSSEStreamRaw(
 
       if (updated) {
         onUpdate([...content]);
+      }
+      if (
+        !sawDataEvent &&
+        Date.now() - lastMeaningfulEventAt >= SSE_NO_PROGRESS_TIMEOUT_MS
+      ) {
+        throw new AgentAutoContinueSignal({ reason: "no_progress" });
       }
     }
   } finally {

@@ -64,6 +64,34 @@ const PERMANENT_REFRESH_ERRORS = [
   "invalid_client",
 ];
 
+function createGoogleMeetRequest() {
+  return {
+    createRequest: {
+      requestId: `meet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      conferenceSolutionKey: { type: "hangoutsMeet" },
+    },
+  };
+}
+
+function mapConferenceData(data: any): CalendarEvent["conferenceData"] {
+  if (!data) return undefined;
+  return {
+    entryPoints: data.entryPoints?.map((ep: any) => ({
+      entryPointType: ep.entryPointType,
+      uri: ep.uri,
+      label: ep.label || undefined,
+      pin: ep.pin || undefined,
+      passcode: ep.passcode || undefined,
+    })),
+    conferenceSolution: data.conferenceSolution
+      ? {
+          name: data.conferenceSolution.name,
+          iconUri: data.conferenceSolution.iconUri || undefined,
+        }
+      : undefined,
+  };
+}
+
 function isPermanentRefreshError(message: string): boolean {
   const m = message.toLowerCase();
   return PERMANENT_REFRESH_ERRORS.some((code) => m.includes(code));
@@ -466,7 +494,11 @@ export async function listOverlayEvents(
 export async function createEvent(
   event: CalendarEvent,
   opts?: { addGoogleMeet?: boolean },
-): Promise<{ id?: string; meetLink?: string }> {
+): Promise<{
+  id?: string;
+  meetLink?: string;
+  conferenceData?: CalendarEvent["conferenceData"];
+}> {
   const client = await getClient(event.accountEmail);
   if (!client) return {};
 
@@ -483,12 +515,7 @@ export async function createEvent(
   };
 
   if (opts?.addGoogleMeet) {
-    body.conferenceData = {
-      createRequest: {
-        requestId: `meet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        conferenceSolutionKey: { type: "hangoutsMeet" },
-      },
-    };
+    body.conferenceData = createGoogleMeetRequest();
   }
 
   const response = await calendarInsertEvent(
@@ -501,14 +528,18 @@ export async function createEvent(
   return {
     id: response.id || undefined,
     meetLink: response.hangoutLink || undefined,
+    conferenceData: mapConferenceData(response.conferenceData),
   };
 }
 
 export async function updateEvent(
   googleEventId: string,
   event: Partial<CalendarEvent>,
-  options?: { sendUpdates?: "all" | "none" },
-): Promise<void> {
+  options?: { sendUpdates?: "all" | "none"; addGoogleMeet?: boolean },
+): Promise<{
+  meetLink?: string;
+  conferenceData?: CalendarEvent["conferenceData"];
+}> {
   const client = await getClient(event.accountEmail);
   if (!client) {
     throw new Error(
@@ -541,14 +572,25 @@ export async function updateEvent(
   if (event.recurrence !== undefined) {
     requestBody.recurrence = event.recurrence;
   }
+  if (options?.addGoogleMeet) {
+    requestBody.conferenceData = createGoogleMeetRequest();
+  }
 
-  await calendarPatchEvent(
+  const response = await calendarPatchEvent(
     client.accessToken,
     "primary",
     googleEventId,
     requestBody,
-    options?.sendUpdates,
+    {
+      sendUpdates: options?.sendUpdates,
+      conferenceDataVersion: options?.addGoogleMeet ? 1 : undefined,
+    },
   );
+
+  return {
+    meetLink: response?.hangoutLink || undefined,
+    conferenceData: mapConferenceData(response?.conferenceData),
+  };
 }
 
 export async function deleteEvent(
@@ -648,7 +690,7 @@ export async function deleteEvent(
     "primary",
     recurringEventId,
     { recurrence: updatedRecurrence },
-    sendUpdates,
+    { sendUpdates },
   );
 }
 
@@ -711,9 +753,7 @@ export async function removeEventFromCalendar(
   );
 }
 
-/**
- * RSVP a single event instance — fetches attendees first to avoid overwriting.
- */
+/** RSVP a single event instance without overwriting the full attendee list. */
 async function rsvpSingleEvent(
   accessToken: string,
   eventId: string,
@@ -721,17 +761,15 @@ async function rsvpSingleEvent(
   accountEmail: string,
   sendUpdates?: string,
 ): Promise<void> {
-  const existing = await calendarGetEvent(accessToken, "primary", eventId);
-  const attendees = (existing.attendees ?? []).map(
-    (a: { email: string; responseStatus?: string }) =>
-      a.email === accountEmail ? { ...a, responseStatus } : a,
-  );
   await calendarPatchEvent(
     accessToken,
     "primary",
     eventId,
-    { attendees },
-    sendUpdates ?? "none",
+    {
+      attendees: [{ email: accountEmail, responseStatus }],
+      attendeesOmitted: true,
+    },
+    { sendUpdates: sendUpdates ?? "none" },
   );
 }
 
