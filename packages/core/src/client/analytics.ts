@@ -17,9 +17,19 @@ type PageviewTrackingState = {
   lastPageviewKey: string | null;
 };
 
+type SentryUser = {
+  id?: string;
+  email?: string;
+  username?: string;
+};
+
 let _getDefaultProps: GetDefaultProps | null = null;
 let _amplitudeInitialized = false;
 let _sentryInitialized = false;
+// Buffer for setSentryUser calls made before Sentry has initialized.
+// `undefined` means "no pending update"; `null` means "pending clear".
+let _pendingSentryUser: SentryUser | null | undefined = undefined;
+let _pendingSentryOrgId: string | null | undefined = undefined;
 
 const AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT =
   "https://analytics.agent-native.com/track";
@@ -124,6 +134,40 @@ function ensureSentry(): void {
     },
   });
   _sentryInitialized = true;
+  // Flush any user/tag that was set before init.
+  if (_pendingSentryUser !== undefined) {
+    Sentry.setUser(_pendingSentryUser);
+    _pendingSentryUser = undefined;
+  }
+  if (_pendingSentryOrgId !== undefined) {
+    Sentry.setTag("orgId", _pendingSentryOrgId);
+    _pendingSentryOrgId = undefined;
+  }
+}
+
+/**
+ * Attach the current user to Sentry events from the browser. Pass `null` to
+ * clear (e.g. on logout). If Sentry isn't initialized yet, the value is
+ * buffered and applied once `ensureSentry()` runs.
+ *
+ * Pass `orgId` to also tag events with the active organization ID — useful
+ * for filtering Sentry by tenant.
+ */
+export function setSentryUser(
+  user: SentryUser | null,
+  orgId?: string | null,
+): void {
+  if (_sentryInitialized) {
+    Sentry.setUser(user);
+    if (orgId !== undefined) {
+      Sentry.setTag("orgId", orgId ?? null);
+    }
+    return;
+  }
+  _pendingSentryUser = user;
+  if (orgId !== undefined) {
+    _pendingSentryOrgId = orgId ?? null;
+  }
 }
 
 function getPageviewTrackingState(): PageviewTrackingState {

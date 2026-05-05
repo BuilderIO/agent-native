@@ -124,6 +124,7 @@ export {
   trackEvent,
   trackSessionStatus,
   configureTracking,
+  setSentryUser,
 } from "./analytics.js";
 export {
   useCollaborativeDoc,

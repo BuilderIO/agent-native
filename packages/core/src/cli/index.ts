@@ -59,6 +59,16 @@ Sentry.init({
   // or process env contents to Sentry without explicit consent.
   sendDefaultPii: false,
   beforeSend(event) {
+    // Drop expected user-input rejections (validateRepoName, etc.) so they
+    // don't pollute Sentry with non-bug noise.
+    const exceptionType = event.exception?.values?.[0]?.type;
+    if (
+      exceptionType === "ValidationError" ||
+      event.tags?.handled === "validation"
+    ) {
+      return null;
+    }
+
     // Defense in depth: strip any sensitive fields that may have been
     // attached to the event despite sendDefaultPii: false (e.g. integrations
     // that capture request metadata).
@@ -80,7 +90,22 @@ Sentry.init({
       // Cookies are also exposed via event.request.cookies as a separate field
       delete (event.request as Record<string, unknown>).cookies;
     }
-    delete event.user;
+    // Keep user info that was explicitly set via Sentry.setUser (id/email)
+    // so we can attribute crashes back to the operator. Always strip
+    // ip_address — the CLI runs on third-party machines and the IP is auto-
+    // collected without consent. If only auto-collected fields remain,
+    // drop the user object entirely.
+    if (event.user) {
+      const user = event.user as Record<string, unknown>;
+      delete user.ip_address;
+      const hasIdentity =
+        typeof user.id === "string" ||
+        typeof user.email === "string" ||
+        typeof user.username === "string";
+      if (!hasIdentity) {
+        delete event.user;
+      }
+    }
     // Sentry's contexts can carry process.env snapshots — strip env-shaped
     // contexts so we don't leak deployment secrets.
     if (event.contexts && typeof event.contexts === "object") {
@@ -99,6 +124,21 @@ Sentry.init({
     return event;
   },
 });
+
+// Identify the operator so future CLI errors carry spaceId / builderUserId
+// that we can map back to a real Builder user. The CLI doesn't have a real
+// email today — only the env-managed identifiers from the workspace's .env.
+{
+  const builderUserId = process.env.BUILDER_USER_ID;
+  const builderPublicKey = process.env.BUILDER_PUBLIC_KEY;
+  if (builderUserId) {
+    Sentry.setUser({ id: builderUserId });
+    Sentry.setTag("builderUserId", builderUserId);
+  }
+  if (builderPublicKey) {
+    Sentry.setTag("spaceId", builderPublicKey);
+  }
+}
 
 const FEEDBACK_URL =
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV?source=cli";
@@ -231,6 +271,125 @@ function run(
   return child;
 }
 
+/**
+ * Walk up from `cwd` and try to figure out which template / app this build
+ * is running for. We look for two patterns:
+ *
+ *   - `templates/<name>/...` — building inside the framework monorepo
+ *   - `apps/<name>/...`      — building inside a scaffolded workspace
+ *
+ * Both, neither, or one may match. Used purely as Sentry tags so we can
+ * filter the noisy "Command failed: react-router build" issues by template.
+ */
+function inferBuildContext(cwd: string): {
+  template?: string;
+  app?: string;
+} {
+  const segs = cwd.split(path.sep);
+  let template: string | undefined;
+  let app: string | undefined;
+  for (let i = 0; i < segs.length - 1; i++) {
+    if (segs[i] === "templates" && segs[i + 1] && !segs[i + 1].startsWith("."))
+      template = segs[i + 1];
+    if (segs[i] === "apps" && segs[i + 1] && !segs[i + 1].startsWith("."))
+      app = segs[i + 1];
+  }
+  return { template, app };
+}
+
+/**
+ * Run a build subcommand, streaming its stdout/stderr to the user's terminal
+ * in real time while also capturing bounded tails for Sentry. On non-zero
+ * exit we report a structured event (template, app, exit code, stderr/stdout
+ * tails) and exit with the child's code. We deliberately do NOT throw — the
+ * global uncaughtException handler would re-capture with a generic
+ * "Error: Command failed" title, collapsing every template's failure into
+ * one issue (which is exactly what we're trying to fix here).
+ */
+function runBuildStep(
+  cmd: string,
+  cmdArgs: string[],
+  opts: { label: string; env?: NodeJS.ProcessEnv },
+): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const STDERR_TAIL_BYTES = 8000;
+    const STDOUT_TAIL_BYTES = 4000;
+    let stderrBuf = "";
+    let stdoutBuf = "";
+
+    const child = spawn(cmd, cmdArgs, {
+      stdio: ["inherit", "pipe", "pipe"],
+      shell: process.platform === "win32",
+      env: opts.env ?? process.env,
+    });
+
+    child.stdout?.on("data", (chunk: Buffer) => {
+      process.stdout.write(chunk);
+      const next = stdoutBuf + chunk.toString("utf-8");
+      stdoutBuf =
+        next.length > STDOUT_TAIL_BYTES ? next.slice(-STDOUT_TAIL_BYTES) : next;
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      process.stderr.write(chunk);
+      const next = stderrBuf + chunk.toString("utf-8");
+      stderrBuf =
+        next.length > STDERR_TAIL_BYTES ? next.slice(-STDERR_TAIL_BYTES) : next;
+    });
+
+    child.on("error", (err) => {
+      // Failure to spawn (ENOENT, etc.).
+      const cwd = process.cwd();
+      const { template, app } = inferBuildContext(cwd);
+      Sentry.captureException(err, {
+        tags: {
+          buildStep: opts.label,
+          ...(template ? { template } : {}),
+          ...(app ? { app } : {}),
+        },
+        extra: {
+          command: `${cmd} ${cmdArgs.join(" ")}`,
+          cwd,
+          stage: "spawn",
+        },
+      });
+      Sentry.flush(2000).finally(() => process.exit(1));
+    });
+
+    child.on("exit", (code, signal) => {
+      const exitCode = code ?? (signal ? 1 : 0);
+      if (exitCode === 0) {
+        resolve();
+        return;
+      }
+      const cwd = process.cwd();
+      const { template, app } = inferBuildContext(cwd);
+      const childCommand = `${cmd} ${cmdArgs.join(" ")}`;
+      const err = new Error(
+        `Build step "${opts.label}" failed with exit code ${exitCode}` +
+          (template ? ` (template=${template})` : "") +
+          (app ? ` (app=${app})` : ""),
+      );
+      Sentry.captureException(err, {
+        tags: {
+          buildStep: opts.label,
+          ...(template ? { template } : {}),
+          ...(app ? { app } : {}),
+        },
+        extra: {
+          command: childCommand,
+          cwd,
+          exitCode,
+          signal: signal ?? null,
+          stderrTail: stderrBuf,
+          stdoutTail: stdoutBuf,
+        },
+      });
+      // Don't throw — see comment on runBuildStep above.
+      Sentry.flush(2000).finally(() => process.exit(exitCode));
+    });
+  });
+}
+
 trackCli("cli.run");
 
 switch (command) {
@@ -253,32 +412,48 @@ switch (command) {
     // React Router framework mode uses `react-router build` which
     // internally runs `vite build` with proper environment orchestration.
     // Legacy SPA mode uses `vite build` directly.
-    if (isReactRouterFramework()) {
-      const rr = findReactRouterBin();
-      console.log("Building (React Router framework mode)...");
-      execSync(`${rr} build`, { stdio: "inherit" });
-    } else {
-      const vite = findViteBin();
-      console.log("Building...");
-      execSync(`${vite} build`, { stdio: "inherit" });
-    }
-
-    // Post-build: framework-mode apps also need a Nitro server bundle for
-    // `agent-native start` and for serverless presets.
-    const preset = process.env.NITRO_PRESET;
-    if (isReactRouterFramework()) {
-      const __dirname = path.dirname(fileURLToPath(import.meta.url));
-      const deployBuild = path.resolve(__dirname, "../deploy/build.js");
-      if (fs.existsSync(deployBuild)) {
-        execSync(`node ${deployBuild}`, { stdio: "inherit", env: process.env });
+    //
+    // Each step uses runBuildStep so that on failure we get a Sentry event
+    // tagged with template/app and including stderr/stdout tails. If the
+    // child exits non-zero, runBuildStep calls process.exit itself; the
+    // continuation only runs on success.
+    (async () => {
+      if (isReactRouterFramework()) {
+        const rr = findReactRouterBin();
+        console.log("Building (React Router framework mode)...");
+        await runBuildStep(rr, ["build"], { label: "react-router-build" });
       } else {
-        console.warn(
-          `[build] Deploy build script not found at ${deployBuild}. Skipping post-build step.`,
-        );
+        const vite = findViteBin();
+        console.log("Building...");
+        await runBuildStep(vite, ["build"], { label: "vite-build" });
       }
-    }
 
-    console.log("\nBuild complete.");
+      // Post-build: framework-mode apps also need a Nitro server bundle for
+      // `agent-native start` and for serverless presets.
+      if (isReactRouterFramework()) {
+        const __dirname = path.dirname(fileURLToPath(import.meta.url));
+        const deployBuild = path.resolve(__dirname, "../deploy/build.js");
+        if (fs.existsSync(deployBuild)) {
+          await runBuildStep("node", [deployBuild], {
+            label: "deploy-build",
+            env: process.env,
+          });
+        } else {
+          console.warn(
+            `[build] Deploy build script not found at ${deployBuild}. Skipping post-build step.`,
+          );
+        }
+      }
+
+      console.log("\nBuild complete.");
+    })().catch((err) => {
+      // runBuildStep handles its own failures and exits, so reaching here
+      // implies a programming error in the orchestration above. Capture
+      // and exit so the global unhandledRejection handler doesn't double-
+      // report with a generic title.
+      Sentry.captureException(err);
+      Sentry.flush(2000).finally(() => process.exit(1));
+    });
     break;
   }
 
