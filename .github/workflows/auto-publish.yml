@@ -68,6 +68,14 @@ jobs:
         with:
           node-version: "22"
           cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
+
+      # npm Trusted Publishing (OIDC auth, no NPM_TOKEN) requires npm
+      # >= 11.5.1. Node 22 ships with npm 10.x, which silently falls back
+      # to token auth and ENEEDAUTHs the publish. Force-upgrade the runner's
+      # npm before any publish call.
+      - name: Upgrade npm for Trusted Publishing (>= 11.5.1)
+        run: npm install -g npm@latest
 
       - run: pnpm install --frozen-lockfile
 
@@ -82,21 +90,22 @@ jobs:
         uses: changesets/action@v1
         with:
           # When changesets/action finds no pending changesets, it runs
-          # `publish` — which builds + `pnpm changeset publish` to push
-          # newly-bumped versions to npm via OIDC trusted publisher.
-          publish: pnpm changeset:publish
+          # `publish` — which shells out to `npm publish` per package.
+          # We invoke `changeset publish` directly via npx (NOT
+          # `pnpm changeset publish`); pnpm's publish path bypasses npm's
+          # OIDC trusted-publishing handshake and fails ENEEDAUTH.
+          # See pnpm#9812, changesets/changesets#1914.
+          publish: npx changeset publish
           # When pending changesets exist, opens this PR with the version
           # bumps + changelog updates. Merging it triggers the publish run.
           title: "chore: version packages"
           commit: "chore: version packages"
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          # `pnpm publish` (called by `changeset publish`) only requests
-          # an OIDC token when --provenance is passed. publishConfig.provenance
-          # in package.json isn't honored across all pnpm versions, so set the
-          # env var instead — both npm and pnpm read NPM_CONFIG_PROVENANCE.
-          # Without this, publish falls back to token auth and fails with
-          # ENEEDAUTH.
+          # `npm publish` (called by `changeset publish`) requests an OIDC
+          # token when --provenance is set. publishConfig.provenance in
+          # package.json isn't honored everywhere, so set the env var —
+          # both npm and pnpm read NPM_CONFIG_PROVENANCE.
           NPM_CONFIG_PROVENANCE: "true"
 
       - name: Trigger Builder workspace package update

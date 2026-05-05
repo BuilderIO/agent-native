@@ -339,6 +339,7 @@ function getCoreSourceAliases(
       coreSrc,
       "adapters/cli/index.ts",
     ),
+    "@agent-native/core/usage": path.join(coreSrc, "usage/store.ts"),
   };
 
   // Escape special regex chars in the key and anchor with $

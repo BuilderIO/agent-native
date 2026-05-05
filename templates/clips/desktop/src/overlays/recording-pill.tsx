@@ -5,6 +5,7 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconPlayerPauseFilled,
+  IconPlayerPlayFilled,
   IconPlayerStopFilled,
 } from "@tabler/icons-react";
 
@@ -33,6 +34,7 @@ export function RecordingPill() {
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [ctx, setCtx] = useState<PillContext>({ mode: "clip" });
+  const [stopping, setStopping] = useState(false);
   // Detached / "floating" mode — Wispr-style pill that auto-moves to the
   // top-right when the main app loses focus, with a drag handle. Driven by
   // the `clips:pill-detached` event from Rust (toggled by JS via
@@ -54,6 +56,7 @@ export function RecordingPill() {
   const micCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const sysCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
+  const stopFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const unlistens: Array<() => void> = [];
@@ -80,6 +83,15 @@ export function RecordingPill() {
         // Reset timer on new context.
         startedAtRef.current = Date.now();
         setElapsed(0);
+        // The Rust side reuses the pill window across recordings, so the
+        // component never unmounts. Reset stop state explicitly when a
+        // new recording session begins, otherwise the Stop button stays
+        // disabled and a stale fallback timer can fire mid-session.
+        setStopping(false);
+        if (stopFallbackRef.current) {
+          clearTimeout(stopFallbackRef.current);
+          stopFallbackRef.current = null;
+        }
       }),
     );
     trackListen(
@@ -114,6 +126,10 @@ export function RecordingPill() {
           // ignore
         }
       });
+      if (stopFallbackRef.current) {
+        clearTimeout(stopFallbackRef.current);
+        stopFallbackRef.current = null;
+      }
     };
   }, []);
 
@@ -210,19 +226,24 @@ export function RecordingPill() {
   }
 
   async function onPauseClick() {
-    setPaused((p) => !p);
-    emit("clips:pill-pause", { paused: !paused }).catch(() => {});
+    const nextPaused = !paused;
+    setPaused(nextPaused);
+    emit(nextPaused ? "clips:recorder-pause" : "clips:recorder-resume").catch(
+      () => {},
+    );
+    emit("clips:pill-pause", { paused: nextPaused }).catch(() => {});
   }
 
   async function onStopClick() {
+    if (stopping) return;
+    setStopping(true);
+    emit("clips:recorder-stop").catch(() => {});
     emit("clips:pill-stop", { meetingId: ctx.meetingId ?? null }).catch(
       () => {},
     );
-    try {
-      await invoke("recording_pill_hide");
-    } catch {
-      // ignore
-    }
+    stopFallbackRef.current = setTimeout(() => {
+      invoke("recording_pill_hide").catch(() => {});
+    }, 3_000);
   }
 
   // Click on the drag handle (detached mode) un-detaches the pill and
@@ -242,11 +263,13 @@ export function RecordingPill() {
   return (
     <div className="flex h-full w-full items-stretch justify-stretch">
       <div
-        className="flex h-full w-full flex-col rounded-2xl bg-zinc-900/95 text-white shadow-2xl ring-1 ring-white/10 backdrop-blur-md"
+        className="relative flex h-full w-full flex-col rounded-2xl bg-zinc-900/95 text-white shadow-2xl ring-1 ring-white/10 backdrop-blur-md"
         data-tauri-drag-region
       >
-        {/* Collapsed header — always visible */}
-        <div className="flex h-[56px] shrink-0 items-center gap-2 px-3">
+        {/* Collapsed header — always visible, including a one-click stop. */}
+        <div
+          className={`flex shrink-0 items-center gap-2 ${detached ? "h-10 px-2" : "h-11 px-3"}`}
+        >
           <span
             className={`inline-block h-2 w-2 rounded-full ${
               paused ? "bg-zinc-400" : "bg-red-500 animate-pulse"
@@ -287,6 +310,17 @@ export function RecordingPill() {
           </span>
           <button
             type="button"
+            onClick={onStopClick}
+            disabled={stopping}
+            data-no-drag
+            className="ml-1 inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label="Stop recording"
+            title="Stop recording"
+          >
+            <IconPlayerStopFilled size={14} />
+          </button>
+          <button
+            type="button"
             onClick={toggleExpanded}
             data-no-drag
             className="ml-1 inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-zinc-200 hover:bg-white/10"
@@ -309,7 +343,7 @@ export function RecordingPill() {
             onClick={onHandleClick}
             data-no-drag
             aria-label="Re-attach pill to main window"
-            className="mx-auto mb-1 mt-auto h-1 w-10 shrink-0 cursor-pointer rounded-full bg-white/30 hover:bg-white/50"
+            className="absolute bottom-1 left-1/2 h-1 w-10 -translate-x-1/2 cursor-pointer rounded-full bg-white/30 hover:bg-white/50"
           />
         ) : null}
 
@@ -326,14 +360,19 @@ export function RecordingPill() {
                 data-no-drag
                 className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full bg-white/10 px-3 text-[12px] font-medium text-white hover:bg-white/20"
               >
-                <IconPlayerPauseFilled size={14} />
+                {paused ? (
+                  <IconPlayerPlayFilled size={14} />
+                ) : (
+                  <IconPlayerPauseFilled size={14} />
+                )}
                 {paused ? "Resume" : "Pause"}
               </button>
               <button
                 type="button"
                 onClick={onStopClick}
+                disabled={stopping}
                 data-no-drag
-                className="ml-auto inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full bg-red-500 px-3 text-[12px] font-medium text-white hover:bg-red-400"
+                className="ml-auto inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full bg-red-500 px-3 text-[12px] font-medium text-white hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <IconPlayerStopFilled size={14} />
                 Stop

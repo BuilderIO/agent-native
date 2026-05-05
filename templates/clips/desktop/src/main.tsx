@@ -17,9 +17,18 @@ import "./styles.css";
  * on the URL hash so each Tauri window (spawned from Rust with
  * `index.html#<name>`) renders only what it needs.
  */
-function pickRoute(): React.ReactElement {
+function currentRoute(): string {
   const hash = window.location.hash.replace(/^#/, "").toLowerCase();
-  switch (hash) {
+  return hash || "popover";
+}
+
+function installRouteAttributes(route: string): void {
+  document.documentElement.dataset.clipsRoute = route;
+  document.body.dataset.clipsRoute = route;
+}
+
+function pickRoute(route: string): React.ReactElement {
+  switch (route) {
     case "countdown":
       return <Countdown />;
     case "toolbar":
@@ -119,7 +128,7 @@ function installHeapDebugLog(): void {
     };
   };
   if (!perf.memory) return;
-  const tag = window.location.hash.replace(/^#/, "").toLowerCase() || "popover";
+  const tag = currentRoute();
   const fmt = (n: number | undefined) =>
     n == null ? "?" : `${(n / (1024 * 1024)).toFixed(1)}MB`;
   setInterval(() => {
@@ -133,6 +142,8 @@ function installHeapDebugLog(): void {
 
 const rootEl = document.getElementById("root");
 if (rootEl) {
+  const route = currentRoute();
+  installRouteAttributes(route);
   installBeforeUnloadCleanup();
   installHeapDebugLog();
   // NOTE: intentionally NOT wrapping in React.StrictMode. StrictMode
@@ -142,5 +153,5 @@ if (rootEl) {
   // camera bubble re-created itself ~30 times a second. Tauri windows
   // are real OS resources — not an environment where double-mount is
   // harmless.
-  ReactDOM.createRoot(rootEl).render(pickRoute());
+  ReactDOM.createRoot(rootEl).render(pickRoute(route));
 }

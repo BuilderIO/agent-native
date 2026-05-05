@@ -75,6 +75,13 @@ body {
   overflow: visible;
 }
 
+html[data-clips-route]:not([data-clips-route="popover"]),
+body[data-clips-route]:not([data-clips-route="popover"]) {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
 button {
   font-family: inherit;
   font-size: inherit;
@@ -84,6 +91,11 @@ button {
 #root {
   width: 100vw;
   background: transparent;
+}
+
+body[data-clips-route]:not([data-clips-route="popover"]) #root {
+  height: 100vh;
+  overflow: hidden;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -106,6 +118,12 @@ button {
   max-height: 100vh;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+.app-settings {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
 /* Header — logo + mode toggle + close */
@@ -799,16 +817,14 @@ button {
 /* ------------------------------------------------------------------------- */
 
 .setup {
-  position: fixed;
-  inset: 0;
+  width: 100%;
   background: var(--bg);
   border-radius: 14px;
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  z-index: 10;
-  max-height: 100vh;
+  max-height: calc(100vh - 2px);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -917,6 +933,83 @@ button {
   gap: 12px;
 }
 
+.setup-shortcut-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.setup-shortcut-row .setup-warning {
+  grid-column: 1 / -1;
+}
+
+.setup-shortcut-recorder,
+.setup-shortcut-clear,
+.setup-permission-button {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    color 120ms,
+    box-shadow 120ms;
+}
+
+.setup-shortcut-recorder {
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.setup-shortcut-recorder:hover,
+.setup-shortcut-clear:hover,
+.setup-permission-button:hover {
+  background: var(--surface-hover);
+}
+
+.setup-shortcut-recorder:focus-visible,
+.setup-shortcut-clear:focus-visible,
+.setup-permission-button:focus-visible {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.setup-shortcut-recorder.recording {
+  border-color: var(--brand);
+  background: var(--bg);
+  color: var(--brand);
+}
+
+.setup-shortcut-clear {
+  height: 38px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.setup-permission-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.setup-permission-button {
+  min-height: 34px;
+  padding: 7px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+
 .setup-hint {
   margin: 0;
   font-size: 11px;
@@ -1013,11 +1106,53 @@ button {
   font-size: 12px;
 }
 
+.permission-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.permission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.permission-actions button {
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.65);
+  color: #991b1b;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 8px;
+  transition:
+    background 120ms,
+    border-color 120ms;
+}
+
+.permission-actions button:hover {
+  background: white;
+  border-color: #fca5a5;
+}
+
 @media (prefers-color-scheme: dark) {
   .error-banner {
     background: rgba(185, 28, 28, 0.14);
     border-color: rgba(239, 68, 68, 0.5);
     color: #fca5a5;
+  }
+
+  .permission-actions button {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #fecaca;
+  }
+
+  .permission-actions button:hover {
+    background: rgba(239, 68, 68, 0.18);
+    border-color: rgba(248, 113, 113, 0.6);
   }
 }
 

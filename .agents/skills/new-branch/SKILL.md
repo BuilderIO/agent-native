@@ -1,10 +1,18 @@
 ---
 name: new-branch
-description: Stash, pull latest main, and create a new branch — fast, to minimize disruption to concurrent agents
+description: Only when explicitly asked for /new-branch or a fresh git branch: stash local changes, update main, and create it. Do not auto-run for normal coding, PR, Builder.io, or Fusion branch workflows.
 user_invocable: true
 ---
 
 # New Branch
+
+## Activation guard
+
+Use this skill only when the user explicitly invokes `/new-branch`, mentions this skill as the workflow to run, or directly asks you to create a fresh git branch from main.
+
+Do not use this skill just because the current branch looks wrong, a PR/send-PR flow is involved, a branch name appears in context, or the agent is running inside Builder.io/Fusion/project containers. Those environments may provide platform-managed branches such as `ai_*`, `ci/*`, or task-specific branches, and moving away from them can make completed work appear missing.
+
+If this skill was loaded without an explicit user request to create a new branch, stop here. Report that branch movement requires explicit confirmation, then continue the original task on the current branch.
 
 Quickly stash any local changes, pull latest from origin/main, and create a new working branch. Designed to be as fast as possible since other agents may be working concurrently on this repo.
 

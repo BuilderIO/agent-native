@@ -147,6 +147,27 @@ jobs:
           args: ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
           updaterJsonPreferNsis: false
 
+      - name: Verify macOS permission metadata
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH=$(find "$TAURI_APP_PATH/src-tauri/target" -path '*/bundle/macos/Clips.app' -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::Could not find built Clips.app bundle"
+            exit 1
+          fi
+
+          INFO="$APP_PATH/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :NSCameraUsageDescription" "$INFO" >/dev/null
+          /usr/libexec/PlistBuddy -c "Print :NSMicrophoneUsageDescription" "$INFO" >/dev/null
+          /usr/libexec/PlistBuddy -c "Print :NSScreenCaptureUsageDescription" "$INFO" >/dev/null
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO" | grep -qx 'com.clips.tray'
+
+          ENTITLEMENTS=$(codesign -d --entitlements :- "$APP_PATH" 2>/dev/null)
+          grep -q '<key>com.apple.security.device.camera</key>' <<< "$ENTITLEMENTS"
+          grep -q '<key>com.apple.security.device.audio-input</key>' <<< "$ENTITLEMENTS"
+
   publish-release:
     needs: build-tauri
     runs-on: ubuntu-latest
@@ -161,7 +182,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release edit "clips-v${{ steps.v.outputs.version }}" \
+          retry() {
+            local attempts="$1"
+            shift
+            local delay=2
+            local n=1
+            until "$@"; do
+              if [ "$n" -ge "$attempts" ]; then
+                return 1
+              fi
+              echo "Attempt $n failed; retrying in ${delay}s..."
+              sleep "$delay"
+              n=$((n + 1))
+              delay=$((delay * 2))
+            done
+          }
+
+          retry 5 gh release edit "clips-v${{ steps.v.outputs.version }}" \
             --draft=false \
             --latest=false
 
@@ -169,6 +206,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          retry() {
+            local attempts="$1"
+            shift
+            local delay=2
+            local n=1
+            until "$@"; do
+              if [ "$n" -ge "$attempts" ]; then
+                return 1
+              fi
+              echo "Attempt $n failed; retrying in ${delay}s..."
+              sleep "$delay"
+              n=$((n + 1))
+              delay=$((delay * 2))
+            done
+          }
+
           RELEASE_TAG="clips-v${{ steps.v.outputs.version }}"
           mkdir -p manifest
 
@@ -181,20 +234,20 @@ jobs:
           }
 
           if [ "$HAS_MANIFEST" = "true" ]; then
-            gh release download "$RELEASE_TAG" --pattern 'latest.json' --dir manifest
+            retry 5 gh release download "$RELEASE_TAG" --pattern 'latest.json' --dir manifest
             mv manifest/latest.json manifest/clips-latest.json
 
             MANIFEST_TITLE="Clips Desktop — latest (updater manifest)"
             MANIFEST_NOTES="Stable URL for the Clips auto-updater. Overwritten on every release. Versioned bundles live in clips-v* releases."
 
             if gh release view clips-latest --json tagName -q .tagName >/dev/null 2>&1; then
-              gh release delete-asset clips-latest clips-latest.json --yes || true
-              gh release upload clips-latest manifest/clips-latest.json
-              gh release edit clips-latest \
+              retry 5 gh release delete-asset clips-latest clips-latest.json --yes || true
+              retry 5 gh release upload clips-latest manifest/clips-latest.json
+              retry 5 gh release edit clips-latest \
                 --title "$MANIFEST_TITLE" \
                 --notes "$MANIFEST_NOTES"
             else
-              gh release create clips-latest manifest/clips-latest.json \
+              retry 5 gh release create clips-latest manifest/clips-latest.json \
                 --title "$MANIFEST_TITLE" \
                 --notes "$MANIFEST_NOTES" \
                 --latest=false

@@ -28,7 +28,7 @@ use state::{
     DictationActive, DictationEnabled, LastTranscript, MeetingActive, PopoverShownAt,
     RecordingActive, TrayAnchor, VoiceWakePopover,
 };
-use util::{is_recording_active, set_capture_excluded};
+use util::{is_recording_active, set_capture_included};
 
 // Embedded fallback icon — a tiny 16x16 solid purple PNG so the binary always
 // has *something* to display even if `icons/tray.png` is missing on disk. The
@@ -44,6 +44,7 @@ pub fn run() {
             // instance. Prevents the "two tray icons" UX where clicks fight
             // over focus and neither popover shows.
             if let Some(window) = app.get_webview_window("popover") {
+                set_capture_included(&window);
                 position_popover(app, &window);
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -109,6 +110,8 @@ pub fn run() {
             // silence detector — Granola-style auto-stop heuristics
             silence_detector::silence_detector_start,
             silence_detector::silence_detector_stop,
+            // custom global shortcuts configured from Settings
+            shortcuts::set_custom_shortcuts,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
@@ -151,12 +154,6 @@ pub fn run() {
             // itself macOS briefly steals focus from the popover, which would
             // fire Focused(false) and hide the window we literally just showed.
             if let Some(window) = app.get_webview_window("popover") {
-                // Exclude the popover from screen recordings and from the macOS
-                // screen / window picker. See `set_capture_excluded` docs. This
-                // is what lets us keep the popover visible (and its JS alive)
-                // during `getDisplayMedia` without the popover leaking into the
-                // recorded video.
-                set_capture_excluded(&window);
                 let handle = window.clone();
                 let app_handle = app.handle().clone();
                 // NOTE: Intentionally NOT calling window.open_devtools()
