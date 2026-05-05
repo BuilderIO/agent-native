@@ -1,5 +1,12 @@
 # @agent-native/dispatch
 
+## 0.2.3
+
+### Patch Changes
+
+- dca4f6d: Replace native title hints on interactive controls with shadcn tooltips.
+- dca4f6d: Expose Dispatch Tailwind source directives, preserve the packaged index route redirect in the template shell, and show Dispatch navigation/chat controls at desktop sizes.
+
 ## 0.2.2
 
 ### Patch Changes
