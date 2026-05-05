@@ -21,7 +21,7 @@ import {
   IconUsersGroup,
   IconX,
 } from "@tabler/icons-react";
-import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 
@@ -234,7 +234,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             </nav>
 
             <div className="border-t border-border mx-2">
-              <ToolsSidebarSection />
+              <ExtensionsSidebarSection />
             </div>
 
             <div className="px-2">

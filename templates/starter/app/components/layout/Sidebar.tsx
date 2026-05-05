@@ -1,7 +1,7 @@
 import { Link, useLocation } from "react-router";
 import { IconActivity, IconHome, IconPlus } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
-import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { FeedbackButton, appPath } from "@agent-native/core/client";
 
 const navItems = [
@@ -57,7 +57,7 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-border px-2 py-2">
-        <ToolsSidebarSection />
+        <ExtensionsSidebarSection />
       </div>
 
       <div className="border-t border-border px-3 py-2">

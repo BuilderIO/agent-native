@@ -9,6 +9,8 @@ import {
   IconExternalLink,
   IconChartBar,
   IconRefresh,
+  IconArchive,
+  IconArchiveOff,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,8 +26,20 @@ import {
   useForms,
   useCreateForm,
   useDeleteForm,
+  useRestoreForm,
   useUpdateForm,
 } from "@/hooks/use-forms";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
 import {
@@ -45,12 +59,20 @@ const statusColors: Record<string, string> = {
 
 export function FormsListPage() {
   const navigate = useNavigate();
-  const { data: forms = [], isLoading, error, refetch } = useForms();
+  const [view, setView] = useState<"active" | "archive">("active");
+  const {
+    data: forms = [],
+    isLoading,
+    error,
+    refetch,
+  } = useForms({ archived: view === "archive" });
   const createForm = useCreateForm();
   const deleteForm = useDeleteForm();
+  const restoreForm = useRestoreForm();
   const updateForm = useUpdateForm();
   const { isLocal } = useDbStatus();
   const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
+  const [purgeId, setPurgeId] = useState<string | null>(null);
 
   function handleCreate() {
     const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
@@ -97,7 +119,28 @@ export function FormsListPage() {
     deleteForm.mutate(
       { id },
       {
-        onSuccess: () => toast.success("Form deleted"),
+        onSuccess: () => toast.success("Form moved to Archive"),
+      },
+    );
+  }
+
+  function handleRestore(id: string) {
+    restoreForm.mutate(
+      { id },
+      {
+        onSuccess: () => toast.success("Form restored"),
+      },
+    );
+  }
+
+  function handlePurge() {
+    if (!purgeId) return;
+    const id = purgeId;
+    setPurgeId(null);
+    deleteForm.mutate(
+      { id, purge: true },
+      {
+        onSuccess: () => toast.success("Form permanently deleted"),
       },
     );
   }
@@ -166,35 +209,80 @@ export function FormsListPage() {
     );
   }
 
+  const isArchive = view === "archive";
+
   return (
     <div className="p-3 sm:p-6 max-w-5xl mx-auto">
+      <Tabs
+        value={view}
+        onValueChange={(v) => setView(v as "active" | "archive")}
+        className="mb-4"
+      >
+        <TabsList>
+          <TabsTrigger value="active" className="text-xs gap-1.5">
+            Forms
+          </TabsTrigger>
+          <TabsTrigger value="archive" className="text-xs gap-1.5">
+            <IconArchive className="h-3.5 w-3.5" />
+            Archive
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
       {forms.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 border border-dashed border-border rounded-xl">
-          <h3 className="font-medium mb-1">No forms yet</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            Create your first form to get started
-          </p>
-          <Button onClick={handleCreate} size="sm" className="gap-2">
-            <IconPlus className="h-4 w-4" />
-            Create Form
-          </Button>
+          {isArchive ? (
+            <>
+              <h3 className="font-medium mb-1">Archive is empty</h3>
+              <p className="text-sm text-muted-foreground">
+                Deleted forms appear here. Their responses are kept until you
+                permanently delete them.
+              </p>
+            </>
+          ) : (
+            <>
+              <h3 className="font-medium mb-1">No forms yet</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Create your first form to get started
+              </p>
+              <Button onClick={handleCreate} size="sm" className="gap-2">
+                <IconPlus className="h-4 w-4" />
+                Create Form
+              </Button>
+            </>
+          )}
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {forms.map((form) => (
             <div
               key={form.id}
-              className="group relative border border-border rounded-xl p-4 sm:p-5 hover:border-primary/30 cursor-pointer bg-card"
+              className={cn(
+                "group relative border border-border rounded-xl p-4 sm:p-5 cursor-pointer bg-card",
+                isArchive
+                  ? "opacity-80 hover:opacity-100 hover:border-border"
+                  : "hover:border-primary/30",
+              )}
               role="button"
               tabIndex={0}
-              onClick={() => navigate(`/forms/${form.id}`)}
+              onClick={() =>
+                navigate(
+                  isArchive
+                    ? `/forms/${form.id}/responses`
+                    : `/forms/${form.id}`,
+                )
+              }
               onKeyDown={(e) => {
                 if (
                   (e.key === "Enter" || e.key === " ") &&
                   e.target === e.currentTarget
                 ) {
                   e.preventDefault();
-                  navigate(`/forms/${form.id}`);
+                  navigate(
+                    isArchive
+                      ? `/forms/${form.id}/responses`
+                      : `/forms/${form.id}`,
+                  );
                 }
               }}
             >
@@ -228,43 +316,80 @@ export function FormsListPage() {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/forms/${form.id}/responses`);
-                      }}
-                    >
-                      <IconChartBar className="h-4 w-4 mr-2" />
-                      View Responses
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleTogglePublish(form);
-                      }}
-                    >
-                      <IconExternalLink className="h-4 w-4 mr-2" />
-                      {form.status === "published" ? "Unpublish" : "Publish"}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDuplicate(form);
-                      }}
-                    >
-                      <IconCopy className="h-4 w-4 mr-2" />
-                      Duplicate
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="text-destructive"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDelete(form.id);
-                      }}
-                    >
-                      <IconTrash className="h-4 w-4 mr-2" />
-                      Delete
-                    </DropdownMenuItem>
+                    {isArchive ? (
+                      <>
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/forms/${form.id}/responses`);
+                          }}
+                        >
+                          <IconChartBar className="h-4 w-4 mr-2" />
+                          View Responses
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRestore(form.id);
+                          }}
+                        >
+                          <IconArchiveOff className="h-4 w-4 mr-2" />
+                          Restore
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPurgeId(form.id);
+                          }}
+                        >
+                          <IconTrash className="h-4 w-4 mr-2" />
+                          Delete forever
+                        </DropdownMenuItem>
+                      </>
+                    ) : (
+                      <>
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/forms/${form.id}/responses`);
+                          }}
+                        >
+                          <IconChartBar className="h-4 w-4 mr-2" />
+                          View Responses
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTogglePublish(form);
+                          }}
+                        >
+                          <IconExternalLink className="h-4 w-4 mr-2" />
+                          {form.status === "published"
+                            ? "Unpublish"
+                            : "Publish"}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDuplicate(form);
+                          }}
+                        >
+                          <IconCopy className="h-4 w-4 mr-2" />
+                          Duplicate
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(form.id);
+                          }}
+                        >
+                          <IconTrash className="h-4 w-4 mr-2" />
+                          Delete
+                        </DropdownMenuItem>
+                      </>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
@@ -284,7 +409,9 @@ export function FormsListPage() {
                     {form.responseCount ?? 0} responses
                   </span>
                   <span className="whitespace-nowrap">
-                    {format(new Date(form.createdAt), "MMM d")}
+                    {isArchive && (form as any).deletedAt
+                      ? `Deleted ${format(new Date((form as any).deletedAt), "MMM d")}`
+                      : format(new Date(form.createdAt), "MMM d")}
                   </span>
                 </div>
               </div>
@@ -292,6 +419,32 @@ export function FormsListPage() {
           ))}
         </div>
       )}
+
+      <AlertDialog
+        open={purgeId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPurgeId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Permanently delete this form?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The form and all its responses will be deleted forever. This
+              cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handlePurge}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete forever
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {showCloudUpgrade && (
         <CloudUpgrade

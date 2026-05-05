@@ -10,5 +10,9 @@ import { flatRoutes } from "@react-router/fs-routes";
  * relative to the consumer's `app/` directory — so package-internal `./pages/*`
  * paths don't work. The shell-file pattern keeps file-based routing intact
  * while delegating component logic to the package; each shell is one line.
+ *
+ * Workspace-owned Dispatch tabs are normal local route files too. Add the
+ * route here via `app/routes/<name>.tsx`, then register the tab in
+ * `app/dispatch-extensions.tsx`.
  */
 export default flatRoutes() satisfies RouteConfig;

@@ -25,6 +25,7 @@ import { Toaster } from "sonner";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { Layout as AppLayout } from "@agent-native/dispatch/components";
 import type { LinksFunction } from "react-router";
+import { dispatchExtensions } from "./dispatch-extensions";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
 configureTracking({
@@ -73,7 +74,7 @@ const TAB_ID = Math.random().toString(36).slice(2, 10);
 
 function DbSyncSetup() {
   const qc = useQueryClient();
-  useNavigationState();
+  useNavigationState(dispatchExtensions);
   useDbSync({
     queryClient: qc,
     queryKeys: [
@@ -82,6 +83,7 @@ function DbSyncSetup() {
       "list-linked-identities",
       "list-dispatch-approvals",
       "list-dispatch-audit",
+      "list-dispatch-usage-metrics",
       "get-dispatch-settings",
       "list-connected-agents",
       "list-vault-secrets",
@@ -92,6 +94,7 @@ function DbSyncSetup() {
       "list-workspace-resource-grants",
       "list-workspace-apps",
       "list-integrations-catalog",
+      ...(dispatchExtensions.queryKeys ?? []),
     ],
     ignoreSource: TAB_ID,
   });
@@ -172,7 +175,7 @@ export default function Root() {
                 <ThemeToggleItem />
               </CommandMenu.Group>
             </CommandMenu>
-            <AppLayout>
+            <AppLayout extensions={dispatchExtensions}>
               <Outlet />
             </AppLayout>
             <Toaster richColors position="bottom-left" />

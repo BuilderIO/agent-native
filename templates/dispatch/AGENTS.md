@@ -44,7 +44,7 @@ Use resources for:
 
 The UI writes:
 
-- `navigation.view`: `overview`, `apps`, `new-app`, `vault`, `integrations`, `messaging`, `workspace`, `destinations`, `identities`, `approvals`, `audit`, or `team`
+- `navigation.view`: `overview`, `apps`, `new-app`, `vault`, `integrations`, `messaging`, `workspace`, `agents`, `destinations`, `identities`, `approvals`, `audit`, `team`, or a custom nav item id from `app/dispatch-extensions.tsx`
 - `navigation.path`: current route path
 
 The agent can navigate with:
@@ -61,6 +61,33 @@ The agent can navigate with:
 - `navigate(view="approvals")`
 - `navigate(view="audit")`
 - `navigate(view="team")`
+
+Custom workspace-owned Dispatch tabs can be added without forking the Dispatch
+package. Edit `app/dispatch-extensions.tsx` to add a `navItems` entry, then add
+the matching local route file under `app/routes/`. Use `DispatchShell` from
+`@agent-native/dispatch/components` in the route so the packaged header keeps
+working. The nav item `id` becomes `navigation.view`, and the agent can navigate
+to it with `navigate(view="<id>")` or `navigate(path="/your-route")`.
+
+Example:
+
+```tsx
+import { IconChartBar } from "@tabler/icons-react";
+import type { DispatchExtensionConfig } from "@agent-native/dispatch/components";
+
+export const dispatchExtensions = {
+  navItems: [
+    {
+      id: "reports",
+      to: "/reports",
+      label: "Reports",
+      icon: IconChartBar,
+      section: "operations",
+    },
+  ],
+  queryKeys: ["list-reports"],
+} satisfies DispatchExtensionConfig;
+```
 
 ## Dispatch Actions
 
@@ -103,6 +130,7 @@ The agent can navigate with:
 ### Messaging & Routing
 
 - `list-dispatch-overview`: high-level counts, recent audit, approvals, vault health
+- `list-dispatch-usage-metrics`: workspace-level LLM usage, estimated cost, users, app access, and recent activity
 - `list-destinations`: saved Slack, Telegram, and email targets
 - `upsert-destination`: create or update a saved destination (Slack, Telegram, or email)
 - `delete-destination`: remove a saved destination

@@ -54,7 +54,7 @@ import {
   agentNativePath,
 } from "@agent-native/core/client";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
-import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import type { Label } from "@shared/types";
 import { toast } from "sonner";
 
@@ -79,8 +79,8 @@ function isStandardLayoutPath(pathname: string): boolean {
     pathname === "/team" ||
     pathname === "/draft-queue" ||
     pathname.startsWith("/draft-queue/") ||
-    pathname === "/tools" ||
-    pathname.startsWith("/tools/")
+    pathname === "/extensions" ||
+    pathname.startsWith("/extensions/")
   );
 }
 
@@ -967,11 +967,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 />
               </button>
 
-              {/* Tools */}
+              {/* Extensions */}
               <Link
-                to="/tools"
+                to="/extensions"
                 className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
-                title="Tools"
+                title="Extensions"
               >
                 <IconTool className="h-4 w-4" />
               </Link>
@@ -1198,7 +1198,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
                     {/* Tools section */}
                     <div className="mt-3 pt-1 border-t border-border/20">
-                      <ToolsSidebarSection />
+                      <ExtensionsSidebarSection />
                     </div>
 
                     {/* Settings / Feedback / Account */}
@@ -1440,17 +1440,18 @@ function StandardLayout({ children }: AppLayoutProps) {
   const queuedDrafts = useQueuedDraftCount();
   const view = location.pathname.split("/").filter(Boolean)[0] || "";
 
-  // Tools (`/tools` list and `/tools/:id` viewer) render their own h-12
+  // Extensions (`/extensions` list and `/extensions/:id` viewer) render their own h-12
   // toolbar with NotificationsBell + AgentToggleButton inside the shared
-  // ToolViewer / ToolsListPage components. Skip our header to avoid stacking.
+  // ExtensionViewer / ExtensionsListPage components. Skip our header to avoid stacking.
   const pageOwnsToolbar =
-    location.pathname === "/tools" || location.pathname.startsWith("/tools/");
+    location.pathname === "/extensions" ||
+    location.pathname.startsWith("/extensions/");
 
   const fallbackTitle = (() => {
     if (location.pathname === "/settings") return "Settings";
     if (location.pathname === "/team") return "Team";
     if (location.pathname.startsWith("/draft-queue")) return "Draft queue";
-    if (location.pathname.startsWith("/tools")) return "Tools";
+    if (location.pathname.startsWith("/extensions")) return "Extensions";
     return "Mail";
   })();
 
@@ -1543,7 +1544,7 @@ function StandardLayout({ children }: AppLayoutProps) {
                   </div>
 
                   <div className="mt-3 pt-1 border-t border-border/20">
-                    <ToolsSidebarSection />
+                    <ExtensionsSidebarSection />
                   </div>
 
                   <div className="mt-3 pt-1 border-t border-border/20">

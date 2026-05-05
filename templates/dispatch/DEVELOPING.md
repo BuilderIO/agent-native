@@ -86,6 +86,34 @@ export default function MyPageRoute() {
 }
 ```
 
+## Adding a Dispatch Tab
+
+Keep custom workspace management tools in local route files, and register their
+sidebar tab in `app/dispatch-extensions.tsx`:
+
+```tsx
+import { IconChartBar } from "@tabler/icons-react";
+import type { DispatchExtensionConfig } from "@agent-native/dispatch/components";
+
+export const dispatchExtensions = {
+  navItems: [
+    {
+      id: "reports",
+      to: "/reports",
+      label: "Reports",
+      icon: IconChartBar,
+      section: "operations",
+    },
+  ],
+  queryKeys: ["list-reports"],
+} satisfies DispatchExtensionConfig;
+```
+
+Then add `app/routes/reports.tsx` and render the page with
+`DispatchShell` from `@agent-native/dispatch/components`. Dispatch continues
+to inherit package updates because the package still owns the layout, sidebar,
+header, and built-in routes.
+
 **Do NOT fetch data server-side** in route loaders unless the page genuinely needs SEO content or og tags based on dynamic data. The standard pattern is: SSR renders a loading spinner, client hydrates, React Query hooks fetch from `/api/*`.
 
 ## Adding an API Route
@@ -156,14 +184,14 @@ By default, data is stored in SQLite at `data/app.db`. For production/cloud depl
 | `DATABASE_URL`        | No (has default) | Database connection string (default: `file:./data/app.db`) |
 | `DATABASE_AUTH_TOKEN` | For remote DBs   | Auth token for Turso or other remote databases             |
 
-## Tools (Framework Feature)
+## Extensions (Framework Feature)
 
-The framework provides **Tools** — mini sandboxed Alpine.js apps that run inside iframes. Tools let users (or the agent) create interactive widgets, dashboards, and utilities without modifying the app's source code. They appear in the sidebar under a "Tools" section.
+The framework provides **Extensions** — mini sandboxed Alpine.js apps that run inside iframes. Extensions let users (or the agent) create interactive widgets, dashboards, and utilities without modifying the app's source code. They appear in the sidebar under an "Extensions" section. (Distinct from LLM tools — the function-calling primitives the agent invokes.)
 
-- **Creating tools**: Via the sidebar "+" button, agent chat, or `POST /_agent-native/tools`
-- **API calls**: Tools use `toolFetch()` which proxies requests through the server with `${keys.NAME}` secret injection
-- **Styling**: Tools inherit the main app's Tailwind v4 theme automatically
+- **Creating extensions**: Via the sidebar "+" button, agent chat, or `POST /_agent-native/extensions`
+- **API calls**: Extensions use `extensionFetch()` (legacy alias `toolFetch`) which proxies requests through the server with `${keys.NAME}` secret injection
+- **Styling**: Extensions inherit the main app's Tailwind v4 theme automatically
 - **Sharing**: Private by default, shareable with org or specific users (same model as other ownable resources)
 - **Security**: Iframe sandbox + CSP + SSRF protection on the proxy
 
-See the `tools` skill in `.agents/skills/tools/SKILL.md` for full implementation details.
+See the `extensions` skill in `.agents/skills/extensions/SKILL.md` for full implementation details.

@@ -38,6 +38,7 @@ export interface PlayerControlsProps {
   comments?: { id: string; videoTimestampMs: number; content: string }[];
   chapters?: { startMs: number; title: string }[];
   reactions?: { id: string; emoji: string; videoTimestampMs: number }[];
+  excludedRanges?: { startMs: number; endMs: number }[];
   onPlayPause: () => void;
   onSeek: (ms: number) => void;
   onVolumeChange: (volume: number) => void;
@@ -65,6 +66,7 @@ export function PlayerControls(props: PlayerControlsProps) {
     comments,
     chapters,
     reactions,
+    excludedRanges,
     onPlayPause,
     onSeek,
     onVolumeChange,
@@ -87,6 +89,7 @@ export function PlayerControls(props: PlayerControlsProps) {
         comments={comments}
         chapters={chapters}
         reactions={reactions}
+        excludedRanges={excludedRanges}
       />
 
       <div className="flex items-center gap-1.5 text-white">

@@ -9,7 +9,7 @@ import {
   IconUsers,
   IconX,
 } from "@tabler/icons-react";
-import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { AgentToggleButton, appPath } from "@agent-native/core/client";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
@@ -20,7 +20,7 @@ const pageTitles: Record<string, string> = {
   "/companies": "Companies",
   "/templates": "Templates",
   "/settings": "Settings",
-  "/tools": "Tools",
+  "/extensions": "Extensions",
 };
 
 const navItems = [
@@ -33,7 +33,7 @@ const navItems = [
 
 function resolveTitle(pathname: string): string {
   if (pageTitles[pathname]) return pageTitles[pathname];
-  if (pathname.startsWith("/tools")) return "Tools";
+  if (pathname.startsWith("/extensions")) return "Extensions";
   return "Notes";
 }
 
@@ -125,7 +125,7 @@ export function Header() {
               </div>
             </nav>
             <div className="p-3">
-              <ToolsSidebarSection />
+              <ExtensionsSidebarSection />
             </div>
           </div>
         </>

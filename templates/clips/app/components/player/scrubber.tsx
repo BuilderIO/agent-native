@@ -8,11 +8,19 @@ export interface ScrubberProps {
   comments?: { id: string; videoTimestampMs: number; content: string }[];
   chapters?: { startMs: number; title: string }[];
   reactions?: { id: string; emoji: string; videoTimestampMs: number }[];
+  excludedRanges?: { startMs: number; endMs: number }[];
 }
 
 export function Scrubber(props: ScrubberProps) {
-  const { currentMs, durationMs, onSeek, comments, chapters, reactions } =
-    props;
+  const {
+    currentMs,
+    durationMs,
+    onSeek,
+    comments,
+    chapters,
+    reactions,
+    excludedRanges,
+  } = props;
   const barRef = useRef<HTMLDivElement | null>(null);
   const [hoverMs, setHoverMs] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState<number>(0);
@@ -112,6 +120,29 @@ export function Scrubber(props: ScrubberProps) {
           className="absolute inset-y-0 left-0 bg-primary rounded-full"
           style={{ width: pct + "%" }}
         />
+
+        {/* Cut ranges */}
+        {excludedRanges?.map((range, i) => {
+          const startPct =
+            (Math.max(0, range.startMs) / Math.max(1, durationMs)) * 100;
+          const endPct =
+            (Math.min(durationMs, range.endMs) / Math.max(1, durationMs)) * 100;
+          return (
+            <div
+              key={`${range.startMs}-${range.endMs}-${i}`}
+              className="absolute inset-y-0 rounded-sm bg-black/70"
+              style={{
+                left: `${startPct}%`,
+                width: `${Math.max(0.5, endPct - startPct)}%`,
+                backgroundImage:
+                  "repeating-linear-gradient(45deg, rgba(255,255,255,0.2) 0 3px, transparent 3px 7px)",
+              }}
+              title={`Cut: ${msToClock(range.startMs)}-${msToClock(
+                range.endMs,
+              )}`}
+            />
+          );
+        })}
 
         {/* Chapter notches */}
         {chapters?.map((ch, i) => (

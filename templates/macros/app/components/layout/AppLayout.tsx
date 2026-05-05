@@ -12,7 +12,7 @@ import {
   agentNativePath,
   appPath,
 } from "@agent-native/core/client";
-import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -266,7 +266,7 @@ function SidebarContent({
       {!collapsed && (
         <>
           <div className="border-t border-border px-2 py-2">
-            <ToolsSidebarSection />
+            <ExtensionsSidebarSection />
           </div>
 
           <div className="border-t border-border px-3 py-2">

@@ -35,7 +35,7 @@ async function getFormBySlugOrId(slugOrId: string) {
       .then((rows) => rows[0]);
   }
 
-  if (!row || row.status !== "published") return null;
+  if (!row || row.status !== "published" || row.deletedAt) return null;
 
   const result = {
     id: row.id,

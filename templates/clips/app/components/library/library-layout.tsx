@@ -42,7 +42,7 @@ import { FolderTree, type FolderNode } from "./folder-tree";
 import { SearchBar } from "./search-bar";
 import { OrganizationSwitcher } from "./organization-switcher";
 import { PageHeaderSlotProvider } from "./page-header";
-import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { toast } from "sonner";
 
 interface LibraryLayoutProps {
@@ -88,7 +88,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   // AgentToggleButton). Layout still mounts Sidebar + AgentSidebar, but skips
   // its own header so there's no double-header.
   const pageOwnsToolbar =
-    location.pathname === "/tools" || location.pathname.startsWith("/tools/");
+    location.pathname === "/extensions" ||
+    location.pathname.startsWith("/extensions/");
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -298,7 +299,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               </div>
 
               <div className="border-t border-border px-2 py-1">
-                <ToolsSidebarSection />
+                <ExtensionsSidebarSection />
               </div>
 
               <div className="border-t border-border px-3 py-2">

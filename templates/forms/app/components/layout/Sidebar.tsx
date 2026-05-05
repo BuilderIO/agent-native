@@ -23,7 +23,7 @@ import {
   FeedbackButton,
   appPath,
 } from "@agent-native/core/client";
-import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { Textarea } from "@/components/ui/textarea";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
@@ -248,7 +248,7 @@ export function Sidebar() {
 
       {/* Tools */}
       <div className="px-3 pt-2">
-        <ToolsSidebarSection />
+        <ExtensionsSidebarSection />
       </div>
 
       {/* Footer */}

@@ -35,7 +35,8 @@ const BARE_ROUTES = new Set(["/event"]);
  */
 function pageOwnsToolbar(pathname: string): boolean {
   if (pathname === "/") return true;
-  if (pathname === "/tools" || pathname.startsWith("/tools/")) return true;
+  if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
+    return true;
   return false;
 }
 

@@ -1,13 +1,50 @@
+import { useMemo, useState } from "react";
 import { useParams, Link } from "react-router";
 import { format } from "date-fns";
-import { IconArrowLeft, IconDownload, IconRefresh } from "@tabler/icons-react";
+import {
+  IconArrowLeft,
+  IconDownload,
+  IconRefresh,
+  IconSearch,
+  IconArrowUp,
+  IconArrowDown,
+  IconArrowsSort,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { useForm } from "@/hooks/use-forms";
 import { useFormResponses } from "@/hooks/use-responses";
 import type { FormField } from "@shared/types";
+
+type SortKey = "_submitted" | string; // string = field id
+type SortDir = "asc" | "desc";
+
+function valueAsString(val: unknown): string {
+  if (val === undefined || val === null) return "";
+  if (Array.isArray(val)) return val.join(", ");
+  return String(val);
+}
+
+function compareValues(a: unknown, b: unknown): number {
+  // Empty values sort last regardless of direction.
+  const aEmpty = a === undefined || a === null || a === "";
+  const bEmpty = b === undefined || b === null || b === "";
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return 1;
+  if (bEmpty) return -1;
+  const aNum = typeof a === "number" ? a : Number(a);
+  const bNum = typeof b === "number" ? b : Number(b);
+  if (!Number.isNaN(aNum) && !Number.isNaN(bNum) && a !== "" && b !== "") {
+    return aNum - bNum;
+  }
+  return valueAsString(a).localeCompare(valueAsString(b), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
 
 export function ResponsesPage() {
   const { id } = useParams<{ id: string }>();
@@ -18,16 +55,50 @@ export function ResponsesPage() {
   const fields: FormField[] = data?.fields || form?.fields || [];
   const total = data?.total ?? 0;
 
+  const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("_submitted");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "_submitted" ? "desc" : "asc");
+    }
+  }
+
+  const filteredSorted = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let rows = responses;
+    if (q) {
+      rows = rows.filter((r) => {
+        for (const f of fields) {
+          if (valueAsString(r.data[f.id]).toLowerCase().includes(q))
+            return true;
+        }
+        return false;
+      });
+    }
+    const sorted = [...rows].sort((a, b) => {
+      let cmp: number;
+      if (sortKey === "_submitted") {
+        cmp =
+          new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime();
+      } else {
+        cmp = compareValues(a.data[sortKey], b.data[sortKey]);
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return sorted;
+  }, [responses, fields, search, sortKey, sortDir]);
+
   function exportCsv() {
-    if (!fields.length || !responses.length) return;
+    if (!fields.length || !filteredSorted.length) return;
     const headers = ["Submitted At", ...fields.map((f) => f.label)];
-    const rows = responses.map((r) => [
+    const rows = filteredSorted.map((r) => [
       r.submittedAt,
-      ...fields.map((f) => {
-        const val = r.data[f.id];
-        if (Array.isArray(val)) return val.join(", ");
-        return String(val ?? "");
-      }),
+      ...fields.map((f) => valueAsString(r.data[f.id])),
     ]);
 
     const csv = [headers, ...rows]
@@ -119,21 +190,51 @@ export function ResponsesPage() {
             {form?.title}
           </span>
           <Badge variant="secondary" className="text-xs shrink-0">
-            {total} response{total !== 1 ? "s" : ""}
+            {search.trim() && filteredSorted.length !== total
+              ? `${filteredSorted.length} of ${total}`
+              : `${total} response${total !== 1 ? "s" : ""}`}
           </Badge>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5 text-xs shrink-0"
-          onClick={exportCsv}
-          disabled={responses.length === 0}
-        >
-          <IconDownload className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Export CSV</span>
-          <span className="sm:hidden">Export</span>
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          {responses.length > 0 ? (
+            <div className="relative hidden sm:block">
+              <IconSearch className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Filter responses..."
+                className="h-8 pl-7 w-48 text-xs"
+              />
+            </div>
+          ) : null}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 text-xs shrink-0"
+            onClick={exportCsv}
+            disabled={filteredSorted.length === 0}
+          >
+            <IconDownload className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Export CSV</span>
+            <span className="sm:hidden">Export</span>
+          </Button>
+        </div>
       </div>
+
+      {/* Mobile filter row */}
+      {responses.length > 0 ? (
+        <div className="border-b border-border px-3 py-2 sm:hidden">
+          <div className="relative">
+            <IconSearch className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Filter responses..."
+              className="h-8 pl-7 text-xs"
+            />
+          </div>
+        </div>
+      ) : null}
 
       {/* Table */}
       {responses.length === 0 ? (
@@ -143,10 +244,17 @@ export function ResponsesPage() {
             Share your form to start collecting responses
           </p>
         </div>
+      ) : filteredSorted.length === 0 ? (
+        <div className="flex flex-col items-center justify-center flex-1 py-20">
+          <h3 className="font-medium mb-1">No matches</h3>
+          <p className="text-sm text-muted-foreground">
+            No responses contain "{search}"
+          </p>
+        </div>
       ) : (
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-auto">
           <div className="min-w-max">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm whitespace-nowrap">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   <th
@@ -155,45 +263,41 @@ export function ResponsesPage() {
                   >
                     #
                   </th>
-                  <th
-                    scope="col"
-                    className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
-                  >
-                    Submitted
-                  </th>
+                  <SortableHeader
+                    label="Submitted"
+                    active={sortKey === "_submitted"}
+                    dir={sortDir}
+                    onClick={() => toggleSort("_submitted")}
+                  />
                   {fields.map((f) => (
-                    <th
+                    <SortableHeader
                       key={f.id}
-                      scope="col"
-                      className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
-                    >
-                      {f.label}
-                    </th>
+                      label={f.label}
+                      active={sortKey === f.id}
+                      dir={sortDir}
+                      onClick={() => toggleSort(f.id)}
+                    />
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {responses.map((response, idx) => (
+                {filteredSorted.map((response, idx) => (
                   <tr
                     key={response.id}
                     className="border-b border-border hover:bg-muted/20"
                   >
                     <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                      {total - idx}
+                      {filteredSorted.length - idx}
                     </td>
                     <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
                       {format(new Date(response.submittedAt), "MMM d, h:mm a")}
                     </td>
                     {fields.map((f) => {
                       const val = response.data[f.id];
-                      let display: string;
-                      if (val === undefined || val === null) {
-                        display = "-";
-                      } else if (Array.isArray(val)) {
-                        display = val.join(", ");
-                      } else {
-                        display = String(val);
-                      }
+                      const display =
+                        val === undefined || val === null || val === ""
+                          ? "-"
+                          : valueAsString(val);
                       return (
                         <td
                           key={f.id}
@@ -209,8 +313,41 @@ export function ResponsesPage() {
               </tbody>
             </table>
           </div>
-        </ScrollArea>
+        </div>
       )}
     </div>
+  );
+}
+
+function SortableHeader(props: {
+  label: string;
+  active: boolean;
+  dir: SortDir;
+  onClick: () => void;
+}) {
+  const { label, active, dir, onClick } = props;
+  const Icon = !active
+    ? IconArrowsSort
+    : dir === "asc"
+      ? IconArrowUp
+      : IconArrowDown;
+  return (
+    <th
+      scope="col"
+      className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          "inline-flex items-center gap-1 cursor-pointer hover:text-foreground",
+          active && "text-foreground",
+        )}
+        aria-label={`Sort by ${label}`}
+      >
+        {label}
+        <Icon className="h-3 w-3 opacity-60" />
+      </button>
+    </th>
   );
 }

@@ -41,7 +41,7 @@ export const getPublicForm = defineEventHandler(async (event: H3Event) => {
       .then((rows) => rows[0]);
   }
 
-  if (!row || row.status !== "published") {
+  if (!row || row.status !== "published" || row.deletedAt) {
     setResponseStatus(event, 404);
     return { error: "Form not found" };
   }

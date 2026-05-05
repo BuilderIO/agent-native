@@ -39,4 +39,4 @@ export interface SlashCommand {
   icon?: string;
 }
 
-export type ComposerMode = "skill" | "job" | "automation" | "tool";
+export type ComposerMode = "skill" | "job" | "automation" | "extension";

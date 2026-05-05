@@ -28,9 +28,19 @@ const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
  * Starter is pre-selected.
  */
 function starterFirst(templates: TemplateMeta[]): TemplateMeta[] {
-  const starter = templates.find((t) => t.name === "starter");
-  if (!starter) return templates;
-  return [starter, ...templates.filter((t) => t.name !== "starter")];
+  return moveTemplatesToFront(templates, ["starter"]);
+}
+
+function moveTemplatesToFront(
+  templates: TemplateMeta[],
+  preferredNames: string[],
+): TemplateMeta[] {
+  const preferred = preferredNames
+    .map((name) => templates.find((t) => t.name === name))
+    .filter((template): template is TemplateMeta => Boolean(template));
+  if (preferred.length === 0) return templates;
+  const preferredSet = new Set(preferred.map((t) => t.name));
+  return [...preferred, ...templates.filter((t) => !preferredSet.has(t.name))];
 }
 
 /** Blank scaffold option appended to every picker. */
@@ -104,6 +114,22 @@ async function createWorkspaceInteractive(
   clack.intro("Create a new agent-native workspace");
 
   name = await promptNameIfMissing(name, clack, "workspace", "my-platform");
+  const preselected = parseTemplateList(opts?.template);
+  const dispatchRecommendation =
+    preselected.length === 0
+      ? [
+          "Dispatch is preselected because it is the recommended workspace",
+          "control plane for secrets, messaging, approvals, and cross-app routing.",
+        ]
+      : preselected.includes("dispatch")
+        ? [
+            "Dispatch is included, so the workspace will have a central",
+            "control plane for secrets, messaging, approvals, and cross-app routing.",
+          ]
+        : [
+            "Dispatch is recommended for most workspaces. You can add it later",
+            "with `agent-native add-app --template=dispatch` if you skip it now.",
+          ];
 
   clack.note(
     [
@@ -113,18 +139,20 @@ async function createWorkspaceInteractive(
       "same workspace share auth, database, and the agent chat. Add more apps",
       "later with `agent-native add-app`. Starter is a minimal scaffold —",
       "useful as a blank app to build from scratch alongside the others.",
+      ...dispatchRecommendation,
     ].join("\n"),
     "About workspaces",
   );
 
   // If templates were explicitly passed via --template, use them directly.
   // Otherwise show the multi-select picker.
-  const preselected = parseTemplateList(opts?.template);
   const templates =
     preselected.length > 0
       ? preselected
       : await promptTemplatePicker(preselected, clack, {
-          defaultTemplates: ["starter", "dispatch"],
+          defaultTemplates: ["dispatch", "starter"],
+          preferredFirst: ["dispatch", "starter"],
+          recommendedNames: ["dispatch"],
         });
   if (templates.length === 0) {
     clack.cancel("No apps selected. Cancelled.");
@@ -189,6 +217,15 @@ async function createWorkspaceInteractive(
         `   ← app`,
     ),
   ];
+  const dispatchNextStep = templates.includes("dispatch")
+    ? [
+        `Once running, open Dispatch — you'll see "Workspace: ${titleCase(name)}"`,
+        `at the top, with all your apps listed under it.`,
+      ]
+    : [
+        `This workspace does not include Dispatch. We generally recommend it`,
+        `for workspace secrets, messaging, approvals, and cross-app routing.`,
+      ];
 
   clack.outro(
     [
@@ -202,8 +239,7 @@ async function createWorkspaceInteractive(
       `  pnpm install`,
       `  pnpm dev          # starts every app in the workspace`,
       ``,
-      `Once running, open Dispatch — you'll see "Workspace: ${titleCase(name)}"`,
-      `at the top, with all your apps listed under it.`,
+      ...dispatchNextStep,
       ``,
       `Add another app later:        agent-native add-app`,
       `Deploy the whole workspace:   agent-native deploy`,
@@ -293,9 +329,13 @@ export async function addAppToWorkspace(
     return;
   }
 
+  const hasDispatch = installed.includes("dispatch");
   const templates = await promptTemplatePicker(preselected, clack, {
     excludeNames: installed,
     message: "Which apps do you want to add?",
+    defaultTemplates: hasDispatch ? undefined : ["dispatch"],
+    preferredFirst: hasDispatch ? ["starter"] : ["dispatch", "starter"],
+    recommendedNames: hasDispatch ? [] : ["dispatch"],
   });
   if (templates.length === 0) {
     clack.cancel("No apps selected. Cancelled.");
@@ -730,15 +770,26 @@ async function promptTemplatePicker(
     defaultTemplates?: string[];
     excludeNames?: string[];
     message?: string;
+    preferredFirst?: string[];
+    recommendedNames?: string[];
   },
 ): Promise<string[]> {
   const excluded = new Set(opts?.excludeNames ?? []);
-  const options = starterFirst(coreTemplates())
+  const orderedTemplates = opts?.preferredFirst
+    ? moveTemplatesToFront(coreTemplates(), opts.preferredFirst)
+    : starterFirst(coreTemplates());
+  const recommendedNames = new Set(opts?.recommendedNames ?? []);
+  const options = orderedTemplates
     .filter((t) => !excluded.has(t.name))
     .map((t) => ({
       value: t.name,
-      label: t.label,
-      hint: t.hint,
+      label: recommendedNames.has(t.name)
+        ? `${t.label} (recommended)`
+        : t.label,
+      hint:
+        recommendedNames.has(t.name) && t.name === "dispatch"
+          ? "Recommended workspace control plane: secrets, messaging, approvals, and A2A delegation"
+          : t.hint,
     }));
 
   // If there's nothing left to pick, the caller gets an empty selection —
@@ -746,7 +797,7 @@ async function promptTemplatePicker(
   if (options.length === 0) return [];
 
   // Default pre-selection: what the user passed via --template, falling
-  // back to "starter" when that's available and nothing else is pre-picked.
+  // back to caller defaults, then to "starter" when available.
   const defaults =
     preselected.length > 0
       ? preselected.filter((p) => options.some((o) => o.value === p))

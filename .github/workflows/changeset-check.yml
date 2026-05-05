@@ -1,0 +1,38 @@
+name: Changeset check
+
+# Fails the PR if any publishable package's source changed without a
+# corresponding `.changeset/*.md`. The error message lists the missing
+# packages so `/babysit-pr` can add the changeset automatically and
+# unblock the merge.
+#
+# Skipped on the bot-authored "Version Packages" PR — that PR consumes
+# changesets and shouldn't itself need one.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/**"
+      - ".changeset/**"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Require changeset for publishable package changes
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.ref != 'changeset-release/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run changeset check
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: node scripts/check-changeset.mjs

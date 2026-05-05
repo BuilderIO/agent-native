@@ -13,8 +13,8 @@ vi.mock("@agent-native/core", () => ({
       .filter((v) => typeof v === "string" && v.length > 0)
       .join(" "),
 }));
-vi.mock("@agent-native/core/client/tools", () => ({
-  ToolsSidebarSection: () => null,
+vi.mock("@agent-native/core/client/extensions", () => ({
+  ExtensionsSidebarSection: () => null,
 }));
 vi.mock("@agent-native/core/client", () => ({
   FeedbackButton: () => null,

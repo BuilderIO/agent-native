@@ -69,16 +69,16 @@ export default defineAction({
 - **`readOnly: true`** — explicitly skip the poll-refresh even for POST actions that don't mutate.
 - **`parallelSafe: true`** — allow a mutating action to run concurrently with other same-turn tool calls. Only set this when the action is internally concurrency-safe and order-independent; mutating actions serialize by default.
 
-### Tools callability {#tool-callable}
+### Extension callability {#tool-callable}
 
-Tools (Alpine.js mini-apps that run inside sandboxed iframes — see [Tools](/docs/tools)) call actions via `appAction(name, params)`. Because a shared tool's HTML/JS executes inside the _viewer's_ session, an action invoked from a tool runs with the viewer's permissions, secrets, and SQL scope. For high-blast-radius operations, that is too much trust to grant by default.
+Extensions (Alpine.js mini-apps that run inside sandboxed iframes — see [Extensions](/docs/extensions)) call actions via `appAction(name, params)`. Because a shared extension's HTML/JS executes inside the _viewer's_ session, an action invoked from an extension runs with the viewer's permissions, secrets, and SQL scope. For high-blast-radius operations, that is too much trust to grant by default.
 
-Use the `toolCallable` flag to control this:
+Use the `toolCallable` flag to control this (the flag name is kept for backward compatibility — it gates extension iframe callability):
 
 ```ts
 export default defineAction({
   description: "Delete the current user's account.",
-  toolCallable: false, // never callable from a tool iframe
+  toolCallable: false, // never callable from an extension iframe
   schema: z.object({ confirm: z.literal("yes") }),
   run: async () => {
     /* ... */
@@ -86,13 +86,13 @@ export default defineAction({
 });
 ```
 
-| Value       | Behavior                                                                                                                                                                                                                                     |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `true`      | Allow (same as undefined). Useful for documentation of intent.                                                                                                                                                                               |
-| `false`     | Explicit deny. The tools bridge returns 403; the action is still callable normally from the UI, agent, CLI, MCP, and A2A.                                                                                                                    |
-| `undefined` | **Default-allow.** Tools are intra-org and typically authored by trusted teammates, so the default trusts the org-level access controls. Set `false` only for genuinely auth-adjacent operations (account deletion, org membership changes). |
+| Value       | Behavior                                                                                                                                                                                                                                          |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `true`      | Allow (same as undefined). Useful for documentation of intent.                                                                                                                                                                                    |
+| `false`     | Explicit deny. The extension bridge returns 403; the action is still callable normally from the UI, agent, CLI, MCP, and A2A.                                                                                                                     |
+| `undefined` | **Default-allow.** Extensions are intra-org and typically authored by trusted teammates, so the default trusts the org-level access controls. Set `false` only for genuinely auth-adjacent operations (account deletion, org membership changes). |
 
-Enforcement: the parent host (`ToolViewer.tsx` / `EmbeddedTool.tsx`) tags every outbound action call from a tool iframe with the header `X-Agent-Native-Tool-Bridge: 1`. The action route layer reads this header and applies the rule above. Regular UI/agent/CLI/A2A calls do not carry the header and are unaffected. The header is set by the React host; the iframe's user-authored content cannot spoof it because the bridge sanitizes iframe-supplied headers.
+Enforcement: the parent host (`ToolViewer.tsx` / `EmbeddedTool.tsx` — physical class names retained) tags every outbound action call from an extension iframe with the header `X-Agent-Native-Tool-Bridge: 1`. The action route layer reads this header and applies the rule above. Regular UI/agent/CLI/A2A calls do not carry the header and are unaffected. The header is set by the React host; the iframe's user-authored content cannot spoof it because the bridge sanitizes iframe-supplied headers.
 
 Set `toolCallable: false` for actions that:
 

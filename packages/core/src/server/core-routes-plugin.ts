@@ -134,6 +134,36 @@ function stripAppBasePath(pathname: string): string {
   return pathname;
 }
 
+/**
+ * Resolves the page-level legacy `/tools` → `/extensions` redirect target.
+ *
+ * Returns the absolute path (with optional query string) to redirect to,
+ * or `null` if the request should fall through to the SPA / next handler.
+ *
+ * Skips:
+ *   - Framework API namespace (`/_agent-native/tools/*` is handled separately
+ *     as a legacy alias and intentionally stays mounted as `tools`).
+ *   - Anything that isn't `/tools` or a `/tools/...` page navigation, after
+ *     the configured app base path is stripped off.
+ *
+ * Exported for tests; the runtime middleware below is a thin wrapper.
+ */
+export function resolveLegacyToolsRedirect(
+  rawPath: string,
+  search: string,
+): string | null {
+  if (rawPath === "/_agent-native" || rawPath.startsWith("/_agent-native/")) {
+    return null;
+  }
+  const pathname = stripAppBasePath(rawPath);
+  if (pathname !== "/tools" && !pathname.startsWith("/tools/")) return null;
+  const suffix = pathname === "/tools" ? "" : pathname.slice("/tools".length);
+  const basePath = normalizeAppBasePath(
+    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
+  );
+  return `${basePath}/extensions${suffix}${search}`;
+}
+
 function redactValues(text: string, values: Array<string | null | undefined>) {
   let out = text;
   for (const value of values) {
@@ -1591,23 +1621,56 @@ export function createCoreRoutesPlugin(
     // DELETE /_agent-native/notifications/:id
     getH3App(nitroApp).use(`${P}/notifications`, createNotificationsHandler());
 
-    // ─── Tools (mini-app runtime + proxy) ───────────────────────────────
+    // ─── Extensions (sandboxed mini-app runtime + proxy) ────────────────
     try {
-      const { ensureToolsTables, registerToolsShareable } =
-        await import("../tools/store.js");
-      const { createToolsHandler } = await import("../tools/routes.js");
-      ensureToolsTables().catch(() => {});
-      registerToolsShareable();
-      getH3App(nitroApp).use(`${P}/tools`, createToolsHandler());
+      const { ensureExtensionsTables, registerExtensionsShareable } =
+        await import("../extensions/store.js");
+      const { createExtensionsHandler } =
+        await import("../extensions/routes.js");
+      ensureExtensionsTables().catch(() => {});
+      registerExtensionsShareable();
+      const extensionsHandler = createExtensionsHandler();
+      getH3App(nitroApp).use(`${P}/extensions`, extensionsHandler);
+      // Legacy alias — the previous public API was /_agent-native/tools/*.
+      // Mounted in addition to /extensions/* so any deployed iframes mid-flight
+      // (or external integrations bookmarked the old path) keep working.
+      getH3App(nitroApp).use(`${P}/tools`, extensionsHandler);
 
-      // Tool extension-point slots — sub-system of tools.
-      const { ensureSlotTables } = await import("../tools/slots/store.js");
-      const { createSlotsHandler } = await import("../tools/slots/routes.js");
+      // Extension-point slots — sub-system of extensions.
+      const { ensureSlotTables } = await import("../extensions/slots/store.js");
+      const { createSlotsHandler } =
+        await import("../extensions/slots/routes.js");
       ensureSlotTables().catch(() => {});
       getH3App(nitroApp).use(`${P}/slots`, createSlotsHandler());
     } catch {
-      // Tools module not available — skip
+      // Extensions module not available — skip
     }
+
+    // ─── Page-level legacy redirect: /tools → /extensions ──────────────
+    // Catches direct browser navigation / bookmarks for the old page route
+    // (`/tools`, `/tools/:id`) and 302s to the renamed equivalent under
+    // `/extensions`. The framework API alias above (`/_agent-native/tools/*`)
+    // is intentionally untouched — it stays mounted in parallel.
+    //
+    // Mounted with no path so the helper can do its own base-path stripping
+    // (h3 mount-matching only allows base-path stripping for `/_agent-native`
+    // and `/.well-known`). Returns undefined to fall through for anything
+    // that isn't a `/tools` page navigation.
+    getH3App(nitroApp).use(
+      defineEventHandler((event) => {
+        const method = getMethod(event);
+        if (method !== "GET" && method !== "HEAD") return;
+        const rawPath =
+          event.url?.pathname ??
+          String(event.node?.req?.url ?? event.path ?? "/").split("?")[0];
+        const search = event.url?.search ?? "";
+        const target = resolveLegacyToolsRedirect(rawPath, search);
+        if (!target) return;
+        setResponseStatus(event, 302);
+        setResponseHeader(event, "Location", target);
+        return "";
+      }),
+    );
 
     // ─── Agent run progress ───────────────────────────────────────────
     // GET    /_agent-native/runs[?active&limit]

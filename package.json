@@ -32,6 +32,11 @@
     "guard:template-list": "node scripts/guard-template-list.mjs",
     "guard:no-generated-artifacts": "node scripts/guard-no-generated-artifacts.mjs",
     "guards": "pnpm guard:no-drizzle-push && pnpm guard:no-unscoped-queries && pnpm guard:no-env-credentials && pnpm guard:no-unscoped-credentials && pnpm guard:no-env-mutation && pnpm guard:no-localhost-fallback && pnpm guard:template-list && pnpm guard:no-generated-artifacts",
+    "changeset": "changeset",
+    "changeset:add": "changeset add",
+    "changeset:status": "changeset status --since=origin/main",
+    "changeset:version": "changeset version",
+    "changeset:publish": "pnpm -r build && changeset publish",
     "prep": "concurrently -n fmt,types,test,guard -c blue,cyan,green,yellow \"pnpm fmt\" \"pnpm typecheck\" \"pnpm test\" \"pnpm guards\"",
     "dev:all": "node scripts/dev-all.ts",
     "dev:all:desktop": "node scripts/dev-all.ts --desktop",
@@ -40,6 +45,7 @@
     "dev:electron:apps": "node scripts/dev-electron.ts --apps"
   },
   "devDependencies": {
+    "@changesets/cli": "2.31.0",
     "@cloudflare/vite-plugin": "^1.31.0",
     "@libsql/linux-x64-gnu": "^0.5.29",
     "concurrently": "^9.1.0",

@@ -10,7 +10,7 @@ export const DISPATCH_WORKSPACE_ROOT_REDIRECTS = [
   ["agents", "agents"],
   ["workspace", "workspace"],
   ["messaging", "messaging"],
-  ["tools", "tools"],
+  ["extensions", "extensions"],
   ["destinations", "destinations"],
   ["identities", "identities"],
   ["approval", "approval"],
@@ -26,6 +26,10 @@ export const RESERVED_WORKSPACE_APP_IDS = new Set([
   "auth",
   "dispatch",
   "netlify",
+  // Legacy alias — `tools` was the previous name for `extensions`. Keep it
+  // reserved so a user can't create a workspace app whose mount path collides
+  // with the legacy `/tools` redirect (still served by core-routes-plugin).
+  "tools",
   ...DISPATCH_WORKSPACE_ROOT_REDIRECTS.map(([from]) => from),
 ]);
 

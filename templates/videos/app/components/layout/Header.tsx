@@ -14,7 +14,7 @@ const pageTitles: Record<string, string> = {
 
 function resolveTitle(pathname: string): string {
   if (pageTitles[pathname]) return pageTitles[pathname];
-  if (pathname.startsWith("/tools")) return "Tools";
+  if (pathname.startsWith("/extensions")) return "Extensions";
   const studioMatch = pathname.match(/^\/c\/(.+)$/);
   if (studioMatch) {
     const id = studioMatch[1];

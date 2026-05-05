@@ -41,7 +41,7 @@ export const NAV_SECTIONS: NavSection[] = [
       },
       { label: "Recurring Jobs", to: "/docs/recurring-jobs" as const },
       { label: "Automations", to: "/docs/automations" as const },
-      { label: "Tools", to: "/docs/tools" as const },
+      { label: "Extensions", to: "/docs/extensions" as const },
       {
         label: "Multi-App Workspaces",
         to: "/docs/multi-app-workspace" as const,

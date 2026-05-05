@@ -19,6 +19,7 @@ import listDestinations from "./list-destinations.js";
 import listDispatchApprovals from "./list-dispatch-approvals.js";
 import listDispatchAudit from "./list-dispatch-audit.js";
 import listDispatchOverview from "./list-dispatch-overview.js";
+import listDispatchUsageMetrics from "./list-dispatch-usage-metrics.js";
 import listIntegrationsCatalog from "./list-integrations-catalog.js";
 import listLinkedIdentities from "./list-linked-identities.js";
 import listVaultAudit from "./list-vault-audit.js";
@@ -73,6 +74,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-dispatch-approvals": listDispatchApprovals,
   "list-dispatch-audit": listDispatchAudit,
   "list-dispatch-overview": listDispatchOverview,
+  "list-dispatch-usage-metrics": listDispatchUsageMetrics,
   "list-integrations-catalog": listIntegrationsCatalog,
   "list-linked-identities": listLinkedIdentities,
   "list-vault-audit": listVaultAudit,

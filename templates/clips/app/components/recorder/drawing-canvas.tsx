@@ -19,11 +19,13 @@ interface Stroke {
   createdAt: number;
 }
 
+const DEFAULT_COLOR = "#EF4444";
+
 const COLORS = [
-  "#1f2937",
-  "#EF4444",
+  DEFAULT_COLOR,
   "#F59E0B",
   "#10B981",
+  "#3B82F6",
   "#111827",
   "#FFFFFF",
 ];
@@ -40,7 +42,7 @@ export function DrawingCanvas({
   const rafRef = useRef<number | null>(null);
   const nextIdRef = useRef(1);
 
-  const [color, setColor] = useState<string>(COLORS[0]);
+  const [color, setColor] = useState<string>(DEFAULT_COLOR);
   const [thickness, setThickness] = useState<number>(THICKNESS_OPTIONS[1]);
 
   // Size the canvas to the viewport and handle DPR.
