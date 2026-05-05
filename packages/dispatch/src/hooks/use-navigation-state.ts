@@ -122,6 +122,7 @@ function resolveView(
   const extensionView = resolveExtensionView(pathname, extensions);
   if (extensionView) return extensionView;
   if (pathname.startsWith("/apps")) return "apps";
+  if (pathname.startsWith("/metrics")) return "metrics";
   if (pathname.startsWith("/new-app")) return "new-app";
   if (pathname.startsWith("/vault")) return "vault";
   if (pathname.startsWith("/integrations")) return "integrations";
@@ -145,6 +146,9 @@ function resolvePath(
       return "/overview";
     case "apps":
       return "/apps";
+    case "metrics":
+    case "usage":
+      return "/metrics";
     case "new-app":
     case "create-app":
       return "/new-app";

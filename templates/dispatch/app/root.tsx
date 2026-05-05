@@ -83,6 +83,7 @@ function DbSyncSetup() {
       "list-linked-identities",
       "list-dispatch-approvals",
       "list-dispatch-audit",
+      "list-dispatch-usage-metrics",
       "get-dispatch-settings",
       "list-connected-agents",
       "list-vault-secrets",

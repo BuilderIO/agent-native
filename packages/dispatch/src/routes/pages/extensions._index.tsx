@@ -1,5 +1,5 @@
-import { ExtensionsListPage } from "@agent-native/core/client/extensions";
+import { ToolsListPage } from "@agent-native/core/client/tools";
 
 export default function ExtensionsRoute() {
-  return <ExtensionsListPage />;
+  return <ToolsListPage />;
 }

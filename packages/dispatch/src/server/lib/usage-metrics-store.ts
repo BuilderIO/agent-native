@@ -360,7 +360,13 @@ export async function listDispatchUsageMetrics(input: {
   // aggregate queries below. The fake owner avoids changing visible data.
   await getUsageSummary({ ownerEmail: "__dispatch_metrics_init__", sinceMs });
 
-  const members = orgId ? await listOrgMembers(orgId) : await listSignedInUsers();
+  const rawMembers = orgId
+    ? await listOrgMembers(orgId)
+    : await listSignedInUsers();
+  const members =
+    orgId && rawMembers.length === 0
+      ? [{ email: viewerEmail, role, joinedAt: null }]
+      : rawMembers;
   const memberEmails = orgId ? members.map((member) => member.email) : [];
   const memberByEmail = new Map(
     members.map((member) => [member.email.toLowerCase(), member]),

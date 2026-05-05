@@ -1,5 +1,5 @@
-import { ExtensionViewerPage } from "@agent-native/core/client/extensions";
+import { ToolViewerPage } from "@agent-native/core/client/tools";
 
 export default function ExtensionViewerRoute() {
-  return <ExtensionViewerPage />;
+  return <ToolViewerPage />;
 }

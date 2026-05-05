@@ -18,6 +18,7 @@ import {
   listRequests,
 } from "../server/lib/vault-store.js";
 import { listWorkspaceApps } from "../server/lib/app-creation-store.js";
+import { listDispatchUsageMetrics } from "../server/lib/usage-metrics-store.js";
 
 export default defineAction({
   description:
@@ -45,12 +46,29 @@ export default defineAction({
     }
     if (
       navigation?.view === "overview" ||
+      navigation?.view === "metrics" ||
       navigation?.view === "apps" ||
       navigation?.view === "new-app"
     ) {
       screen.workspaceApps = await listWorkspaceApps({
         includeAgentCards: true,
       });
+    }
+    if (navigation?.view === "metrics") {
+      try {
+        const metrics = await listDispatchUsageMetrics({ sinceDays: 30 });
+        screen.usageMetrics = {
+          totals: metrics.totals,
+          byApp: metrics.byApp.slice(0, 8),
+          byUser: metrics.byUser.slice(0, 8),
+          appAccess: metrics.appAccess
+            .filter((app) => !app.isDispatch)
+            .slice(0, 8),
+        };
+      } catch (error) {
+        screen.usageMetricsError =
+          error instanceof Error ? error.message : String(error);
+      }
     }
     if (navigation?.view === "vault" || navigation?.view === "new-app") {
       const [secrets, grants, requests] = await Promise.all([

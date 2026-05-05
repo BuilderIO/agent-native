@@ -25,7 +25,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Named dispatch view to navigate to. Built-in views include overview, apps, new-app, vault, integrations, messaging, workspace, agents, destinations, identities, approvals, audit, and team. Generated Dispatch extension tabs can also use their nav item id.",
+        "Named dispatch view to navigate to. Built-in views include overview, apps, metrics, new-app, vault, integrations, messaging, workspace, agents, destinations, identities, approvals, audit, and team. Generated Dispatch extension tabs can also use their nav item id.",
       ),
     path: z.string().optional().describe("URL path to navigate to"),
   }),

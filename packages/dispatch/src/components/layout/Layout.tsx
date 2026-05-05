@@ -11,6 +11,7 @@ import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import {
   IconArrowUpRight,
   IconApps,
+  IconChartBar,
   IconBrandTelegram,
   IconKey,
   IconChevronDown,
@@ -73,6 +74,13 @@ const PRIMARY_NAV_ITEMS = [
     to: "/apps",
     label: "Apps",
     icon: IconApps,
+    section: "primary",
+  },
+  {
+    id: "metrics",
+    to: "/metrics",
+    label: "Metrics",
+    icon: IconChartBar,
     section: "primary",
   },
   {
