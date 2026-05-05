@@ -7,7 +7,5 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": [
-    "@agent-native/desktop-app"
-  ]
+  "ignore": ["@agent-native/desktop-app"]
 }

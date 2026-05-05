@@ -90,7 +90,7 @@ Run `agent-native setup-agents` to create all symlinks (done automatically by `a
 
 ## Conventions
 
-- **Publishable npm packages use changesets — every PR that touches `packages/<core|dispatch|scheduling|pinpoint>/**` must include a `.changeset/*.md`.** The `changeset-check` CI job blocks PRs that change source in a publishable package without one. To add a changeset, run `pnpm changeset add` (interactive) or write `.changeset/<short-slug>.md` directly:
+- **Publishable npm packages use changesets.** Every PR that touches source in `packages/core`, `packages/dispatch`, `packages/scheduling`, or `packages/pinpoint` must include a `.changeset/<slug>.md`. The `changeset-check` CI job blocks PRs that change source in a publishable package without one. To add a changeset, run `pnpm changeset add` (interactive) or write `.changeset/<short-slug>.md` directly:
 
   ```md
   ---
@@ -101,6 +101,7 @@ Run `agent-native setup-agents` to create all symlinks (done automatically by `a
   ```
 
   Bump types: `patch` (bugfix / docs), `minor` (additive), `major` (breaking). One PR can declare multiple packages and mix bump types. The changeset file becomes part of the PR diff. On merge to `main`, `changesets/action` either opens a "Version Packages" PR (consuming the changesets into version bumps + changelog updates) or, when that PR merges, runs `pnpm changeset publish` to push to npm via OIDC trusted publisher. **Do NOT bump `package.json` versions manually — changesets does that.** If `babysit-pr` sees the `changeset-check` job fail, it parses the missing-package list and writes the `.changeset/*.md` for you. Templates and other private packages are skipped automatically (they don't ship to npm). Desktop-app stays version-triggered (electron-builder publishes binaries, not npm — see `packages/desktop-app/package.json`).
+
 - **Actions first** — use `defineAction` for new operations; only create `/api/` routes for file uploads, streaming, webhooks, or OAuth callbacks.
 - **Integration webhooks (Slack/Telegram/etc.) use the queue pattern.** The webhook handler verifies and enqueues to `integration_pending_tasks`, returns 200 immediately, then a self-fired `POST /_agent-native/integrations/_process-task` runs the agent loop in a fresh function execution. A 60s recurring job retries stuck tasks. This works on every serverless host — never use Netlify Background Functions, Cloudflare `waitUntil`, Vercel `after()`, or fire-and-forget promises after `return`. See `integration-webhooks` skill.
 - **TypeScript everywhere** — all code must be `.ts`/`.tsx`. Never `.js` or `.mjs`.

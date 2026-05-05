@@ -137,7 +137,9 @@ function main() {
   }
 
   if (touchedPackages.size === 0) {
-    console.log("✓ No publishable package source changed; no changeset needed.");
+    console.log(
+      "✓ No publishable package source changed; no changeset needed.",
+    );
     process.exit(0);
   }
 
@@ -157,8 +159,12 @@ function main() {
   // Structured failure — babysit-pr parses this to know what to add.
   console.error("✗ Missing changeset for publishable package source changes.");
   console.error("");
-  console.error(`Touched publishable packages: ${[...touchedPackages].join(", ")}`);
-  console.error(`Covered by existing changesets: ${[...covered].join(", ") || "(none)"}`);
+  console.error(
+    `Touched publishable packages: ${[...touchedPackages].join(", ")}`,
+  );
+  console.error(
+    `Covered by existing changesets: ${[...covered].join(", ") || "(none)"}`,
+  );
   console.error(`MISSING_CHANGESET_PACKAGES: ${missing.join(",")}`);
   console.error("");
   console.error("To add one locally:");
