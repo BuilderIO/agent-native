@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.8.2
+
+### Patch Changes
+
+- 3424455: Fix `agent-native create` failing with "Unrecognized archive format" on freshly published versions. The CLI now tries the changesets per-package tag (`@agent-native/core@<version>`) first, falls back to the legacy `v<version>` tag, and finally to `main` — so it keeps working through the release-tag scheme shift introduced when the framework adopted changesets.
+- 81005c4: Add an optional AgentPanel chat notice render slot.
+- 81005c4: Export a reusable client theme initialization script helper.
+- 81005c4: Avoid stale Vite prebundles for core source aliases in monorepo development.
+- 81005c4: Initialize template light/dark classes before hydration and normalize legacy theme storage.
+
 ## 0.8.1
 
 ### Patch Changes
