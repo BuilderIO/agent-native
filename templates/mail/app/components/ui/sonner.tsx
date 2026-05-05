@@ -6,9 +6,9 @@ import { cn } from "@/lib/utils";
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 
 const toastWidthClasses =
-  "group-[.toaster]:!w-[var(--width)] group-[.toaster]:!min-w-[min(20rem,calc(100vw_-_2rem))] group-[.toaster]:!max-w-[var(--width)] group-[.toaster]:!gap-3 group-[.toaster]:!break-normal";
+  "group-[.toaster]:!w-fit group-[.toaster]:!min-w-[min(20rem,calc(100vw_-_2rem))] group-[.toaster]:!max-w-[var(--width)] group-[.toaster]:!gap-3 group-[.toaster]:!break-normal";
 const toastContentClasses =
-  "group-[.toast]:!min-w-[min(16rem,calc(100vw_-_14rem))] group-[.toast]:!flex-1 group-[.toast]:!basis-auto group-[.toast]:break-words";
+  "group-[.toast]:!min-w-0 group-[.toast]:!flex-1 group-[.toast]:!basis-auto group-[.toast]:break-words";
 const toastButtonClasses =
   "group-[.toast]:!shrink-0 group-[.toast]:!whitespace-nowrap";
 
