@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import {
   Area,
   AreaChart,
@@ -24,6 +24,11 @@ import {
   IconSortDescending,
   IconChevronLeft,
   IconChevronRight,
+  IconAlertTriangle,
+  IconInfoCircle,
+  IconTrendingUp,
+  IconTrendingDown,
+  IconDownload,
 } from "@tabler/icons-react";
 import {
   Select,
@@ -83,6 +88,13 @@ function formatYValue(
     return `${pct.toFixed(2)}%`;
   }
   return value.toLocaleString();
+}
+
+function csvEscape(value: string): string {
+  if (/[",\n\r]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
 }
 
 function formatXLabel(value: string): string {
@@ -253,6 +265,18 @@ export function SqlChart({ panel, resolvedSql }: SqlChartProps) {
     );
   }
 
+  if (chartType === "heatmap") {
+    return <HeatmapRenderer rows={rows} panel={panel} />;
+  }
+
+  if (chartType === "callout") {
+    return <CalloutRenderer rows={rows} />;
+  }
+
+  if (chartType !== "line" && chartType !== "area") {
+    return <TableRenderer rows={rows} panel={panel} />;
+  }
+
   return (
     <TimeSeriesRenderer
       rows={rows}
@@ -315,6 +339,10 @@ function formatCell(value: unknown, format: ColumnFormat | undefined): string {
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
     return `${pct.toFixed(2)}%`;
   }
+  if (format === "delta" && typeof value === "number") {
+    const sign = value > 0 ? "+" : "";
+    return `${sign}${value.toFixed(1)}%`;
+  }
   if (format === "date") {
     const d = new Date(String(value));
     if (!isNaN(d.getTime())) {
@@ -326,6 +354,36 @@ function formatCell(value: unknown, format: ColumnFormat | undefined): string {
     }
   }
   return String(value);
+}
+
+function renderDeltaCell(value: unknown): ReactNode {
+  if (value == null || typeof value !== "number" || Number.isNaN(value)) {
+    return <span className="text-muted-foreground">-</span>;
+  }
+  const sign = value > 0 ? "+" : "";
+  const text = `${sign}${value.toFixed(1)}%`;
+  const isPositive = value > 0;
+  const isNegative = value < 0;
+  const colorClass = isPositive
+    ? "text-emerald-500"
+    : isNegative
+      ? "text-red-500"
+      : "text-muted-foreground";
+  const Arrow = isPositive
+    ? IconTrendingUp
+    : isNegative
+      ? IconTrendingDown
+      : null;
+  const critical = Math.abs(value) > 30;
+  return (
+    <span
+      className={`inline-flex items-center justify-end gap-1 ${colorClass}`}
+    >
+      {Arrow && <Arrow className="h-3.5 w-3.5" />}
+      <span>{text}</span>
+      {critical && <IconAlertTriangle className="h-3.5 w-3.5" />}
+    </span>
+  );
 }
 
 function TableRenderer({
@@ -390,9 +448,39 @@ function TableRenderer({
     setPage(0);
   };
 
+  const handleExportCsv = () => {
+    const headers = columns.map((col) => col.label ?? col.key);
+    const rowsCsv = sortedRows.map((row) =>
+      columns.map((col) => formatCell(row[col.key], col.format)).map(csvEscape),
+    );
+    const csv = [
+      headers.map(csvEscape).join(","),
+      ...rowsCsv.map((r) => r.join(",")),
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const date = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `${panel.id}-${date}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-1">
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute right-1 top-1 h-6 w-6 z-10"
+          onClick={handleExportCsv}
+          title="Export CSV"
+        >
+          <IconDownload className="h-3.5 w-3.5" />
+        </Button>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
@@ -432,8 +520,8 @@ function TableRenderer({
               <tr key={i} className="border-b border-border/50">
                 {columns.map((col) => {
                   const raw = row[col.key];
-                  const formatted = formatCell(raw, col.format);
                   if (col.format === "link") {
+                    const formatted = formatCell(raw, col.format);
                     const href = col.linkKey
                       ? String(row[col.linkKey] ?? "")
                       : String(raw ?? "");
@@ -456,7 +544,12 @@ function TableRenderer({
                   const numeric =
                     col.format === "number" ||
                     col.format === "currency" ||
-                    col.format === "percent";
+                    col.format === "percent" ||
+                    col.format === "delta";
+                  const content: ReactNode =
+                    col.format === "delta"
+                      ? renderDeltaCell(raw)
+                      : formatCell(raw, col.format);
                   return (
                     <td
                       key={col.key}
@@ -464,7 +557,7 @@ function TableRenderer({
                         numeric ? "text-right tabular-nums" : ""
                       }`}
                     >
-                      {formatted}
+                      {content}
                     </td>
                   );
                 })}
@@ -765,6 +858,210 @@ function TimeSeriesRenderer({
           ))}
         </AreaChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+// Heatmap config: `xKey` = x-axis column, `yKey` = numeric value column,
+// `color` = optional row-label column. If `color` is omitted, the renderer
+// auto-detects the row-label as the first non-x non-value string column.
+function HeatmapRenderer({
+  rows,
+  panel,
+}: {
+  rows: Record<string, unknown>[];
+  panel: SqlPanel;
+}) {
+  const cfg = panel.config;
+  const yFormatter = cfg?.yFormatter;
+
+  const { xKey, valueKey, rowKey, xValues, yValues, grid, stats } =
+    useMemo(() => {
+      if (rows.length === 0) {
+        return {
+          xKey: "",
+          valueKey: "",
+          rowKey: "",
+          xValues: [] as string[],
+          yValues: [] as string[],
+          grid: new Map<string, number>(),
+          stats: new Map<string, { mean: number; std: number }>(),
+        };
+      }
+      const cols = Object.keys(rows[0]);
+      const sample = rows[0] as Record<string, unknown>;
+      const xK =
+        cfg?.xKey || cols.find((c) => typeof sample[c] === "string") || cols[0];
+      const valK =
+        cfg?.yKey ||
+        cols.find((c) => c !== xK && typeof sample[c] === "number") ||
+        cols[1] ||
+        "";
+      const rowK =
+        cfg?.color ||
+        cols.find(
+          (c) => c !== xK && c !== valK && typeof sample[c] === "string",
+        ) ||
+        "";
+
+      const xs: string[] = [];
+      const ys: string[] = [];
+      const seenX = new Set<string>();
+      const seenY = new Set<string>();
+      const g = new Map<string, number>();
+      for (const r of rows) {
+        const xv = String(r[xK] ?? "");
+        const yv = rowK ? String(r[rowK] ?? "") : "";
+        const v = Number(r[valK]);
+        if (!seenX.has(xv)) {
+          seenX.add(xv);
+          xs.push(xv);
+        }
+        if (!seenY.has(yv)) {
+          seenY.add(yv);
+          ys.push(yv);
+        }
+        if (Number.isFinite(v)) g.set(`${xv}\u0000${yv}`, v);
+      }
+
+      const s = new Map<string, { mean: number; std: number }>();
+      for (const xv of xs) {
+        const vals: number[] = [];
+        for (const yv of ys) {
+          const v = g.get(`${xv}\u0000${yv}`);
+          if (v != null) vals.push(v);
+        }
+        if (vals.length === 0) {
+          s.set(xv, { mean: 0, std: 0 });
+          continue;
+        }
+        const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+        const variance =
+          vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length;
+        s.set(xv, { mean, std: Math.sqrt(variance) });
+      }
+      return {
+        xKey: xK,
+        valueKey: valK,
+        rowKey: rowK,
+        xValues: xs,
+        yValues: ys,
+        grid: g,
+        stats: s,
+      };
+    }, [rows, cfg?.xKey, cfg?.yKey, cfg?.color]);
+
+  if (rows.length === 0 || !valueKey) {
+    return (
+      <div className="flex min-h-[250px] items-center justify-center py-8">
+        <p className="text-sm text-muted-foreground text-center">No data</p>
+      </div>
+    );
+  }
+
+  const cellColor = (xv: string, v: number | undefined) => {
+    if (v == null) return undefined;
+    const stat = stats.get(xv);
+    if (!stat) return undefined;
+    const baseline = stat.std > 0 ? stat.std : Math.abs(stat.mean) || 1;
+    const z = Math.max(-2, Math.min(2, (v - stat.mean) / baseline));
+    const intensity = Math.min(2, Math.abs(z));
+    const lightness = 90 - intensity * 25;
+    const hue = z >= 0 ? 140 : 0;
+    return `hsl(${hue}, 60%, ${lightness}%)`;
+  };
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-sm">
+        <thead>
+          <tr className="border-b border-border">
+            <th className="text-left py-1.5 px-2 font-medium text-muted-foreground whitespace-nowrap">
+              {rowKey || ""}
+            </th>
+            {xValues.map((xv) => (
+              <th
+                key={xv}
+                className="text-right py-1.5 px-2 font-medium text-muted-foreground whitespace-nowrap"
+              >
+                {formatXLabel(xv)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {yValues.map((yv) => (
+            <tr key={yv} className="border-b border-border/50">
+              <td className="py-1.5 px-2 font-medium text-muted-foreground whitespace-nowrap">
+                {yv || "—"}
+              </td>
+              {xValues.map((xv) => {
+                const v = grid.get(`${xv}\u0000${yv}`);
+                const bg = cellColor(xv, v);
+                return (
+                  <td
+                    key={xv}
+                    className="py-1.5 px-2 text-right tabular-nums whitespace-nowrap"
+                    style={bg ? { backgroundColor: bg } : undefined}
+                  >
+                    {v != null ? formatYValue(v, yFormatter) : ""}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+type CalloutSeverity = "info" | "warning" | "critical";
+
+function CalloutRenderer({ rows }: { rows: Record<string, unknown>[] }) {
+  if (rows.length === 0) return null;
+
+  const styleFor = (severity: CalloutSeverity) => {
+    if (severity === "critical") {
+      return {
+        wrapper:
+          "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",
+        Icon: IconAlertTriangle,
+      };
+    }
+    if (severity === "warning") {
+      return {
+        wrapper:
+          "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+        Icon: IconAlertTriangle,
+      };
+    }
+    return {
+      wrapper: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+      Icon: IconInfoCircle,
+    };
+  };
+
+  return (
+    <div className="space-y-2">
+      {rows.map((row, i) => {
+        const sevRaw = String(row.severity ?? "info").toLowerCase();
+        const severity: CalloutSeverity =
+          sevRaw === "critical" || sevRaw === "warning" || sevRaw === "info"
+            ? (sevRaw as CalloutSeverity)
+            : "info";
+        const message = String(row.message ?? "");
+        const { wrapper, Icon } = styleFor(severity);
+        return (
+          <div
+            key={i}
+            className={`flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${wrapper}`}
+          >
+            <Icon className="h-4 w-4 mt-0.5 shrink-0" />
+            <span className="break-words">{message}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }

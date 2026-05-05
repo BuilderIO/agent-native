@@ -9,7 +9,8 @@ import {
 import { cn } from "@/lib/utils";
 
 export function ThemeToggle({ className }: { className?: string }) {
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
   return (
     <Tooltip>
@@ -17,10 +18,10 @@ export function ThemeToggle({ className }: { className?: string }) {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          onClick={() => setTheme(isDark ? "light" : "dark")}
           className={cn("text-muted-foreground", className)}
         >
-          {theme === "dark" ? (
+          {isDark ? (
             <IconSun className="h-4 w-4" />
           ) : (
             <IconMoon className="h-4 w-4" />

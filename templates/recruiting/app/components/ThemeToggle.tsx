@@ -2,14 +2,15 @@ import { useTheme } from "next-themes";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
   return (
     <button
-      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+      onClick={() => setTheme(isDark ? "light" : "dark")}
       className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
       title="Toggle theme"
     >
-      {theme === "dark" ? (
+      {isDark ? (
         <IconSun className="h-4 w-4" />
       ) : (
         <IconMoon className="h-4 w-4" />

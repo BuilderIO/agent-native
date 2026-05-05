@@ -3,11 +3,12 @@ import { IconSun, IconMoon } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
 export function ThemeToggle({ collapsed }: { collapsed?: boolean }) {
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
   return (
     <button
-      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+      onClick={() => setTheme(isDark ? "light" : "dark")}
       className={cn(
         "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground",
         collapsed && "justify-center px-0",

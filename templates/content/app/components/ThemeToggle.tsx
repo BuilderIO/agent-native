@@ -10,7 +10,8 @@ import {
 import { cn } from "@/lib/utils";
 
 export function ThemeToggle({ className }: { className?: string }) {
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
@@ -21,17 +22,13 @@ export function ThemeToggle({ className }: { className?: string }) {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          onClick={() => setTheme(isDark ? "light" : "dark")}
           className={cn(
             "text-sidebar-muted hover:text-sidebar-foreground",
             className,
           )}
         >
-          {mounted && theme === "dark" ? (
-            <IconSun size={14} />
-          ) : (
-            <IconMoon size={14} />
-          )}
+          {mounted && isDark ? <IconSun size={14} /> : <IconMoon size={14} />}
         </Button>
       </TooltipTrigger>
       <TooltipContent>Toggle theme</TooltipContent>

@@ -7,7 +7,9 @@ export type ChartType =
   | "metric"
   | "table"
   | "pie"
-  | "section";
+  | "section"
+  | "heatmap"
+  | "callout";
 
 export type FilterType =
   | "date"
@@ -36,7 +38,8 @@ export type ColumnFormat =
   | "percent"
   | "date"
   | "link"
-  | "text";
+  | "text"
+  | "delta";
 
 export interface TableColumnConfig {
   key: string;
@@ -76,6 +79,14 @@ export interface SqlPanel {
   chartType: ChartType;
   width: 1 | 2;
   config?: SqlPanelConfig;
+  /**
+   * Optional tab assignment. When any panel in a dashboard declares a `tab`,
+   * the dashboard renders a tab strip and shows only panels matching the
+   * selected tab. Tabs are derived from the distinct `tab` values across
+   * panels in declaration order. Section panels can also carry a tab to
+   * group their header under the right tab.
+   */
+  tab?: string;
 }
 
 export interface SqlDashboardConfig {

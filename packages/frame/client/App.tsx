@@ -11,6 +11,7 @@
 
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { TEMPLATES, getTemplate } from "@agent-native/shared-app-config";
+import { IconAppWindow, IconX } from "@tabler/icons-react";
 
 // Lazy-load heavy components
 const MultiTabAssistantChat = lazy(() =>
@@ -38,6 +39,7 @@ const SIDEBAR_WIDTH_KEY = "frame-sidebar-width";
 const FRAME_MODE_KEY = "frame-mode";
 const SIDEBAR_OPEN_KEY = "frame-sidebar-open";
 const SIDEBAR_FULLSCREEN_KEY = "frame-sidebar-fullscreen";
+const DESKTOP_APP_NUDGE_DISMISSED_KEY = "frame.desktop-app-nudge.dismissed";
 
 function getAppId(): string {
   const params = new URLSearchParams(window.location.search);
@@ -60,6 +62,65 @@ function getAppDevUrl(appId: string): string {
     typeof window !== "undefined" ? window.location.hostname : "localhost";
   const port = app?.devPort || 8080;
   return `http://${host}:${port}`;
+}
+
+function isAgentNativeDesktop() {
+  if (typeof navigator === "undefined") return false;
+  return /AgentNativeDesktop/i.test(navigator.userAgent);
+}
+
+function DesktopAppNudge() {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (isAgentNativeDesktop()) return;
+    try {
+      if (localStorage.getItem(DESKTOP_APP_NUDGE_DISMISSED_KEY) === "1") {
+        return;
+      }
+    } catch {}
+    setVisible(true);
+  }, []);
+
+  function dismiss() {
+    setVisible(false);
+    try {
+      localStorage.setItem(DESKTOP_APP_NUDGE_DISMISSED_KEY, "1");
+    } catch {}
+  }
+
+  if (!visible) return null;
+
+  return (
+    <div className="mx-2 my-1.5 rounded-md border border-border/70 bg-muted/35 px-2.5 py-2 text-[11px] leading-snug text-muted-foreground">
+      <div className="flex items-start gap-2">
+        <IconAppWindow className="mt-0.5 h-3.5 w-3.5 shrink-0 text-foreground/70" />
+        <p className="min-w-0 flex-1">
+          <span className="font-medium text-foreground">
+            Using local dev agents?
+          </span>{" "}
+          The desktop app keeps this chat together while your app reloads.{" "}
+          <a
+            href="https://agent-native.com/download"
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-foreground underline-offset-2 hover:underline"
+          >
+            Download
+          </a>
+        </p>
+        <button
+          type="button"
+          onClick={dismiss}
+          title="Dismiss desktop app tip"
+          aria-label="Dismiss desktop app tip"
+          className="-mr-1 -mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+        >
+          <IconX className="h-3 w-3" />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export function App() {
@@ -361,6 +422,7 @@ export function App() {
                 onToggleFullscreen={() => setSidebarFullscreen((prev) => !prev)}
                 devAppUrl={appUrl}
                 storageKey={appId}
+                chatNotice={<DesktopAppNudge />}
               />
             </Suspense>
           </div>

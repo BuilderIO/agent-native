@@ -42,7 +42,8 @@ export function HydrateFallback() {
 
 export default function IndexPage() {
   useSetPageTitle("Home");
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
   const [startOpen, setStartOpen] = useState(false);
 
   function submit(text: string) {
@@ -142,7 +143,7 @@ export default function IndexPage() {
               </p>
             </a>
             <button
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              onClick={() => setTheme(isDark ? "light" : "dark")}
               className="rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 text-left cursor-pointer"
             >
               <p className="text-[13px] font-medium text-foreground">Theme</p>

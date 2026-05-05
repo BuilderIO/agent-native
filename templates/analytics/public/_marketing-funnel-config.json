@@ -1,6 +1,6 @@
 {
   "name": "Marketing Funnel Health",
-  "description": "Consolidated Marketing funnel view: traffic, contacts, QLs, SAL conversion. Migrated from fusion-analytics.",
+  "description": "Consolidated Marketing funnel view: traffic, contacts, QLs, SAL conversion. Migrated from fusion-analytics. Now with tabs, heatmap, and spike alerts.",
   "filters": [
     {
       "id": "date",
@@ -20,15 +20,6 @@
   },
   "panels": [
     {
-      "id": "section-traffic",
-      "title": "1. Traffic & Demand",
-      "chartType": "section",
-      "width": 2,
-      "config": {
-        "description": "Top-of-funnel signals: page performance, blog signups, AI-referrer trend."
-      }
-    },
-    {
       "id": "page-performance",
       "title": "Page Performance — New Visitors → Signup → MQL/SAL",
       "source": "bigquery",
@@ -38,24 +29,48 @@
       "config": {
         "limit": 100,
         "columns": [
-          { "key": "base_url", "label": "Page" },
+          {
+            "key": "base_url",
+            "label": "Page"
+          },
           {
             "key": "new_visitors",
             "label": "New Visitors",
             "format": "number"
           },
-          { "key": "signups", "label": "Signups", "format": "number" },
-          { "key": "pct_signups", "label": "Sign-up %", "format": "number" },
+          {
+            "key": "signups",
+            "label": "Signups",
+            "format": "number"
+          },
+          {
+            "key": "pct_signups",
+            "label": "Sign-up %",
+            "format": "number"
+          },
           {
             "key": "mkt_contacts",
             "label": "Mkt Contacts",
             "format": "number"
           },
-          { "key": "icp_signups", "label": "ICP Signups", "format": "number" },
-          { "key": "mql", "label": "MQL", "format": "number" },
-          { "key": "sal", "label": "SAL", "format": "number" }
+          {
+            "key": "icp_signups",
+            "label": "ICP Signups",
+            "format": "number"
+          },
+          {
+            "key": "mql",
+            "label": "MQL",
+            "format": "number"
+          },
+          {
+            "key": "sal",
+            "label": "SAL",
+            "format": "number"
+          }
         ]
-      }
+      },
+      "tab": "Traffic"
     },
     {
       "id": "blog-signups",
@@ -67,13 +82,32 @@
       "config": {
         "limit": 50,
         "columns": [
-          { "key": "blog_post", "label": "Blog Post" },
-          { "key": "pub_date", "label": "Published" },
-          { "key": "traffic", "label": "Traffic", "format": "number" },
-          { "key": "signups", "label": "Signups", "format": "number" },
-          { "key": "signup_pct", "label": "Sign-up %", "format": "number" }
+          {
+            "key": "blog_post",
+            "label": "Blog Post"
+          },
+          {
+            "key": "pub_date",
+            "label": "Published"
+          },
+          {
+            "key": "traffic",
+            "label": "Traffic",
+            "format": "number"
+          },
+          {
+            "key": "signups",
+            "label": "Signups",
+            "format": "number"
+          },
+          {
+            "key": "signup_pct",
+            "label": "Sign-up %",
+            "format": "number"
+          }
         ]
-      }
+      },
+      "tab": "Traffic"
     },
     {
       "id": "ai-referrer-signups",
@@ -88,16 +122,8 @@
           "seriesKey": "ai_source",
           "valueKey": "signups"
         }
-      }
-    },
-    {
-      "id": "section-contacts",
-      "title": "2. Contacts & Enrichment",
-      "chartType": "section",
-      "width": 2,
-      "config": {
-        "description": "Inbound contacts, persona/job-function breakdown, and the enrichment funnel through Clay."
-      }
+      },
+      "tab": "Traffic"
     },
     {
       "id": "contacts-by-persona",
@@ -113,7 +139,8 @@
           "valueKey": "contacts"
         },
         "stacked": true
-      }
+      },
+      "tab": "Contacts"
     },
     {
       "id": "fit-score-distribution",
@@ -121,7 +148,8 @@
       "source": "bigquery",
       "chartType": "pie",
       "width": 1,
-      "sql": "SELECT\n  CASE\n    WHEN c.company_fit_score IS NULL OR c.company_fit_score < 4 THEN 'Ineligible (<4)'\n    WHEN c.company_fit_score <= 5 THEN 'Eligible (4-5)'\n    WHEN c.company_fit_score <= 7 THEN 'Eligible (6-7)'\n    ELSE 'Full Weight (8+)'\n  END AS fit_bucket,\n  COUNT(DISTINCT c.contact_id) AS contacts\nFROM {{HS_CONTACTS}} c\nLEFT JOIN (\n  SELECT CAST(company_id AS INT64) AS company_id\n  FROM {{ENT_COMPANIES}}\n  WHERE account_profile = 'Enterprise Active Customer'\n) aec ON CAST(c.company_id AS INT64) = aec.company_id\nWHERE c.sign_up_time_stamp >= DATE('{{dateStart}}')\n  AND c.sign_up_time_stamp <= DATE('{{dateEnd}}')\n  AND c.sign_up_time_stamp <= CURRENT_DATE()\n  AND aec.company_id IS NULL\nGROUP BY 1\nORDER BY CASE fit_bucket\n  WHEN 'Full Weight (8+)' THEN 1\n  WHEN 'Eligible (6-7)' THEN 2\n  WHEN 'Eligible (4-5)' THEN 3\n  ELSE 4\nEND"
+      "sql": "SELECT\n  CASE\n    WHEN c.company_fit_score IS NULL OR c.company_fit_score < 4 THEN 'Ineligible (<4)'\n    WHEN c.company_fit_score <= 5 THEN 'Eligible (4-5)'\n    WHEN c.company_fit_score <= 7 THEN 'Eligible (6-7)'\n    ELSE 'Full Weight (8+)'\n  END AS fit_bucket,\n  COUNT(DISTINCT c.contact_id) AS contacts\nFROM {{HS_CONTACTS}} c\nLEFT JOIN (\n  SELECT CAST(company_id AS INT64) AS company_id\n  FROM {{ENT_COMPANIES}}\n  WHERE account_profile = 'Enterprise Active Customer'\n) aec ON CAST(c.company_id AS INT64) = aec.company_id\nWHERE c.sign_up_time_stamp >= DATE('{{dateStart}}')\n  AND c.sign_up_time_stamp <= DATE('{{dateEnd}}')\n  AND c.sign_up_time_stamp <= CURRENT_DATE()\n  AND aec.company_id IS NULL\nGROUP BY 1\nORDER BY CASE fit_bucket\n  WHEN 'Full Weight (8+)' THEN 1\n  WHEN 'Eligible (6-7)' THEN 2\n  WHEN 'Eligible (4-5)' THEN 3\n  ELSE 4\nEND",
+      "tab": "Contacts"
     },
     {
       "id": "enrichment-funnel",
@@ -132,8 +160,15 @@
       "sql": "WITH contact_job_functions AS (\n  SELECT\n    CAST(hs_object_id AS INT64) AS contact_id,\n    CASE\n      WHEN STARTS_WITH(TRIM(COALESCE(jobfunctions, '')), '[') THEN COALESCE(NULLIF(INITCAP(TRIM(REGEXP_EXTRACT(jobfunctions, r'\"([^\"]+)\"'))), ''), 'Unknown')\n      WHEN STRPOS(COALESCE(jobfunctions, ''), ';') > 0 THEN INITCAP(TRIM(SPLIT(jobfunctions, ';')[SAFE_OFFSET(0)]))\n      WHEN TRIM(COALESCE(jobfunctions, '')) NOT IN ('', 'null', '[]') THEN INITCAP(TRIM(jobfunctions))\n      ELSE 'Unknown'\n    END AS job_function\n  FROM {{HS_RAW}}\n),\nactive_enterprise_companies AS (\n  SELECT CAST(company_id AS INT64) AS company_id\n  FROM {{ENT_COMPANIES}}\n  WHERE account_profile = 'Enterprise Active Customer'\n),\ncontacts_base AS (\n  SELECT\n    c.contact_id,\n    CASE\n      WHEN LOWER(COALESCE(cjf.job_function, 'Unknown')) = 'developer' THEN 'Developer'\n      WHEN LOWER(COALESCE(cjf.job_function, 'Unknown')) = 'designer' THEN 'Designer'\n      ELSE 'Other'\n    END AS funnel_segment,\n    COALESCE(r.personal_email_, FALSE) AS is_personal_email,\n    (r.city_clay IS NOT NULL OR r.company_domain_clay IS NOT NULL OR r.phone_number_clay IS NOT NULL OR r.work_email_clay IS NOT NULL) AS sent_to_clay,\n    (r.work_email_clay IS NOT NULL AND TRIM(r.work_email_clay) NOT IN ('', 'null', 'NULL')) AS is_enriched\n  FROM {{HS_CONTACTS}} c\n  LEFT JOIN contact_job_functions cjf ON c.contact_id = cjf.contact_id\n  LEFT JOIN {{HS_RAW}} r ON CAST(r.hs_object_id AS INT64) = c.contact_id\n  LEFT JOIN active_enterprise_companies aec ON CAST(c.company_id AS INT64) = aec.company_id\n  WHERE c.sign_up_time_stamp >= DATE('{{dateStart}}')\n    AND c.sign_up_time_stamp <= DATE('{{dateEnd}}')\n    AND c.sign_up_time_stamp <= CURRENT_DATE()\n    AND aec.company_id IS NULL\n)\nSELECT\n  funnel_segment,\n  COUNT(DISTINCT contact_id) AS total,\n  COUNT(DISTINCT CASE WHEN is_personal_email THEN contact_id END) AS personal_email,\n  COUNT(DISTINCT CASE WHEN sent_to_clay THEN contact_id END) AS sent_to_clay,\n  COUNT(DISTINCT CASE WHEN is_enriched THEN contact_id END) AS enriched\nFROM contacts_base\nGROUP BY 1\nORDER BY CASE funnel_segment WHEN 'Developer' THEN 1 WHEN 'Designer' THEN 2 ELSE 3 END",
       "config": {
         "columns": [
-          { "key": "funnel_segment", "label": "Segment" },
-          { "key": "total", "label": "Total", "format": "number" },
+          {
+            "key": "funnel_segment",
+            "label": "Segment"
+          },
+          {
+            "key": "total",
+            "label": "Total",
+            "format": "number"
+          },
           {
             "key": "personal_email",
             "label": "Personal Email",
@@ -144,9 +179,14 @@
             "label": "Sent to Clay",
             "format": "number"
           },
-          { "key": "enriched", "label": "Enriched", "format": "number" }
+          {
+            "key": "enriched",
+            "label": "Enriched",
+            "format": "number"
+          }
         ]
-      }
+      },
+      "tab": "Contacts"
     },
     {
       "id": "contacts-needing-review",
@@ -158,25 +198,53 @@
       "config": {
         "limit": 200,
         "columns": [
-          { "key": "contact_name", "label": "Name" },
-          { "key": "email", "label": "Email" },
-          { "key": "company", "label": "Company" },
-          { "key": "persona", "label": "Persona" },
-          { "key": "fit", "label": "Fit", "format": "number" },
-          { "key": "ql_score", "label": "QL Score", "format": "number" },
-          { "key": "lead_source", "label": "Source" },
-          { "key": "created", "label": "Created", "format": "date" }
+          {
+            "key": "contact_name",
+            "label": "Name"
+          },
+          {
+            "key": "email",
+            "label": "Email"
+          },
+          {
+            "key": "company",
+            "label": "Company"
+          },
+          {
+            "key": "persona",
+            "label": "Persona"
+          },
+          {
+            "key": "fit",
+            "label": "Fit",
+            "format": "number"
+          },
+          {
+            "key": "ql_score",
+            "label": "QL Score",
+            "format": "number"
+          },
+          {
+            "key": "lead_source",
+            "label": "Source"
+          },
+          {
+            "key": "created",
+            "label": "Created",
+            "format": "date"
+          }
         ]
-      }
+      },
+      "tab": "Contacts"
     },
     {
-      "id": "section-qls",
-      "title": "3. Marketing-Qualified Leads (QLs)",
-      "chartType": "section",
+      "id": "ql-spike-callout",
+      "title": "QL Spike Detection",
+      "source": "bigquery",
+      "chartType": "callout",
       "width": 2,
-      "config": {
-        "description": "Weekly QL volume by motion/persona/source, plus a contact-level drill-down."
-      }
+      "tab": "QLs",
+      "sql": "WITH daily AS (\n  SELECT\n    date AS d,\n    SUM(IFNULL(num_qls, 0)) AS qls\n  FROM {{REVENUE_FUNNEL}}\n  WHERE date >= DATE('{{dateStart}}')\n    AND date <= DATE('{{dateEnd}}')\n  GROUP BY 1\n),\nstats AS (\n  SELECT AVG(qls) AS avg_qls FROM daily\n)\nSELECT\n  CONCAT(\n    'Spike on ', CAST(daily.d AS STRING), ': ',\n    CAST(daily.qls AS STRING), ' QLs (',\n    CAST(ROUND(SAFE_DIVIDE(daily.qls, stats.avg_qls), 1) AS STRING),\n    'x daily average) — likely bulk import.'\n  ) AS message,\n  'warning' AS severity\nFROM daily, stats\nWHERE daily.qls >= 20\n  AND daily.qls >= 3 * stats.avg_qls\nORDER BY daily.d DESC"
     },
     {
       "id": "qls-by-motion",
@@ -192,7 +260,8 @@
           "valueKey": "qls"
         },
         "stacked": true
-      }
+      },
+      "tab": "QLs"
     },
     {
       "id": "qls-by-persona",
@@ -208,7 +277,8 @@
           "valueKey": "qls"
         },
         "stacked": true
-      }
+      },
+      "tab": "QLs"
     },
     {
       "id": "qls-by-source",
@@ -224,7 +294,8 @@
           "valueKey": "qls"
         },
         "stacked": true
-      }
+      },
+      "tab": "QLs"
     },
     {
       "id": "ql-drilldown",
@@ -236,26 +307,100 @@
       "config": {
         "limit": 500,
         "columns": [
-          { "key": "full_name", "label": "Name" },
-          { "key": "email", "label": "Email" },
-          { "key": "company", "label": "Company" },
-          { "key": "persona", "label": "Persona" },
-          { "key": "lead_source", "label": "Source" },
-          { "key": "seniority", "label": "Seniority" },
-          { "key": "job_title", "label": "Job Title" },
-          { "key": "ql_score", "label": "QL", "format": "number" },
-          { "key": "fit", "label": "Fit", "format": "number" },
-          { "key": "ql_date", "label": "QL Date", "format": "date" }
+          {
+            "key": "full_name",
+            "label": "Name"
+          },
+          {
+            "key": "email",
+            "label": "Email"
+          },
+          {
+            "key": "company",
+            "label": "Company"
+          },
+          {
+            "key": "persona",
+            "label": "Persona"
+          },
+          {
+            "key": "lead_source",
+            "label": "Source"
+          },
+          {
+            "key": "seniority",
+            "label": "Seniority"
+          },
+          {
+            "key": "job_title",
+            "label": "Job Title"
+          },
+          {
+            "key": "ql_score",
+            "label": "QL",
+            "format": "number"
+          },
+          {
+            "key": "fit",
+            "label": "Fit",
+            "format": "number"
+          },
+          {
+            "key": "ql_date",
+            "label": "QL Date",
+            "format": "date"
+          }
         ]
-      }
+      },
+      "tab": "QLs"
     },
     {
-      "id": "section-sals",
-      "title": "4. SAL Conversion",
-      "chartType": "section",
+      "id": "nurture-candidates",
+      "title": "Nurture Candidates (Fit 4+, QL'd in 14d, QL Score <7)",
+      "source": "bigquery",
+      "chartType": "table",
       "width": 2,
+      "tab": "QLs",
+      "sql": "WITH contact_job_functions AS (\n  SELECT\n    CAST(hs_object_id AS INT64) AS contact_id,\n    CASE\n      WHEN STARTS_WITH(TRIM(COALESCE(jobfunctions, '')), '[') THEN COALESCE(NULLIF(INITCAP(TRIM(REGEXP_EXTRACT(jobfunctions, r'\"([^\"]+)\"'))), ''), 'Unknown')\n      WHEN STRPOS(COALESCE(jobfunctions, ''), ';') > 0 THEN INITCAP(TRIM(SPLIT(jobfunctions, ';')[SAFE_OFFSET(0)]))\n      WHEN TRIM(COALESCE(jobfunctions, '')) NOT IN ('', 'null', '[]') THEN INITCAP(TRIM(jobfunctions))\n      ELSE 'Unknown'\n    END AS job_function\n  FROM {{HS_RAW}}\n)\nSELECT\n  TRIM(CONCAT(COALESCE(r.firstname, ''), ' ', COALESCE(r.lastname, ''))) AS contact_name,\n  c.email,\n  COALESCE(r.company, '') AS company,\n  COALESCE(cjf.job_function, 'Unknown') AS persona,\n  c.company_fit_score AS fit,\n  CAST(SAFE_CAST(r.new_2026_ql_score AS FLOAT64) AS FLOAT64) AS ql_score,\n  DATE(c.date_entered_mql) AS ql_date,\n  COALESCE(r.lifecycle_stage_name, '') AS stage\nFROM {{HS_CONTACTS}} c\nLEFT JOIN contact_job_functions cjf ON c.contact_id = cjf.contact_id\nLEFT JOIN {{HS_RAW}} r ON CAST(r.hs_object_id AS INT64) = c.contact_id\nWHERE c.company_fit_score >= 4\n  AND SAFE_CAST(r.new_2026_ql_score AS FLOAT64) IS NOT NULL\n  AND SAFE_CAST(r.new_2026_ql_score AS FLOAT64) < 7\n  AND cjf.job_function IS NOT NULL AND cjf.job_function != 'Unknown'\n  AND c.date_entered_mql IS NOT NULL\n  AND DATE(c.date_entered_mql) >= DATE_SUB(CURRENT_DATE(), INTERVAL 14 DAY)\n  AND c.date_entered_mql <= CURRENT_TIMESTAMP()\nORDER BY c.company_fit_score DESC, SAFE_CAST(r.new_2026_ql_score AS FLOAT64) DESC\nLIMIT 200",
       "config": {
-        "description": "QL→SAL conversion, owner throughput, aging, and rejection reasons."
+        "limit": 200,
+        "columns": [
+          {
+            "key": "contact_name",
+            "label": "Name"
+          },
+          {
+            "key": "email",
+            "label": "Email"
+          },
+          {
+            "key": "company",
+            "label": "Company"
+          },
+          {
+            "key": "persona",
+            "label": "Persona"
+          },
+          {
+            "key": "fit",
+            "label": "Fit",
+            "format": "number"
+          },
+          {
+            "key": "ql_score",
+            "label": "QL Score",
+            "format": "number"
+          },
+          {
+            "key": "ql_date",
+            "label": "QL Date",
+            "format": "date"
+          },
+          {
+            "key": "stage",
+            "label": "Stage"
+          }
+        ]
       }
     },
     {
@@ -272,7 +417,8 @@
           "valueKey": "sals"
         },
         "stacked": true
-      }
+      },
+      "tab": "SALs"
     },
     {
       "id": "sals-by-persona",
@@ -288,7 +434,8 @@
           "valueKey": "sals"
         },
         "stacked": true
-      }
+      },
+      "tab": "SALs"
     },
     {
       "id": "ql-to-sal-conversion",
@@ -304,6 +451,22 @@
           "valueKey": "conversion_pct"
         },
         "yFormatter": "percent"
+      },
+      "tab": "SALs"
+    },
+    {
+      "id": "ql-to-sal-heatmap",
+      "title": "QL → SAL Conversion Heatmap by Persona (last 8 weeks)",
+      "source": "bigquery",
+      "chartType": "heatmap",
+      "width": 2,
+      "tab": "SALs",
+      "sql": "WITH contact_job_functions AS (\n  SELECT\n    CAST(hs_object_id AS INT64) AS contact_id,\n    CASE\n      WHEN STARTS_WITH(TRIM(COALESCE(jobfunctions, '')), '[') THEN COALESCE(NULLIF(INITCAP(TRIM(REGEXP_EXTRACT(jobfunctions, r'\"([^\"]+)\"'))), ''), 'Unknown')\n      WHEN STRPOS(COALESCE(jobfunctions, ''), ';') > 0 THEN INITCAP(TRIM(SPLIT(jobfunctions, ';')[SAFE_OFFSET(0)]))\n      WHEN TRIM(COALESCE(jobfunctions, '')) NOT IN ('', 'null', '[]') THEN INITCAP(TRIM(jobfunctions))\n      ELSE 'Unknown'\n    END AS job_function\n  FROM {{HS_RAW}}\n)\nSELECT\n  FORMAT_DATE('%Y-%m-%d', DATE_TRUNC(DATE(c.date_entered_mql), WEEK(MONDAY))) AS week,\n  COALESCE(cjf.job_function, 'Unknown') AS persona,\n  ROUND(SAFE_DIVIDE(\n    COUNT(DISTINCT CASE WHEN c.date_entered_sal IS NOT NULL THEN c.contact_id END),\n    COUNT(DISTINCT c.contact_id)\n  ) * 100, 1) AS conversion_pct\nFROM {{HS_CONTACTS}} c\nLEFT JOIN contact_job_functions cjf ON c.contact_id = cjf.contact_id\nWHERE c.date_entered_mql IS NOT NULL\n  AND DATE(c.date_entered_mql) >= DATE_SUB(CURRENT_DATE(), INTERVAL 8 WEEK)\n  AND DATE(c.date_entered_mql) < CURRENT_DATE()\n  AND c.date_entered_mql <= CURRENT_TIMESTAMP()\nGROUP BY 1, 2\nHAVING COUNT(DISTINCT c.contact_id) >= 3\nORDER BY 1, 2",
+      "config": {
+        "xKey": "week",
+        "yKey": "conversion_pct",
+        "color": "persona",
+        "yFormatter": "percent"
       }
     },
     {
@@ -316,14 +479,38 @@
       "config": {
         "limit": 50,
         "columns": [
-          { "key": "owner_name", "label": "Owner" },
-          { "key": "d_0_1", "label": "0-1d", "format": "number" },
-          { "key": "d_2_3", "label": "2-3d", "format": "number" },
-          { "key": "d_4_7", "label": "4-7d", "format": "number" },
-          { "key": "d_7_plus", "label": "7+d", "format": "number" },
-          { "key": "pending", "label": "Pending", "format": "number" }
+          {
+            "key": "owner_name",
+            "label": "Owner"
+          },
+          {
+            "key": "d_0_1",
+            "label": "0-1d",
+            "format": "number"
+          },
+          {
+            "key": "d_2_3",
+            "label": "2-3d",
+            "format": "number"
+          },
+          {
+            "key": "d_4_7",
+            "label": "4-7d",
+            "format": "number"
+          },
+          {
+            "key": "d_7_plus",
+            "label": "7+d",
+            "format": "number"
+          },
+          {
+            "key": "pending",
+            "label": "Pending",
+            "format": "number"
+          }
         ]
-      }
+      },
+      "tab": "SALs"
     },
     {
       "id": "owner-throughput",
@@ -335,32 +522,66 @@
       "config": {
         "limit": 50,
         "columns": [
-          { "key": "owner_name", "label": "Owner" },
-          { "key": "assigned", "label": "Assigned", "format": "number" },
-          { "key": "accepted", "label": "Accepted", "format": "number" },
+          {
+            "key": "owner_name",
+            "label": "Owner"
+          },
+          {
+            "key": "assigned",
+            "label": "Assigned",
+            "format": "number"
+          },
+          {
+            "key": "accepted",
+            "label": "Accepted",
+            "format": "number"
+          },
           {
             "key": "likely_rejected",
             "label": "Likely Rejected",
             "format": "number"
           },
-          { "key": "acceptance_rate", "label": "Conv %", "format": "number" }
+          {
+            "key": "acceptance_rate",
+            "label": "Conv %",
+            "format": "number"
+          }
         ]
-      }
+      },
+      "tab": "SALs"
     },
     {
       "id": "rejection-reasons",
-      "title": "QL Rejection Reasons (selected range)",
+      "title": "QL Rejection Reasons (this period vs prior period)",
       "source": "bigquery",
       "chartType": "table",
       "width": 2,
-      "sql": "SELECT\n  COALESCE(NULLIF(TRIM(r.hs_lead_status), ''), 'Unknown') AS reason,\n  COUNT(DISTINCT c.contact_id) AS rejected\nFROM {{HS_CONTACTS}} c\nLEFT JOIN {{HS_RAW}} r ON CAST(r.hs_object_id AS INT64) = c.contact_id\nWHERE c.date_entered_mql IS NOT NULL\n  AND DATE(c.date_entered_mql) >= DATE('{{dateStart}}')\n  AND DATE(c.date_entered_mql) <= DATE('{{dateEnd}}')\n  AND c.date_entered_mql <= CURRENT_TIMESTAMP()\n  AND c.date_entered_sal IS NULL\n  AND c.lifecycle_stage_name != 'MQL'\nGROUP BY 1\nORDER BY rejected DESC\nLIMIT 30",
+      "sql": "WITH this_period AS (\n  SELECT\n    COALESCE(NULLIF(TRIM(r.hs_lead_status), ''), 'Unknown') AS reason,\n    COUNT(DISTINCT c.contact_id) AS cnt\n  FROM {{HS_CONTACTS}} c\n  LEFT JOIN {{HS_RAW}} r ON CAST(r.hs_object_id AS INT64) = c.contact_id\n  WHERE c.date_entered_mql IS NOT NULL\n    AND DATE(c.date_entered_mql) >= DATE('{{dateStart}}')\n    AND DATE(c.date_entered_mql) <= DATE('{{dateEnd}}')\n    AND c.date_entered_mql <= CURRENT_TIMESTAMP()\n    AND c.date_entered_sal IS NULL\n    AND c.lifecycle_stage_name != 'MQL'\n  GROUP BY 1\n),\nprev_period AS (\n  SELECT\n    COALESCE(NULLIF(TRIM(r.hs_lead_status), ''), 'Unknown') AS reason,\n    COUNT(DISTINCT c.contact_id) AS cnt\n  FROM {{HS_CONTACTS}} c\n  LEFT JOIN {{HS_RAW}} r ON CAST(r.hs_object_id AS INT64) = c.contact_id\n  WHERE c.date_entered_mql IS NOT NULL\n    AND DATE(c.date_entered_mql) >= DATE_SUB(DATE('{{dateStart}}'), INTERVAL DATE_DIFF(DATE('{{dateEnd}}'), DATE('{{dateStart}}'), DAY) + 1 DAY)\n    AND DATE(c.date_entered_mql) < DATE('{{dateStart}}')\n    AND c.date_entered_mql <= CURRENT_TIMESTAMP()\n    AND c.date_entered_sal IS NULL\n    AND c.lifecycle_stage_name != 'MQL'\n  GROUP BY 1\n)\nSELECT\n  COALESCE(t.reason, p.reason) AS reason,\n  COALESCE(t.cnt, 0) AS this_period,\n  COALESCE(p.cnt, 0) AS prev_period,\n  ROUND(SAFE_DIVIDE(\n    COALESCE(t.cnt, 0) - COALESCE(p.cnt, 0),\n    NULLIF(COALESCE(p.cnt, 0), 0)\n  ) * 100, 1) AS wow_delta\nFROM this_period t\nFULL OUTER JOIN prev_period p USING (reason)\nORDER BY this_period DESC, prev_period DESC\nLIMIT 30",
       "config": {
         "limit": 30,
         "columns": [
-          { "key": "reason", "label": "Reason" },
-          { "key": "rejected", "label": "Rejected", "format": "number" }
+          {
+            "key": "reason",
+            "label": "Reason"
+          },
+          {
+            "key": "this_period",
+            "label": "This Period",
+            "format": "number"
+          },
+          {
+            "key": "prev_period",
+            "label": "Prev Period",
+            "format": "number"
+          },
+          {
+            "key": "wow_delta",
+            "label": "Δ %",
+            "format": "delta"
+          }
         ]
-      }
+      },
+      "tab": "SALs"
     }
   ]
 }

@@ -18,7 +18,8 @@ export function HydrateFallback() {
 }
 
 export default function IndexPage() {
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen px-6">
@@ -52,7 +53,7 @@ export default function IndexPage() {
             </p>
           </a>
           <button
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            onClick={() => setTheme(isDark ? "light" : "dark")}
             className="rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 transition-colors text-left"
           >
             <p className="text-[13px] font-medium text-foreground">Theme</p>

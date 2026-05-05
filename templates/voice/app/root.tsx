@@ -10,6 +10,7 @@ import {
   appPath,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
+import { getThemeInitScript } from "@agent-native/core/client";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { IconMoon, IconSun } from "@tabler/icons-react";
@@ -37,6 +38,8 @@ const toastOptions = {
   },
 };
 
+const THEME_INIT_SCRIPT = getThemeInitScript("dark", false);
+
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
@@ -46,6 +49,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           name="viewport"
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
         <link rel="apple-touch-icon" href={appPath("/icon-180.svg")} />
         <Meta />
@@ -64,7 +68,8 @@ function AppShell() {
   useDbSync();
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
   return (
     <TooltipProvider>
@@ -74,11 +79,11 @@ function AppShell() {
         </CommandMenu.Group>
         <CommandMenu.Group heading="Appearance">
           <CommandMenu.Item
-            onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
+            onSelect={() => setTheme(isDark ? "light" : "dark")}
             keywords={["theme", "dark", "light", "mode"]}
           >
-            {theme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
-            Toggle {theme === "dark" ? "light" : "dark"} mode
+            {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
+            Toggle {isDark ? "light" : "dark"} mode
           </CommandMenu.Item>
         </CommandMenu.Group>
       </CommandMenu>

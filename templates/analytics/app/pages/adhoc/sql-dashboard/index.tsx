@@ -18,6 +18,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
 import {
   ShareButton,
@@ -475,6 +476,53 @@ export default function SqlDashboardPage() {
     return { ...(dashboard?.variables ?? {}), ...filterValues };
   }, [dashboard?.variables, dashboard?.filters, searchParams]);
 
+  // Distinct tab values across panels in declaration order. When this is
+  // non-empty the dashboard renders a tab strip and filters panels by tab.
+  const tabs = useMemo<string[]>(() => {
+    if (!dashboard) return [];
+    const seen = new Set<string>();
+    const ordered: string[] = [];
+    for (const panel of dashboard.panels) {
+      const t = panel.tab;
+      if (t && !seen.has(t)) {
+        seen.add(t);
+        ordered.push(t);
+      }
+    }
+    return ordered;
+  }, [dashboard]);
+
+  const requestedTab = searchParams.get("tab");
+  const activeTab =
+    tabs.length > 0
+      ? requestedTab && tabs.includes(requestedTab)
+        ? requestedTab
+        : tabs[0]
+      : null;
+
+  const handleTabChange = useCallback(
+    (value: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("tab", value);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  // Panels visible under the current tab. Untagged panels appear on every
+  // tab; tagged panels only on their own tab. When no tabs are defined the
+  // dashboard shows every panel as before.
+  const visiblePanels = useMemo(() => {
+    if (!dashboard) return [];
+    if (!activeTab) return dashboard.panels;
+    return dashboard.panels.filter((p) => !p.tab || p.tab === activeTab);
+  }, [dashboard, activeTab]);
+
   const handleDelete = useCallback(async () => {
     if (!dashboardId) return;
     await fetchWithAuth(`/api/sql-dashboards/${dashboardId}`, {
@@ -652,6 +700,22 @@ export default function SqlDashboardPage() {
         </button>
       )}
 
+      {/* Tabs */}
+      {tabs.length > 0 && activeTab && (
+        <Tabs value={activeTab} onValueChange={handleTabChange}>
+          <TabsList
+            className="grid w-full"
+            style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}
+          >
+            {tabs.map((t) => (
+              <TabsTrigger key={t} value={t}>
+                {t}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      )}
+
       {/* Filters */}
       {dashboard.filters && dashboard.filters.length > 0 && (
         <DashboardFilterBar
@@ -685,11 +749,11 @@ export default function SqlDashboardPage() {
           onDragEnd={handleDragEnd}
         >
           <SortableContext
-            items={dashboard.panels.map((p) => p.id)}
+            items={visiblePanels.map((p) => p.id)}
             strategy={rectSortingStrategy}
           >
             <div className="grid auto-rows-auto grid-cols-1 items-stretch gap-4 md:grid-cols-2">
-              {dashboard.panels.map((panel) => {
+              {visiblePanels.map((panel) => {
                 const resolved = panel.config?.description
                   ? {
                       ...panel,
@@ -703,10 +767,13 @@ export default function SqlDashboardPage() {
                     }
                   : panel;
                 const remoteEditor = remoteEditingPanels.get(panel.id);
+                const isSection = panel.chartType === "section";
                 return (
                   <div
                     key={panel.id}
-                    className="relative h-full"
+                    className={
+                      isSection ? "relative md:col-span-2" : "relative h-full"
+                    }
                     style={
                       remoteEditor
                         ? {

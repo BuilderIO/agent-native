@@ -173,27 +173,75 @@ function getClientDedupe(cwd: string): string[] {
   return [...always];
 }
 
+/**
+ * Locate `packages/core/src` if we're inside the framework monorepo.
+ * Shared between `getCoreSourceAliases` (which redirects imports to src/)
+ * and `getDefaultOptimizeDeps` (which must NOT prebundle from dist/ when
+ * the alias is active — otherwise the prebundle is built from a snapshot
+ * of dist/ at startup and never picks up new exports).
+ */
+function findCoreSrcDir(cwd: string): string | null {
+  const candidates = [
+    path.resolve(cwd, "../../packages/core"), // templates/<name>/
+    path.resolve(cwd, "../core"), // packages/<name>/
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, "src/index.ts"))) {
+      return path.join(candidate, "src");
+    }
+  }
+  return null;
+}
+
+/**
+ * Every `@agent-native/core` subpath that gets a source alias. Must stay in
+ * sync with `getCoreSourceAliases`. Used by `getDefaultOptimizeDeps` to skip
+ * prebundling in monorepo mode, and by the consumer config to add them to
+ * `optimizeDeps.exclude` so Vite always resolves them through the source
+ * alias on every request — never from a stale dist/ snapshot.
+ */
+const CORE_CLIENT_SUBPATHS = [
+  "@agent-native/core",
+  "@agent-native/core/client",
+  "@agent-native/core/client/extensions",
+  "@agent-native/core/client/tools", // legacy alias
+  "@agent-native/core/client/org",
+  "@agent-native/core/client/observability",
+  "@agent-native/core/client/onboarding",
+  "@agent-native/core/client/sharing",
+  "@agent-native/core/client/notifications",
+  "@agent-native/core/client/progress",
+];
+
 function getDefaultOptimizeDeps(cwd: string): string[] {
+  const inMonorepo = findCoreSrcDir(cwd) !== null;
   const entries: Array<{ specifier: string; packageName?: string }> = [
-    { specifier: "@agent-native/core" },
-    {
-      specifier: "@agent-native/core/client",
-      packageName: "@agent-native/core",
-    },
-    {
-      specifier: "@agent-native/core/client/org",
-      packageName: "@agent-native/core",
-    },
-    {
-      specifier: "@agent-native/core/client/extensions",
-      packageName: "@agent-native/core",
-    },
-    {
-      // Legacy alias — prior name for @agent-native/core/client/extensions.
-      // Keep so deployed templates that haven't been updated still resolve.
-      specifier: "@agent-native/core/client/tools",
-      packageName: "@agent-native/core",
-    },
+    // In monorepo mode the source alias resolves these to src/ on every
+    // import, so prebundling from dist/ would just create a stale snapshot.
+    // Skip them entirely — `optimizeDeps.exclude` below makes that explicit.
+    ...(inMonorepo
+      ? []
+      : ([
+          { specifier: "@agent-native/core" },
+          {
+            specifier: "@agent-native/core/client",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/org",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/extensions",
+            packageName: "@agent-native/core",
+          },
+          {
+            // Legacy alias — prior name for @agent-native/core/client/extensions.
+            // Keep so deployed templates that haven't been updated still resolve.
+            specifier: "@agent-native/core/client/tools",
+            packageName: "@agent-native/core",
+          },
+        ] as Array<{ specifier: string; packageName?: string }>)),
     { specifier: "@libsql/client" },
     { specifier: "@radix-ui/react-accordion" },
     { specifier: "@radix-ui/react-alert-dialog" },
@@ -255,20 +303,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
 function getCoreSourceAliases(
   cwd: string,
 ): Array<{ find: RegExp; replacement: string }> {
-  // Detect monorepo: walk up to find packages/core/src/
-  const candidates = [
-    path.resolve(cwd, "../../packages/core"), // templates/<name>/
-    path.resolve(cwd, "../core"), // packages/<name>/
-  ];
-
-  let coreSrc = "";
-  for (const candidate of candidates) {
-    if (fs.existsSync(path.join(candidate, "src/index.ts"))) {
-      coreSrc = path.join(candidate, "src");
-      break;
-    }
-  }
-
+  const coreSrc = findCoreSrcDir(cwd);
   if (!coreSrc) return []; // Not in monorepo — use dist as normal
 
   // Map every @agent-native/core/* export to its src/ equivalent.
@@ -1057,9 +1092,16 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
           : []),
         ...(options.optimizeDeps?.include ?? []),
       ],
-      ...(options.optimizeDeps?.exclude
-        ? { exclude: options.optimizeDeps.exclude }
-        : {}),
+      // In monorepo mode: explicitly exclude @agent-native/core subpaths so
+      // Vite never prebundles them from dist/. The source alias above
+      // (`getCoreSourceAliases`) resolves every import to src/ on every
+      // request, so HMR picks up new exports immediately. Without exclude,
+      // the prebundle is built from dist/ once at startup and silently
+      // serves stale code even after the source / dist is updated.
+      exclude: [
+        ...(findCoreSrcDir(cwd) !== null ? CORE_CLIENT_SUBPATHS : []),
+        ...(options.optimizeDeps?.exclude ?? []),
+      ],
     },
     resolve: {
       // Dedupe all client-side packages that core shares with the consuming
