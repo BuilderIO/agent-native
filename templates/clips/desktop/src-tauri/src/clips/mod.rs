@@ -35,6 +35,16 @@ const FLOW_BAR_LABEL: &str = "flow-bar";
 const BUBBLE_SIZE_SMALL: u32 = 360;
 const BUBBLE_SIZE_MEDIUM: u32 = 504;
 
+#[cfg(target_os = "macos")]
+#[link(name = "AppKit", kind = "framework")]
+extern "C" {}
+
+#[derive(Clone, Copy, Debug)]
+enum TextInsertionStrategy {
+    ClipboardPaste,
+    UnicodeType,
+}
+
 /// Extra vertical real-estate reserved beneath the circular bubble for the
 /// hover-controls pill (small-dot + medium-dot). The Tauri window is
 /// `transparent: true`, so the budget paints through as empty space until the
@@ -639,24 +649,96 @@ pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<()
         eprintln!("[clips-tray] complete_voice_dictation: empty text — nothing to paste");
         return Ok(());
     }
+    #[cfg(target_os = "macos")]
+    let frontmost_bundle_id = frontmost_bundle_identifier();
+    #[cfg(target_os = "macos")]
+    let strategy = text_insertion_strategy(frontmost_bundle_id.as_deref());
+    #[cfg(target_os = "macos")]
     eprintln!(
-        "[clips-tray] complete_voice_dictation: typing {} chars via CGEvent unicode",
-        trimmed.chars().count()
+        "[clips-tray] complete_voice_dictation: inserting {} chars via {:?} (frontmost={})",
+        trimmed.chars().count(),
+        strategy,
+        frontmost_bundle_id.as_deref().unwrap_or("unknown"),
+    );
+    #[cfg(not(target_os = "macos"))]
+    eprintln!(
+        "[clips-tray] complete_voice_dictation: inserting {} chars",
+        trimmed.chars().count(),
     );
     if let Some(last) = app.try_state::<LastTranscript>() {
         if let Ok(mut g) = last.0.lock() {
             *g = Some(trimmed.clone());
         }
     }
-    // Keep the clipboard updated so users can ⌘V again to repeat the last
-    // dictation, but don't rely on Cmd+V for the actual insertion — many
-    // terminals (Ghostty, iTerm with custom keybindings, etc.) intercept
-    // Cmd+V or only accept paste through their own copy/paste pipeline.
-    // CGEvent unicode injection types the characters directly into the
-    // focused field and works in every terminal + editor we've tested.
+    // Keep the clipboard updated so users can Cmd+V again to repeat the
+    // last dictation. For normal GUI apps, paste via the clipboard so
+    // Chrome/Gmail receives one ordinary paste operation instead of a long
+    // stream of synthetic Unicode key events through AppKit text input.
+    // Known terminal apps still use direct Unicode typing because custom
+    // terminal paste bindings can intercept Cmd+V or bypass paste handling.
     write_clipboard(&trimmed)?;
+    #[cfg(target_os = "macos")]
+    match strategy {
+        TextInsertionStrategy::ClipboardPaste => paste_clipboard(),
+        TextInsertionStrategy::UnicodeType => type_text_unicode(&trimmed),
+    }
+    #[cfg(not(target_os = "macos"))]
     type_text_unicode(&trimmed);
     Ok(())
+}
+
+fn text_insertion_strategy(bundle_id: Option<&str>) -> TextInsertionStrategy {
+    if bundle_id.map(is_terminal_bundle).unwrap_or(false) {
+        TextInsertionStrategy::UnicodeType
+    } else {
+        TextInsertionStrategy::ClipboardPaste
+    }
+}
+
+fn is_terminal_bundle(bundle_id: &str) -> bool {
+    matches!(
+        bundle_id,
+        "com.apple.Terminal"
+            | "com.googlecode.iterm2"
+            | "com.mitchellh.ghostty"
+            | "dev.warp.Warp-Stable"
+            | "dev.warp.Warp-Preview"
+            | "com.github.wez.wezterm"
+            | "org.wezfurlong.wezterm"
+            | "io.alacritty"
+            | "org.alacritty"
+            | "net.kovidgoyal.kitty"
+            | "co.zeit.hyper"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{text_insertion_strategy, TextInsertionStrategy};
+
+    #[test]
+    fn uses_clipboard_paste_for_chrome() {
+        assert!(matches!(
+            text_insertion_strategy(Some("com.google.Chrome")),
+            TextInsertionStrategy::ClipboardPaste
+        ));
+    }
+
+    #[test]
+    fn uses_unicode_typing_for_terminal_apps() {
+        assert!(matches!(
+            text_insertion_strategy(Some("com.mitchellh.ghostty")),
+            TextInsertionStrategy::UnicodeType
+        ));
+    }
+
+    #[test]
+    fn defaults_to_clipboard_paste_when_frontmost_app_is_unknown() {
+        assert!(matches!(
+            text_insertion_strategy(None),
+            TextInsertionStrategy::ClipboardPaste
+        ));
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -684,6 +766,69 @@ fn write_clipboard(text: &str) -> Result<(), String> {
 #[cfg(not(target_os = "macos"))]
 fn write_clipboard(_text: &str) -> Result<(), String> {
     Err("voice dictation is currently macOS-only".to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn frontmost_bundle_identifier() -> Option<String> {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+
+    unsafe {
+        let class_name = std::ffi::CString::new("NSWorkspace").ok()?;
+        let cls: &AnyClass = AnyClass::get(&class_name)?;
+        let workspace: *mut AnyObject = msg_send![cls, sharedWorkspace];
+        if workspace.is_null() {
+            return None;
+        }
+        let app: *mut AnyObject = msg_send![workspace, frontmostApplication];
+        if app.is_null() {
+            return None;
+        }
+        let bundle_id: *mut AnyObject = msg_send![app, bundleIdentifier];
+        ns_string_to_owned(bundle_id)
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn ns_string_to_owned(ptr: *mut objc2::runtime::AnyObject) -> Option<String> {
+    if ptr.is_null() {
+        return None;
+    }
+    let utf8_ptr: *const i8 = objc2::msg_send![ptr, UTF8String];
+    if utf8_ptr.is_null() {
+        return None;
+    }
+    let cstr = std::ffi::CStr::from_ptr(utf8_ptr);
+    Some(cstr.to_string_lossy().into_owned())
+}
+
+#[cfg(target_os = "macos")]
+fn paste_clipboard() {
+    use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation};
+    use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(40));
+        let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
+            eprintln!("[clips-tray] paste failed: no CGEventSource");
+            return;
+        };
+        // macOS virtual keycode 9 is "V".
+        let Ok(down) = CGEvent::new_keyboard_event(source.clone(), 9, true) else {
+            eprintln!("[clips-tray] paste failed: no keydown event");
+            return;
+        };
+        let Ok(up) = CGEvent::new_keyboard_event(source, 9, false) else {
+            eprintln!("[clips-tray] paste failed: no keyup event");
+            return;
+        };
+        let flags = CGEventFlags::CGEventFlagCommand;
+        down.set_flags(flags);
+        up.set_flags(flags);
+        down.post(CGEventTapLocation::HID);
+        thread::sleep(Duration::from_millis(8));
+        up.post(CGEventTapLocation::HID);
+    });
 }
 
 #[cfg(target_os = "macos")]
