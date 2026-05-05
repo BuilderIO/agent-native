@@ -20,7 +20,7 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { useSendToAgentChat } from "@agent-native/core/client";
-import { ExtensionSlot } from "@agent-native/core/client/tools";
+import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import {
   useIntegration,
   useAllIntegrations,

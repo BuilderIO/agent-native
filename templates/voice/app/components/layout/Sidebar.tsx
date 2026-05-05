@@ -1,5 +1,5 @@
 import { appPath } from "@agent-native/core/client";
-import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 
 export function Sidebar() {
   return (
@@ -22,7 +22,7 @@ export function Sidebar() {
         </div>
       </div>
       <div className="flex-1 overflow-y-auto px-2 py-3">
-        <ToolsSidebarSection />
+        <ExtensionsSidebarSection />
       </div>
     </aside>
   );

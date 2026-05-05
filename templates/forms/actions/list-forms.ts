@@ -6,12 +6,20 @@ import { getDb, schema } from "../server/db/index.js";
 import type { FormField, FormSettings } from "../shared/types.js";
 
 export default defineAction({
-  description: "List all forms with response counts.",
+  description:
+    "List forms with response counts. Hides soft-deleted forms by default; pass `--archived` to list those instead.",
   schema: z.object({
     status: z
       .enum(["draft", "published", "closed"])
       .optional()
       .describe("Filter by status: draft, published, or closed"),
+    archived: z.coerce
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "When true, return only soft-deleted forms (the Archive). Default false.",
+      ),
   }),
   http: { method: "GET" },
   run: async (args) => {
@@ -44,7 +52,12 @@ export default defineAction({
       responseCount: countMap.get(r.id) ?? 0,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
+      deletedAt: r.deletedAt ?? null,
     }));
+
+    forms = args.archived
+      ? forms.filter((f) => f.deletedAt !== null)
+      : forms.filter((f) => f.deletedAt === null);
 
     if (args.status) {
       forms = forms.filter((f) => f.status === args.status);

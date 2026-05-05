@@ -66,7 +66,7 @@ import {
   appPath,
   useActionMutation,
 } from "@agent-native/core/client";
-import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { NewDashboardDialog } from "./NewDashboardDialog";
 import { NewAnalysisDialog } from "./NewAnalysisDialog";
 import { useUserPref } from "@/hooks/use-user-pref";
@@ -1201,7 +1201,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           )}
 
           <div className="min-w-0 border-t border-border mt-2 pt-2">
-            <ToolsSidebarSection />
+            <ExtensionsSidebarSection />
           </div>
 
           {bottomItems.map((item) => {

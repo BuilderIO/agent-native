@@ -10,8 +10,9 @@ import {
 // Admin hooks (authenticated)
 // ---------------------------------------------------------------------------
 
-export function useForms() {
-  return useActionQuery("list-forms");
+export function useForms(opts: { archived?: boolean } = {}) {
+  const archived = !!opts.archived;
+  return useActionQuery("list-forms", archived ? { archived: true } : {});
 }
 
 export function useForm(id: string) {
@@ -57,9 +58,23 @@ export function useDeleteForm() {
   return useActionMutation("delete-form", {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
+      qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
     onError: () => {
       toast.error("Failed to delete form");
+    },
+  });
+}
+
+export function useRestoreForm() {
+  const qc = useQueryClient();
+  return useActionMutation("restore-form", {
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
+      qc.invalidateQueries({ queryKey: ["action", "get-form"] });
+    },
+    onError: () => {
+      toast.error("Failed to restore form");
     },
   });
 }

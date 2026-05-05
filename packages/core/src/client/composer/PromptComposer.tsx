@@ -229,7 +229,7 @@ function PromptComposerInner({
       references: Reference[],
       attachments?: ReadonlyArray<unknown>,
     ) => {
-      // PromptComposer hosts (NewWorkspaceAppFlow, create-tool, create-deck,
+      // PromptComposer hosts (NewWorkspaceAppFlow, create-extension, create-deck,
       // …) submit a single string prompt — they don't run the assistant-ui
       // attachment send pipeline. TiptapComposer auto-converts large pastes
       // into a "Pasted text" chip, which would otherwise disappear into an

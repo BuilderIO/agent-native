@@ -17,7 +17,7 @@ const MAX_SIDEBAR_WIDTH = 480;
 // Routes whose page renders its own custom toolbar (with AgentToggleButton).
 // Layout still mounts Sidebar + AgentSidebar, but skips its own Header so
 // there's no double-header.
-const NO_HEADER_PREFIXES = ["/page/", "/tools"];
+const NO_HEADER_PREFIXES = ["/page/", "/extensions"];
 
 function loadSidebarWidth(): number {
   try {

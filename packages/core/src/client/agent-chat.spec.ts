@@ -1,13 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // We need to set up a minimal window/postMessage before importing
-const postMessageSpy = vi.fn();
+const parentPostMessageSpy = vi.fn();
+const selfPostMessageSpy = vi.fn();
+const dispatchEventSpy = vi.fn();
+const frameState = vi.hoisted(() => ({ inBuilderFrame: false }));
+const sendToBuilderChatMock = vi.hoisted(() => vi.fn());
+
+vi.mock("./builder-frame.js", () => ({
+  isInBuilderFrame: () => frameState.inBuilderFrame,
+  isTrustedBuilderMessage: () => false,
+  sendToBuilderChat: sendToBuilderChatMock,
+}));
 
 vi.stubGlobal("window", {
-  parent: { postMessage: postMessageSpy },
+  parent: { postMessage: parentPostMessageSpy },
   addEventListener: vi.fn(),
-  dispatchEvent: vi.fn(),
-  postMessage: postMessageSpy,
+  dispatchEvent: dispatchEventSpy,
+  postMessage: selfPostMessageSpy,
   location: { origin: "http://localhost:3000" },
 });
 
@@ -15,7 +25,11 @@ const { sendToAgentChat, generateTabId } = await import("./agent-chat.js");
 
 describe("sendToAgentChat", () => {
   beforeEach(() => {
-    postMessageSpy.mockClear();
+    frameState.inBuilderFrame = false;
+    parentPostMessageSpy.mockClear();
+    selfPostMessageSpy.mockClear();
+    dispatchEventSpy.mockClear();
+    sendToBuilderChatMock.mockClear();
   });
 
   it("returns a non-empty tabId string", () => {
@@ -26,8 +40,8 @@ describe("sendToAgentChat", () => {
 
   it("includes tabId in the postMessage payload", () => {
     const tabId = sendToAgentChat({ message: "hello" });
-    expect(postMessageSpy).toHaveBeenCalledOnce();
-    const payload = postMessageSpy.mock.calls[0][0];
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const payload = parentPostMessageSpy.mock.calls[0][0];
     expect(payload.type).toBe("agentNative.submitChat");
     expect(payload.data.tabId).toBe(tabId);
     expect(payload.data.message).toBe("hello");
@@ -36,8 +50,45 @@ describe("sendToAgentChat", () => {
   it("reuses the provided tabId instead of generating a new one", () => {
     const tabId = sendToAgentChat({ message: "hi", tabId: "my-custom-id" });
     expect(tabId).toBe("my-custom-id");
-    const payload = postMessageSpy.mock.calls[0][0];
+    const payload = parentPostMessageSpy.mock.calls[0][0];
     expect(payload.data.tabId).toBe("my-custom-id");
+  });
+
+  it("keeps content prompts inside the embedded app when mounted in Builder", () => {
+    frameState.inBuilderFrame = true;
+
+    const tabId = sendToAgentChat({
+      message: "create a dashboard",
+      submit: true,
+    });
+
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
+    expect(payload.type).toBe("agentNative.submitChat");
+    expect(payload.data.tabId).toBe(tabId);
+    expect(payload.data.message).toBe("create a dashboard");
+  });
+
+  it("routes Builder-frame code prompts to Builder chat", () => {
+    frameState.inBuilderFrame = true;
+
+    sendToAgentChat({
+      message: "change this app",
+      context: "code context",
+      submit: true,
+      type: "code",
+    });
+
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+    expect(sendToBuilderChatMock).toHaveBeenCalledWith({
+      message: "change this app",
+      context: "code context",
+      submit: true,
+    });
   });
 
   it("generates distinct tabIds across calls", () => {

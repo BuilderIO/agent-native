@@ -1,39 +1,54 @@
 name: Publish packages
 
+# npm-package publishing flows through changesets:
+#
+#   1. Contributor PR adds a `.changeset/*.md` declaring which packages
+#      changed and at what bump level (patch / minor / major). The
+#      `changeset-check.yml` workflow blocks PRs that touch publishable
+#      package source without a corresponding changeset.
+#   2. When the PR merges to `main`, this workflow runs. If any unconsumed
+#      changesets exist, `changesets/action` opens (or updates) a
+#      "Version Packages" PR that runs `pnpm changeset version` —
+#      bumping versions + writing changelogs.
+#   3. When the "Version Packages" PR itself merges, this workflow runs
+#      again — this time `changesets/action` finds no pending changesets
+#      and runs the `publish` script, which builds + `pnpm publish`es
+#      every package whose version isn't already on npm.
+#
+# Desktop-app publishing is OUT of changesets — it ships binaries via
+# electron-builder, not npm. Its publish jobs stay path-triggered on
+# `packages/desktop-app/package.json` version changes (see bottom).
+
 on:
   push:
     branches: [main]
     paths:
-      - "packages/core/package.json"
+      # changesets-managed npm packages — any source change reaches here
+      # via the Version Packages PR merge bumping their package.json.
+      - "packages/core/**"
+      - "packages/scheduling/**"
+      - "packages/pinpoint/**"
+      - "packages/dispatch/**"
+      - ".changeset/**"
+      # desktop-app stays version-triggered (not changesets-managed).
       - "packages/desktop-app/package.json"
-      - "packages/scheduling/package.json"
-      - "packages/pinpoint/package.json"
-      - "packages/dispatch/package.json"
   workflow_dispatch:
-    inputs:
-      version_bump:
-        description: "Version bump type for @agent-native/core"
-        required: true
-        default: "patch"
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
-          - dev
 
 permissions: {}
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  # Manual dispatch: bump version, commit, push. The push to main then
-  # triggers this workflow's push branch, which does the actual publish.
-  # (For dev prereleases, publish directly — they don't land on main.)
-  dispatch-bump:
-    name: Bump core version (manual dispatch)
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.version_bump != 'dev'
+  release:
+    name: Release npm packages
     runs-on: ubuntu-latest
+    environment: npm-publish
     permissions:
       contents: write
+      pull-requests: write
+      id-token: write
     steps:
       - name: Generate app token
         id: app-token
@@ -44,342 +59,47 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: "pnpm"
 
-      - name: Bump, commit, tag, push
-        working-directory: packages/core
+      - run: pnpm install --frozen-lockfile
+
+      # Build everything once so changesets/action's `publish` step doesn't
+      # re-build per package. The `publish` script also re-runs build to be
+      # safe when a single package is published in isolation.
+      - name: Build all packages
+        run: pnpm -r build
+
+      - name: Create Release PR or publish to npm
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          # When changesets/action finds no pending changesets, it runs
+          # `publish` — which builds + `pnpm changeset publish` to push
+          # newly-bumped versions to npm via OIDC trusted publisher.
+          publish: pnpm changeset:publish
+          # When pending changesets exist, opens this PR with the version
+          # bumps + changelog updates. Merging it triggers the publish run.
+          title: "chore: version packages"
+          commit: "chore: version packages"
         env:
-          VERSION_BUMP: ${{ github.event.inputs.version_bump }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          npm version "$VERSION_BUMP" --no-git-tag-version
-          VERSION=$(node -p "require('./package.json').version")
-          git add package.json
-          git commit -m "chore: bump @agent-native/core to v${VERSION}"
-          # Idempotent tag creation — matches the pattern in publish-core so
-          # a retried job after a partial push doesn't fail on a tag conflict.
-          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
-            echo "Tag v${VERSION} already exists locally, skipping"
-          else
-            git tag "v${VERSION}"
-          fi
-          git push origin HEAD:main --tags
-
-  dispatch-dev-publish:
-    name: Publish dev version (manual dispatch)
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.version_bump == 'dev'
-    runs-on: ubuntu-latest
-    environment: npm-publish
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Build core package
-        run: pnpm --filter @agent-native/core build
-
-      - name: Run tests
-        run: pnpm --filter @agent-native/core test
-
-      - name: Set dev version
-        working-directory: packages/core
-        run: |
-          CURRENT=$(node -p "require('./package.json').version")
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          npm version "${CURRENT}-dev.${SHORT_SHA}" --no-git-tag-version
-
-      - name: Publish dev to npm
-        working-directory: packages/core
-        run: npx npm@11 publish --access public --provenance --tag dev
-
-  detect-changes:
-    name: Detect version changes
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    outputs:
-      core-changed: ${{ steps.check.outputs.core-changed }}
-      desktop-changed: ${{ steps.check.outputs.desktop-changed }}
-      scheduling-changed: ${{ steps.check.outputs.scheduling-changed }}
-      pinpoint-changed: ${{ steps.check.outputs.pinpoint-changed }}
-      dispatch-changed: ${{ steps.check.outputs.dispatch-changed }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Check for version bumps
-        id: check
-        run: |
-          # Helper: compare HEAD~1 vs HEAD for a given package path; emit
-          # <pkg>-changed=true|false. Treats first-publish (no prior version
-          # in HEAD~1) as a change so initial publishes go through.
-          check_pkg() {
-            local key="$1"
-            local path="$2"
-            local old new
-            old=$(git show "HEAD~1:${path}/package.json" 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).version" 2>/dev/null || echo "")
-            new=$(node -p "require('./${path}/package.json').version")
-            if [ -z "$old" ] || [ "$old" != "$new" ]; then
-              echo "${key}-changed=true" >> "$GITHUB_OUTPUT"
-              echo "${key} version changed: ${old:-<new>} -> $new"
-            else
-              echo "${key}-changed=false" >> "$GITHUB_OUTPUT"
-              echo "${key} version unchanged: $new"
-            fi
-          }
-
-          check_pkg core packages/core
-          check_pkg desktop packages/desktop-app
-          check_pkg scheduling packages/scheduling
-          check_pkg pinpoint packages/pinpoint
-          check_pkg dispatch packages/dispatch
-
-  publish-core:
-    name: Publish @agent-native/core
-    needs: detect-changes
-    if: needs.detect-changes.outputs.core-changed == 'true'
-    runs-on: ubuntu-latest
-    environment: npm-publish
-    permissions:
-      contents: write
-      id-token: write
-    steps:
-      - name: Generate app token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
-          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
-
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-          fetch-depth: 0
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Build core package
-        run: pnpm --filter @agent-native/core build
-
-      - name: Run tests
-        run: pnpm --filter @agent-native/core test
-
-      - name: Tag release
-        working-directory: packages/core
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
-            echo "Tag v${VERSION} already exists, skipping"
-          else
-            git tag "v${VERSION}"
-            git push origin "v${VERSION}"
-          fi
-
-      - name: Publish to npm
-        working-directory: packages/core
-        run: npx npm@11 publish --access public --provenance
-
-  publish-scheduling:
-    name: Publish @agent-native/scheduling
-    needs: detect-changes
-    if: needs.detect-changes.outputs.scheduling-changed == 'true'
-    runs-on: ubuntu-latest
-    environment: npm-publish
-    permissions:
-      contents: write
-      id-token: write
-    steps:
-      - name: Generate app token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
-          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
-
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-          fetch-depth: 0
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Build scheduling package
-        run: pnpm --filter @agent-native/scheduling build
-
-      - name: Run tests
-        run: pnpm --filter @agent-native/scheduling test
-
-      - name: Tag release
-        working-directory: packages/scheduling
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git rev-parse "scheduling-v${VERSION}" >/dev/null 2>&1; then
-            echo "Tag scheduling-v${VERSION} already exists, skipping"
-          else
-            git tag "scheduling-v${VERSION}"
-            git push origin "scheduling-v${VERSION}"
-          fi
-
-      - name: Publish to npm
-        working-directory: packages/scheduling
-        # `pnpm publish` rewrites any remaining workspace:* refs to the
-        # actual versions before publishing, which is what we need since
-        # this package's devDependencies still point at workspace:*. Use
-        # --no-git-checks because we don't want pnpm bouncing on a clean
-        # check after the tag step (working tree may show the tag ref).
-        run: pnpm publish --access public --provenance --no-git-checks
-
-  publish-pinpoint:
-    name: Publish @agent-native/pinpoint
-    needs: detect-changes
-    if: needs.detect-changes.outputs.pinpoint-changed == 'true'
-    runs-on: ubuntu-latest
-    environment: npm-publish
-    permissions:
-      contents: write
-      id-token: write
-    steps:
-      - name: Generate app token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
-          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
-
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-          fetch-depth: 0
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Build pinpoint package
-        run: pnpm --filter @agent-native/pinpoint build
-
-      - name: Run tests
-        run: pnpm --filter @agent-native/pinpoint test
-
-      - name: Tag release
-        working-directory: packages/pinpoint
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git rev-parse "pinpoint-v${VERSION}" >/dev/null 2>&1; then
-            echo "Tag pinpoint-v${VERSION} already exists, skipping"
-          else
-            git tag "pinpoint-v${VERSION}"
-            git push origin "pinpoint-v${VERSION}"
-          fi
-
-      - name: Publish to npm
-        working-directory: packages/pinpoint
-        # See note in publish-scheduling — pnpm publish handles workspace:*
-        # rewriting that npm publish doesn't.
-        run: pnpm publish --access public --provenance --no-git-checks
-
-  publish-dispatch:
-    name: Publish @agent-native/dispatch
-    needs: detect-changes
-    if: needs.detect-changes.outputs.dispatch-changed == 'true'
-    runs-on: ubuntu-latest
-    environment: npm-publish
-    permissions:
-      contents: write
-      id-token: write
-    steps:
-      - name: Generate app token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
-          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
-
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-          fetch-depth: 0
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Build dispatch package
-        run: pnpm --filter @agent-native/dispatch build
-
-      - name: Run tests
-        run: pnpm --filter @agent-native/dispatch test
-
-      - name: Tag release
-        working-directory: packages/dispatch
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git rev-parse "dispatch-v${VERSION}" >/dev/null 2>&1; then
-            echo "Tag dispatch-v${VERSION} already exists, skipping"
-          else
-            git tag "dispatch-v${VERSION}"
-            git push origin "dispatch-v${VERSION}"
-          fi
-
-      - name: Publish to npm
-        working-directory: packages/dispatch
-        # See note in publish-scheduling — pnpm publish handles workspace:*
-        # rewriting that npm publish doesn't.
-        run: pnpm publish --access public --provenance --no-git-checks
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
   publish-desktop:
     name: Publish desktop app
-    needs: detect-changes
-    if: needs.detect-changes.outputs.desktop-changed == 'true'
+    needs: []
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.modified, 'packages/desktop-app/package.json') ||
+      contains(github.event.head_commit.added, 'packages/desktop-app/package.json')
     # electron-builder --publish always creates/updates a GitHub release.
-    # Needed because the workflow-level permissions: {} resets defaults.
     permissions:
       contents: write
     strategy:
@@ -430,8 +150,11 @@ jobs:
 
   publish-desktop-release:
     name: Publish desktop release
-    needs: [detect-changes, publish-desktop]
-    if: needs.detect-changes.outputs.desktop-changed == 'true'
+    needs: [publish-desktop]
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.modified, 'packages/desktop-app/package.json') ||
+      contains(github.event.head_commit.added, 'packages/desktop-app/package.json')
     # gh release edit requires contents:write; workflow default is {}.
     permissions:
       contents: write

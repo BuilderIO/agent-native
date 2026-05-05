@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -12,6 +13,11 @@ import { Spinner } from "@/components/ui/spinner";
 import { PlayerControls } from "./player-controls";
 import { CaptionsOverlay } from "./captions-overlay";
 import { CtaButton } from "./cta-button";
+import {
+  getExcludedRanges,
+  parseEdits,
+  type TrimRange,
+} from "@/lib/timestamp-mapping";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -45,6 +51,7 @@ export interface VideoPlayerProps {
   /** Start time in ms. */
   startMs?: number;
   /** Comment + chapter overlays for the scrubber. */
+  editsJson?: string | null;
   comments?: { id: string; videoTimestampMs: number; content: string }[];
   chapters?: { startMs: number; title: string }[];
   reactions?: { id: string; emoji: string; videoTimestampMs: number }[];
@@ -95,6 +102,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       defaultSpeed = 1.2,
       autoPlay,
       startMs,
+      editsJson,
       comments,
       chapters,
       reactions,
@@ -151,6 +159,25 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // black rectangle. Hidden on loadeddata / canplay / currentTime > 0, or
     // after a 10s safety timeout.
     const [isPreparing, setIsPreparing] = useState<boolean>(!!videoUrl);
+    const edits = useMemo(() => parseEdits(editsJson), [editsJson]);
+    const excludedRanges = useMemo(() => getExcludedRanges(edits), [edits]);
+
+    const seekToVisibleMs = useCallback(
+      (ms: number) => {
+        const v = videoRef.current;
+        if (!v) return;
+        const clamped = clampSeek(ms, v, resolvedDurationMs);
+        const visibleMs = clampSeek(
+          skipExcludedRange(clamped, excludedRanges, resolvedDurationMs),
+          v,
+          resolvedDurationMs,
+        );
+        v.currentTime = visibleMs / 1000;
+        setCurrentMs(visibleMs);
+        onSeek?.(visibleMs);
+      },
+      [excludedRanges, onSeek, resolvedDurationMs],
+    );
 
     // Imperative handle for parent
     useImperativeHandle(
@@ -161,14 +188,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         },
         play: () => videoRef.current?.play(),
         pause: () => videoRef.current?.pause(),
-        seek: (ms: number) => {
-          const v = videoRef.current;
-          if (!v) return;
-          const clamped = clampSeek(ms, v, resolvedDurationMs);
-          v.currentTime = clamped / 1000;
-          setCurrentMs(clamped);
-          onSeek?.(clamped);
-        },
+        seek: seekToVisibleMs,
         setSpeed: (rate: number) => {
           if (videoRef.current) videoRef.current.playbackRate = rate;
           setSpeed(rate);
@@ -183,7 +203,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         toggleFullscreen: () => void toggleFullscreenInternal(),
         togglePip: () => togglePipInternal(),
       }),
-      [onSeek, resolvedDurationMs],
+      [seekToVisibleMs],
     );
 
     // Apply initial playbackRate and start position.
@@ -193,10 +213,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       v.playbackRate = defaultSpeed;
       setSpeed(defaultSpeed);
       if (startMs && startMs > 0) {
-        v.currentTime = startMs / 1000;
-        setCurrentMs(startMs);
+        const visibleMs = clampSeek(
+          skipExcludedRange(startMs, excludedRanges, resolvedDurationMs),
+          v,
+          resolvedDurationMs,
+        );
+        v.currentTime = visibleMs / 1000;
+        setCurrentMs(visibleMs);
       }
-    }, [defaultSpeed, startMs, videoUrl]);
+    }, [defaultSpeed, excludedRanges, resolvedDurationMs, startMs, videoUrl]);
 
     // Keep the resolved duration in sync with the prop when it changes (new
     // recording loaded, etc.) — only bump it if the prop is a real number.
@@ -465,6 +490,18 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               const ct =
                 Number.isFinite(raw) && raw >= 0 && raw < 1e7 ? raw : 0;
               const ms = Math.floor(ct * 1000);
+              const visibleMs = clampSeek(
+                skipExcludedRange(ms, excludedRanges, resolvedDurationMs),
+                v,
+                resolvedDurationMs,
+              );
+              if (visibleMs !== ms) {
+                v.currentTime = visibleMs / 1000;
+                setCurrentMs(visibleMs);
+                if (visibleMs > 0) setIsPreparing(false);
+                onTimeUpdate?.(visibleMs, resolvedDurationMs);
+                return;
+              }
               setCurrentMs(ms);
               if (ms > 0) setIsPreparing(false);
               onTimeUpdate?.(ms, resolvedDurationMs);
@@ -552,6 +589,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               comments={comments}
               chapters={chapters}
               reactions={reactions}
+              excludedRanges={excludedRanges}
               hasCaptions={!!transcriptSegments?.length}
               onPlayPause={() => {
                 const v = videoRef.current;
@@ -560,12 +598,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 else v.pause();
               }}
               onSeek={(ms) => {
-                const v = videoRef.current;
-                if (!v) return;
-                const clamped = clampSeek(ms, v, resolvedDurationMs);
-                v.currentTime = clamped / 1000;
-                setCurrentMs(clamped);
-                onSeek?.(clamped);
+                seekToVisibleMs(ms);
               }}
               onVolumeChange={(vol) => {
                 const v = videoRef.current;
@@ -624,4 +657,15 @@ function clampSeek(
   }
   const sec = Math.max(0, Math.min(maxSec, ms / 1000));
   return Math.floor(sec * 1000);
+}
+
+function skipExcludedRange(
+  ms: number,
+  excludedRanges: TrimRange[],
+  durationMs: number,
+): number {
+  const range = excludedRanges.find((r) => ms >= r.startMs && ms < r.endMs);
+  if (!range) return ms;
+  const next = Math.max(ms, range.endMs);
+  return durationMs > 0 ? Math.min(next, durationMs) : next;
 }

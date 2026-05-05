@@ -30,7 +30,7 @@ import { useComposition } from "@/contexts/CompositionContext";
 import { useTimeline } from "@/contexts/TimelineContext";
 import { usePlayback } from "@/contexts/PlaybackContext";
 import { useFolders } from "@/hooks/use-folders";
-import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { FeedbackButton } from "@agent-native/core/client";
 
 type SidebarProps = {
@@ -587,7 +587,7 @@ export function Sidebar({
         </Tabs>
 
         <div className="border-t border-border px-2 py-1.5 shrink-0">
-          <ToolsSidebarSection />
+          <ExtensionsSidebarSection />
         </div>
 
         <div className="border-t border-border px-3 py-1.5 shrink-0">

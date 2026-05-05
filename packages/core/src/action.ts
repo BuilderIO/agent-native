@@ -191,7 +191,7 @@ export function defineAction(options: any) {
   // without a declared `toolCallable` flag is invoked from a tool, so the
   // ecosystem can migrate over time. The bridge treats `undefined` as
   // "implicit allow with a deprecation warning"; only an explicit `false`
-  // refuses the call. See `tools/routes.ts` and audit H5.
+  // refuses the call. See `extensions/routes.ts` and audit H5.
   const toolCallable: boolean | undefined =
     typeof options.toolCallable === "boolean"
       ? options.toolCallable

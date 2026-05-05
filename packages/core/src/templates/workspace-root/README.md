@@ -39,12 +39,13 @@ the shared package (`@{{APP_NAME}}/shared`).
 pnpm install
 cp .env.example .env   # fill in DATABASE_URL, BETTER_AUTH_SECRET, and an LLM provider key
 pnpm repair:workspace-org -- --name "Example Co" --domain example.com --owner-email owner@example.com
-pnpm dev               # starts the workspace gateway and opens Dispatch
+pnpm dev               # starts the workspace gateway; opens Dispatch when present
 ```
 
-The dev gateway serves Dispatch at `/dispatch` and every app at its own path
-such as `/starter`. It watches `apps/`, so newly-created apps are detected and
-started without restarting `pnpm dev`.
+The dev gateway serves Dispatch at `/dispatch` when you keep the recommended
+Dispatch app selected, and every app at its own path such as `/starter`. It
+watches `apps/`, so newly-created apps are detected and started without
+restarting `pnpm dev`.
 
 ## Workspace org identity
 

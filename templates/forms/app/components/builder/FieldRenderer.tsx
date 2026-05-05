@@ -23,6 +23,26 @@ interface FieldRendererProps {
   preview?: boolean;
 }
 
+// Radix Select / RadioGroup throw at render time if any item value is an
+// empty string, and React warns on duplicate keys. The builder lets users
+// edit option text live, so mid-edit state can produce both. Filter both
+// out for the live preview — the underlying data still keeps whatever the
+// user typed.
+function dedupeRenderableOptions(options: string[] | undefined): string[] {
+  if (!options) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const opt of options) {
+    if (typeof opt !== "string") continue;
+    const trimmed = opt.trim();
+    if (!trimmed) continue;
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
+}
+
 export function FieldRenderer({
   field,
   value,
@@ -98,8 +118,8 @@ export function FieldRenderer({
             <SelectValue placeholder={field.placeholder || "Select..."} />
           </SelectTrigger>
           <SelectContent>
-            {(field.options || []).map((opt) => (
-              <SelectItem key={opt} value={opt}>
+            {dedupeRenderableOptions(field.options).map((opt, i) => (
+              <SelectItem key={`${opt}-${i}`} value={opt}>
                 {opt}
               </SelectItem>
             ))}
@@ -109,11 +129,11 @@ export function FieldRenderer({
 
       {field.type === "multiselect" && (
         <div className="space-y-1">
-          {(field.options || []).map((opt) => {
+          {dedupeRenderableOptions(field.options).map((opt, i) => {
             const selected = Array.isArray(value) ? value : [];
             return (
               <label
-                key={opt}
+                key={`${opt}-${i}`}
                 className="flex items-center gap-2.5 text-sm min-h-[44px] py-1"
               >
                 <Checkbox
@@ -150,10 +170,16 @@ export function FieldRenderer({
           onValueChange={handleChange}
           disabled={disabled}
         >
-          {(field.options || []).map((opt) => (
-            <div key={opt} className="flex items-center gap-2.5 min-h-[44px]">
-              <RadioGroupItem value={opt} id={`${field.id}-${opt}`} />
-              <Label htmlFor={`${field.id}-${opt}`} className="font-normal">
+          {dedupeRenderableOptions(field.options).map((opt, i) => (
+            <div
+              key={`${opt}-${i}`}
+              className="flex items-center gap-2.5 min-h-[44px]"
+            >
+              <RadioGroupItem value={opt} id={`${field.id}-${opt}-${i}`} />
+              <Label
+                htmlFor={`${field.id}-${opt}-${i}`}
+                className="font-normal"
+              >
                 {opt}
               </Label>
             </div>

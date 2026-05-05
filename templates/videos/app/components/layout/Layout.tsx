@@ -19,7 +19,7 @@ interface LayoutProps {
  *
  * - Studio routes (`/`, `/c/:id`) render their own complex sidebar + StudioHeader
  *   inside `pages/Index.tsx`.
- * - Tools routes (`/tools`, `/tools/:id`) render the framework's tools toolbar.
+ * - Extensions routes (`/extensions`, `/extensions/:id`) render the framework.s extensions toolbar.
  */
 function studioRoute(pathname: string): boolean {
   if (pathname === "/") return true;
@@ -29,7 +29,7 @@ function studioRoute(pathname: string): boolean {
 
 function routeOwnsToolbar(pathname: string): boolean {
   if (studioRoute(pathname)) return true;
-  if (pathname.startsWith("/tools")) return true;
+  if (pathname.startsWith("/extensions")) return true;
   return false;
 }
 

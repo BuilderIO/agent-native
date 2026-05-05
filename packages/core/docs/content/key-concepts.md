@@ -270,9 +270,9 @@ Every user gets a personal **workspace** — instructions, skills, memory, custo
 
 **Dispatch** is the workspace control plane: a central inbox for Slack/email/Telegram, a shared secrets vault, scheduled jobs, and an orchestrator agent that delegates domain work to specialist apps over A2A. Run it alongside your domain apps when you have more than one. See [Dispatch](/docs/dispatch).
 
-## Tools {#tools}
+## Extensions {#extensions}
 
-**Tools** are sandboxed mini-apps the agent can create at runtime — Alpine.js HTML rendered inside an iframe, with built-in helpers for persistent storage (`toolData`), calling app actions (`appAction`), and proxied external APIs (`toolFetch`). No source-code changes, no schema migrations. See [Tools](/docs/tools).
+**Extensions** are sandboxed mini-apps the agent can create at runtime — Alpine.js HTML rendered inside an iframe, with built-in helpers for persistent storage (`extensionData`), calling app actions (`appAction`), and proxied external APIs (`extensionFetch`). No source-code changes, no schema migrations. (Distinct from LLM "tools" — the function-call surface area the agent uses, e.g. `defineAction` entries and MCP tools. See [Extensions](/docs/extensions).)
 
 ## A2A {#a2a}
 

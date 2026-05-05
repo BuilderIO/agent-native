@@ -7,6 +7,7 @@ import {
   IconDotsVertical,
   IconPencil,
   IconTrash,
+  IconCode,
 } from "@tabler/icons-react";
 import {
   DropdownMenu,
@@ -28,6 +29,7 @@ import {
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { SqlChart } from "@/components/dashboard/SqlChart";
+import { ViewSqlPopover } from "./ViewSqlPopover";
 import type { SqlPanel } from "./types";
 
 interface SqlChartCardProps {
@@ -36,6 +38,9 @@ interface SqlChartCardProps {
   onRemove: () => void;
   onToggleWidth: () => void;
   onEdit?: () => void;
+  /** Persist a SQL-only edit from the inline View SQL popover. Should throw on
+   *  validation failure so the popover can stay open and surface the error. */
+  onSaveSql?: (sql: string) => Promise<void>;
 }
 
 export function SqlChartCard({
@@ -44,6 +49,7 @@ export function SqlChartCard({
   onRemove,
   onToggleWidth,
   onEdit,
+  onSaveSql,
 }: SqlChartCardProps) {
   const {
     attributes,
@@ -67,14 +73,30 @@ export function SqlChartCard({
     <div
       ref={setNodeRef}
       style={style}
-      className={`group relative ${panel.width === 2 ? "md:col-span-2" : ""}`}
+      className={`group relative h-full hover:z-20 focus-within:z-20 ${
+        panel.width === 2 ? "md:col-span-2" : ""
+      }`}
     >
-      <Card className="h-full">
-        <CardHeader className="pb-2 flex flex-row items-center gap-2">
+      <Card className="flex h-full flex-col overflow-visible">
+        <CardHeader className="pb-2 flex flex-row items-center gap-2 shrink-0">
           <CardTitle className="text-sm font-medium flex-1 truncate">
             {panel.title}
           </CardTitle>
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+            {onSaveSql && (
+              <ViewSqlPopover
+                panel={panel}
+                resolvedSql={resolvedSql}
+                onSaveSql={onSaveSql}
+              >
+                <button
+                  className="p-1 rounded text-muted-foreground hover:text-foreground"
+                  title="View SQL"
+                >
+                  <IconCode className="h-3.5 w-3.5" />
+                </button>
+              </ViewSqlPopover>
+            )}
             <button
               onClick={onToggleWidth}
               className="p-1 rounded text-muted-foreground hover:text-foreground"
@@ -124,7 +146,7 @@ export function SqlChartCard({
             </button>
           </div>
         </CardHeader>
-        <CardContent className="pt-0">
+        <CardContent className="flex flex-1 flex-col overflow-visible pt-0">
           <SqlChart panel={panel} resolvedSql={resolvedSql} />
         </CardContent>
       </Card>

@@ -7,7 +7,7 @@ import {
   getRequestIP,
   type H3Event,
 } from "h3";
-import { and, eq, desc, sql } from "drizzle-orm";
+import { and, eq, desc, isNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
@@ -58,7 +58,13 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   const form = await db
     .select()
     .from(schema.forms)
-    .where(and(eq(schema.forms.id, id), eq(schema.forms.status, "published")))
+    .where(
+      and(
+        eq(schema.forms.id, id),
+        eq(schema.forms.status, "published"),
+        isNull(schema.forms.deletedAt),
+      ),
+    )
 
     .then((rows) => rows[0]);
   if (!form) {

@@ -129,21 +129,22 @@ cd templates/forms && pnpm action <name> [args]
 
 ### Reading & Context
 
-| Action           | Args                                  | Purpose                       |
-| ---------------- | ------------------------------------- | ----------------------------- |
-| `view-screen`    |                                       | See what the user sees now    |
-| `list-forms`     | `[--status draft\|published\|closed]` | List all forms with counts    |
-| `get-form`       | `--id <form-id>`                      | Get full form detail + fields |
-| `list-responses` | `--formId <id> [--limit N]`           | List responses for a form     |
+| Action           | Args                                               | Purpose                       |
+| ---------------- | -------------------------------------------------- | ----------------------------- |
+| `view-screen`    |                                                    | See what the user sees now    |
+| `list-forms`     | `[--status draft\|published\|closed] [--archived]` | List forms (or the Archive)   |
+| `get-form`       | `--id <form-id>`                                   | Get full form detail + fields |
+| `list-responses` | `--formId <id> [--limit N]`                        | List responses for a form     |
 
 ### Creating & Modifying
 
-| Action             | Args                                                    | Purpose                          |
-| ------------------ | ------------------------------------------------------- | -------------------------------- |
-| `create-form`      | `--title "..." [--description "..."] [--fields <json>]` | Create a new form                |
-| `update-form`      | `--id <id> [--title] [--fields <json>] [--status]`      | Update a form                    |
-| `delete-form`      | `--id <id>`                                             | Delete a form (requires `admin`) |
-| `export-responses` | `--form <id> --output <path> [--format csv\|json]`      | Export responses                 |
+| Action             | Args                                                    | Purpose                                                                            |
+| ------------------ | ------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `create-form`      | `--title "..." [--description "..."] [--fields <json>]` | Create a new form                                                                  |
+| `update-form`      | `--id <id> [--title] [--fields <json>] [--status]`      | Update a form                                                                      |
+| `delete-form`      | `--id <id> [--purge]`                                   | Soft-delete (move to Archive). Pass `--purge` to delete forever. Requires `admin`. |
+| `restore-form`     | `--id <id>`                                             | Restore a soft-deleted form (requires `admin`)                                     |
+| `export-responses` | `--form <id> --output <path> [--format csv\|json]`      | Export responses                                                                   |
 
 ### Navigation & UI
 
@@ -178,17 +179,20 @@ Forms are ownable. Each form has an owner (`ownerEmail`), a `visibility` (`priva
 
 ## Common Tasks
 
-| User request                    | What to do                                                                      |
-| ------------------------------- | ------------------------------------------------------------------------------- |
-| "Create a contact form"         | `create-form --title "Contact Form" --fields '[...]'`                           |
-| "Add a rating field"            | `view-screen`, get form, `update-form --id <id> --fields '[...existing + new]'` |
-| "Publish this form"             | `view-screen`, get formId, `update-form --id <id> --status published`           |
-| "Show me responses"             | `view-screen`, then `list-responses --formId <id>`                              |
-| "Export responses to CSV"       | `export-responses --form <id> --output data/export.csv`                         |
-| "What am I looking at?"         | `view-screen`                                                                   |
-| "Open the contact form"         | `list-forms` to find ID, then `navigate --view=form --formId=<id>`              |
-| "How many responses do I have?" | `list-forms` (shows response counts for all forms)                              |
-| "Close this form"               | `view-screen`, `update-form --id <id> --status closed`                          |
+| User request                     | What to do                                                                      |
+| -------------------------------- | ------------------------------------------------------------------------------- |
+| "Create a contact form"          | `create-form --title "Contact Form" --fields '[...]'`                           |
+| "Add a rating field"             | `view-screen`, get form, `update-form --id <id> --fields '[...existing + new]'` |
+| "Publish this form"              | `view-screen`, get formId, `update-form --id <id> --status published`           |
+| "Show me responses"              | `view-screen`, then `list-responses --formId <id>`                              |
+| "Export responses to CSV"        | `export-responses --form <id> --output data/export.csv`                         |
+| "What am I looking at?"          | `view-screen`                                                                   |
+| "Open the contact form"          | `list-forms` to find ID, then `navigate --view=form --formId=<id>`              |
+| "How many responses do I have?"  | `list-forms` (shows response counts for all forms)                              |
+| "Close this form"                | `view-screen`, `update-form --id <id> --status closed`                          |
+| "Show my archived/deleted forms" | `list-forms --archived`                                                         |
+| "Restore this form"              | `restore-form --id <id>`                                                        |
+| "Permanently delete this form"   | `delete-form --id <id> --purge` (irreversible — confirm first)                  |
 
 ### Script task mapping
 
@@ -205,6 +209,9 @@ Forms are ownable. Each form has an owner (`ownerEmail`), a `visibility` (`priva
 | "Export to CSV"         | `pnpm action export-responses --form <id> --output data/export.csv` |
 | "Go to forms list"      | `pnpm action navigate --view=forms`                                 |
 | "Open form responses"   | `pnpm action navigate --view=responses --formId=<id>`               |
+| "Show the archive"      | `pnpm action list-forms --archived`                                 |
+| "Restore form"          | `pnpm action restore-form --id <id>`                                |
+| "Delete form forever"   | `pnpm action delete-form --id <id> --purge`                         |
 
 ## UI Conventions
 

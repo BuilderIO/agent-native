@@ -7,11 +7,12 @@ import {
   IconArrowLeft,
   IconChevronDown,
   IconCalendar,
+  IconScissors,
 } from "@tabler/icons-react";
 import {
+  useActionMutation,
   useActionQuery,
   useSession,
-  sendToAgentChat,
   AgentPanel,
   agentNativePath,
 } from "@agent-native/core/client";
@@ -33,6 +34,7 @@ import {
   VideoPlayer,
   type VideoPlayerHandle,
 } from "@/components/player/video-player";
+import { EditorLayout } from "@/components/editor/editor-layout";
 import { TranscriptPanel } from "@/components/player/transcript-panel";
 import { CommentsPanel } from "@/components/player/comments-panel";
 import { ReactionsTray } from "@/components/player/reactions-tray";
@@ -64,6 +66,7 @@ export default function RecordingPage() {
 
   const [panel, setPanel] = useState<SidePanel>("transcript");
   const [theaterMode, setTheaterMode] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const [speed, setSpeed] = useState(1.2);
   const transcriptKickedRef = useRef<string | null>(null);
@@ -116,6 +119,36 @@ export default function RecordingPage() {
 
   const canEdit = role === "owner" || role === "admin" || role === "editor";
   const firstCta = ctas[0] ?? null;
+  const handleAiError = (err: Error) =>
+    toast.error(err?.message ?? "AI request failed");
+  const regenerateTitle = useActionMutation("regenerate-title" as any, {
+    onSuccess: () => toast.success("Title request queued"),
+    onError: handleAiError,
+  });
+  const regenerateSummary = useActionMutation("regenerate-summary" as any, {
+    onSuccess: () => toast.success("Description request queued"),
+    onError: handleAiError,
+  });
+  const regenerateChapters = useActionMutation("regenerate-chapters" as any, {
+    onSuccess: () => toast.success("Chapter request queued"),
+    onError: handleAiError,
+  });
+  const removeFillerWords = useActionMutation("remove-filler-words" as any, {
+    onSuccess: () => toast.success("Filler-word removal queued"),
+    onError: handleAiError,
+  });
+  const removeSilences = useActionMutation("remove-silences" as any, {
+    onSuccess: () => toast.success("Silence removal queued"),
+    onError: handleAiError,
+  });
+  const generateWorkflow = useActionMutation("generate-workflow" as any, {
+    onSuccess: () => toast.success("Workflow request queued"),
+    onError: handleAiError,
+  });
+
+  useEffect(() => {
+    if (!canEdit && editing) setEditing(false);
+  }, [canEdit, editing]);
 
   useEffect(() => {
     if (!recording) return;
@@ -310,6 +343,18 @@ export default function RecordingPage() {
           </div>
 
           {canEdit ? (
+            <Button
+              variant={editing ? "secondary" : "outline"}
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setEditing((v) => !v)}
+            >
+              <IconScissors className="h-4 w-4" />
+              {editing ? "Done" : "Edit"}
+            </Button>
+          ) : null}
+
+          {canEdit ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="gap-1.5">
@@ -321,93 +366,98 @@ export default function RecordingPage() {
                 <DropdownMenuLabel>Enhance this recording</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
+                  disabled={regenerateTitle.isPending}
                   onSelect={() =>
-                    sendToAgentChat({
-                      message: `Regenerate the title for this recording (${recordingId}).`,
-                      submit: true,
-                    })
+                    regenerateTitle.mutate({
+                      recordingId: recording.id,
+                    } as any)
                   }
                 >
                   Regenerate title
                 </DropdownMenuItem>
                 <DropdownMenuItem
+                  disabled={regenerateSummary.isPending}
                   onSelect={() =>
-                    sendToAgentChat({
-                      message: `Regenerate the description for this recording (${recordingId}).`,
-                      submit: true,
-                    })
+                    regenerateSummary.mutate({
+                      recordingId: recording.id,
+                    } as any)
                   }
                 >
                   Regenerate description
                 </DropdownMenuItem>
                 <DropdownMenuItem
+                  disabled={regenerateChapters.isPending}
                   onSelect={() =>
-                    sendToAgentChat({
-                      message: `Generate chapters for this recording (${recordingId}).`,
-                      submit: true,
-                    })
+                    regenerateChapters.mutate({
+                      recordingId: recording.id,
+                    } as any)
                   }
                 >
                   Auto chapters
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
+                  disabled={removeFillerWords.isPending}
                   onSelect={() =>
-                    sendToAgentChat({
-                      message: `Remove filler words (um, uh, like) from recording ${recordingId}.`,
-                      submit: true,
-                    })
+                    removeFillerWords.mutate({
+                      recordingId: recording.id,
+                    } as any)
                   }
                 >
                   Remove filler words
                 </DropdownMenuItem>
                 <DropdownMenuItem
+                  disabled={removeSilences.isPending}
                   onSelect={() =>
-                    sendToAgentChat({
-                      message: `Remove long silences from recording ${recordingId}.`,
-                      submit: true,
-                    })
+                    removeSilences.mutate({
+                      recordingId: recording.id,
+                      thresholdMs: 1200,
+                    } as any)
                   }
                 >
-                  Remove silences
+                  Remove silences (&gt;1.2s)
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
+                  disabled={generateWorkflow.isPending}
                   onSelect={() =>
-                    sendToAgentChat({
-                      message: `Generate a PR description from recording ${recordingId}.`,
-                      submit: true,
-                    })
+                    generateWorkflow.mutate({
+                      recordingId: recording.id,
+                      kind: "pr",
+                    } as any)
                   }
                 >
                   Generate PR summary
                 </DropdownMenuItem>
                 <DropdownMenuItem
+                  disabled={generateWorkflow.isPending}
                   onSelect={() =>
-                    sendToAgentChat({
-                      message: `Generate an SOP doc from recording ${recordingId}.`,
-                      submit: true,
-                    })
+                    generateWorkflow.mutate({
+                      recordingId: recording.id,
+                      kind: "sop",
+                    } as any)
                   }
                 >
                   Generate SOP
                 </DropdownMenuItem>
                 <DropdownMenuItem
+                  disabled={generateWorkflow.isPending}
                   onSelect={() =>
-                    sendToAgentChat({
-                      message: `Generate a ticket from recording ${recordingId}.`,
-                      submit: true,
-                    })
+                    generateWorkflow.mutate({
+                      recordingId: recording.id,
+                      kind: "ticket",
+                    } as any)
                   }
                 >
                   Generate ticket
                 </DropdownMenuItem>
                 <DropdownMenuItem
+                  disabled={generateWorkflow.isPending}
                   onSelect={() =>
-                    sendToAgentChat({
-                      message: `Generate a summary email from recording ${recordingId}.`,
-                      submit: true,
-                    })
+                    generateWorkflow.mutate({
+                      recordingId: recording.id,
+                      kind: "email",
+                    } as any)
                   }
                 >
                   Generate email
@@ -432,232 +482,248 @@ export default function RecordingPage() {
           </ShareRecordingPopover>
         </header>
 
-        <div className="flex-1 flex flex-col overflow-hidden p-4 gap-4">
-          <div className="flex-1 min-h-0">
-            <VideoPlayer
-              ref={playerRef}
-              recordingId={recording.id}
-              videoUrl={recording.videoUrl}
-              durationMs={recording.durationMs}
-              thumbnailUrl={recording.thumbnailUrl}
-              role={role}
-              defaultSpeed={speed}
-              comments={comments}
-              chapters={chapters}
-              reactions={reactions}
-              transcriptSegments={transcriptSegments}
-              theaterMode={theaterMode}
-              onTheaterToggle={() => setTheaterMode((v) => !v)}
-              cta={firstCta}
-              onCtaClick={() => tracking.reportCtaClick()}
-              onTimeUpdate={(ms) => setCurrentMs(ms)}
-              className="h-full"
-            />
-          </div>
-
-          {/* Title + reactions row */}
-          <div className="flex items-start gap-3 shrink-0">
-            <div className="flex-1 min-w-0">
-              {/* G9 — "From meeting" badge surfaced when this recording is
-                  attached to a meeting (server fix 6 attaches `meeting`). */}
-              {playerDataQ.data?.meeting ? (
-                <NavLink
-                  to={`/meetings/${playerDataQ.data.meeting.id}`}
-                  className="inline-flex items-center gap-1.5 mb-1 rounded-full border border-border bg-accent/40 px-2 py-0.5 text-[11px] text-foreground hover:bg-accent/70 cursor-pointer"
-                >
-                  <IconCalendar className="h-3 w-3" />
-                  <span className="text-muted-foreground">From meeting:</span>
-                  <span className="font-medium truncate max-w-[240px]">
-                    {playerDataQ.data.meeting.title || "Untitled"}
-                  </span>
-                </NavLink>
-              ) : null}
-              {isDefaultTitle(recording.title) ? (
-                <Skeleton
-                  aria-label="Generating title"
-                  className="h-5 w-72 max-w-full"
+        <div
+          className={cn(
+            "flex-1 flex flex-col overflow-hidden",
+            editing && canEdit ? "min-h-0" : "p-4 gap-4",
+          )}
+        >
+          {editing && canEdit ? (
+            <EditorLayout recordingId={recording.id} className="flex-1" />
+          ) : (
+            <>
+              <div className="flex-1 min-h-0">
+                <VideoPlayer
+                  ref={playerRef}
+                  recordingId={recording.id}
+                  videoUrl={recording.videoUrl}
+                  durationMs={recording.durationMs}
+                  editsJson={recording.editsJson}
+                  thumbnailUrl={recording.thumbnailUrl}
+                  role={role}
+                  defaultSpeed={speed}
+                  comments={comments}
+                  chapters={chapters}
+                  reactions={reactions}
+                  transcriptSegments={transcriptSegments}
+                  theaterMode={theaterMode}
+                  onTheaterToggle={() => setTheaterMode((v) => !v)}
+                  cta={firstCta}
+                  onCtaClick={() => tracking.reportCtaClick()}
+                  onTimeUpdate={(ms) => setCurrentMs(ms)}
+                  className="h-full"
                 />
-              ) : (
-                <h2 className="text-base font-semibold truncate">
-                  {recording.title}
-                </h2>
-              )}
-              {recording.description ? (
-                <p className="text-sm text-muted-foreground line-clamp-2">
-                  {recording.description}
-                </p>
-              ) : null}
-            </div>
-            {recording.enableReactions ? (
-              <ReactionsTray
-                disabled={!recording.enableReactions}
-                onReact={(emoji) => {
-                  tracking.reportReaction(emoji);
-                  fetch(
-                    agentNativePath(
-                      "/_agent-native/actions/react-to-recording",
-                    ),
-                    {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        recordingId: recording.id,
-                        emoji,
-                        videoTimestampMs: currentMs,
-                      }),
-                    },
-                  )
-                    .then(() => playerDataQ.refetch())
-                    .catch(() => {});
-                }}
-              />
-            ) : null}
-          </div>
+              </div>
+
+              {/* Title + reactions row */}
+              <div className="flex items-start gap-3 shrink-0">
+                <div className="flex-1 min-w-0">
+                  {/* G9 — "From meeting" badge surfaced when this recording is
+                      attached to a meeting (server fix 6 attaches `meeting`). */}
+                  {playerDataQ.data?.meeting ? (
+                    <NavLink
+                      to={`/meetings/${playerDataQ.data.meeting.id}`}
+                      className="inline-flex items-center gap-1.5 mb-1 rounded-full border border-border bg-accent/40 px-2 py-0.5 text-[11px] text-foreground hover:bg-accent/70 cursor-pointer"
+                    >
+                      <IconCalendar className="h-3 w-3" />
+                      <span className="text-muted-foreground">
+                        From meeting:
+                      </span>
+                      <span className="font-medium truncate max-w-[240px]">
+                        {playerDataQ.data.meeting.title || "Untitled"}
+                      </span>
+                    </NavLink>
+                  ) : null}
+                  {isDefaultTitle(recording.title) ? (
+                    <Skeleton
+                      aria-label="Generating title"
+                      className="h-5 w-72 max-w-full"
+                    />
+                  ) : (
+                    <h2 className="text-base font-semibold truncate">
+                      {recording.title}
+                    </h2>
+                  )}
+                  {recording.description ? (
+                    <p className="text-sm text-muted-foreground line-clamp-2">
+                      {recording.description}
+                    </p>
+                  ) : null}
+                </div>
+                {recording.enableReactions ? (
+                  <ReactionsTray
+                    disabled={!recording.enableReactions}
+                    onReact={(emoji) => {
+                      tracking.reportReaction(emoji);
+                      fetch(
+                        agentNativePath(
+                          "/_agent-native/actions/react-to-recording",
+                        ),
+                        {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            recordingId: recording.id,
+                            emoji,
+                            videoTimestampMs: currentMs,
+                          }),
+                        },
+                      )
+                        .then(() => playerDataQ.refetch())
+                        .catch(() => {});
+                    }}
+                  />
+                ) : null}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
       {/* Side panel */}
-      <aside className="w-[380px] border-l border-border flex flex-col shrink-0 bg-background">
-        {panel === "settings" && canEdit ? (
-          <SettingsPanel
-            recording={recording}
-            visibility={recording.visibility}
-            ctas={ctas}
-            onClose={() => setPanel("transcript")}
-            onRefetch={() => playerDataQ.refetch()}
-          />
-        ) : (
-          <>
-            <Tabs
-              value={panel}
-              onValueChange={(v) => setPanel(v as SidePanel)}
-              className="flex flex-col h-full"
-            >
-              <TabsList
-                className={cn(
-                  "mx-3 mt-3 grid w-auto",
-                  canEdit ? "grid-cols-4" : "grid-cols-2",
-                )}
+      {!editing ? (
+        <aside className="w-[380px] border-l border-border flex flex-col shrink-0 bg-background">
+          {panel === "settings" && canEdit ? (
+            <SettingsPanel
+              recording={recording}
+              visibility={recording.visibility}
+              ctas={ctas}
+              onClose={() => setPanel("transcript")}
+              onRefetch={() => playerDataQ.refetch()}
+            />
+          ) : (
+            <>
+              <Tabs
+                value={panel}
+                onValueChange={(v) => setPanel(v as SidePanel)}
+                className="flex flex-col h-full"
               >
-                <TabsTrigger value="transcript" className="text-xs">
-                  Transcript
-                </TabsTrigger>
-                <TabsTrigger value="comments" className="text-xs gap-1">
-                  Comments
-                  {comments.length > 0 ? (
-                    <span className="ml-0.5 text-[10px] rounded-full bg-accent px-1.5 tabular-nums">
-                      {comments.length}
-                    </span>
+                <TabsList
+                  className={cn(
+                    "mx-3 mt-3 grid w-auto",
+                    canEdit ? "grid-cols-4" : "grid-cols-2",
+                  )}
+                >
+                  <TabsTrigger value="transcript" className="text-xs">
+                    Transcript
+                  </TabsTrigger>
+                  <TabsTrigger value="comments" className="text-xs gap-1">
+                    Comments
+                    {comments.length > 0 ? (
+                      <span className="ml-0.5 text-[10px] rounded-full bg-accent px-1.5 tabular-nums">
+                        {comments.length}
+                      </span>
+                    ) : null}
+                  </TabsTrigger>
+                  {canEdit ? (
+                    <TabsTrigger value="insights" className="text-xs">
+                      Insights
+                    </TabsTrigger>
                   ) : null}
-                </TabsTrigger>
-                {canEdit ? (
-                  <TabsTrigger value="insights" className="text-xs">
-                    Insights
-                  </TabsTrigger>
-                ) : null}
-                {canEdit ? (
-                  <TabsTrigger value="agent" className="text-xs">
-                    Agent
-                  </TabsTrigger>
-                ) : null}
-              </TabsList>
+                  {canEdit ? (
+                    <TabsTrigger value="agent" className="text-xs">
+                      Agent
+                    </TabsTrigger>
+                  ) : null}
+                </TabsList>
 
-              <TabsContent
-                value="transcript"
-                className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
-              >
-                <TranscriptPanel
-                  segments={transcriptSegments}
-                  currentMs={currentMs}
-                  onSeek={(ms) => playerRef.current?.seek(ms)}
-                  status={transcriptStatus}
-                  failureReason={transcriptFailureReason}
-                  recordingTitle={recording.title}
-                  onRetry={() => {
-                    // Re-run the Whisper transcription now that the user may
-                    // have set their OPENAI_API_KEY (or after a one-off
-                    // network error). The action flips the row to 'pending'
-                    // first, so the UI will swap back to "Transcribing…".
-                    fetch(
-                      agentNativePath(
-                        "/_agent-native/actions/request-transcript",
-                      ),
-                      {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ recordingId: recording.id }),
-                      },
-                    )
-                      .then((res) => {
-                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                      })
-                      .catch((err) =>
-                        toast.error(
-                          `Retry failed: ${err?.message ?? "network error"}`,
+                <TabsContent
+                  value="transcript"
+                  className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
+                >
+                  <TranscriptPanel
+                    segments={transcriptSegments}
+                    currentMs={currentMs}
+                    onSeek={(ms) => playerRef.current?.seek(ms)}
+                    status={transcriptStatus}
+                    failureReason={transcriptFailureReason}
+                    recordingTitle={recording.title}
+                    onRetry={() => {
+                      // Re-run the Whisper transcription now that the user may
+                      // have set their OPENAI_API_KEY (or after a one-off
+                      // network error). The action flips the row to 'pending'
+                      // first, so the UI will swap back to "Transcribing…".
+                      fetch(
+                        agentNativePath(
+                          "/_agent-native/actions/request-transcript",
                         ),
+                        {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ recordingId: recording.id }),
+                        },
                       )
-                      .finally(() => playerDataQ.refetch());
-                  }}
-                />
-              </TabsContent>
-              <TabsContent
-                value="comments"
-                className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
-              >
-                <CommentsPanel
-                  recordingId={recording.id}
-                  comments={comments}
-                  currentMs={currentMs}
-                  currentUserEmail={session?.email}
-                  enableComments={recording.enableComments}
-                  onSeek={(ms) => playerRef.current?.seek(ms)}
-                />
-              </TabsContent>
-              {canEdit ? (
+                        .then((res) => {
+                          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                        })
+                        .catch((err) =>
+                          toast.error(
+                            `Retry failed: ${err?.message ?? "network error"}`,
+                          ),
+                        )
+                        .finally(() => playerDataQ.refetch());
+                    }}
+                  />
+                </TabsContent>
                 <TabsContent
-                  value="insights"
-                  className="flex-1 min-h-0 mt-3 overflow-y-auto data-[state=inactive]:hidden"
+                  value="comments"
+                  className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
                 >
-                  <InsightsPanel
+                  <CommentsPanel
                     recordingId={recording.id}
-                    durationMs={recording.durationMs}
+                    comments={comments}
+                    currentMs={currentMs}
+                    currentUserEmail={session?.email}
+                    enableComments={recording.enableComments}
+                    onSeek={(ms) => playerRef.current?.seek(ms)}
                   />
                 </TabsContent>
-              ) : null}
-              {canEdit ? (
-                <TabsContent
-                  value="agent"
-                  className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden flex flex-col"
-                >
-                  <AgentPanel
-                    emptyStateText="Ask about this clip…"
-                    suggestions={[
-                      "Summarize this clip",
-                      "Suggest a better title",
-                      "Generate chapters from the transcript",
-                    ]}
-                    showHeader={false}
-                  />
-                </TabsContent>
-              ) : null}
-            </Tabs>
+                {canEdit ? (
+                  <TabsContent
+                    value="insights"
+                    className="flex-1 min-h-0 mt-3 overflow-y-auto data-[state=inactive]:hidden"
+                  >
+                    <InsightsPanel
+                      recordingId={recording.id}
+                      durationMs={recording.durationMs}
+                    />
+                  </TabsContent>
+                ) : null}
+                {canEdit ? (
+                  <TabsContent
+                    value="agent"
+                    className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden flex flex-col"
+                  >
+                    <AgentPanel
+                      emptyStateText="Ask about this clip…"
+                      suggestions={[
+                        "Summarize this clip",
+                        "Suggest a better title",
+                        "Generate chapters from the transcript",
+                      ]}
+                      showHeader={false}
+                    />
+                  </TabsContent>
+                ) : null}
+              </Tabs>
 
-            {canEdit ? (
-              <div className="border-t border-border p-2">
-                <Button
-                  onClick={() => setPanel("settings")}
-                  variant="ghost"
-                  size="sm"
-                  className="w-full justify-start gap-2"
-                >
-                  <IconSettings className="h-4 w-4" />
-                  Settings
-                </Button>
-              </div>
-            ) : null}
-          </>
-        )}
-      </aside>
+              {canEdit ? (
+                <div className="border-t border-border p-2">
+                  <Button
+                    onClick={() => setPanel("settings")}
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start gap-2"
+                  >
+                    <IconSettings className="h-4 w-4" />
+                    Settings
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          )}
+        </aside>
+      ) : null}
     </div>
   );
 }
@@ -665,6 +731,3 @@ export default function RecordingPage() {
 function capitalize(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
-
-// Silence unused-import warnings where applicable.
-void cn;

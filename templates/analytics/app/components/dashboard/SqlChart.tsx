@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import {
   Area,
   AreaChart,
@@ -53,6 +53,24 @@ const DEFAULT_COLORS = [
   "#ec4899",
   "#14b8a6",
 ];
+
+const CHART_TOOLTIP_WRAPPER_STYLE: CSSProperties = {
+  zIndex: 60,
+  pointerEvents: "none",
+};
+
+const CHART_TOOLTIP_CONTENT_STYLE: CSSProperties = {
+  backgroundColor: "hsl(var(--card))",
+  border: "1px solid hsl(var(--border))",
+  borderRadius: "8px",
+  color: "hsl(var(--foreground))",
+};
+
+const CHART_TOOLTIP_PROPS = {
+  allowEscapeViewBox: { x: true, y: true },
+  contentStyle: CHART_TOOLTIP_CONTENT_STYLE,
+  wrapperStyle: CHART_TOOLTIP_WRAPPER_STYLE,
+} as const;
 
 function formatYValue(
   value: number,
@@ -167,19 +185,21 @@ export function SqlChart({ panel, resolvedSql }: SqlChartProps) {
   const colors = panel.config?.colors || DEFAULT_COLORS;
   const yFormatter = panel.config?.yFormatter;
 
-  if (isLoading) return <Skeleton className="h-48 w-full" />;
+  if (isLoading) return <Skeleton className="h-[250px] w-full" />;
 
   if (error) {
     return (
-      <p className="text-sm text-red-400 py-8 text-center break-all px-4">
-        {error}
-      </p>
+      <div className="flex min-h-[250px] items-center justify-center px-4 py-8">
+        <p className="text-sm text-red-400 text-center break-all">{error}</p>
+      </div>
     );
   }
 
   if (rows.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground py-8 text-center">No data</p>
+      <div className="flex min-h-[250px] items-center justify-center py-8">
+        <p className="text-sm text-muted-foreground text-center">No data</p>
+      </div>
     );
   }
 
@@ -256,7 +276,7 @@ function MetricRenderer({
       : String(raw ?? "-");
 
   return (
-    <div className="flex flex-col items-center justify-center py-6">
+    <div className="flex min-h-[250px] flex-1 flex-col items-center justify-center py-6 text-center">
       <div className="text-3xl font-bold">{value}</div>
       {panel.config?.description && (
         <p className="text-xs text-muted-foreground mt-1">
@@ -503,7 +523,7 @@ function PieRenderer({
   colors: string[];
 }) {
   return (
-    <div className="h-[250px] w-full">
+    <div className="h-[250px] w-full overflow-visible">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
@@ -522,14 +542,7 @@ function PieRenderer({
               <Cell key={i} fill={colors[i % colors.length]} />
             ))}
           </Pie>
-          <Tooltip
-            contentStyle={{
-              backgroundColor: "hsl(var(--card))",
-              border: "1px solid hsl(var(--border))",
-              borderRadius: "8px",
-              color: "hsl(var(--foreground))",
-            }}
-          />
+          <Tooltip {...CHART_TOOLTIP_PROPS} />
         </PieChart>
       </ResponsiveContainer>
     </div>
@@ -550,7 +563,7 @@ function BarRenderer({
   yFormatter?: "number" | "currency" | "percent";
 }) {
   return (
-    <div className="h-[250px] w-full">
+    <div className="h-[250px] w-full overflow-visible">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={rows}>
           <XAxis
@@ -574,12 +587,7 @@ function BarRenderer({
             vertical={false}
           />
           <Tooltip
-            contentStyle={{
-              backgroundColor: "hsl(var(--card))",
-              border: "1px solid hsl(var(--border))",
-              borderRadius: "8px",
-              color: "hsl(var(--foreground))",
-            }}
+            {...CHART_TOOLTIP_PROPS}
             labelFormatter={formatXLabel}
             formatter={(v: number) => formatYValue(v, yFormatter)}
             itemSorter={(item) => -(Number(item.value) || 0)}
@@ -615,7 +623,7 @@ function TimeSeriesRenderer({
 }) {
   if (chartType === "line") {
     return (
-      <div className="h-[250px] w-full">
+      <div className="h-[250px] w-full overflow-visible">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={rows}>
             <XAxis
@@ -639,12 +647,7 @@ function TimeSeriesRenderer({
               vertical={false}
             />
             <Tooltip
-              contentStyle={{
-                backgroundColor: "hsl(var(--card))",
-                border: "1px solid hsl(var(--border))",
-                borderRadius: "8px",
-                color: "hsl(var(--foreground))",
-              }}
+              {...CHART_TOOLTIP_PROPS}
               labelFormatter={formatXLabel}
               formatter={(v: number) => formatYValue(v, yFormatter)}
               itemSorter={(item) => -(Number(item.value) || 0)}
@@ -670,7 +673,7 @@ function TimeSeriesRenderer({
   const showFill = yKeys.length === 1;
 
   return (
-    <div className="h-[250px] w-full">
+    <div className="h-[250px] w-full overflow-visible">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={rows}>
           {showFill && (
@@ -719,12 +722,7 @@ function TimeSeriesRenderer({
             vertical={false}
           />
           <Tooltip
-            contentStyle={{
-              backgroundColor: "hsl(var(--card))",
-              border: "1px solid hsl(var(--border))",
-              borderRadius: "8px",
-              color: "hsl(var(--foreground))",
-            }}
+            {...CHART_TOOLTIP_PROPS}
             labelFormatter={formatXLabel}
             formatter={(v: number) => formatYValue(v, yFormatter)}
             itemSorter={(item) => -(Number(item.value) || 0)}
@@ -748,13 +746,13 @@ function TimeSeriesRenderer({
 
 export function SqlChartWithCard({ panel }: { panel: SqlPanel }) {
   return (
-    <Card className="h-full">
-      <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+    <Card className="flex h-full flex-col overflow-visible">
+      <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0 shrink-0">
         <CardTitle className="text-sm font-medium truncate">
           {panel.title}
         </CardTitle>
       </CardHeader>
-      <CardContent className="pt-0">
+      <CardContent className="flex flex-1 flex-col overflow-visible pt-0">
         <SqlChart panel={panel} />
       </CardContent>
     </Card>

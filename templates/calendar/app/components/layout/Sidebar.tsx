@@ -66,7 +66,7 @@ import {
 import { useCalendarContext } from "./AppLayout";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 
 const navItems = [
   { path: "/", label: "Calendar", icon: IconCalendar },
@@ -553,7 +553,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         </div>
 
         <div className="border-t border-border px-1.5 py-1.5">
-          <ToolsSidebarSection />
+          <ExtensionsSidebarSection />
         </div>
 
         {/* Google status / connect CTA */}

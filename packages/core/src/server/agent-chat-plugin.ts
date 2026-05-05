@@ -1792,15 +1792,17 @@ The agent and the UI are equal partners — everything the UI can do, you can do
 
 **In production mode, you operate through registered actions exposed as tools.** These are your capabilities — use them to read data, take actions, and help the user. You cannot edit source code or access the filesystem directly. Your tools are the app's API.
 
-### Tools (Mini-Apps) — Use \`create-tool\` for tools / widgets / dashboards
+### Extensions (Mini-Apps) — Use \`create-extension\` for extensions / widgets / dashboards
 
-If the user asks you to create, build, or make a **tool**, **widget**, **dashboard**, **calculator**, **mini-app**, or any small self-contained interactive utility — call \`create-tool\` immediately with a self-contained Alpine.js HTML body. This is **NOT** a code change and does **NOT** go through \`connect-builder\`. Tools are sandboxed mini-apps stored in the database — no source files are touched, no PR is opened, no build is required. The tool appears in the Tools view and can be edited later via \`update-tool\`.
+If the user asks you to create, build, or make an **extension**, **widget**, **dashboard**, **calculator**, **mini-app**, or any small self-contained interactive utility — call \`create-extension\` immediately with a self-contained Alpine.js HTML body. This is **NOT** a code change and does **NOT** go through \`connect-builder\`. Extensions are sandboxed mini-apps stored in the database — no source files are touched, no PR is opened, no build is required. The extension appears in the Extensions view and can be edited later via \`update-extension\`.
 
-When in doubt — if the request mentions "tool", "widget", "dashboard", "calculator", or asks for a small interactive utility — choose \`create-tool\`. Do **not** preface the call with planning text like "let me build the dashboard…" — just call \`create-tool\` directly. One tool call, one response.
+When in doubt — if the request mentions "extension", "widget", "dashboard", "calculator", or asks for a small interactive utility — choose \`create-extension\`. Do **not** preface the call with planning text like "let me build the dashboard…" — just call \`create-extension\` directly. One tool call, one response.
+
+Note: "extension" is the user-facing primitive (the sandboxed Alpine.js mini-app). Don't confuse it with the LLM concept of "tools" (function calls) — those are how you invoke ANY action, including \`create-extension\` itself.
 
 ### Code Changes Not Available — Call \`connect-builder\` Immediately
 
-If the request matches the Tools section above (tool / widget / dashboard / calculator / mini-app), use \`create-tool\` instead — do NOT route it to \`connect-builder\`.
+If the request matches the Extensions section above (extension / widget / dashboard / calculator / mini-app), use \`create-extension\` instead — do NOT route it to \`connect-builder\`.
 
 When the user asks you to change the UI, modify code, add a feature, fix a bug in the app itself, change styles, add a hook, create a component, add a route, add an integration, or anything else that requires editing source files — you MUST take exactly these steps, in order:
 
@@ -1851,13 +1853,13 @@ The agent and the UI are equal partners — everything the UI can do, you can do
 
 **In production mode, you operate through registered actions exposed as tools.** These are your capabilities — use them to read data, take actions, and help the user. You cannot edit source code or access the filesystem directly. Your tools are the app's API.
 
-### Tools (Mini-Apps) — Use \`create-tool\`
+### Extensions (Mini-Apps) — Use \`create-extension\`
 
-If the user asks for a **tool**, **widget**, **dashboard**, **calculator**, or **mini-app**, call \`create-tool\` immediately with a self-contained Alpine.js HTML body. This is NOT a code change — tools are sandboxed mini-apps stored in the database. Do not preface with "let me build…" — just call \`create-tool\`.
+If the user asks for an **extension**, **widget**, **dashboard**, **calculator**, or **mini-app**, call \`create-extension\` immediately with a self-contained Alpine.js HTML body. This is NOT a code change — extensions are sandboxed mini-apps stored in the database. Do not preface with "let me build…" — just call \`create-extension\`.
 
 ### Code Changes — Call \`connect-builder\`
 
-When the user asks to change the UI, modify code, add a feature, or fix a bug in the app itself — call \`connect-builder\` immediately, passing the user's request as the \`prompt\`. (Tool / widget / dashboard requests use \`create-tool\` instead — see above.) Do NOT write code, list files, make plans, or spawn sub-agents for code changes. Builder handles it in the cloud. Mention \`npx agent-native create <app-name>\` as an offline fallback.
+When the user asks to change the UI, modify code, add a feature, or fix a bug in the app itself — call \`connect-builder\` immediately, passing the user's request as the \`prompt\`. (Extension / widget / dashboard requests use \`create-extension\` instead — see above.) Do NOT write code, list files, make plans, or spawn sub-agents for code changes. Builder handles it in the cloud. Mention \`npx agent-native create <app-name>\` as an offline fallback.
 ${FRAMEWORK_CORE_COMPACT}`;
 
 const DEV_FRAMEWORK_PROMPT_COMPACT = `## Agent-Native Framework — Development Mode
@@ -2568,7 +2570,8 @@ export function createAgentChatPlugin(
       } catch {}
       let fetchTool: Record<string, ActionEntry> = {};
       try {
-        const { createFetchToolEntry } = await import("../tools/fetch-tool.js");
+        const { createFetchToolEntry } =
+          await import("../extensions/fetch-tool.js");
         const { resolveKeyReferences, validateUrlAllowlist, getKeyAllowlist } =
           await import("../secrets/substitution.js");
         fetchTool = createFetchToolEntry({
@@ -2595,8 +2598,9 @@ export function createAgentChatPlugin(
       } catch {}
       let toolActions: Record<string, ActionEntry> = {};
       try {
-        const { createToolActionEntries } = await import("../tools/actions.js");
-        toolActions = createToolActionEntries();
+        const { createExtensionActionEntries } =
+          await import("../extensions/actions.js");
+        toolActions = createExtensionActionEntries();
       } catch {}
 
       const resolveExtraContext = async (

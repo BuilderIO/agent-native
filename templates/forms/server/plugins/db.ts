@@ -75,6 +75,13 @@ CREATE TABLE IF NOT EXISTS form_shares (
         sqlite: `ALTER TABLE responses ADD COLUMN submitter_email TEXT`,
       },
     },
+    {
+      version: 8,
+      sql: {
+        postgres: `ALTER TABLE forms ADD COLUMN IF NOT EXISTS deleted_at TEXT`,
+        sqlite: `ALTER TABLE forms ADD COLUMN deleted_at TEXT`,
+      },
+    },
   ],
   { table: "forms_migrations" },
 );

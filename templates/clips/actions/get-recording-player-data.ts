@@ -152,6 +152,7 @@ export default defineAction({
         thumbnailUrl: rec.thumbnailUrl,
         animatedThumbnailUrl: rec.animatedThumbnailUrl,
         durationMs: rec.durationMs,
+        editsJson: rec.editsJson,
         videoUrl: resolvedVideoUrl,
         videoFormat: rec.videoFormat,
         width: rec.width,

@@ -2,9 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
   PromptComposer,
-  isInBuilderFrame,
   sendToAgentChat,
-  sendToBuilderChat,
   useActionQuery,
   useChatModels,
   agentNativePath,
@@ -101,14 +99,6 @@ function HomeChatPanel() {
   const { selectedModel } = useChatModels();
 
   const send = (message: string) => {
-    // When mounted inside builder.io's webview, the parent frame is the
-    // code-writing agent. Route home-chat submissions up to Builder's chat
-    // instead of the local dispatch agent — the local sidebar is in this
-    // same iframe and would never receive a postMessage we send to parent.
-    if (isInBuilderFrame()) {
-      sendToBuilderChat({ message, submit: true });
-      return;
-    }
     sendToAgentChat({
       message,
       submit: true,

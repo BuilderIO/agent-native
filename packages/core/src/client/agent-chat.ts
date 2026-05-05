@@ -3,6 +3,8 @@
  *
  * Sends structured messages to the agent chat from UI interactions.
  * Messages are sent via postMessage to the parent window (or self if top-level).
+ * Builder frames are special: code requests go to Builder, but content prompts
+ * stay inside the embedded app so its own AgentSidebar can receive them.
  */
 
 import { getFrameOrigin, isTrustedFrameMessage } from "./frame.js";
@@ -116,8 +118,15 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     data: { ...opts, tabId },
   };
 
-  const target = window.parent !== window ? window.parent : window;
-  const targetOrigin = getFrameOrigin() || window.location.origin;
+  const targetSelf = !isCodeRequest && isInBuilderFrame();
+  const target = targetSelf
+    ? window
+    : window.parent !== window
+      ? window.parent
+      : window;
+  const targetOrigin = targetSelf
+    ? window.location.origin
+    : getFrameOrigin() || window.location.origin;
   target.postMessage(payload, targetOrigin);
 
   // Surface the sidebar so the user sees the response. Callers can opt out

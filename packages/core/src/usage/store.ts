@@ -53,7 +53,7 @@ export interface UsageRecord {
   model: string;
   /** Category for this call — e.g. "chat", "automation", "job", "custom-agent". */
   label?: string;
-  /** Optional template/app name (e.g. "mail"). Falls back to AGENT_APP env. */
+  /** Optional template/app name (e.g. "mail"). Falls back to AGENT_APP / APP_NAME env. */
   app?: string;
 }
 
@@ -190,7 +190,8 @@ export async function recordUsage(
     cacheWriteTokens,
   );
   const id = Date.now() * 1000 + Math.floor(Math.random() * 1000);
-  const resolvedApp = app ?? process.env.AGENT_APP ?? "";
+  const resolvedApp =
+    app ?? process.env.AGENT_APP ?? process.env.APP_NAME ?? "";
   const resolvedLabel = label ?? "chat";
   await client.execute({
     sql: `INSERT INTO token_usage

@@ -119,7 +119,7 @@ export function EditorToolbar({
         startMs: Math.round(selectionRange.startMs),
         endMs: Math.round(selectionRange.endMs),
       } as any);
-      toast.success("Selection trimmed");
+      toast.success("Selection cut");
     } catch (err: any) {
       toast.error(err?.message ?? "Trim failed");
     }
@@ -228,10 +228,10 @@ export function EditorToolbar({
         variant="ghost"
         onClick={handleTrimSelection}
         disabled={!selectionRange || trim.isPending}
-        title="Trim selection"
+        title="Cut selection"
       >
         <IconScissors className="w-4 h-4 mr-1" />
-        Trim
+        Cut
       </Button>
 
       <Separator orientation="vertical" className="h-6 mx-1" />

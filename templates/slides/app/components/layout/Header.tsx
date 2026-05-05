@@ -8,7 +8,7 @@ const pageTitles: Record<string, string> = {
   "/design-systems": "Design Systems",
   "/team": "Team",
   "/settings": "Settings",
-  "/tools": "Tools",
+  "/extensions": "Extensions",
 };
 
 function DeckTitle({ id }: { id: string }) {
@@ -33,7 +33,7 @@ function ResolvedTitle({ pathname }: { pathname: string }) {
   const deckMatch = pathname.match(/^\/deck\/([^/]+)$/);
   if (deckMatch) return <DeckTitle id={deckMatch[1]} />;
 
-  if (pathname.startsWith("/tools/")) {
+  if (pathname.startsWith("/extensions/")) {
     return (
       <h1 className="text-lg font-semibold tracking-tight truncate">Tool</h1>
     );

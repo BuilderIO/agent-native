@@ -54,7 +54,7 @@ const DEFAULT_URL = import.meta.env.DEV
   : "https://clips.agent-native.com";
 
 const MACOS_CAPTURE_PERMISSION_MESSAGE =
-  "Recording permission is blocked. Open System Settings → Privacy & Security and enable Camera, Microphone, and Screen & System Audio Recording for Clips. In Tauri dev, macOS may list the debug binary separately from Ghostty or node, so restart Clips after granting it.";
+  "Recording permission is blocked. Try starting again so macOS can show the Camera and Microphone prompts, then open System Settings → Privacy & Security and enable Clips for Camera, Microphone, and Screen & System Audio Recording. In Tauri dev, macOS may list the debug binary separately from Ghostty or node, so restart Clips after granting it.";
 
 function loadString(key: string, fallback: string): string {
   try {

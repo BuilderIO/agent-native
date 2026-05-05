@@ -179,5 +179,5 @@ One action, four surfaces: the agent calls it as a tool, the UI calls it as a ty
 - [**Cloneable SaaS**](/docs/cloneable-saas) — templates as complete products you own
 - [**Workspace**](/docs/workspace) — the per-user customization layer (skills, memory, instructions, MCP) backed by SQL, not files
 - [**Dispatch**](/docs/dispatch) — the workspace control plane: secrets vault, Slack/email inbox, cross-app delegation
-- [**Tools**](/docs/tools) — sandboxed mini-apps the agent creates instantly without code changes
+- [**Extensions**](/docs/extensions) — sandboxed mini-apps the agent creates instantly without code changes
 - [**Drop-in Agent**](/docs/drop-in-agent) — mount `<AgentPanel>` into any React app
