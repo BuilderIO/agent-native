@@ -27,8 +27,8 @@
     "src"
   ],
   "scripts": {
-    "build": "tsc && tsc-alias",
-    "dev": "tsc --watch & tsc-alias --watch",
+    "build": "tsc && tsc-alias --resolve-full-paths",
+    "dev": "tsc --watch & tsc-alias --watch --resolve-full-paths",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run src --passWithNoTests",
     "prepack": "cp ../../README.md ./README.md",

@@ -134,6 +134,37 @@ function stripAppBasePath(pathname: string): string {
   return pathname;
 }
 
+/**
+ * Resolves the page-level legacy `/tools` → `/extensions` redirect target.
+ *
+ * Returns the absolute path (with optional query string) to redirect to,
+ * or `null` if the request should fall through to the SPA / next handler.
+ *
+ * Skips:
+ *   - Framework API namespace (`/_agent-native/tools/*` is handled separately
+ *     as a legacy alias and intentionally stays mounted as `tools`).
+ *   - Anything that isn't `/tools` or a `/tools/...` page navigation, after
+ *     the configured app base path is stripped off.
+ *
+ * Exported for tests; the runtime middleware below is a thin wrapper.
+ */
+export function resolveLegacyToolsRedirect(
+  rawPath: string,
+  search: string,
+): string | null {
+  if (rawPath === "/_agent-native" || rawPath.startsWith("/_agent-native/")) {
+    return null;
+  }
+  const pathname = stripAppBasePath(rawPath);
+  if (pathname !== "/tools" && !pathname.startsWith("/tools/")) return null;
+  const suffix =
+    pathname === "/tools" ? "" : pathname.slice("/tools".length);
+  const basePath = normalizeAppBasePath(
+    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
+  );
+  return `${basePath}/extensions${suffix}${search}`;
+}
+
 function redactValues(text: string, values: Array<string | null | undefined>) {
   let out = text;
   for (const value of values) {
@@ -1617,6 +1648,32 @@ export function createCoreRoutesPlugin(
     } catch {
       // Extensions module not available — skip
     }
+
+    // ─── Page-level legacy redirect: /tools → /extensions ──────────────
+    // Catches direct browser navigation / bookmarks for the old page route
+    // (`/tools`, `/tools/:id`) and 302s to the renamed equivalent under
+    // `/extensions`. The framework API alias above (`/_agent-native/tools/*`)
+    // is intentionally untouched — it stays mounted in parallel.
+    //
+    // Mounted with no path so the helper can do its own base-path stripping
+    // (h3 mount-matching only allows base-path stripping for `/_agent-native`
+    // and `/.well-known`). Returns undefined to fall through for anything
+    // that isn't a `/tools` page navigation.
+    getH3App(nitroApp).use(
+      defineEventHandler((event) => {
+        const method = getMethod(event);
+        if (method !== "GET" && method !== "HEAD") return;
+        const rawPath =
+          event.url?.pathname ??
+          String(event.node?.req?.url ?? event.path ?? "/").split("?")[0];
+        const search = event.url?.search ?? "";
+        const target = resolveLegacyToolsRedirect(rawPath, search);
+        if (!target) return;
+        setResponseStatus(event, 302);
+        setResponseHeader(event, "Location", target);
+        return "";
+      }),
+    );
 
     // ─── Agent run progress ───────────────────────────────────────────
     // GET    /_agent-native/runs[?active&limit]

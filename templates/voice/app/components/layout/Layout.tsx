@@ -16,7 +16,7 @@ export function Layout({ children }: LayoutProps) {
     return <>{children}</>;
   }
 
-  const isToolsRoute = location.pathname.startsWith("/extensions/");
+  const isExtensionsRoute = location.pathname.startsWith("/extensions/");
 
   return (
     <HeaderActionsProvider>
@@ -36,7 +36,7 @@ export function Layout({ children }: LayoutProps) {
             <Header />
             <main
               className={
-                isToolsRoute
+                isExtensionsRoute
                   ? "flex-1 overflow-y-auto"
                   : "flex-1 overflow-y-auto"
               }
