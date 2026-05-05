@@ -26,6 +26,7 @@ import {
   _rewriteNetlifyToml,
   _getCoreDependencyVersion,
   _getGitHubTemplateRef,
+  _getGitHubTemplateRefCandidates,
   _shouldSkipScaffoldEntry,
 } from "./create.js";
 import { workspacifyApp } from "./workspacify.js";
@@ -334,7 +335,19 @@ describe("template/core version compatibility", () => {
   });
 
   it("downloads first-party templates from the CLI package version tag", () => {
-    expect(_getGitHubTemplateRef()).toMatch(/^v\d+\.\d+\.\d+(?:-.+)?$/);
+    const candidates = _getGitHubTemplateRefCandidates();
+    // Changesets per-package tag MUST be tried first — without it, fresh
+    // 0.8.0+ publishes 404 because the legacy `v<version>` tag no longer
+    // exists. See PR for context (Sami's `pnpm i` failure was a downstream
+    // symptom of this same release-tooling shift).
+    expect(candidates[0]).toMatch(
+      /^@agent-native\/core@\d+\.\d+\.\d+(?:-.+)?$/,
+    );
+    // Legacy `v<version>` tag stays as a fallback so any older release that
+    // only has the repo-wide tag (≤ 0.7.83) keeps working when re-run.
+    expect(candidates).toContain(`v${candidates[0].split("@").slice(-1)[0]}`);
+    // `main` is the last-resort fallback for unreleased dev builds.
+    expect(candidates[candidates.length - 1]).toBe("main");
   });
 });
 

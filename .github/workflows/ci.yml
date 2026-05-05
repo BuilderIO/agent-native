@@ -115,10 +115,16 @@ jobs:
           fi
           pnpm install
 
-      - name: Scaffold workspace (starter + calendar) and verify pnpm install + build
+      - name: Scaffold workspace (starter + calendar + dispatch) and verify pnpm install + build
+        # Dispatch is in the combo because it exercises the
+        # workspacify.ts dispatch-rewrite path (workspace:* → "latest" for
+        # @agent-native/dispatch, the only published package consumed as a
+        # workspace app). Calendar covers the requiredPackages →
+        # packages/scheduling scaffold path. Together they guard the two
+        # distinct ways a workspace template can break `pnpm install`.
         run: |
           cd "$(mktemp -d)"
-          node "$GITHUB_WORKSPACE/packages/core/dist/cli/index.js" create test-workspace --template starter,calendar
+          node "$GITHUB_WORKSPACE/packages/core/dist/cli/index.js" create test-workspace --template starter,calendar,dispatch
           cd test-workspace
           # Required package must be scaffolded
           if [ ! -d "packages/scheduling" ]; then
@@ -130,11 +136,53 @@ jobs:
             echo "::error::postinstall script missing for required packages"
             exit 1
           fi
-          # No workspace:* on @agent-native/core in any package.json
-          if grep -r '"@agent-native/core": "workspace:' apps/ packages/; then
-            echo "::error::@agent-native/core still has workspace:* in scaffold"
-            exit 1
-          fi
+          # Every workspace:* dep in scaffolded apps must resolve to a
+          # package actually present in the workspace. Catches the class of
+          # bug Sami hit: a template depended on @agent-native/dispatch
+          # (a published package, not a workspace member) and `pnpm install`
+          # blew up with ERR_PNPM_WORKSPACE_PKG_NOT_FOUND. We allow
+          # workspace:* for @<workspace-scope>/* (the shared package).
+          node -e '
+            const fs = require("fs");
+            const path = require("path");
+            const wsPkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const wsScope = wsPkg.name ? "@" + wsPkg.name + "/" : "";
+            const wsMembers = new Set();
+            for (const dir of ["apps", "packages"]) {
+              if (!fs.existsSync(dir)) continue;
+              for (const sub of fs.readdirSync(dir)) {
+                const pj = path.join(dir, sub, "package.json");
+                if (fs.existsSync(pj)) {
+                  const n = JSON.parse(fs.readFileSync(pj, "utf8")).name;
+                  if (n) wsMembers.add(n);
+                }
+              }
+            }
+            const offenders = [];
+            for (const dir of ["apps", "packages"]) {
+              if (!fs.existsSync(dir)) continue;
+              for (const sub of fs.readdirSync(dir)) {
+                const pj = path.join(dir, sub, "package.json");
+                if (!fs.existsSync(pj)) continue;
+                const pkg = JSON.parse(fs.readFileSync(pj, "utf8"));
+                for (const dt of ["dependencies","devDependencies","peerDependencies"]) {
+                  for (const [name, ver] of Object.entries(pkg[dt] || {})) {
+                    if (typeof ver === "string" && ver.startsWith("workspace:")) {
+                      if (wsScope && name.startsWith(wsScope)) continue;
+                      if (!wsMembers.has(name)) {
+                        offenders.push(pj + ": " + dt + "." + name + "=" + ver);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            if (offenders.length) {
+              console.error("::error::dangling workspace:* refs in scaffold (no matching workspace member):");
+              for (const o of offenders) console.error("  " + o);
+              process.exit(1);
+            }
+          '
           pnpm install
           # Build the calendar app — catches missing peer/runtime deps that
           # `pnpm install` alone won't surface (e.g. core importing a peer
