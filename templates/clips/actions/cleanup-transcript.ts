@@ -26,13 +26,11 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { readAppSecret } from "@agent-native/core/secrets";
 import {
-  resolveBuilderCredential,
   resolveBuilderAuthHeader,
+  resolveSecret,
   FeatureNotConfiguredError,
 } from "@agent-native/core/server";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 // Builder public LLM gateway base URL. Override via BUILDER_GATEWAY_BASE_URL.
 // Mirrors `getBuilderGatewayBaseUrl()` in @agent-native/core/server/credential-provider
@@ -138,22 +136,7 @@ export default defineAction({
 });
 
 async function resolveUserGeminiKey(): Promise<string | null> {
-  // Prefer the Builder credential helper for symmetry; falls back to per-user
-  // app_secrets for users who pasted their own Gemini key.
-  const fromBuilder = await resolveBuilderCredential("GEMINI_API_KEY");
-  if (fromBuilder) return fromBuilder;
-  const email = getRequestUserEmail();
-  if (!email) return null;
-  try {
-    const secret = await readAppSecret({
-      key: "GEMINI_API_KEY",
-      scope: "user",
-      scopeId: email,
-    });
-    return secret?.value ?? null;
-  } catch {
-    return null;
-  }
+  return await resolveSecret("GEMINI_API_KEY");
 }
 
 async function callBuilderGateway({

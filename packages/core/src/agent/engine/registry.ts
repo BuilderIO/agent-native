@@ -14,7 +14,10 @@ import type {
   EngineStreamOptions,
 } from "./types.js";
 import { getSetting } from "../../settings/store.js";
-import { readDeployCredentialEnv } from "../../server/credential-provider.js";
+import {
+  readDeployCredentialEnv,
+  resolveSecret,
+} from "../../server/credential-provider.js";
 
 export interface AgentEngineEntry {
   /** Unique name, e.g. "anthropic", "ai-sdk:anthropic", "ai-sdk:openai" */
@@ -106,9 +109,10 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
 }
 
 /**
- * Detect a usable engine from the current request user's per-user
+ * Detect a usable engine from the current request user's accessible
  * `app_secrets` rows. Mirrors `detectEngineFromEnv` but consults the
- * encrypted secret store instead of `process.env`.
+ * encrypted secret store instead of `process.env`, including org/workspace
+ * credentials shared with the active organization.
  *
  * Required because the Builder OAuth callback (and the settings UI's
  * "paste your own key" flow) writes credentials to app_secrets, not env.
@@ -122,7 +126,9 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
  * OAuth flow writes credentials scoped to that email when run from
  * `pnpm dev`, so detection has to consult those rows or the dev user
  * sees the same "Connect your AI" card after they've already connected
- * (Sami, 2026-04-30). Returns `null` only for unauthenticated requests.
+ * (Sami, 2026-04-30). Org-scoped Builder credentials must also count here:
+ * `/builder/status` resolves them via the same request org context, and the
+ * chat engine picker must not disagree with that card.
  */
 export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | null> {
   let email: string | undefined;
@@ -135,23 +141,11 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
   }
   if (!email) return null;
 
-  let readAppSecret: typeof import("../../secrets/storage.js").readAppSecret;
-  try {
-    ({ readAppSecret } = await import("../../secrets/storage.js"));
-  } catch {
-    return null;
-  }
-
   const hasAllKeys = async (entry: AgentEngineEntry): Promise<boolean> => {
     if (entry.requiredEnvVars.length === 0) return false;
     for (const key of entry.requiredEnvVars) {
       try {
-        const secret = await readAppSecret({
-          key,
-          scope: "user",
-          scopeId: email!,
-        });
-        if (!secret?.value) return false;
+        if (!(await resolveSecret(key))) return false;
       } catch {
         return false;
       }

@@ -348,6 +348,7 @@ describe("AgentEngine registry", () => {
     it("returns null when no request user is set", async () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestUserEmail: () => undefined,
+        getRequestOrgId: () => undefined,
       }));
       const { detectEngineFromUserSecrets } = await import("./registry.js");
       expect(await detectEngineFromUserSecrets()).toBeNull();
@@ -356,6 +357,7 @@ describe("AgentEngine registry", () => {
     it("returns null for the local-dev session", async () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestUserEmail: () => "local@localhost",
+        getRequestOrgId: () => undefined,
       }));
       const { detectEngineFromUserSecrets } = await import("./registry.js");
       expect(await detectEngineFromUserSecrets()).toBeNull();
@@ -364,6 +366,7 @@ describe("AgentEngine registry", () => {
     it("picks the Builder engine when the user has BUILDER_PRIVATE_KEY in app_secrets", async () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestUserEmail: () => "brent@example.com",
+        getRequestOrgId: () => undefined,
       }));
       vi.doMock("../../secrets/storage.js", () => ({
         readAppSecret: vi.fn(async ({ key }: { key: string }) =>
@@ -401,9 +404,67 @@ describe("AgentEngine registry", () => {
       expect(detected?.name).toBe("builder");
     });
 
+    it("picks the Builder engine when the active org has shared Builder credentials", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "teammate@example.com",
+        getRequestOrgId: () => "builder_io",
+      }));
+      const readAppSecret = vi.fn(
+        async ({
+          key,
+          scope,
+        }: {
+          key: string;
+          scope: "user" | "org" | "workspace";
+        }) =>
+          key === "BUILDER_PRIVATE_KEY" && scope === "org"
+            ? { key, value: "org-builder-key" }
+            : null,
+      );
+      vi.doMock("../../secrets/storage.js", () => ({ readAppSecret }));
+
+      const { registerAgentEngine, detectEngineFromUserSecrets } =
+        await import("./registry.js");
+
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY"],
+        create: vi.fn() as any,
+      });
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: vi.fn() as any,
+      });
+
+      const detected = await detectEngineFromUserSecrets();
+      expect(detected?.name).toBe("builder");
+      expect(readAppSecret).toHaveBeenCalledWith({
+        key: "BUILDER_PRIVATE_KEY",
+        scope: "user",
+        scopeId: "teammate@example.com",
+      });
+      expect(readAppSecret).toHaveBeenCalledWith({
+        key: "BUILDER_PRIVATE_KEY",
+        scope: "org",
+        scopeId: "builder_io",
+      });
+    });
+
     it("resolveEngine routes to Builder when the user has Builder creds in app_secrets and no env-level keys", async () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestUserEmail: () => "brent@example.com",
+        getRequestOrgId: () => undefined,
       }));
       vi.doMock("../../secrets/storage.js", () => ({
         readAppSecret: vi.fn(async ({ key }: { key: string }) =>
