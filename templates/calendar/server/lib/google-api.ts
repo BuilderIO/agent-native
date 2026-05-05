@@ -314,10 +314,10 @@ export function calendarPatchEvent(
   calendarId: string,
   eventId: string,
   body: any,
-  sendUpdates?: string,
+  params?: { sendUpdates?: string; conferenceDataVersion?: number },
 ) {
   return googleFetch(
-    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${qs({ sendUpdates })}`,
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${qs(params ?? {})}`,
     accessToken,
     {
       method: "PATCH",

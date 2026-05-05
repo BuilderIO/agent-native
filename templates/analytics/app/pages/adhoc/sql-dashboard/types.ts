@@ -1,6 +1,13 @@
 export type DataSourceType = "bigquery" | "ga4" | "amplitude" | "first-party";
 
-export type ChartType = "line" | "area" | "bar" | "metric" | "table" | "pie";
+export type ChartType =
+  | "line"
+  | "area"
+  | "bar"
+  | "metric"
+  | "table"
+  | "pie"
+  | "section";
 
 export type FilterType =
   | "date"
@@ -54,6 +61,8 @@ export interface SqlPanelConfig {
   yFormatter?: "number" | "currency" | "percent";
   description?: string;
   pivot?: PivotConfig;
+  /** Stack bar/area series on top of each other instead of side-by-side / overlapping. */
+  stacked?: boolean;
   sortable?: boolean;
   columns?: TableColumnConfig[];
   limit?: number;

@@ -113,6 +113,8 @@ export default function App() {
 
   const currentAppTabs = appTabs[activeSidebarAppId];
   const activeTabId = currentAppTabs?.activeTabId ?? "";
+  const activeTabIdRef = useRef(activeTabId);
+  activeTabIdRef.current = activeTabId;
 
   const handleAppsChanged = useCallback((newApps: AppConfig[]) => {
     setApps(newApps);
@@ -248,14 +250,20 @@ export default function App() {
       }
 
       if (key === "[" || key === "]") {
-        setActiveSidebarAppId((current) => {
-          const idx = appDefs.findIndex((a) => a.id === current);
-          const next =
-            key === "]"
-              ? (idx + 1) % appDefs.length
-              : (idx - 1 + appDefs.length) % appDefs.length;
-          return appDefs[next].id;
-        });
+        if (shiftKey) {
+          setActiveSidebarAppId((current) => {
+            const idx = appDefs.findIndex((a) => a.id === current);
+            const next =
+              key === "]"
+                ? (idx + 1) % appDefs.length
+                : (idx - 1 + appDefs.length) % appDefs.length;
+            return appDefs[next].id;
+          });
+        } else {
+          const ref = webviewRefs.current.get(activeTabIdRef.current);
+          if (key === "[") ref?.goBack();
+          else ref?.goForward();
+        }
       }
     },
     [handleNewTab, handleReopenTab, appDefs],
@@ -286,9 +294,6 @@ export default function App() {
       window.electronAPI.setActiveApp(activeSidebarAppId);
     }
   }, [activeSidebarAppId]);
-
-  const activeTabIdRef = useRef(currentAppTabs?.activeTabId ?? "");
-  activeTabIdRef.current = currentAppTabs?.activeTabId ?? "";
 
   useEffect(() => {
     if (!window.electronAPI?.shortcuts?.onCloseTab) return;

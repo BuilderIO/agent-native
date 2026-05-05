@@ -946,6 +946,38 @@ function openOAuthWindow(
   });
 }
 
+const webviewOAuthNavigationHandlers = new WeakSet<Electron.WebContents>();
+
+function openOAuthFromWebviewNavigation(
+  url: string,
+  sourceContents: Electron.WebContents,
+): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return false;
+    }
+    const provider = matchOAuthProvider(url, {
+      sourceUrl: sourceContents.getURL(),
+    });
+    if (!provider) return false;
+    openOAuthWindow(url, sourceContents.session, provider);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
+  if (webviewOAuthNavigationHandlers.has(contents)) return;
+  webviewOAuthNavigationHandlers.add(contents);
+
+  contents.on("will-frame-navigate", (event) => {
+    if (!openOAuthFromWebviewNavigation(event.url, contents)) return;
+    event.preventDefault();
+  });
+}
+
 // ---------- Webview popup handling ----------
 // React 19 sets <webview allowpopups={true}> as a DOM property, not an HTML
 // attribute. Electron only reads the attribute, so popups are silently
@@ -960,6 +992,7 @@ app.on("web-contents-created", (_event, contents) => {
   if (contents.getType() !== "webview") {
     contents.on("did-attach-webview" as any, (_e: any, wc: any) => {
       installContextMenu(wc);
+      installWebviewOAuthNavigationHandler(wc);
 
       wc.setWindowOpenHandler(({ url }: any) => {
         try {
@@ -981,6 +1014,8 @@ app.on("web-contents-created", (_event, contents) => {
     });
     return;
   }
+
+  installWebviewOAuthNavigationHandler(contents);
 
   contents.setWindowOpenHandler(({ url }) => {
     try {

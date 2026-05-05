@@ -23,7 +23,28 @@ async function ctxFromEvent(event: any) {
  * fills in anything missing — so a parametric dashboard (e.g. one with
  * `{{dateStart}}`) validates against a real value instead of blowing up
  * on the empty string the interpolator would otherwise produce.
+ *
+ * date-range filters expand into `<id>Start` / `<id>End` to match the
+ * runtime expansion in DashboardFilterBar's resolveFilterVars; without
+ * this, any panel that uses `{{dateStart}}` / `{{dateEnd}}` fails the
+ * dry-run with a literal "" cast error.
  */
+function todayUtc(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function resolveDateDefault(raw: string | undefined): string {
+  if (!raw) return "";
+  const m = /^(\d+)d$/.exec(raw);
+  if (m) {
+    const d = new Date();
+    d.setDate(d.getDate() - parseInt(m[1], 10));
+    return d.toISOString().slice(0, 10);
+  }
+  if (raw === "today") return todayUtc();
+  return raw;
+}
+
 function buildDryRunVars(
   config: Record<string, unknown>,
 ): Record<string, string> {
@@ -35,8 +56,15 @@ function buildDryRunVars(
     const key =
       typeof f.key === "string" ? f.key : typeof f.id === "string" ? f.id : "";
     if (!key) continue;
-    const def = f.default;
-    if (typeof def === "string" && def) vars[key] = def;
+    const def = typeof f.default === "string" ? f.default : "";
+    if (f.type === "date-range") {
+      vars[`${key}Start`] = resolveDateDefault(def);
+      vars[`${key}End`] = todayUtc();
+    } else if (f.type === "date" || f.type === "toggle-date") {
+      if (def) vars[key] = resolveDateDefault(def);
+    } else {
+      if (def) vars[key] = def;
+    }
   }
   const declared =
     config.variables && typeof config.variables === "object"
@@ -138,6 +166,8 @@ async function validatePanelSql(
   const vars = buildDryRunVars(config);
   for (let i = 0; i < panels.length; i++) {
     const p = panels[i] as Record<string, unknown>;
+    // Sections are layout-only — no SQL to dry-run.
+    if (p.chartType === "section") continue;
     const raw = typeof p.sql === "string" ? p.sql : "";
     if (!raw.trim()) continue;
 
@@ -257,7 +287,14 @@ function validateDashboardConfig(
     return "panels must be an array";
   }
   if (Array.isArray(panels)) {
-    const requiredStrings = ["id", "title", "sql", "source", "chartType"];
+    const requiredStringsForQueryPanel = [
+      "id",
+      "title",
+      "sql",
+      "source",
+      "chartType",
+    ];
+    const requiredStringsForSection = ["id", "title", "chartType"];
     const validSources = new Set([
       "bigquery",
       "ga4",
@@ -267,13 +304,17 @@ function validateDashboardConfig(
     for (let i = 0; i < panels.length; i++) {
       const p = panels[i] as Record<string, unknown> | null;
       if (!p || typeof p !== "object") return `panel[${i}] must be an object`;
+      const isSection = p.chartType === "section";
+      const requiredStrings = isSection
+        ? requiredStringsForSection
+        : requiredStringsForQueryPanel;
       for (const field of requiredStrings) {
         const v = p[field];
         if (typeof v !== "string" || v.trim().length === 0) {
           return `panel[${i}].${field} is required`;
         }
       }
-      if (!validSources.has(p.source as string)) {
+      if (!isSection && !validSources.has(p.source as string)) {
         return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', or 'first-party' (got '${p.source}'). The table name belongs in the panel's sql, not in source — source selects the backend, not the table.`;
       }
       if (p.width !== 1 && p.width !== 2) {

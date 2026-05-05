@@ -39,6 +39,7 @@ export default defineAction({
     for (const { email: acctEmail, accessToken } of clients) {
       try {
         const evt = await calendarGetEvent(accessToken, calendarId, rawId);
+        const selfAttendee = evt.attendees?.find((a: any) => a.self === true);
 
         const calEvent: CalendarEvent = {
           id: `google-${evt.id}`,
@@ -51,6 +52,7 @@ export default defineAction({
           source: "google",
           googleEventId: evt.id || undefined,
           accountEmail: acctEmail,
+          responseStatus: selfAttendee?.responseStatus || undefined,
           attendees: evt.attendees?.map((a: any) => ({
             email: a.email,
             displayName: a.displayName || undefined,

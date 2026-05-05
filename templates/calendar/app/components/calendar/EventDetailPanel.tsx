@@ -9,6 +9,7 @@ import {
   IconExternalLink,
   IconFileText,
   IconAlignLeft,
+  IconVideo,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +29,7 @@ import {
   AutoGrowTextarea,
 } from "@/components/calendar/EventDescription";
 import { useUpdateEvent } from "@/hooks/use-events";
+import { toast } from "sonner";
 
 interface EventDetailPanelProps {
   event: CalendarEvent | null;
@@ -65,6 +67,21 @@ function getEventColor(event: CalendarEvent): string {
   return getEventAutoColor(event);
 }
 
+function extractMeetingLink(event: CalendarEvent): string | null {
+  const videoEntry = event.conferenceData?.entryPoints?.find(
+    (entry) => entry.entryPointType === "video",
+  );
+  if (videoEntry?.uri) return videoEntry.uri;
+  if (event.hangoutLink) return event.hangoutLink;
+  const text = `${event.location || ""} ${event.description || ""}`;
+  return (
+    text.match(/https?:\/\/[^\s]*zoom\.us\/j\/[^\s)"]*/i)?.[0] ||
+    text.match(/https?:\/\/meet\.google\.com\/[^\s)"]*/i)?.[0] ||
+    text.match(/https?:\/\/teams\.microsoft\.com\/[^\s)"]*/i)?.[0] ||
+    null
+  );
+}
+
 export function EventDetailPanel({
   event,
   onClose,
@@ -84,6 +101,7 @@ export function EventDetailPanel({
   const updateEvent = useUpdateEvent();
   const isOverlay = !!event?.overlayEmail;
   const lastSavedDescriptionRef = useRef(event?.description || "");
+  const meetingLink = event ? extractMeetingLink(event) : null;
 
   // Reset editing state when event changes
   useEffect(() => {
@@ -125,6 +143,21 @@ export function EventDetailPanel({
     setEventDetailSidebar(false);
     onClose();
   };
+
+  const handleAddGoogleMeet = useCallback(() => {
+    if (!event || updateEvent.isPending) return;
+    updateEvent.mutate(
+      {
+        id: event.id,
+        accountEmail: event.accountEmail,
+        addGoogleMeet: true,
+      },
+      {
+        onSuccess: () => toast("Google Meet added"),
+        onError: () => toast.error("Failed to add Google Meet"),
+      },
+    );
+  }, [event, updateEvent]);
 
   return (
     <TooltipProvider>
@@ -254,6 +287,30 @@ export function EventDetailPanel({
                     <span>{event.location}</span>
                   </div>
                 )}
+
+                {meetingLink ? (
+                  <a
+                    href={safeUrl(meetingLink)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center rounded-lg bg-[#4965E0] px-3 py-2 text-sm font-semibold text-white hover:bg-[#5A75F0]"
+                  >
+                    <IconVideo className="mr-2 h-4 w-4 opacity-80" />
+                    Join meeting
+                  </a>
+                ) : !isOverlay ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-center gap-1.5"
+                    disabled={updateEvent.isPending}
+                    onClick={handleAddGoogleMeet}
+                  >
+                    <IconVideo className="h-4 w-4" />
+                    Google Meet
+                  </Button>
+                ) : null}
 
                 {/* Description — always shown, editable; hidden for overlay events with no description */}
                 {(!isOverlay || event.description) && (

@@ -15,7 +15,12 @@ vi.mock("./run-store.js", () => ({
   reapIfStale: vi.fn(() => Promise.resolve(null)),
 }));
 
-import { resolveRunSoftTimeoutMs, startRun } from "./run-manager.js";
+import {
+  abortRun,
+  DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
+  resolveRunSoftTimeoutMs,
+  startRun,
+} from "./run-manager.js";
 
 const originalTimeoutEnv = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
 const originalNetlify = process.env.NETLIFY;
@@ -25,6 +30,7 @@ const originalVercel = process.env.VERCEL;
 const originalVercelEnv = process.env.VERCEL_ENV;
 const originalRender = process.env.RENDER;
 const originalFlyAppName = process.env.FLY_APP_NAME;
+const originalKService = process.env.K_SERVICE;
 
 function restoreEnv(key: string, value: string | undefined) {
   if (value === undefined) {
@@ -45,6 +51,7 @@ describe("run manager soft timeout", () => {
     delete process.env.VERCEL_ENV;
     delete process.env.RENDER;
     delete process.env.FLY_APP_NAME;
+    delete process.env.K_SERVICE;
   });
 
   afterEach(() => {
@@ -56,6 +63,7 @@ describe("run manager soft timeout", () => {
     restoreEnv("VERCEL_ENV", originalVercelEnv);
     restoreEnv("RENDER", originalRender);
     restoreEnv("FLY_APP_NAME", originalFlyAppName);
+    restoreEnv("K_SERVICE", originalKService);
     vi.useRealTimers();
   });
 
@@ -101,10 +109,10 @@ describe("run manager soft timeout", () => {
     expect(resolveRunSoftTimeoutMs()).toBe(0);
   });
 
-  it("does not impose a hosted default on serverless deploys", () => {
+  it("uses a hosted default on serverless deploys", () => {
     process.env.NETLIFY = "true";
 
-    expect(resolveRunSoftTimeoutMs()).toBe(0);
+    expect(resolveRunSoftTimeoutMs()).toBe(DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS);
   });
 
   it("treats Netlify local as a local runtime", () => {
@@ -119,5 +127,29 @@ describe("run manager soft timeout", () => {
     process.env.AGENT_RUN_SOFT_TIMEOUT_MS = "0";
 
     expect(resolveRunSoftTimeoutMs()).toBe(0);
+  });
+
+  it("retires explicitly aborted in-memory runs without completing them", async () => {
+    const onComplete = vi.fn();
+    const run = startRun(
+      "run-explicit-abort",
+      "thread-explicit-abort",
+      async (send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        send({ type: "text", text: "late event after abort" });
+      },
+      onComplete,
+      { softTimeoutMs: 0 },
+    );
+
+    expect(abortRun("run-explicit-abort")).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(run.status).toBe("aborted");
+    expect(run.events).toHaveLength(0);
+    expect(onComplete).not.toHaveBeenCalled();
   });
 });

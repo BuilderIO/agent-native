@@ -160,6 +160,20 @@ interface SqlChartProps {
 }
 
 export function SqlChart({ panel, resolvedSql }: SqlChartProps) {
+  // Section panels are pure layout — no query, no chart. Render a header with
+  // optional description and skip the SQL pipeline entirely.
+  if (panel.chartType === "section") {
+    return (
+      <div className="px-1 py-2">
+        {panel.config?.description && (
+          <p className="text-sm text-muted-foreground">
+            {panel.config.description}
+          </p>
+        )}
+      </div>
+    );
+  }
+
   const sql = resolvedSql ?? panel.sql;
   const { data: result, isLoading } = useSqlQuery(
     ["sql-chart", panel.id, sql, panel.source],
@@ -234,6 +248,7 @@ export function SqlChart({ panel, resolvedSql }: SqlChartProps) {
         yKeys={yKeys}
         colors={colors}
         yFormatter={yFormatter}
+        stacked={panel.config?.stacked === true}
       />
     );
   }
@@ -246,6 +261,7 @@ export function SqlChart({ panel, resolvedSql }: SqlChartProps) {
       colors={colors}
       yFormatter={yFormatter}
       chartType={chartType}
+      stacked={panel.config?.stacked === true}
     />
   );
 }
@@ -555,12 +571,14 @@ function BarRenderer({
   yKeys,
   colors,
   yFormatter,
+  stacked,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
   yKeys: string[];
   colors: string[];
   yFormatter?: "number" | "currency" | "percent";
+  stacked?: boolean;
 }) {
   return (
     <div className="h-[250px] w-full overflow-visible">
@@ -597,7 +615,10 @@ function BarRenderer({
               key={key}
               dataKey={key}
               fill={colors[i % colors.length]}
-              radius={[4, 4, 0, 0]}
+              radius={
+                stacked && i < yKeys.length - 1 ? [0, 0, 0, 0] : [4, 4, 0, 0]
+              }
+              stackId={stacked ? "stack" : undefined}
             />
           ))}
         </BarChart>
@@ -613,6 +634,7 @@ function TimeSeriesRenderer({
   colors,
   yFormatter,
   chartType,
+  stacked,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
@@ -620,6 +642,7 @@ function TimeSeriesRenderer({
   colors: string[];
   yFormatter?: "number" | "currency" | "percent";
   chartType: "line" | "area";
+  stacked?: boolean;
 }) {
   if (chartType === "line") {
     return (
@@ -669,8 +692,9 @@ function TimeSeriesRenderer({
   }
 
   // With multiple series, filled areas stack and obscure lines behind them,
-  // so only draw the gradient fill when there's a single series.
-  const showFill = yKeys.length === 1;
+  // so only draw the gradient fill when there's a single series — unless
+  // the caller asked for an explicit stacked area.
+  const showFill = yKeys.length === 1 || stacked;
 
   return (
     <div className="h-[250px] w-full overflow-visible">
@@ -736,6 +760,7 @@ function TimeSeriesRenderer({
               strokeWidth={2}
               fillOpacity={showFill ? 1 : 0}
               fill={showFill ? `url(#sql-gradient-${key})` : "none"}
+              stackId={stacked ? "stack" : undefined}
             />
           ))}
         </AreaChart>

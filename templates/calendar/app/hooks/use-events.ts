@@ -8,6 +8,20 @@ import { agentNativePath, useActionQuery } from "@agent-native/core/client";
 import { appApiPath } from "@/lib/api-path";
 import type { CalendarEvent } from "@shared/api";
 
+type CreateEventInput = Omit<
+  CalendarEvent,
+  "id" | "createdAt" | "updatedAt" | "source"
+> & {
+  _tempId?: string;
+  addGoogleMeet?: boolean;
+};
+
+type UpdateEventInput = Partial<CalendarEvent> & {
+  id: string;
+  addGoogleMeet?: boolean;
+  sendUpdates?: "all" | "none";
+};
+
 function buildEventsParams(
   from?: string,
   to?: string,
@@ -80,11 +94,7 @@ export function useEvent(id: string) {
 export function useCreateEvent() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (
-      data: Omit<CalendarEvent, "id" | "createdAt" | "updatedAt" | "source"> & {
-        _tempId?: string;
-      },
-    ) => {
+    mutationFn: async (data: CreateEventInput) => {
       const { _tempId, ...eventData } = data;
       const res = await fetch(
         agentNativePath("/_agent-native/actions/create-event"),
@@ -138,10 +148,7 @@ export function useCreateEvent() {
 export function useUpdateEvent() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      id,
-      ...data
-    }: Partial<CalendarEvent> & { id: string }) => {
+    mutationFn: async ({ id, ...data }: UpdateEventInput) => {
       const res = await fetch(appApiPath(`/api/events/${id}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -155,10 +162,13 @@ export function useUpdateEvent() {
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
         queryKey: ["action", "list-events"],
       });
+      const { addGoogleMeet, sendUpdates, ...optimisticData } = newData;
       queryClient.setQueriesData<CalendarEvent[]>(
         { queryKey: ["action", "list-events"] },
         (old) =>
-          old?.map((e) => (e.id === newData.id ? { ...e, ...newData } : e)),
+          old?.map((e) =>
+            e.id === optimisticData.id ? { ...e, ...optimisticData } : e,
+          ),
       );
       return { previous };
     },
