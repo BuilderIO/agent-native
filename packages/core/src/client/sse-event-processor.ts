@@ -309,18 +309,22 @@ export function processEvent(
     const reason =
       ev.reason === "stream_ended" ||
       ev.reason === "loop_limit" ||
+      ev.reason === "no_progress" ||
       ev.reason === "run_timeout"
         ? ev.reason
         : ev.errorCode === "stream_ended" ||
             ev.errorCode === "loop_limit" ||
+            ev.errorCode === "no_progress" ||
             ev.errorCode === "run_timeout"
           ? ev.errorCode
           : ev.error === "stream_ended" ||
               ev.error === "loop_limit" ||
+              ev.error === "no_progress" ||
               ev.error === "run_timeout"
             ? ev.error
             : ev.status === "stream_ended" ||
                 ev.status === "loop_limit" ||
+                ev.status === "no_progress" ||
                 ev.status === "run_timeout"
               ? ev.status
               : "run_timeout";

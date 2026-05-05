@@ -368,12 +368,7 @@ function subscribeInMemory(
             ),
           );
           // Close stream after terminal events
-          if (
-            event.event.type === "done" ||
-            event.event.type === "error" ||
-            event.event.type === "missing_api_key" ||
-            event.event.type === "loop_limit"
-          ) {
+          if (isTerminalRunEvent(event.event)) {
             run.subscribers.delete(subscriberRef!);
             if (pingTimer) clearInterval(pingTimer);
             controller.close();
@@ -442,12 +437,7 @@ function subscribeFromSQL(
             lastSeq = seq;
 
             // Close on terminal events
-            if (
-              parsed.type === "done" ||
-              parsed.type === "error" ||
-              parsed.type === "missing_api_key" ||
-              parsed.type === "loop_limit"
-            ) {
+            if (isTerminalRunEvent(parsed)) {
               if (pingTimer) clearInterval(pingTimer);
               controller.close();
               return;
@@ -592,7 +582,14 @@ export function getRun(runId: string): ActiveRun | null {
 export function abortRun(runId: string): boolean {
   const run = activeRuns.get(runId);
   if (run) {
+    run.status = "aborted";
+    if (threadToRun.get(run.threadId) === runId) {
+      threadToRun.delete(run.threadId);
+    }
     run.abort.abort();
+    for (const subscriber of run.subscribers) {
+      run.subscribers.delete(subscriber);
+    }
   }
   // Also mark as aborted in SQL (for cross-isolate abort on Workers)
   markRunAborted(runId).catch(() => {});
