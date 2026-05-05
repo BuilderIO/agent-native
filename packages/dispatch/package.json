@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/dispatch",
-  "version": "1.0.0",
+  "version": "0.2.2",
   "type": "module",
   "description": "Dispatch — workspace control plane for agent-native apps. Vault, integrations, destinations, scheduled jobs, and cross-app delegation, shipped as a single drop-in package.",
   "license": "MIT",
