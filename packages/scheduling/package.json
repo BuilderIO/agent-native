@@ -58,7 +58,7 @@
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "@agent-native/core": ">=0.7",
+    "@agent-native/core": ">=0.7.84",
     "@tabler/icons-react": ">=3",
     "drizzle-orm": ">=0.45",
     "react": ">=18",
