@@ -276,7 +276,10 @@ describe("server/sentry", () => {
         "route",
         "/_agent-native/agent-chat",
       );
-      expect(sentryMock.mockScope.setTag).toHaveBeenCalledWith("method", "POST");
+      expect(sentryMock.mockScope.setTag).toHaveBeenCalledWith(
+        "method",
+        "POST",
+      );
       expect(sentryMock.mockScope.setTag).toHaveBeenCalledWith(
         "userAgent",
         "Mozilla/5.0",

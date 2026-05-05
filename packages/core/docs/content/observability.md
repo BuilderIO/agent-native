@@ -187,11 +187,11 @@ The framework emits `gen_ai.*` semantic convention spans compatible with the Ope
 
 Server-side errors that escape Nitro route handlers are reported to Sentry when a DSN is configured. Without it the SDK silently no-ops, so it's safe to leave the env vars unset in dev. Three independent Sentry projects cover the framework:
 
-| Surface             | SDK              | Env var                   | Notes                                                                 |
-| ------------------- | ---------------- | ------------------------- | --------------------------------------------------------------------- |
-| Browser / SPA       | `@sentry/browser`| `VITE_SENTRY_CLIENT_DSN`  | Captures unhandled errors and route-change breadcrumbs in the client. |
-| Nitro server        | `@sentry/node`   | `SENTRY_SERVER_DSN`       | Captures 5xx responses and Nitro lifecycle errors. Per-request user.  |
-| `agent-native` CLI  | `@sentry/node`   | _hardcoded_               | Crash reports from the published CLI binary; not user-configurable.   |
+| Surface            | SDK               | Env var                  | Notes                                                                 |
+| ------------------ | ----------------- | ------------------------ | --------------------------------------------------------------------- |
+| Browser / SPA      | `@sentry/browser` | `VITE_SENTRY_CLIENT_DSN` | Captures unhandled errors and route-change breadcrumbs in the client. |
+| Nitro server       | `@sentry/node`    | `SENTRY_SERVER_DSN`      | Captures 5xx responses and Nitro lifecycle errors. Per-request user.  |
+| `agent-native` CLI | `@sentry/node`    | _hardcoded_              | Crash reports from the published CLI binary; not user-configurable.   |
 
 ### Server-side configuration
 
