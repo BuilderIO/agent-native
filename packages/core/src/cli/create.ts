@@ -885,6 +885,7 @@ export {
   rewriteNetlifyToml as _rewriteNetlifyToml,
   getCoreDependencyVersion as _getCoreDependencyVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
+  getGitHubTemplateRefCandidates as _getGitHubTemplateRefCandidates,
   shouldSkipScaffoldEntry as _shouldSkipScaffoldEntry,
 };
 
@@ -902,7 +903,10 @@ function validateRepoName(repo: string): void {
 
 function downloadAndExtract(url: string, destDir: string): void {
   fs.mkdirSync(destDir, { recursive: true });
-  const tarball = execFileSync("curl", ["-sL", url], {
+  // --fail-with-body so curl exits non-zero on HTTP 4xx/5xx instead of writing
+  // the error body (HTML/JSON) to disk where tar then fails with the opaque
+  // "Unrecognized archive format" message.
+  const tarball = execFileSync("curl", ["--fail-with-body", "-sL", url], {
     maxBuffer: 100 * 1024 * 1024,
   });
   const tarPath = path.join(destDir, ".download.tar.gz");
@@ -924,19 +928,36 @@ async function downloadGitHubSubdir(
   targetDir: string,
 ): Promise<void> {
   validateRepoName(repo);
-  const ref = getGitHubTemplateRef();
-  const tarUrl = `https://api.github.com/repos/${repo}/tarball/${encodeURIComponent(ref)}`;
-  const tmpDir = path.join(targetDir, "..", `.agent-native-tmp-${Date.now()}`);
-  try {
-    downloadAndExtract(tarUrl, tmpDir);
-    const srcDir = path.join(tmpDir, subdir);
-    if (!fs.existsSync(srcDir)) {
-      throw new Error(`Template directory "${subdir}" not found in ${repo}.`);
+  const refs = getGitHubTemplateRefCandidates();
+  const errors: string[] = [];
+  for (const ref of refs) {
+    const tarUrl = `https://api.github.com/repos/${repo}/tarball/${encodeURIComponent(ref)}`;
+    const tmpDir = path.join(
+      targetDir,
+      "..",
+      `.agent-native-tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    );
+    try {
+      downloadAndExtract(tarUrl, tmpDir);
+      const srcDir = path.join(tmpDir, subdir);
+      if (!fs.existsSync(srcDir)) {
+        throw new Error(
+          `Template directory "${subdir}" not found at ref "${ref}".`,
+        );
+      }
+      copyDir(srcDir, targetDir);
+      return;
+    } catch (err) {
+      errors.push(
+        `  ${ref}: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`,
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
-    copyDir(srcDir, targetDir);
-  } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+  throw new Error(
+    `Failed to download templates from ${repo}. Tried refs:\n${errors.join("\n")}`,
+  );
 }
 
 async function downloadGitHubRepo(
@@ -1044,12 +1065,34 @@ function getCorePackageVersion(): string | undefined {
   }
 }
 
-function getGitHubTemplateRef(): string {
+/**
+ * Git refs to try, in priority order, when downloading templates from the
+ * framework repo. The release tag scheme has shifted over time:
+ *
+ *   - ≤ 0.7.83: single repo-wide tag `v<version>` (legacy).
+ *   - ≥ 0.8.0:  changesets per-package tags
+ *               `@agent-native/core@<version>` (current).
+ *
+ * `main` is the final fallback so dev builds and brand-new releases (where
+ * the tag has not propagated yet) still work — at the cost of pulling
+ * potentially newer template code than the running CLI was built against.
+ */
+function getGitHubTemplateRefCandidates(): string[] {
   const version = getCorePackageVersion();
+  const candidates: string[] = [];
   if (version && /^\d+\.\d+\.\d+(?:-.+)?$/.test(version)) {
-    return `v${version}`;
+    candidates.push(`@agent-native/core@${version}`);
+    candidates.push(`v${version}`);
   }
-  return "main";
+  candidates.push("main");
+  return candidates;
+}
+
+/** @deprecated Kept for backward-compatible test imports. Returns the
+ *  highest-priority candidate; callers that need the full fallback list
+ *  should use `getGitHubTemplateRefCandidates()`. */
+function getGitHubTemplateRef(): string {
+  return getGitHubTemplateRefCandidates()[0]!;
 }
 
 function rewriteCoreDependencyVersions(projectDir: string): void {
