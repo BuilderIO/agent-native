@@ -71,11 +71,23 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Build everything once so changesets/action's `publish` step doesn't
-      # re-build per package. The `publish` script also re-runs build to be
-      # safe when a single package is published in isolation.
-      - name: Build all packages
-        run: pnpm -r build
+      # Build only publishable packages — building every template
+      # (`pnpm -r build`) added 5+ minutes per run for nothing publishable.
+      - name: Build publishable packages
+        run: pnpm --filter './packages/*' build
+
+      # Configure npm to authenticate with NPM_TOKEN if the secret is set.
+      # When the secret is absent, this writes an empty auth line and falls
+      # through to OIDC trusted publisher (provenance flag below). With the
+      # secret set, token auth takes precedence and works regardless of
+      # trusted-publisher configuration on npm — simpler operationally and
+      # the historical fallback when OIDC isn't yet wired per package.
+      - name: Configure npm auth
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$HOME/.npmrc"
+          echo "registry=https://registry.npmjs.org/" >> "$HOME/.npmrc"
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create Release PR or publish to npm
         id: changesets
@@ -83,7 +95,7 @@ jobs:
         with:
           # When changesets/action finds no pending changesets, it runs
           # `publish` — which builds + `pnpm changeset publish` to push
-          # newly-bumped versions to npm via OIDC trusted publisher.
+          # newly-bumped versions to npm.
           publish: pnpm changeset:publish
           # When pending changesets exist, opens this PR with the version
           # bumps + changelog updates. Merging it triggers the publish run.
@@ -91,12 +103,10 @@ jobs:
           commit: "chore: version packages"
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          # `pnpm publish` (called by `changeset publish`) only requests
-          # an OIDC token when --provenance is passed. publishConfig.provenance
-          # in package.json isn't honored across all pnpm versions, so set the
-          # env var instead — both npm and pnpm read NPM_CONFIG_PROVENANCE.
-          # Without this, publish falls back to token auth and fails with
-          # ENEEDAUTH.
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # Belt + suspenders: also enable OIDC provenance for cases where
+          # the token isn't set. Both npm and pnpm read NPM_CONFIG_PROVENANCE.
           NPM_CONFIG_PROVENANCE: "true"
 
       - name: Trigger Builder workspace package update
