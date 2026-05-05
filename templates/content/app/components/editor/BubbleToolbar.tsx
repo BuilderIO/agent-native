@@ -13,6 +13,11 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface BubbleToolbarProps {
   editor: Editor;
@@ -189,19 +194,22 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
               isActive: () => boolean;
             };
             return (
-              <button
-                key={title}
-                onClick={action}
-                title={title}
-                className={cn(
-                  "p-2 rounded",
-                  isActive()
-                    ? "bg-gray-600 text-white"
-                    : "text-gray-300 hover:bg-gray-700 hover:text-white",
-                )}
-              >
-                <Icon size={16} strokeWidth={2.5} />
-              </button>
+              <Tooltip key={title}>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={action}
+                    className={cn(
+                      "p-2 rounded",
+                      isActive()
+                        ? "bg-gray-600 text-white"
+                        : "text-gray-300 hover:bg-gray-700 hover:text-white",
+                    )}
+                  >
+                    <Icon size={16} strokeWidth={2.5} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{title}</TooltipContent>
+              </Tooltip>
             );
           })}
         </div>

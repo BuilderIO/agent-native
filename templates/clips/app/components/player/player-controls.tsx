@@ -20,6 +20,11 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export const SPEED_OPTIONS = [0.5, 0.8, 1, 1.2, 1.5, 1.7, 2, 2.5];
 
@@ -95,7 +100,7 @@ export function PlayerControls(props: PlayerControlsProps) {
       <div className="flex items-center gap-1.5 text-white">
         <IconBtn
           onClick={onPlayPause}
-          title={isPlaying ? "Pause (K)" : "Play (K)"}
+          tooltip={isPlaying ? "Pause (K)" : "Play (K)"}
         >
           {isPlaying ? (
             <IconPlayerPause className="h-5 w-5" />
@@ -109,7 +114,7 @@ export function PlayerControls(props: PlayerControlsProps) {
           onMouseEnter={() => setVolumeHover(true)}
           onMouseLeave={() => setVolumeHover(false)}
         >
-          <IconBtn onClick={onToggleMute} title="Mute (M)">
+          <IconBtn onClick={onToggleMute} tooltip="Mute (M)">
             {muted || volume === 0 ? (
               <IconVolumeOff className="h-5 w-5" />
             ) : (
@@ -145,21 +150,23 @@ export function PlayerControls(props: PlayerControlsProps) {
           <IconBtn
             onClick={onToggleCaptions}
             active={captionsOn}
-            title="Captions (C)"
+            tooltip="Captions (C)"
           >
             <IconSubtitles className="h-5 w-5" />
           </IconBtn>
         ) : null}
 
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              className="h-8 px-2 rounded-md hover:bg-white/10 text-xs font-medium tabular-nums"
-              title="Playback speed"
-            >
-              {speed}x
-            </button>
-          </DropdownMenuTrigger>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button className="h-8 px-2 rounded-md hover:bg-white/10 text-xs font-medium tabular-nums">
+                  {speed}x
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Playback speed</TooltipContent>
+          </Tooltip>
           <DropdownMenuContent align="end" side="top" className="min-w-[90px]">
             <DropdownMenuLabel>Speed</DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -197,7 +204,7 @@ export function PlayerControls(props: PlayerControlsProps) {
         <IconBtn
           onClick={onTogglePip}
           active={isPip}
-          title="Picture in picture"
+          tooltip="Picture in picture"
         >
           <IconPictureInPicture className="h-5 w-5" />
         </IconBtn>
@@ -206,13 +213,13 @@ export function PlayerControls(props: PlayerControlsProps) {
           <IconBtn
             onClick={onToggleTheater}
             active={theaterMode}
-            title="Theater mode (T)"
+            tooltip="Theater mode (T)"
           >
             <IconRectangle className="h-5 w-5" />
           </IconBtn>
         ) : null}
 
-        <IconBtn onClick={onToggleFullscreen} title="Fullscreen (F)">
+        <IconBtn onClick={onToggleFullscreen} tooltip="Fullscreen (F)">
           <IconMaximize
             className={cn("h-5 w-5", isFullscreen && "rotate-180")}
           />
@@ -225,24 +232,28 @@ export function PlayerControls(props: PlayerControlsProps) {
 function IconBtn({
   children,
   onClick,
-  title,
+  tooltip,
   active,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
-  title?: string;
+  tooltip?: string;
   active?: boolean;
 }) {
   return (
-    <button
-      onClick={onClick}
-      title={title}
-      className={cn(
-        "h-8 w-8 rounded-md flex items-center justify-center",
-        active ? "bg-white/20 text-white" : "text-white hover:bg-white/10",
-      )}
-    >
-      {children}
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={onClick}
+          className={cn(
+            "h-8 w-8 rounded-md flex items-center justify-center",
+            active ? "bg-white/20 text-white" : "text-white hover:bg-white/10",
+          )}
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }

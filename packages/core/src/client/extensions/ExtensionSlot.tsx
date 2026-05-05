@@ -9,6 +9,11 @@ import {
 } from "../components/ui/popover.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { EmbeddedExtension } from "./EmbeddedExtension.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 
 interface SlotInstall {
   installId: string;
@@ -169,18 +174,22 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground/60 hover:text-muted-foreground cursor-pointer"
-          title="Add a widget"
-        >
-          <div className="h-5 w-5 rounded-md border border-dashed border-border/40 flex items-center justify-center shrink-0">
-            <IconPlus className="h-3 w-3" />
-          </div>
-          <span>Add widget</span>
-        </button>
-      </PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground/60 hover:text-muted-foreground cursor-pointer"
+            >
+              <div className="h-5 w-5 rounded-md border border-dashed border-border/40 flex items-center justify-center shrink-0">
+                <IconPlus className="h-3 w-3" />
+              </div>
+              <span>Add widget</span>
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Add a widget</TooltipContent>
+      </Tooltip>
       <PopoverContent
         side="left"
         align="end"

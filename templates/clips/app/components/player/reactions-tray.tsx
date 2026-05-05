@@ -1,5 +1,10 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const EMOJIS = ["👍", "❤️", "🔥", "👏", "🎉", "😂", "🤯"] as const;
 
@@ -33,18 +38,21 @@ export function ReactionsTray({ onReact, disabled }: ReactionsTrayProps) {
   return (
     <div className="relative flex items-center gap-1 rounded-full border border-border bg-card px-2 py-1 shadow-sm w-fit">
       {EMOJIS.map((emoji) => (
-        <button
-          key={emoji}
-          onClick={() => fire(emoji)}
-          disabled={disabled}
-          className={cn(
-            "h-9 w-9 rounded-full flex items-center justify-center text-xl",
-            disabled && "opacity-50 cursor-not-allowed",
-          )}
-          title={`React with ${emoji}`}
-        >
-          {emoji}
-        </button>
+        <Tooltip key={emoji}>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => fire(emoji)}
+              disabled={disabled}
+              className={cn(
+                "h-9 w-9 rounded-full flex items-center justify-center text-xl",
+                disabled && "opacity-50 cursor-not-allowed",
+              )}
+            >
+              {emoji}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{`React with ${emoji}`}</TooltipContent>
+        </Tooltip>
       ))}
 
       {/* Floating reactions */}

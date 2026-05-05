@@ -1057,13 +1057,17 @@ export function EmailThread({
       {/* Thread header */}
       <div className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-3 max-h-[40%]">
         <div className="flex items-start gap-2 sm:gap-3">
-          <button
-            onClick={goBack}
-            className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            title="Back (Esc)"
-          >
-            <IconArrowLeft className="h-[14px] w-[14px]" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={goBack}
+                className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              >
+                <IconArrowLeft className="h-[14px] w-[14px]" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Back (Esc)</TooltipContent>
+          </Tooltip>
 
           <div className="flex-1 min-w-0">
             <div className="flex items-start gap-2 flex-wrap">
@@ -1080,13 +1084,17 @@ export function EmailThread({
               ))}
               {/* Action bar */}
               <div className="hidden sm:flex items-center gap-0.5 ml-auto shrink-0">
-                <button
-                  onClick={handleArchive}
-                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                  title="Done (E)"
-                >
-                  <IconCheck className="h-4 w-4" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={handleArchive}
+                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    >
+                      <IconCheck className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Done (E)</TooltipContent>
+                </Tooltip>
                 <button
                   onClick={() => goToSibling(-1)}
                   className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
@@ -1132,15 +1140,21 @@ export function EmailThread({
                   </Tooltip>
                 )}
                 {unsubscribeInfo && (
-                  <button
-                    onClick={handleUnsubscribe}
-                    disabled={unsubscribing}
-                    className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors disabled:opacity-50"
-                    title="Unsubscribe from this mailing list"
-                  >
-                    <IconMailOff className="h-3 w-3" />
-                    {unsubscribing ? "Unsubscribing..." : "Unsubscribe"}
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={handleUnsubscribe}
+                        disabled={unsubscribing}
+                        className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors disabled:opacity-50"
+                      >
+                        <IconMailOff className="h-3 w-3" />
+                        {unsubscribing ? "Unsubscribing..." : "Unsubscribe"}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Unsubscribe from this mailing list
+                    </TooltipContent>
+                  </Tooltip>
                 )}
               </div>
             )}
@@ -1384,13 +1398,17 @@ function ThreadLoadingState({
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-3 max-h-[40%]">
         <div className="flex items-start gap-2 sm:gap-3">
-          <button
-            onClick={onBack}
-            className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            title="Back (Esc)"
-          >
-            <IconArrowLeft className="h-[14px] w-[14px]" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={onBack}
+                className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              >
+                <IconArrowLeft className="h-[14px] w-[14px]" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Back (Esc)</TooltipContent>
+          </Tooltip>
 
           <div className="flex-1 min-w-0">
             {preview ? (
@@ -1691,36 +1709,48 @@ const ExpandedMessageCard = forwardRef<
 
           {/* Reply / Reply All / Forward buttons */}
           <div className="flex items-center gap-1 sm:gap-0.5 shrink-0">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onReply();
-              }}
-              className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
-              title="Reply"
-            >
-              <IconArrowBackUp className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onReplyAll();
-              }}
-              className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
-              title="Reply All"
-            >
-              <IconArrowBackUpDouble className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onForward();
-              }}
-              className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
-              title="Forward"
-            >
-              <IconArrowForwardUp className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onReply();
+                  }}
+                  className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+                >
+                  <IconArrowBackUp className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Reply</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onReplyAll();
+                  }}
+                  className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+                >
+                  <IconArrowBackUpDouble className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Reply All</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onForward();
+                  }}
+                  className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+                >
+                  <IconArrowForwardUp className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Forward</TooltipContent>
+            </Tooltip>
           </div>
 
           <span className="shrink-0 text-[12px] text-muted-foreground/50 tabular-nums">
@@ -1772,21 +1802,24 @@ const ExpandedMessageCard = forwardRef<
                     `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}&mimeType=${encodeURIComponent(att.mimeType)}`,
                   );
                   return (
-                    <a
-                      key={att.id}
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block rounded-lg overflow-hidden border border-border/40 hover:border-border bg-accent/30 hover:bg-accent/50"
-                      title={att.filename}
-                    >
-                      <img
-                        src={url}
-                        alt={att.filename}
-                        className="h-32 max-w-[200px] object-cover"
-                        loading="lazy"
-                      />
-                    </a>
+                    <Tooltip key={att.id}>
+                      <TooltipTrigger asChild>
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block rounded-lg overflow-hidden border border-border/40 hover:border-border bg-accent/30 hover:bg-accent/50"
+                        >
+                          <img
+                            src={url}
+                            alt={att.filename}
+                            className="h-32 max-w-[200px] object-cover"
+                            loading="lazy"
+                          />
+                        </a>
+                      </TooltipTrigger>
+                      <TooltipContent>{att.filename}</TooltipContent>
+                    </Tooltip>
                   );
                 })}
             </div>
@@ -3159,29 +3192,41 @@ function ThreadSearchBar({
         </span>
       )}
       <div className="flex items-center gap-0.5 shrink-0">
-        <button
-          onClick={onPrev}
-          disabled={totalMatches === 0}
-          className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          title="Previous match (Shift+Enter)"
-        >
-          <IconChevronUp className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
-        </button>
-        <button
-          onClick={onNext}
-          disabled={totalMatches === 0}
-          className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          title="Next match (Enter)"
-        >
-          <IconChevronDown className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
-        </button>
-        <button
-          onClick={onClose}
-          className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
-          title="Close (Esc)"
-        >
-          <IconX className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onPrev}
+              disabled={totalMatches === 0}
+              className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <IconChevronUp className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Previous match (Shift+Enter)</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onNext}
+              disabled={totalMatches === 0}
+              className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <IconChevronDown className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Next match (Enter)</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onClose}
+              className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
+            >
+              <IconX className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Close (Esc)</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   );

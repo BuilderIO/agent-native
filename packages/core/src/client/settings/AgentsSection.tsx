@@ -12,6 +12,11 @@ import {
   IconCheck,
   IconX,
 } from "@tabler/icons-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 
 interface AgentInfo {
   id: string;
@@ -349,16 +354,20 @@ export function AgentsSection() {
           @-mention agents in chat to delegate tasks via A2A.
         </div>
         <div className="relative">
-          <button
-            onClick={() => {
-              setShowAdd(!showAdd);
-              setEditingAgent(null);
-            }}
-            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
-            title="Add agent"
-          >
-            {showAdd ? <IconX size={12} /> : <IconPlus size={12} />}
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => {
+                  setShowAdd(!showAdd);
+                  setEditingAgent(null);
+                }}
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+              >
+                {showAdd ? <IconX size={12} /> : <IconPlus size={12} />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Add agent</TooltipContent>
+          </Tooltip>
           {showAdd && (
             <AgentAddPopover
               onAdd={handleAdd}
@@ -393,18 +402,22 @@ export function AgentsSection() {
                 <span className="flex-1 text-[10px] text-muted-foreground/60 truncate text-right">
                   {agent.url}
                 </span>
-                <button
-                  onClick={() => {
-                    setEditingAgent(
-                      editingAgent === agent.id ? null : agent.id,
-                    );
-                    setShowAdd(false);
-                  }}
-                  className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground hover:bg-accent/50"
-                  title="Edit agent"
-                >
-                  <IconPencil size={11} />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => {
+                        setEditingAgent(
+                          editingAgent === agent.id ? null : agent.id,
+                        );
+                        setShowAdd(false);
+                      }}
+                      className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground hover:bg-accent/50"
+                    >
+                      <IconPencil size={11} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Edit agent</TooltipContent>
+                </Tooltip>
               </div>
               {editingAgent === agent.id && (
                 <AgentEditPopover

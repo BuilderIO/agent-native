@@ -4,6 +4,11 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import type { TweakDefinition } from "@shared/api";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface TweaksPanelProps {
   tweaks: TweakDefinition[];
@@ -117,18 +122,21 @@ function TweakControl({
       {tweak.type === "color-swatch" && (
         <div className="flex gap-2">
           {tweak.options?.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => onChange(opt.value)}
-              className={cn(
-                "h-6 w-6 cursor-pointer rounded-full",
-                value === opt.value
-                  ? "ring-2 ring-white ring-offset-2 ring-offset-[hsl(240,5%,8%)]"
-                  : "ring-1 ring-white/10 hover:ring-white/30",
-              )}
-              style={{ backgroundColor: opt.color || opt.value }}
-              title={opt.label}
-            />
+            <Tooltip key={opt.value}>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => onChange(opt.value)}
+                  className={cn(
+                    "h-6 w-6 cursor-pointer rounded-full",
+                    value === opt.value
+                      ? "ring-2 ring-white ring-offset-2 ring-offset-[hsl(240,5%,8%)]"
+                      : "ring-1 ring-white/10 hover:ring-white/30",
+                  )}
+                  style={{ backgroundColor: opt.color || opt.value }}
+                />
+              </TooltipTrigger>
+              <TooltipContent>{opt.label}</TooltipContent>
+            </Tooltip>
           ))}
         </div>
       )}

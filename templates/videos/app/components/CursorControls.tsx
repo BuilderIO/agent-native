@@ -30,6 +30,11 @@ import {
   getCurrentKeyframeEasing as getCurrentKeyframeEasingUtil,
   setOrUpdateKeyframe as setOrUpdateKeyframeUtil,
 } from "@/utils/keyframeUtils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface CursorControlsProps {
   currentFrame: number;
@@ -402,20 +407,27 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
       />
 
       {/* Click Animation */}
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={toggleClick}
-        className={`w-full text-xs gap-1.5 ${
-          isClickingAtFrame()
-            ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
-            : ""
-        }`}
-        title={isClickingAtFrame() ? "Click ON" : "Add Click"}
-      >
-        <IconClick className="h-3 w-3" />
-        Play click
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={toggleClick}
+            className={`w-full text-xs gap-1.5 ${
+              isClickingAtFrame()
+                ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
+                : ""
+            }`}
+            aria-label={isClickingAtFrame() ? "Click ON" : "Add Click"}
+          >
+            <IconClick className="h-3 w-3" />
+            Play click
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {isClickingAtFrame() ? "Click ON" : "Add Click"}
+        </TooltipContent>
+      </Tooltip>
 
       {/* Position Controls */}
       <div className="space-y-2">
@@ -460,64 +472,85 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
           <Label className="text-xs text-muted-foreground">Cursor Type</Label>
           <div className="grid grid-cols-3 gap-2">
             {/* Default Arrow */}
-            <button
-              onClick={() => {
-                setLocalState((prev) => ({ ...prev, type: "default" }));
-                setOrUpdateKeyframe("type", "default");
-              }}
-              className={`h-12 rounded-lg border-2 flex items-center justify-center ${
-                localState.type === "default"
-                  ? "border-purple-500 bg-purple-500/10"
-                  : "border-border bg-secondary/50 hover:bg-secondary"
-              }`}
-              title="Arrow (Default)"
-            >
-              <div
-                style={{ transform: "scale(0.5)", transformOrigin: "center" }}
-              >
-                <DefaultCursor />
-              </div>
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => {
+                    setLocalState((prev) => ({ ...prev, type: "default" }));
+                    setOrUpdateKeyframe("type", "default");
+                  }}
+                  className={`h-12 rounded-lg border-2 flex items-center justify-center ${
+                    localState.type === "default"
+                      ? "border-purple-500 bg-purple-500/10"
+                      : "border-border bg-secondary/50 hover:bg-secondary"
+                  }`}
+                >
+                  <div
+                    style={{
+                      transform: "scale(0.5)",
+                      transformOrigin: "center",
+                    }}
+                  >
+                    <DefaultCursor />
+                  </div>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Arrow (Default)</TooltipContent>
+            </Tooltip>
 
             {/* Pointer Hand */}
-            <button
-              onClick={() => {
-                setLocalState((prev) => ({ ...prev, type: "pointer" }));
-                setOrUpdateKeyframe("type", "pointer");
-              }}
-              className={`h-12 rounded-lg border-2 flex items-center justify-center ${
-                localState.type === "pointer"
-                  ? "border-purple-500 bg-purple-500/10"
-                  : "border-border bg-secondary/50 hover:bg-secondary"
-              }`}
-              title="Pointer (Hand)"
-            >
-              <div
-                style={{ transform: "scale(0.5)", transformOrigin: "center" }}
-              >
-                <PointerCursor />
-              </div>
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => {
+                    setLocalState((prev) => ({ ...prev, type: "pointer" }));
+                    setOrUpdateKeyframe("type", "pointer");
+                  }}
+                  className={`h-12 rounded-lg border-2 flex items-center justify-center ${
+                    localState.type === "pointer"
+                      ? "border-purple-500 bg-purple-500/10"
+                      : "border-border bg-secondary/50 hover:bg-secondary"
+                  }`}
+                >
+                  <div
+                    style={{
+                      transform: "scale(0.5)",
+                      transformOrigin: "center",
+                    }}
+                  >
+                    <PointerCursor />
+                  </div>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Pointer (Hand)</TooltipContent>
+            </Tooltip>
 
             {/* Text I-Beam */}
-            <button
-              onClick={() => {
-                setLocalState((prev) => ({ ...prev, type: "text" }));
-                setOrUpdateKeyframe("type", "text");
-              }}
-              className={`h-12 rounded-lg border-2 flex items-center justify-center ${
-                localState.type === "text"
-                  ? "border-purple-500 bg-purple-500/10"
-                  : "border-border bg-secondary/50 hover:bg-secondary"
-              }`}
-              title="Text (I-beam)"
-            >
-              <div
-                style={{ transform: "scale(0.5)", transformOrigin: "center" }}
-              >
-                <TextCursor />
-              </div>
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => {
+                    setLocalState((prev) => ({ ...prev, type: "text" }));
+                    setOrUpdateKeyframe("type", "text");
+                  }}
+                  className={`h-12 rounded-lg border-2 flex items-center justify-center ${
+                    localState.type === "text"
+                      ? "border-purple-500 bg-purple-500/10"
+                      : "border-border bg-secondary/50 hover:bg-secondary"
+                  }`}
+                >
+                  <div
+                    style={{
+                      transform: "scale(0.5)",
+                      transformOrigin: "center",
+                    }}
+                  >
+                    <TextCursor />
+                  </div>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Text (I-beam)</TooltipContent>
+            </Tooltip>
           </div>
         </div>
       )}

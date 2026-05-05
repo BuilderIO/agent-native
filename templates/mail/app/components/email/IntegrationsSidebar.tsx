@@ -31,6 +31,11 @@ import {
 } from "@/hooks/use-integrations";
 import { useApolloPerson } from "@/hooks/use-apollo";
 import type { ApolloPersonResult } from "@shared/types";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 function safeExternalHref(value?: string | null): string | null {
   if (!value) return null;
@@ -404,20 +409,24 @@ function AddIntegrationButton() {
               {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
               +Enter to submit
             </span>
-            <button
-              onClick={handleSubmit}
-              disabled={!value.trim()}
-              className={cn(
-                "p-1.5 rounded-lg",
-                value.trim()
-                  ? "bg-primary hover:bg-primary/90 text-primary-foreground"
-                  : "bg-muted/50 text-muted-foreground/30 cursor-not-allowed",
-              )}
-              title={`Submit (${/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter)`}
-              aria-label="Submit"
-            >
-              <IconArrowUp className="w-4 h-4" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={handleSubmit}
+                  disabled={!value.trim()}
+                  className={cn(
+                    "p-1.5 rounded-lg",
+                    value.trim()
+                      ? "bg-primary hover:bg-primary/90 text-primary-foreground"
+                      : "bg-muted/50 text-muted-foreground/30 cursor-not-allowed",
+                  )}
+                  aria-label="Submit"
+                >
+                  <IconArrowUp className="w-4 h-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{`Submit (${/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter)`}</TooltipContent>
+            </Tooltip>
           </div>
         </PopoverContent>
       </Popover>
@@ -453,14 +462,16 @@ function IntegrationRow({
             <IconCheck className="h-3 w-3 text-emerald-400" />
           </div>
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-muted-foreground transition-colors"
-                title="Settings"
-              >
-                <IconSettings className="h-3.5 w-3.5" />
-              </button>
-            </DropdownMenuTrigger>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-muted-foreground transition-colors">
+                    <IconSettings className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Settings</TooltipContent>
+            </Tooltip>
             <DropdownMenuContent align="end" className="w-36">
               <DropdownMenuItem
                 onClick={() => onConfigure()}

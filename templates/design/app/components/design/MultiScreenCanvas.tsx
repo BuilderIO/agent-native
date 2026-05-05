@@ -1,6 +1,11 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { prettyScreenName } from "@/lib/screen-names";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface ScreenFile {
   id: string;
@@ -155,39 +160,43 @@ function Screen({
       >
         {display}
       </span>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onPick(screen.id);
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
-        className={cn(
-          "block overflow-hidden rounded-lg border-2 bg-white shadow-2xl transition-colors",
-          isActive
-            ? "border-primary"
-            : "border-border hover:border-muted-foreground/50",
-        )}
-        style={{
-          width: SCREEN_WIDTH,
-          height: SCREEN_HEIGHT,
-          cursor: "pointer",
-        }}
-        title={`Open ${display}`}
-      >
-        <iframe
-          srcDoc={screen.content}
-          sandbox="allow-scripts allow-same-origin"
-          className="pointer-events-none border-0"
-          style={{
-            width: 1280,
-            height: 2560,
-            transform: `scale(${SCREEN_WIDTH / 1280})`,
-            transformOrigin: "top left",
-          }}
-          title={screen.filename}
-        />
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPick(screen.id);
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            className={cn(
+              "block overflow-hidden rounded-lg border-2 bg-white shadow-2xl transition-colors",
+              isActive
+                ? "border-primary"
+                : "border-border hover:border-muted-foreground/50",
+            )}
+            style={{
+              width: SCREEN_WIDTH,
+              height: SCREEN_HEIGHT,
+              cursor: "pointer",
+            }}
+          >
+            <iframe
+              srcDoc={screen.content}
+              sandbox="allow-scripts allow-same-origin"
+              className="pointer-events-none border-0"
+              style={{
+                width: 1280,
+                height: 2560,
+                transform: `scale(${SCREEN_WIDTH / 1280})`,
+                transformOrigin: "top left",
+              }}
+              title={screen.filename}
+            />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{`Open ${display}`}</TooltipContent>
+      </Tooltip>
     </div>
   );
 }

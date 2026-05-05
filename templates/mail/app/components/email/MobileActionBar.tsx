@@ -21,6 +21,11 @@ import {
   DrawerClose,
 } from "@/components/ui/drawer";
 import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export const ALL_MOBILE_ACTIONS: MobileActionId[] = [
   "archive",
@@ -117,34 +122,43 @@ export function MobileActionBar({
       <div className="shrink-0 border-t border-border bg-background px-1 pb-[env(safe-area-inset-bottom)]">
         <div className="flex items-center overflow-x-auto">
           {onUpdateActions && (
-            <button
-              onClick={() => setCustomizeOpen(true)}
-              className={cn(
-                "flex shrink-0 flex-col items-center justify-center gap-0.5 py-2 px-3 min-w-[44px] min-h-[44px]",
-                "text-muted-foreground active:text-foreground active:bg-accent/50 rounded-lg",
-              )}
-              title="Customize"
-            >
-              <IconSettings className="h-5 w-5" />
-              <span className="text-[10px] leading-tight">Settings</span>
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setCustomizeOpen(true)}
+                  className={cn(
+                    "flex shrink-0 flex-col items-center justify-center gap-0.5 py-2 px-3 min-w-[44px] min-h-[44px]",
+                    "text-muted-foreground active:text-foreground active:bg-accent/50 rounded-lg",
+                  )}
+                >
+                  <IconSettings className="h-5 w-5" />
+                  <span className="text-[10px] leading-tight">Settings</span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Customize</TooltipContent>
+            </Tooltip>
           )}
           {actions.map((id) => {
             const meta = ACTION_META[id];
             if (!meta) return null;
             return (
-              <button
-                key={id}
-                onClick={() => onAction(id)}
-                className={cn(
-                  "flex shrink-0 flex-col items-center justify-center gap-0.5 py-2 px-3 min-w-[44px] min-h-[44px]",
-                  "text-muted-foreground active:text-foreground active:bg-accent/50 rounded-lg",
-                )}
-                title={meta.label}
-              >
-                {meta.icon(id === "star" ? isStarred : false)}
-                <span className="text-[10px] leading-tight">{meta.label}</span>
-              </button>
+              <Tooltip key={id}>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => onAction(id)}
+                    className={cn(
+                      "flex shrink-0 flex-col items-center justify-center gap-0.5 py-2 px-3 min-w-[44px] min-h-[44px]",
+                      "text-muted-foreground active:text-foreground active:bg-accent/50 rounded-lg",
+                    )}
+                  >
+                    {meta.icon(id === "star" ? isStarred : false)}
+                    <span className="text-[10px] leading-tight">
+                      {meta.label}
+                    </span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{meta.label}</TooltipContent>
+              </Tooltip>
             );
           })}
         </div>

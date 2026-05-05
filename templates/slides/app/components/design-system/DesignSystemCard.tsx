@@ -1,6 +1,11 @@
 import { IconPalette, IconStar, IconStarFilled } from "@tabler/icons-react";
 import { ShareButton, VisibilityBadge } from "@agent-native/core/client";
 import type { DesignSystemData } from "../../../shared/api";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface DesignSystemCardProps {
   id: string;
@@ -63,17 +68,23 @@ export function DesignSystemCard({
           className="absolute top-3 right-3 z-10 flex items-center gap-1.5"
           onClick={(e) => e.stopPropagation()}
         >
-          <button
-            onClick={onSetDefault}
-            className="h-9 w-9 inline-flex items-center justify-center rounded-md bg-background/80 backdrop-blur-sm border border-border/40 hover:bg-background cursor-pointer"
-            title={isDefault ? "Default design system" : "Set as default"}
-          >
-            {isDefault ? (
-              <IconStarFilled className="w-4 h-4 text-[#609FF8]" />
-            ) : (
-              <IconStar className="w-4 h-4 text-muted-foreground group-hover:text-foreground/70" />
-            )}
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={onSetDefault}
+                className="h-9 w-9 inline-flex items-center justify-center rounded-md bg-background/80 backdrop-blur-sm border border-border/40 hover:bg-background cursor-pointer"
+              >
+                {isDefault ? (
+                  <IconStarFilled className="w-4 h-4 text-[#609FF8]" />
+                ) : (
+                  <IconStar className="w-4 h-4 text-muted-foreground group-hover:text-foreground/70" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {isDefault ? "Default design system" : "Set as default"}
+            </TooltipContent>
+          </Tooltip>
           <ShareButton
             resourceType="design-system"
             resourceId={id}

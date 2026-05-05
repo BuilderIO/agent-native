@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   IconGripVertical,
@@ -8,6 +8,7 @@ import {
   IconPencil,
   IconTrash,
   IconCode,
+  IconDownload,
 } from "@tabler/icons-react";
 import {
   DropdownMenu,
@@ -16,6 +17,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -61,6 +67,15 @@ export function SqlChartCard({
   } = useSortable({ id: panel.id });
 
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [exportCsv, setExportCsv] = useState<(() => void) | null>(null);
+
+  const handleExportCsvChange = useCallback((handler: (() => void) | null) => {
+    setExportCsv(handler ? () => handler : null);
+  }, []);
+
+  useEffect(() => {
+    setExportCsv(null);
+  }, [panel.id]);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -83,14 +98,19 @@ export function SqlChartCard({
           <h2 className="text-base font-semibold flex-1">{panel.title}</h2>
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  className="p-1 rounded text-muted-foreground hover:text-foreground"
-                  title="Section options"
-                >
-                  <IconDotsVertical className="h-3.5 w-3.5" />
-                </button>
-              </DropdownMenuTrigger>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className="p-1 rounded text-muted-foreground hover:text-foreground"
+                      aria-label="Section options"
+                    >
+                      <IconDotsVertical className="h-3.5 w-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>Section options</TooltipContent>
+              </Tooltip>
               <DropdownMenuContent align="end" className="w-40">
                 {onEdit && (
                   <DropdownMenuItem onSelect={() => onEdit()}>
@@ -110,14 +130,19 @@ export function SqlChartCard({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <button
-              className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
-              title="Drag to reorder"
-              {...attributes}
-              {...listeners}
-            >
-              <IconGripVertical className="h-3.5 w-3.5" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
+                  aria-label="Drag to reorder"
+                  {...attributes}
+                  {...listeners}
+                >
+                  <IconGripVertical className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Drag to reorder</TooltipContent>
+            </Tooltip>
           </div>
         </div>
         {panel.config?.description && (
@@ -154,9 +179,7 @@ export function SqlChartCard({
     <div
       ref={setNodeRef}
       style={style}
-      className={`group relative h-full hover:z-20 focus-within:z-20 ${
-        panel.width === 2 ? "md:col-span-2" : ""
-      }`}
+      className="group relative h-full hover:z-20 focus-within:z-20"
     >
       <Card className="flex h-full flex-col overflow-visible">
         <CardHeader className="pb-2 flex flex-row items-center gap-2 shrink-0">
@@ -164,48 +187,57 @@ export function SqlChartCard({
             {panel.title}
           </CardTitle>
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
-            {onSaveSql && (
-              <ViewSqlPopover
-                panel={panel}
-                resolvedSql={resolvedSql}
-                onSaveSql={onSaveSql}
-              >
-                <button
-                  className="p-1 rounded text-muted-foreground hover:text-foreground"
-                  title="View SQL"
-                >
-                  <IconCode className="h-3.5 w-3.5" />
-                </button>
-              </ViewSqlPopover>
-            )}
-            <button
-              onClick={onToggleWidth}
-              className="p-1 rounded text-muted-foreground hover:text-foreground"
-              title={panel.width === 2 ? "Half width" : "Full width"}
-            >
-              {panel.width === 2 ? (
-                <IconArrowsMinimize className="h-3.5 w-3.5" />
-              ) : (
-                <IconArrowsMaximize className="h-3.5 w-3.5" />
-              )}
-            </button>
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  className="p-1 rounded text-muted-foreground hover:text-foreground"
-                  title="Panel options"
-                >
-                  <IconDotsVertical className="h-3.5 w-3.5" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className="p-1 rounded text-muted-foreground hover:text-foreground"
+                      aria-label="Panel options"
+                    >
+                      <IconDotsVertical className="h-3.5 w-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>Panel options</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="end" className="w-44">
+                {panel.chartType === "table" && (
+                  <DropdownMenuItem
+                    disabled={!exportCsv}
+                    onSelect={() => exportCsv?.()}
+                  >
+                    <IconDownload className="h-4 w-4 mr-2" />
+                    Download CSV
+                  </DropdownMenuItem>
+                )}
+                {onSaveSql && (
+                  <ViewSqlPopover
+                    panel={panel}
+                    resolvedSql={resolvedSql}
+                    onSaveSql={onSaveSql}
+                  >
+                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                      <IconCode className="h-4 w-4 mr-2" />
+                      View SQL
+                    </DropdownMenuItem>
+                  </ViewSqlPopover>
+                )}
+                <DropdownMenuItem onSelect={onToggleWidth}>
+                  {panel.width === 2 ? (
+                    <IconArrowsMinimize className="h-4 w-4 mr-2" />
+                  ) : (
+                    <IconArrowsMaximize className="h-4 w-4 mr-2" />
+                  )}
+                  {panel.width === 2 ? "Half width" : "Full width"}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 {onEdit && (
                   <DropdownMenuItem onSelect={() => onEdit()}>
                     <IconPencil className="h-4 w-4 mr-2" />
                     Edit
                   </DropdownMenuItem>
                 )}
-                {onEdit && <DropdownMenuSeparator />}
                 <DropdownMenuItem
                   onSelect={(e) => {
                     e.preventDefault();
@@ -217,18 +249,27 @@ export function SqlChartCard({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <button
-              className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
-              title="Drag to reorder"
-              {...attributes}
-              {...listeners}
-            >
-              <IconGripVertical className="h-3.5 w-3.5" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
+                  aria-label="Drag to reorder"
+                  {...attributes}
+                  {...listeners}
+                >
+                  <IconGripVertical className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Drag to reorder</TooltipContent>
+            </Tooltip>
           </div>
         </CardHeader>
         <CardContent className="flex flex-1 flex-col overflow-visible pt-0">
-          <SqlChart panel={panel} resolvedSql={resolvedSql} />
+          <SqlChart
+            panel={panel}
+            resolvedSql={resolvedSql}
+            onExportCsvChange={handleExportCsvChange}
+          />
         </CardContent>
       </Card>
 

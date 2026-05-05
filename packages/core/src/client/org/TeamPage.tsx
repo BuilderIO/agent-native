@@ -36,6 +36,11 @@ import {
   type SyncA2ASecretResult,
 } from "./hooks.js";
 import type { DomainMatchOrg } from "../../org/types.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 
 export interface TeamPageProps {
   /**
@@ -368,15 +373,19 @@ function MembersCard() {
               )}
             </div>
             {isOwnerOrAdmin && m.email !== org.email && m.role !== "owner" && (
-              <button
-                type="button"
-                disabled={removeMember.isPending}
-                onClick={() => removeMember.mutate(m.email)}
-                className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
-                title="Remove member"
-              >
-                <IconTrash className="h-3.5 w-3.5" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    disabled={removeMember.isPending}
+                    onClick={() => removeMember.mutate(m.email)}
+                    className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
+                  >
+                    <IconTrash className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Remove member</TooltipContent>
+              </Tooltip>
             )}
           </div>
         ))}
@@ -506,26 +515,34 @@ function DomainSettingsSection({ domain }: { domain: string | null }) {
                 <IconAt className="h-3.5 w-3.5 text-muted-foreground" />
                 {domain}
               </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setDraft(domain);
-                  setEditing(true);
-                }}
-                className="text-muted-foreground hover:text-foreground"
-                title="Edit domain"
-              >
-                <IconPencil className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                disabled={setOrgDomain.isPending}
-                onClick={() => setOrgDomain.mutate(null)}
-                className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
-                title="Remove domain"
-              >
-                <IconX className="h-3.5 w-3.5" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraft(domain);
+                      setEditing(true);
+                    }}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <IconPencil className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Edit domain</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    disabled={setOrgDomain.isPending}
+                    onClick={() => setOrgDomain.mutate(null)}
+                    className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
+                  >
+                    <IconX className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Remove domain</TooltipContent>
+              </Tooltip>
             </>
           ) : (
             <button
@@ -657,61 +674,83 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
         </span>
         {secret && (
           <>
-            <button
-              type="button"
-              onClick={() => setRevealed(!revealed)}
-              className="text-muted-foreground hover:text-foreground"
-              title={revealed ? "Hide secret" : "Reveal secret"}
-            >
-              {revealed ? (
-                <IconEyeOff className="h-3.5 w-3.5" />
-              ) : (
-                <IconEye className="h-3.5 w-3.5" />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={copyToClipboard}
-              className="text-muted-foreground hover:text-foreground"
-              title="Copy secret"
-            >
-              {copied ? (
-                <IconCheck className="h-3.5 w-3.5 text-green-500" />
-              ) : (
-                <IconCopy className="h-3.5 w-3.5" />
-              )}
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setRevealed(!revealed)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  {revealed ? (
+                    <IconEyeOff className="h-3.5 w-3.5" />
+                  ) : (
+                    <IconEye className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {revealed ? "Hide secret" : "Reveal secret"}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={copyToClipboard}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  {copied ? (
+                    <IconCheck className="h-3.5 w-3.5 text-green-500" />
+                  ) : (
+                    <IconCopy className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Copy secret</TooltipContent>
+            </Tooltip>
           </>
         )}
-        <button
-          type="button"
-          onClick={regenerate}
-          disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
-          className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
-          title="Regenerate secret and sync to connected apps"
-        >
-          {setA2ASecret.isPending ? (
-            <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <IconRefresh className="h-3.5 w-3.5" />
-          )}
-          Regenerate
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={regenerate}
+              disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
+            >
+              {setA2ASecret.isPending ? (
+                <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <IconRefresh className="h-3.5 w-3.5" />
+              )}
+              Regenerate
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            Regenerate secret and sync to connected apps
+          </TooltipContent>
+        </Tooltip>
         {secret && (
-          <button
-            type="button"
-            onClick={() => syncToApps()}
-            disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
-            className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
-            title="Push this secret to every connected app"
-          >
-            {syncA2ASecret.isPending ? (
-              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <IconCloudUpload className="h-3.5 w-3.5" />
-            )}
-            Sync to apps
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => syncToApps()}
+                disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
+                className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
+              >
+                {syncA2ASecret.isPending ? (
+                  <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <IconCloudUpload className="h-3.5 w-3.5" />
+                )}
+                Sync to apps
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Push this secret to every connected app
+            </TooltipContent>
+          </Tooltip>
         )}
       </div>
 

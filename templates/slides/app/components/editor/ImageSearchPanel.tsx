@@ -2,6 +2,11 @@ import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { IconX, IconSearch, IconLoader2 } from "@tabler/icons-react";
 import { appBasePath } from "@agent-native/core/client";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface SearchResult {
   url: string;
@@ -150,19 +155,22 @@ export default function ImageSearchPanel({
         {results.length > 0 && (
           <div className="grid grid-cols-3 gap-2">
             {results.map((result, i) => (
-              <button
-                key={i}
-                onClick={() => handleSelect(result.url)}
-                className="aspect-square rounded-md overflow-hidden border border-border bg-muted hover:ring-2 hover:ring-[#609FF8]/50 transition-all"
-                title={result.title}
-              >
-                <img
-                  src={result.thumbnail}
-                  alt={result.title}
-                  className="w-full h-full object-cover"
-                  loading="lazy"
-                />
-              </button>
+              <Tooltip key={i}>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => handleSelect(result.url)}
+                    className="aspect-square rounded-md overflow-hidden border border-border bg-muted hover:ring-2 hover:ring-[#609FF8]/50 transition-all"
+                  >
+                    <img
+                      src={result.thumbnail}
+                      alt={result.title}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{result.title}</TooltipContent>
+              </Tooltip>
             ))}
           </div>
         )}

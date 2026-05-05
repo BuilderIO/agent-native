@@ -153,22 +153,26 @@ function UserNotesBlock({
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => setEditing(true)}
-      className="block w-full text-left cursor-text"
-      title="Click to add your notes"
-    >
-      {value ? (
-        <p className="text-base leading-relaxed text-foreground font-medium whitespace-pre-wrap">
-          {value}
-        </p>
-      ) : (
-        <p className="text-base leading-relaxed text-muted-foreground/50 italic">
-          Click to add your notes…
-        </p>
-      )}
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="block w-full text-left cursor-text"
+        >
+          {value ? (
+            <p className="text-base leading-relaxed text-foreground font-medium whitespace-pre-wrap">
+              {value}
+            </p>
+          ) : (
+            <p className="text-base leading-relaxed text-muted-foreground/50 italic">
+              Click to add your notes…
+            </p>
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>Click to add your notes</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -244,20 +248,26 @@ function AiSummaryBlock({
     <TooltipProvider delayDuration={200}>
       <div className="group relative space-y-1.5">
         <AiTabIndicator />
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          className="block w-full text-left cursor-text"
-          title="Click to edit (your edits are saved as your own notes)"
-        >
-          <p
-            className={cn(
-              "text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground rounded -mx-1 px-1 group-hover:bg-accent/30",
-            )}
-          >
-            {value}
-          </p>
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="block w-full text-left cursor-text"
+            >
+              <p
+                className={cn(
+                  "text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground rounded -mx-1 px-1 group-hover:bg-accent/30",
+                )}
+              >
+                {value}
+              </p>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            Click to edit (your edits are saved as your own notes)
+          </TooltipContent>
+        </Tooltip>
       </div>
     </TooltipProvider>
   );

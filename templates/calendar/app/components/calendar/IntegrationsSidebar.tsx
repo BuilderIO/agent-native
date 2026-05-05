@@ -28,6 +28,11 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 function safeExternalHref(value?: string | null): string | null {
   if (!value) return null;
@@ -399,14 +404,16 @@ function IntegrationRow({
             <IconCheck className="h-3 w-3 text-emerald-400" />
           </div>
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-muted-foreground"
-                title="Settings"
-              >
-                <IconSettings className="h-3.5 w-3.5" />
-              </button>
-            </DropdownMenuTrigger>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-muted-foreground">
+                    <IconSettings className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Settings</TooltipContent>
+            </Tooltip>
             <DropdownMenuContent
               side="left"
               align="start"

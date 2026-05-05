@@ -31,6 +31,11 @@ import { BulletLink } from "@/components/meetings/bullet-link";
 import { CanvasEditor } from "@/components/meetings/canvas-editor";
 import { AutoRecordPrompt } from "@/components/meetings/auto-record-prompt";
 import { QuickAskSidebar } from "@/components/meetings/quick-ask-sidebar";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export function meta() {
   return [{ title: "Meeting · Clips" }];
@@ -463,14 +468,18 @@ export default function MeetingDetailRoute() {
   return (
     <div className="p-6 max-w-6xl mx-auto w-full">
       <PageHeader>
-        <NavLink
-          to="/meetings"
-          aria-label="All meetings"
-          title="All meetings"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
-        >
-          <IconArrowLeft className="h-4 w-4" />
-        </NavLink>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <NavLink
+              to="/meetings"
+              aria-label="All meetings"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+            >
+              <IconArrowLeft className="h-4 w-4" />
+            </NavLink>
+          </TooltipTrigger>
+          <TooltipContent>All meetings</TooltipContent>
+        </Tooltip>
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <TitleEditor
             value={meeting.title || ""}

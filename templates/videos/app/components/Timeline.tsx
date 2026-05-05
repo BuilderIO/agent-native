@@ -25,6 +25,11 @@ import {
   pxDeltaToFrameDelta,
   clampFrame,
 } from "@/utils/timelineCoordinates";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type DragMode = "move" | "resize-start" | "resize-end";
 
@@ -847,89 +852,96 @@ export function Timeline({
               const isKeyframeTrack = track.startFrame === track.endFrame;
 
               return (
-                <div
-                  key={track.id}
-                  className="flex items-center gap-1.5 px-2.5 cursor-default"
-                  style={{ height: TRACK_HEIGHT }}
-                  title={track.label}
-                  onContextMenu={(e) => {
-                    // Only show context menu for camera and cursor tracks
-                    if (!isCamera && !isCursor) return;
-                    e.preventDefault();
-                    setContextMenu({
-                      trackId: track.id,
-                      x: e.clientX,
-                      y: e.clientY,
-                    });
-                  }}
-                >
-                  {isCamera ? (
-                    <IconCamera
-                      className="flex-shrink-0"
-                      size={12}
-                      style={{
-                        color: isSelected ? CAMERA_COLOR : `${CAMERA_COLOR}99`,
-                      }}
-                    />
-                  ) : isCursor ? (
-                    <IconMouse
-                      className="flex-shrink-0"
-                      size={12}
-                      style={{
-                        color: isSelected ? CURSOR_COLOR : `${CURSOR_COLOR}99`,
-                      }}
-                    />
-                  ) : isExpr ? (
-                    <span
-                      className="text-[7px] font-mono font-bold px-1 py-px rounded flex-shrink-0 uppercase tracking-wider leading-none"
-                      style={{
-                        backgroundColor: `${EXPR_COLOR}${isSelected ? "30" : "18"}`,
-                        color: isSelected ? EXPR_COLOR : `${EXPR_COLOR}99`,
+                <Tooltip key={track.id}>
+                  <TooltipTrigger asChild>
+                    <div
+                      className="flex items-center gap-1.5 px-2.5 cursor-default"
+                      style={{ height: TRACK_HEIGHT }}
+                      onContextMenu={(e) => {
+                        // Only show context menu for camera and cursor tracks
+                        if (!isCamera && !isCursor) return;
+                        e.preventDefault();
+                        setContextMenu({
+                          trackId: track.id,
+                          x: e.clientX,
+                          y: e.clientY,
+                        });
                       }}
                     >
-                      fx
-                    </span>
-                  ) : isKeyframeTrack ? (
-                    <div
-                      className="w-2 h-2 rotate-45 flex-shrink-0"
-                      style={{
-                        backgroundColor: colors.text,
-                        opacity: isSelected ? 1 : 0.5,
-                      }}
-                    />
-                  ) : (
-                    <div
-                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                      style={{
-                        backgroundColor: colors.text,
-                        opacity: isSelected ? 1 : 0.5,
-                      }}
-                    />
-                  )}
-                  <span
-                    className={cn(
-                      "text-[10px] min-w-0",
-                      isSelected ? "" : "text-muted-foreground/55",
-                    )}
-                    style={{
-                      color: isSelected
-                        ? isCamera
-                          ? CAMERA_COLOR
-                          : isCursor
-                            ? CURSOR_COLOR
-                            : isExpr
-                              ? EXPR_COLOR
-                              : colors.text
-                        : undefined,
-                      // Allow the label to shrink/wrap rather than hard-truncate
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {track.label}
-                  </span>
-                </div>
+                      {isCamera ? (
+                        <IconCamera
+                          className="flex-shrink-0"
+                          size={12}
+                          style={{
+                            color: isSelected
+                              ? CAMERA_COLOR
+                              : `${CAMERA_COLOR}99`,
+                          }}
+                        />
+                      ) : isCursor ? (
+                        <IconMouse
+                          className="flex-shrink-0"
+                          size={12}
+                          style={{
+                            color: isSelected
+                              ? CURSOR_COLOR
+                              : `${CURSOR_COLOR}99`,
+                          }}
+                        />
+                      ) : isExpr ? (
+                        <span
+                          className="text-[7px] font-mono font-bold px-1 py-px rounded flex-shrink-0 uppercase tracking-wider leading-none"
+                          style={{
+                            backgroundColor: `${EXPR_COLOR}${isSelected ? "30" : "18"}`,
+                            color: isSelected ? EXPR_COLOR : `${EXPR_COLOR}99`,
+                          }}
+                        >
+                          fx
+                        </span>
+                      ) : isKeyframeTrack ? (
+                        <div
+                          className="w-2 h-2 rotate-45 flex-shrink-0"
+                          style={{
+                            backgroundColor: colors.text,
+                            opacity: isSelected ? 1 : 0.5,
+                          }}
+                        />
+                      ) : (
+                        <div
+                          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                          style={{
+                            backgroundColor: colors.text,
+                            opacity: isSelected ? 1 : 0.5,
+                          }}
+                        />
+                      )}
+                      <span
+                        className={cn(
+                          "text-[10px] min-w-0",
+                          isSelected ? "" : "text-muted-foreground/55",
+                        )}
+                        style={{
+                          color: isSelected
+                            ? isCamera
+                              ? CAMERA_COLOR
+                              : isCursor
+                                ? CURSOR_COLOR
+                                : isExpr
+                                  ? EXPR_COLOR
+                                  : colors.text
+                            : undefined,
+                          // Allow the label to shrink/wrap rather than hard-truncate
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {track.label}
+                      </span>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>{track.label}</TooltipContent>
+                </Tooltip>
               );
             })}
           </div>
@@ -1212,297 +1224,324 @@ export function Timeline({
                       const selected = isKeyframeSelected(track.id, frame);
 
                       return (
-                        <div
-                          key={frame}
-                          data-keyframe="true"
-                          className={cn(
-                            "absolute top-1/2 -translate-y-1/2 group",
-                            isPlaying
-                              ? "cursor-not-allowed opacity-50"
-                              : "cursor-grab active:cursor-grabbing",
-                          )}
-                          style={{
-                            left: `${kfPct}%`,
-                            // Extended clickable area with padding on both sides
-                            transform: "translateY(-50%) translateX(-50%)",
-                            width: "24px", // Wider clickable area (3× the 8px diamond)
-                            height: "24px",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            zIndex: selected ? 30 : 20, // Selected keyframes on top
-                          }}
-                          onMouseDown={(e) => {
-                            if (isPlaying) return;
-                            e.preventDefault();
-                            e.stopPropagation();
+                        <Tooltip key={frame}>
+                          <TooltipTrigger asChild>
+                            <div
+                              data-keyframe="true"
+                              className={cn(
+                                "absolute top-1/2 -translate-y-1/2 group",
+                                isPlaying
+                                  ? "cursor-not-allowed opacity-50"
+                                  : "cursor-grab active:cursor-grabbing",
+                              )}
+                              style={{
+                                left: `${kfPct}%`,
+                                // Extended clickable area with padding on both sides
+                                transform: "translateY(-50%) translateX(-50%)",
+                                width: "24px", // Wider clickable area (3× the 8px diamond)
+                                height: "24px",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                zIndex: selected ? 30 : 20, // Selected keyframes on top
+                              }}
+                              onMouseDown={(e) => {
+                                if (isPlaying) return;
+                                e.preventDefault();
+                                e.stopPropagation();
 
-                            // Check if this keyframe is already in the selection
-                            const isAlreadySelected = isKeyframeSelected(
-                              track.id,
-                              frame,
-                            );
-
-                            // Determine which frames we'll be dragging
-                            // If already selected, drag all selected frames; otherwise just this one
-                            const framesToDrag = isAlreadySelected
-                              ? selectedKeyframes.get(track.id) ||
-                                new Set([frame])
-                              : new Set([frame]);
-                            const selectedFrames = Array.from(framesToDrag);
-
-                            // Update selection if needed (for visual feedback)
-                            if (!isAlreadySelected) {
-                              setSelectedKeyframes(
-                                new Map([[track.id, new Set([frame])]]),
-                              );
-                            }
-
-                            // If track is camera or cursor, notify sidebar to open controls
-                            if (isCamera && onCameraKeyframeClick) {
-                              onCameraKeyframeClick("camera");
-                            } else if (isCursor && onCameraKeyframeClick) {
-                              onCameraKeyframeClick("cursor");
-                            }
-
-                            const startX = e.clientX;
-                            const startY = e.clientY;
-                            let isDragging = false;
-
-                            const el = barAreaRef.current;
-                            if (!el) return;
-                            const rect = el.getBoundingClientRect();
-
-                            // Save original state for undo in case of conflict
-                            conflictUndoStateRef.current = {
-                              trackId: track.id,
-                              originalAnimatedProps: track.animatedProps,
-                            };
-
-                            // Store original positions of all selected keyframes
-                            const originalFrames = new Map<number, number>();
-                            selectedFrames.forEach((f) =>
-                              originalFrames.set(f, f),
-                            );
-
-                            keyframeDragRef.current = {
-                              originalFrame: frame,
-                              currentFrame: frame,
-                              startX,
-                              barAreaWidth: rect.width,
-                              movingKeys: selectedFrames.map(
-                                (f) => `${track.id}:${f}`,
-                              ),
-                              originalFrames,
-                            };
-
-                            const handleMove = (ev: MouseEvent) => {
-                              if (!keyframeDragRef.current) return;
-
-                              // Check if moved significantly (3px threshold)
-                              const dist = Math.sqrt(
-                                Math.pow(ev.clientX - startX, 2) +
-                                  Math.pow(ev.clientY - startY, 2),
-                              );
-                              if (dist > 3) {
-                                isDragging = true;
-                              }
-
-                              // Calculate delta in pixels, convert to frames
-                              const deltaX =
-                                ev.clientX - keyframeDragRef.current.startX;
-                              const frameChange = pxDeltaToFrameDelta(
-                                deltaX,
-                                keyframeDragRef.current.barAreaWidth,
-                                viewDuration,
-                              );
-
-                              // Calculate new positions for all selected keyframes
-                              const newPositions = new Map<number, number>();
-                              let minNewFrame = Infinity;
-                              let maxNewFrame = -Infinity;
-
-                              selectedFrames.forEach((origFrame) => {
-                                const newFrame = clampFrame(
-                                  origFrame + frameChange,
-                                  durationInFrames,
-                                );
-                                newPositions.set(origFrame, newFrame);
-                                minNewFrame = Math.min(minNewFrame, newFrame);
-                                maxNewFrame = Math.max(maxNewFrame, newFrame);
-                              });
-
-                              // Move ALL selected keyframes
-                              if (track.animatedProps) {
-                                const updatedProps = track.animatedProps.map(
-                                  (prop) => {
-                                    if (!prop.keyframes) return prop;
-
-                                    const updatedKeyframes = prop.keyframes.map(
-                                      (kf) => {
-                                        const newFrame = newPositions.get(
-                                          kf.frame,
-                                        );
-                                        return newFrame !== undefined
-                                          ? { ...kf, frame: newFrame }
-                                          : kf;
-                                      },
-                                    );
-
-                                    return {
-                                      ...prop,
-                                      keyframes: updatedKeyframes,
-                                    };
-                                  },
+                                // Check if this keyframe is already in the selection
+                                const isAlreadySelected = isKeyframeSelected(
+                                  track.id,
+                                  frame,
                                 );
 
-                                onUpdateTrack(track.id, {
-                                  animatedProps: updatedProps,
-                                });
-                              }
+                                // Determine which frames we'll be dragging
+                                // If already selected, drag all selected frames; otherwise just this one
+                                const framesToDrag = isAlreadySelected
+                                  ? selectedKeyframes.get(track.id) ||
+                                    new Set([frame])
+                                  : new Set([frame]);
+                                const selectedFrames = Array.from(framesToDrag);
 
-                              // Update current frame for the dragged keyframe
-                              const newFrame = newPositions.get(
-                                keyframeDragRef.current.originalFrame,
-                              );
-                              if (newFrame !== undefined) {
-                                keyframeDragRef.current.currentFrame = newFrame;
-                                // Seek playhead to follow the dragged keyframe
-                                onSeek(newFrame);
-                              }
-                            };
+                                // Update selection if needed (for visual feedback)
+                                if (!isAlreadySelected) {
+                                  setSelectedKeyframes(
+                                    new Map([[track.id, new Set([frame])]]),
+                                  );
+                                }
 
-                            const handleUp = () => {
-                              window.removeEventListener(
-                                "mousemove",
-                                handleMove,
-                              );
-                              window.removeEventListener("mouseup", handleUp);
-
-                              if (!keyframeDragRef.current) return;
-
-                              const finalFrame =
-                                keyframeDragRef.current.currentFrame;
-
-                              if (!isDragging) {
-                                // It was just a click - already handled selection above
-                                onSeek(frame);
+                                // If track is camera or cursor, notify sidebar to open controls
                                 if (isCamera && onCameraKeyframeClick) {
                                   onCameraKeyframeClick("camera");
                                 } else if (isCursor && onCameraKeyframeClick) {
                                   onCameraKeyframeClick("cursor");
                                 }
-                              } else {
-                                // Calculate delta for all keyframes
-                                const deltaX = 0; // We're at final position
-                                const frameChange =
-                                  finalFrame -
-                                  keyframeDragRef.current.originalFrame;
 
-                                // Build set of all new positions
-                                const newFrameSet = new Set<number>();
-                                selectedFrames.forEach((origFrame) => {
-                                  const newPos = clampFrame(
-                                    origFrame + frameChange,
-                                    durationInFrames,
+                                const startX = e.clientX;
+                                const startY = e.clientY;
+                                let isDragging = false;
+
+                                const el = barAreaRef.current;
+                                if (!el) return;
+                                const rect = el.getBoundingClientRect();
+
+                                // Save original state for undo in case of conflict
+                                conflictUndoStateRef.current = {
+                                  trackId: track.id,
+                                  originalAnimatedProps: track.animatedProps,
+                                };
+
+                                // Store original positions of all selected keyframes
+                                const originalFrames = new Map<
+                                  number,
+                                  number
+                                >();
+                                selectedFrames.forEach((f) =>
+                                  originalFrames.set(f, f),
+                                );
+
+                                keyframeDragRef.current = {
+                                  originalFrame: frame,
+                                  currentFrame: frame,
+                                  startX,
+                                  barAreaWidth: rect.width,
+                                  movingKeys: selectedFrames.map(
+                                    (f) => `${track.id}:${f}`,
+                                  ),
+                                  originalFrames,
+                                };
+
+                                const handleMove = (ev: MouseEvent) => {
+                                  if (!keyframeDragRef.current) return;
+
+                                  // Check if moved significantly (3px threshold)
+                                  const dist = Math.sqrt(
+                                    Math.pow(ev.clientX - startX, 2) +
+                                      Math.pow(ev.clientY - startY, 2),
                                   );
-                                  newFrameSet.add(newPos);
-                                });
+                                  if (dist > 3) {
+                                    isDragging = true;
+                                  }
 
-                                // Check for conflicts: any of the moved keyframes overlap with non-selected keyframes
-                                if (track.animatedProps) {
-                                  for (const prop of track.animatedProps) {
-                                    if (prop.keyframes) {
-                                      // Get all keyframe positions that are NOT being moved
-                                      const staticFrames = prop.keyframes
-                                        .filter(
-                                          (kf) =>
-                                            !selectedFrames.includes(kf.frame),
-                                        )
-                                        .map((kf) => kf.frame);
+                                  // Calculate delta in pixels, convert to frames
+                                  const deltaX =
+                                    ev.clientX - keyframeDragRef.current.startX;
+                                  const frameChange = pxDeltaToFrameDelta(
+                                    deltaX,
+                                    keyframeDragRef.current.barAreaWidth,
+                                    viewDuration,
+                                  );
 
-                                      // Check if any new position conflicts with a static keyframe
-                                      for (const newPos of newFrameSet) {
-                                        if (staticFrames.includes(newPos)) {
-                                          // Conflict detected - show modal
-                                          setKeyframeConflict({
-                                            trackId: track.id,
-                                            newFrame: newPos,
-                                            originalFrame:
-                                              keyframeDragRef.current
-                                                .originalFrame,
-                                            conflictingFrame: newPos,
+                                  // Calculate new positions for all selected keyframes
+                                  const newPositions = new Map<
+                                    number,
+                                    number
+                                  >();
+                                  let minNewFrame = Infinity;
+                                  let maxNewFrame = -Infinity;
+
+                                  selectedFrames.forEach((origFrame) => {
+                                    const newFrame = clampFrame(
+                                      origFrame + frameChange,
+                                      durationInFrames,
+                                    );
+                                    newPositions.set(origFrame, newFrame);
+                                    minNewFrame = Math.min(
+                                      minNewFrame,
+                                      newFrame,
+                                    );
+                                    maxNewFrame = Math.max(
+                                      maxNewFrame,
+                                      newFrame,
+                                    );
+                                  });
+
+                                  // Move ALL selected keyframes
+                                  if (track.animatedProps) {
+                                    const updatedProps =
+                                      track.animatedProps.map((prop) => {
+                                        if (!prop.keyframes) return prop;
+
+                                        const updatedKeyframes =
+                                          prop.keyframes.map((kf) => {
+                                            const newFrame = newPositions.get(
+                                              kf.frame,
+                                            );
+                                            return newFrame !== undefined
+                                              ? { ...kf, frame: newFrame }
+                                              : kf;
                                           });
-                                          keyframeDragRef.current = null;
-                                          return; // Don't finalize - let modal handle it
+
+                                        return {
+                                          ...prop,
+                                          keyframes: updatedKeyframes,
+                                        };
+                                      });
+
+                                    onUpdateTrack(track.id, {
+                                      animatedProps: updatedProps,
+                                    });
+                                  }
+
+                                  // Update current frame for the dragged keyframe
+                                  const newFrame = newPositions.get(
+                                    keyframeDragRef.current.originalFrame,
+                                  );
+                                  if (newFrame !== undefined) {
+                                    keyframeDragRef.current.currentFrame =
+                                      newFrame;
+                                    // Seek playhead to follow the dragged keyframe
+                                    onSeek(newFrame);
+                                  }
+                                };
+
+                                const handleUp = () => {
+                                  window.removeEventListener(
+                                    "mousemove",
+                                    handleMove,
+                                  );
+                                  window.removeEventListener(
+                                    "mouseup",
+                                    handleUp,
+                                  );
+
+                                  if (!keyframeDragRef.current) return;
+
+                                  const finalFrame =
+                                    keyframeDragRef.current.currentFrame;
+
+                                  if (!isDragging) {
+                                    // It was just a click - already handled selection above
+                                    onSeek(frame);
+                                    if (isCamera && onCameraKeyframeClick) {
+                                      onCameraKeyframeClick("camera");
+                                    } else if (
+                                      isCursor &&
+                                      onCameraKeyframeClick
+                                    ) {
+                                      onCameraKeyframeClick("cursor");
+                                    }
+                                  } else {
+                                    // Calculate delta for all keyframes
+                                    const deltaX = 0; // We're at final position
+                                    const frameChange =
+                                      finalFrame -
+                                      keyframeDragRef.current.originalFrame;
+
+                                    // Build set of all new positions
+                                    const newFrameSet = new Set<number>();
+                                    selectedFrames.forEach((origFrame) => {
+                                      const newPos = clampFrame(
+                                        origFrame + frameChange,
+                                        durationInFrames,
+                                      );
+                                      newFrameSet.add(newPos);
+                                    });
+
+                                    // Check for conflicts: any of the moved keyframes overlap with non-selected keyframes
+                                    if (track.animatedProps) {
+                                      for (const prop of track.animatedProps) {
+                                        if (prop.keyframes) {
+                                          // Get all keyframe positions that are NOT being moved
+                                          const staticFrames = prop.keyframes
+                                            .filter(
+                                              (kf) =>
+                                                !selectedFrames.includes(
+                                                  kf.frame,
+                                                ),
+                                            )
+                                            .map((kf) => kf.frame);
+
+                                          // Check if any new position conflicts with a static keyframe
+                                          for (const newPos of newFrameSet) {
+                                            if (staticFrames.includes(newPos)) {
+                                              // Conflict detected - show modal
+                                              setKeyframeConflict({
+                                                trackId: track.id,
+                                                newFrame: newPos,
+                                                originalFrame:
+                                                  keyframeDragRef.current
+                                                    .originalFrame,
+                                                conflictingFrame: newPos,
+                                              });
+                                              keyframeDragRef.current = null;
+                                              return; // Don't finalize - let modal handle it
+                                            }
+                                          }
                                         }
                                       }
                                     }
+
+                                    // Update selection to reflect new positions
+                                    setSelectedKeyframes((prev) => {
+                                      const next = new Map(prev);
+                                      next.set(track.id, newFrameSet);
+                                      return next;
+                                    });
+
+                                    // No conflict - success!
+                                    conflictUndoStateRef.current = null;
                                   }
-                                }
 
-                                // Update selection to reflect new positions
-                                setSelectedKeyframes((prev) => {
-                                  const next = new Map(prev);
-                                  next.set(track.id, newFrameSet);
-                                  return next;
-                                });
+                                  keyframeDragRef.current = null;
+                                };
 
-                                // No conflict - success!
-                                conflictUndoStateRef.current = null;
-                              }
-
-                              keyframeDragRef.current = null;
-                            };
-
-                            window.addEventListener("mousemove", handleMove);
-                            window.addEventListener("mouseup", handleUp);
-                          }}
-                          title={
-                            isPlaying
+                                window.addEventListener(
+                                  "mousemove",
+                                  handleMove,
+                                );
+                                window.addEventListener("mouseup", handleUp);
+                              }}
+                            >
+                              <div
+                                className={cn("w-2 h-2 rotate-45 relative")}
+                                style={{
+                                  // Different styles for cursor keyframes based on what changed
+                                  backgroundColor: selected
+                                    ? "#ffffff" // White fill for selected keyframes
+                                    : isCursor &&
+                                        (cursorStyle === "clickStart" ||
+                                          cursorStyle === "clickEnd")
+                                      ? "#facc15" // Yellow for click keyframes
+                                      : isCursor && cursorStyle === "type"
+                                        ? "transparent"
+                                        : keyframeColor,
+                                  border:
+                                    isCursor &&
+                                    cursorStyle === "type" &&
+                                    !selected
+                                      ? `1.5px solid ${keyframeColor}`
+                                      : isCursor &&
+                                          cursorStyle === "both" &&
+                                          !selected
+                                        ? `1.5px solid #c084fc` // Brighter purple border for both
+                                        : "none",
+                                  opacity:
+                                    isCursor && cursorStyle === "clickEnd"
+                                      ? 0.4 // Semi-transparent for click end
+                                      : 1, // Solid for everything else (including clickStart)
+                                  boxShadow: selected
+                                    ? `0 0 0 2px #ffffffcc, 0 0 8px #ffffff99` // White outline + glow for selected
+                                    : isCursor &&
+                                        (cursorStyle === "clickStart" ||
+                                          cursorStyle === "clickEnd")
+                                      ? `0 0 ${isCurrentKeyframe ? 6 : 4}px #facc15${isCurrentKeyframe ? "cc" : "88"}` // Yellow glow for click keyframes
+                                      : isCursor && cursorStyle === "type"
+                                        ? `0 0 ${isCurrentKeyframe ? 6 : 4}px ${keyframeColor}${isCurrentKeyframe ? "88" : "66"}`
+                                        : isCursor && cursorStyle === "both"
+                                          ? `0 0 ${isCurrentKeyframe ? 8 : 6}px #c084fc${isCurrentKeyframe ? "cc" : "88"}`
+                                          : `0 0 ${isCurrentKeyframe ? 6 : 4}px ${keyframeColor}${isCurrentKeyframe ? "cc" : "88"}`,
+                                }}
+                              />
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {isPlaying
                               ? "Pause to select keyframe"
-                              : `Drag to reposition • Click to select`
-                          }
-                        >
-                          <div
-                            className={cn("w-2 h-2 rotate-45 relative")}
-                            style={{
-                              // Different styles for cursor keyframes based on what changed
-                              backgroundColor: selected
-                                ? "#ffffff" // White fill for selected keyframes
-                                : isCursor &&
-                                    (cursorStyle === "clickStart" ||
-                                      cursorStyle === "clickEnd")
-                                  ? "#facc15" // Yellow for click keyframes
-                                  : isCursor && cursorStyle === "type"
-                                    ? "transparent"
-                                    : keyframeColor,
-                              border:
-                                isCursor && cursorStyle === "type" && !selected
-                                  ? `1.5px solid ${keyframeColor}`
-                                  : isCursor &&
-                                      cursorStyle === "both" &&
-                                      !selected
-                                    ? `1.5px solid #c084fc` // Brighter purple border for both
-                                    : "none",
-                              opacity:
-                                isCursor && cursorStyle === "clickEnd"
-                                  ? 0.4 // Semi-transparent for click end
-                                  : 1, // Solid for everything else (including clickStart)
-                              boxShadow: selected
-                                ? `0 0 0 2px #ffffffcc, 0 0 8px #ffffff99` // White outline + glow for selected
-                                : isCursor &&
-                                    (cursorStyle === "clickStart" ||
-                                      cursorStyle === "clickEnd")
-                                  ? `0 0 ${isCurrentKeyframe ? 6 : 4}px #facc15${isCurrentKeyframe ? "cc" : "88"}` // Yellow glow for click keyframes
-                                  : isCursor && cursorStyle === "type"
-                                    ? `0 0 ${isCurrentKeyframe ? 6 : 4}px ${keyframeColor}${isCurrentKeyframe ? "88" : "66"}`
-                                    : isCursor && cursorStyle === "both"
-                                      ? `0 0 ${isCurrentKeyframe ? 8 : 6}px #c084fc${isCurrentKeyframe ? "cc" : "88"}`
-                                      : `0 0 ${isCurrentKeyframe ? 6 : 4}px ${keyframeColor}${isCurrentKeyframe ? "cc" : "88"}`,
-                            }}
-                          />
-                        </div>
+                              : `Drag to reposition • Click to select`}
+                          </TooltipContent>
+                        </Tooltip>
                       );
                     })}
                   </div>

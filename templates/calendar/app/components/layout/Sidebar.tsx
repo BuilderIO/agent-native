@@ -340,21 +340,29 @@ function GoogleAccountsSection({
           </span>
         </div>
         <div className="flex items-center">
-          <Link
-            to="/settings"
-            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-            title="Google Calendar settings"
-          >
-            <IconSettings className="h-3.5 w-3.5" />
-          </Link>
-          <button
-            type="button"
-            onClick={() => setWantAddAccount(true)}
-            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-            title="Add Google account"
-          >
-            <IconPlus className="h-3.5 w-3.5" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
+                to="/settings"
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+              >
+                <IconSettings className="h-3.5 w-3.5" />
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent>Google Calendar settings</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => setWantAddAccount(true)}
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+              >
+                <IconPlus className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Add Google account</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 

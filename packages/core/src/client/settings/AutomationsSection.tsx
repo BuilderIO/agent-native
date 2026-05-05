@@ -10,6 +10,11 @@ import {
 } from "@tabler/icons-react";
 import { sendToAgentChat } from "../agent-chat.js";
 import { PromptComposer } from "../composer/PromptComposer.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 
 interface TreeNode {
   name: string;
@@ -383,25 +388,31 @@ export function AutomationsSection() {
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
                 <StatusBadge status={item.lastStatus} />
-                <button
-                  type="button"
-                  onClick={() => handleToggle(item)}
-                  disabled={togglingId === item.id}
-                  className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
-                    item.enabled
-                      ? "bg-green-500/15 text-green-500"
-                      : "bg-accent/60 text-muted-foreground"
-                  } hover:opacity-80 disabled:opacity-40`}
-                  title={item.enabled ? "Disable" : "Enable"}
-                >
-                  {togglingId === item.id ? (
-                    <IconLoader2 size={10} className="animate-spin" />
-                  ) : item.enabled ? (
-                    "On"
-                  ) : (
-                    "Off"
-                  )}
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => handleToggle(item)}
+                      disabled={togglingId === item.id}
+                      className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
+                        item.enabled
+                          ? "bg-green-500/15 text-green-500"
+                          : "bg-accent/60 text-muted-foreground"
+                      } hover:opacity-80 disabled:opacity-40`}
+                    >
+                      {togglingId === item.id ? (
+                        <IconLoader2 size={10} className="animate-spin" />
+                      ) : item.enabled ? (
+                        "On"
+                      ) : (
+                        "Off"
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {item.enabled ? "Disable" : "Enable"}
+                  </TooltipContent>
+                </Tooltip>
                 {confirmDeleteId === item.id ? (
                   <div className="flex items-center gap-1">
                     <button
@@ -425,14 +436,18 @@ export function AutomationsSection() {
                     </button>
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmDeleteId(item.id)}
-                    className="text-muted-foreground hover:text-red-500 disabled:opacity-40"
-                    title="Delete"
-                  >
-                    <IconTrash size={12} />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(item.id)}
+                        className="text-muted-foreground hover:text-red-500 disabled:opacity-40"
+                      >
+                        <IconTrash size={12} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Delete</TooltipContent>
+                  </Tooltip>
                 )}
               </div>
             </div>

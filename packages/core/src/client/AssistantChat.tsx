@@ -3189,47 +3189,51 @@ const AssistantChatInner = forwardRef<
                   interceptBuildRequestsForBuilder
                   extraActionButton={
                     showRunningInUI ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          // Nuclear stop: flip forceStopped so isRunning is false
-                          // immediately. This unblocks submission even if the
-                          // runtime or reconnect state is stuck.
-                          setForceStopped(true);
-                          const activeRun = getActiveRun();
-                          const runIdToAbort =
-                            reconnectRunIdRef.current ?? activeRun?.runId;
-                          if (runIdToAbort) {
-                            fetch(
-                              `${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`,
-                              { method: "POST" },
-                            ).catch(() => {});
-                          }
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              // Nuclear stop: flip forceStopped so isRunning is false
+                              // immediately. This unblocks submission even if the
+                              // runtime or reconnect state is stuck.
+                              setForceStopped(true);
+                              const activeRun = getActiveRun();
+                              const runIdToAbort =
+                                reconnectRunIdRef.current ?? activeRun?.runId;
+                              if (runIdToAbort) {
+                                fetch(
+                                  `${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`,
+                                  { method: "POST" },
+                                ).catch(() => {});
+                              }
 
-                          if (isReconnecting) {
-                            reconnectAbortRef.current?.abort();
-                            reconnectAbortRef.current = null;
-                            reconnectRunIdRef.current = null;
-                            setIsReconnecting(false);
-                            setReconnectFrozen(reconnectContent.length > 0);
-                          }
+                              if (isReconnecting) {
+                                reconnectAbortRef.current?.abort();
+                                reconnectAbortRef.current = null;
+                                reconnectRunIdRef.current = null;
+                                setIsReconnecting(false);
+                                setReconnectFrozen(reconnectContent.length > 0);
+                              }
 
-                          threadRuntime.cancelRun();
+                              threadRuntime.cancelRun();
 
-                          window.dispatchEvent(
-                            new CustomEvent("agentNative.chatRunning", {
-                              detail: {
-                                isRunning: false,
-                                tabId: tabId || threadId,
-                              },
-                            }),
-                          );
-                        }}
-                        className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
-                        title="Stop generating"
-                      >
-                        <IconPlayerStop className="h-3.5 w-3.5" />
-                      </button>
+                              window.dispatchEvent(
+                                new CustomEvent("agentNative.chatRunning", {
+                                  detail: {
+                                    isRunning: false,
+                                    tabId: tabId || threadId,
+                                  },
+                                }),
+                              );
+                            }}
+                            className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
+                          >
+                            <IconPlayerStop className="h-3.5 w-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>Stop generating</TooltipContent>
+                      </Tooltip>
                     ) : undefined
                   }
                 />

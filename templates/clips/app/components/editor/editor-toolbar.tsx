@@ -40,6 +40,11 @@ import {
   type EditsJson,
 } from "@/lib/timestamp-mapping";
 import { SplitButton } from "./split-button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export interface EditorToolbarProps {
   recordingId: string;
@@ -180,38 +185,44 @@ export function EditorToolbar({
 
   return (
     <div className="flex items-center gap-1 px-2 h-11 border-b border-border bg-card/40">
-      <Button
-        size="sm"
-        variant="ghost"
-        onClick={handleUndo}
-        disabled={undo.isPending}
-        title="Undo (Cmd/Ctrl+Z)"
-      >
-        <IconArrowBackUp className="w-4 h-4" />
-      </Button>
-      <Button
-        size="sm"
-        variant="ghost"
-        disabled
-        title="Redo (not supported — there is no redo stack)"
-      >
-        <IconArrowForwardUp className="w-4 h-4 opacity-40" />
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleUndo}
+            disabled={undo.isPending}
+          >
+            <IconArrowBackUp className="w-4 h-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Undo (Cmd/Ctrl+Z)</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button size="sm" variant="ghost" disabled>
+            <IconArrowForwardUp className="w-4 h-4 opacity-40" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          Redo (not supported — there is no redo stack)
+        </TooltipContent>
+      </Tooltip>
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
-      <Button
-        size="sm"
-        variant="ghost"
-        onClick={onPlayPause}
-        title="Play / Pause (Space)"
-      >
-        {playing ? (
-          <IconPlayerPause className="w-4 h-4" />
-        ) : (
-          <IconPlayerPlay className="w-4 h-4" />
-        )}
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button size="sm" variant="ghost" onClick={onPlayPause}>
+            {playing ? (
+              <IconPlayerPause className="w-4 h-4" />
+            ) : (
+              <IconPlayerPlay className="w-4 h-4" />
+            )}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Play / Pause (Space)</TooltipContent>
+      </Tooltip>
 
       <div className="text-xs font-mono text-muted-foreground px-2">
         {formatMs(playheadMs)} / {formatMs(effectiveMs)}
@@ -223,57 +234,61 @@ export function EditorToolbar({
       <Separator orientation="vertical" className="h-6 mx-1" />
 
       <SplitButton recordingId={recordingId} playheadMs={playheadMs} />
-      <Button
-        size="sm"
-        variant="ghost"
-        onClick={handleTrimSelection}
-        disabled={!selectionRange || trim.isPending}
-        title="Cut selection"
-      >
-        <IconScissors className="w-4 h-4 mr-1" />
-        Cut
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleTrimSelection}
+            disabled={!selectionRange || trim.isPending}
+          >
+            <IconScissors className="w-4 h-4 mr-1" />
+            Cut
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Cut selection</TooltipContent>
+      </Tooltip>
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
-      <Button
-        size="sm"
-        variant="ghost"
-        onClick={onOpenThumbnailPicker}
-        title="Edit thumbnail"
-      >
-        <IconPhotoEdit className="w-4 h-4 mr-1" />
-        Thumbnail
-      </Button>
-      <Button
-        size="sm"
-        variant="ghost"
-        onClick={onOpenChapters}
-        title="Chapters"
-      >
-        <IconBookmarks className="w-4 h-4 mr-1" />
-        Chapters
-      </Button>
-      <Button
-        size="sm"
-        variant="ghost"
-        onClick={onOpenStitch}
-        title="Stitch recordings"
-      >
-        <IconPuzzle className="w-4 h-4 mr-1" />
-        Stitch
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button size="sm" variant="ghost" onClick={onOpenThumbnailPicker}>
+            <IconPhotoEdit className="w-4 h-4 mr-1" />
+            Thumbnail
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Edit thumbnail</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button size="sm" variant="ghost" onClick={onOpenChapters}>
+            <IconBookmarks className="w-4 h-4 mr-1" />
+            Chapters
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Chapters</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button size="sm" variant="ghost" onClick={onOpenStitch}>
+            <IconPuzzle className="w-4 h-4 mr-1" />
+            Stitch
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Stitch recordings</TooltipContent>
+      </Tooltip>
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
-      <Button
-        size="sm"
-        variant="ghost"
-        onClick={() => setClearOpen(true)}
-        title="Clear all edits"
-      >
-        <IconTrash className="w-4 h-4" />
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button size="sm" variant="ghost" onClick={() => setClearOpen(true)}>
+            <IconTrash className="w-4 h-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Clear all edits</TooltipContent>
+      </Tooltip>
 
       <div className="flex-1" />
 

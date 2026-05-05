@@ -26,6 +26,11 @@ import {
   checkBridgePolicy,
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 
 const THEME_CSS_VARS = [
   "--background",
@@ -114,15 +119,19 @@ function EditToolPopover({ extension }: { extension: Extension }) {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex items-center justify-center rounded-md h-8 w-8 text-muted-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer"
-          title="Edit"
-        >
-          <IconPencil className="h-4 w-4" />
-        </button>
-      </PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex items-center justify-center rounded-md h-8 w-8 text-muted-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer"
+            >
+              <IconPencil className="h-4 w-4" />
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Edit</TooltipContent>
+      </Tooltip>
       <PopoverContent align="end" sideOffset={6} className="w-[420px] p-3">
         <p className="px-1 pb-2 text-sm font-semibold text-foreground">
           Edit extension
@@ -484,26 +493,34 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
           ) : (
             <>
               <span className="text-sm font-medium">{extension.name}</span>
-              <button
-                type="button"
-                onClick={startRename}
-                className="cursor-pointer rounded p-0.5 text-muted-foreground/40 opacity-0 group-hover/name:opacity-100 hover:text-foreground"
-                title="Rename"
-              >
-                <IconPencil className="h-3 w-3" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={startRename}
+                    className="cursor-pointer rounded p-0.5 text-muted-foreground/40 opacity-0 group-hover/name:opacity-100 hover:text-foreground"
+                  >
+                    <IconPencil className="h-3 w-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Rename</TooltipContent>
+              </Tooltip>
             </>
           )}
         </div>
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setRefreshKey((k) => k + 1)}
-            className="inline-flex items-center justify-center rounded-md h-8 w-8 text-muted-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer"
-            title="Refresh"
-          >
-            <IconRefresh className="h-4 w-4" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => setRefreshKey((k) => k + 1)}
+                className="inline-flex items-center justify-center rounded-md h-8 w-8 text-muted-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer"
+              >
+                <IconRefresh className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Refresh</TooltipContent>
+          </Tooltip>
           <EditToolPopover extension={extension} />
           <ShareButton
             resourceType="extension"
@@ -616,16 +633,20 @@ function ToolMoreMenu({
         if (!o) setConfirmingDelete(false);
       }}
     >
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex items-center justify-center rounded-md h-8 w-8 text-muted-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer"
-          title="More options"
-          aria-label="More options"
-        >
-          <IconDots className="h-4 w-4" />
-        </button>
-      </PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex items-center justify-center rounded-md h-8 w-8 text-muted-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer"
+              aria-label="More options"
+            >
+              <IconDots className="h-4 w-4" />
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>More options</TooltipContent>
+      </Tooltip>
       <PopoverContent align="end" sideOffset={4} className="w-72 p-0">
         {!confirmingDelete ? (
           <>
@@ -653,15 +674,21 @@ function ToolMoreMenu({
                     <span className="flex-1 truncate font-mono text-[11px] text-muted-foreground">
                       {s.slotId}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => removeFromSlot(s.slotId)}
-                      className="rounded p-1 text-muted-foreground/60 hover:bg-accent hover:text-foreground cursor-pointer"
-                      title="Remove from this widget area (for me)"
-                      aria-label="Remove from this widget area"
-                    >
-                      <IconX className="h-3.5 w-3.5" />
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => removeFromSlot(s.slotId)}
+                          className="rounded p-1 text-muted-foreground/60 hover:bg-accent hover:text-foreground cursor-pointer"
+                          aria-label="Remove from this widget area"
+                        >
+                          <IconX className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Remove from this widget area (for me)
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                 ))}
               </div>

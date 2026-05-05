@@ -55,6 +55,11 @@ import {
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import type { Alias, AutomationAction, AutomationRule } from "@shared/types";
 import { TeamPage } from "@agent-native/core/client/org";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 // ─── Alias Edit Row ───────────────────────────────────────────────────────────
 
@@ -198,29 +203,37 @@ function AliasRow({
           </p>
         </div>
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onEdit}
-            className="h-7 w-7 p-0"
-            title="Edit alias"
-          >
-            <IconPencil className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={handleDelete}
-            disabled={deleteAlias.isPending}
-            className="h-7 w-7 p-0"
-            title="Delete alias"
-          >
-            {deleteAlias.isPending ? (
-              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <IconTrash className="h-3.5 w-3.5" />
-            )}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onEdit}
+                className="h-7 w-7 p-0"
+              >
+                <IconPencil className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Edit alias</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleDelete}
+                disabled={deleteAlias.isPending}
+                className="h-7 w-7 p-0"
+              >
+                {deleteAlias.isPending ? (
+                  <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <IconTrash className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Delete alias</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
@@ -633,29 +646,37 @@ function AutomationRow({
         </div>
       </div>
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 shrink-0">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onEdit}
-          className="h-7 w-7 p-0"
-          title="Edit rule"
-        >
-          <IconPencil className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={() => deleteAutomation.mutate(rule.id)}
-          disabled={deleteAutomation.isPending}
-          className="h-7 w-7 p-0"
-          title="Delete rule"
-        >
-          {deleteAutomation.isPending ? (
-            <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <IconTrash className="h-3.5 w-3.5" />
-          )}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onEdit}
+              className="h-7 w-7 p-0"
+            >
+              <IconPencil className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Edit rule</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => deleteAutomation.mutate(rule.id)}
+              disabled={deleteAutomation.isPending}
+              className="h-7 w-7 p-0"
+            >
+              {deleteAutomation.isPending ? (
+                <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <IconTrash className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Delete rule</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   );

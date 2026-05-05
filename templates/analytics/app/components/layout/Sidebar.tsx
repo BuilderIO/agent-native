@@ -239,40 +239,52 @@ function SortableRow({
             className="min-w-0 flex-1 bg-transparent px-2 py-1.5 pr-12 text-xs outline-none"
           />
         ) : (
-          <Link
-            to={href}
-            title={name}
-            className="min-w-0 flex-1 px-2 py-1.5 pr-12 text-xs transition-[padding] md:pr-2 md:group-hover/item:pr-12 md:group-focus-within/item:pr-12"
-          >
-            <span className="block truncate">{name}</span>
-          </Link>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
+                to={href}
+                className="min-w-0 flex-1 px-2 py-1.5 pr-12 text-xs transition-[padding] md:pr-2 md:group-hover/item:pr-12 md:group-focus-within/item:pr-12"
+              >
+                <span className="block truncate">{name}</span>
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent>{name}</TooltipContent>
+          </Tooltip>
         )}
         <div className="pointer-events-none absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/item:opacity-100 md:group-focus-within/item:opacity-100">
-          <button
-            type="button"
-            onClick={() => onToggleFavorite(favoriteKey)}
-            className={cn(
-              "pointer-events-auto rounded p-0.5 transition-colors",
-              isFav
-                ? "text-yellow-500"
-                : "text-muted-foreground/50 hover:text-yellow-500",
-            )}
-            title={isFav ? "Unfavorite" : "Favorite"}
-            aria-label={isFav ? "Unfavorite" : "Favorite"}
-          >
-            <IconStar className={cn("h-3 w-3", isFav && "fill-current")} />
-          </button>
-          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-            <DropdownMenuTrigger asChild>
+          <Tooltip>
+            <TooltipTrigger asChild>
               <button
                 type="button"
-                className="pointer-events-auto rounded p-0.5 text-muted-foreground/50 transition-colors hover:text-foreground"
-                title={`${name} actions`}
-                aria-label={`${name} actions`}
+                onClick={() => onToggleFavorite(favoriteKey)}
+                className={cn(
+                  "pointer-events-auto rounded p-0.5 transition-colors",
+                  isFav
+                    ? "text-yellow-500"
+                    : "text-muted-foreground/50 hover:text-yellow-500",
+                )}
+                aria-label={isFav ? "Unfavorite" : "Favorite"}
               >
-                <IconDots className="h-3 w-3" />
+                <IconStar className={cn("h-3 w-3", isFav && "fill-current")} />
               </button>
-            </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>{isFav ? "Unfavorite" : "Favorite"}</TooltipContent>
+          </Tooltip>
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="pointer-events-auto rounded p-0.5 text-muted-foreground/50 transition-colors hover:text-foreground"
+                    aria-label={`${name} actions`}
+                  >
+                    <IconDots className="h-3 w-3" />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{`${name} actions`}</TooltipContent>
+            </Tooltip>
             <DropdownMenuContent side="right" align="start" className="w-36">
               <DropdownMenuItem
                 onSelect={() => {
@@ -403,46 +415,52 @@ function SortableDashboardItem({
                 </Link>
                 {sv.isDynamic && (
                   <>
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        onToggleFavorite(`view:${d.id}:${sv.id}`);
-                      }}
-                      className={cn(
-                        "p-0.5 rounded shrink-0",
-                        favoriteIds.has(`view:${d.id}:${sv.id}`)
-                          ? "text-yellow-500 opacity-100"
-                          : "opacity-0 group-hover/sv:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
-                      )}
-                      title={
-                        favoriteIds.has(`view:${d.id}:${sv.id}`)
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onToggleFavorite(`view:${d.id}:${sv.id}`);
+                          }}
+                          className={cn(
+                            "p-0.5 rounded shrink-0",
+                            favoriteIds.has(`view:${d.id}:${sv.id}`)
+                              ? "text-yellow-500 opacity-100"
+                              : "opacity-0 group-hover/sv:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
+                          )}
+                        >
+                          <IconStar
+                            className={cn(
+                              "h-2.5 w-2.5",
+                              favoriteIds.has(`view:${d.id}:${sv.id}`) &&
+                                "fill-current",
+                            )}
+                          />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {favoriteIds.has(`view:${d.id}:${sv.id}`)
                           ? "Unfavorite"
-                          : "Favorite"
-                      }
-                    >
-                      <IconStar
-                        className={cn(
-                          "h-2.5 w-2.5",
-                          favoriteIds.has(`view:${d.id}:${sv.id}`) &&
-                            "fill-current",
-                        )}
-                      />
-                    </button>
+                          : "Favorite"}
+                      </TooltipContent>
+                    </Tooltip>
                     <Popover
                       open={deletingViewId === sv.id}
                       onOpenChange={(open) =>
                         setDeletingViewId(open ? sv.id : null)
                       }
                     >
-                      <PopoverTrigger asChild>
-                        <button
-                          className="opacity-0 group-hover/sv:opacity-100 p-0.5 rounded text-muted-foreground/50 hover:text-foreground transition-all shrink-0"
-                          title={`Delete ${sv.name}`}
-                        >
-                          <IconTrash className="h-2.5 w-2.5" />
-                        </button>
-                      </PopoverTrigger>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <PopoverTrigger asChild>
+                            <button className="opacity-0 group-hover/sv:opacity-100 p-0.5 rounded text-muted-foreground/50 hover:text-foreground transition-all shrink-0">
+                              <IconTrash className="h-2.5 w-2.5" />
+                            </button>
+                          </PopoverTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent>{`Delete ${sv.name}`}</TooltipContent>
+                      </Tooltip>
                       <PopoverContent
                         className="w-56 p-3"
                         side="right"

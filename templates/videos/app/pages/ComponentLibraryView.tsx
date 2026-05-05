@@ -9,6 +9,11 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import type { Zone } from "@/remotion/hooks/useEditableZones";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type ComponentLibraryViewProps = {
   component: LibraryComponentEntry;
@@ -241,27 +246,35 @@ export function ComponentLibraryView({
             {/* Custom Controls Overlay */}
             <div className="absolute bottom-0 left-0 right-0 p-2 sm:p-4">
               <div className="flex items-center gap-2 sm:gap-3">
-                <button
-                  onClick={handleRestart}
-                  className="p-2.5 sm:p-2 hover:bg-white/10 rounded"
-                  title="Restart"
-                  aria-label="Restart"
-                >
-                  <IconPlayerSkipBack className="w-4 h-4 text-white" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={handleRestart}
+                      className="p-2.5 sm:p-2 hover:bg-white/10 rounded"
+                      aria-label="Restart"
+                    >
+                      <IconPlayerSkipBack className="w-4 h-4 text-white" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Restart</TooltipContent>
+                </Tooltip>
 
-                <button
-                  onClick={handlePlayPause}
-                  className="p-2.5 sm:p-2 hover:bg-white/10 rounded"
-                  title={playing ? "Pause" : "Play"}
-                  aria-label={playing ? "Pause" : "Play"}
-                >
-                  {playing ? (
-                    <IconPlayerPause className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
-                  ) : (
-                    <IconPlayerPlay className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
-                  )}
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={handlePlayPause}
+                      className="p-2.5 sm:p-2 hover:bg-white/10 rounded"
+                      aria-label={playing ? "Pause" : "Play"}
+                    >
+                      {playing ? (
+                        <IconPlayerPause className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
+                      ) : (
+                        <IconPlayerPlay className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{playing ? "Pause" : "Play"}</TooltipContent>
+                </Tooltip>
 
                 <div className="flex-1 text-xs sm:text-sm text-white/80 font-mono">
                   {fmtSec(currentFrame)} / {fmtSec(component.durationInFrames)}

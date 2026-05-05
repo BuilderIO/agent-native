@@ -10,6 +10,11 @@ import {
   IconCheck,
   IconX,
 } from "@tabler/icons-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface BlockBubbleMenuProps {
   /** The element currently in contentEditable mode. Menu only shows while selection is inside it. */
@@ -161,29 +166,29 @@ export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
     >
       <ToolbarButton
         icon={IconBold}
-        title="Bold (Cmd+B)"
+        tooltip="Bold (Cmd+B)"
         onClick={() => runCommand("bold")}
       />
       <ToolbarButton
         icon={IconItalic}
-        title="Italic (Cmd+I)"
+        tooltip="Italic (Cmd+I)"
         onClick={() => runCommand("italic")}
       />
       <ToolbarButton
         icon={IconUnderline}
-        title="Underline (Cmd+U)"
+        tooltip="Underline (Cmd+U)"
         onClick={() => runCommand("underline")}
       />
       <ToolbarButton
         icon={IconStrikethrough}
-        title="Strikethrough"
+        tooltip="Strikethrough"
         onClick={() => runCommand("strikeThrough")}
       />
       <div className="w-px h-4 bg-border mx-0.5" />
       <div className="relative">
         <ToolbarButton
           icon={IconPalette}
-          title="Color"
+          tooltip="Color"
           onClick={() => {
             // Imperative set BEFORE state change — useEffect runs after the
             // input's autoFocus has already fired selectionchange, too late.
@@ -196,23 +201,26 @@ export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
         {showColors && (
           <div className="absolute top-full left-0 mt-1 p-3 rounded-lg bg-popover border border-border shadow-2xl shadow-black/60 grid grid-cols-6 gap-2 w-max">
             {COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => applyColor(c)}
-                className="w-7 h-7 rounded-md border border-foreground/25 hover:scale-110 transition-transform"
-                style={{ background: c }}
-                title={c}
-                aria-label={`Set color ${c}`}
-              />
+              <Tooltip key={c}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyColor(c)}
+                    className="w-7 h-7 rounded-md border border-foreground/25 hover:scale-110 transition-transform"
+                    style={{ background: c }}
+                    aria-label={`Set color ${c}`}
+                  />
+                </TooltipTrigger>
+                <TooltipContent>{c}</TooltipContent>
+              </Tooltip>
             ))}
           </div>
         )}
       </div>
       <ToolbarButton
         icon={IconLink}
-        title="Link"
+        tooltip="Link"
         onClick={() => {
           if (!showLinkInput) interactingRef.current = true;
           setShowLinkInput((v) => !v);
@@ -239,24 +247,32 @@ export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
             className="px-2 py-1 text-xs bg-muted rounded text-foreground outline-none border border-border focus:border-ring w-40"
             autoFocus
           />
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={applyLink}
-            className="p-1 rounded hover:bg-accent text-[#609FF8]"
-            title="Apply"
-          >
-            <IconCheck className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={removeLink}
-            className="p-1 rounded hover:bg-accent text-muted-foreground"
-            title="Remove link"
-          >
-            <IconX className="w-3.5 h-3.5" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={applyLink}
+                className="p-1 rounded hover:bg-accent text-[#609FF8]"
+              >
+                <IconCheck className="w-3.5 h-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Apply</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={removeLink}
+                className="p-1 rounded hover:bg-accent text-muted-foreground"
+              >
+                <IconX className="w-3.5 h-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Remove link</TooltipContent>
+          </Tooltip>
         </div>
       )}
     </div>,
@@ -266,30 +282,34 @@ export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
 
 function ToolbarButton({
   icon: Icon,
-  title,
+  tooltip,
   onClick,
   active,
 }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   icon: React.ComponentType<any>;
-  title: string;
+  tooltip: string;
   onClick: () => void;
   active?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
-      title={title}
-      aria-label={title}
-      className={`p-1.5 rounded transition-colors ${
-        active
-          ? "bg-[#609FF8]/20 text-[#609FF8]"
-          : "text-foreground/80 hover:bg-accent hover:text-foreground"
-      }`}
-    >
-      <Icon className="w-3.5 h-3.5" />
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onClick}
+          aria-label={tooltip}
+          className={`p-1.5 rounded transition-colors ${
+            active
+              ? "bg-[#609FF8]/20 text-[#609FF8]"
+              : "text-foreground/80 hover:bg-accent hover:text-foreground"
+          }`}
+        >
+          <Icon className="w-3.5 h-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }
