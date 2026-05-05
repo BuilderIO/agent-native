@@ -1,8 +1,13 @@
-
 build
 .output/
 templates/starter/.env
 
 .generated/
+
+# Stray SQLite files at the template root (real DB lives under data/)
+/app.db
+/app.db-shm
+/app.db-wal
+/local.db
 
 .vercel/

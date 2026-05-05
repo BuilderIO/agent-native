@@ -15,6 +15,15 @@
  * in `runWithRequestContext({ userEmail })` so the action sees a real
  * identity.
  *
+ * SHARED-DEV-BOX CAVEAT: the `SELECT email FROM sessions ORDER BY
+ * created_at DESC LIMIT 1` query is unscoped — on a machine where
+ * multiple developers have signed in (or after a `pnpm action …` run
+ * from another team's app), this will bind to whoever signed in most
+ * recently across *all* sessions in the DB. If that is wrong, set
+ * `AGENT_USER_EMAIL=<your-email>` in your shell or `.env`; explicit env
+ * always wins. A `[dev-session]` log line is emitted so wrong-binding
+ * is easy to spot.
+ *
  * Strict gating mirrors the A2A precedent in
  * `server/agent-chat-plugin.ts` (search for "latest session"):
  *   - NODE_ENV !== "production".
@@ -58,7 +67,11 @@ export async function resolveDevUserEmail(): Promise<string | undefined> {
       args: [DEV_FALLBACK_EMAIL],
     });
     const email = rows[0]?.email as string | undefined;
-    return email && email.trim().length > 0 ? email : undefined;
+    if (!email || email.trim().length === 0) return undefined;
+    console.log(
+      `[dev-session] auto-bound to ${email} (set AGENT_USER_EMAIL to override)`,
+    );
+    return email;
   } catch {
     // The sessions table doesn't exist yet (fresh install where the web
     // server has never booted) or the DB isn't reachable. Either way,

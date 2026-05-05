@@ -502,7 +502,7 @@ function printResult(
  * scoping.
  */
 function zeroChangesHint(sql: string): string {
-  const upper = sql.replace(/^\s+/, "").toUpperCase();
+  const upper = sql.toUpperCase(); // leading whitespace already stripped by normalizeUserSql
   if (upper.startsWith("INSERT")) {
     // INSERT changes=0 means INSERT OR IGNORE skipped a duplicate — different
     // failure mode, not a scoping issue.
