@@ -16,6 +16,19 @@ describe("buildAssistantMessage", () => {
     ).toBeNull();
   });
 
+  it("does not persist partial output from suppressed loop-limit boundaries", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "partial answer" } },
+      { seq: 1, event: { type: "loop_limit", maxIterations: 50 } },
+    ];
+
+    expect(
+      buildAssistantMessage(events, "run-loop-limit", {
+        suppressInternalContinuation: true,
+      }),
+    ).toBeNull();
+  });
+
   it("does not persist partial output from recoverable gateway errors when suppressed", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "checking..." } },

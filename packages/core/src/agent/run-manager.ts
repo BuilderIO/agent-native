@@ -39,6 +39,13 @@ export interface StartRunOptions {
    * auto-continuation signal instead of a user-facing timeout. Leave unset for
    * no framework-imposed run timeout. */
   softTimeoutMs?: number;
+  /** Opt into the hosted/serverless default chunk budget. Only callers with
+   * automatic continuation support should enable this. */
+  useHostedSoftTimeoutDefault?: boolean;
+}
+
+export interface ResolveRunSoftTimeoutOptions {
+  useHostedDefault?: boolean;
 }
 
 function isHostedRuntime(): boolean {
@@ -55,7 +62,10 @@ function isHostedRuntime(): boolean {
   );
 }
 
-export function resolveRunSoftTimeoutMs(overrideMs?: number): number {
+export function resolveRunSoftTimeoutMs(
+  overrideMs?: number,
+  options?: ResolveRunSoftTimeoutOptions,
+): number {
   if (typeof overrideMs === "number" && Number.isFinite(overrideMs)) {
     return Math.max(0, overrideMs);
   }
@@ -64,7 +74,9 @@ export function resolveRunSoftTimeoutMs(overrideMs?: number): number {
     const raw = Number(envValue);
     if (Number.isFinite(raw) && raw >= 0) return raw;
   }
-  return isHostedRuntime() ? DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS : 0;
+  return options?.useHostedDefault && isHostedRuntime()
+    ? DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS
+    : 0;
 }
 
 function isTerminalRunEvent(event: AgentChatEvent): boolean {
@@ -85,8 +97,13 @@ function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
   }
   run.abort.abort(reason);
   for (const subscriber of run.subscribers) {
-    run.subscribers.delete(subscriber);
+    try {
+      subscriber({ seq: run.events.length, event: { type: "done" } });
+    } catch {
+      // ignore — subscriber is being removed below
+    }
   }
+  run.subscribers.clear();
 }
 
 /**
@@ -153,7 +170,9 @@ export function startRun(
     updateRunHeartbeat(runId).catch(() => {});
     checkSqlAbort();
   }, 1500);
-  const softTimeoutMs = resolveRunSoftTimeoutMs(options?.softTimeoutMs);
+  const softTimeoutMs = resolveRunSoftTimeoutMs(options?.softTimeoutMs, {
+    useHostedDefault: options?.useHostedSoftTimeoutDefault === true,
+  });
   const softTimeoutTimer =
     softTimeoutMs > 0
       ? setTimeout(() => {

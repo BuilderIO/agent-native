@@ -83,6 +83,8 @@ jobs:
   scaffold-e2e:
     name: Scaffold E2E — create + pnpm install
     runs-on: ubuntu-latest
+    env:
+      AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
     steps:
       - uses: actions/checkout@v4
 

@@ -123,28 +123,41 @@ describe("run manager soft timeout", () => {
     expect(resolveRunSoftTimeoutMs()).toBe(0);
   });
 
-  it("uses a hosted default on serverless deploys", () => {
+  it("does not use a hosted default unless the caller opts in", () => {
     process.env.NETLIFY = "true";
 
-    expect(resolveRunSoftTimeoutMs()).toBe(DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS);
+    expect(resolveRunSoftTimeoutMs()).toBe(0);
+  });
+
+  it("uses a hosted default for callers that opt in", () => {
+    process.env.NETLIFY = "true";
+
+    expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
+      DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
+    );
   });
 
   it("treats Netlify local as a local runtime", () => {
     process.env.NETLIFY = "true";
     process.env.NETLIFY_LOCAL = "true";
 
-    expect(resolveRunSoftTimeoutMs()).toBe(0);
+    expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
+      0,
+    );
   });
 
   it("allows the environment to disable hosted soft timeouts", () => {
     process.env.NETLIFY = "true";
     process.env.AGENT_RUN_SOFT_TIMEOUT_MS = "0";
 
-    expect(resolveRunSoftTimeoutMs()).toBe(0);
+    expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
+      0,
+    );
   });
 
   it("retires explicitly aborted in-memory runs while preserving completion callbacks", async () => {
     const onComplete = vi.fn();
+    const terminalEvents: AgentChatEvent[] = [];
     const run = startRun(
       "run-explicit-abort",
       "thread-explicit-abort",
@@ -157,6 +170,7 @@ describe("run manager soft timeout", () => {
       onComplete,
       { softTimeoutMs: 0 },
     );
+    run.subscribers.add((event) => terminalEvents.push(event.event));
 
     expect(abortRun("run-explicit-abort")).toBe(true);
     await Promise.resolve();
@@ -164,6 +178,8 @@ describe("run manager soft timeout", () => {
 
     expect(run.status).toBe("aborted");
     expect(run.events).toHaveLength(0);
+    expect(run.subscribers.size).toBe(0);
+    expect(terminalEvents).toContainEqual({ type: "done" });
     await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
     expect(markRunAborted).toHaveBeenCalledWith("run-explicit-abort", "user");
   });
