@@ -75,34 +75,34 @@ export function QuestionFlow({
       <div className="h-full overflow-y-auto px-4 py-6 sm:px-8 sm:py-10">
         <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col">
           <h2 className="mb-6 text-2xl font-semibold text-foreground sm:mb-8">
-          Before we begin...
+            Before we begin...
           </h2>
 
           <div className="space-y-6 sm:space-y-8">
             {visibleQuestions.map((q) => (
-            <QuestionRenderer
-              key={q.id}
-              question={q}
-              value={answers[q.id]}
-              onChange={(val) => setAnswer(q.id, val)}
-              onToggleMulti={(val) => toggleMultiSelect(q.id, val)}
-            />
+              <QuestionRenderer
+                key={q.id}
+                question={q}
+                value={answers[q.id]}
+                onChange={(val) => setAnswer(q.id, val)}
+                onToggleMulti={(val) => toggleMultiSelect(q.id, val)}
+              />
             ))}
           </div>
 
           {/* Progress dots */}
           <div className="mt-8 flex items-center justify-center gap-1.5">
             {visibleQuestions.map((q, i) => {
-            const answered = answers[q.id] != null && answers[q.id] !== "";
-            return (
-              <div
-                key={i}
-                className={cn(
-                  "h-1.5 w-1.5 rounded-full",
-                  answered ? "bg-[#609FF8]" : "bg-muted",
-                )}
-              />
-            );
+              const answered = answers[q.id] != null && answers[q.id] !== "";
+              return (
+                <div
+                  key={i}
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full",
+                    answered ? "bg-[#609FF8]" : "bg-muted",
+                  )}
+                />
+              );
             })}
           </div>
 

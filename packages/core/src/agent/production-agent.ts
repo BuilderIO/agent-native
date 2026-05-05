@@ -1209,7 +1209,9 @@ export function createProductionAgentHandler(
       setResponseStatus(event, 400);
       return { error: "message is required" };
     }
-    const requestMessage = hasMessageText ? message : "Use the attached context.";
+    const requestMessage = hasMessageText
+      ? message
+      : "Use the attached context.";
 
     // Resolve owner first so we can look up a per-owner API key. Users
     // who bring their own key use their key for this request (durable
