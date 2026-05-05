@@ -18,6 +18,27 @@ function commentOnlyStream(delayMs: number): ReadableStream<Uint8Array> {
   });
 }
 
+function eventStream(events: unknown[]): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        new TextEncoder().encode(
+          events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+        ),
+      );
+      controller.close();
+    },
+  });
+}
+
+async function drain(iterable: AsyncIterable<unknown>) {
+  const results: unknown[] = [];
+  for await (const result of iterable) {
+    results.push(result);
+  }
+  return results;
+}
+
 describe("SSE event processor no-progress recovery", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -69,5 +90,68 @@ describe("SSE event processor no-progress recovery", () => {
     expect(err).toBeInstanceOf(AgentAutoContinueSignal);
     expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
     expect(onUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe("SSE event processor error classification", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("routes authentication failures to auth handling", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    await drain(
+      readSSEStream(
+        eventStream([{ type: "error", error: "Authentication required" }]),
+        [],
+        { value: 0 },
+        "tab-auth",
+      ),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:auth-error" }),
+    );
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:missing-api-key" }),
+    );
+  });
+
+  it("routes missing provider credentials to the setup gate", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error: "No LLM provider is connected",
+            errorCode: "missing_credentials",
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-missing",
+      ),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:missing-api-key" }),
+    );
   });
 });
