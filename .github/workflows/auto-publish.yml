@@ -91,6 +91,32 @@ jobs:
           commit: "chore: version packages"
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          # `pnpm publish` (called by `changeset publish`) only requests
+          # an OIDC token when --provenance is passed. publishConfig.provenance
+          # in package.json isn't honored across all pnpm versions, so set the
+          # env var instead — both npm and pnpm read NPM_CONFIG_PROVENANCE.
+          # Without this, publish falls back to token auth and fails with
+          # ENEEDAUTH.
+          NPM_CONFIG_PROVENANCE: "true"
+
+      - name: Trigger Builder workspace package update
+        if: |
+          steps.changesets.outputs.published == 'true' &&
+          (
+            contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
+            contains(steps.changesets.outputs.publishedPackages, '@agent-native/dispatch')
+          )
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+        run: |
+          gh api repos/BuilderIO/builder-agent-native-workspace/dispatches \
+            --method POST \
+            -f event_type=agent-native-packages-published \
+            -f "client_payload[publishedPackages]=$PUBLISHED_PACKAGES" \
+            -f "client_payload[sourceRepository]=${{ github.repository }}" \
+            -f "client_payload[sourceRunUrl]=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
   publish-desktop:
     name: Publish desktop app
