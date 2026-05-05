@@ -21,8 +21,14 @@ import {
   DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
   resolveRunSoftTimeoutMs,
   startRun,
+  subscribeToRun,
 } from "./run-manager.js";
-import { getRunAbortState, markRunAborted } from "./run-store.js";
+import {
+  getRunAbortState,
+  getRunById,
+  getRunEventsSince,
+  markRunAborted,
+} from "./run-store.js";
 
 const originalTimeoutEnv = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
 const originalNetlify = process.env.NETLIFY;
@@ -73,6 +79,8 @@ describe("run manager soft timeout", () => {
     vi.useFakeTimers();
     clearHostedEnvForTest();
     vi.mocked(getRunAbortState).mockResolvedValue({ aborted: false });
+    vi.mocked(getRunById).mockResolvedValue(null);
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
     vi.mocked(markRunAborted).mockClear();
   });
 
@@ -240,5 +248,59 @@ describe("run manager soft timeout", () => {
 
     expect(abortReason).toBe("no_progress");
     expect(run.abortReason).toBe("no_progress");
+  });
+
+  it("normalizes missing SQL abort reasons to user aborts", async () => {
+    vi.mocked(getRunAbortState).mockResolvedValue({ aborted: true });
+    let abortReason: unknown;
+
+    const run = startRun(
+      "run-sql-abort-default",
+      "thread-sql-abort-default",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              abortReason = signal.reason;
+              resolve();
+            },
+            { once: true },
+          );
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.advanceTimersByTimeAsync(1501);
+
+    expect(abortReason).toBe("user");
+    expect(run.abortReason).toBe("user");
+  });
+
+  it("closes SQL subscriptions cleanly for aborted runs without terminal events", async () => {
+    vi.mocked(getRunById).mockResolvedValue({
+      id: "run-sql-aborted",
+      threadId: "thread-sql-aborted",
+      status: "aborted",
+      startedAt: Date.now(),
+    });
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+
+    const stream = subscribeToRun("run-sql-aborted", 0);
+    expect(stream).not.toBeNull();
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
+    expect(getRunEventsSince).toHaveBeenCalledWith("run-sql-aborted", 0);
   });
 });

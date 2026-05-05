@@ -156,7 +156,7 @@ export function startRun(
     getRunAbortState(runId)
       .then((state) => {
         if (state.aborted && !abort.signal.aborted) {
-          abortInMemoryRun(run, state.reason);
+          abortInMemoryRun(run, state.reason ?? "user");
         }
       })
       .catch(() => {});
@@ -473,7 +473,7 @@ function subscribeFromSQL(
               cancelled = true;
               return;
             }
-            lastSeq = seq;
+            lastSeq = seq + 1;
 
             // Close on terminal events
             if (isTerminalRunEvent(parsed)) {
@@ -504,6 +504,24 @@ function subscribeFromSQL(
                   controller.enqueue(
                     encoder.encode(
                       `data: ${JSON.stringify({ ...parsed, seq })}\n\n`,
+                    ),
+                  );
+                } catch {
+                  cancelled = true;
+                  return;
+                }
+                lastSeq = seq + 1;
+                if (isTerminalRunEvent(parsed)) {
+                  if (pingTimer) clearInterval(pingTimer);
+                  controller.close();
+                  return;
+                }
+              }
+              if (run?.status === "aborted") {
+                try {
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({ type: "done", seq: lastSeq })}\n\n`,
                     ),
                   );
                 } catch {

@@ -148,6 +148,7 @@ export async function markRunAborted(
     sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ? WHERE id = ?`,
     args: [reason ?? "user", Date.now(), runId],
   });
+  await appendTerminalRunEvent(runId, { type: "done" }).catch(() => {});
 }
 
 export async function isRunAborted(runId: string): Promise<boolean> {
@@ -357,7 +358,8 @@ async function appendTerminalRunEvent(
         parsed?.type === "done" ||
         parsed?.type === "error" ||
         parsed?.type === "missing_api_key" ||
-        parsed?.type === "loop_limit"
+        parsed?.type === "loop_limit" ||
+        parsed?.type === "auto_continue"
       ) {
         return;
       }
