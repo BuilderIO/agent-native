@@ -12,6 +12,10 @@ interface DesignSystemCardProps {
   onSetDefault: () => void;
 }
 
+function firstFontName(stack: string): string {
+  return (stack.split(",")[0] ?? stack).replace(/['"]/g, "").trim();
+}
+
 export function DesignSystemCard({
   id,
   title,
@@ -29,6 +33,9 @@ export function DesignSystemCard({
     { label: "Text", color: data.colors.text },
   ];
 
+  const headingFamily = firstFontName(data.typography.headingFont);
+  const bodyFamily = firstFontName(data.typography.bodyFont);
+
   return (
     <div
       className="group relative rounded-xl border border-border bg-card hover:border-foreground/20 overflow-hidden cursor-pointer"
@@ -36,7 +43,7 @@ export function DesignSystemCard({
     >
       {/* Preview area */}
       <div
-        className="aspect-video p-5 flex flex-col justify-between"
+        className="relative aspect-video p-5 flex flex-col justify-between"
         style={{ background: data.colors.background }}
       >
         {/* Color swatches */}
@@ -49,6 +56,29 @@ export function DesignSystemCard({
               title={s.label}
             />
           ))}
+        </div>
+
+        {/* Action overlay (top-right of preview) */}
+        <div
+          className="absolute top-3 right-3 z-10 flex items-center gap-1.5"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={onSetDefault}
+            className="h-9 w-9 inline-flex items-center justify-center rounded-md bg-background/80 backdrop-blur-sm border border-border/40 hover:bg-background cursor-pointer"
+            title={isDefault ? "Default design system" : "Set as default"}
+          >
+            {isDefault ? (
+              <IconStarFilled className="w-4 h-4 text-[#609FF8]" />
+            ) : (
+              <IconStar className="w-4 h-4 text-muted-foreground group-hover:text-foreground/70" />
+            )}
+          </button>
+          <ShareButton
+            resourceType="design-system"
+            resourceId={id}
+            resourceTitle={title}
+          />
         </div>
 
         {/* Typography preview */}
@@ -73,61 +103,39 @@ export function DesignSystemCard({
               marginTop: "4px",
             }}
           >
-            Body text in {data.typography.bodyFont}
+            Body text in {bodyFamily}
           </div>
         </div>
       </div>
 
       {/* Info area */}
-      <div className="p-4 flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <IconPalette className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-            <h3 className="font-medium text-sm text-foreground truncate">
-              {title}
-            </h3>
-          </div>
-          <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
-            <span>{data.typography.headingFont}</span>
-            {data.typography.headingFont !== data.typography.bodyFont && (
-              <>
-                <span className="text-muted-foreground/60">|</span>
-                <span>{data.typography.bodyFont}</span>
-              </>
-            )}
-          </div>
+      <div className="p-4 space-y-1.5">
+        <div className="flex items-center gap-2 min-w-0">
+          <IconPalette className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+          <h3
+            className="font-medium text-sm text-foreground truncate"
+            title={title}
+          >
+            {title}
+          </h3>
           {isDefault && (
-            <span className="inline-block mt-2 text-[10px] font-medium uppercase tracking-wider text-[#609FF8] bg-[#609FF8]/10 px-2 py-0.5 rounded">
+            <span className="ml-auto shrink-0 text-[10px] font-medium uppercase text-[#609FF8] bg-[#609FF8]/10 px-1.5 py-0.5 rounded">
               Default
             </span>
           )}
-          <VisibilityBadge
-            visibility={visibility}
-            className="mt-2 text-[11px]"
-          />
         </div>
-
         <div
-          className="flex shrink-0 flex-col items-end gap-2"
-          onClick={(e) => e.stopPropagation()}
+          className="text-xs text-muted-foreground truncate"
+          title={
+            headingFamily === bodyFamily
+              ? data.typography.headingFont
+              : `${data.typography.headingFont} | ${data.typography.bodyFont}`
+          }
         >
-          <button
-            onClick={onSetDefault}
-            className="p-1 rounded hover:bg-accent cursor-pointer"
-            title={isDefault ? "Default design system" : "Set as default"}
-          >
-            {isDefault ? (
-              <IconStarFilled className="w-4 h-4 text-[#609FF8]" />
-            ) : (
-              <IconStar className="w-4 h-4 text-muted-foreground group-hover:text-foreground/70" />
-            )}
-          </button>
-          <ShareButton
-            resourceType="design-system"
-            resourceId={id}
-            resourceTitle={title}
-          />
+          {headingFamily}
+          {headingFamily !== bodyFamily && ` · ${bodyFamily}`}
         </div>
+        <VisibilityBadge visibility={visibility} className="text-[11px]" />
       </div>
     </div>
   );

@@ -86,7 +86,7 @@ export default function DesignSystems() {
               <div className="h-5 w-40 rounded-md bg-muted animate-pulse" />
               <div className="h-3 w-16 rounded bg-muted animate-pulse" />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,320px))] gap-4">
               {Array.from({ length: 4 }).map((_, i) => (
                 <div
                   key={i}
@@ -110,7 +110,7 @@ export default function DesignSystems() {
           />
         ) : (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,320px))] gap-4">
               {/* New design system card */}
               <button
                 onClick={() => {
