@@ -1,6 +1,8 @@
+use std::str::FromStr;
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
-use tauri::{Emitter, Listener, Manager, PhysicalPosition, PhysicalSize};
+use tauri::{AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
 use crate::clips::toggle_popover;
@@ -13,6 +15,107 @@ use crate::util::{
 
 fn escape_shortcut() -> Shortcut {
     Shortcut::new(None, Code::Escape)
+}
+
+static CUSTOM_VOICE_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
+static CUSTOM_POPOVER_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
+
+fn custom_voice_shortcut() -> &'static Mutex<Option<Shortcut>> {
+    CUSTOM_VOICE_SHORTCUT.get_or_init(|| Mutex::new(None))
+}
+
+fn custom_popover_shortcut() -> &'static Mutex<Option<Shortcut>> {
+    CUSTOM_POPOVER_SHORTCUT.get_or_init(|| Mutex::new(None))
+}
+
+fn current_custom_voice_shortcut() -> Option<Shortcut> {
+    custom_voice_shortcut().lock().ok().and_then(|g| *g)
+}
+
+fn current_custom_popover_shortcut() -> Option<Shortcut> {
+    custom_popover_shortcut().lock().ok().and_then(|g| *g)
+}
+
+fn parse_optional_shortcut(value: Option<String>) -> Result<Option<Shortcut>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    Shortcut::from_str(trimmed)
+        .map(Some)
+        .map_err(|err| err.to_string())
+}
+
+/// Swap a stored custom shortcut to `next`, returning the previous value on
+/// success so the caller can roll back later if a sibling registration fails.
+/// On failure the previous shortcut is re-registered locally and `state` is
+/// left untouched.
+fn swap_custom_shortcut<R: tauri::Runtime>(
+    gs: &tauri_plugin_global_shortcut::GlobalShortcut<R>,
+    state: &Mutex<Option<Shortcut>>,
+    next: Option<Shortcut>,
+    label: &str,
+) -> Result<Option<Shortcut>, String> {
+    let mut current = state
+        .lock()
+        .map_err(|_| format!("failed to lock {label} shortcut state"))?;
+    if *current == next {
+        return Ok(*current);
+    }
+    let old = current.take();
+    if let Some(old) = old {
+        if gs.is_registered(old) {
+            let _ = gs.unregister(old);
+        }
+    }
+    if let Some(next) = next {
+        if let Err(err) = gs.register(next) {
+            if let Some(old) = old {
+                // Only restore the prior state if re-registration actually
+                // succeeded — otherwise the OS rejected `old` and there is
+                // nothing registered for this slot. Tracking it as Some(old)
+                // would lie to future operations (is_registered/unregister
+                // would fail); leaving it None keeps state and reality in
+                // sync at the cost of forgetting the prior shortcut.
+                if gs.register(old).is_ok() {
+                    *current = Some(old);
+                }
+            }
+            return Err(format!("failed to register {label} shortcut: {err}"));
+        }
+    }
+    *current = next;
+    Ok(old)
+}
+
+#[tauri::command]
+pub async fn set_custom_shortcuts(
+    app: AppHandle,
+    voice: Option<String>,
+    popover: Option<String>,
+) -> Result<(), String> {
+    let voice = parse_optional_shortcut(voice)?;
+    let popover = parse_optional_shortcut(popover)?;
+    if voice.is_some() && voice == popover {
+        return Err("Voice dictation and Open Clips need different shortcuts.".to_string());
+    }
+    let gs = app.global_shortcut();
+
+    let prev_voice = swap_custom_shortcut(gs, custom_voice_shortcut(), voice, "voice")?;
+    if let Err(err) = swap_custom_shortcut(gs, custom_popover_shortcut(), popover, "Clips") {
+        // Popover registration failed after voice already mutated — roll the
+        // voice slot back to its previous value so callers see all-or-nothing
+        // behaviour. If the rollback itself fails we surface only the
+        // original popover error to the user; the local state always
+        // reflects whatever actually got registered.
+        let _ = swap_custom_shortcut(gs, custom_voice_shortcut(), prev_voice, "voice");
+        return Err(err);
+    }
+
+    Ok(())
 }
 
 pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -84,6 +187,12 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
         let is_voice_cmd_space = shortcut.matches(Modifiers::SUPER | Modifiers::SHIFT, Code::Space);
         let is_voice_ctrl_space =
             shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::Space);
+        let is_custom_voice = current_custom_voice_shortcut()
+            .map(|custom| custom == *shortcut)
+            .unwrap_or(false);
+        let is_custom_popover = current_custom_popover_shortcut()
+            .map(|custom| custom == *shortcut)
+            .unwrap_or(false);
         let is_escape = shortcut.matches(Modifiers::empty(), Code::Escape);
         if is_escape {
             if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
@@ -100,8 +209,10 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
             let _ = app.emit("clips:popover-visible", false);
             return;
         }
-        if is_voice_cmd_space || is_voice_ctrl_space {
-            let source = if is_voice_cmd_space {
+        if is_voice_cmd_space || is_voice_ctrl_space || is_custom_voice {
+            let source = if is_custom_voice {
+                "custom"
+            } else if is_voice_cmd_space {
                 "cmd-shift-space"
             } else {
                 "ctrl-shift-space"
@@ -137,7 +248,7 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
         if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
             return;
         }
-        if is_cmd || is_ctrl {
+        if is_cmd || is_ctrl || is_custom_popover {
             // Loom-style: if a recording is already active, the
             // global shortcut stops it rather than re-opening the
             // popover. Keeps parity with the tray-icon click

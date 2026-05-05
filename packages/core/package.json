@@ -73,6 +73,7 @@
     "./mcp": "./dist/mcp/index.js",
     "./mcp-client": "./dist/mcp-client/index.js",
     "./tracking": "./dist/tracking/index.js",
+    "./usage": "./dist/usage/store.js",
     "./notifications": "./dist/notifications/index.js",
     "./client/notifications": "./dist/client/notifications/index.js",
     "./progress": "./dist/progress/index.js",

@@ -34,6 +34,8 @@ const STORAGE_KEY = "clips:server-url";
 const MODE_KEY = "clips:last-mode";
 const VOICE_SHORTCUT_KEY = "clips:voice-shortcut";
 const VOICE_SHORTCUT_CONFIGURED_KEY = "clips:voice-shortcut-configured";
+const VOICE_CUSTOM_SHORTCUT_KEY = "clips:voice-custom-shortcut";
+const POPOVER_CUSTOM_SHORTCUT_KEY = "clips:popover-custom-shortcut";
 const VOICE_MODE_KEY = "clips:voice-mode";
 const VOICE_PROVIDER_KEY = "clips:voice-provider";
 const VOICE_INSTRUCTIONS_KEY = "clips:voice-instructions";
@@ -60,6 +62,16 @@ function loadString(key: string, fallback: string): string {
   try {
     const v = localStorage.getItem(key);
     if (v && v.trim()) return v;
+  } catch {
+    // ignore
+  }
+  return fallback;
+}
+
+function loadStringAllowEmpty(key: string, fallback: string): string {
+  try {
+    const v = localStorage.getItem(key);
+    if (v !== null) return v;
   } catch {
     // ignore
   }
@@ -175,9 +187,38 @@ function saveBool(key: string, value: boolean): void {
 
 type ByokVoiceProvider = Extract<VoiceProvider, "gemini" | "openai" | "groq">;
 type VoiceProviderMode = "native" | "builder" | "byok";
+type MacosPrivacyPane =
+  | "camera"
+  | "microphone"
+  | "screen"
+  | "speech"
+  | "accessibility"
+  | "input-monitoring";
+
+const MACOS_PRIVACY_URLS: Record<MacosPrivacyPane, string> = {
+  camera:
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+  microphone:
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+  screen:
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+  speech:
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition",
+  accessibility:
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+  "input-monitoring":
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
+};
 
 function isMacPlatform(): boolean {
   return typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+}
+
+function openMacosPrivacySettings(pane: MacosPrivacyPane): void {
+  if (!isMacPlatform()) return;
+  openExternal(MACOS_PRIVACY_URLS[pane]).catch((err) => {
+    console.error("[clips-tray] open macOS privacy settings failed:", err);
+  });
 }
 
 function nativeVoiceProvider(): VoiceProvider {
@@ -249,10 +290,17 @@ export function App() {
       return saved === "fn" ||
         saved === "cmd-shift-space" ||
         saved === "ctrl-shift-space" ||
+        saved === "custom" ||
         saved === "both"
         ? saved
         : "both";
     },
+  );
+  const [voiceCustomShortcut, setVoiceCustomShortcut] = useState<string>(() =>
+    loadStringAllowEmpty(VOICE_CUSTOM_SHORTCUT_KEY, "Cmd+Shift+D"),
+  );
+  const [popoverCustomShortcut, setPopoverCustomShortcut] = useState<string>(
+    () => loadStringAllowEmpty(POPOVER_CUSTOM_SHORTCUT_KEY, ""),
   );
   const [voiceMode, setVoiceMode] = useState<VoiceMode>(() => {
     const saved = loadString(VOICE_MODE_KEY, "push-to-talk");
@@ -273,6 +321,9 @@ export function App() {
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [shortcutRegistrationError, setShortcutRegistrationError] = useState<
+    string | null
+  >(null);
   // Latched true the moment the user clicks Start Recording and cleared
   // when the recorder fully stops/cancels. We use this to suppress the
   // popover auto-hide during the macOS screen-picker focus dance.
@@ -317,6 +368,28 @@ export function App() {
     voiceProvider,
     voiceInstructions,
   ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    invoke("set_custom_shortcuts", {
+      voice: voiceShortcut === "custom" ? voiceCustomShortcut : null,
+      popover: popoverCustomShortcut.trim() ? popoverCustomShortcut : null,
+    })
+      .then(() => {
+        if (!cancelled) setShortcutRegistrationError(null);
+      })
+      .catch((err) => {
+        console.warn("[clips-tray] set_custom_shortcuts failed:", err);
+        if (!cancelled) {
+          setShortcutRegistrationError(
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [popoverCustomShortcut, voiceCustomShortcut, voiceShortcut]);
 
   // ---- auth status --------------------------------------------------------
   // The Tauri WebView has its own cookie jar (separate from the user's
@@ -918,17 +991,27 @@ export function App() {
     if (!el) return;
     let last = 0;
     const push = () => {
-      const h = Math.ceil(el.getBoundingClientRect().height);
+      const rect = el.getBoundingClientRect();
+      const settingsContent =
+        showSettings && el.firstElementChild instanceof HTMLElement
+          ? el.firstElementChild.scrollHeight + 2
+          : 0;
+      const h = Math.ceil(
+        Math.max(rect.height, el.scrollHeight, settingsContent),
+      );
       if (h && Math.abs(h - last) >= 2) {
         last = h;
-        invoke("resize_popover", { height: h }).catch(() => {});
+        invoke("resize_popover", {
+          height: h,
+          width: showSettings ? 440 : 360,
+        }).catch(() => {});
       }
     };
     push();
     const ro = new ResizeObserver(push);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [showSettings]);
 
   // ---- recent list --------------------------------------------------------
 
@@ -964,6 +1047,14 @@ export function App() {
   useEffect(
     () => saveString(VOICE_SHORTCUT_KEY, voiceShortcut),
     [voiceShortcut],
+  );
+  useEffect(
+    () => saveString(VOICE_CUSTOM_SHORTCUT_KEY, voiceCustomShortcut),
+    [voiceCustomShortcut],
+  );
+  useEffect(
+    () => saveString(POPOVER_CUSTOM_SHORTCUT_KEY, popoverCustomShortcut),
+    [popoverCustomShortcut],
   );
   useEffect(() => saveString(VOICE_MODE_KEY, voiceMode), [voiceMode]);
   useEffect(
@@ -1265,6 +1356,38 @@ export function App() {
   // we just render the normal pre-record panel so the user at least knows
   // where they are. No recording-only UI lives here.
 
+  if (showSettings) {
+    return (
+      <div className="app app-settings" ref={appRef}>
+        <Setup
+          initial={serverUrl}
+          serverUrl={serverUrl}
+          signedInAs={signedInAs}
+          voiceShortcut={voiceShortcut}
+          voiceCustomShortcut={voiceCustomShortcut}
+          popoverCustomShortcut={popoverCustomShortcut}
+          voiceMode={voiceMode}
+          voiceProvider={voiceProvider}
+          voiceInstructions={voiceInstructions}
+          shortcutRegistrationError={shortcutRegistrationError}
+          onVoiceShortcutChange={updateVoiceShortcut}
+          onVoiceCustomShortcutChange={setVoiceCustomShortcut}
+          onPopoverCustomShortcutChange={setPopoverCustomShortcut}
+          onVoiceModeChange={setVoiceMode}
+          onVoiceProviderChange={setVoiceProvider}
+          onVoiceInstructionsChange={setVoiceInstructions}
+          onSignOut={signOut}
+          onConnect={(url) => {
+            saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
+            setServerUrl(url.replace(/\/+$/, ""));
+            setShowSettings(false);
+          }}
+          onCancel={() => setShowSettings(false)}
+        />
+      </div>
+    );
+  }
+
   // When unauthenticated, render the sign-in form INLINE in the popover
   // (not a separate Tauri window). This avoids Tauri 2's separate-WebKit-
   // data-store-per-WebviewWindow cookie-jar issue — the cookie is set in
@@ -1316,26 +1439,6 @@ export function App() {
             Settings
           </a>
         </div>
-        {showSettings ? (
-          <Setup
-            initial={serverUrl}
-            serverUrl={serverUrl}
-            voiceShortcut={voiceShortcut}
-            voiceMode={voiceMode}
-            voiceProvider={voiceProvider}
-            voiceInstructions={voiceInstructions}
-            onVoiceShortcutChange={updateVoiceShortcut}
-            onVoiceModeChange={setVoiceMode}
-            onVoiceProviderChange={setVoiceProvider}
-            onVoiceInstructionsChange={setVoiceInstructions}
-            onConnect={(url) => {
-              saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
-              setServerUrl(url.replace(/\/+$/, ""));
-              setShowSettings(false);
-            }}
-            onCancel={() => setShowSettings(false)}
-          />
-        ) : null}
       </div>
     );
   }
@@ -1374,9 +1477,19 @@ export function App() {
       <button className="primary start" onClick={startRecording}>
         Start recording
       </button>
-      {recError ? <div className="error-banner">{recError}</div> : null}
+      {recError ? (
+        recError === MACOS_CAPTURE_PERMISSION_MESSAGE ? (
+          <PermissionErrorBanner message={recError} defaultPane="screen" />
+        ) : (
+          <div className="error-banner">{recError}</div>
+        )
+      ) : null}
       {cameraError && !recError ? (
-        <div className="error-banner">{cameraError}</div>
+        cameraError === MACOS_CAPTURE_PERMISSION_MESSAGE ? (
+          <PermissionErrorBanner message={cameraError} defaultPane="camera" />
+        ) : (
+          <div className="error-banner">{cameraError}</div>
+        )
       ) : null}
 
       <div className="bottom-row">
@@ -1427,29 +1540,6 @@ export function App() {
           ))}
         </div>
       ) : null}
-
-      {showSettings ? (
-        <Setup
-          initial={serverUrl}
-          serverUrl={serverUrl}
-          signedInAs={signedInAs}
-          voiceShortcut={voiceShortcut}
-          voiceMode={voiceMode}
-          voiceProvider={voiceProvider}
-          voiceInstructions={voiceInstructions}
-          onVoiceShortcutChange={updateVoiceShortcut}
-          onVoiceModeChange={setVoiceMode}
-          onVoiceProviderChange={setVoiceProvider}
-          onVoiceInstructionsChange={setVoiceInstructions}
-          onSignOut={signOut}
-          onConnect={(url) => {
-            saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
-            setServerUrl(url.replace(/\/+$/, ""));
-            setShowSettings(false);
-          }}
-          onCancel={() => setShowSettings(false)}
-        />
-      ) : null}
     </div>
   );
 }
@@ -1463,6 +1553,44 @@ function hidePopover() {
     .hide()
     .catch(() => {});
   emit("clips:popover-visible", false).catch(() => {});
+}
+
+function PermissionErrorBanner({
+  message,
+  defaultPane,
+}: {
+  message: string;
+  defaultPane: MacosPrivacyPane;
+}) {
+  useEffect(() => {
+    openMacosPrivacySettings(defaultPane);
+  }, [defaultPane]);
+
+  return (
+    <div className="error-banner permission-banner">
+      <div>{message}</div>
+      <div className="permission-actions" aria-label="Open macOS permissions">
+        <button
+          type="button"
+          onClick={() => openMacosPrivacySettings("camera")}
+        >
+          Camera
+        </button>
+        <button
+          type="button"
+          onClick={() => openMacosPrivacySettings("microphone")}
+        >
+          Microphone
+        </button>
+        <button
+          type="button"
+          onClick={() => openMacosPrivacySettings("screen")}
+        >
+          Screen
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function Header({
@@ -2189,10 +2317,15 @@ function Setup({
   serverUrl,
   signedInAs,
   voiceShortcut,
+  voiceCustomShortcut,
+  popoverCustomShortcut,
   voiceMode,
   voiceProvider,
   voiceInstructions,
+  shortcutRegistrationError,
   onVoiceShortcutChange,
+  onVoiceCustomShortcutChange,
+  onPopoverCustomShortcutChange,
   onVoiceModeChange,
   onVoiceProviderChange,
   onVoiceInstructionsChange,
@@ -2204,10 +2337,15 @@ function Setup({
   serverUrl?: string;
   signedInAs?: string | null;
   voiceShortcut: VoiceShortcutPreference;
+  voiceCustomShortcut: string;
+  popoverCustomShortcut: string;
   voiceMode: VoiceMode;
   voiceProvider: VoiceProvider;
   voiceInstructions: string;
+  shortcutRegistrationError: string | null;
   onVoiceShortcutChange: (value: VoiceShortcutPreference) => void;
+  onVoiceCustomShortcutChange: (value: string) => void;
+  onPopoverCustomShortcutChange: (value: string) => void;
   onVoiceModeChange: (value: VoiceMode) => void;
   onVoiceProviderChange: (value: VoiceProvider) => void;
   onVoiceInstructionsChange: (value: string) => void;
@@ -2312,6 +2450,7 @@ function Setup({
     fn: "Press the Fn / globe key to dictate.",
     "cmd-shift-space": "Press Cmd+Shift+Space to dictate.",
     "ctrl-shift-space": "Press Ctrl+Shift+Space to dictate.",
+    custom: `Press ${voiceCustomShortcut || "your recorded shortcut"} to dictate.`,
     both: "Any of Fn, Cmd+Shift+Space, or Ctrl+Shift+Space.",
   };
   const modeHint: Record<VoiceMode, string> = {
@@ -2470,6 +2609,78 @@ function Setup({
         </div>
       </div>
 
+      <div className="setup-section">
+        <SettingLabel
+          label="Open Clips shortcut"
+          hint="Optional extra global shortcut for opening the tray popover. Cmd+Shift+L remains available."
+        />
+        <ShortcutRecorder
+          value={popoverCustomShortcut}
+          placeholder="Record shortcut"
+          onChange={onPopoverCustomShortcutChange}
+        />
+        <p className="setup-hint">
+          Use a modifier combination like Cmd+Shift+K. Leave empty to use only
+          Cmd+Shift+L.
+        </p>
+        {shortcutRegistrationError ? (
+          <p className="setup-warning">{shortcutRegistrationError}</p>
+        ) : null}
+      </div>
+
+      {isMacPlatform() ? (
+        <div className="setup-section">
+          <SettingLabel
+            label="macOS permissions"
+            hint="Open the exact Privacy & Security pane for each permission Clips can need."
+          />
+          <div className="setup-permission-grid">
+            <button
+              type="button"
+              className="setup-permission-button"
+              onClick={() => openMacosPrivacySettings("camera")}
+            >
+              Camera
+            </button>
+            <button
+              type="button"
+              className="setup-permission-button"
+              onClick={() => openMacosPrivacySettings("microphone")}
+            >
+              Microphone
+            </button>
+            <button
+              type="button"
+              className="setup-permission-button"
+              onClick={() => openMacosPrivacySettings("screen")}
+            >
+              Screen
+            </button>
+            <button
+              type="button"
+              className="setup-permission-button"
+              onClick={() => openMacosPrivacySettings("speech")}
+            >
+              Speech
+            </button>
+            <button
+              type="button"
+              className="setup-permission-button"
+              onClick={() => openMacosPrivacySettings("accessibility")}
+            >
+              Accessibility
+            </button>
+            <button
+              type="button"
+              className="setup-permission-button"
+              onClick={() => openMacosPrivacySettings("input-monitoring")}
+            >
+              Input Monitoring
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {voiceEnabled ? (
         <>
           <div className="setup-section">
@@ -2619,8 +2830,16 @@ function Setup({
               <option value="fn">Fn (globe) key</option>
               <option value="cmd-shift-space">Cmd+Shift+Space</option>
               <option value="ctrl-shift-space">Ctrl+Shift+Space</option>
+              <option value="custom">Custom shortcut</option>
               <option value="both">All shortcuts</option>
             </select>
+            {voiceShortcut === "custom" ? (
+              <ShortcutRecorder
+                value={voiceCustomShortcut}
+                placeholder="Record voice shortcut"
+                onChange={onVoiceCustomShortcutChange}
+              />
+            ) : null}
             <p className="setup-hint">{shortcutHint[voiceShortcut]}</p>
           </div>
 
@@ -2678,5 +2897,102 @@ function SettingLabel({
         <IconInfoCircle size={14} stroke={1.75} />
       </span>
     </label>
+  );
+}
+
+function formatShortcutKey(key: string): string {
+  if (key === " ") return "Space";
+  if (key.length === 1) return key.toUpperCase();
+  const aliases: Record<string, string> = {
+    ArrowDown: "ArrowDown",
+    ArrowLeft: "ArrowLeft",
+    ArrowRight: "ArrowRight",
+    ArrowUp: "ArrowUp",
+    Escape: "Escape",
+    " ": "Space",
+  };
+  return aliases[key] ?? key;
+}
+
+function shortcutFromKeyboardEvent(event: React.KeyboardEvent): string | null {
+  const modifierKeys = new Set(["Alt", "Control", "Meta", "Shift", "Fn"]);
+  if (modifierKeys.has(event.key)) return null;
+
+  const parts: string[] = [];
+  if (event.metaKey) parts.push("Cmd");
+  if (event.ctrlKey) parts.push("Ctrl");
+  if (event.altKey) parts.push("Alt");
+  if (event.shiftKey) parts.push("Shift");
+  if (!parts.length) return null;
+
+  return [...parts, formatShortcutKey(event.key)].join("+");
+}
+
+function ShortcutRecorder({
+  value,
+  placeholder,
+  onChange,
+}: {
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+}) {
+  const [recording, setRecording] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+
+  return (
+    <div className="setup-shortcut-row">
+      <button
+        ref={buttonRef}
+        type="button"
+        className={`setup-shortcut-recorder ${recording ? "recording" : ""}`}
+        onClick={() => {
+          setError(null);
+          setRecording(true);
+          requestAnimationFrame(() => buttonRef.current?.focus());
+        }}
+        onBlur={() => setRecording(false)}
+        onKeyDown={(event) => {
+          if (!recording) return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.key === "Escape") {
+            setRecording(false);
+            setError(null);
+            return;
+          }
+          if (event.key === "Backspace" || event.key === "Delete") {
+            onChange("");
+            setRecording(false);
+            setError(null);
+            return;
+          }
+          const next = shortcutFromKeyboardEvent(event);
+          if (!next) {
+            setError("Use at least one modifier plus a key.");
+            return;
+          }
+          onChange(next);
+          setRecording(false);
+          setError(null);
+        }}
+      >
+        {recording ? "Press shortcut..." : value || placeholder}
+      </button>
+      {value ? (
+        <button
+          type="button"
+          className="setup-shortcut-clear"
+          onClick={() => {
+            onChange("");
+            setError(null);
+          }}
+        >
+          Clear
+        </button>
+      ) : null}
+      {error ? <p className="setup-warning">{error}</p> : null}
+    </div>
   );
 }
