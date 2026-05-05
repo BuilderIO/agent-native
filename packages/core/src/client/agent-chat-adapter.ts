@@ -22,7 +22,8 @@ const AUTO_CONTINUE_PROMPT =
   "Continue from where you left off and finish the user's original request. Do not repeat completed work, do not mention internal reconnects, time limits, or step limits, and continue as if this is the same uninterrupted run.";
 const MAX_RECONNECT_ATTEMPTS = 5;
 const MAX_STARTUP_RECOVERY_ATTEMPTS = 8;
-const MAX_TRANSIENT_CONTINUATIONS = 8;
+const MAX_STALLED_TRANSIENT_CONTINUATIONS = 8;
+const MAX_TOTAL_TRANSIENT_CONTINUATIONS = 32;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 8_000;
 
@@ -68,6 +69,14 @@ function visibleTransientContinuationContent(
 ): ContentPart[] {
   return content.filter(
     (part) => part.type === "tool-call" && part.result !== undefined,
+  );
+}
+
+function hasContinuationProgress(content: ContentPart[]): boolean {
+  return content.some((part) =>
+    part.type === "text"
+      ? part.text.trim().length > 0
+      : part.result !== undefined,
   );
 }
 
@@ -296,7 +305,8 @@ export function createAgentChatAdapter(options?: {
       let includeAttachments = attachments.length > 0;
       let includeReferences = Boolean(runConfig?.custom?.references);
       let startupRecoveryAttempts = 0;
-      let transientContinuationAttempts = 0;
+      let stalledTransientContinuationAttempts = 0;
+      let totalTransientContinuationAttempts = 0;
       const continuationHistoryFragments: string[] = [];
       let visibleContinuationPrefix: ContentPart[] = [];
 
@@ -428,16 +438,28 @@ export function createAgentChatAdapter(options?: {
           signal: AgentAutoContinueSignal,
         ): { ok: boolean; resetVisibleContent: boolean } => {
           const isTransient = signal.reason !== "loop_limit";
+          const visibleContent = visibleContentForContinuation();
+          const currentPartialHistory =
+            contentToContinuationHistory(visibleContent);
+          const madeProgress = hasContinuationProgress(visibleContent);
+
           if (signal.reason === "loop_limit") {
-            transientContinuationAttempts = 0;
-          } else if (
-            ++transientContinuationAttempts > MAX_TRANSIENT_CONTINUATIONS
-          ) {
-            return { ok: false, resetVisibleContent: false };
+            stalledTransientContinuationAttempts = 0;
+          } else {
+            totalTransientContinuationAttempts += 1;
+            stalledTransientContinuationAttempts = madeProgress
+              ? 0
+              : stalledTransientContinuationAttempts + 1;
+            if (
+              stalledTransientContinuationAttempts >
+                MAX_STALLED_TRANSIENT_CONTINUATIONS ||
+              totalTransientContinuationAttempts >
+                MAX_TOTAL_TRANSIENT_CONTINUATIONS
+            ) {
+              return { ok: false, resetVisibleContent: false };
+            }
           }
-          const currentPartialHistory = contentToContinuationHistory(
-            visibleContentForContinuation(),
-          );
+
           if (isTransient && currentPartialHistory) {
             continuationHistoryFragments.push(currentPartialHistory);
           }

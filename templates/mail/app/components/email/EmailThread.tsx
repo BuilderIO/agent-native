@@ -100,8 +100,8 @@ export function EmailThread({
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const labelParam = searchParams.get("label");
-  const labelSuffix = labelParam
-    ? `?label=${encodeURIComponent(labelParam)}`
+  const routeSearchSuffix = searchParams.toString()
+    ? `?${searchParams.toString()}`
     : "";
   const compose = useComposeState();
   const queryClient = useQueryClient();
@@ -361,8 +361,8 @@ export function EmailThread({
 
   const goBack = useCallback(() => {
     onNavigateThread?.(undefined);
-    navigate(`/${view}${labelSuffix}`);
-  }, [navigate, view, labelSuffix, onNavigateThread]);
+    navigate(`/${view}${routeSearchSuffix}`);
+  }, [navigate, view, routeSearchSuffix, onNavigateThread]);
 
   // Navigate between threads (j/k) — use ref to avoid stale closure
   const emailIdsRef = useRef(emailIds);
@@ -384,9 +384,16 @@ export function EmailThread({
       setSelectedIds?.(new Set());
       void ensureThread(nextThreadId);
       onNavigateThread?.(nextThreadId);
-      navigate(`/${view}/${nextThreadId}${labelSuffix}`);
+      navigate(`/${view}/${nextThreadId}${routeSearchSuffix}`);
     },
-    [threadId, view, navigate, labelSuffix, setSelectedIds, onNavigateThread],
+    [
+      threadId,
+      view,
+      navigate,
+      routeSearchSuffix,
+      setSelectedIds,
+      onNavigateThread,
+    ],
   );
 
   // Shift+j/k extends multi-selection across siblings and auto-previews the
@@ -411,9 +418,18 @@ export function EmailThread({
       });
 
       onNavigateThread?.(nextThreadKey);
-      navigate(`/${view}/${nextThreadKey}${labelSuffix}`, { replace: true });
+      navigate(`/${view}/${nextThreadKey}${routeSearchSuffix}`, {
+        replace: true,
+      });
     },
-    [threadId, view, navigate, labelSuffix, setSelectedIds, onNavigateThread],
+    [
+      threadId,
+      view,
+      navigate,
+      routeSearchSuffix,
+      setSelectedIds,
+      onNavigateThread,
+    ],
   );
 
   // Prefetch a window of threads around the currently open one so j/k
@@ -443,19 +459,27 @@ export function EmailThread({
     if (idx !== -1 && idx + 1 < emailIds.length) {
       const nextId = emailIds[idx + 1];
       onNavigateThread?.(nextId);
-      navigate(`/${view}/${nextId}${labelSuffix}`, {
+      navigate(`/${view}/${nextId}${routeSearchSuffix}`, {
         replace: true,
       });
     } else if (idx !== -1 && idx - 1 >= 0) {
       const prevId = emailIds[idx - 1];
       onNavigateThread?.(prevId);
-      navigate(`/${view}/${prevId}${labelSuffix}`, {
+      navigate(`/${view}/${prevId}${routeSearchSuffix}`, {
         replace: true,
       });
     } else {
       goBack();
     }
-  }, [threadId, emailIds, view, navigate, goBack, onNavigateThread]);
+  }, [
+    threadId,
+    emailIds,
+    view,
+    navigate,
+    routeSearchSuffix,
+    goBack,
+    onNavigateThread,
+  ]);
 
   // Advance to next thread when current email is dismissed (snoozed/spam/muted)
   useEffect(() => {

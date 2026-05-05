@@ -251,8 +251,8 @@ export function EmailList({
   const [searchParams] = useSearchParams();
   const searchQuery = searchParams.get("q") ?? undefined;
   const labelParam = searchParams.get("label");
-  const labelSuffix = labelParam
-    ? `?label=${encodeURIComponent(labelParam)}`
+  const routeSearchSuffix = searchParams.toString()
+    ? `?${searchParams.toString()}`
     : "";
 
   const {
@@ -382,7 +382,7 @@ export function EmailList({
     setSelectedIds(new Set());
     void ensureThread(targetThreadId);
     onNavigateThread?.(targetThreadId);
-    navigate(`/${view}/${targetThreadId}${labelSuffix}`);
+    navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
     if (thread.hasUnread) {
       setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
     }
@@ -391,7 +391,7 @@ export function EmailList({
     view,
     navigate,
     markThreadRead,
-    labelSuffix,
+    routeSearchSuffix,
     queryClient,
     setSelectedIds,
   ]);
@@ -754,7 +754,7 @@ export function EmailList({
     }
     void ensureThread(targetThreadId);
     onNavigateThread?.(targetThreadId);
-    navigate(`/${view}/${targetThreadId}${labelSuffix}`);
+    navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
     if (thread.hasUnread) {
       setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
     }
