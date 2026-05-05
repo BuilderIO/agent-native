@@ -96,7 +96,8 @@ export default async function dbResetDevOwner(args: string[]): Promise<void> {
 
   const parsed = parseScriptArgs(args);
   if (!parsed) {
-    process.exit(1);
+    // parseScriptArgs already printed the error; exit non-zero.
+    throw new Error("invalid arguments");
   }
 
   if (process.env.NODE_ENV === "production") {
