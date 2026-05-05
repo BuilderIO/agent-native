@@ -27,6 +27,8 @@ import { useChatModels } from "../use-chat-models.js";
 import { isPastedTextAttachmentName } from "./pasted-text.js";
 import { PastedTextChip } from "./PastedTextChip.js";
 
+const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
+
 /**
  * Files the user attached via the "+" button in PromptComposer. The host owns
  * what to do with them — typically POST to a per-app upload endpoint and pass
@@ -101,6 +103,27 @@ class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
   public async remove() {
     /* noop */
   }
+}
+
+function isInlineableTextFile(file: File): boolean {
+  if (file.type.startsWith("text/")) return true;
+  if (file.type === "application/json") return true;
+  return /\.(txt|md|markdown|csv|json|yaml|yml)$/i.test(file.name);
+}
+
+function formatInlineTextFile(name: string, text: string): string {
+  const truncated = text.length > MAX_INLINE_TEXT_FILE_CHARS;
+  const body = truncated ? text.slice(0, MAX_INLINE_TEXT_FILE_CHARS) : text;
+  return [
+    `<uploaded-text-file name="${name}">`,
+    body,
+    truncated
+      ? `[Truncated after ${MAX_INLINE_TEXT_FILE_CHARS} characters.]`
+      : "",
+    "</uploaded-text-file>",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function getImageSrc(attachment: Attachment): string | null {
@@ -250,6 +273,15 @@ function PromptComposerInner({
               files.push(file);
             }
           } else {
+            if (isInlineableTextFile(file)) {
+              try {
+                pastedTextBlocks.push(
+                  formatInlineTextFile(file.name, await file.text()),
+                );
+              } catch {
+                // Keep the upload path fallback below.
+              }
+            }
             files.push(file);
           }
         }

@@ -69,7 +69,7 @@ export { PROVIDER_TO_ENV };
  * `undefined` for unauthenticated callers.
  *
  * Read order:
- *   1. `app_secrets` — encrypted, scope=user, current source of truth.
+ *   1. `app_secrets` — encrypted user override, then active org/workspace.
  *   2. Legacy `user-api-key:<provider>:<email>` settings row — pre-migration
  *      data that hasn't been backfilled yet. Surfaced for compat only;
  *      writes always go to app_secrets now.
@@ -83,12 +83,27 @@ export async function getOwnerApiKey(
     PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
   try {
     const { readAppSecret } = await import("../secrets/storage.js");
-    const fromSecrets = await readAppSecret({
-      key: secretKey,
-      scope: "user",
-      scopeId: ownerEmail,
-    });
-    if (fromSecrets?.value) return fromSecrets.value;
+    const refs: Array<{
+      scope: "user" | "org" | "workspace";
+      scopeId: string;
+    }> = [{ scope: "user", scopeId: ownerEmail }];
+    const orgId = getRequestOrgId();
+    if (orgId) {
+      refs.push(
+        { scope: "org", scopeId: orgId },
+        { scope: "workspace", scopeId: orgId },
+      );
+    } else {
+      refs.push({ scope: "workspace", scopeId: `solo:${ownerEmail}` });
+    }
+    for (const ref of refs) {
+      const fromSecrets = await readAppSecret({
+        key: secretKey,
+        scope: ref.scope,
+        scopeId: ref.scopeId,
+      });
+      if (fromSecrets?.value) return fromSecrets.value;
+    }
   } catch {
     // app_secrets table not ready — fall through to legacy lookup.
   }
@@ -1187,10 +1202,16 @@ export function createProductionAgentHandler(
     } = body;
     const requestMode: AgentExecutionMode =
       body.mode === "plan" ? "plan" : "act";
-    if (!message) {
+    const hasMessageText =
+      typeof message === "string" && message.trim().length > 0;
+    const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+    if (!hasMessageText && !hasAttachments) {
       setResponseStatus(event, 400);
       return { error: "message is required" };
     }
+    const requestMessage = hasMessageText
+      ? message
+      : "Use the attached context.";
 
     // Resolve owner first so we can look up a per-owner API key. Users
     // who bring their own key use their key for this request (durable
@@ -1296,7 +1317,7 @@ export function createProductionAgentHandler(
     // Run all independent pre-send steps in parallel. Each of these hits
     // the DB or invokes an action; running them sequentially was the
     // single biggest contributor to pre-LLM latency.
-    const enrichedMessage = enrichMessage(message, references);
+    const enrichedMessage = enrichMessage(requestMessage, references);
     const loopSettingsPromise = readAgentLoopSettings({
       userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
       orgId: getRequestOrgId() ?? null,

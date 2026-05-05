@@ -106,11 +106,12 @@ export function InboxZero() {
         )}
       />
 
-      {/* Top gradient — darken behind the tab bar */}
-      <div className="fixed inset-x-0 top-0 h-24 bg-gradient-to-b from-black/50 to-transparent" />
+      {/* Persistent scrims keep white chrome readable across bright photos. */}
+      <div className="fixed inset-0 bg-black/20" />
+      <div className="fixed inset-x-0 top-0 h-32 bg-gradient-to-b from-black/75 to-transparent" />
 
       {/* Bottom gradient — text legibility */}
-      <div className="fixed inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/60 to-transparent" />
+      <div className="fixed inset-x-0 bottom-0 h-44 bg-gradient-to-t from-black/70 to-transparent" />
 
       {/* Fallback bg while image loads */}
       <div className="absolute inset-0 bg-muted dark:bg-[hsl(220,6%,8%)] -z-10" />

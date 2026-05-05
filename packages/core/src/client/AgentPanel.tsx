@@ -1539,9 +1539,11 @@ class AgentPanelErrorBoundary extends React.Component<
 export function AgentPanel(props: AgentPanelProps) {
   const [resetKey, setResetKey] = useState(0);
   return (
-    <AgentPanelErrorBoundary onReset={() => setResetKey((key) => key + 1)}>
-      <AgentPanelInner key={resetKey} {...props} />
-    </AgentPanelErrorBoundary>
+    <TooltipProvider delayDuration={200}>
+      <AgentPanelErrorBoundary onReset={() => setResetKey((key) => key + 1)}>
+        <AgentPanelInner key={resetKey} {...props} />
+      </AgentPanelErrorBoundary>
+    </TooltipProvider>
   );
 }
 
@@ -1961,19 +1963,23 @@ export function focusAgentChat() {
  */
 export function AgentToggleButton({ className }: { className?: string }) {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
-          className={cn(
-            "ml-1.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
-            className,
-          )}
-        >
-          <IconMessage size={16} />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>Toggle agent</TooltipContent>
-    </Tooltip>
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() =>
+              window.dispatchEvent(new Event("agent-panel:toggle"))
+            }
+            className={cn(
+              "ml-1.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+              className,
+            )}
+          >
+            <IconMessage size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Toggle agent</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }

@@ -92,14 +92,71 @@ function CanonicalLink() {
   return <link rel="canonical" href={canonical} />;
 }
 
-// AgentSidebar wraps content in an overflow-auto div, so the window never
-// scrolls. React Router's <ScrollRestoration /> resets window.scrollY, which
-// does nothing here — find the real scroll container and reset it instead.
-function ScrollToTop() {
+function findScrollContainerFrom(el: HTMLElement | null): HTMLElement | Window {
+  let parent: HTMLElement | null = el?.parentElement ?? null;
+  while (parent) {
+    const overflowY = getComputedStyle(parent).overflowY;
+    if (
+      (overflowY === "auto" || overflowY === "scroll") &&
+      parent.scrollHeight > parent.clientHeight
+    ) {
+      return parent;
+    }
+    parent = parent.parentElement;
+  }
+  return window;
+}
+
+function scrollElementIntoContainerView(target: HTMLElement) {
+  const scrollContainer = findScrollContainerFrom(target);
+  if (scrollContainer === window) {
+    target.scrollIntoView({ block: "start" });
+    return;
+  }
+
+  const container = scrollContainer as HTMLElement;
+  const targetRect = target.getBoundingClientRect();
+  const containerRect = container.getBoundingClientRect();
+  const scrollMarginTop =
+    Number.parseFloat(getComputedStyle(target).scrollMarginTop) || 0;
+
+  container.scrollTo({
+    top:
+      container.scrollTop +
+      targetRect.top -
+      containerRect.top -
+      scrollMarginTop,
+  });
+}
+
+// AgentSidebar wraps content in an overflow-auto div, so the window usually
+// does not scroll. Keep both normal route changes and hash links pointed at
+// that real scroll container.
+function ScrollManager({ mounted }: { mounted: boolean }) {
   const { pathname, hash } = useLocation();
   const ref = useRef<HTMLSpanElement>(null);
+
   useEffect(() => {
-    if (hash) return;
+    if (hash) {
+      const id = decodeURIComponent(hash.slice(1));
+      let raf = 0;
+      const timers: number[] = [];
+
+      const scrollToHash = () => {
+        const target = document.getElementById(id);
+        if (target) scrollElementIntoContainerView(target);
+      };
+
+      raf = window.requestAnimationFrame(scrollToHash);
+      timers.push(window.setTimeout(scrollToHash, 100));
+      timers.push(window.setTimeout(scrollToHash, 350));
+
+      return () => {
+        window.cancelAnimationFrame(raf);
+        for (const timer of timers) window.clearTimeout(timer);
+      };
+    }
+
     let parent: HTMLElement | null = ref.current?.parentElement ?? null;
     while (parent) {
       const overflowY = getComputedStyle(parent).overflowY;
@@ -110,7 +167,7 @@ function ScrollToTop() {
       parent = parent.parentElement;
     }
     window.scrollTo(0, 0);
-  }, [pathname, hash]);
+  }, [pathname, hash, mounted]);
   return <span ref={ref} aria-hidden style={{ display: "none" }} />;
 }
 
@@ -155,7 +212,7 @@ export default function Root() {
 
   const content = (
     <>
-      <ScrollToTop />
+      <ScrollManager mounted={mounted} />
       <Header />
       <Outlet />
       <Footer />

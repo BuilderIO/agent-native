@@ -1409,8 +1409,9 @@ function ThinkingIndicator({ label = "Thinking" }: { label?: string } = {}) {
 // Renders a single row with left-aligned copy and a right-aligned action.
 // Click opens the Builder CLI-auth popup via the shared
 // `useBuilderConnectFlow` hook (which owns the synchronous window.open,
-// the 2s status poll, and the focus-refresh). On success we reload so the
-// enclosing card re-evaluates `missingApiKey` against the fresh credentials.
+// the 2s status poll, and the focus-refresh). On success the hook broadcasts
+// a config-change event and this card clears its local `missingApiKey` gate
+// so the user can start chatting without a full-page reload.
 //
 // Desktop note: when this component runs inside the Electron shell, the
 // window.open call is intercepted by the main process's webview popup handler,
@@ -1419,15 +1420,14 @@ function ThinkingIndicator({ label = "Thinking" }: { label?: string } = {}) {
 
 function BuilderConnectCta({
   variant = "primary",
+  onConnected,
 }: {
   variant?: "primary" | "compact";
+  onConnected?: () => void;
 }) {
   const { configured, orgName, connecting, error, start } =
     useBuilderConnectFlow({
-      onConnected: () => {
-        // Reload so the enclosing card re-evaluates `missingApiKey`.
-        window.setTimeout(() => window.location.reload(), 300);
-      },
+      onConnected,
     });
 
   const containerClass =
@@ -1488,7 +1488,7 @@ function BuilderConnectCta({
 
 // ─── Builder Setup Card ─────────────────────────────────────────────────────
 
-function BuilderSetupCard() {
+function BuilderSetupCard({ onConnected }: { onConnected?: () => void }) {
   return (
     <div className="mx-4 my-6 rounded-lg border border-border bg-card p-5">
       <div className="flex items-center gap-3 mb-3">
@@ -1506,7 +1506,7 @@ function BuilderSetupCard() {
       </div>
 
       <div className="space-y-3">
-        <BuilderConnectCta />
+        <BuilderConnectCta onConnected={onConnected} />
       </div>
     </div>
   );
@@ -2490,6 +2490,10 @@ const AssistantChatInner = forwardRef<
       window.removeEventListener("agent-chat:missing-api-key", handler);
   }, []);
 
+  const handleBuilderConnected = useCallback(() => {
+    setMissingApiKey(false);
+  }, []);
+
   // Check on mount and whenever SettingsPanel dispatches
   // `agent-engine:configured-changed` so the gate flips live without reload.
   useEffect(() => {
@@ -2891,7 +2895,7 @@ const AssistantChatInner = forwardRef<
                 </div>
               ) : missingApiKey && messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full px-2">
-                  <BuilderSetupCard />
+                  <BuilderSetupCard onConnected={handleBuilderConnected} />
                 </div>
               ) : isRestoring ? (
                 <div className="flex flex-col gap-3 p-4">
@@ -2939,7 +2943,9 @@ const AssistantChatInner = forwardRef<
                       AssistantMessage,
                     }}
                   />
-                  {missingApiKey && <BuilderSetupCard />}
+                  {missingApiKey && (
+                    <BuilderSetupCard onConnected={handleBuilderConnected} />
+                  )}
                   {visibleLoopLimit && !showRunningInUI && (
                     <LoopLimitContinueCard
                       info={visibleLoopLimit}

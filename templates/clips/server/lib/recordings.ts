@@ -47,6 +47,16 @@ function organizationRoleAllowed(
   return ORG_ROLE_RANK[actual] >= required;
 }
 
+function highestOrganizationRole(
+  roles: Array<OrganizationAccessRole | null>,
+): OrganizationAccessRole | null {
+  return roles.reduce<OrganizationAccessRole | null>((best, role) => {
+    if (!role) return best;
+    if (!best || ORG_ROLE_RANK[role] > ORG_ROLE_RANK[best]) return role;
+    return best;
+  }, null);
+}
+
 export async function getOrganizationRoleForEmail(
   organizationId: string,
   email: string,
@@ -54,6 +64,7 @@ export async function getOrganizationRoleForEmail(
   const exec = getDbExec();
   const pg = isPostgres();
   const lowerEmail = email.toLowerCase();
+  const roles: Array<OrganizationAccessRole | null> = [];
 
   try {
     const res = await exec.execute({
@@ -63,7 +74,7 @@ export async function getOrganizationRoleForEmail(
       args: [organizationId, lowerEmail],
     });
     const row = (res.rows as Array<{ role?: string }>)[0];
-    if (row?.role) return normalizeOrganizationRole(row.role);
+    if (row?.role) roles.push(normalizeOrganizationRole(row.role));
   } catch {
     // Older DBs may not have the framework org_members table yet. Fall back
     // to better-auth's member table below.
@@ -77,12 +88,12 @@ export async function getOrganizationRoleForEmail(
       args: [organizationId, lowerEmail],
     });
     const row = (res.rows as Array<{ role?: string }>)[0];
-    if (row?.role) return normalizeOrganizationRole(row.role);
+    if (row?.role) roles.push(normalizeOrganizationRole(row.role));
   } catch {
     // No better-auth membership table yet.
   }
 
-  return null;
+  return highestOrganizationRole(roles);
 }
 
 export async function requireOrganizationAccess(

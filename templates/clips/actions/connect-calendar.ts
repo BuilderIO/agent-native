@@ -46,7 +46,7 @@ export default defineAction({
     // The route mints signed state and uses the standard framework callback
     // path so the local Google OAuth client only needs one registered URI:
     // http://localhost:<port>/_agent-native/google/callback.
-    const params = new URLSearchParams({ calendar: "1" });
+    const params = new URLSearchParams({ calendar: "1", redirect: "1" });
     if (args.returnUrl) params.set("return", args.returnUrl);
     const url = `/_agent-native/google/auth-url?${params.toString()}`;
 

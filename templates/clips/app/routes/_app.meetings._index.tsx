@@ -106,16 +106,22 @@ function ConnectCalendarEmptyState({
     fetch("/_agent-native/actions/connect-calendar?provider=google")
       .then(async (r) => {
         const text = await r.text();
-        let data: { url?: string; error?: string } = {};
+        let data: {
+          url?: string;
+          error?: string;
+          result?: { url?: string };
+        } = {};
         try {
           data = JSON.parse(text);
         } catch {
           /* fall through */
         }
         if (!r.ok) throw new Error(data.error || `Failed (${r.status})`);
-        if (!data.url) throw new Error("No OAuth URL returned");
+        const url = data.result?.url ?? data.url;
+        if (!url) throw new Error("No OAuth URL returned");
+        const popupUrl = new URL(url, window.location.origin).toString();
         window.open(
-          data.url,
+          popupUrl,
           "_blank",
           "noopener,noreferrer,width=600,height=700",
         );

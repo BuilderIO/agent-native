@@ -29,6 +29,7 @@ import {
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 
@@ -475,87 +476,89 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
   }
 
   return (
-    <div className="flex h-full w-full flex-col">
-      <div className="flex h-12 items-center justify-between border-b px-3 shrink-0">
-        <div className="group/name flex items-center gap-1">
-          {isRenaming ? (
-            <input
-              ref={renameInputRef}
-              value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
-              onBlur={submitRename}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submitRename();
-                if (e.key === "Escape") setIsRenaming(false);
-              }}
-              className="text-sm font-medium bg-transparent border-b border-primary outline-none py-0 px-0"
-            />
-          ) : (
-            <>
-              <span className="text-sm font-medium">{extension.name}</span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={startRename}
-                    className="cursor-pointer rounded p-0.5 text-muted-foreground/40 opacity-0 group-hover/name:opacity-100 hover:text-foreground"
-                  >
-                    <IconPencil className="h-3 w-3" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Rename</TooltipContent>
-              </Tooltip>
-            </>
-          )}
-        </div>
-        <div className="flex items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => setRefreshKey((k) => k + 1)}
-                className="inline-flex items-center justify-center rounded-md h-8 w-8 text-muted-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer"
-              >
-                <IconRefresh className="h-4 w-4" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Refresh</TooltipContent>
-          </Tooltip>
-          <EditToolPopover extension={extension} />
-          <ShareButton
-            resourceType="extension"
-            resourceId={extensionId}
-            resourceTitle={extension.name}
-          />
-          <ToolMoreMenu extensionId={extensionId} toolName={extension.name} />
-          <NotificationsBell />
-          <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
-        </div>
-      </div>
-      <div className="relative flex-1 min-h-0">
-        {!iframeReady && (
-          <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
-            <IconLoader2
-              className="size-5 animate-spin text-muted-foreground"
-              role="status"
-              aria-label="Loading"
-            />
+    <TooltipProvider delayDuration={200}>
+      <div className="flex h-full w-full flex-col">
+        <div className="flex h-12 items-center justify-between border-b px-3 shrink-0">
+          <div className="group/name flex items-center gap-1">
+            {isRenaming ? (
+              <input
+                ref={renameInputRef}
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onBlur={submitRename}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitRename();
+                  if (e.key === "Escape") setIsRenaming(false);
+                }}
+                className="text-sm font-medium bg-transparent border-b border-primary outline-none py-0 px-0"
+              />
+            ) : (
+              <>
+                <span className="text-sm font-medium">{extension.name}</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={startRename}
+                      className="cursor-pointer rounded p-0.5 text-muted-foreground/40 opacity-0 group-hover/name:opacity-100 hover:text-foreground"
+                    >
+                      <IconPencil className="h-3 w-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Rename</TooltipContent>
+                </Tooltip>
+              </>
+            )}
           </div>
-        )}
-        <iframe
-          ref={iframeRef}
-          key={`${extension.updatedAt}-${refreshKey}`}
-          src={iframeSrc}
-          className="h-full w-full border-0"
-          sandbox="allow-scripts allow-forms"
-          title={extension.name}
-          onLoad={() => {
-            sendThemeToIframe();
-            setTimeout(() => setIframeReady(true), 150);
-          }}
-        />
+          <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setRefreshKey((k) => k + 1)}
+                  className="inline-flex items-center justify-center rounded-md h-8 w-8 text-muted-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer"
+                >
+                  <IconRefresh className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Refresh</TooltipContent>
+            </Tooltip>
+            <EditToolPopover extension={extension} />
+            <ShareButton
+              resourceType="extension"
+              resourceId={extensionId}
+              resourceTitle={extension.name}
+            />
+            <ToolMoreMenu extensionId={extensionId} toolName={extension.name} />
+            <NotificationsBell />
+            <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
+          </div>
+        </div>
+        <div className="relative flex-1 min-h-0">
+          {!iframeReady && (
+            <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
+              <IconLoader2
+                className="size-5 animate-spin text-muted-foreground"
+                role="status"
+                aria-label="Loading"
+              />
+            </div>
+          )}
+          <iframe
+            ref={iframeRef}
+            key={`${extension.updatedAt}-${refreshKey}`}
+            src={iframeSrc}
+            className="h-full w-full border-0"
+            sandbox="allow-scripts allow-forms"
+            title={extension.name}
+            onLoad={() => {
+              sendThemeToIframe();
+              setTimeout(() => setIframeReady(true), 150);
+            }}
+          />
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }
 
