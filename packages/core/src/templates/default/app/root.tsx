@@ -17,6 +17,7 @@ import {
 import { ThemeProvider } from "next-themes";
 import { useDbSync } from "@agent-native/core";
 import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
+import { getThemeInitScript } from "@agent-native/core/client";
 import { Toaster } from "sonner";
 import { configureTracking } from "@agent-native/core/client";
 configureTracking({
@@ -27,6 +28,8 @@ configureTracking({
 });
 import "./global.css";
 
+const THEME_INIT_SCRIPT = getThemeInitScript();
+
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
@@ -36,6 +39,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           name="viewport"
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <link rel="manifest" href="/manifest.json" />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <meta name="theme-color" content="#111111" />

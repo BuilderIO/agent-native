@@ -79,7 +79,8 @@ export function CommandPalette({
   hasEmail,
 }: CommandPaletteProps) {
   const navigate = useNavigate();
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const imagePolicy = settings?.imagePolicy ?? "show";
@@ -222,15 +223,15 @@ export function CommandPalette({
 
       <CommandMenu.Group heading="Appearance">
         <CommandMenu.Item
-          onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
+          onSelect={() => setTheme(isDark ? "light" : "dark")}
           keywords={["theme", "dark", "light", "mode"]}
         >
-          {theme === "dark" ? (
+          {isDark ? (
             <IconSun className="h-4 w-4" />
           ) : (
             <IconMoon className="h-4 w-4" />
           )}
-          Toggle {theme === "dark" ? "light" : "dark"} mode
+          Toggle {isDark ? "light" : "dark"} mode
         </CommandMenu.Item>
       </CommandMenu.Group>
     </CommandMenu>
