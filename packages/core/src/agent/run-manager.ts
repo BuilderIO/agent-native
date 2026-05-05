@@ -30,6 +30,9 @@ const threadToRun = new Map<string, string>();
 /** How long to keep completed runs in memory before cleanup (5 min) */
 const CLEANUP_DELAY_MS = 5 * 60 * 1000;
 
+/** Default run chunk budget for hosted/serverless deploys. */
+export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 55_000;
+
 export interface StartRunOptions {
   /** Optional internal run chunk budget. When reached, the framework emits an
    * auto-continuation signal instead of a user-facing timeout. Leave unset for
@@ -37,13 +40,40 @@ export interface StartRunOptions {
   softTimeoutMs?: number;
 }
 
+function isHostedRuntime(): boolean {
+  if (process.env.NETLIFY === "true" && process.env.NETLIFY_LOCAL !== "true") {
+    return true;
+  }
+  return Boolean(
+    process.env.CF_PAGES ||
+      process.env.VERCEL ||
+      process.env.VERCEL_ENV ||
+      process.env.RENDER ||
+      process.env.FLY_APP_NAME ||
+      process.env.K_SERVICE,
+  );
+}
+
 export function resolveRunSoftTimeoutMs(overrideMs?: number): number {
   if (typeof overrideMs === "number" && Number.isFinite(overrideMs)) {
     return Math.max(0, overrideMs);
   }
-  const raw = Number(process.env.AGENT_RUN_SOFT_TIMEOUT_MS);
-  if (Number.isFinite(raw) && raw >= 0) return raw;
-  return 0;
+  const envValue = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
+  if (envValue !== undefined) {
+    const raw = Number(envValue);
+    if (Number.isFinite(raw) && raw >= 0) return raw;
+  }
+  return isHostedRuntime() ? DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS : 0;
+}
+
+function isTerminalRunEvent(event: AgentChatEvent): boolean {
+  return (
+    event.type === "done" ||
+    event.type === "error" ||
+    event.type === "missing_api_key" ||
+    event.type === "loop_limit" ||
+    event.type === "auto_continue"
+  );
 }
 
 /**
@@ -112,6 +142,8 @@ export function startRun(
   let lastAbortCheck = Date.now();
 
   const send = (event: AgentChatEvent) => {
+    if (run.status === "aborted" && abort.signal.aborted) return;
+
     const runEvent: RunEvent = { seq: run.events.length, event };
     run.events.push(runEvent);
 
@@ -142,6 +174,10 @@ export function startRun(
   // Run in background — intentionally detached from any HTTP connection
   const runPromise = runFn(send, abort.signal)
     .then(() => {
+      if (abort.signal.aborted) {
+        run.status = softTimedOut ? "completed" : "aborted";
+        return;
+      }
       run.status = "completed";
     })
     .catch((err) => {
@@ -182,13 +218,7 @@ export function startRun(
               : { type: "done" },
         };
         const last = run.events[run.events.length - 1];
-        if (
-          !last ||
-          (last.event.type !== "done" &&
-            last.event.type !== "error" &&
-            last.event.type !== "missing_api_key" &&
-            last.event.type !== "loop_limit")
-        ) {
+        if (!last || !isTerminalRunEvent(last.event)) {
           run.events.push(terminal);
           insertRunEvent(
             runId,
@@ -212,7 +242,7 @@ export function startRun(
       //    still ticking so the run doesn't look stale to any concurrent
       //    /runs/active check while we wait for SQL writes to land.
       let completionError: unknown = null;
-      if (onComplete) {
+      if (onComplete && run.status !== "aborted") {
         try {
           await onComplete(run);
         } catch (err) {
