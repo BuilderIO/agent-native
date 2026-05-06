@@ -13,7 +13,7 @@ import {
   IconSearch,
   IconX,
 } from "@tabler/icons-react";
-import { useActionQuery } from "@agent-native/core/client";
+import { agentNativePath, useActionQuery } from "@agent-native/core/client";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import { Button } from "@/components/ui/button";
 import {
@@ -106,7 +106,11 @@ function ConnectCalendarEmptyState({
   const handleConnect = () => {
     setError(null);
     setPending(true);
-    fetch("/_agent-native/actions/connect-calendar?provider=google")
+    fetch(
+      agentNativePath(
+        "/_agent-native/actions/connect-calendar?provider=google",
+      ),
+    )
       .then(async (r) => {
         const text = await r.text();
         let data: {
@@ -324,11 +328,14 @@ export default function MeetingsIndexRoute() {
       queryKey: ["action", "list-calendar-accounts"],
     });
     try {
-      const r = await fetch("/_agent-native/actions/sync-calendars", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
+      const r = await fetch(
+        agentNativePath("/_agent-native/actions/sync-calendars"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      );
       if (!r.ok) {
         const text = await r.text().catch(() => "");
         let parsed: { error?: string } = {};
