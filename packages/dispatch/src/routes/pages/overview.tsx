@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
   PromptComposer,
-  sendToAgentChat,
   useActionQuery,
   useChatModels,
   agentNativePath,
@@ -34,6 +33,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { submitOverviewPrompt } from "@/lib/overview-chat";
 
 interface IntegrationStatus {
   platform: string;
@@ -99,12 +99,7 @@ function HomeChatPanel() {
   const { selectedModel } = useChatModels();
 
   const send = (message: string) => {
-    sendToAgentChat({
-      message,
-      submit: true,
-      newTab: true,
-      model: selectedModel || undefined,
-    });
+    submitOverviewPrompt(message, selectedModel);
   };
 
   return (
