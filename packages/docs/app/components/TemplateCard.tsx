@@ -118,6 +118,19 @@ export const templates = [
       "https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=800",
   },
   {
+    name: "Images",
+    slug: "images",
+    replaces: "Replaces or augments Midjourney, DALL-E, Adobe Firefly",
+    cliCommand:
+      "npx @agent-native/core create my-images-app --template images",
+    demoUrl: "https://images.agent-native.com",
+    description:
+      "Brand-consistent AI image generation. Curate libraries of reference images, palette, and brand assets; the agent grounds every generation in your style. Slides, design, and other apps call it via A2A to fill in real artwork.",
+    color: "#22D3EE",
+    screenshot:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c09b451d40c4a74a89a38d69170c2d8?format=webp&width=800",
+  },
+  {
     name: "Dispatch",
     slug: "dispatch",
     replaces: "Mission control for your agent-native apps",
