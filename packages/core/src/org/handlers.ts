@@ -426,7 +426,7 @@ export const acceptInvitationHandler = defineEventHandler(
     const invRes = await e.execute({
       // Case-insensitive on email — see comment on the analogous
       // pending-invitations query in getMyOrgHandler.
-      sql: `SELECT id, org_id AS "orgId" FROM org_invitations
+      sql: `SELECT id, org_id AS "orgId", role FROM org_invitations
             WHERE id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
       args: [invitationId, email.toLowerCase()],
     });
@@ -438,6 +438,7 @@ export const acceptInvitationHandler = defineEventHandler(
     }
     const inv = invRes.rows[0] as any;
     const invOrgId = String(inv.orgId ?? inv.org_id);
+    const inviteRole: OrgRole = inv.role === "admin" ? "admin" : "member";
 
     const existingMembership = await e.execute({
       sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
@@ -464,8 +465,8 @@ export const acceptInvitationHandler = defineEventHandler(
     }
 
     await e.execute({
-      sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, 'member', ?)`,
-      args: [nanoid(), invOrgId, email, Date.now()],
+      sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
+      args: [nanoid(), invOrgId, email, inviteRole, Date.now()],
     });
 
     await e.execute({
@@ -475,7 +476,7 @@ export const acceptInvitationHandler = defineEventHandler(
 
     await putUserSetting(email, "active-org-id", { orgId: invOrgId });
 
-    return { orgId: invOrgId, orgName, role: "member" as OrgRole };
+    return { orgId: invOrgId, orgName, role: inviteRole };
   },
 );
 
@@ -538,6 +539,88 @@ export const removeMemberHandler = defineEventHandler(
     });
 
     return { success: true };
+  },
+);
+
+/**
+ * PUT /_agent-native/org/members/:email/role — change a member's role
+ * (owner/admin only). Body: { role: "admin" | "member" }.
+ *
+ * Only owners can promote/demote admins. (Admins can manage members but
+ * not other admins — otherwise an admin could escalate themselves to
+ * owner-equivalent control by promoting a confederate.)
+ */
+export const changeMemberRoleHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.orgId) {
+      throw createError({ statusCode: 400, message: "No organization found" });
+    }
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can change member roles",
+      });
+    }
+
+    const memberEmail = extractMemberEmail(event);
+    if (!memberEmail) {
+      throw createError({ statusCode: 400, message: "Email is required" });
+    }
+    const memberEmailLower = memberEmail.toLowerCase();
+
+    const body = await readBody(event);
+    const role = body?.role === "admin" ? "admin" : "member";
+
+    const e = await exec();
+
+    // Look up the target member's current role to enforce sensible rules
+    // about what changes are allowed.
+    const current = await e.execute({
+      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      args: [ctx.orgId, memberEmailLower],
+    });
+    if (current.rows.length === 0) {
+      throw createError({ statusCode: 404, message: "Member not found" });
+    }
+    const currentRole = String((current.rows[0] as any).role) as OrgRole;
+
+    if (currentRole === "owner") {
+      throw createError({
+        statusCode: 400,
+        message: "Cannot change the organization owner's role",
+      });
+    }
+
+    // Admins are scoped to managing members. If they could promote
+    // members to admin, they could grant near-owner powers without owner
+    // approval. Restrict admin/admin role transitions to the owner.
+    if (
+      ctx.role === "admin" &&
+      (currentRole === "admin" || role === "admin")
+    ) {
+      throw createError({
+        statusCode: 403,
+        message: "Only the organization owner can manage admins",
+      });
+    }
+
+    // Self-demotion guard: prevent the only admin from removing their own
+    // ability to manage things, and prevent the owner-self edge case
+    // (already filtered above by the currentRole check).
+    if (memberEmailLower === ctx.email.toLowerCase() && ctx.role === "admin") {
+      throw createError({
+        statusCode: 400,
+        message: "Use the owner account to change your own admin role",
+      });
+    }
+
+    await e.execute({
+      sql: `UPDATE org_members SET role = ? WHERE org_id = ? AND LOWER(email) = ?`,
+      args: [role, ctx.orgId, memberEmailLower],
+    });
+
+    return { email: memberEmailLower, role };
   },
 );
 
