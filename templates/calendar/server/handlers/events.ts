@@ -162,6 +162,7 @@ export const getEvent = defineEventHandler(async (event: H3Event) => {
           htmlLink: evt.htmlLink || undefined,
           accountEmail: acctEmail,
           responseStatus: selfAttendee?.responseStatus || undefined,
+          transparency: evt.transparency || undefined,
           attendees: evt.attendees?.map((a: any) => ({
             email: a.email,
             displayName: a.displayName || undefined,

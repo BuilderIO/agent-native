@@ -29,6 +29,7 @@ import type {
 import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { getDb, schema } from "../db/index.js";
 import * as googleCalendar from "../lib/google-calendar.js";
+import { eventBlocksAvailability } from "../lib/calendar-availability.js";
 import { createZoomMeeting } from "../lib/zoom.js";
 import {
   sendBookingCancellationEmails,
@@ -380,7 +381,7 @@ async function getConflictItems({
         ownerEmail,
       );
       conflictItems.push(
-        ...googleEvents.map((event) => ({
+        ...googleEvents.filter(eventBlocksAvailability).map((event) => ({
           start: event.start,
           end: event.end,
         })),
