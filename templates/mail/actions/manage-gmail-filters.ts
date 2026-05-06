@@ -77,6 +77,9 @@ const schema = z.object({
     .string()
     .optional()
     .describe("Advanced: exact Gmail Filter.criteria JSON"),
+  replaceCriteria: optionalBoolean.describe(
+    "For replace, rebuild criteria from provided fields instead of merging into the existing criteria",
+  ),
   archive: optionalBoolean.describe("Remove INBOX so matching messages skip the inbox"),
   markRead: optionalBoolean.describe("Remove UNREAD from matching messages"),
   neverSpam: optionalBoolean.describe("Remove SPAM from matching messages"),
@@ -105,6 +108,9 @@ const schema = z.object({
     .string()
     .optional()
     .describe("Advanced: exact Gmail Filter.action JSON"),
+  replaceAction: optionalBoolean.describe(
+    "For replace, rebuild actions from provided fields instead of merging into the existing action",
+  ),
 });
 
 type Args = z.infer<typeof schema>;
@@ -302,7 +308,7 @@ function buildCriteria(args: Args, existing?: GmailFilterCriteria): GmailFilterC
     );
   }
 
-  const next: GmailFilterCriteria = { ...(existing ?? {}) };
+  const next: GmailFilterCriteria = { ...(!args.replaceCriteria && existing ? existing : {}) };
   for (const key of CRITERIA_KEYS) {
     const value = args[key];
     if (value === undefined) continue;
@@ -379,9 +385,11 @@ async function buildAction(
   }
 
   const next: GmailFilterAction = {
-    addLabelIds: [...(existing?.addLabelIds ?? [])],
-    removeLabelIds: [...(existing?.removeLabelIds ?? [])],
-    forward: existing?.forward,
+    addLabelIds: [...(!args.replaceAction && existing ? existing.addLabelIds ?? [] : [])],
+    removeLabelIds: [
+      ...(!args.replaceAction && existing ? existing.removeLabelIds ?? [] : []),
+    ],
+    forward: !args.replaceAction ? existing?.forward : undefined,
   };
 
   applyRemoveFlag(next, args.archive, "INBOX");
