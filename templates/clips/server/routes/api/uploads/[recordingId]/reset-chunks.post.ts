@@ -33,7 +33,7 @@ import {
 } from "h3";
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../../../../db/index.js";
-import { getEventOwnerEmail } from "../../../../lib/recordings.js";
+import { getEventOwnerContext } from "../../../../lib/recordings.js";
 import { runWithRequestContext } from "@agent-native/core/server";
 import {
   writeAppState,
@@ -68,7 +68,7 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "Missing recordingId" };
   }
 
-  const ownerEmail = await getEventOwnerEmail(event);
+  const { userEmail: ownerEmail, orgId } = await getEventOwnerContext(event);
   const body = (await readBody(event).catch(() => null)) as {
     compression?: CompressionMeta | null;
   } | null;
@@ -86,7 +86,7 @@ export default defineEventHandler(async (event: H3Event) => {
       }
     : null;
 
-  return runWithRequestContext({ userEmail: ownerEmail }, async () => {
+  return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
     const db = getDb();
 
     const [existing] = await db

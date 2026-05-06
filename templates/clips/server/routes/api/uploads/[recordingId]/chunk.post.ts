@@ -26,7 +26,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
-import { getEventOwnerEmail } from "../../../../lib/recordings.js";
+import { getEventOwnerContext } from "../../../../lib/recordings.js";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
@@ -100,15 +100,18 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   let ownerEmail: string;
+  let orgId: string | undefined;
   try {
-    ownerEmail = await getEventOwnerEmail(event);
+    const context = await getEventOwnerContext(event);
+    ownerEmail = context.userEmail;
+    orgId = context.orgId;
   } catch (err) {
-    console.error("[chunk] getEventOwnerEmail threw:", err);
+    console.error("[chunk] getEventOwnerContext threw:", err);
     throw createError({ statusCode: 401, message: "Unauthorized" });
   }
   debugLog("[chunk] resolved owner:", ownerEmail);
 
-  return runWithRequestContext({ userEmail: ownerEmail }, async () => {
+  return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
     const db = getDb();
 
     // Verify the recording belongs to the current user.

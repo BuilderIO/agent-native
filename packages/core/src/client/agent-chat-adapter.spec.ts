@@ -227,6 +227,61 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("uses an explicit fallback prompt when the user sends only attachments", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-attachments",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "" }],
+            attachments: [
+              {
+                name: "source.txt",
+                contentType: "text/plain",
+                content: [{ type: "text", text: "Source material" }],
+              },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.message).toBe("Use the attached context.");
+    expect(body.attachments).toEqual([
+      {
+        type: "file",
+        name: "source.txt",
+        contentType: "text/plain",
+        text: "Source material",
+      },
+    ]);
+  });
+
   it("treats authentication failures as auth errors, not AI setup", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -768,6 +823,76 @@ describe("createAgentChatAdapter", () => {
       .map((part: any) => part.text)
       .join("");
     expect(finalText).not.toContain("checking the dashboard");
+  });
+
+  it("stops after repeated stale-run recoveries", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return sseResponse([
+        { type: "text", text: "partial answer" },
+        {
+          type: "error",
+          error:
+            "The agent stopped before it could finish. It may have hit a server timeout or the worker may have been interrupted.",
+          errorCode: "stale_run",
+          recoverable: true,
+        },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-stale-run",
+      threadId: "thread-stale-run",
+    });
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish the analysis" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const chatPosts = fetchSpy.mock.calls.filter(
+      ([url, init]) =>
+        url === "/_agent-native/agent-chat" && init?.method === "POST",
+    );
+    expect(chatPosts).toHaveLength(4);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "connection_error",
+          details: expect.stringContaining("stale_run_continuations: 4"),
+        }),
+      }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.content.at(-1).text).toContain(
+      "The agent connection kept failing",
+    );
   });
 
   it("does not exhaust stalled recovery attempts while each continuation makes progress", async () => {

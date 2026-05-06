@@ -141,7 +141,7 @@ async function createWorkspaceInteractive(
           ]
         : [
             "Dispatch is recommended for most workspaces. You can add it later",
-            "with `agent-native add-app --template=dispatch` if you skip it now.",
+            "with `npx @agent-native/core add-app --template=dispatch` if you skip it now.",
           ];
 
   clack.note(
@@ -150,7 +150,7 @@ async function createWorkspaceInteractive(
       "container — it isn't an app itself. Inside it you pick one or more apps",
       "(below), and each app gets its own route, agent, and UI. Apps in the",
       "same workspace share auth, database, and the agent chat. Add more apps",
-      "later with `agent-native add-app`. Starter is a minimal scaffold —",
+      "later with `npx @agent-native/core add-app`. Starter is a minimal scaffold —",
       "useful as a blank app to build from scratch alongside the others.",
       ...dispatchRecommendation,
     ].join("\n"),
@@ -179,7 +179,9 @@ async function createWorkspaceInteractive(
   }
 
   const s = clack.spinner();
-  s.start(`Scaffolding workspace with ${templates.length} app(s)...`);
+  s.start(
+    `Preparing env... scaffolding workspace with ${templates.length} app(s).`,
+  );
 
   const firstApp = templates[0];
 
@@ -254,8 +256,8 @@ async function createWorkspaceInteractive(
       ``,
       ...dispatchNextStep,
       ``,
-      `Add another app later:        agent-native add-app`,
-      `Deploy the whole workspace:   agent-native deploy`,
+      `Add another app later:        npx @agent-native/core add-app`,
+      `Deploy the whole workspace:   pnpm exec agent-native deploy`,
     ].join("\n"),
   );
 }
@@ -366,7 +368,11 @@ async function scaffoldOneAppIntoWorkspace(
   templateName: string,
   clack: typeof import("@clack/prompts"),
 ): Promise<void> {
-  validateWorkspaceAppName(appName, clack);
+  // Dispatch is the one reserved-route exception: the canonical workspace
+  // control-plane app intentionally owns /dispatch.
+  validateWorkspaceAppName(appName, clack, {
+    allowDispatch: appName === "dispatch" && templateName === "dispatch",
+  });
   const appsDir = path.join(workspace.workspaceRoot, "apps");
   fs.mkdirSync(appsDir, { recursive: true });
   const appDir = path.join(appsDir, appName);
@@ -377,7 +383,7 @@ async function scaffoldOneAppIntoWorkspace(
   }
 
   const s = clack.spinner();
-  s.start(`Scaffolding apps/${appName} from ${templateName}...`);
+  s.start(`Preparing env... scaffolding apps/${appName} from ${templateName}.`);
 
   try {
     await scaffoldAppTemplate(appDir, templateName);
@@ -466,7 +472,7 @@ async function createStandaloneApp(
   }
 
   const s = clack.spinner();
-  s.start("Scaffolding your app...");
+  s.start("Preparing env... scaffolding your app.");
   try {
     await scaffoldAppTemplate(targetDir, template);
     postProcessStandalone(name, targetDir, template);
@@ -1130,8 +1136,12 @@ function rewriteCoreDependencyVersions(projectDir: string): void {
 function validateWorkspaceAppName(
   appName: string,
   clack: typeof import("@clack/prompts"),
+  opts?: { allowDispatch?: boolean },
 ): void {
-  const error = getWorkspaceAppIdValidationError(appName);
+  const error =
+    opts?.allowDispatch && appName === "dispatch"
+      ? null
+      : getWorkspaceAppIdValidationError(appName);
   if (error) {
     clack.cancel(error);
     process.exit(1);

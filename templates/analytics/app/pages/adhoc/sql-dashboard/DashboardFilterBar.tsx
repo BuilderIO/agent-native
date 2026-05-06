@@ -176,9 +176,14 @@ export function DashboardFilterBar({
     <>
       <div className="rounded-lg border border-border bg-card p-3 space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Filters
-          </h3>
+          <div className="flex items-baseline gap-2">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Filters
+            </h3>
+            <span className="text-[10px] text-muted-foreground/60">
+              auto-applied
+            </span>
+          </div>
           <div className="flex items-center gap-1">
             {onSaveView && filtersActive && (
               <Button

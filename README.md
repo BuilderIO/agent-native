@@ -18,9 +18,9 @@ The agent and the UI are equal citizens of the same system. Every action works b
 - **Any database, any host** — Any SQL database Drizzle supports. Any hosting target Nitro supports. No lock-in.
 - **Any AI agent** — Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io. Use whichever agent you prefer.
 
-## Cloneable SaaS Templates
+## Templates
 
-Start from a complete, production-grade SaaS app. Each one replaces tools you're paying for — except you own everything and can customize it however you want. Not demos; products.
+Start from a complete, production-grade SaaS app — cloneable, not scaffolded. Each one replaces tools you're paying for, except you own everything and can customize it however you want. Not demos; products.
 
 <table>
 <tr>
@@ -145,7 +145,7 @@ Generate forms from a prompt, branch logic with the agent, and own every respons
 </tr>
 </table>
 
-Every template is cloneable SaaS — fork it, customize it with the agent, own it. Try them with example data before connecting your own sources.
+Every template is a complete cloneable SaaS — fork it, customize it with the agent, own it. Try them with example data before connecting your own sources.
 
 ## Quick Start
 
@@ -184,7 +184,7 @@ my-platform/
 Add another app later:
 
 ```bash
-agent-native add-app notes --template content
+npx @agent-native/core add-app notes --template content
 ```
 
 Deploy every app behind one origin:

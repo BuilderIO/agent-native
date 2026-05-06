@@ -51,6 +51,8 @@ async function saveDraftToEmails(
       draftId: draft.savedDraftId,
       replyToId: draft.replyToId,
       replyToThreadId: draft.replyToThreadId,
+      accountEmail: draft.accountEmail,
+      attachments: draft.attachments,
     }),
   });
   return result?.draftId;
@@ -60,6 +62,7 @@ export function useComposeState() {
   const qc = useQueryClient();
   const [activeId, setActiveId] = useState<string | null>(null);
   const dirtyRef = useRef<Record<string, boolean>>({});
+  const versionRef = useRef<Record<string, number>>({});
   const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const gmailSaveRef = useRef<Record<string, ReturnType<typeof setTimeout>>>(
     {},
@@ -72,7 +75,28 @@ export function useComposeState() {
       const result = await apiFetch<ComposeState[]>(
         "/_agent-native/application-state/compose",
       );
-      return result ?? [];
+      const serverDrafts = result ?? [];
+      const localDrafts =
+        qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? [];
+      if (!localDrafts.length) return serverDrafts;
+
+      const merged = serverDrafts.map((serverDraft) => {
+        const localDraft = localDrafts.find((d) => d.id === serverDraft.id);
+        return localDraft && dirtyRef.current[serverDraft.id]
+          ? localDraft
+          : serverDraft;
+      });
+
+      for (const localDraft of localDrafts) {
+        if (
+          dirtyRef.current[localDraft.id] &&
+          !merged.some((d) => d.id === localDraft.id)
+        ) {
+          merged.push(localDraft);
+        }
+      }
+
+      return merged;
     },
     staleTime: 1_000,
     refetchOnWindowFocus: true,
@@ -166,6 +190,8 @@ export function useComposeState() {
   const update = useCallback(
     (id: string, partial: Partial<ComposeState>) => {
       dirtyRef.current[id] = true;
+      const version = (versionRef.current[id] ?? 0) + 1;
+      versionRef.current[id] = version;
 
       // Optimistic cache update
       qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
@@ -181,7 +207,9 @@ export function useComposeState() {
         if (current) {
           putMutation.mutate(current, {
             onSettled: () => {
-              dirtyRef.current[id] = false;
+              if (versionRef.current[id] === version) {
+                dirtyRef.current[id] = false;
+              }
             },
           });
         }
@@ -203,6 +231,7 @@ export function useComposeState() {
       if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
       if (gmailSaveRef.current[id]) clearTimeout(gmailSaveRef.current[id]);
       delete dirtyRef.current[id];
+      delete versionRef.current[id];
       delete debounceRef.current[id];
       delete gmailSaveRef.current[id];
 
@@ -241,6 +270,7 @@ export function useComposeState() {
       if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
       if (gmailSaveRef.current[id]) clearTimeout(gmailSaveRef.current[id]);
       delete dirtyRef.current[id];
+      delete versionRef.current[id];
       delete debounceRef.current[id];
       delete gmailSaveRef.current[id];
 
@@ -290,6 +320,7 @@ export function useComposeState() {
     debounceRef.current = {};
     gmailSaveRef.current = {};
     dirtyRef.current = {};
+    versionRef.current = {};
 
     setActiveId(null);
     qc.setQueryData<ComposeState[]>(["compose-drafts"], []);
@@ -306,6 +337,7 @@ export function useComposeState() {
       ).find((d) => d.id === id);
       if (current) {
         dirtyRef.current[id] = false;
+        versionRef.current[id] = versionRef.current[id] ?? 0;
         // Also trigger Gmail save immediately
         if (hasDraftContent(current)) autoSaveToGmail(id);
         return putMutation.mutateAsync(current);

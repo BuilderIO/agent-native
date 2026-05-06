@@ -103,7 +103,7 @@ export function Layout({ children }: LayoutProps) {
         >
           <main className="relative flex min-w-0 min-h-0 flex-1 flex-col">
             {showHeader ? <Header /> : null}
-            <InvitationBanner />
+            <InvitationBanner className="pl-16 sm:pl-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1" />
             {children}
           </main>
         </AgentSidebar>

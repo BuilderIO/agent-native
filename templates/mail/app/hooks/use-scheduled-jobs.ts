@@ -7,6 +7,7 @@ import {
   type InfiniteEmails,
 } from "./use-emails";
 import { appApiPath } from "@/lib/api-path";
+import type { ComposeAttachment } from "@shared/types";
 
 export interface ScheduledJob {
   id: string;
@@ -125,6 +126,7 @@ export function useScheduleEmail() {
       from?: string;
       replyToId?: string;
       threadId?: string;
+      attachments?: ComposeAttachment[];
     }) => {
       const res = await fetch(appApiPath("/api/emails/schedule"), {
         method: "POST",
@@ -154,7 +156,63 @@ export function useDeleteScheduledJob() {
       if (!res.ok) throw new Error("Failed to cancel job");
       return res.json();
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["scheduled-jobs"] }),
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<InfiniteEmails>({
+        queryKey: ["emails"],
+      });
+      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+        mapInfiniteEmails(old, (emails) =>
+          emails.filter((email) => email.id !== `scheduled-${id}`),
+        ),
+      );
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+      qc.invalidateQueries({ queryKey: ["emails"] });
+    },
+  });
+}
+
+export function useSendScheduledJobNow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(
+        appApiPath(`/api/scheduled-jobs/${id}/send-now`),
+        {
+          method: "POST",
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || "Failed to send scheduled email");
+      }
+      return res.json();
+    },
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<InfiniteEmails>({
+        queryKey: ["emails"],
+      });
+      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+        mapInfiniteEmails(old, (emails) =>
+          emails.filter((email) => email.id !== `scheduled-${id}`),
+        ),
+      );
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+      qc.invalidateQueries({ queryKey: ["emails"] });
+    },
   });
 }
 

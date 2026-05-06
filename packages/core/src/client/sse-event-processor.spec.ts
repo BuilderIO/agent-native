@@ -154,4 +154,28 @@ describe("SSE event processor error classification", () => {
       expect.objectContaining({ type: "agent-chat:missing-api-key" }),
     );
   });
+
+  it("auto-continues bare gateway errors instead of surfacing a dead-end card", async () => {
+    const err = await readSSEStream(
+      eventStream([
+        {
+          type: "error",
+          error:
+            'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+        },
+      ]),
+      [],
+      { value: 0 },
+      "tab-gateway",
+    )
+      [Symbol.asyncIterator]()
+      .next()
+      .then(
+        () => undefined,
+        (caught) => caught,
+      );
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("stream_ended");
+  });
 });

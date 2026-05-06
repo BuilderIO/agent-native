@@ -328,6 +328,7 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 | --------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------- |
 | `create-design-system`      | `--title "X" [--description "..."] --data '<json>'`                                       | Create a new design system        |
 | `update-design-system`      | `--id <id> [--title] [--description] [--data] [--assets]`                                 | Update design system tokens       |
+| `delete-design-system`      | `--id <id>`                                                                               | Delete a design system            |
 | `get-design-system`         | `--id <id>`                                                                               | Get design system with all tokens |
 | `list-design-systems`       | `[--compact true]`                                                                        | List all design systems           |
 | `set-default-design-system` | `--id <id>`                                                                               | Set one as the default            |
@@ -1420,7 +1421,7 @@ If Builder is not connected, fall back to `import-from-url --url "https://exampl
 
         <!-- Screen content -->
         <div class="px-5 pt-2 pb-24">
-          <h1 class="text-2xl font-bold mb-1">Good morning</h1>
+          <h1 class="text-2xl font-bold mb-1">Today's focus</h1>
           <p class="text-sm text-[var(--color-text-muted)] mb-6">
             3 routines ready
           </p>

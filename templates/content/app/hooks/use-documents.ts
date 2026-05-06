@@ -1,9 +1,5 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  appApiPath,
-  useActionQuery,
-  useActionMutation,
-} from "@agent-native/core/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import type {
   Document,
   DocumentCreateRequest,
@@ -12,12 +8,6 @@ import type {
   DocumentListResponse,
   DocumentTreeNode,
 } from "@shared/api";
-
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(appApiPath(url), init);
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json();
-}
 
 export function useDocuments() {
   return useActionQuery<Document[]>("list-documents", undefined, {
@@ -64,17 +54,19 @@ export function useDeleteDocument() {
 
 export function useMoveDocument() {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, ...data }: DocumentMoveRequest & { id: string }) =>
-      fetchJson<Document>(`/api/documents/${id}/move`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["action"] });
+  return useActionMutation<Document, DocumentMoveRequest & { id: string }>(
+    "move-document",
+    {
+      onSuccess: (_data, variables) => {
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "get-document", { id: variables.id }],
+        });
+      },
     },
-  });
+  );
 }
 
 export function buildDocumentTree(

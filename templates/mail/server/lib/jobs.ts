@@ -7,7 +7,7 @@ import {
 } from "@agent-native/core/oauth-tokens";
 import { and, eq, inArray, lte } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import type { EmailMessage } from "@shared/types.js";
+import type { ComposeAttachment, EmailMessage } from "@shared/types.js";
 import { markdownPreviewSnippet } from "@shared/markdown.js";
 import { db, schema } from "../db/index.js";
 import { isConnected, gmailToEmailMessage } from "./google-auth.js";
@@ -20,6 +20,11 @@ import {
   gmailModifyThread,
   googleFetch,
 } from "./google-api.js";
+import {
+  bodyToHtml as outgoingBodyToHtml,
+  buildRawEmail as buildOutgoingRawEmail,
+  resolveComposeAttachments,
+} from "./outgoing-email.js";
 
 interface StoredTokens {
   access_token: string;
@@ -42,6 +47,7 @@ export interface SendLaterPayload {
   accountEmail?: string;
   replyToId?: string;
   threadId?: string;
+  attachments?: ComposeAttachment[];
 }
 
 export interface ScheduledJobRecord {
@@ -501,12 +507,24 @@ export async function getSyntheticEmailsForView(
         subject: payload.subject,
         snippet: markdownPreviewSnippet(payload.body),
         body: payload.body,
+        bodyHtml: outgoingBodyToHtml(payload.body),
         date: new Date(job.runAt).toISOString(),
         isRead: true,
         isStarred: false,
         isArchived: false,
         isTrashed: false,
         labelIds: ["scheduled"],
+        ...(payload.attachments && payload.attachments.length > 0
+          ? {
+              attachments: payload.attachments.map((att) => ({
+                id: att.id,
+                filename: att.originalName,
+                mimeType: att.mimeType,
+                size: att.size,
+                url: att.url,
+              })),
+            }
+          : {}),
         accountEmail: payload.accountEmail || undefined,
       } satisfies EmailMessage;
     })
@@ -520,6 +538,10 @@ export async function sendScheduledEmail(
 ): Promise<void> {
   const { to, cc, bcc, subject, body, from, replyToId, threadId } = payload;
   const effectiveOwner = ownerEmail || accountEmail || from;
+  const attachments = await resolveComposeAttachments(
+    payload.attachments,
+    effectiveOwner,
+  );
 
   if (await isConnected(effectiveOwner)) {
     const account = await getFirstAccountToken(
@@ -564,23 +586,17 @@ export async function sendScheduledEmail(
         }
       }
 
-      const lines = [
-        `From: ${senderFrom}`,
-        `To: ${to}`,
-        ...(cc ? [`Cc: ${cc}`] : []),
-        ...(bcc ? [`Bcc: ${bcc}`] : []),
-        `Subject: ${subject}`,
-        ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`] : []),
-        ...(references ? [`References: ${references}`] : []),
-        `Content-Type: text/plain; charset="UTF-8"`,
-        "",
+      const raw = buildOutgoingRawEmail({
+        from: senderFrom,
+        to,
+        cc,
+        bcc,
+        subject,
         body,
-      ];
-      const raw = Buffer.from(lines.join("\r\n"))
-        .toString("base64")
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=+$/, "");
+        inReplyTo,
+        references,
+        attachments,
+      });
 
       const sendBody: any = { raw };
       if (threadId) sendBody.threadId = threadId;
@@ -614,6 +630,7 @@ export async function sendScheduledEmail(
     subject,
     snippet: markdownPreviewSnippet(body),
     body,
+    bodyHtml: outgoingBodyToHtml(body),
     date: new Date().toISOString(),
     isRead: true,
     isStarred: false,
@@ -621,8 +638,106 @@ export async function sendScheduledEmail(
     isArchived: false,
     isTrashed: false,
     labelIds: ["sent"],
+    ...(attachments.length > 0
+      ? {
+          attachments: attachments.map((att) => ({
+            id: att.filename,
+            filename: att.originalName,
+            mimeType: att.mimeType,
+            size: att.size,
+            url: att.url,
+          })),
+        }
+      : {}),
   });
   await writeEmails(fallbackOwner, emails);
+}
+
+export async function cancelScheduledJobForOwner(
+  ownerEmail: string,
+  id: string,
+): Promise<ScheduledJobRecord | null> {
+  const [existing] = await db
+    .select()
+    .from(schema.scheduledJobs)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+      ),
+    );
+
+  if (!existing) return null;
+
+  await db
+    .update(schema.scheduledJobs)
+    .set({ status: "cancelled" } as any)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+      ),
+    );
+
+  return { ...(existing as ScheduledJobRecord), status: "cancelled" };
+}
+
+export async function sendScheduledJobNowForOwner(
+  ownerEmail: string,
+  id: string,
+): Promise<ScheduledJobRecord> {
+  const [existing] = await db
+    .select()
+    .from(schema.scheduledJobs)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+      ),
+    );
+
+  if (!existing) {
+    throw new Error("Scheduled email not found");
+  }
+  const job = existing as ScheduledJobRecord;
+  if (job.type !== "send_later") {
+    throw new Error("Only scheduled emails can be sent now");
+  }
+  if (job.status !== "pending") {
+    throw new Error(`Scheduled email is already ${job.status}`);
+  }
+
+  await db
+    .update(schema.scheduledJobs)
+    .set({ status: "processing" } as any)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+        eq(schema.scheduledJobs.status, "pending"),
+      ),
+    );
+
+  try {
+    await sendScheduledEmail(
+      JSON.parse(job.payload) as SendLaterPayload,
+      job.accountEmail ?? undefined,
+      ownerEmail,
+    );
+    await markJobDone(job.id);
+    return { ...job, status: "done" };
+  } catch (error) {
+    await db
+      .update(schema.scheduledJobs)
+      .set({ status: "pending" } as any)
+      .where(
+        and(
+          eq(schema.scheduledJobs.id, id),
+          eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+        ),
+      );
+    throw error;
+  }
 }
 
 export async function markJobCancelled(id: string): Promise<void> {

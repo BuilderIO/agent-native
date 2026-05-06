@@ -27,7 +27,7 @@ import {
 } from "@/hooks/use-google-auth";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { SidebarThemeRow } from "@/components/ThemeToggle";
 import { SearchBar } from "./SearchBar";
 import {
   IconMenu2,
@@ -37,7 +37,6 @@ import {
   IconCheck,
   IconPlus,
   IconTool,
-  IconClock,
   IconRefresh,
   IconPin,
   IconPinnedFilled,
@@ -47,6 +46,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
 import {
   getCallbackOrigin,
   AgentSidebar,
@@ -216,6 +216,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   }, [activeAccounts]);
   const [tabSettingsOpen, setTabSettingsOpen] = useState(false);
   const [labelSearch, setLabelSearch] = useState("");
+  // Spin the refresh icon only when the user clicked the button — background
+  // poll-driven `inboxIsFetching` should not animate the icon. Reset shortly
+  // after click so the spin always feels like a deliberate action.
+  const [isManuallyRefreshing, setIsManuallyRefreshing] = useState(false);
 
   const isGoogleConnected = (googleStatus.data?.accounts?.length ?? 0) > 0;
   const connectedEmails = useMemo(
@@ -978,38 +982,22 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 />
               )}
 
-              {/* Draft queue */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link
-                    to="/draft-queue"
-                    className={cn(
-                      "relative flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded transition-colors shrink-0",
-                      view === "draft-queue"
-                        ? "text-foreground bg-accent/50"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                    )}
-                  >
-                    <IconClock className="h-4 w-4" />
-                    {queuedDrafts.count > 0 && (
-                      <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-amber-400 px-1 text-center text-[10px] font-semibold leading-4 text-black">
-                        {queuedDrafts.count > 9 ? "9+" : queuedDrafts.count}
-                      </span>
-                    )}
-                  </Link>
-                </TooltipTrigger>
-                <TooltipContent>Draft queue</TooltipContent>
-              </Tooltip>
-
               {/* Manual refresh — auto-poll backs off on error, but users
-                  still want a button to force a fresh fetch on demand. */}
+                  still want a button to force a fresh fetch on demand. The
+                  spin animation only fires on user click, never on background
+                  poll-driven fetches. */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => {
                       if (inboxIsFetching) return;
+                      setIsManuallyRefreshing(true);
                       qc.invalidateQueries({ queryKey: ["emails"] });
                       qc.invalidateQueries({ queryKey: ["labels"] });
+                      window.setTimeout(
+                        () => setIsManuallyRefreshing(false),
+                        800,
+                      );
                     }}
                     disabled={inboxIsFetching}
                     className={cn(
@@ -1020,7 +1008,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     <IconRefresh
                       className={cn(
                         "h-4 w-4",
-                        inboxIsFetching && "animate-spin",
+                        isManuallyRefreshing && "animate-spin",
                       )}
                     />
                   </button>
@@ -1041,22 +1029,25 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 <TooltipContent>Extensions</TooltipContent>
               </Tooltip>
 
-              {/* Theme toggle */}
-              <ThemeToggle />
-
-              {/* Compose (pen) icon */}
+              {/* Compose — prominent outline button */}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
                     onClick={handleCompose}
-                    className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 sm:h-7 gap-1.5 px-2.5 text-[13px]"
                     aria-label="Compose email"
                   >
-                    <IconPencil className="h-4 w-4" />
-                  </button>
+                    <IconPencil className="h-3.5 w-3.5" />
+                    <span>Compose</span>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>Compose (C)</TooltipContent>
               </Tooltip>
+
+              {/* Notifications — placed left of the avatar stack */}
+              <NotificationsBell />
 
               {/* Account avatars — overlapping stack like Figma */}
               {hasAccounts && (
@@ -1150,7 +1141,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 </Popover>
               )}
 
-              <NotificationsBell />
               <AgentToggleButton />
             </header>
 
@@ -1313,7 +1303,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       <ExtensionsSidebarSection />
                     </div>
 
-                    {/* Settings / Feedback / Account */}
+                    {/* Settings / Appearance / Feedback / Account */}
                     <div className="mt-3 pt-1 border-t border-border/20">
                       <div className="space-y-0.5">
                         <Link
@@ -1328,6 +1318,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         >
                           Settings
                         </Link>
+                        <SidebarThemeRow />
                         <div className="mt-1">
                           <FeedbackButton />
                         </div>
@@ -1695,6 +1686,7 @@ function StandardLayout({ children }: AppLayoutProps) {
                       >
                         Settings
                       </Link>
+                      <SidebarThemeRow />
                       <div className="mt-1">
                         <FeedbackButton />
                       </div>

@@ -1,5 +1,8 @@
 export { cn } from "@agent-native/core";
-import { normalizeMarkdownHardBreaks } from "@shared/markdown";
+import {
+  decodeCommonHtmlEntities,
+  normalizeMarkdownHardBreaks,
+} from "@shared/markdown";
 import {
   formatDistanceToNow,
   format,
@@ -82,7 +85,9 @@ function applyInlineMarkdown(text: string): string {
 }
 
 export function markdownToHtml(markdown: string): string {
-  const normalized = markdown.replace(/\r\n/g, "\n").trim();
+  const normalized = decodeCommonHtmlEntities(
+    markdown.replace(/\r\n/g, "\n"),
+  ).trim();
   if (!normalized) return "<div></div>";
 
   const blocks = normalized.split(/\n{2,}/).map((block) => block.trim());

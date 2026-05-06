@@ -17,7 +17,7 @@ Agent-native is a framework for building apps where the AI agent and the UI are 
 
 Anyone who wants to ship an AI-powered product without spending a year building the boring parts. That includes:
 
-- **Founders and PMs** who want to fork a working SaaS and make it their own — see [Cloneable SaaS](/docs/cloneable-saas).
+- **Founders and PMs** who want to fork a working SaaS and make it their own — see [Templates](/docs/cloneable-saas).
 - **Operators** who want a [pure-agent app](/docs/pure-agent-apps) — an agent that does work in the background with a minimal management UI.
 - **Developers** building agent-driven products from scratch and want auth, multi-tenancy, real-time sync, and an architecture that won't break when AI is the primary user.
 
@@ -71,7 +71,7 @@ The framework ships with production-ready templates you can use as daily drivers
 - **[Forms](/templates/forms)** — form builder (like Typeform)
 - **[Dispatch](/templates/dispatch)** — workspace control plane: shared secrets, integrations, jobs
 
-Each template is a complete app with UI, agent actions, database schema, and AI instructions. See [Cloneable SaaS](/docs/cloneable-saas) for the full picture, or all [Templates](/templates).
+Each template is a complete app with UI, agent actions, database schema, and AI instructions. See [Templates](/docs/cloneable-saas) for the full picture, or all [Templates](/templates).
 
 ### Can I customize templates? {#can-i-customize-templates}
 

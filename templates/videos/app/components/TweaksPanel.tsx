@@ -87,6 +87,7 @@ interface TweaksPanelProps {
   values: Record<string, string | number | boolean>;
   onChange: (id: string, value: string | number | boolean) => void;
   visible: boolean;
+  onClose: () => void;
 }
 
 export function TweaksPanel({
@@ -94,6 +95,7 @@ export function TweaksPanel({
   values,
   onChange,
   visible,
+  onClose,
 }: TweaksPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [position, setPosition] = useState({ x: 16, y: 16 });
@@ -151,7 +153,12 @@ export function TweaksPanel({
           </button>
         </div>
         <button
-          onClick={() => setCollapsed((c) => !c)}
+          aria-label="Close tweaks panel"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
           className="cursor-pointer text-muted-foreground/70 hover:text-muted-foreground"
         >
           <IconX className="h-3 w-3" />

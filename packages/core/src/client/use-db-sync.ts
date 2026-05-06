@@ -5,6 +5,35 @@ interface QueryClient {
   invalidateQueries(opts?: { queryKey?: string[] }): void;
 }
 
+const POLL_ABORT_MIN_MS = 10_000;
+
+function getPollAbortMs(interval: number): number {
+  return Math.max(POLL_ABORT_MIN_MS, interval * 4);
+}
+
+async function fetchPollJson<T>(
+  pollUrl: string,
+  since: number,
+  interval: number,
+): Promise<T> {
+  const controller =
+    typeof AbortController === "undefined" ? null : new AbortController();
+  const timeout = controller
+    ? setTimeout(() => controller.abort(), getPollAbortMs(interval))
+    : null;
+
+  try {
+    const res = await fetch(
+      `${pollUrl}?since=${since}`,
+      controller ? { signal: controller.signal } : undefined,
+    );
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json();
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 /**
  * Hook that polls /_agent-native/poll for DB change events and invalidates
  * react-query caches when changes are detected.
@@ -53,16 +82,38 @@ export function useDbSync(
     let versionRef = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let stopped = false;
+    let inFlight = false;
+
+    function schedulePoll() {
+      if (stopped) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        void poll();
+      }, interval);
+    }
 
     async function poll() {
-      if (stopped) return;
+      if (stopped || inFlight) return;
+      inFlight = true;
       try {
-        const res = await fetch(`${pollUrl}?since=${versionRef}`);
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const data = await res.json();
+        const data = await fetchPollJson<{
+          version: number;
+          events: Array<{
+            source: string;
+            type: string;
+            key?: string;
+            requestSource?: string;
+          }>;
+        }>(pollUrl, versionRef, interval);
         const { version, events } = data as {
           version: number;
-          events: Array<{ source: string; type: string; key?: string }>;
+          events: Array<{
+            source: string;
+            type: string;
+            key?: string;
+            requestSource?: string;
+          }>;
         };
 
         if (events.length > 0 && queryClient) {
@@ -81,6 +132,8 @@ export function useDbSync(
             // (agent or HTTP) auto-refresh the UI — regardless of how the
             // template configured queryKeys / onEvent.
             queryClient.invalidateQueries({ queryKey: ["action"] });
+            queryClient.invalidateQueries({ queryKey: ["extension"] });
+            queryClient.invalidateQueries({ queryKey: ["extensions"] });
             queryClient.invalidateQueries({ queryKey: ["tool"] });
             queryClient.invalidateQueries({ queryKey: ["tools"] });
           }
@@ -96,18 +149,40 @@ export function useDbSync(
         versionRef = Math.max(versionRef, version);
       } catch {
         // Network error — will retry on next interval
-      }
-      if (!stopped) {
-        timer = setTimeout(poll, interval);
+      } finally {
+        inFlight = false;
+        schedulePoll();
       }
     }
 
+    function pollNow() {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      void poll();
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") pollNow();
+    }
+
     // Initial poll immediately
-    poll();
+    void poll();
+    window.addEventListener("focus", pollNow);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       stopped = true;
       if (timer) clearTimeout(timer);
+      window.removeEventListener("focus", pollNow);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [pollUrl, queryClient, interval]);
 }
@@ -147,31 +222,64 @@ export function useScreenRefreshKey(
     let versionRef = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let stopped = false;
+    let inFlight = false;
 
-    async function poll() {
+    function schedulePoll() {
       if (stopped) return;
-      try {
-        const res = await fetch(`${pollUrl}?since=${versionRef}`);
-        if (res.ok) {
-          const data = (await res.json()) as {
-            version: number;
-            events: Array<{ source: string }>;
-          };
-          if (data.events?.some((e) => e.source === "screen-refresh")) {
-            setKey((k) => k + 1);
-          }
-          versionRef = Math.max(versionRef, data.version);
-        }
-      } catch {
-        // Network error — retry on next interval.
-      }
-      if (!stopped) timer = setTimeout(poll, interval);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        void poll();
+      }, interval);
     }
 
-    poll();
+    async function poll() {
+      if (stopped || inFlight) return;
+      inFlight = true;
+      try {
+        const data = await fetchPollJson<{
+          version: number;
+          events: Array<{ source: string }>;
+        }>(pollUrl, versionRef, interval);
+        if (data.events?.some((e) => e.source === "screen-refresh")) {
+          setKey((k) => k + 1);
+        }
+        versionRef = Math.max(versionRef, data.version);
+      } catch {
+        // Network error — retry on next interval.
+      } finally {
+        inFlight = false;
+        schedulePoll();
+      }
+    }
+
+    function pollNow() {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      void poll();
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") pollNow();
+    }
+
+    void poll();
+    window.addEventListener("focus", pollNow);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
       stopped = true;
       if (timer) clearTimeout(timer);
+      window.removeEventListener("focus", pollNow);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [pollUrl, interval]);
 

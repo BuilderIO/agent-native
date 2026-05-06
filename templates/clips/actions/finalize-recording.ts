@@ -20,6 +20,7 @@ import {
 } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { emit } from "@agent-native/core/event-bus";
+import { captureRouteError } from "@agent-native/core/server";
 import { applyFaststart } from "../server/lib/faststart.js";
 import { debugLog } from "../server/lib/debug.js";
 import requestTranscript from "./request-transcript.js";
@@ -246,37 +247,70 @@ export default defineAction({
           ownerEmail,
         });
       } catch (err) {
-        // Log structured context so a "Builder.io upload failed (500)" can be
-        // diagnosed without round-tripping with the user. Especially important
-        // alongside the new browser-side compression — we want to know whether
-        // the user hit Builder.io's 100 MB cap on the original recording or
-        // on the compressed result.
-        // (The PR adding `captureRouteError` here lives in a sibling branch;
-        // when it merges, this console.error is replaced with the Sentry
-        // capture call — see PR description.)
-        console.error("[finalize] upload failed", {
-          recordingId: id,
-          dataBytes: uploadData.byteLength,
-          mimeType,
-          videoFormat,
-          ownerEmail,
-          originalBytes: compressionMeta?.originalBytes ?? assembled.byteLength,
-          compressedBytes: compressionMeta?.compressedBytes,
-          compressionRatio: compressionMeta?.ratio,
-          compressionElapsedMs: compressionMeta?.elapsedMs,
-          compressionOutputMimeType: compressionMeta?.outputMimeType,
-          compressionRan: !!compressionMeta,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        // Capture structured context so a "Builder.io upload failed (500)" can
+        // be diagnosed without round-tripping with the user. Especially
+        // important alongside the new browser-side compression — we want to
+        // know whether the user hit Builder.io's 100 MB cap on the original
+        // recording or on the compressed result.
+        try {
+          captureRouteError(err, {
+            route: "finalize-recording",
+            tags: {
+              uploadStep: "finalize-upload",
+              videoFormat,
+            },
+            extra: {
+              recordingId: id,
+              dataBytes: uploadData.byteLength,
+              mimeType,
+              videoFormat,
+              ownerEmail,
+              originalBytes:
+                compressionMeta?.originalBytes ?? assembled.byteLength,
+              compressedBytes: compressionMeta?.compressedBytes,
+              compressionRatio: compressionMeta?.ratio,
+              compressionElapsedMs: compressionMeta?.elapsedMs,
+              compressionOutputMimeType: compressionMeta?.outputMimeType,
+              compressionRan: !!compressionMeta,
+            },
+          });
+        } catch {
+          // Sentry must never mask the real upload error.
+        }
         throw err;
       }
 
       if (!upload?.url) {
-        throw new Error(
+        const err = new Error(
           upload === null
             ? "No file upload provider configured. Connect Builder.io here, or configure S3-compatible storage in Settings."
             : "File upload returned no URL. Check your storage provider configuration.",
         );
+        // Provider returned a falsy URL — capture so we can tell whether
+        // it's "no provider configured" (upload === null) or "provider
+        // returned success but empty URL" (likely a misconfigured S3
+        // bucket or a Builder.io edge case worth investigating).
+        try {
+          captureRouteError(err, {
+            route: "finalize-recording",
+            tags: {
+              uploadStep: "finalize-upload",
+              videoFormat,
+              uploadResult: upload === null ? "no-provider" : "no-url",
+            },
+            extra: {
+              recordingId: id,
+              dataBytes: uploadData.byteLength,
+              mimeType,
+              videoFormat,
+              ownerEmail,
+              uploadShape: upload === null ? "null" : "object-without-url",
+            },
+          });
+        } catch {
+          // Sentry must never mask the real error.
+        }
+        throw err;
       }
       const videoUrl = upload.url;
 

@@ -45,6 +45,7 @@ import {
 } from "@/components/recorder/confetti-canvas";
 import {
   RecorderEngine,
+  type DisplaySurface,
   type RecordingMode,
 } from "@/components/recorder/recorder-engine";
 import type { CameraBubbleSize } from "@/components/recorder/camera-bubble";
@@ -125,6 +126,45 @@ interface PendingRecording {
   abortUrl: string;
 }
 
+interface VideoStorageStatus {
+  configured: boolean;
+  activeProvider?: { id: string; name: string } | null;
+  builderConfigured?: boolean;
+}
+
+async function fetchVideoStorageStatus(): Promise<VideoStorageStatus> {
+  let uploadStatus: VideoStorageStatus | null = null;
+  try {
+    const r = await fetch(agentNativePath("/_agent-native/file-upload/status"));
+    uploadStatus = r.ok ? ((await r.json()) as VideoStorageStatus) : null;
+    if (uploadStatus?.configured) return uploadStatus;
+  } catch {
+    // Fall through to the Builder status check.
+  }
+
+  try {
+    const r = await fetch(agentNativePath("/_agent-native/builder/status"));
+    const builderStatus = r.ok
+      ? ((await r.json()) as { configured?: boolean })
+      : null;
+    if (builderStatus?.configured) {
+      return {
+        configured: true,
+        activeProvider: { id: "builder", name: "Builder.io" },
+        builderConfigured: true,
+      };
+    }
+  } catch {
+    // Treat an unreachable status route as not configured.
+  }
+
+  return {
+    configured: false,
+    activeProvider: uploadStatus?.activeProvider ?? null,
+    builderConfigured: uploadStatus?.builderConfigured ?? false,
+  };
+}
+
 export default function RecordRoute() {
   const navigate = useNavigate();
   const [uiState, setUiState] = useState<UiState>("idle");
@@ -151,9 +191,8 @@ export default function RecordRoute() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(agentNativePath("/_agent-native/file-upload/status"))
-      .then((r) => (r.ok ? r.json() : null))
-      .then((s: { configured?: boolean } | null) => {
+    fetchVideoStorageStatus()
+      .then((s) => {
         if (cancelled) return;
         setStorageConfigured(!!s?.configured);
       })
@@ -179,6 +218,7 @@ export default function RecordRoute() {
   const autoPausedForStopConfirmRef = useRef(false);
   const pendingStartOptsRef = useRef<{
     mode: RecordingMode;
+    displaySurface: DisplaySurface;
     micDeviceId: string | null;
     cameraDeviceId: string | null;
   } | null>(null);
@@ -242,6 +282,7 @@ export default function RecordRoute() {
   const startFlow = useCallback(
     async (opts: {
       mode: RecordingMode;
+      displaySurface: DisplaySurface;
       micDeviceId: string | null;
       cameraDeviceId: string | null;
     }) => {
@@ -251,16 +292,12 @@ export default function RecordRoute() {
       setUiState("pickingSources");
 
       try {
-        const statusRes = await fetch(
-          agentNativePath("/_agent-native/file-upload/status"),
-        );
-        if (statusRes.ok) {
-          const status = (await statusRes.json()) as { configured?: boolean };
-          if (!status.configured) {
-            throw new Error(
-              "No video storage configured. Open Settings to connect Builder.io or S3-compatible storage.",
-            );
-          }
+        const status = await fetchVideoStorageStatus();
+        setStorageConfigured(status.configured);
+        if (!status.configured) {
+          throw new Error(
+            "No video storage configured. Open Settings to connect Builder.io or S3-compatible storage.",
+          );
         }
 
         // 1. Create the recording row server-side.
@@ -311,6 +348,7 @@ export default function RecordRoute() {
         const engine = new RecorderEngine({
           recordingId: info.id,
           mode: opts.mode,
+          displaySurface: opts.displaySurface,
           micDeviceId: opts.micDeviceId,
           cameraDeviceId: opts.cameraDeviceId,
           uploadUrl: `${appBasePath()}${info.uploadChunkUrl!}`,
@@ -898,6 +936,7 @@ export default function RecordRoute() {
     ) {
       void startFlow({
         mode: modeParam,
+        displaySurface: "window",
         micDeviceId: null,
         cameraDeviceId: null,
       });

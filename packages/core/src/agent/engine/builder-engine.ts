@@ -472,12 +472,14 @@ async function* parseJsonlStream(
             // sometimes emits an error stop event with no message — most
             // commonly when the upstream provider rejects the model for
             // this account (Opus quotas have hit this in practice).
+            const explicitErrMsg = event.error || event.message || event.detail;
             const errMsg =
-              event.error ??
-              event.message ??
-              event.detail ??
+              explicitErrMsg ??
               `Gateway error (no detail; raw event: ${JSON.stringify(event)})`;
-            const errCode = event.errorCode ?? event.code;
+            const errCode =
+              event.errorCode ??
+              event.code ??
+              (!explicitErrMsg ? "builder_gateway_error" : undefined);
             console.error(
               `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} error=${errMsg}`,
             );

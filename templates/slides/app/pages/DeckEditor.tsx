@@ -663,6 +663,7 @@ export default function DeckEditor() {
             questions={questionFlowData!.questions}
             onSubmit={handleQuestionSubmit}
             onSkip={handleQuestionSkip}
+            designSystem={deck.designSystemId ? designSystem : undefined}
           />
         )}
 

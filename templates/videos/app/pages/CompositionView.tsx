@@ -553,6 +553,7 @@ export default function CompositionView({
             values={tweakValues}
             onChange={handleTweakChange}
             visible={tweaksVisible}
+            onClose={() => setTweaksVisible(false)}
           />
           <VideoPlayer
             ref={playerRef}

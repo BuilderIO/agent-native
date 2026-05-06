@@ -41,3 +41,36 @@ export function ThemeToggle({ className }: { className?: string }) {
     </Tooltip>
   );
 }
+
+export function SidebarThemeRow() {
+  const { setTheme, resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
+
+  const isDark = mounted ? resolvedTheme === "dark" : false;
+
+  return (
+    <button
+      type="button"
+      onClick={() => setTheme(isDark ? "light" : "dark")}
+      className="flex w-full items-center justify-between rounded-md px-3 py-2.5 text-[14px] text-foreground/70 hover:bg-accent/30 transition-colors min-h-[44px] cursor-pointer"
+    >
+      <span>Appearance</span>
+      <span className="flex items-center gap-1.5 text-muted-foreground">
+        {mounted ? (
+          <>
+            <span className="text-[12px]">{isDark ? "Dark" : "Light"}</span>
+            {isDark ? (
+              <IconSun className="h-4 w-4" />
+            ) : (
+              <IconMoon className="h-4 w-4" />
+            )}
+          </>
+        ) : (
+          <span className="h-4 w-4" />
+        )}
+      </span>
+    </button>
+  );
+}

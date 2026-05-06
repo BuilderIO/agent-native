@@ -493,7 +493,10 @@ export async function listOverlayEvents(
 
 export async function createEvent(
   event: CalendarEvent,
-  opts?: { addGoogleMeet?: boolean },
+  opts?: {
+    addGoogleMeet?: boolean;
+    sendUpdates?: "all" | "externalOnly" | "none";
+  },
 ): Promise<{
   id?: string;
   meetLink?: string;
@@ -514,15 +517,27 @@ export async function createEvent(
       : { dateTime: event.end },
   };
 
+  if (event.attendees && event.attendees.length > 0) {
+    body.attendees = event.attendees.map((a) => ({
+      email: a.email,
+      ...(a.displayName ? { displayName: a.displayName } : {}),
+    }));
+  }
+
   if (opts?.addGoogleMeet) {
     body.conferenceData = createGoogleMeetRequest();
   }
+
+  const insertOpts: { conferenceDataVersion?: number; sendUpdates?: string } =
+    {};
+  if (opts?.addGoogleMeet) insertOpts.conferenceDataVersion = 1;
+  if (opts?.sendUpdates) insertOpts.sendUpdates = opts.sendUpdates;
 
   const response = await calendarInsertEvent(
     client.accessToken,
     "primary",
     body,
-    opts?.addGoogleMeet ? { conferenceDataVersion: 1 } : undefined,
+    Object.keys(insertOpts).length > 0 ? insertOpts : undefined,
   );
 
   return {

@@ -64,6 +64,6 @@ If you need new capabilities such as file uploads, signatures, or custom field w
 
 ## What's Next
 
-- [**Cloneable SaaS**](/docs/cloneable-saas) — the clone-and-own model
+- [**Templates**](/docs/cloneable-saas) — the clone-and-own model
 - [**Actions**](/docs/actions) — the action system powering the builder
 - [**Messaging**](/docs/messaging) — Slack and other submission destinations

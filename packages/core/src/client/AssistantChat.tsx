@@ -195,6 +195,8 @@ const markdownStyles = `
  * below tells the user the context is attached and lets them clear it.
  */
 const PENDING_SELECTION_KEY = "pending-selection-context";
+const ACTIVE_RUN_CLEAR_TIMEOUT_MS = 5_000;
+const ACTIVE_RUN_POLL_INTERVAL_MS = 150;
 
 function clearPendingSelection() {
   fetch(
@@ -209,6 +211,35 @@ function clearPendingSelection() {
   ).catch(() => {});
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("agent-panel:selection-cleared"));
+  }
+}
+
+async function waitForThreadRunToClear(apiUrl: string, threadId?: string) {
+  if (!threadId) return;
+  const deadline = Date.now() + ACTIVE_RUN_CLEAR_TIMEOUT_MS;
+
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(
+        `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+      );
+      if (res.ok) {
+        const info = await res.json();
+        const heartbeatAt =
+          typeof info?.heartbeatAt === "number" ? info.heartbeatAt : null;
+        const stale =
+          info?.status === "running" &&
+          heartbeatAt != null &&
+          Date.now() - heartbeatAt > 5000;
+        if (!info?.active || info?.status !== "running" || stale) return;
+      }
+    } catch {
+      // Transient poll failure — try again until the short grace period ends.
+    }
+
+    await new Promise((resolve) =>
+      window.setTimeout(resolve, ACTIVE_RUN_POLL_INTERVAL_MS),
+    );
   }
 }
 
@@ -1996,8 +2027,20 @@ function ensureMessageMetadata(repo: any): any {
     if (!msg.metadata) {
       msg.metadata = {};
     }
-    if (msg.role === "assistant" && !msg.status) {
-      msg.status = { type: "complete", reason: "stop" };
+    if (msg.role === "assistant") {
+      const statusType =
+        msg.status && typeof msg.status === "object"
+          ? (msg.status as { type?: unknown }).type
+          : undefined;
+      const isTerminal =
+        statusType === "complete" || statusType === "incomplete";
+      if (!isTerminal) {
+        const runError =
+          msg.metadata?.custom?.runError ?? msg.metadata?.runError;
+        msg.status = runError
+          ? { type: "incomplete", reason: "error" }
+          : { type: "complete", reason: "stop" };
+      }
     }
   }
   return repo;
@@ -2068,6 +2111,10 @@ const AssistantChatInner = forwardRef<
   const [dismissedRunErrorKey, setDismissedRunErrorKey] = useState<
     string | null
   >(null);
+  const userStoppedRunRef = useRef<{
+    at: number;
+    runId?: string;
+  } | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
@@ -2569,6 +2616,14 @@ const AssistantChatInner = forwardRef<
       };
       if (tabId && detail?.tabId && detail.tabId !== tabId) return;
       if (!detail?.message) return;
+      const stopped = userStoppedRunRef.current;
+      if (
+        stopped &&
+        Date.now() - stopped.at < 10_000 &&
+        (!stopped.runId || !detail.runId || stopped.runId === detail.runId)
+      ) {
+        return;
+      }
       setRunErrorInfo({
         message: detail.message,
         ...(detail.details ? { details: detail.details } : {}),
@@ -2589,25 +2644,32 @@ const AssistantChatInner = forwardRef<
       setQueuedMessages(rest);
       // Small delay to let the runtime settle after completion
       setTimeout(() => {
-        const content: Array<
-          { type: "text"; text: string } | { type: "image"; image: string }
-        > = [{ type: "text", text: next.text }];
-        if (next.images) {
-          for (const img of next.images) {
-            content.push({ type: "image", image: img });
+        void (async () => {
+          // In serverless/cross-isolate deployments the client can receive the
+          // terminal SSE event a beat before SQL has marked the previous run
+          // complete. Starting the queued turn during that window can reconnect
+          // to the old run and replay the old answer under the new prompt.
+          await waitForThreadRunToClear(apiUrl, threadId);
+          const content: Array<
+            { type: "text"; text: string } | { type: "image"; image: string }
+          > = [{ type: "text", text: next.text }];
+          if (next.images) {
+            for (const img of next.images) {
+              content.push({ type: "image", image: img });
+            }
           }
-        }
-        threadRuntime.append({
-          role: "user",
-          content,
-          ...(next.references && next.references.length > 0
-            ? { runConfig: { custom: { references: next.references } } }
-            : {}),
-        });
+          threadRuntime.append({
+            role: "user",
+            content,
+            ...(next.references && next.references.length > 0
+              ? { runConfig: { custom: { references: next.references } } }
+              : {}),
+          });
+        })();
       }, 100);
     }
     wasRunningRef.current = isRunning;
-  }, [isRunning, queuedMessages, threadRuntime]);
+  }, [apiUrl, isRunning, queuedMessages, threadId, threadRuntime]);
 
   // Clear frozen reconnect content + forceStopped only on the false→true
   // transition of isRuntimeRunning (i.e. a NEW run is actually starting).
@@ -2646,6 +2708,7 @@ const AssistantChatInner = forwardRef<
       setLoopLimitInfo(null);
       setRunErrorInfo(null);
       setDismissedRunErrorKey(null);
+      userStoppedRunRef.current = null;
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
       clearPendingSelection();
@@ -2788,7 +2851,14 @@ const AssistantChatInner = forwardRef<
   const shouldShowRunError =
     !!visibleRunError &&
     !showRunningInUI &&
-    visibleRunErrorKey !== dismissedRunErrorKey;
+    visibleRunErrorKey !== dismissedRunErrorKey &&
+    !(
+      userStoppedRunRef.current &&
+      Date.now() - userStoppedRunRef.current.at < 10_000 &&
+      (!userStoppedRunRef.current.runId ||
+        !visibleRunError.runId ||
+        userStoppedRunRef.current.runId === visibleRunError.runId)
+    );
 
   return (
     <CheckpointContext.Provider value={checkpointCtx}>
@@ -3113,6 +3183,14 @@ const AssistantChatInner = forwardRef<
                               const activeRun = getActiveRun();
                               const runIdToAbort =
                                 reconnectRunIdRef.current ?? activeRun?.runId;
+                              userStoppedRunRef.current = {
+                                at: Date.now(),
+                                ...(runIdToAbort
+                                  ? { runId: runIdToAbort }
+                                  : {}),
+                              };
+                              setRunErrorInfo(null);
+                              setDismissedRunErrorKey(null);
                               if (runIdToAbort) {
                                 fetch(
                                   `${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`,

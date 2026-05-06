@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   BUILDER_SPACE_SETTINGS_URL,
   formatChatErrorText,
+  normalizeChatError,
 } from "./error-format.js";
 
 describe("formatChatErrorText", () => {
@@ -35,5 +36,18 @@ describe("formatChatErrorText", () => {
     ).toBe(
       "Error: Monthly credits limit reached.\n\n[Upgrade at builder.io](https://builder.io/account/billing)",
     );
+  });
+
+  it("keeps raw gateway events out of the primary user-facing message", () => {
+    expect(
+      normalizeChatError(
+        'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+      ),
+    ).toEqual({
+      message:
+        "The model gateway stopped without a specific error. The chat will try to recover automatically; if it keeps happening, retry with another model.",
+      details:
+        'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+    });
   });
 });

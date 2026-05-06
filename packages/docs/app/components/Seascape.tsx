@@ -229,6 +229,11 @@ export default function Seascape({ className = "" }: SeascapeProps) {
     const uTime = gl.getUniformLocation(program, "iTime");
     const uRes = gl.getUniformLocation(program, "iResolution");
     const uDark = gl.getUniformLocation(program, "uDark");
+    const reducedMotionQuery =
+      typeof window.matchMedia === "function"
+        ? window.matchMedia("(prefers-reduced-motion: reduce)")
+        : null;
+    let reducedMotion = reducedMotionQuery?.matches ?? false;
 
     function resize() {
       const w = container!.clientWidth;
@@ -261,8 +266,20 @@ export default function Seascape({ className = "" }: SeascapeProps) {
     const startTime = performance.now();
     let lastFrame = 0;
     const frameBudget = 1000 / 30; // 30fps is plenty for this slow animation
+    const reducedMotionStaticTime = 20;
+
+    function draw(timeSeconds: number) {
+      gl!.uniform1f(uTime, timeSeconds);
+      gl!.uniform2f(uRes, canvas!.width, canvas!.height);
+      gl!.uniform1f(uDark, dark ? 1.0 : 0.0);
+      gl!.drawArrays(gl!.TRIANGLES, 0, 6);
+    }
 
     function render(now: number) {
+      if (reducedMotion) {
+        rafRef.current = 0;
+        return;
+      }
       rafRef.current = requestAnimationFrame(render);
 
       // Throttle to 30fps
@@ -273,16 +290,46 @@ export default function Seascape({ className = "" }: SeascapeProps) {
       const rect = container!.getBoundingClientRect();
       if (rect.bottom < 0 || rect.top > window.innerHeight) return;
 
-      const t = (now - startTime) * 0.001;
-      gl!.uniform1f(uTime, t);
-      gl!.uniform2f(uRes, canvas!.width, canvas!.height);
-      gl!.uniform1f(uDark, dark ? 1.0 : 0.0);
-      gl!.drawArrays(gl!.TRIANGLES, 0, 6);
+      draw((now - startTime) * 0.001);
     }
-    rafRef.current = requestAnimationFrame(render);
+
+    function startAnimation() {
+      if (!rafRef.current) {
+        rafRef.current = requestAnimationFrame(render);
+      }
+    }
+
+    function stopAnimation() {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = 0;
+      }
+    }
+
+    function handleReducedMotionChange() {
+      reducedMotion = reducedMotionQuery?.matches ?? false;
+      if (reducedMotion) {
+        stopAnimation();
+        lastFrame = 0;
+        draw(reducedMotionStaticTime);
+      } else {
+        startAnimation();
+      }
+    }
+    draw(reducedMotion ? reducedMotionStaticTime : 0);
+    if (reducedMotionQuery) {
+      reducedMotionQuery.addEventListener("change", handleReducedMotionChange);
+    }
+    if (!reducedMotion) startAnimation();
 
     return () => {
-      cancelAnimationFrame(rafRef.current);
+      stopAnimation();
+      if (reducedMotionQuery) {
+        reducedMotionQuery.removeEventListener(
+          "change",
+          handleReducedMotionChange,
+        );
+      }
       observer.disconnect();
       window.removeEventListener("resize", resize);
       gl.deleteProgram(program);

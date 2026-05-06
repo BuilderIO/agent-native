@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  IconBrowser,
   IconCamera,
+  IconDeviceDesktop,
   IconDeviceScreen,
   IconMicrophone,
   IconUpload,
@@ -14,11 +16,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { NO_MIC_DEVICE_ID, type RecordingMode } from "./recorder-engine";
+import {
+  NO_MIC_DEVICE_ID,
+  type DisplaySurface,
+  type RecordingMode,
+} from "./recorder-engine";
 
 export interface PreRecordPanelProps {
   onStart: (opts: {
     mode: RecordingMode;
+    displaySurface: DisplaySurface;
     micDeviceId: string | null;
     cameraDeviceId: string | null;
   }) => void;
@@ -54,6 +61,32 @@ const MODE_OPTIONS: Array<{
   },
 ];
 
+const SURFACE_OPTIONS: Array<{
+  value: DisplaySurface;
+  label: string;
+  icon: typeof IconDeviceScreen;
+  sub: string;
+}> = [
+  {
+    value: "window",
+    label: "Window",
+    icon: IconDeviceDesktop,
+    sub: "Best for slides or one app",
+  },
+  {
+    value: "browser",
+    label: "Browser tab",
+    icon: IconBrowser,
+    sub: "Best for web demos",
+  },
+  {
+    value: "monitor",
+    label: "Screen",
+    icon: IconDeviceScreen,
+    sub: "Capture everything",
+  },
+];
+
 export function PreRecordPanel({
   onStart,
   onUpload,
@@ -62,6 +95,8 @@ export function PreRecordPanel({
 }: PreRecordPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<RecordingMode>("screen+camera");
+  const [displaySurface, setDisplaySurface] =
+    useState<DisplaySurface>("window");
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [micId, setMicId] = useState<string>("default");
@@ -99,6 +134,7 @@ export function PreRecordPanel({
   }, []);
 
   const needsCamera = mode === "camera" || mode === "screen+camera";
+  const needsScreen = mode === "screen" || mode === "screen+camera";
 
   const startDisabled = useMemo(() => {
     if (busy) return true;
@@ -140,6 +176,49 @@ export function PreRecordPanel({
           );
         })}
       </div>
+
+      {needsScreen && (
+        <div className="rounded-lg border border-border bg-background/70 p-3">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <span className="text-xs font-medium text-foreground">
+              Capture source
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              Browser picker opens next
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {SURFACE_OPTIONS.map((opt) => {
+              const Icon = opt.icon;
+              const active = opt.value === displaySurface;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setDisplaySurface(opt.value)}
+                  className={
+                    "flex min-h-[86px] flex-col rounded-lg border p-2 text-left " +
+                    (active
+                      ? "border-primary bg-primary/10 text-foreground"
+                      : "border-border bg-card text-muted-foreground hover:border-foreground/40")
+                  }
+                  aria-pressed={active}
+                >
+                  <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-md border border-current/15 bg-background/80">
+                    <Icon className="h-4 w-4" />
+                  </div>
+                  <span className="text-[12px] font-medium leading-tight">
+                    {opt.label}
+                  </span>
+                  <span className="mt-1 text-[10px] leading-tight text-muted-foreground">
+                    {opt.sub}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col gap-3">
         <div className="flex items-center gap-3">
@@ -195,6 +274,7 @@ export function PreRecordPanel({
           onClick={() =>
             onStart({
               mode,
+              displaySurface,
               micDeviceId: micId === "default" ? null : micId,
               cameraDeviceId: cameraId === "default" ? null : cameraId,
             })

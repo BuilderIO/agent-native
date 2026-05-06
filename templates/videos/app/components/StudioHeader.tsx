@@ -7,6 +7,7 @@ import {
 import {
   AgentToggleButton,
   NotificationsBell,
+  ShareButton,
 } from "@agent-native/core/client";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
@@ -19,11 +20,16 @@ import {
 type StudioHeaderProps = {
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
+  shareComposition?: {
+    id: string;
+    title: string;
+  };
 };
 
 export function StudioHeader({
   sidebarOpen,
   onToggleSidebar,
+  shareComposition,
 }: StudioHeaderProps) {
   const { isLocal } = useDbStatus();
   const [shareOpen, setShareOpen] = useState(false);
@@ -74,10 +80,17 @@ export function StudioHeader({
               />
             </PopoverContent>
           </Popover>
+        ) : shareComposition ? (
+          <ShareButton
+            resourceType="composition"
+            resourceId={shareComposition.id}
+            resourceTitle={shareComposition.title}
+          />
         ) : (
           <button
             aria-label="Share"
-            className="p-2 sm:px-3 sm:py-1.5 text-xs font-medium rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary/50 flex items-center gap-1.5 cursor-pointer"
+            disabled
+            className="p-2 sm:px-3 sm:py-1.5 text-xs font-medium rounded-md text-muted-foreground/50 flex items-center gap-1.5 cursor-not-allowed"
           >
             <IconShare2 className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
             <span className="hidden sm:inline">Share</span>

@@ -13,7 +13,16 @@ import { Switch } from "@/components/ui/switch";
 import { useCreateEvent, useDeleteEvent } from "@/hooks/use-events";
 import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
-import { IconPlus, IconVideo } from "@tabler/icons-react";
+import { IconPlus, IconVideo, IconUsers, IconX } from "@tabler/icons-react";
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function parseAttendeeInput(value: string): string[] {
+  return value
+    .split(/[\s,;]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && EMAIL_RE.test(s));
+}
 
 interface CreateEventPopoverProps {
   open: boolean;
@@ -41,6 +50,8 @@ export function CreateEventPopover({
   const [location, setLocation] = useState("");
   const [allDay, setAllDay] = useState(false);
   const [addGoogleMeet, setAddGoogleMeet] = useState(false);
+  const [attendees, setAttendees] = useState<string[]>([]);
+  const [attendeeDraft, setAttendeeDraft] = useState("");
 
   const createEvent = useCreateEvent();
   const delEvent = useDeleteEvent();
@@ -57,8 +68,17 @@ export function CreateEventPopover({
       setLocation("");
       setAllDay(false);
       setAddGoogleMeet(false);
+      setAttendees([]);
+      setAttendeeDraft("");
     }
   }, [open, defaultDate, defaultStart, defaultEnd]);
+
+  function commitAttendeeDraft() {
+    const next = parseAttendeeInput(attendeeDraft);
+    if (next.length === 0) return;
+    setAttendees((prev) => Array.from(new Set([...prev, ...next])));
+    setAttendeeDraft("");
+  }
 
   // ⌘+Enter to submit
   useEffect(() => {
@@ -87,6 +107,12 @@ export function CreateEventPopover({
       ? new Date(`${date}T23:59:59`).toISOString()
       : new Date(`${date}T${endTime}:00`).toISOString();
 
+    // Pick up any unsubmitted draft so users don't lose typed-but-not-Entered emails
+    const trailingDraft = parseAttendeeInput(attendeeDraft);
+    const finalAttendees = Array.from(
+      new Set([...attendees, ...trailingDraft]),
+    );
+
     createEvent.mutate(
       {
         title: title.trim(),
@@ -96,6 +122,10 @@ export function CreateEventPopover({
         location,
         allDay,
         addGoogleMeet,
+        attendees:
+          finalAttendees.length > 0
+            ? finalAttendees.map((email) => ({ email }))
+            : undefined,
         color: undefined,
       },
       {
@@ -212,6 +242,77 @@ export function CreateEventPopover({
               </div>
             </div>
           )}
+
+          <div className="space-y-1.5">
+            <Label htmlFor="event-attendees" className="text-xs">
+              Attendees
+            </Label>
+            <div className="rounded-md border border-input bg-transparent px-2 py-1.5 text-sm focus-within:ring-1 focus-within:ring-ring">
+              {attendees.length > 0 && (
+                <div className="mb-1 flex flex-wrap gap-1">
+                  {attendees.map((email) => (
+                    <span
+                      key={email}
+                      className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px]"
+                    >
+                      {email}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setAttendees((prev) =>
+                            prev.filter((e) => e !== email),
+                          )
+                        }
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        <IconX className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <input
+                id="event-attendees"
+                type="text"
+                value={attendeeDraft}
+                onChange={(e) => setAttendeeDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (
+                    e.key === "Enter" ||
+                    e.key === "," ||
+                    e.key === " " ||
+                    e.key === "Tab"
+                  ) {
+                    if (parseAttendeeInput(attendeeDraft).length > 0) {
+                      e.preventDefault();
+                      commitAttendeeDraft();
+                    }
+                  } else if (
+                    e.key === "Backspace" &&
+                    attendeeDraft === "" &&
+                    attendees.length > 0
+                  ) {
+                    e.preventDefault();
+                    setAttendees((prev) => prev.slice(0, -1));
+                  }
+                }}
+                onBlur={commitAttendeeDraft}
+                placeholder={
+                  attendees.length === 0
+                    ? "alice@example.com, bob@example.com"
+                    : "Add another email…"
+                }
+                className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
+              />
+            </div>
+            {attendees.length > 0 && (
+              <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                <IconUsers className="h-3 w-3" />
+                {attendees.length} invited — Google will email them when you
+                create
+              </p>
+            )}
+          </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="event-location" className="text-xs">

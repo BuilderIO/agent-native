@@ -1,6 +1,15 @@
 import { memo, useRef, useState, useCallback } from "react";
 import { cn, formatEmailDate, truncate } from "@/lib/utils";
-import { IconStarFilled, IconCheck, IconClock } from "@tabler/icons-react";
+import {
+  IconStarFilled,
+  IconCheck,
+  IconClock,
+  IconTrash,
+  IconSquare,
+  IconSquareCheck,
+  IconSend,
+  IconX,
+} from "@tabler/icons-react";
 import type { EmailMessage } from "@shared/types";
 import type { ThreadSummary } from "@/lib/threads";
 import { useAccountFilter } from "@/hooks/use-account-filter";
@@ -17,7 +26,11 @@ interface EmailListItemProps {
   isFocused: boolean;
   isMultiSelected?: boolean;
   onSelect: () => void;
+  onToggleMultiSelect: (e: React.SyntheticEvent) => void;
   onStar: (e: React.MouseEvent) => void;
+  onTrash?: (e: React.MouseEvent) => void;
+  onSendNow?: (e: React.MouseEvent) => void;
+  onCancelSchedule?: (e: React.MouseEvent) => void;
   onHover: () => void;
   /** Called after a left-swipe past the threshold (archive). */
   onSwipeArchive?: () => void;
@@ -126,7 +139,11 @@ export const EmailListItem = memo(function EmailListItem({
   isFocused,
   isMultiSelected,
   onSelect,
+  onToggleMultiSelect,
   onStar,
+  onTrash,
+  onSendNow,
+  onCancelSchedule,
   onHover,
   onSwipeArchive,
   onSwipeSnooze,
@@ -359,7 +376,13 @@ export const EmailListItem = memo(function EmailListItem({
         tabIndex={0}
         onClick={handleRowClick}
         onMouseEnter={onHover}
-        onKeyDown={(e) => e.key === "Enter" && onSelect()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") onSelect();
+          if (e.key === " ") {
+            e.preventDefault();
+            onToggleMultiSelect(e);
+          }
+        }}
         onTouchStart={canSwipe ? handleTouchStart : undefined}
         onTouchMove={canSwipe ? handleTouchMove : undefined}
         onTouchEnd={canSwipe ? handleTouchEnd : undefined}
@@ -400,18 +423,44 @@ export const EmailListItem = memo(function EmailListItem({
           <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-primary rounded-r" />
         )}
 
-        {/* Unread / account dot */}
-        <div className="w-5 shrink-0 flex items-center justify-center">
-          {isUnread ? (
-            <div className="h-[7px] w-[7px] rounded-full bg-primary" />
-          ) : isMultiAccount && email.accountEmail ? (
-            <div
-              className={cn(
-                "h-[5px] w-[5px] rounded-full opacity-50",
-                getAccountColor(email.accountEmail, allAccounts),
-              )}
-            />
-          ) : null}
+        {/* Selection / unread / account dot */}
+        <div className="relative w-5 shrink-0 flex items-center justify-center">
+          <button
+            type="button"
+            aria-label={isMultiSelected ? "Deselect email" : "Select email"}
+            onClick={onToggleMultiSelect}
+            className={cn(
+              "absolute inset-0 flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-opacity hover:text-foreground",
+              isMultiSelected
+                ? "opacity-100"
+                : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+            )}
+          >
+            {isMultiSelected ? (
+              <IconSquareCheck className="h-4 w-4 text-primary" />
+            ) : (
+              <IconSquare className="h-4 w-4" />
+            )}
+          </button>
+          <div
+            className={cn(
+              "transition-opacity",
+              isMultiSelected
+                ? "opacity-0"
+                : "group-hover:opacity-0 group-focus-within:opacity-0",
+            )}
+          >
+            {isUnread ? (
+              <div className="h-[7px] w-[7px] rounded-full bg-primary" />
+            ) : isMultiAccount && email.accountEmail ? (
+              <div
+                className={cn(
+                  "h-[5px] w-[5px] rounded-full opacity-50",
+                  getAccountColor(email.accountEmail, allAccounts),
+                )}
+              />
+            ) : null}
+          </div>
         </div>
 
         {/* Sender name — fixed width column */}
@@ -476,6 +525,45 @@ export const EmailListItem = memo(function EmailListItem({
 
         {/* Hover actions — overlay on top of time */}
         <div className="hover-actions items-center gap-0.5">
+          {onSendNow && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onSendNow}
+                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <IconSend className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Send now</TooltipContent>
+            </Tooltip>
+          )}
+          {onCancelSchedule && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onCancelSchedule}
+                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <IconX className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Cancel scheduled send</TooltipContent>
+            </Tooltip>
+          )}
+          {onTrash && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onTrash}
+                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <IconTrash className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Move to Trash</TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <button

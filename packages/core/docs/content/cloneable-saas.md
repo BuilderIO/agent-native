@@ -1,15 +1,13 @@
 ---
-title: "Cloneable SaaS"
+title: "Templates"
 description: "Fork a working SaaS product and make it yours — agent included."
 ---
 
-# Cloneable SaaS
+# Templates
 
 Want to ship your own AI-powered analytics tool? Mail client? Forms builder? Pick a template, and you've got a working SaaS in minutes — agent, database, auth, and deploy pipeline already wired up.
 
-Most templates give you a blank scaffold and a long TODO list. Agent-native flips that. Each template is a **complete, SaaS-grade product** — already runnable on day one, already shippable, and entirely yours to customize, brand, and deploy.
-
-We call them **cloneable SaaS**, not templates. You're not starting from scratch. You're forking a finished product.
+Most "templates" give you a blank scaffold and a long TODO list. Agent-native flips that. Each one is a **complete, SaaS-grade product** — already runnable on day one, already shippable, and entirely yours to customize, brand, and deploy. Think of them as cloneable SaaS, not starter kits: you're forking a finished product, not staring at boilerplate.
 
 ## Templates available {#catalog}
 
@@ -33,7 +31,7 @@ See the full catalog under [Templates](/templates), or jump straight to one — 
 
 ## What you get out of the box {#what-you-get}
 
-Every cloneable SaaS ships with the parts that normally take months to build:
+Every template ships with the parts that normally take months to build:
 
 - **A working agent** — already wired into the app, already able to take actions on your data, already context-aware about what you're looking at. See [Messaging the agent](/docs/messaging) for how it works.
 - **Auth** — sign in, sessions, organizations, multi-tenant isolation. Already done.
@@ -72,9 +70,9 @@ You don't have to. Every template is also available as a hosted app on `agent-na
 
 - [**Getting Started**](/docs/getting-started) — clone your first template and run it locally
 - [**Messaging the agent**](/docs/messaging) — how users (and you) talk to the agent that ships with each template
-- [**Multi-App Workspace**](/docs/multi-app-workspace) — bundle several cloneable-SaaS apps into one workspace that shares auth, brand, and agent
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — bundle several templates into one workspace that shares auth, brand, and agent
 - [**Dispatch**](/docs/template-dispatch) — the workspace control plane template
-- [**Creating Templates**](/docs/creating-templates) — author and publish your own cloneable SaaS
+- [**Creating Templates**](/docs/creating-templates) — author and publish your own template
 
 ### For developers {#dev-details}
 
@@ -90,4 +88,4 @@ Fill in `.env` (mostly `ANTHROPIC_API_KEY` and `DATABASE_URL`), `pnpm install`, 
 
 Deploy targets: any Nitro-compatible host (Node, Cloudflare, Netlify, Vercel, Deno, Lambda, Bun) and any Drizzle-compatible SQL database (SQLite, Postgres, Turso, D1, Supabase, Neon). For workspaces, `agent-native deploy` builds every app at once and ships them behind a single origin. See [Deployment](/docs/deployment).
 
-To author and publish your own cloneable SaaS, see [Creating Templates](/docs/creating-templates).
+To author and publish your own template, see [Creating Templates](/docs/creating-templates).

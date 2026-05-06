@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Document } from "@shared/api";
@@ -23,6 +23,7 @@ import {
   useDocuments,
   useCreateDocument,
   useDeleteDocument,
+  useMoveDocument,
   useUpdateDocument,
   buildDocumentTree,
 } from "@/hooks/use-documents";
@@ -49,6 +50,31 @@ interface DocumentSidebarProps {
   onResize?: (width: number) => void;
 }
 
+type MoveDirection = "up" | "down";
+type MoveAvailability = { up: boolean; down: boolean };
+
+const LIST_DOCUMENTS_QUERY_KEY = [
+  "action",
+  "list-documents",
+  undefined,
+] as const;
+
+function withDocumentsCacheShape(old: unknown, documents: Document[]) {
+  if (Array.isArray(old)) return documents;
+  return {
+    ...(old && typeof old === "object" ? old : {}),
+    documents,
+  };
+}
+
+function compareDocumentsByPosition(a: Document, b: Document) {
+  return (
+    a.position - b.position ||
+    a.title.localeCompare(b.title) ||
+    a.id.localeCompare(b.id)
+  );
+}
+
 export function DocumentSidebar({
   activeDocumentId,
   collapsed,
@@ -63,6 +89,7 @@ export function DocumentSidebar({
   const { data: documents = [], isLoading } = useDocuments();
   const createDocument = useCreateDocument();
   const deleteDocument = useDeleteDocument();
+  const moveDocument = useMoveDocument();
   const updateDocument = useUpdateDocument();
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
@@ -103,6 +130,32 @@ export function DocumentSidebar({
 
   const tree = buildDocumentTree(documents);
   const favorites = documents.filter((d) => d.isFavorite);
+  const moveAvailability = useMemo(() => {
+    const availability = new Map<string, MoveAvailability>();
+    const siblingsByParent = new Map<string, Document[]>();
+
+    for (const doc of documents) {
+      const key = doc.parentId ?? "__root__";
+      const siblings = siblingsByParent.get(key);
+      if (siblings) {
+        siblings.push(doc);
+      } else {
+        siblingsByParent.set(key, [doc]);
+      }
+    }
+
+    for (const siblings of siblingsByParent.values()) {
+      const ordered = [...siblings].sort(compareDocumentsByPosition);
+      ordered.forEach((doc, index) => {
+        availability.set(doc.id, {
+          up: index > 0,
+          down: index < ordered.length - 1,
+        });
+      });
+    }
+
+    return availability;
+  }, [documents]);
 
   // Build expanded set: all document IDs except those explicitly collapsed
   const expandedIds = new Set(
@@ -135,14 +188,11 @@ export function DocumentSidebar({
       };
 
       // Optimistically inject into caches so UI updates immediately
-      queryClient.setQueryData(
-        ["action", "list-documents", undefined],
-        (old: any) => {
-          const docs: Document[] =
-            old?.documents ?? (Array.isArray(old) ? old : []);
-          return { documents: [...docs, tempDoc] };
-        },
-      );
+      queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
+        const docs: Document[] =
+          old?.documents ?? (Array.isArray(old) ? old : []);
+        return { documents: [...docs, tempDoc] };
+      });
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
 
       navigate(`/page/${id}`);
@@ -184,6 +234,68 @@ export function DocumentSidebar({
       }
     },
     [deleteDocument, activeDocumentId, navigate],
+  );
+
+  const handleMovePage = useCallback(
+    async (id: string, direction: MoveDirection) => {
+      const current = documents.find((doc) => doc.id === id);
+      if (!current) return;
+
+      const siblings = documents
+        .filter((doc) => doc.parentId === current.parentId)
+        .sort(compareDocumentsByPosition);
+      const currentIndex = siblings.findIndex((doc) => doc.id === id);
+      const nextIndex =
+        direction === "up" ? currentIndex - 1 : currentIndex + 1;
+      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= siblings.length) {
+        return;
+      }
+
+      const reordered = [...siblings];
+      const [moved] = reordered.splice(currentIndex, 1);
+      reordered.splice(nextIndex, 0, moved);
+
+      const nextPositionById = new Map(
+        reordered.map((doc, index) => [doc.id, index]),
+      );
+      const changed = reordered.filter(
+        (doc) => doc.position !== nextPositionById.get(doc.id),
+      );
+      if (changed.length === 0) return;
+
+      queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) => {
+        const cachedDocs: Document[] =
+          (old as { documents?: Document[] })?.documents ??
+          (Array.isArray(old) ? old : documents);
+        const nextDocs = cachedDocs.map((doc) => {
+          const nextPosition = nextPositionById.get(doc.id);
+          return nextPosition === undefined
+            ? doc
+            : { ...doc, position: nextPosition };
+        });
+        return withDocumentsCacheShape(old, nextDocs);
+      });
+
+      try {
+        await Promise.all(
+          changed.map((doc) =>
+            moveDocument.mutateAsync({
+              id: doc.id,
+              position: nextPositionById.get(doc.id)!,
+            }),
+          ),
+        );
+      } catch (err) {
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+        toast.error("Failed to move page", {
+          description:
+            err instanceof Error ? err.message : "Something went wrong",
+        });
+      }
+    },
+    [documents, moveDocument, queryClient],
   );
 
   const handleToggleFavorite = useCallback(
@@ -411,6 +523,8 @@ export function DocumentSidebar({
                       }}
                       onCreateChild={(parentId) => handleCreatePage(parentId)}
                       onDelete={handleDelete}
+                      onMove={handleMovePage}
+                      moveAvailability={moveAvailability}
                       onToggleFavorite={handleToggleFavorite}
                     />
                   ))
@@ -443,7 +557,7 @@ export function DocumentSidebar({
           )}
         >
           <IconUsers size={14} className="shrink-0" />
-          <span>Team</span>
+          <span>Workspace</span>
         </Link>
       </div>
 

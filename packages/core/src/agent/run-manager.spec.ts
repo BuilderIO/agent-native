@@ -29,10 +29,12 @@ import {
 } from "./run-manager.js";
 import {
   getRunAbortState,
+  insertRun,
   getRunById,
   getRunByThread,
   getRunEventsSince,
   markRunAborted,
+  updateRunStatus,
 } from "./run-store.js";
 
 const originalTimeoutEnv = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
@@ -45,6 +47,7 @@ const originalVercelEnv = process.env.VERCEL_ENV;
 const originalRender = process.env.RENDER;
 const originalFlyAppName = process.env.FLY_APP_NAME;
 const originalKService = process.env.K_SERVICE;
+const originalAwsLambdaFunctionName = process.env.AWS_LAMBDA_FUNCTION_NAME;
 
 function clearHostedEnvForTest() {
   delete process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
@@ -57,6 +60,7 @@ function clearHostedEnvForTest() {
   delete process.env.RENDER;
   delete process.env.FLY_APP_NAME;
   delete process.env.K_SERVICE;
+  delete process.env.AWS_LAMBDA_FUNCTION_NAME;
 }
 
 function restoreHostedEnvAfterTest() {
@@ -82,6 +86,9 @@ function restoreHostedEnvAfterTest() {
   else process.env.FLY_APP_NAME = originalFlyAppName;
   if (originalKService === undefined) delete process.env.K_SERVICE;
   else process.env.K_SERVICE = originalKService;
+  if (originalAwsLambdaFunctionName === undefined)
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+  else process.env.AWS_LAMBDA_FUNCTION_NAME = originalAwsLambdaFunctionName;
 }
 
 describe("run manager soft timeout", () => {
@@ -91,7 +98,9 @@ describe("run manager soft timeout", () => {
     vi.mocked(getRunAbortState).mockResolvedValue({ aborted: false });
     vi.mocked(getRunById).mockResolvedValue(null);
     vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(insertRun).mockResolvedValue(undefined);
     vi.mocked(markRunAborted).mockClear();
+    vi.mocked(updateRunStatus).mockClear();
   });
 
   afterEach(() => {
@@ -149,6 +158,22 @@ describe("run manager soft timeout", () => {
 
   it("uses a hosted default for callers that opt in", () => {
     process.env.NETLIFY = "true";
+
+    expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
+      DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
+    );
+  });
+
+  it("detects truthy Netlify runtime values beyond the literal string true", () => {
+    process.env.NETLIFY = "1";
+
+    expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
+      DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
+    );
+  });
+
+  it("uses a hosted default inside Netlify's Lambda runtime", () => {
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "analytics-agent-chat";
 
     expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
       DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
@@ -270,6 +295,42 @@ describe("run manager soft timeout", () => {
 
     expect(abortReason).toBe("no_progress");
     expect(run.abortReason).toBe("no_progress");
+  });
+
+  it("waits for the SQL run row insert before writing terminal status", async () => {
+    let resolveInsert!: () => void;
+    const insertPromise = new Promise<void>((resolve) => {
+      resolveInsert = resolve;
+    });
+    vi.mocked(insertRun).mockReturnValueOnce(insertPromise);
+
+    const run = startRun(
+      "run-insert-race",
+      "thread-insert-race",
+      async (send) => {
+        send({ type: "text", text: "fast answer" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(run.status).toBe("completed");
+    expect(updateRunStatus).not.toHaveBeenCalledWith(
+      "run-insert-race",
+      "completed",
+    );
+
+    resolveInsert();
+
+    await vi.waitFor(() =>
+      expect(updateRunStatus).toHaveBeenCalledWith(
+        "run-insert-race",
+        "completed",
+      ),
+    );
   });
 
   it("normalizes missing SQL abort reasons to user aborts", async () => {

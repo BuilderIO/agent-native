@@ -98,7 +98,7 @@ pnpm dev
 Or add Mail to an existing agent-native workspace:
 
 ```bash
-agent-native add-app
+npx @agent-native/core add-app
 ```
 
 ### Key features (technical)

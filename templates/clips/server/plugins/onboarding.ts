@@ -14,6 +14,7 @@ import {
   getActiveFileUploadProvider,
   registerFileUploadProvider,
 } from "@agent-native/core/file-upload";
+import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
 import { s3FileUploadProvider } from "../lib/s3-upload-provider.js";
 
 const basePlugin = createOnboardingPlugin();
@@ -87,6 +88,15 @@ export default async (nitroApp: any): Promise<void> => {
         },
       },
     ],
-    isComplete: () => !!getActiveFileUploadProvider(),
+    isComplete: async () => {
+      const active = getActiveFileUploadProvider();
+      if (active && active.id !== "builder") return true;
+      try {
+        if (await resolveHasBuilderPrivateKey()) return true;
+      } catch {
+        // Fall back to sync provider status below.
+      }
+      return !!active;
+    },
   });
 };

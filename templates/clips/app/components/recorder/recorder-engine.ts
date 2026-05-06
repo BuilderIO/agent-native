@@ -6,7 +6,7 @@
  * but no React state lives here — callers subscribe via `onState`, `onChunk`,
  * and `onError`.
  */
-import { appBasePath } from "@agent-native/core/client";
+import { appBasePath, captureClientException } from "@agent-native/core/client";
 import {
   COMPRESS_THRESHOLD_BYTES,
   MAX_UPLOAD_BYTES,
@@ -16,7 +16,16 @@ import {
 } from "@/lib/compress";
 
 export type RecordingMode = "screen" | "camera" | "screen+camera";
+export type DisplaySurface = "monitor" | "window" | "browser";
 export const NO_MIC_DEVICE_ID = "__clips_no_microphone__";
+
+type ExtendedDisplayMediaOptions = DisplayMediaStreamOptions & {
+  video: MediaTrackConstraints & { displaySurface?: DisplaySurface };
+  preferCurrentTab?: boolean;
+  selfBrowserSurface?: "include" | "exclude";
+  surfaceSwitching?: "include" | "exclude";
+  systemAudio?: "include" | "exclude";
+};
 
 export type RecorderState =
   | "idle"
@@ -35,6 +44,8 @@ export interface RecorderEngineOptions {
   recordingId: string;
   /** Capture mode. */
   mode: RecordingMode;
+  /** Preferred browser picker surface when recording the screen. */
+  displaySurface?: DisplaySurface;
   /** Selected mic deviceId (optional — default used when omitted). */
   micDeviceId?: string | null;
   /** Selected camera deviceId (optional — default used when omitted). */
@@ -214,10 +225,18 @@ export class RecorderEngine {
 
     try {
       if (this.opts.mode === "screen" || this.opts.mode === "screen+camera") {
-        this.displayStream = await navigator.mediaDevices.getDisplayMedia({
-          video: { frameRate: { ideal: 30 } },
+        const displaySurface = this.opts.displaySurface ?? "window";
+        const displayOptions: ExtendedDisplayMediaOptions = {
+          video: { frameRate: { ideal: 30 }, displaySurface },
           audio: true,
-        });
+          preferCurrentTab: displaySurface === "browser",
+          selfBrowserSurface:
+            displaySurface === "browser" ? "include" : "exclude",
+          surfaceSwitching: "include",
+          systemAudio: "include",
+        };
+        this.displayStream =
+          await navigator.mediaDevices.getDisplayMedia(displayOptions);
       }
 
       if (this.opts.mode === "camera" || this.opts.mode === "screen+camera") {
@@ -952,9 +971,53 @@ export class RecorderEngine {
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      throw new Error(
+      const err = new Error(
         `Chunk ${index} upload failed (${res.status}): ${text || res.statusText}`,
       );
+      // Capture rich context to Sentry BEFORE throwing — when this hits
+      // production we want enough breadcrumbs in the event to debug a
+      // "Builder.io upload failed (500)" without re-running the upload.
+      // Wrapped in try/catch so a Sentry failure can never mask the real
+      // upload error the caller is about to see.
+      try {
+        const builderHeaderNames = [
+          "x-request-id",
+          "builder-request-id",
+          "x-amz-request-id",
+          "x-builder-trace-id",
+        ];
+        const allBuilderHeaders: Record<string, string> = {};
+        for (const h of builderHeaderNames) {
+          const v = res.headers.get(h);
+          if (v) allBuilderHeaders[h] = v;
+        }
+        captureClientException(err, {
+          tags: {
+            uploadStep: "chunk",
+            chunkIndex: String(index),
+            chunkIsFinal: extra.isFinal ? "true" : "false",
+            httpStatus: String(res.status),
+          },
+          extra: {
+            url,
+            status: res.status,
+            statusText: res.statusText,
+            responseBodyTail: text?.slice(0, 2000) ?? "",
+            chunkBytes: blob.size,
+            mimeType: blob.type || this.mimeType,
+            total: extra.total,
+            durationMs: extra.durationMs,
+            requestId:
+              res.headers.get("x-request-id") ||
+              res.headers.get("builder-request-id") ||
+              undefined,
+            allBuilderHeaders,
+          },
+        });
+      } catch {
+        // Sentry must never mask the real upload error.
+      }
+      throw err;
     }
 
     try {

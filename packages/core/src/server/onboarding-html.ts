@@ -88,6 +88,9 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     pointer-events: none;
     z-index: 0;
   }
+  @media (prefers-reduced-motion: reduce) {
+    #starfield { opacity: 0.18; }
+  }
   .split {
     position: relative;
     z-index: 1;
@@ -285,6 +288,8 @@ ${marketing!.description ? `      <p class="app-desc">${esc(marketing!.descripti
 
     var uTime = gl.getUniformLocation(prog, 'iTime');
     var uRes = gl.getUniformLocation(prog, 'iResolution');
+    var reducedMotionQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+    var reducedMotion = reducedMotionQuery ? reducedMotionQuery.matches : false;
 
     function resize() {
       var w = window.innerWidth, h = window.innerHeight;
@@ -295,16 +300,50 @@ ${marketing!.description ? `      <p class="app-desc">${esc(marketing!.descripti
     resize();
     window.addEventListener('resize', resize);
 
-    var start = performance.now(), last = 0;
-    function render(now) {
-      requestAnimationFrame(render);
-      if (now - last < 33) return;
-      last = now;
-      gl.uniform1f(uTime, (now - start) * 0.001);
+    var start = performance.now(), last = 0, raf = 0, reducedMotionStaticTime = 20;
+    function draw(timeSeconds) {
+      gl.uniform1f(uTime, timeSeconds);
       gl.uniform2f(uRes, canvas.width, canvas.height);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
-    requestAnimationFrame(render);
+    function render(now) {
+      if (reducedMotion) {
+        raf = 0;
+        return;
+      }
+      raf = requestAnimationFrame(render);
+      if (now - last < 33) return;
+      last = now;
+      draw((now - start) * 0.001);
+    }
+    function startAnimation() {
+      if (!raf) raf = requestAnimationFrame(render);
+    }
+    function stopAnimation() {
+      if (raf) {
+        cancelAnimationFrame(raf);
+        raf = 0;
+      }
+    }
+    function onReducedMotionChange() {
+      reducedMotion = reducedMotionQuery ? reducedMotionQuery.matches : false;
+      if (reducedMotion) {
+        stopAnimation();
+        last = 0;
+        draw(reducedMotionStaticTime);
+      } else {
+        startAnimation();
+      }
+    }
+    draw(reducedMotion ? reducedMotionStaticTime : 0);
+    if (reducedMotionQuery) {
+      if (reducedMotionQuery.addEventListener) {
+        reducedMotionQuery.addEventListener('change', onReducedMotionChange);
+      } else {
+        reducedMotionQuery.addListener(onReducedMotionChange);
+      }
+    }
+    if (!reducedMotion) startAnimation();
   })();`
     : "";
 

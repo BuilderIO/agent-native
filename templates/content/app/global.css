@@ -24,7 +24,7 @@
   --secondary-foreground: 0 0% 15%;
 
   --muted: 0 0% 96%;
-  --muted-foreground: 0 0% 45%;
+  --muted-foreground: 0 0% 34%;
 
   --accent: 0 0% 96%;
   --accent-foreground: 0 0% 15%;
@@ -40,14 +40,18 @@
 
   /* Sidebar light = Notion light sidebar */
   --sidebar-background: 0 0% 98%;
-  --sidebar-foreground: 0 0% 45%;
+  --sidebar-foreground: 0 0% 34%;
   --sidebar-primary: 0 0% 15%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 0 0% 93%;
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 92%;
   --sidebar-ring: 0 0% 15%;
-  --sidebar-muted: 0 0% 55%;
+  --sidebar-muted: 0 0% 34%;
+}
+
+@theme {
+  --color-sidebar-muted: hsl(var(--sidebar-muted));
 }
 
 /* ===== Dark Mode ===== */

@@ -42,6 +42,7 @@ import type {
 import { RecipientInput } from "./RecipientInput";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import { openFilePicker, uploadFile, formatFileSize } from "@/lib/upload";
+import { canUseAgentGenerate } from "@/lib/agent-generate";
 
 function splitQuotedContent(body: string): [string, string] {
   const replyMatch = body.match(/\n*— On .+? wrote:\n/);
@@ -174,6 +175,7 @@ export const InlineReplyComposer = forwardRef<
       replyToId: draftSnapshot.replyToId,
       replyToThreadId: draftSnapshot.replyToThreadId,
       accountEmail: draftSnapshot.accountEmail,
+      attachments: draftSnapshot.attachments,
     });
 
     let cancelled = false;
@@ -215,6 +217,7 @@ export const InlineReplyComposer = forwardRef<
           body: draftSnapshot.body,
           replyToId: draftSnapshot.replyToId,
           accountEmail: draftSnapshot.accountEmail,
+          attachments: draftSnapshot.attachments,
         },
         {
           onError: () => {
@@ -242,6 +245,13 @@ export const InlineReplyComposer = forwardRef<
 
   const handleGenerate = async () => {
     if (!generatePrompt.trim()) return;
+    if (!(await canUseAgentGenerate())) {
+      toast.error(
+        "Connect Builder or another AI engine before using Generate.",
+      );
+      window.dispatchEvent(new CustomEvent("agent-panel:open"));
+      return;
+    }
     await onFlush(draft.id);
     const context = [
       draft.to && `To: ${draft.to}`,

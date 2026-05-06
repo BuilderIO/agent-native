@@ -14,7 +14,11 @@ import {
   IconMenu2,
   IconLayoutSidebarRightExpand,
 } from "@tabler/icons-react";
-import { AgentSidebar, FeedbackButton } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  FeedbackButton,
+  useSession,
+} from "@agent-native/core/client";
 import { RequireActiveOrg } from "@agent-native/core/client/org";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -78,6 +82,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   }>();
 
   const { shouldShowPromo, shouldShowSidebarLink, dismiss } = useDesktopPromo();
+  const { session } = useSession();
+  const currentUserEmail = session?.email ?? null;
 
   const { data: organizations } = useOrganizations();
   const currentOrganizationId =
@@ -91,14 +97,18 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const libFolderList: FolderNode[] = useMemo(
     () =>
       (libFolders?.folders ?? [])
-        .filter((f: any) => !f.spaceId)
+        .filter(
+          (f: any) =>
+            !f.spaceId &&
+            (!currentUserEmail || f.ownerEmail === currentUserEmail),
+        )
         .map((f: any) => ({
           id: f.id,
           parentId: f.parentId ?? null,
           spaceId: f.spaceId ?? null,
           name: f.name,
         })),
-    [libFolders],
+    [currentUserEmail, libFolders],
   );
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -408,14 +418,12 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               onClick={() => {
                 const name = newFolderName.trim();
                 if (!name) return;
-                if (!currentOrganizationId) {
-                  toast.error("Organization not ready");
-                  return;
-                }
                 createFolder.mutate(
                   {
                     name,
-                    organizationId: currentOrganizationId,
+                    ...(currentOrganizationId
+                      ? { organizationId: currentOrganizationId }
+                      : {}),
                     parentId: null,
                   },
                   {

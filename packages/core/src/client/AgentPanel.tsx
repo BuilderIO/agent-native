@@ -38,6 +38,7 @@ import {
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
+  normalizeTooltipText,
 } from "./components/ui/tooltip.js";
 import {
   IconMessage,
@@ -196,7 +197,7 @@ function IconTooltip({
             sideOffset={8}
             className="z-[230] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md"
           >
-            {content}
+            {normalizeTooltipText(content)}
             <TooltipPrimitive.Arrow className="fill-popover" />
           </TooltipPrimitive.Content>
         </TooltipPrimitive.Portal>

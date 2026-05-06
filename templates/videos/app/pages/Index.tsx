@@ -10,7 +10,10 @@ import { QuestionFlow } from "@/components/QuestionFlow";
 import CompositionView from "@/pages/CompositionView";
 import NewComposition from "@/pages/NewComposition";
 import { CurrentElementProvider } from "@/contexts/CurrentElementContext";
-import { CompositionProvider } from "@/contexts/CompositionContext";
+import {
+  CompositionProvider,
+  useComposition,
+} from "@/contexts/CompositionContext";
 import { TimelineProvider } from "@/contexts/TimelineContext";
 import { PlaybackProvider } from "@/contexts/PlaybackContext";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -42,6 +45,7 @@ function StudioContent({
   const [cameraControlsTrigger, setCameraControlsTrigger] = useState(0);
   const [cursorControlsTrigger, setCursorControlsTrigger] = useState(0);
   const [compSettingsTrigger, setCompSettingsTrigger] = useState(0);
+  const { effectiveComposition } = useComposition();
 
   const handleCameraKeyframeClick = useCallback(
     (trackType: "camera" | "cursor") => {
@@ -74,6 +78,14 @@ function StudioContent({
           <StudioHeader
             sidebarOpen={sidebarOpen}
             onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+            shareComposition={
+              effectiveComposition
+                ? {
+                    id: effectiveComposition.id,
+                    title: effectiveComposition.title,
+                  }
+                : undefined
+            }
           />
           <InvitationBanner />
           <div className="flex flex-1 min-h-0 relative">

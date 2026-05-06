@@ -33,7 +33,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
-import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -51,6 +50,8 @@ interface Design {
   updatedAt?: string;
 }
 
+const pendingGenerationKey = (id: string) => `design.pending-generation.${id}`;
+
 export default function Index() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -62,8 +63,6 @@ export default function Index() {
   const anchorRef = useRef<HTMLElement | null>(null);
   // Keep anchorRef.current in sync so PromptPopover can read it
   anchorRef.current = anchorElRef.current;
-
-  const { generating, submit: agentSubmit } = useAgentGenerating();
 
   const { data: designsData, isLoading } = useActionQuery<{
     count: number;
@@ -114,21 +113,23 @@ export default function Index() {
         },
       );
 
-      // Fire mutation in background
-      createMutation.mutate(
-        {
+      // Fire mutation in background; keep the optimistic navigation instant.
+      void createMutation
+        .mutateAsync({
           id,
           title: finalTitle,
           projectType,
-        } as any,
-        {
-          onError: () => {
-            queryClient.invalidateQueries({
-              queryKey: ["action", "list-designs"],
-            });
-          },
-        },
-      );
+        } as any)
+        .catch(() => {
+          try {
+            window.sessionStorage.removeItem(pendingGenerationKey(id));
+          } catch {
+            // Storage may be unavailable.
+          }
+          queryClient.invalidateQueries({
+            queryKey: ["action", "list-designs"],
+          });
+        });
       return { id, title: finalTitle };
     },
     [queryClient, createMutation],
@@ -152,25 +153,19 @@ export default function Index() {
 
       const { id, title } = createDesign(derivedTitle);
 
-      const fileContext =
-        files.length > 0
-          ? `\n\nThe user uploaded ${files.length} file(s) for context:\n${files.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
-          : "";
+      try {
+        window.sessionStorage.setItem(
+          pendingGenerationKey(id),
+          JSON.stringify({ prompt, files, title }),
+        );
+      } catch {
+        // Storage may be unavailable; the editor still opens with the design.
+      }
 
-      const context = [
-        `The user just created a new empty design (id: "${id}", title: "${title}") and wants to fill it with files.`,
-        `User request: "${prompt}"`,
-        fileContext,
-        "",
-        `Use the \`generate-design --designId="${id}"\` action with one or more files (index.html, etc.). The design already exists — DO NOT call create-design.`,
-        "Each file's content must be complete, self-contained HTML with Alpine.js + Tailwind via CDN. HTML templates are in your AGENTS.md.",
-      ].join("\n");
-
-      agentSubmit(`Create design: ${prompt}`, context);
       setShowNewPrompt(false);
       navigate(`/design/${id}`);
     },
-    [createDesign, agentSubmit, navigate],
+    [createDesign, navigate],
   );
 
   const handleDelete = useCallback(() => {
@@ -355,7 +350,6 @@ export default function Index() {
         onSkip={handleSkipPrompt}
         skipLabel="Skip prompt"
         onSubmit={handleSubmitPrompt}
-        loading={generating}
         anchorRef={anchorRef}
       />
 

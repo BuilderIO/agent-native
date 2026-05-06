@@ -5,7 +5,12 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { EmailMessage, Label, UserSettings } from "@shared/types";
+import type {
+  ComposeAttachment,
+  EmailMessage,
+  Label,
+  UserSettings,
+} from "@shared/types";
 import { markdownPreviewSnippet } from "@shared/markdown";
 import { TAB_ID } from "@/lib/tab-id";
 import { appApiPath } from "@/lib/api-path";
@@ -81,6 +86,7 @@ export function useAddOptimisticReply() {
     replyToId?: string;
     replyToThreadId?: string;
     accountEmail?: string;
+    attachments?: ComposeAttachment[];
   }): (() => void) | undefined => {
     const settings = qc.getQueryData<UserSettings>(["settings"]);
     const threadId = data.replyToThreadId || data.replyToId;
@@ -106,6 +112,17 @@ export function useAddOptimisticReply() {
       isArchived: false,
       isTrashed: false,
       labelIds: ["sent"],
+      ...(data.attachments && data.attachments.length > 0
+        ? {
+            attachments: data.attachments.map((att) => ({
+              id: att.id,
+              filename: att.originalName,
+              mimeType: att.mimeType,
+              size: att.size,
+              url: att.url,
+            })),
+          }
+        : {}),
       ...(data.accountEmail ? { accountEmail: data.accountEmail } : {}),
     };
 
@@ -601,6 +618,8 @@ export function useSaveDraft() {
       draftId?: string;
       replyToId?: string;
       replyToThreadId?: string;
+      accountEmail?: string;
+      attachments?: ComposeAttachment[];
     }) =>
       apiFetch<{ draftId: string }>("/api/emails/draft", {
         method: "POST",
@@ -630,6 +649,7 @@ export function useSendEmail() {
       body: string;
       replyToId?: string;
       accountEmail?: string;
+      attachments?: ComposeAttachment[];
     }) =>
       apiFetch<{ id: string; threadId?: string; labelIds?: string[] }>(
         "/api/emails/send",
@@ -689,6 +709,17 @@ export function useSendEmail() {
         isArchived: false,
         isTrashed: false,
         labelIds: ["sent"],
+        ...(data.attachments && data.attachments.length > 0
+          ? {
+              attachments: data.attachments.map((att) => ({
+                id: att.id,
+                filename: att.originalName,
+                mimeType: att.mimeType,
+                size: att.size,
+                url: att.url,
+              })),
+            }
+          : {}),
         ...(data.accountEmail ? { accountEmail: data.accountEmail } : {}),
       };
 

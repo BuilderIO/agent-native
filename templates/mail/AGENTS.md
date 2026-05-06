@@ -10,6 +10,12 @@ This is an **agent-native** email client built with `@agent-native/core`.
 
 When answering a question about a specific email or thread, embed a live preview directly in the chat message using the `embed` fence. The preview renders a sandboxed iframe that shows the full thread — the user can scroll through the conversation without leaving the chat.
 
+**Place embeds inline next to the sentence that references them, not appended at the end.** When you mention an email by name or summarize one, drop the `embed` fence right after that sentence so the reader sees the preview where they're already reading. Do not stack every embed at the bottom of the response — that reads as an awkwardly tacked-on citation list. For a single-thread answer, lead with one or two sentences of context, then the embed.
+
+**Don't repeat the title in the prose.** The embed already shows the thread subject. Phrase the lead-in around what the email _says_, not its name — e.g. "Alice agreed to push the launch to Friday" followed by the embed, not "Here's the 'Launch date' thread:" followed by the embed.
+
+**Cap embeds per response.** Inline at most three embeds. If the answer references more, summarize the rest in prose and link the most relevant one. A wall of iframes hides the answer.
+
 Emit an embed block like this:
 
 ````
@@ -211,6 +217,8 @@ Common operations:
 
 - **Archive emails:** `pnpm action archive-email --id=<id>`
 - **Trash emails:** `pnpm action trash-email --id=<id>`
+- **Cancel scheduled email:** `pnpm action cancel-scheduled-email --id=<scheduled-job-id>`
+- **Send scheduled email now:** `pnpm action send-scheduled-email-now --id=<scheduled-job-id>`
 - **Mark read/unread:** `pnpm action mark-read --id=<id> [--unread]`
 - **Star emails:** `pnpm action star-email --id=<id>`
 - **Send email:** `pnpm action send-email --to=<email> --subject="..." --body="..."`
@@ -372,14 +380,16 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 
 ### Actions
 
-| Action          | Args                                                   | Purpose                                       |
-| --------------- | ------------------------------------------------------ | --------------------------------------------- |
-| `archive-email` | `--id <id>[,id2,id3]`                                  | Archive one or more emails                    |
-| `trash-email`   | `--id <id>[,id2,id3]`                                  | Trash one or more emails                      |
-| `mark-read`     | `--id <id>[,id2,id3] [--unread]`                       | Mark emails as read (or unread with --unread) |
-| `star-email`    | `--id <id>[,id2,id3]`                                  | Toggle star on emails                         |
-| `send-email`    | `--to <email> --subject <s> --body <b> [--cc] [--bcc]` | Send an email                                 |
-| `get-tracking`  | `--id <message-id>`                                    | Open + link-click stats for a sent email      |
+| Action                     | Args                                                   | Purpose                                       |
+| -------------------------- | ------------------------------------------------------ | --------------------------------------------- |
+| `archive-email`            | `--id <id>[,id2,id3]`                                  | Archive one or more emails                    |
+| `trash-email`              | `--id <id>[,id2,id3]`                                  | Trash one or more emails                      |
+| `mark-read`                | `--id <id>[,id2,id3] [--unread]`                       | Mark emails as read (or unread with --unread) |
+| `star-email`               | `--id <id>[,id2,id3]`                                  | Toggle star on emails                         |
+| `send-email`               | `--to <email> --subject <s> --body <b> [--cc] [--bcc]` | Send an email                                 |
+| `cancel-scheduled-email`   | `--id <scheduled-job-id>`                              | Cancel a scheduled email                      |
+| `send-scheduled-email-now` | `--id <scheduled-job-id>`                              | Send a scheduled email immediately            |
+| `get-tracking`             | `--id <message-id>`                                    | Open + link-click stats for a sent email      |
 
 ### Drafts & Navigation
 

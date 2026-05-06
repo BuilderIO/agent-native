@@ -500,6 +500,29 @@ describe("createBuilderEngine", () => {
     expect(stop?.error?.toLowerCase()).toContain("rate_limit");
   });
 
+  it("marks no-detail gateway stop errors as retryable gateway errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            requestId: "req_no_detail",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_error");
+    expect(stop?.error).toContain("Gateway error (no detail");
+  });
+
   it("processes a final event without a trailing newline", async () => {
     // Some gateway proxies end the stream with a complete JSONL line that
     // lacks a terminating `\n`. The parser must flush that tail through the

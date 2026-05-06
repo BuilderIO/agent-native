@@ -61,7 +61,7 @@ Even when the agent does all the heavy lifting, humans still need to:
 - **Inspect its work** — review drafts, audit history, roll back mistakes
 - **Share its output** — dashboards, reports, forms, links to send to teammates
 
-At minimum, "a UI for the agent" is an observability and management dashboard. At maximum, it's a full SaaS app with the agent embedded as a co-pilot. Both ends count as agent-native — see [Pure-Agent Apps](/docs/pure-agent-apps) for the minimal end and [Cloneable SaaS](/docs/cloneable-saas) for the maximal end.
+At minimum, "a UI for the agent" is an observability and management dashboard. At maximum, it's a full SaaS app with the agent embedded as a co-pilot. Both ends count as agent-native — see [Pure-Agent Apps](/docs/pure-agent-apps) for the minimal end and [Templates](/docs/cloneable-saas) for the maximal end.
 
 ## Why every app benefits from an agent {#why-every-app-benefits-from-an-agent}
 
@@ -120,7 +120,7 @@ The vision: fewer handoffs, one person doing the work of a small team.
 
 ## Fork and customize {#fork-and-customize}
 
-Agent-native apps follow a fork-and-customize model. You start from a **cloneable SaaS** template — Mail, Calendar, Analytics, Slides, Clips, Design, Forms, Dispatch — and make it yours:
+Agent-native apps follow a fork-and-customize model. You start from a **template** — Mail, Calendar, Analytics, Slides, Clips, Design, Forms, Dispatch — and make it yours. Each one is a complete, working SaaS product you fork wholesale, not a blank scaffold:
 
 1. Pick a template on [agent-native.com/templates](/templates)
 2. Use it immediately as a hosted app (e.g. mail.agent-native.com)
@@ -128,7 +128,7 @@ Agent-native apps follow a fork-and-customize model. You start from a **cloneabl
 4. The agent modifies the code to match your needs
 5. Deploy your fork to your own domain — or stay on agent-native.com
 
-Because it's _your_ app, not shared infrastructure, the agent can safely evolve the code. Your app keeps improving as you use it. See [Cloneable SaaS](/docs/cloneable-saas) for the full story.
+Because it's _your_ app, not shared infrastructure, the agent can safely evolve the code. Your app keeps improving as you use it. See [Templates](/docs/cloneable-saas) for the full story.
 
 ## Composable agents {#composable-agents}
 
@@ -176,7 +176,7 @@ One action, four surfaces: the agent calls it as a tool, the UI calls it as a ty
 
 - [**Getting Started**](/docs) — pick a template and run it
 - [**Key Concepts**](/docs/key-concepts) — the architecture: SQL, actions, polling sync, context awareness, portability
-- [**Cloneable SaaS**](/docs/cloneable-saas) — templates as complete products you own
+- [**Templates**](/docs/cloneable-saas) — templates as complete products you own
 - [**Workspace**](/docs/workspace) — the per-user customization layer (skills, memory, instructions, MCP) backed by SQL, not files
 - [**Dispatch**](/docs/dispatch) — the workspace control plane: secrets vault, Slack/email inbox, cross-app delegation
 - [**Extensions**](/docs/extensions) — sandboxed mini-apps the agent creates instantly without code changes

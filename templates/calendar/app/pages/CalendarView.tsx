@@ -25,6 +25,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -53,6 +56,7 @@ import {
 } from "@/hooks/use-events";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AgentToggleButton,
@@ -90,6 +94,7 @@ export default function CalendarView() {
     focusedEvent,
     hiddenCalendars,
   } = useCalendarContext();
+  const { prefs: viewPrefs, update: setViewPrefs } = useViewPreferences();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createDefaultStart, setCreateDefaultStart] = useState<string>();
   const [createDefaultEnd, setCreateDefaultEnd] = useState<string>();
@@ -494,13 +499,19 @@ export default function CalendarView() {
       // Don't intercept keyboard shortcuts with modifier keys (Cmd+C, Ctrl+V, etc.)
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
+      if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        setShortcutsHelpOpen(true);
+        return;
+      }
+
       switch (e.key) {
         case "z":
           e.preventDefault();
           runUndo();
           break;
         case "j":
-        case "n":
           e.preventDefault();
           handleNavigate("next");
           break;
@@ -533,9 +544,6 @@ export default function CalendarView() {
         case "/":
           e.preventDefault();
           setCommandPaletteOpen(true);
-          break;
-        case "?":
-          setShortcutsHelpOpen(true);
           break;
       }
     }
@@ -623,6 +631,19 @@ export default function CalendarView() {
                       M
                     </kbd>
                   </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="text-[10px] font-normal uppercase tracking-wider text-muted-foreground">
+                    Display
+                  </DropdownMenuLabel>
+                  <DropdownMenuCheckboxItem
+                    checked={viewPrefs.hideWeekends}
+                    onCheckedChange={(checked) =>
+                      setViewPrefs({ hideWeekends: !!checked })
+                    }
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    Hide weekends
+                  </DropdownMenuCheckboxItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>

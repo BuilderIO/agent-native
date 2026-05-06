@@ -8,6 +8,7 @@ export type Attachment = {
   filename: string;
   mimeType: string;
   size: number;
+  url?: string;
 };
 
 export type EmailMessage = {

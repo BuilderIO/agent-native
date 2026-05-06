@@ -17,7 +17,6 @@ const SHORTCUT_GROUPS = [
       { keys: ["J"], description: "Next period (day / week / month)" },
       { keys: ["K"], description: "Previous period" },
       { keys: ["T"], description: "Go to today" },
-      { keys: ["N"], description: "Next week" },
       { keys: ["P"], description: "Show teammate calendars" },
     ],
   },
@@ -33,7 +32,6 @@ const SHORTCUT_GROUPS = [
     category: "Events",
     shortcuts: [
       { keys: ["C"], description: "Create new event" },
-      { keys: ["E"], description: "Edit selected event" },
       { keys: ["Del"], description: "Delete selected event" },
       { keys: ["Esc"], description: "Close dialog / cancel" },
     ],

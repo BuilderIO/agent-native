@@ -7,6 +7,8 @@ import {
   IconExternalLink,
   IconChevronUp,
   IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
   IconPlus,
   IconX,
   IconKeyboard,
@@ -28,6 +30,10 @@ import {
   isSameDay,
   isToday,
   format,
+  setMonth,
+  setYear,
+  getMonth,
+  getYear,
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -80,6 +86,88 @@ interface SidebarProps {
   onClose: () => void;
 }
 
+const MONTH_LABELS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+function MonthYearPicker({
+  viewMonth,
+  onPick,
+  onClose,
+}: {
+  viewMonth: Date;
+  onPick: (date: Date) => void;
+  onClose: () => void;
+}) {
+  const [year, setYearState] = useState(() => getYear(viewMonth));
+  const today = new Date();
+  const todayMonth = getMonth(today);
+  const todayYear = getYear(today);
+  const viewedMonthIdx = getMonth(viewMonth);
+  const viewedYear = getYear(viewMonth);
+
+  return (
+    <div className="w-56 p-2">
+      <div className="mb-2 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => setYearState(year - 1)}
+          className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label="Previous year"
+        >
+          <IconChevronLeft className="h-3.5 w-3.5" />
+        </button>
+        <span className="text-sm font-semibold">{year}</span>
+        <button
+          type="button"
+          onClick={() => setYearState(year + 1)}
+          className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label="Next year"
+        >
+          <IconChevronRight className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <div className="grid grid-cols-3 gap-1">
+        {MONTH_LABELS.map((label, idx) => {
+          const isCurrent = idx === todayMonth && year === todayYear;
+          const isSelected = idx === viewedMonthIdx && year === viewedYear;
+          return (
+            <button
+              key={label}
+              type="button"
+              onClick={() => {
+                onPick(setMonth(setYear(viewMonth, year), idx));
+                onClose();
+              }}
+              className={cn(
+                "flex h-8 items-center justify-center rounded text-xs",
+                isSelected
+                  ? "bg-primary text-primary-foreground font-semibold"
+                  : isCurrent
+                    ? "ring-1 ring-primary text-foreground hover:bg-accent"
+                    : "text-foreground hover:bg-accent",
+              )}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function MiniCalendar({
   selectedDate,
   onDateSelect,
@@ -88,6 +176,7 @@ function MiniCalendar({
   onDateSelect: (date: Date) => void;
 }) {
   const [viewMonth, setViewMonth] = useState(() => startOfMonth(selectedDate));
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // Sync viewMonth when selectedDate changes to a different month
   useEffect(() => {
@@ -117,9 +206,24 @@ function MiniCalendar({
     <div className="px-3 py-3">
       {/* Month header with navigation */}
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-xs font-medium text-foreground">
-          {format(viewMonth, "MMMM yyyy")}
-        </span>
+        <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="-ml-1 flex items-center gap-1 rounded px-1 py-0.5 text-xs font-medium text-foreground hover:bg-accent"
+            >
+              {format(viewMonth, "MMMM yyyy")}
+              <IconChevronDown className="h-3 w-3 text-muted-foreground" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" sideOffset={4} className="w-auto p-0">
+            <MonthYearPicker
+              viewMonth={viewMonth}
+              onPick={(d) => setViewMonth(startOfMonth(d))}
+              onClose={() => setPickerOpen(false)}
+            />
+          </PopoverContent>
+        </Popover>
         <div className="flex items-center gap-0.5">
           <button
             type="button"
@@ -503,7 +607,11 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       >
         {/* Logo */}
         <div className="flex h-12 shrink-0 items-center justify-between gap-2.5 border-b border-border px-4">
-          <div className="flex items-center gap-2">
+          <Link
+            to="/"
+            onClick={onClose}
+            className="flex items-center gap-2 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
             <img
               src={appPath("/agent-native-icon-light.svg")}
               alt=""
@@ -519,7 +627,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             <span className="text-base font-semibold tracking-tight">
               Calendar
             </span>
-          </div>
+          </Link>
         </div>
 
         {/* Mini calendar */}

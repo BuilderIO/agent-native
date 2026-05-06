@@ -67,9 +67,23 @@ interface SeriesData {
   color?: string;
 }
 
+/**
+ * Returned alongside any validation `error` so the agent gets an unambiguous
+ * recovery path. The previous behavior (a bare error string) led to retry
+ * loops where the agent reformatted JSON until it gave up — and from the
+ * user's chair, the chat said "I'll do something else" and no chart appeared.
+ *
+ * For in-chat data questions the right answer is always the live `/chart`
+ * embed (see AGENTS.md "Inline Charts in Chat"). Only `save-analysis`
+ * artifacts need a static PNG, and those flows have full data in hand
+ * before they call here.
+ */
+const CHART_FALLBACK_HINT =
+  "If you're answering an in-chat data question, do not retry generate-chart. Switch to the live /chart embed described in AGENTS.md ('Inline Charts in Chat') — it accepts a SqlPanel object directly and doesn't require pre-stringified JSON params. Only use generate-chart when you're building a save-analysis artifact.";
+
 export default defineAction({
   description:
-    "Generate a chart image (bar, line, or area) and save it to the media directory.",
+    "Render a static PNG chart to the media directory **for save-analysis artifacts only**. For an in-chat answer to a data question, do NOT call this — emit a live `/chart` embed instead (see AGENTS.md 'Inline Charts in Chat'). The PNG path exists for analyses that need to render outside this app (exports, archived reports). If validation here fails, switch to the live embed rather than retrying.",
   schema: z.object({
     title: z.string().optional().describe("Chart title (required)"),
     labels: z.string().optional().describe("JSON array of x-axis labels"),
@@ -100,13 +114,22 @@ export default defineAction({
   }),
   http: false,
   run: async (args) => {
-    if (!args.title) return { error: "--title is required" };
-    if (!args.labels) return { error: "--labels is required (JSON array)" };
-    if (!args.data)
+    if (!args.title) {
+      return { error: "--title is required", fallback: CHART_FALLBACK_HINT };
+    }
+    if (!args.labels) {
+      return {
+        error: "--labels is required (JSON array)",
+        fallback: CHART_FALLBACK_HINT,
+      };
+    }
+    if (!args.data) {
       return {
         error:
           "--data is required (JSON array of numbers or array of {label,data,color})",
+        fallback: CHART_FALLBACK_HINT,
       };
+    }
 
     const chartType = args.type || "bar";
     const title = args.title;
@@ -121,7 +144,10 @@ export default defineAction({
     try {
       labels = JSON.parse(args.labels);
     } catch {
-      return { error: "--labels must be valid JSON array" };
+      return {
+        error: "--labels must be valid JSON array",
+        fallback: CHART_FALLBACK_HINT,
+      };
     }
 
     let datasets: SeriesData[];
@@ -140,7 +166,10 @@ export default defineAction({
         ];
       }
     } catch {
-      return { error: "--data must be valid JSON array" };
+      return {
+        error: "--data must be valid JSON array",
+        fallback: CHART_FALLBACK_HINT,
+      };
     }
 
     const isArea = chartType === "area";

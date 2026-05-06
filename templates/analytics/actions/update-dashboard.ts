@@ -214,6 +214,29 @@ function validateDashboardConfig(
   if (typeof config.name !== "string" || config.name.trim().length === 0) {
     return "config.name is required (non-empty string) — without it the dashboard renders as a blank row in the sidebar";
   }
+  // Filter ID collisions cause two controls to read/write the same URL param.
+  // For paired start/end dates use a single date-range filter — the FilterBar
+  // expands it to <id>Start / <id>End at runtime, so the SQL can still
+  // reference both halves.
+  const filters = config.filters;
+  if (filters !== undefined && !Array.isArray(filters)) {
+    return "config.filters must be an array";
+  }
+  if (Array.isArray(filters)) {
+    const seen = new Set<string>();
+    for (let i = 0; i < filters.length; i++) {
+      const f = filters[i] as Record<string, unknown> | null;
+      if (!f || typeof f !== "object") {
+        return `config.filters[${i}] must be an object`;
+      }
+      const id = typeof f.id === "string" ? f.id.trim() : "";
+      if (!id) return `config.filters[${i}].id is required`;
+      if (seen.has(id)) {
+        return `config.filters[${i}].id "${id}" is a duplicate. Use unique ids per filter, or a single date-range filter for paired start/end dates (it auto-expands to <id>Start and <id>End in SQL).`;
+      }
+      seen.add(id);
+    }
+  }
   const panels = config.panels;
   if (!Array.isArray(panels)) {
     return "config.panels must be an array (use [] for an empty dashboard)";

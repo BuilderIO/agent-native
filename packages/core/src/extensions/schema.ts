@@ -9,7 +9,7 @@
  * The tables are auto-created at server boot via `ensureTable()` in store.ts,
  * following the same pattern as `app_secrets`.
  *
- * NOTE: physical SQL table/column names stay as `extensions`, `tool_data`,
+ * NOTE: physical SQL table/column names stay as `tools`, `tool_data`,
  * `tool_shares`, `tool_consents`, `tool_id`, etc. — additive-only schema
  * policy means we never rename DB-level identifiers. The JS/TS surface is
  * renamed to `extensions`/`extension*`; the DB-side names stay so existing
@@ -19,7 +19,7 @@
 import { table, text, now } from "../db/schema.js";
 import { ownableColumns, createSharesTable } from "../sharing/schema.js";
 
-export const extensions = table("extensions", {
+export const extensions = table("tools", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
@@ -32,7 +32,7 @@ export const extensions = table("extensions", {
 
 export const extensionShares = createSharesTable("tool_shares");
 
-export const EXTENSIONS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS extensions (
+export const EXTENSIONS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tools (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
@@ -45,7 +45,7 @@ export const EXTENSIONS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS extensions (
   visibility TEXT NOT NULL DEFAULT 'private'
 )`;
 
-export const EXTENSIONS_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS extensions (
+export const EXTENSIONS_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tools (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',

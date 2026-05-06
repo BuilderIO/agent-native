@@ -26,8 +26,10 @@ import {
   captureRouteError,
   initServerSentry,
   isServerSentryEnabled,
+  setSentryRequestContext,
   setSentryUserForRequest,
 } from "./sentry.js";
+import { addRequestContextObserver } from "./request-context.js";
 import { getHeader, getMethod, type H3Event } from "h3";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
@@ -91,6 +93,16 @@ export function createSentryPlugin(): NitroPluginDef {
       } catch {
         // best-effort — don't break the request
       }
+    });
+
+    // Wrap-time: every `runWithRequestContext({ userEmail, orgId, ... })`
+    // call also pins user/org onto Sentry's per-async-context isolation
+    // scope. Covers paths the cookie-based `request` hook can't see —
+    // integration webhook processors, A2A calls, agent-chat tool
+    // re-entries, and any internal call chain that opens a request scope
+    // without an HTTP cookie.
+    addRequestContextObserver((ctx) => {
+      setSentryRequestContext({ userEmail: ctx.userEmail, orgId: ctx.orgId });
     });
 
     // Per-error: capture with route/method/UA tags. Nitro's `error` hook

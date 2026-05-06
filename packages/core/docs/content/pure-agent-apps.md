@@ -33,7 +33,7 @@ Pick the pure-agent pattern when:
 - **The domain is one-shot.** Research bot, summary generator, report writer. There's no persistent object that needs a list view.
 - **You're prototyping.** Ship the agent now; add a richer UI later if it turns out users actually want one.
 
-If your product is built around persistent objects users browse, pivot, and share — emails, events, documents, charts — pick a [cloneable SaaS](/docs/cloneable-saas) template instead. Those have full UIs _plus_ the agent.
+If your product is built around persistent objects users browse, pivot, and share — emails, events, documents, charts — pick a [template](/docs/cloneable-saas) instead. Those have full UIs _plus_ the agent.
 
 ## What ships in the box {#minimum-ui}
 

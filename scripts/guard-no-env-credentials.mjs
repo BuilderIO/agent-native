@@ -83,6 +83,7 @@ const ALLOWLIST_EXACT = new Set([
   "RENDER",
   "FLY_APP_NAME",
   "K_SERVICE",
+  "AWS_LAMBDA_FUNCTION_NAME",
   // Better-auth
   "BETTER_AUTH_SECRET",
   "BETTER_AUTH_URL",

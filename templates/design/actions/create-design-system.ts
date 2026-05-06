@@ -13,13 +13,19 @@ export default defineAction({
     "Create a new design system with brand colors, typography, spacing, and other design tokens. " +
     "If this is the first design system for the user, it is automatically set as the default.",
   schema: z.object({
-    title: z.string().describe("Design system name (e.g. 'Acme Corp Brand')"),
+    title: z
+      .string()
+      .trim()
+      .min(1, "title is required")
+      .describe("Design system name (e.g. 'Acme Corp Brand')"),
     description: z
       .string()
       .optional()
       .describe("Short description of the design system"),
     data: z
       .string()
+      .trim()
+      .min(1, "data is required")
       .describe(
         "JSON string of DesignSystemData (colors, typography, spacing, etc.)",
       ),
@@ -29,11 +35,14 @@ export default defineAction({
       .describe("JSON string of DesignSystemAsset[] (logos, fonts, images)"),
   }),
   run: async ({ title, description, data, assets }) => {
-    // Validate that data is valid JSON
+    // Validate that data is valid JSON and not an empty primitive.
     try {
-      JSON.parse(data);
+      const parsed = JSON.parse(data);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error();
+      }
     } catch {
-      throw new Error("data must be a valid JSON string");
+      throw new Error("data must be a valid JSON object string");
     }
     if (assets) {
       try {

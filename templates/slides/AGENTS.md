@@ -141,6 +141,7 @@ Write to `show-questions` to trigger a full-panel question overlay in the deck e
 
 Each question has: `id` (unique key), `type`, `question` (label shown to user), optional `description`, optional `required` flag.
 For `text-options` and `color-options`: provide `options` array with `label`/`value` (and `color` for color-options). Set `multiSelect: true` for multi-pick.
+When a deck has an active design system, color questions must use colors from that design system (primary, secondary, accent, surface/background) instead of generic moods.
 For `slider`: provide `min`/`max`.
 
 The UI automatically appends "Explore a few options" and "Decide for me" choices to every `text-options` question.

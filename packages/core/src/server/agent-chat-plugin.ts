@@ -52,6 +52,7 @@ import { loadSchemaPromptBlock } from "./schema-prompt.js";
 import {
   buildAssistantMessage,
   extractThreadMeta,
+  upsertAssistantMessage,
 } from "../agent/thread-data-builder.js";
 import {
   defineEventHandler,
@@ -977,7 +978,7 @@ function createBuilderBrowserTool(deps: {
     "connect-builder": {
       tool: {
         description:
-          "Render a Builder.io card inline in the chat. Call this IMMEDIATELY — no exploration, no planning — whenever (a) the user asks to add a feature, change the UI, edit code, create a component, add a route, add an integration, fix a bug in the app itself, or anything else that requires source-file edits while in hosted/production mode, OR (b) the user needs Builder for LLM access, browser automation, or any other Builder-gated capability. If Builder is already connected, the card shows a 'Send to Builder' button that hands the work off to Builder's cloud agent and returns a branch URL. When you call this for a code-change request, pass the user's request verbatim as the `prompt` arg so the card can forward it to Builder unchanged.",
+          "Render a Builder.io card inline in the chat. Call this IMMEDIATELY — no exploration, no planning — when the user asks to modify the APP'S OWN SOURCE CODE: add a feature, change the UI chrome, edit a React component, add a route, add an integration, fix a bug in the app itself, or anything else that requires source-file edits while in hosted/production mode. Do NOT call this for content the app is meant to produce — creating a video, generating a design, drafting an email, building a slide deck, making a dashboard, etc. — those run through the app's own domain actions, not Builder. Do NOT mention 'click Send to Builder' in your response unless this card is already in the conversation. If Builder is already connected, the card shows a 'Send to Builder' button that hands the work off to Builder's cloud agent and returns a branch URL. When you call this for a code-change request, pass the user's request verbatim as the `prompt` arg so the card can forward it to Builder unchanged.",
         parameters: {
           type: "object",
           properties: {
@@ -3174,44 +3175,7 @@ export function createAgentChatPlugin(
             }
             if (!Array.isArray(repo.messages)) repo.messages = [];
 
-            const lastMsg = repo.messages[repo.messages.length - 1];
-            // Check both wrapped ({ message: { role } }) and unwrapped ({ role }) formats
-            const lastRole = lastMsg?.message?.role ?? lastMsg?.role;
-            const lastContent = lastMsg?.message?.content ?? lastMsg?.content;
-            const lastContentIsEmpty = Array.isArray(lastContent)
-              ? lastContent.length === 0
-              : lastContent == null || lastContent === "";
-            if (lastRole === "assistant" && !lastContentIsEmpty) {
-              // Frontend already saved the assistant response — just bump timestamp
-              await updateThreadData(
-                threadId,
-                thread.threadData,
-                thread.title,
-                thread.preview,
-                thread.messageCount,
-              );
-              return;
-            }
-            if (lastRole === "assistant" && lastContentIsEmpty) {
-              // The frontend wrote an empty assistant placeholder before the stream
-              // had any content (common when the user reloads mid-run, and the 5s
-              // periodic save raced with the first text chunk). Replace it with
-              // the server's reconstructed message so the turn isn't lost.
-              repo.messages.pop();
-            }
-
-            // Determine if repo uses wrapped format ({ message, parentId }) or flat format
-            const isWrapped = lastMsg && "message" in lastMsg;
-            if (isWrapped) {
-              const parentId =
-                repo.messages.length > 0
-                  ? (repo.messages[repo.messages.length - 1].message?.id ??
-                    null)
-                  : null;
-              repo.messages.push({ message: assistantMsg, parentId });
-            } else {
-              repo.messages.push(assistantMsg);
-            }
+            repo = upsertAssistantMessage(repo, assistantMsg);
 
             // Store debug metadata so we can inspect what the LLM actually
             // received (system prompt, model, engine) when diagnosing issues.
@@ -3236,95 +3200,107 @@ export function createAgentChatPlugin(
           }
         });
 
-        // Emit agent.turn.completed for automation triggers.
-        //
-        // SECURITY: include `owner` so the trigger dispatcher's tenant-scope
-        // check engages (see triggers/dispatcher.ts:212-218). Without an
-        // owner, every user's matching `agent.turn.completed` trigger
-        // would fire when ANY user's chat turn completes — cross-tenant
-        // fan-out (audit 12 #9). Owner comes from the thread row when
-        // available (most reliable; persisted at thread create time),
-        // falling back to the current run context's owner. If neither
-        // resolves we skip emission entirely rather than emit unowned.
-        try {
-          let ownerEmail: string | undefined;
+        // Keep SQL run completion gated only on durable thread data. Follow-up
+        // hooks are useful, but they should never leave agent_runs stuck
+        // "running" if an automation/checkpoint path stalls.
+        void (async () => {
+          // Emit agent.turn.completed for automation triggers.
+          //
+          // SECURITY: include `owner` so the trigger dispatcher's tenant-scope
+          // check engages (see triggers/dispatcher.ts:212-218). Without an
+          // owner, every user's matching `agent.turn.completed` trigger
+          // would fire when ANY user's chat turn completes — cross-tenant
+          // fan-out (audit 12 #9). Owner comes from the thread row when
+          // available (most reliable; persisted at thread create time),
+          // falling back to the current run context's owner. If neither
+          // resolves we skip emission entirely rather than emit unowned.
           try {
-            const ownerThread = await getThread(threadId);
-            ownerEmail = ownerThread?.ownerEmail;
-          } catch {
-            // ignore — fall through to run-context owner
-          }
-          if (!ownerEmail) {
-            ownerEmail = getRequestRunContext()?.owner;
-          }
-          if (ownerEmail) {
-            const { emit } = await import("../event-bus/index.js");
-            emit(
-              "agent.turn.completed",
-              { threadId, model: resolvedModel },
-              { owner: ownerEmail },
-            );
-          }
-        } catch {
-          // Event bus not available — skip
-        }
-
-        // Auto-checkpoint in dev mode after file-modifying agent turns
-        if (isDevMode()) {
-          try {
-            const {
-              createCheckpoint: gitCheckpoint,
-              isGitRepo,
-              hasUncommittedChanges,
-              getChangedFileNames,
-            } = await import("../checkpoints/service.js");
-            const cwd = process.cwd();
-            if (isGitRepo(cwd) && hasUncommittedChanges(cwd)) {
-              let summary = "";
-
-              // Try to extract the first sentence of the assistant's text response
-              let assistantText = "";
-              for (const { event } of run.events ?? []) {
-                if (event.type === "text" && typeof event.text === "string") {
-                  assistantText += event.text;
-                }
-              }
-              assistantText = assistantText.trim();
-              if (assistantText) {
-                const firstSentence = assistantText
-                  .split(/(?<=[.!?\n])\s/)[0]
-                  ?.replace(/\n/g, " ")
-                  .trim();
-                if (firstSentence && firstSentence.length <= 120) {
-                  summary = firstSentence;
-                } else if (firstSentence) {
-                  summary = firstSentence.slice(0, 117) + "...";
-                }
-              }
-
-              // Fall back to listing changed files
-              if (!summary) {
-                const files = getChangedFileNames(cwd);
-                if (files.length > 0) {
-                  summary = `Update ${files.join(", ")}`;
-                }
-              }
-
-              if (!summary) summary = "Agent turn";
-              if (summary.length > 120) summary = summary.slice(0, 117) + "...";
-
-              const sha = gitCheckpoint(cwd, summary);
-              if (sha) {
-                const { insertCheckpoint } =
-                  await import("../checkpoints/store.js");
-                const cpId = `cp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-                await insertCheckpoint(cpId, threadId, run.runId, sha, summary);
-              }
+            let ownerEmail: string | undefined;
+            try {
+              const ownerThread = await getThread(threadId);
+              ownerEmail = ownerThread?.ownerEmail;
+            } catch {
+              // ignore — fall through to run-context owner
+            }
+            if (!ownerEmail) {
+              ownerEmail = getRequestRunContext()?.owner;
+            }
+            if (ownerEmail) {
+              const { emit } = await import("../event-bus/index.js");
+              emit(
+                "agent.turn.completed",
+                { threadId, model: resolvedModel },
+                { owner: ownerEmail },
+              );
             }
           } catch {
-            // Checkpointing is best-effort — never break the run
+            // Event bus not available — skip
           }
-        }
+
+          // Auto-checkpoint in dev mode after file-modifying agent turns
+          if (isDevMode()) {
+            try {
+              const {
+                createCheckpoint: gitCheckpoint,
+                isGitRepo,
+                hasUncommittedChanges,
+                getChangedFileNames,
+              } = await import("../checkpoints/service.js");
+              const cwd = process.cwd();
+              if (isGitRepo(cwd) && hasUncommittedChanges(cwd)) {
+                let summary = "";
+
+                // Try to extract the first sentence of the assistant's text response
+                let assistantText = "";
+                for (const { event } of run.events ?? []) {
+                  if (event.type === "text" && typeof event.text === "string") {
+                    assistantText += event.text;
+                  }
+                }
+                assistantText = assistantText.trim();
+                if (assistantText) {
+                  const firstSentence = assistantText
+                    .split(/(?<=[.!?\n])\s/)[0]
+                    ?.replace(/\n/g, " ")
+                    .trim();
+                  if (firstSentence && firstSentence.length <= 120) {
+                    summary = firstSentence;
+                  } else if (firstSentence) {
+                    summary = firstSentence.slice(0, 117) + "...";
+                  }
+                }
+
+                // Fall back to listing changed files
+                if (!summary) {
+                  const files = getChangedFileNames(cwd);
+                  if (files.length > 0) {
+                    summary = `Update ${files.join(", ")}`;
+                  }
+                }
+
+                if (!summary) summary = "Agent turn";
+                if (summary.length > 120)
+                  summary = summary.slice(0, 117) + "...";
+
+                const sha = gitCheckpoint(cwd, summary);
+                if (sha) {
+                  const { insertCheckpoint } =
+                    await import("../checkpoints/store.js");
+                  const cpId = `cp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                  await insertCheckpoint(
+                    cpId,
+                    threadId,
+                    run.runId,
+                    sha,
+                    summary,
+                  );
+                }
+              }
+            } catch {
+              // Checkpointing is best-effort — never break the run
+            }
+          }
+        })();
       };
 
       // ─── Agent Teams: per-run send reference ─────────────────────────

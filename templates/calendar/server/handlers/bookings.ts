@@ -11,6 +11,7 @@ import { nanoid } from "nanoid";
 import { eq, and, gte, lte, ne, inArray } from "drizzle-orm";
 import {
   getSession,
+  recordChange,
   readBody,
   runWithRequestContext,
   verifyCaptcha,
@@ -136,6 +137,19 @@ async function deleteGoogleEventForBooking({
   }
 }
 
+function recordBookingsChanged(owner?: string) {
+  try {
+    recordChange({
+      source: "bookings",
+      type: "change",
+      key: "bookings",
+      ...(owner ? { owner } : {}),
+    });
+  } catch {
+    // Poll refresh is best-effort; the booking write itself has already landed.
+  }
+}
+
 type AvailabilityContext = {
   effectiveConfig: AvailabilityConfig | null;
   ownerEmail?: string;
@@ -239,7 +253,7 @@ function createDefaultAvailability(timezone: string): AvailabilityConfig {
       sunday: { enabled: false, slots: [] },
     },
     bufferMinutes: 15,
-    minNoticeHours: 24,
+    minNoticeHours: 1,
     maxAdvanceDays: 60,
     slotDurationMinutes: 30,
     bookingPageSlug: "book",
@@ -863,6 +877,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     } catch {
       // best-effort
     }
+    recordBookingsChanged(hostEmail);
 
     setResponseStatus(event, 201);
     return booking;
@@ -1014,6 +1029,7 @@ export const deleteBooking = defineEventHandler(async (event: H3Event) => {
       await deleteGoogleEventForBooking({ booking: existing, hostEmail });
 
       await db.delete(schema.bookings).where(eq(schema.bookings.id, id));
+      recordBookingsChanged(hostEmail);
       return { success: true };
     } catch (error: any) {
       setResponseStatus(event, error?.statusCode ?? 500);
@@ -1101,6 +1117,7 @@ export const cancelBookingByToken = defineEventHandler(
         bookAgainUrl,
       });
       await deleteGoogleEventForBooking({ booking: row, hostEmail });
+      recordBookingsChanged(hostEmail);
 
       return { success: true, slug: row.slug };
     } catch (error: any) {

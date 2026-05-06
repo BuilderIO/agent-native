@@ -23,6 +23,12 @@ import type { CalendarEvent } from "@shared/api";
 import { useEventDrag } from "@/hooks/use-event-drag";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useViewPreferences } from "@/hooks/use-view-preferences";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface WeekViewProps {
   events: CalendarEvent[];
@@ -217,9 +223,13 @@ export function WeekView({
     }
   }, []);
 
+  const { prefs } = useViewPreferences();
   const weekStart = startOfWeek(selectedDate);
   const weekEnd = endOfWeek(selectedDate);
-  const days = eachDayOfInterval({ start: weekStart, end: weekEnd });
+  const fullWeek = eachDayOfInterval({ start: weekStart, end: weekEnd });
+  const days = prefs.hideWeekends
+    ? fullWeek.filter((d) => d.getDay() !== 0 && d.getDay() !== 6)
+    : fullWeek;
   const hours = eachHourOfInterval({
     start: set(weekStart, { hours: START_HOUR, minutes: 0 }),
     end: set(weekStart, { hours: END_HOUR - 1, minutes: 0 }),
@@ -334,17 +344,43 @@ export function WeekView({
     ? allDayRows * allDayRowHeight + 6
     : 0;
 
-  // Timezone abbreviation
-  const tzAbbr = useMemo(() => {
-    try {
-      return (
-        new Intl.DateTimeFormat("en-US", { timeZoneName: "short" })
-          .formatToParts(now)
-          .find((p) => p.type === "timeZoneName")?.value ?? ""
-      );
-    } catch {
-      return "";
+  // Timezone label: prefer the short generic name (e.g. "PT", "ET")
+  // over the offset form ("GMT-7"), and fall back to the IANA id when
+  // the locale data has no friendlier rendering.
+  const { tzShort, tzLong, tzIana } = useMemo(() => {
+    function nameForToken(token: "shortGeneric" | "longGeneric" | "short") {
+      try {
+        return (
+          new Intl.DateTimeFormat("en-US", { timeZoneName: token })
+            .formatToParts(now)
+            .find((p) => p.type === "timeZoneName")?.value ?? ""
+        );
+      } catch {
+        return "";
+      }
     }
+
+    let iana = "";
+    try {
+      iana = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
+    } catch {}
+
+    const longGeneric = nameForToken("longGeneric");
+    let shortGeneric = nameForToken("shortGeneric");
+
+    // shortGeneric falls back to the offset form for zones with no short name
+    // (e.g. "Etc/GMT-7" → "GMT-7"). When that happens, the IANA city is more
+    // useful than the offset.
+    if (!shortGeneric || /^GMT[+-]/.test(shortGeneric)) {
+      const city = iana.split("/").pop()?.replace(/_/g, " ") ?? "";
+      shortGeneric = city || nameForToken("short") || shortGeneric;
+    }
+
+    return {
+      tzShort: shortGeneric,
+      tzLong: longGeneric || iana,
+      tzIana: iana,
+    };
   }, []);
 
   // Drag-to-move and drag-to-resize
@@ -381,9 +417,19 @@ export function WeekView({
             className="flex shrink-0 items-center justify-center border-r border-border"
             style={{ width: `${GUTTER_WIDTH}px` }}
           >
-            <span className="text-[11px] font-medium text-muted-foreground">
-              {tzAbbr}
-            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="cursor-default truncate px-1 text-[11px] font-medium text-muted-foreground">
+                  {tzShort}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p className="text-xs">{tzLong}</p>
+                {tzIana && tzIana !== tzLong ? (
+                  <p className="text-[10px] text-muted-foreground">{tzIana}</p>
+                ) : null}
+              </TooltipContent>
+            </Tooltip>
           </div>
 
           {/* Day columns */}

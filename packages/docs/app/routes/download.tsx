@@ -249,8 +249,28 @@ export default function DownloadPage() {
         </div>
       </div>
 
+      {/* Run from source */}
+      <div className="mt-16 mx-auto max-w-2xl">
+        <div className="rounded-lg border border-[var(--docs-border)] px-6 py-5">
+          <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <IconTerminal2 size={16} />
+            Or run from source
+          </h4>
+          <p className="mb-3 text-xs text-[var(--fg-secondary)]">
+            No installer for your platform yet, or prefer the CLI? Scaffold a
+            new app with npm and run it locally — works on macOS, Windows, and
+            Linux.
+          </p>
+          <pre className="overflow-x-auto rounded-md bg-[var(--docs-code-bg,rgba(0,0,0,0.04))] px-4 py-3 text-xs">
+            <code>{`npx @agent-native/core create my-platform
+cd my-platform
+pnpm install && pnpm dev`}</code>
+          </pre>
+        </div>
+      </div>
+
       {/* Mobile teaser */}
-      <div className="mt-16 mx-auto max-w-lg rounded-lg border border-dashed border-[var(--docs-border)] px-6 py-5 text-center">
+      <div className="mt-12 mx-auto max-w-lg rounded-lg border border-dashed border-[var(--docs-border)] px-6 py-5 text-center">
         <p className="text-sm text-[var(--fg-secondary)]">
           A mobile app for iOS and Android is in the works.
         </p>

@@ -383,7 +383,7 @@ See the `authentication` skill for the full mode matrix (`AUTH_MODE=local`, `ACC
 Clips has a **Meetings** tab (`/meetings`) and a **Dictate** tab (`/dictate`):
 
 - **Meetings** lists upcoming + past meetings synced from Google Calendar (or created ad-hoc), with a two-pane detail view: live transcript (left) + AI summary / bullets / per-attendee action items (right). Use `list-meetings`, `get-meeting`, `finalize-meeting`, `connect-calendar`, etc. Navigation state exposes `view: "meetings" | "meeting"` and `meetingId`.
-- **Dictate** is the press-and-hold dictation history: every Hold-Fn or Cmd+Shift+Space dictation is saved as a row, expandable to show original + AI-cleaned text. Use `list-dictations`, `cleanup-dictation`. Navigation state exposes `view: "dictate"` and `dictationId`.
+- **Dictate** is the press-and-hold/browser dictation history: every Hold-Fn, Cmd+Shift+Space, or in-browser dictation is saved as a row, expandable to show original + AI-cleaned text. Use `create-dictation`, `list-dictations`, `cleanup-dictation`. Navigation state exposes `view: "dictate"` and `dictationId`.
 
 **Audio capture: mic + system, tagged.** Meeting capture records two streams (`mic` and `system`) and tags every transcript segment with its `source`, so per-attendee action items can attribute speech to remote attendees. Mic-only recordings make remote attendees silent — call this out whenever the user expects coverage of people on the other end of a Zoom/Meet/Teams call. Dictations are mic-only by design.
 
