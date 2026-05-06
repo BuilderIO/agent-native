@@ -1,4 +1,7 @@
-const QUOTE_PATTERNS = [/\n*(— On .+? wrote:\n)/, /\n*(— Forwarded message —\n)/];
+const QUOTE_PATTERNS = [
+  /\n*(— On .+? wrote:\n)/,
+  /\n*(— Forwarded message —\n)/,
+];
 
 function splitQuotedContent(body: string): [string, string] {
   for (const pattern of QUOTE_PATTERNS) {

@@ -22,10 +22,9 @@ export default defineAction({
   run: async () => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
-    const settings = (await getUserSetting(
-      ownerEmail,
-      "mail-settings",
-    )) as Partial<UserSettings> | undefined;
+    const settings = (await getUserSetting(ownerEmail, "mail-settings")) as
+      | Partial<UserSettings>
+      | undefined;
     return normalize(settings, ownerEmail);
   },
 });
