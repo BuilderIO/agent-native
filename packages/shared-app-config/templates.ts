@@ -38,6 +38,8 @@ export interface TemplateMeta {
   hidden?: boolean;
   /** Always scaffold without prompting (e.g. starter as fallback) */
   alwaysAvailable?: boolean;
+  /** Internal workspace packages this template depends on (e.g. "scheduling") */
+  requiredPackages?: string[];
   /** Core app — included in dev:all, desktop, and mobile by default */
   core?: boolean;
 }
@@ -65,6 +67,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8082,
     prodUrl: "https://calendar.agent-native.com",
     defaultMode: "prod",
+    requiredPackages: ["scheduling"],
     core: true,
   },
   {
@@ -233,7 +236,21 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8099,
     prodUrl: "https://design.agent-native.com",
     defaultMode: "prod",
+    requiredPackages: ["pinpoint"],
     core: true,
+  },
+  {
+    name: "images",
+    label: "Images",
+    hint: "Brand image libraries — generate on-brand heroes, diagrams, product shots, and slide art",
+    icon: "Photo",
+    color: "#0F766E",
+    colorRgb: "15 118 110",
+    devPort: 8100,
+    prodUrl: "https://images.agent-native.com",
+    defaultMode: "prod",
+    core: true,
+    hidden: true,
   },
   {
     name: "starter",
