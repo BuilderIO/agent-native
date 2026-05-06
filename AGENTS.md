@@ -90,6 +90,15 @@ Run `agent-native setup-agents` to create all symlinks (done automatically by `a
 
 ## Conventions
 
+- **Never create or switch git branches unless the user explicitly asks — ever.** Multiple agents work on this repo concurrently, and they share one working tree. Branching off mid-flow strands other agents' uncommitted work (the `/new-branch` skill stashes uncommitted changes, and orphaned stashes pile up — we've already lost real work this way: babysit-pr stashed concurrent agents' Sentry instrumentation under `babysit-tickN-concurrent-work-*` names on 2026-05-05, leaving Sentry capture in clips and a new `analytics.ts` API stuck in a stash entry while the PR shipped without them; the in-file comment in `templates/clips/actions/finalize-recording.ts` even read _"the PR adding `captureRouteError` here lives in a sibling branch"_, but that sibling branch's work was the orphaned stash). Hard rules:
+  - Default behavior is **stay on the current branch**. Treat the current branch as load-bearing — even if its name looks unusual (`ai_*`, `claude/*`, `codex/*`, `changes-N`, `updates-N`, `pr-NNN`, etc.). Those are platform-managed or other agents' branches; moving off them looks like work-loss to whoever started them.
+  - **Do not invoke `/new-branch`**, `git checkout -b`, `git checkout <other-branch>`, `git switch`, or `git worktree add` on your own initiative. The `/new-branch` skill is user-invocable only — its frontmatter says so for a reason.
+  - **Do not stash, force-push, reset --hard, branch -D, or rebase** on your own initiative. Each of these has been a vector for losing concurrent work.
+  - **Commit instead of stashing.** If the working tree has a mix of your changes and another agent's, `git status` and ask which to keep — never stash to "clean up." Stashes get orphaned; commits are durable and visible to other agents.
+  - **If the current branch genuinely looks wrong** (e.g. `git status` shows you're on `main` and about to commit there), stop and ask the user before moving. The user knows the shape of their concurrent agent setup; you don't.
+  - **If the user's request seems to require a new branch** (e.g. "open a PR for X"), proceed on the current branch unless they explicitly say "from a fresh branch." Most PR/ship workflows in this repo are designed to push the current branch, not branch-then-push.
+  - **Builder.io / Fusion environments** assign branches like `ai_*` or task-specific names from the platform side. Never move off them — the platform's UI tracks the user's work by that branch.
+
 - **Publishable npm packages use changesets.** Every PR that touches source in `packages/core`, `packages/dispatch`, `packages/scheduling`, or `packages/pinpoint` must include a `.changeset/<slug>.md`. The `changeset-check` CI job blocks PRs that change source in a publishable package without one. To add a changeset, run `pnpm changeset add` (interactive) or write `.changeset/<short-slug>.md` directly:
 
   ```md
