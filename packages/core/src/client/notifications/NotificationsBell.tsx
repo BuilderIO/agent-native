@@ -1,4 +1,4 @@
-import { agentNativePath } from "../api-path.js";
+import { agentNativePath, appPath } from "../api-path.js";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   IconBell,
@@ -142,8 +142,12 @@ export function NotificationsBell({
 
   const markRead = async (id: string) => {
     try {
+      // `keepalive: true` lets the request survive page navigation —
+      // without it, clicking a notification with a link aborts this
+      // request mid-flight and the row stays unread.
       await fetch(agentNativePath(`/_agent-native/notifications/${id}/read`), {
         method: "POST",
+        keepalive: true,
       });
       setItems((prev) =>
         prev
@@ -156,6 +160,25 @@ export function NotificationsBell({
     } catch {
       // best-effort
     }
+  };
+
+  // Reject any URL that isn't http(s) or a same-origin relative path. Blocks
+  // `javascript:` execution, `data:` URIs, and absolute redirects to phishing
+  // sites. Relative paths starting with `/` are routed through `appPath()` so
+  // the link works in mounted deployments (e.g. /mail subdirectory).
+  const safeNotificationLink = (link: string): string | null => {
+    if (link.startsWith("/") && !link.startsWith("//")) {
+      return appPath(link);
+    }
+    try {
+      const url = new URL(link, window.location.origin);
+      if (url.protocol === "http:" || url.protocol === "https:") {
+        return url.toString();
+      }
+    } catch {
+      // fallthrough
+    }
+    return null;
   };
 
   const markAllRead = async () => {
@@ -256,8 +279,9 @@ export function NotificationsBell({
             </div>
           ) : items.length > 0 ? (
             items.map((n) => {
-              const link =
+              const rawLink =
                 typeof n.metadata?.link === "string" ? n.metadata.link : null;
+              const link = rawLink ? safeNotificationLink(rawLink) : null;
               const onItemClick = () => {
                 if (!n.readAt) void markRead(n.id);
                 if (link) {

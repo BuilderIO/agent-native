@@ -2808,10 +2808,13 @@ function HtmlEmailBody({
       createToggle(el, "quote-toggle", "quoted-hidden");
     };
 
+    // Bounded quantifiers ([^\n]{1,200}?) keep these regexes linear-time
+    // even on adversarial email bodies — unbounded `.+?` over malicious
+    // pattern-like text triggers catastrophic backtracking.
     const outlookHeaderPattern =
-      /\bFrom:\s+.+?\bSent:\s+.+?\bTo:\s+.+?\bSubject:/i;
+      /\bFrom:\s+[^\n]{1,200}?\bSent:\s+[^\n]{1,200}?\bTo:\s+[^\n]{1,200}?\bSubject:/i;
     const replyAttributionPattern =
-      /(?:^|\s)(?:On .{3,300} wrote:|-{2,}\s*(?:Original|Forwarded)\s|From:\s+.+?\bSent:\s+.+?\bSubject:)/i;
+      /(?:^|\s)(?:On .{3,300} wrote:|-{2,}\s*(?:Original|Forwarded)\s|From:\s+[^\n]{1,200}?\bSent:\s+[^\n]{1,200}?\bSubject:)/i;
 
     const isOutlookHeader = (el: HTMLElement) => {
       const text = normalizeText(el.textContent);
@@ -2859,7 +2862,17 @@ function HtmlEmailBody({
         container.className = "quoted-hidden";
         start.parentNode.insertBefore(container, start);
         container.appendChild(start);
+        // Stop at an existing quoted-hidden/quote-toggle so we don't nest
+        // a later collapsed range inside this one. The closest() guard
+        // above handles already-wrapped starts; this protects siblings.
         while (container.nextSibling) {
+          const next = container.nextSibling as HTMLElement;
+          if (
+            next.classList?.contains?.("quote-toggle") ||
+            next.classList?.contains?.("quoted-hidden")
+          ) {
+            break;
+          }
           container.appendChild(container.nextSibling);
         }
 
