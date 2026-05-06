@@ -662,6 +662,13 @@ async function startNativeRecordingInner(
     );
   }
 
+  await invoke("park_popover_offscreen").catch(() => {});
+  emit("clips:popover-visible", false).catch(() => {});
+
+  const nativeTranscriptCapture = wantsAudio
+    ? await startNativeTranscriptCapture()
+    : null;
+
   // Choose the primary video track for MediaRecorder:
   //   - screen mode             → display
   //   - screen-camera mode      → display (camera is bubble overlay only)
@@ -834,10 +841,6 @@ async function startNativeRecordingInner(
   // MediaRecorder's real state (before the first 500ms tick).
   emitState(false);
 
-  const nativeTranscriptPromise = params.micOn
-    ? startNativeTranscriptCapture()
-    : Promise.resolve(null);
-
   // 6. Bubble + toolbar visibility are owned by the popover's session
   // effect (see app.tsx + bubble-pump.ts) — not the recorder. Both open
   // as soon as the user opens the popover in screen-camera / camera mode
@@ -846,7 +849,7 @@ async function startNativeRecordingInner(
 
   const handle: RecorderHandle = {
     async stop() {
-      if (stopped) return { recordingId: id, viewUrl: `/share/${id}` };
+      if (stopped) return { recordingId: id, viewUrl: `/r/${id}` };
       stopped = true;
       console.log("[clips-recorder] stop requested");
       clearInterval(tickHandle);
@@ -878,9 +881,6 @@ async function startNativeRecordingInner(
         }
       });
 
-      const nativeTranscriptCapture = await nativeTranscriptPromise.catch(
-        () => null,
-      );
       const nativeTranscript = await nativeTranscriptCapture
         ?.stop()
         .catch((err) => {
@@ -984,7 +984,7 @@ async function startNativeRecordingInner(
       // and THEN close the finalizing spinner. Closing before the browser
       // opens would leave the user staring at an empty desktop for the
       // brief moment while the OS launches / focuses the default browser.
-      const viewUrl = `/share/${id}`;
+      const viewUrl = `/r/${id}`;
       try {
         await openExternal(`${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`);
       } catch (err) {
@@ -1003,9 +1003,7 @@ async function startNativeRecordingInner(
       clearInterval(tickHandle);
       stateUnlistens.forEach((u) => u());
       stateUnlistens = [];
-      nativeTranscriptPromise
-        .then((capture) => capture?.cancel())
-        .catch(() => {});
+      nativeTranscriptCapture?.cancel().catch(() => {});
       // Remove MediaRecorder's data handler so any final `ondataavailable`
       // from the stop() below doesn't push a new Blob into `inflight`
       // after we've decided to discard everything.

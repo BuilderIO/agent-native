@@ -1845,12 +1845,13 @@ export function AgentSidebar({
       {isMobile && !presentationMode && (animateMobile || open) && (
         <div
           className={cn(
-            "fixed inset-0 z-40 bg-black/40",
+            "fixed inset-0 bg-black/40",
             animateMobile &&
               "transition-opacity duration-200 motion-reduce:transition-none",
             animateMobile && !open && "pointer-events-none opacity-0",
             animateMobile && open && "opacity-100",
           )}
+          style={{ zIndex: SIDEBAR_OVERLAY_Z_INDEX - 1 }}
           onClick={() => setOpenPersisted(false)}
         />
       )}

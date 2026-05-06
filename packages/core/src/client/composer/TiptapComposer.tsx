@@ -499,7 +499,7 @@ function ModelSelector({
           <span>{friendlyModelName(model)}</span>
           {effortOptions.length > 0 && (
             <span className="text-muted-foreground/70">
-              · {reasoningEffortLabel(effort)}
+              · Reasoning {reasoningEffortLabel(effort)}
             </span>
           )}
           <IconChevronDown className="h-3 w-3 opacity-60" />
@@ -625,7 +625,7 @@ function ModelSelector({
             <>
               <div className="my-1 border-t border-border" />
               <div className="px-3 py-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-                Effort
+                Reasoning
               </div>
               {effortOptions.map((option) => (
                 <button

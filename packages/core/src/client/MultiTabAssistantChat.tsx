@@ -1203,7 +1203,9 @@ export function MultiTabAssistantChat({
       <style
         dangerouslySetInnerHTML={{
           __html:
-            ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}",
+            ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}" +
+            ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
+            ".agent-tabs-scroll::-webkit-scrollbar{display:none;}",
         }}
       />
       {renderHeader
@@ -1221,7 +1223,7 @@ export function MultiTabAssistantChat({
               return (
                 <>
                   <div className="flex items-center px-1 py-1 border-b border-border shrink-0 gap-0.5">
-                    <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
+                    <div className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1">
                       {mainTabs.map((tab) => {
                         const isActive =
                           tab.id === activeThreadId ||
@@ -1309,7 +1311,7 @@ export function MultiTabAssistantChat({
                   </div>
                   {hasSubTabs && (
                     <div className="flex items-center px-1 py-0.5 border-b border-border shrink-0 gap-0.5 bg-muted/30">
-                      <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
+                      <div className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1">
                         <button
                           onClick={() => switchThread(focusParentId!)}
                           className={cn(

@@ -130,6 +130,42 @@ export function EditorToolbar({
     }
   };
 
+  const handleTrimStart = async () => {
+    const endMs = Math.round(playheadMs);
+    if (endMs < 500) {
+      toast.info("Move the playhead past the intro you want to cut");
+      return;
+    }
+    try {
+      await trim.mutateAsync({
+        recordingId,
+        startMs: 0,
+        endMs,
+      } as any);
+      toast.success("Start cut");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Trim failed");
+    }
+  };
+
+  const handleTrimEnd = async () => {
+    const startMs = Math.round(playheadMs);
+    if (durationMs - startMs < 500) {
+      toast.info("Move the playhead before the ending you want to cut");
+      return;
+    }
+    try {
+      await trim.mutateAsync({
+        recordingId,
+        startMs,
+        endMs: Math.round(durationMs),
+      } as any);
+      toast.success("End cut");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Trim failed");
+    }
+  };
+
   const runExport = async () => {
     if (!video.videoUrl) {
       toast.error("Video not ready yet");
@@ -247,6 +283,34 @@ export function EditorToolbar({
           </Button>
         </TooltipTrigger>
         <TooltipContent>Cut selection</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleTrimStart}
+            disabled={trim.isPending || playheadMs < 500}
+          >
+            <IconScissors className="w-4 h-4 mr-1" />
+            Start
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Cut everything before the playhead</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleTrimEnd}
+            disabled={trim.isPending || durationMs - playheadMs < 500}
+          >
+            <IconScissors className="w-4 h-4 mr-1" />
+            End
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Cut everything after the playhead</TooltipContent>
       </Tooltip>
 
       <Separator orientation="vertical" className="h-6 mx-1" />

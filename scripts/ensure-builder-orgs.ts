@@ -40,6 +40,7 @@ interface AppEnv {
   envPath: string;
   databaseUrl: string;
   databaseAuthToken?: string;
+  secretsEncryptionMaterial?: string;
 }
 
 interface EnsureResult {
@@ -57,6 +58,10 @@ interface EnsureResult {
   betterAuthUserMissing: boolean;
   clipsSettingsCreated: boolean;
   activeOrgSet: boolean;
+  builderSecretsProvided?: boolean;
+  builderSecretsSynced?: boolean;
+  builderSecretsTableMissing?: boolean;
+  builderSecretsMissing?: string[];
 }
 
 interface A2ASecretSource {
@@ -65,13 +70,27 @@ interface A2ASecretSource {
   envName?: string;
 }
 
+const BUILDER_ORG_SECRET_KEYS = [
+  "BUILDER_BRANCH_PROJECT_ID",
+  "BUILDER_PROJECT_ID",
+  "BUILDER_PRIVATE_KEY",
+  "BUILDER_PUBLIC_KEY",
+] as const;
+
+type BuilderOrgSecretKey = (typeof BUILDER_ORG_SECRET_KEYS)[number];
+
+interface BuilderOrgSecrets {
+  values: Record<BuilderOrgSecretKey, string>;
+}
+
 const argv = process.argv.slice(2);
 const write = argv.includes("--write");
 const apps =
   flagValue("--apps")
     ?.split(",")
     .map((s) => s.trim())
-    .filter(Boolean) ?? DEFAULT_APPS;
+    .filter(Boolean) ??
+  (argv.includes("--all-templates") ? discoverTemplateApps() : DEFAULT_APPS);
 
 if (argv.includes("--help")) {
   printHelp();
@@ -82,6 +101,14 @@ const orgA2ASecretEnvNames = orgA2ASecretEnvCandidates();
 let orgA2ASecret: A2ASecretSource;
 try {
   orgA2ASecret = resolveOrgA2ASecret(orgA2ASecretEnvNames);
+} catch (error) {
+  console.error(`failed - ${formatError(error)}`);
+  process.exit(1);
+}
+
+let builderOrgSecrets: BuilderOrgSecrets | null;
+try {
+  builderOrgSecrets = resolveBuilderOrgSecrets();
 } catch (error) {
   console.error(`failed - ${formatError(error)}`);
   process.exit(1);
@@ -101,6 +128,11 @@ if (orgA2ASecret.source === "env") {
     )}); generated one secret for orgs created or filled during this run. Existing non-empty secrets will not be rotated.`,
   );
 }
+if (builderOrgSecrets) {
+  console.log(
+    "Builder org branch secrets provided; encrypted org-scoped app_secrets will be synced.",
+  );
+}
 
 const failures: Array<{ app: string; error: unknown }> = [];
 
@@ -115,6 +147,16 @@ for (const app of apps) {
       if (app === "clips") await ensureClipsOrgSettingsTable(db);
     }
     const result = await ensureBuilderOrg(db, app, write, orgA2ASecret);
+    if (builderOrgSecrets) {
+      Object.assign(
+        result,
+        await ensureBuilderOrgSecrets(db, result.orgId, write, {
+          app: env.app,
+          secrets: builderOrgSecrets,
+          encryptionMaterial: env.secretsEncryptionMaterial,
+        }),
+      );
+    }
     printResult(result, write);
   } catch (error) {
     failures.push({ app, error });
