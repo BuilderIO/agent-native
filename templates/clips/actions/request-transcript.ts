@@ -10,8 +10,8 @@
  * Cloud fallback provider selection:
  *   1. Builder.io transcription (Gemini 3.1 Flash-Lite behind the Builder
  *      proxy) when Builder is connected.
- *   2. `GROQ_API_KEY` → Groq's `whisper-large-v3-turbo`.
- *   3. `OPENAI_API_KEY` → OpenAI's `whisper-1`.
+ *   2. `GROQ_API_KEY` → Groq's fast speech-to-text fallback.
+ *   3. `OPENAI_API_KEY` → OpenAI speech-to-text fallback.
  *   4. Neither → keep any native transcript or fail with a clear reason.
  *
  * Both providers accept the same multipart form-data shape, so the only
@@ -48,6 +48,7 @@ import {
 import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import regenerateTitle from "./regenerate-title.js";
+import cleanupTranscript from "./cleanup-transcript.js";
 
 /**
  * Default title seeded by `create-recording`. Used to detect "the user hasn't
@@ -64,16 +65,16 @@ function isDefaultTitle(title: string | null | undefined): boolean {
   return trimmed === DEFAULT_RECORDING_TITLE;
 }
 
-interface WhisperSegment {
+interface SpeechToTextSegment {
   start: number; // seconds
   end: number; // seconds
   text: string;
 }
 
-interface WhisperResponse {
+interface SpeechToTextResponse {
   text: string;
   language?: string;
-  segments?: WhisperSegment[];
+  segments?: SpeechToTextSegment[];
 }
 
 type TranscriptionProvider = {
@@ -88,6 +89,68 @@ const GROQ_MODEL = "whisper-large-v3-turbo";
 const OPENAI_ENDPOINT = "https://api.openai.com/v1/audio/transcriptions";
 const OPENAI_MODEL = "whisper-1";
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
+
+function fullTextSegmentJson(
+  text: string,
+  durationMs: number | null | undefined,
+): string {
+  return JSON.stringify([
+    {
+      startMs: 0,
+      endMs: Math.max(1000, Math.round(durationMs ?? 0)),
+      text: text.trim(),
+    },
+  ]);
+}
+
+async function cleanupNativeTranscript({
+  db,
+  recordingId,
+  ownerEmail,
+  fullText,
+  durationMs,
+}: {
+  db: ReturnType<typeof getDb>;
+  recordingId: string;
+  ownerEmail: string;
+  fullText: string;
+  durationMs: number | null | undefined;
+}): Promise<{ cleaned: boolean; provider?: string }> {
+  const sourceText = fullText.trim();
+  if (!sourceText) return { cleaned: false };
+
+  try {
+    const result = await cleanupTranscript.run({
+      transcript: sourceText,
+      task: "cleanup",
+    });
+    const cleanedText = result.cleanedText?.trim();
+    if (!cleanedText || cleanedText === sourceText) {
+      return { cleaned: false, provider: result.provider };
+    }
+
+    const now = new Date().toISOString();
+    await upsertTranscriptRow(db, {
+      recordingId,
+      ownerEmail,
+      status: "ready",
+      failureReason: null,
+      language: "en",
+      segmentsJson: fullTextSegmentJson(cleanedText, durationMs),
+      fullText: cleanedText,
+      now,
+    });
+    await writeAppState("refresh-signal", { ts: Date.now() });
+
+    return { cleaned: true, provider: result.provider };
+  } catch (err) {
+    console.warn(
+      `[clips] native transcript cleanup skipped for ${recordingId}:`,
+      (err as Error).message,
+    );
+    return { cleaned: false };
+  }
+}
 
 /**
  * Resolve a secret from (in order):
@@ -119,7 +182,8 @@ async function resolveKey(
 async function pickProvider(
   userEmail: string | null,
 ): Promise<TranscriptionProvider | null> {
-  // Prefer Groq — same Whisper model family, ~10x faster, OpenAI-compatible.
+  // Prefer Groq when Builder/native are unavailable — it is the faster
+  // OpenAI-compatible speech-to-text fallback.
   const groqKey = await resolveKey("GROQ_API_KEY", userEmail);
   if (groqKey) {
     return {
@@ -143,7 +207,7 @@ async function pickProvider(
 
 export default defineAction({
   description:
-    "Ensure a recording has a transcript. Preserves native Web Speech/macOS Speech transcripts first, then falls back to Builder transcription, Groq whisper-large-v3-turbo, or OpenAI whisper-1 when needed.",
+    "Ensure a recording has a transcript. Preserves native Web Speech/macOS Speech transcripts first, then falls back to Builder Gemini Flash-Lite transcription, Groq, or OpenAI when needed.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
   }),
@@ -170,25 +234,44 @@ export default defineAction({
       existingNativeTranscript.fullText?.trim()
     ) {
       const [recForTitle] = await db
-        .select({ title: schema.recordings.title })
+        .select({
+          title: schema.recordings.title,
+          durationMs: schema.recordings.durationMs,
+        })
         .from(schema.recordings)
         .where(eq(schema.recordings.id, args.recordingId))
         .limit(1);
 
-      if (recForTitle && isDefaultTitle(recForTitle.title)) {
-        try {
-          await regenerateTitle.run({ recordingId: args.recordingId });
-        } catch (delegateErr) {
-          console.warn(
-            `[clips] native-transcript title delegation failed for ${args.recordingId}:`,
-            (delegateErr as Error).message,
-          );
-        }
+      const cleanupWork = cleanupNativeTranscript({
+        db,
+        recordingId: args.recordingId,
+        ownerEmail,
+        fullText: existingNativeTranscript.fullText,
+        durationMs: recForTitle?.durationMs,
+      });
+      const titleWork =
+        recForTitle && isDefaultTitle(recForTitle.title)
+          ? regenerateTitle.run({ recordingId: args.recordingId })
+          : Promise.resolve(null);
+
+      const [cleanupResult, titleResult] = await Promise.allSettled([
+        cleanupWork,
+        titleWork,
+      ]);
+      if (titleResult.status === "rejected") {
+        console.warn(
+          `[clips] native-transcript title generation failed for ${args.recordingId}:`,
+          (titleResult.reason as Error)?.message ?? String(titleResult.reason),
+        );
       }
 
       return {
         recordingId: args.recordingId,
         status: "ready" as const,
+        cleaned:
+          cleanupResult.status === "fulfilled"
+            ? cleanupResult.value.cleaned
+            : false,
         provider:
           existingNativeTranscript.segmentsJson &&
           existingNativeTranscript.segmentsJson !== "[]"
@@ -378,10 +461,8 @@ export default defineAction({
         console.log(
           `[clips] No cloud provider configured but native transcript exists for ${args.recordingId} — keeping it`,
         );
-        // Still queue a title-generation delegation — the native transcript is
-        // good enough for the agent to produce a real title even without
-        // Whisper. This covers recordings where no cloud transcript API key is
-        // configured.
+        // Still queue title generation — the native transcript is good enough
+        // to produce a real title even without a cloud speech-to-text key.
         const [recForTitle] = await db
           .select({ title: schema.recordings.title })
           .from(schema.recordings)
@@ -538,7 +619,7 @@ export default defineAction({
             : `${provider.name} transcription error ${res.status}: ${text.slice(0, 300)}`,
         );
       }
-      const data = (await res.json()) as WhisperResponse;
+      const data = (await res.json()) as SpeechToTextResponse;
 
       const segments = (data.segments ?? []).map((s) => ({
         startMs: Math.max(0, Math.round(s.start * 1000)),

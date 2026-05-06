@@ -167,9 +167,11 @@ export async function disconnectZoom(ownerEmail: string) {
 export async function createZoomMeeting(opts: {
   hostEmail: string;
   title: string;
+  description?: string;
   startTime: string; // ISO
   endTime: string; // ISO
   timezone: string;
+  attendees?: Array<{ email: string; name?: string }>;
 }): Promise<{ meetingUrl: string; meetingId: string } | undefined> {
   const accounts = await listOAuthAccountsByOwner(PROVIDER, opts.hostEmail);
   if (accounts.length === 0) return undefined;
@@ -197,12 +199,12 @@ export async function createZoomMeeting(opts: {
     booking: {
       uid: nanoid(),
       title: opts.title,
-      description: "",
+      description: opts.description ?? "",
       startTime: opts.startTime,
       endTime: opts.endTime,
       timezone: opts.timezone,
       hostEmail: opts.hostEmail,
-      attendees: [],
+      attendees: opts.attendees ?? [],
       iCalUid: nanoid(),
       iCalSequence: 0,
     } as any,

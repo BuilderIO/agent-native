@@ -65,7 +65,7 @@ export interface DesignFile {
 export interface TweakDefinition {
   id: string;
   label: string;
-  type: "color-swatch" | "segment" | "slider" | "toggle";
+  type: "color-swatch" | "color-swatches" | "segment" | "slider" | "toggle";
   options?: { label: string; value: string; color?: string }[];
   min?: number;
   max?: number;

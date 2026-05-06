@@ -46,7 +46,7 @@ import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 
 export function meta({ params }: { params: { recordingId?: string } }) {
-  return [{ title: `Clip · ${params.recordingId ?? ""}` }];
+  return [{ title: "Clip recording · Clips" }];
 }
 
 export function HydrateFallback() {
@@ -116,6 +116,7 @@ export default function RecordingPage() {
   const reactions = playerDataQ.data?.reactions ?? [];
   const chapters = playerDataQ.data?.chapters ?? [];
   const transcriptSegments = playerDataQ.data?.transcript?.segments ?? [];
+  const transcriptFullText = playerDataQ.data?.transcript?.fullText ?? null;
   const transcriptStatus = playerDataQ.data?.transcript?.status;
   const transcriptFailureReason = playerDataQ.data?.transcript?.failureReason;
   const ctas = playerDataQ.data?.ctas ?? [];
@@ -125,7 +126,10 @@ export default function RecordingPage() {
   const handleAiError = (err: Error) =>
     toast.error(err?.message ?? "AI request failed");
   const regenerateTitle = useActionMutation("regenerate-title" as any, {
-    onSuccess: () => toast.success("Title request queued"),
+    onSuccess: (result: any) =>
+      toast.success(
+        result?.updated ? "Title updated" : "Title generation queued",
+      ),
     onError: handleAiError,
   });
   const regenerateSummary = useActionMutation("regenerate-summary" as any, {
@@ -159,8 +163,15 @@ export default function RecordingPage() {
     if (!Number.isNaN(s)) setSpeed(s);
   }, [recording?.defaultSpeed]);
 
+  useEffect(() => {
+    if (!recording) return;
+    document.title = isDefaultTitle(recording.title)
+      ? "Clip recording · Clips"
+      : `${recording.title.trim()} · Clips`;
+  }, [recording?.title]);
+
   // Self-heal stuck transcripts. Older recordings (before finalize-recording
-  // learned to auto-trigger Whisper) can sit in `pending` forever with no
+  // learned to auto-trigger transcription) can sit in `pending` forever with no
   // worker to pick them up. When the owner opens one, kick off a transcript
   // once per page mount — the upsert inside request-transcript is idempotent
   // so a second "real" run would just overwrite the pending row.
@@ -653,16 +664,18 @@ export default function RecordingPage() {
                 >
                   <TranscriptPanel
                     segments={transcriptSegments}
+                    fullText={transcriptFullText}
+                    durationMs={recording.durationMs}
                     currentMs={currentMs}
                     onSeek={(ms) => playerRef.current?.seek(ms)}
                     status={transcriptStatus}
                     failureReason={transcriptFailureReason}
                     recordingTitle={recording.title}
                     onRetry={() => {
-                      // Re-run the Whisper transcription now that the user may
-                      // have set their OPENAI_API_KEY (or after a one-off
-                      // network error). The action flips the row to 'pending'
-                      // first, so the UI will swap back to "Transcribing…".
+                      // Re-run transcription now that the user may have
+                      // connected Builder/Gemini or after a one-off network
+                      // error. The action flips the row to 'pending' first,
+                      // so the UI swaps back to "Transcribing…".
                       fetch(
                         agentNativePath(
                           "/_agent-native/actions/request-transcript",

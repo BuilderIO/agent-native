@@ -116,6 +116,7 @@ export type UserSettings = {
   email: string;
   avatar?: string;
   signature?: string;
+  writingStyle?: string;
   theme: "light" | "dark" | "system";
   density: "compact" | "comfortable" | "spacious";
   previewPane: "right" | "bottom" | "off";

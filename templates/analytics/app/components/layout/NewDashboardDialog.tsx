@@ -10,15 +10,17 @@ import { cn } from "@/lib/utils";
 
 const DASHBOARD_CONTEXT =
   "The user wants to create a new analytics dashboard. " +
-  "Create a SQL-driven dashboard by saving a JSON config via PUT /api/sql-dashboards/{id}. " +
+  "REAL_DATA_REQUIRED: before saving or answering, run at least one real data-source query action; `data-source-status`, `list-data-dictionary`, `update-dashboard`, and dry-run validation do not count as data queries. " +
+  "If no source can answer, report the exact unavailable/error result instead of saving a dashboard with guessed schema or metrics. " +
+  "Create a SQL-driven dashboard by calling the `update-dashboard` action with `dashboardId` and `config`. " +
   "The config shape is: { name: string, panels: [{ id, title, sql, source, chartType, width, config? }] }. " +
   "Each panel needs: id (unique string), title, sql (the query), source ('bigquery' | 'ga4' | 'amplitude' | 'first-party'), " +
   "chartType ('line' | 'area' | 'bar' | 'metric' | 'table' | 'pie'), width (1 or 2). " +
   "Optional config: { xKey, yKey, yKeys, color, colors, yFormatter ('number'|'currency'|'percent'), description }. " +
   "For first-party analytics, source is 'first-party' and sql may read analytics_events only; do not use db-query for datasource panels. " +
-  "First check /_agent-native/env-status to see which data sources are connected. " +
+  "Call `data-source-status` if you need to see which data sources are connected. " +
   "Refer to AGENTS.md, .agents/skills, the data dictionary, and connected data-source instructions for SQL patterns and table names. " +
-  "NO code files need to be created — only the dashboard config JSON via the API. " +
+  "NO code files need to be created — only the dashboard config JSON via `update-dashboard`. " +
   "After saving, the dashboard will be accessible at /adhoc/{id}.";
 
 export function NewDashboardDialog() {

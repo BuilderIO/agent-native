@@ -408,6 +408,12 @@
   background: hsl(var(--accent));
   color: hsl(var(--foreground));
 }
+.notion-code-lang-btn--readonly,
+.notion-code-lang-btn--readonly:hover {
+  cursor: default;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+}
 .notion-code-lang-picker {
   position: absolute;
   top: 100%;

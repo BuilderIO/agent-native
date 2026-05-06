@@ -1,7 +1,7 @@
 export interface TweakDefinition {
   id: string;
   label: string;
-  type: "color-swatches" | "segment" | "toggle" | "slider";
+  type: "color-swatch" | "segment" | "toggle" | "slider";
   options?: { value: string; label: string; color?: string }[];
   defaultValue: string | number | boolean;
   cssVar?: string;
@@ -29,7 +29,7 @@ export const DESIGN_SYSTEM_PRESETS: DesignSystemPreset[] = [
       {
         id: "accentColor",
         label: "Accent color",
-        type: "color-swatches",
+        type: "color-swatch",
         options: [
           { value: "#00E5FF", label: "Cyan", color: "#00E5FF" },
           { value: "#609FF8", label: "Blue", color: "#609FF8" },
@@ -79,7 +79,7 @@ export const DESIGN_SYSTEM_PRESETS: DesignSystemPreset[] = [
       {
         id: "accentColor",
         label: "Accent color",
-        type: "color-swatches",
+        type: "color-swatch",
         options: [
           { value: "#2563EB", label: "Blue", color: "#2563EB" },
           { value: "#0891B2", label: "Teal", color: "#0891B2" },
@@ -129,7 +129,7 @@ export const DESIGN_SYSTEM_PRESETS: DesignSystemPreset[] = [
       {
         id: "accentColor",
         label: "Accent color",
-        type: "color-swatches",
+        type: "color-swatch",
         options: [
           { value: "#1E40AF", label: "Navy", color: "#1E40AF" },
           { value: "#0F766E", label: "Teal", color: "#0F766E" },
@@ -179,7 +179,7 @@ export const DESIGN_SYSTEM_PRESETS: DesignSystemPreset[] = [
       {
         id: "accentColor",
         label: "Accent color",
-        type: "color-swatches",
+        type: "color-swatch",
         options: [
           { value: "#404040", label: "Charcoal", color: "#404040" },
           { value: "#737373", label: "Gray", color: "#737373" },

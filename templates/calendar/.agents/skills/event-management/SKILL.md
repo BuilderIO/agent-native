@@ -73,10 +73,20 @@ pnpm action create-event \
   --end 2026-04-03T15:00:00 \
   --attendees "alice@example.com,bob@example.com" \
   --addGoogleMeet=true
+
+# Create a real Zoom meeting and attach the link
+pnpm action create-event \
+  --title "Q2 planning" \
+  --start 2026-04-03T14:00:00 \
+  --end 2026-04-03T15:00:00 \
+  --attendees "alice@example.com,bob@example.com" \
+  --addZoom=true
 ```
 
 Required: `--title`, `--start`, `--end` (all ISO datetime format).
-Optional: `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--sendUpdates`.
+Optional: `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`.
+
+Use only one generated video provider per event: `--addGoogleMeet=true` or `--addZoom=true`, not both. Zoom requires the user to connect Zoom in Settings first; check with `pnpm action get-zoom-status` when unsure.
 
 `--attendees` accepts a comma- or space-separated list of email addresses. When attendees are provided, Google sends email invitations automatically (`sendUpdates=all`). Use `--sendUpdates=none` to suppress emails.
 
@@ -97,9 +107,15 @@ pnpm action update-event \
 
 # Suppress invitation emails
 pnpm action update-event --id google-event-id --attendees "alice@example.com" --sendUpdates none
+
+# Add generated video conferencing
+pnpm action update-event --id google-event-id --addGoogleMeet=true
+pnpm action update-event --id google-event-id --addZoom=true
 ```
 
 `--attendees` REPLACES the entire attendee list — to add someone, fetch the existing attendees first via `get-event` and pass the merged list. Pass an empty string to clear all attendees.
+
+For "add Zoom to this meeting", fetch or use the visible event id and call `update-event --addZoom=true`. Do not create an extension for Zoom; Zoom is a first-party calendar integration handled by the event actions and the Settings page.
 
 For recurring events, pass a Google Calendar RRULE in `--recurrence`. Example: to make a daily event weekdays only, use:
 
@@ -130,7 +146,9 @@ When the user says:
 | "next Tuesday"                                 | `list-events --from <tuesday> --to <wednesday>`                              |
 | "meetings with Alice"                          | `search-events --query "Alice"`                                              |
 | "schedule a meeting"                           | `create-event --title ... --start ... --end ...`                             |
+| "schedule a Zoom meeting"                      | `create-event --title ... --start ... --end ... --addZoom=true`              |
 | "move/rename/update a meeting"                 | `update-event --id ...`                                                      |
+| "add Zoom to this meeting"                     | `update-event --id ... --addZoom=true`                                       |
 | "delete/remove a meeting"                      | `delete-event --id ...`                                                      |
 | "remove weekends from a daily recurring event" | `update-event --id ... --recurrence "RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR"` |
 | "what's coming up"                             | `list-events` (uses default 30-day forward window)                           |

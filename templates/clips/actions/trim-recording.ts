@@ -11,10 +11,10 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
 import {
   mergeExcluded,
   parseEdits,
@@ -42,18 +42,14 @@ export default defineAction({
       throw new Error("endMs must be greater than startMs");
     }
 
+    await assertAccess("recording", args.recordingId, "editor");
+
     const db = getDb();
-    const ownerEmail = getCurrentOwnerEmail();
 
     const [existing] = await db
       .select()
       .from(schema.recordings)
-      .where(
-        and(
-          eq(schema.recordings.id, args.recordingId),
-          eq(schema.recordings.ownerEmail, ownerEmail),
-        ),
-      );
+      .where(eq(schema.recordings.id, args.recordingId));
     if (!existing) {
       throw new Error(`Recording not found: ${args.recordingId}`);
     }

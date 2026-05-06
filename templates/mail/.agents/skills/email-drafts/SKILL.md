@@ -51,6 +51,15 @@ The `body` field uses **markdown**. The compose editor (TipTap) renders it as ri
 
 Do NOT use raw HTML tags — use markdown only.
 
+## Signature and Style Settings
+
+Before creating or rewriting a draft, read the user's drafting settings with `pnpm action get-mail-settings`.
+
+- Use `signature` exactly when it is configured; do not rewrite or duplicate it.
+- If no signature is configured, omit the signature. Never derive one from the user's name, email address, or connected profile.
+- Follow `writingStyle` when present.
+- Keep generated copy natural and specific. Avoid generic AI email tropes, headings, and over-formal filler unless the user asks for that style.
+
 ## How It Works
 
 1. **Write** `writeAppState("compose-{id}", draft)` — the shared application state row changes

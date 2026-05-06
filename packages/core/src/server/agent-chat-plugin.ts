@@ -93,7 +93,7 @@ import nodePath from "node:path";
 import { readBody } from "./h3-helpers.js";
 import {
   getBuilderBrowserConnectUrl,
-  isBuilderBranchingEnabled,
+  resolveBuilderBranchProjectId,
 } from "./builder-browser.js";
 import { captureCliOutput } from "./cli-capture.js";
 import { withConfiguredAppBasePath } from "./app-base-path.js";
@@ -1009,11 +1009,12 @@ function createBuilderBrowserTool(deps: {
           await import("./credential-provider.js");
         const creds = await resolveBuilderCredentials();
         const configured = !!(creds.privateKey && creds.publicKey);
+        const branchProjectId = await resolveBuilderBranchProjectId();
         const prompt = typeof args?.prompt === "string" ? args.prompt : "";
         return JSON.stringify({
           kind: "connect-builder-card",
           configured,
-          builderEnabled: isBuilderBranchingEnabled(),
+          builderEnabled: !!branchProjectId,
           connectUrl: getBuilderBrowserConnectUrl(deps.getOrigin()),
           orgName: creds.orgName || null,
           prompt,
@@ -1401,6 +1402,12 @@ export interface AgentChatPluginOptions {
     event: any,
     owner: string,
   ) => string | null | Promise<string | null>;
+  /**
+   * Optional final-answer guard. Templates can use this to require a
+   * corrective retry before accepting a text-only final answer, e.g. forcing
+   * real data-source tool calls for analytics requests.
+   */
+  finalResponseGuard?: import("../agent/production-agent.js").AgentLoopFinalResponseGuard;
   /**
    * Use ONLY the template's `systemPrompt` and the actions list — skip the
    * framework prompt wrapper, resource loading (AGENTS.md/LEARNINGS.md/
@@ -3550,6 +3557,7 @@ export function createAgentChatPlugin(
         model: options?.model ?? DEFAULT_MODEL,
         apiKey: options?.apiKey,
         runSoftTimeoutMs: options?.runSoftTimeoutMs,
+        finalResponseGuard: options?.finalResponseGuard,
         skipFilesContext: leanPrompt,
         onEngineResolved: (engine, model) => {
           const runCtx = ensureRequestRunContext();
@@ -3589,6 +3597,7 @@ export function createAgentChatPlugin(
               model: options?.model ?? DEFAULT_MODEL,
               apiKey: options?.apiKey,
               runSoftTimeoutMs: options?.runSoftTimeoutMs,
+              finalResponseGuard: options?.finalResponseGuard,
               skipFilesContext: true,
               onEngineResolved: (engine, model) => {
                 const runCtx = ensureRequestRunContext();
@@ -3683,6 +3692,7 @@ export function createAgentChatPlugin(
           model: options?.model,
           apiKey: options?.apiKey,
           runSoftTimeoutMs: options?.runSoftTimeoutMs,
+          finalResponseGuard: options?.finalResponseGuard,
           skipFilesContext: leanPrompt,
           onEngineResolved: (engine, model) => {
             const runCtx = ensureRequestRunContext();

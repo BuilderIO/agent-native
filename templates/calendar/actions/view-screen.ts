@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
-import { formatDateRange } from "./helpers.js";
+import { extractVideoLink } from "./event-action-helpers.js";
 
 async function fetchEventsForRange(from: string, to: string): Promise<any[]> {
   try {
@@ -47,11 +47,6 @@ export default defineAction({
       );
 
       const compact = events.slice(0, 50).map((e: any) => {
-        const videoLink =
-          e.hangoutLink ||
-          e.conferenceData?.entryPoints?.find(
-            (ep: any) => ep.entryPointType === "video",
-          )?.uri;
         return {
           id: e.id,
           title: e.title,
@@ -64,7 +59,7 @@ export default defineAction({
             ?.filter((a: any) => !a.self)
             .slice(0, 8)
             .map((a: any) => a.displayName || a.email),
-          videoLink: videoLink || undefined,
+          videoLink: extractVideoLink(e) || undefined,
           responseStatus: e.responseStatus || undefined,
         };
       });
@@ -89,6 +84,13 @@ export default defineAction({
       screen.page = "bookings";
     } else if (nav?.view === "settings") {
       screen.page = "settings";
+      try {
+        const zoom = await import("../server/lib/zoom.js");
+        const email = getRequestUserEmail();
+        screen.zoom = await zoom.getZoomStatus(email);
+      } catch {
+        screen.zoom = { connected: false, configured: false, accounts: [] };
+      }
     }
 
     if (Object.keys(screen).length === 0) {

@@ -5,11 +5,22 @@ import {
   deleteAppState,
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
+import { getUserSetting } from "@agent-native/core/settings";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
+import { appendSignatureToBody } from "../shared/signature.js";
 
 /** Reject IDs that could escape via path traversal. */
 function sanitizeDraftId(id: string): string | null {
   return /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
+}
+
+async function readConfiguredSignature(): Promise<string | undefined> {
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) return undefined;
+  const settings = await getUserSetting(ownerEmail, "mail-settings");
+  const signature = (settings as any)?.signature;
+  return typeof signature === "string" ? signature : undefined;
 }
 
 export default defineAction({
@@ -70,11 +81,12 @@ export default defineAction({
     if (action === "create") {
       const rawId = args.id || `draft-${Date.now()}`;
       const id = sanitizeDraftId(rawId) ?? `draft-${Date.now()}`;
+      const signature = await readConfiguredSignature();
       const draft: Record<string, string> = {
         id,
         to: args.to || "",
         subject: args.subject || "",
-        body: args.body || "",
+        body: appendSignatureToBody(args.body || "", signature),
         mode: args.mode || "compose",
       };
       if (args.cc) draft.cc = args.cc;

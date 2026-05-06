@@ -5,9 +5,6 @@
  * immediately when recording stops. Native transcripts are available
  * instantly with no API-key requirement and are the primary transcript source.
  *
- * After saving, if the recording still has the default title we queue an
- * agent title-generation request so the clip gets a useful title.
- *
  * Usage:
  *   pnpm action save-browser-transcript --recordingId=<id> --fullText="..."
  */
@@ -17,13 +14,16 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
-import regenerateTitle from "./regenerate-title.js";
+import { writeAppState } from "@agent-native/core/application-state";
 
-const DEFAULT_TITLE = "Untitled recording";
-
-function isDefaultTitle(title: string | null | undefined): boolean {
-  const trimmed = (title ?? "").trim();
-  return !trimmed || trimmed === DEFAULT_TITLE;
+function nativeSegmentsJson(fullText: string): string {
+  return JSON.stringify([
+    {
+      startMs: 0,
+      endMs: 1000,
+      text: fullText.trim(),
+    },
+  ]);
 }
 
 export default defineAction({
@@ -68,37 +68,40 @@ export default defineAction({
         .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
         .limit(1);
 
-      // Don't overwrite a completed Whisper transcript with lower-quality browser output
-      const hasWhisperSegments =
+      // Don't overwrite an already-segmented cloud/native transcript with a
+      // later lower-confidence native pass.
+      const hasReadySegments =
         current?.status === "ready" &&
         current?.segmentsJson &&
         current.segmentsJson !== "[]";
-      if (hasWhisperSegments) {
+      if (hasReadySegments) {
         return {
           recordingId: args.recordingId,
           status: "skipped" as const,
-          reason: "Whisper transcript already exists",
+          reason: "Transcript already exists",
         };
       }
 
+      const fullText = args.fullText.trim();
       await db
         .update(schema.recordingTranscripts)
         .set({
           ownerEmail,
-          fullText: args.fullText.trim(),
-          segmentsJson: "[]",
+          fullText,
+          segmentsJson: nativeSegmentsJson(fullText),
           status: "ready",
           failureReason: null,
           updatedAt: now,
         })
         .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
     } else {
+      const fullText = args.fullText.trim();
       await db.insert(schema.recordingTranscripts).values({
         recordingId: args.recordingId,
         ownerEmail,
         language: "en",
-        segmentsJson: "[]",
-        fullText: args.fullText.trim(),
+        segmentsJson: nativeSegmentsJson(fullText),
+        fullText,
         status: "ready",
         failureReason: null,
         createdAt: now,
@@ -110,25 +113,7 @@ export default defineAction({
       `[clips] Native transcript saved for ${args.recordingId} via ${args.source ?? "web-speech"} (${args.fullText.trim().length} chars)`,
     );
 
-    // Queue title generation if the clip still has the default title. This
-    // fires even when no cloud transcript provider is configured so native-only
-    // recordings can still get a real title through the agent.
-    const [rec] = await db
-      .select({ title: schema.recordings.title })
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, args.recordingId))
-      .limit(1);
-
-    if (rec && isDefaultTitle(rec.title)) {
-      try {
-        await regenerateTitle.run({ recordingId: args.recordingId });
-      } catch (err) {
-        console.warn(
-          `[clips] auto-title delegation failed for ${args.recordingId}:`,
-          (err as Error).message,
-        );
-      }
-    }
+    await writeAppState("refresh-signal", { ts: Date.now() });
 
     return {
       recordingId: args.recordingId,

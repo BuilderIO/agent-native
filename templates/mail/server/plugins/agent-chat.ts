@@ -74,6 +74,7 @@ Available operations:
 - Read email content and threads
 - Archive, trash, star, and mark emails as read/unread
 - Compose and send emails
+- Read/update mail drafting settings
 - Queue teammate-requested drafts for organization members to review and send
 - Navigate the UI to specific views or threads
 
@@ -111,6 +112,12 @@ Available action types: label (with labelName), archive, mark_read, star, trash.
 
 ## Composing vs Replying
 
+Before drafting or rewriting email copy, run \`get-mail-settings\`.
+- Use \`signature\` exactly when it is configured. Do not rewrite it, summarize it, or duplicate it if it is already in the draft.
+- If no signature is configured, omit the signature. Never invent or derive a sign-off from the user's name, email address, or Gmail profile.
+- Follow \`writingStyle\` when present.
+- Draft bodies use Markdown only. Avoid generic AI email tropes, headings, and over-formal filler unless the user explicitly asks for a formal template.
+
 When the user asks to draft/email a specific person (e.g., "email my wife", "draft an email to Alice"):
 - This is a NEW email \u2014 use manage-draft with --action=create and mode "compose", NOT "reply"
 - Look up the recipient's email from AGENTS.md contacts or ask the user
@@ -125,7 +132,7 @@ When running in production and the user asks to change, add, or modify anything 
 Do NOT attempt to edit files directly in production. Instead:
 1. Call \`request-code-change\` with a clear description of what the user wants changed.
 2. If it returns a URL, share that link so the user can track and accept the change.
-3. If it says Builder is not configured, explain that production code changes need a connected Builder branch target before they can run.
+3. If it says branch creation is not available, relay that plainly. Do not tell the user there is a setting they can enable.
 
 Example response after calling the tool:
 "I've queued that change with Builder branch creation. You can track and accept it here: <url>"`,

@@ -134,21 +134,22 @@ If you want to change something later, just say so: "Add a search box to my cont
 
 Inside the iframe sandbox, every extension has these helpers on `window`:
 
-| Helper                                           | Purpose                                               | Example                                           |
-| ------------------------------------------------ | ----------------------------------------------------- | ------------------------------------------------- |
-| `appAction(name, params)`                        | Call any of the host template's actions               | `appAction('list-emails', { view: 'inbox' })`     |
-| `appFetch(path, options)`                        | Call any app endpoint                                 | `appFetch('/api/settings')`                       |
-| `dbQuery(sql, args)`                             | Read from SQL (auto-scoped to the user)               | `dbQuery('SELECT id, name FROM tools')`           |
-| `dbExec(sql, args)`                              | Write to SQL                                          | `dbExec('INSERT INTO ...')`                       |
-| `extensionFetch(url, options)`                   | Hit external APIs through a secure proxy with secrets | `extensionFetch('https://api.github.com/user')`   |
-| `extensionData.set(collection, id, data, opts?)` | Persist data per-extension (user / org scoping)       | `extensionData.set('notes', id, { text: '...' })` |
-| `extensionData.list(collection, opts?)`          | List persisted items                                  | `extensionData.list('notes', { scope: 'all' })`   |
-| `extensionData.get(collection, id, opts?)`       | Get a single item                                     | `extensionData.get('notes', 'note-1')`            |
-| `extensionData.remove(collection, id, opts?)`    | Delete a persisted item                               | `extensionData.remove('notes', 'note-1')`         |
+| Helper                                           | Purpose                                                   | Example                                                   |
+| ------------------------------------------------ | --------------------------------------------------------- | --------------------------------------------------------- |
+| `appAction(name, params)`                        | Call any of the host template's actions                   | `appAction('list-emails', { view: 'inbox' })`             |
+| `appFetch(path, options)`                        | Call allowed framework endpoints under `/_agent-native/*` | `appFetch('/_agent-native/application-state/navigation')` |
+| `dbQuery(sql, args)`                             | Read from SQL (auto-scoped to the user)                   | `dbQuery('SELECT id, name FROM tools')`                   |
+| `dbExec(sql, args)`                              | Write to SQL                                              | `dbExec('INSERT INTO ...')`                               |
+| `extensionFetch(url, options)`                   | Hit external APIs through a secure proxy with secrets     | `extensionFetch('https://api.github.com/user')`           |
+| `extensionData.set(collection, id, data, opts?)` | Persist data per-extension (user / org scoping)           | `extensionData.set('notes', id, { text: '...' })`         |
+| `extensionData.list(collection, opts?)`          | List persisted items                                      | `extensionData.list('notes', { scope: 'all' })`           |
+| `extensionData.get(collection, id, opts?)`       | Get a single item                                         | `extensionData.get('notes', 'note-1')`                    |
+| `extensionData.remove(collection, id, opts?)`    | Delete a persisted item                                   | `extensionData.remove('notes', 'note-1')`                 |
 
 Two rules of thumb:
 
 - **Prefer `appAction` over `dbQuery`.** Actions are the template's official surface — they handle access control, scoping, and validation for you. Reach for raw SQL only when no action fits.
+- **Use `appAction` for template data.** Extension `appFetch` is limited to framework `/_agent-native/*` endpoints; template `/api/*` routes are blocked by the iframe bridge.
 - **Prefer `extensionData` over making new tables.** Each extension gets its own isolated key-value store. No schema, no migration. Set `{ scope: 'org' }` to share with the user's org, `'user'` (default) for private.
 
 ```html

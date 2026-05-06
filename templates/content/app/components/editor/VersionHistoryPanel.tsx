@@ -37,12 +37,14 @@ interface VersionHistoryPanelProps {
   documentId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  canRestore?: boolean;
 }
 
 export function VersionHistoryPanel({
   documentId,
   open,
   onOpenChange,
+  canRestore = true,
 }: VersionHistoryPanelProps) {
   const { data: versions, isLoading } = useDocumentVersions(
     open ? documentId : null,
@@ -85,7 +87,7 @@ export function VersionHistoryPanel({
             )}
           </SheetTitle>
           <SheetDescription className="sr-only">
-            Browse and restore previous versions of this document.
+            Browse previous versions of this document.
           </SheetDescription>
         </SheetHeader>
 
@@ -110,21 +112,23 @@ export function VersionHistoryPanel({
                 />
               </div>
             </ScrollArea>
-            <div className="p-3 border-t border-border">
-              <Button
-                size="sm"
-                className="w-full"
-                onClick={() => handleRestore(selectedVersion)}
-                disabled={restoreVersion.isPending}
-              >
-                {restoreVersion.isPending ? (
-                  <IconLoader2 size={14} className="animate-spin mr-1.5" />
-                ) : (
-                  <IconRotate size={14} className="mr-1.5" />
-                )}
-                Restore this version
-              </Button>
-            </div>
+            {canRestore ? (
+              <div className="p-3 border-t border-border">
+                <Button
+                  size="sm"
+                  className="w-full"
+                  onClick={() => handleRestore(selectedVersion)}
+                  disabled={restoreVersion.isPending}
+                >
+                  {restoreVersion.isPending ? (
+                    <IconLoader2 size={14} className="animate-spin mr-1.5" />
+                  ) : (
+                    <IconRotate size={14} className="mr-1.5" />
+                  )}
+                  Restore this version
+                </Button>
+              </div>
+            ) : null}
           </div>
         ) : (
           <ScrollArea className="h-[calc(100%-60px)]">

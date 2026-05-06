@@ -17,6 +17,10 @@ function nanoid(size = 12): string {
 
 const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
+function canManageRole(role: string) {
+  return role === "owner" || role === "admin";
+}
+
 export default defineAction({
   description:
     "Update an existing document's title, content, icon, or favorite status.",
@@ -147,6 +151,9 @@ export default defineAction({
       position: doc.position,
       isFavorite: parseDocumentFavorite(doc.isFavorite),
       visibility: doc.visibility,
+      accessRole: access.role,
+      canEdit: true,
+      canManage: canManageRole(access.role),
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
     };

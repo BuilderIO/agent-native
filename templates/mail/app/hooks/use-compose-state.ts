@@ -2,7 +2,8 @@ import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { agentNativePath } from "@agent-native/core/client";
 import { nanoid } from "nanoid";
-import type { ComposeState } from "@shared/types";
+import type { ComposeState, UserSettings } from "@shared/types";
+import { appendSignatureToBody } from "@shared/signature";
 import { appApiPath } from "@/lib/api-path";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -140,7 +141,15 @@ export function useComposeState() {
   const open = useCallback(
     (state: Omit<ComposeState, "id">) => {
       const id = nanoid(10);
-      const draft: ComposeState = { ...state, id };
+      const settings = qc.getQueryData<UserSettings>(["settings"]);
+      const shouldAppendSignature = !state.savedDraftId && !state.queuedDraftId;
+      const draft: ComposeState = {
+        ...state,
+        body: shouldAppendSignature
+          ? appendSignatureToBody(state.body, settings?.signature)
+          : state.body,
+        id,
+      };
 
       // Optimistically add to cache
       qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) => [

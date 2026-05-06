@@ -106,6 +106,7 @@ For complete answers, combine data from multiple sources:
 ## Important Notes
 
 - Always query real data — never guess or approximate
+- Data-source status, data-dictionary reads, dashboard dry-runs, `update-dashboard`, `generate-chart`, and `save-analysis` are not data queries. For analyses and dashboards, run at least one provider query action and preserve the result evidence in the final answer or `resultData`.
 - Use `--grep` and `--fields` to narrow output, don't pipe through grep
 - Update the relevant `.builder/skills/<provider>/SKILL.md` when you discover new patterns
 - For BigQuery queries, check `.builder/skills/bigquery/SKILL.md` for table schemas first

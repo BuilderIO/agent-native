@@ -10,6 +10,7 @@ export interface NavigationState {
   label?: string;
   queuedDraftId?: string;
   queueScope?: string;
+  settingsSection?: string;
   _ts?: number;
 }
 

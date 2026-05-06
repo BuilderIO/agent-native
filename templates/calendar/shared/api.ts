@@ -26,6 +26,8 @@ export interface CalendarEvent {
   recurrence?: string[]; // RRULE strings from Google Calendar
   recurringEventId?: string;
   hangoutLink?: string; // Google Meet link
+  /** Meeting URL stored in location/description for non-Google providers such as Zoom */
+  meetingLink?: string;
   conferenceData?: {
     entryPoints?: Array<{
       entryPointType: string;

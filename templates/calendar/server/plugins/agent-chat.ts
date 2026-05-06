@@ -71,7 +71,7 @@ Google Calendar events are NOT stored in the local database. They are fetched li
 
 - \`pnpm action view-screen\` — See what the user is looking at (current view, date, events). ALWAYS run this first.
 - \`pnpm action list-events --from YYYY-MM-DD --to YYYY-MM-DD\` — List events from Google Calendar. The --to date is exclusive, so use tomorrow for today's events.
-- \`pnpm action search-events --query "term"\` — Search events by title
+- \`pnpm action search-events --query "term"\` — Search events by title, people, organizer, location, or description across a broad one-year past/future window. Use this for recurring meetings and "how often do I meet with X?" questions.
 - \`pnpm action create-event --title "..." --start "ISO" --end "ISO"\` — Create a new event
 - \`pnpm action navigate --view=calendar --calendarViewMode=day\` — Navigate the UI (day/week/month views, dates)
 - \`pnpm action navigate --view=calendar --date=YYYY-MM-DD\` — Navigate to a specific date
@@ -84,6 +84,8 @@ Google Calendar events are NOT stored in the local database. They are fetched li
 
 ## Google Connection Check
 Before answering schedule questions, run view-screen first for context, then use list-events for the requested date range even if the user is currently on Settings, Booking Links, or another non-calendar page. Do not infer a Google Calendar connection problem just because the current page is Settings. Only ask the user to reconnect Google if list-events or the explicit Google status reports an auth/connection error.
+
+For relationship-frequency questions such as "how often do I meet with Mattel?", use search-events with the person's or company's name so recurring series outside the current visible range are included. Do not conclude there are no recurring meetings from a narrow date window alone.
 
 ## Context Awareness
 The UI writes navigation state including the current view, date, view mode (day/week/month), and selected event ID. Always check view-screen to know what the user sees before responding.

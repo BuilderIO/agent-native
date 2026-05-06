@@ -503,6 +503,73 @@ export async function listOverlayEvents(
   return { events: allResults.flat(), errors };
 }
 
+export async function getEvent(
+  googleEventId: string,
+  accountEmail: string,
+): Promise<CalendarEvent> {
+  const client = await getClient(accountEmail);
+  if (!client) {
+    throw new Error(
+      `Google Calendar account not connected: ${accountEmail || "selected account"}`,
+    );
+  }
+
+  const event = await calendarGetEvent(
+    client.accessToken,
+    "primary",
+    googleEventId,
+  );
+  const selfAttendee = event.attendees?.find((a: any) => a.self === true);
+
+  return {
+    id: `google-${event.id}`,
+    title: event.summary || "Untitled",
+    description: event.description || "",
+    start: event.start?.dateTime || event.start?.date || "",
+    end: event.end?.dateTime || event.end?.date || "",
+    location: event.location || "",
+    allDay: !event.start?.dateTime,
+    source: "google",
+    googleEventId: event.id || undefined,
+    accountEmail,
+    responseStatus: selfAttendee?.responseStatus || undefined,
+    attendees: event.attendees?.map((a: any) => ({
+      email: a.email,
+      displayName: a.displayName || undefined,
+      photoUrl: a.photoUrl || undefined,
+      responseStatus: a.responseStatus || undefined,
+      organizer: a.organizer || undefined,
+      self: a.self || undefined,
+    })),
+    reminders: event.reminders?.overrides?.map((r: any) => ({
+      method: r.method,
+      minutes: r.minutes,
+    })),
+    recurrence: event.recurrence || undefined,
+    recurringEventId: event.recurringEventId || undefined,
+    hangoutLink: event.hangoutLink || undefined,
+    conferenceData: mapConferenceData(event.conferenceData),
+    attachments: event.attachments?.map((a: any) => ({
+      fileUrl: a.fileUrl,
+      title: a.title || "Untitled",
+      mimeType: a.mimeType || undefined,
+      iconLink: a.iconLink || undefined,
+      fileId: a.fileId || undefined,
+    })),
+    visibility: event.visibility || undefined,
+    status: event.status || undefined,
+    organizer: event.organizer
+      ? {
+          email: event.organizer.email,
+          displayName: event.organizer.displayName || undefined,
+          self: event.organizer.self || undefined,
+        }
+      : undefined,
+    createdAt: event.created || new Date().toISOString(),
+    updatedAt: event.updated || new Date().toISOString(),
+  };
+}
+
 export async function createEvent(
   event: CalendarEvent,
   opts?: {

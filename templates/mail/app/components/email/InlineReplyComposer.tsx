@@ -29,7 +29,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { useSendEmail, useAddOptimisticReply } from "@/hooks/use-emails";
+import {
+  useSendEmail,
+  useAddOptimisticReply,
+  useSettings,
+} from "@/hooks/use-emails";
 import { useAliases } from "@/hooks/use-aliases";
 import { expandAliasTokens } from "@/lib/alias-utils";
 import { appApiPath } from "@/lib/api-path";
@@ -90,6 +94,7 @@ export const InlineReplyComposer = forwardRef<
   const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
   const addOptimisticReply = useAddOptimisticReply();
+  const { data: settings } = useSettings();
   const { data: aliases = [] } = useAliases();
   const editorRef = useRef<ComposeEditorHandle>(null);
   const composerRef = useRef<HTMLDivElement>(null);
@@ -267,13 +272,18 @@ export const InlineReplyComposer = forwardRef<
       draft.to && `To: ${draft.to}`,
       draft.cc && `Cc: ${draft.cc}`,
       draft.subject && `Subject: ${draft.subject}`,
+      settings?.writingStyle?.trim() &&
+        `User writing style:\n${settings.writingStyle.trim()}`,
+      settings?.signature?.trim()
+        ? `Configured signature:\n${settings.signature.trim()}`
+        : "Configured signature: (none)",
       draft.body && `Current draft:\n${draft.body}`,
     ]
       .filter(Boolean)
       .join("\n");
     sendToAgent({
       message: generatePrompt.trim(),
-      context: `The user is composing an email reply. The current draft is saved in application-state/compose-${draft.id}.json.\n\nIMPORTANT: Update this EXISTING file (compose-${draft.id}.json) — do NOT create a new compose file. Read it first, then write back to the same file with your changes.\n\n${context || "(empty draft)"}`,
+      context: `The user is composing an email reply. The current draft is saved in application-state/compose-${draft.id}.json.\n\nIMPORTANT: Update this EXISTING file (compose-${draft.id}.json) — do NOT create a new compose file. Read it first, then write back to the same file with your changes.\n\nDrafting rules:\n- Use the configured signature exactly when one is present, and do not duplicate it if it is already in the draft.\n- If no configured signature is present, do not invent or derive a sign-off from the user's name or email address.\n- Use Markdown only. Keep the copy natural, specific, and free of generic AI email filler unless the user asks for a formal template.\n\n${context || "(empty draft)"}`,
       submit: true,
     });
     setGeneratePrompt("");

@@ -9,9 +9,9 @@ import { agentNativePath } from "./api-path.js";
 export interface ConnectBuilderCardProps {
   configured: boolean;
   /**
-   * True when ENABLE_BUILDER / BUILDER_BRANCH_PROJECT_ID is set on the
-   * deploy. When false, the card shows a "coming soon" waitlist CTA instead
-   * of a Send button — the /builder/run endpoint would 403 anyway.
+   * True when the server has a Builder branch project configured for this
+   * request. When false, the card shows a waitlist CTA instead of a Send
+   * button — the /builder/run endpoint would 403 anyway.
    */
   builderEnabled?: boolean;
   connectUrl: string;
@@ -142,10 +142,9 @@ export function ConnectBuilderCard({
 
   const hasPrompt = prompt.trim().length > 0;
   const canSend = configured && builderEnabled && hasPrompt;
-  // Branch creation is gated by deploy env (ENABLE_BUILDER / project id).
-  // Show waitlist when the user has connected and has a prompt, but the
-  // deploy hasn't been opted in yet.
-  const showWaitlist = configured && !builderEnabled && hasPrompt;
+  // Branch creation is gated by a server-side project id, which may come
+  // from deployment config or org-scoped secrets.
+  const showWaitlist = !builderEnabled && hasPrompt;
 
   // Title + subtitle depend on which mode we're in. We compute them up front
   // so the render tree below stays flat.
@@ -165,13 +164,13 @@ export function ConnectBuilderCard({
   } else if (showWaitlist) {
     title = waitlistJoined
       ? "You're on the waitlist"
-      : "Builder branches — coming soon";
+      : "Builder branches unavailable";
     subtitle = waitlistJoined ? (
       <>We'll let you know as soon as cloud branch creation is available.</>
     ) : (
       <>
-        Cloud branch creation isn't available on this deployment yet. Join the
-        waitlist and we'll let you know when it ships.
+        Cloud branch creation isn't available for this organization yet. Join
+        the waitlist and we'll let you know when it's ready.
       </>
     );
   } else if (canSend) {

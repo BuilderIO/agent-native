@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import type { CalendarEvent } from "../shared/api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
+import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
 import {
   cliBoolean,
   normalizeGoogleEventId,
@@ -32,6 +33,11 @@ export default defineAction({
     addGoogleMeet: cliBoolean
       .optional()
       .describe("Generate and attach a Google Meet link to the event"),
+    addZoom: cliBoolean
+      .optional()
+      .describe(
+        "Create and attach a Zoom meeting link to the event. Requires Zoom to be connected in Settings.",
+      ),
     recurrence: z
       .union([z.string(), z.array(z.string())])
       .optional()
@@ -60,6 +66,10 @@ export default defineAction({
   toolCallable: false,
   run: async (args) => {
     const ownerEmail = requireActionUserEmail();
+    if (args.addGoogleMeet && args.addZoom) {
+      throw new Error("Choose either Google Meet or Zoom, not both.");
+    }
+
     if (!(await googleCalendar.isConnected(ownerEmail))) {
       throw new Error(
         "Google Calendar not connected. Connect via Settings first.",
@@ -97,7 +107,8 @@ export default defineAction({
       args.allDay !== undefined ||
       recurrence !== undefined ||
       attendees !== undefined ||
-      args.addGoogleMeet === true;
+      args.addGoogleMeet === true ||
+      args.addZoom === true;
 
     if (!hasPatch) {
       throw new Error("No event updates provided.");
@@ -115,6 +126,42 @@ export default defineAction({
     if (recurrence !== undefined) updates.recurrence = recurrence;
     if (attendees !== undefined) updates.attendees = attendees;
 
+    let zoomMeetingLink: string | undefined;
+    let zoomAlreadyPresent = false;
+    if (args.addZoom) {
+      const existingEvent = await googleCalendar.getEvent(
+        googleEventId,
+        accountEmail,
+      );
+      const eventForZoom: CalendarEvent = {
+        ...existingEvent,
+        ...updates,
+        title: updates.title ?? existingEvent.title,
+        description: updates.description ?? existingEvent.description,
+        location: updates.location ?? existingEvent.location,
+        start: updates.start ?? existingEvent.start,
+        end: updates.end ?? existingEvent.end,
+      };
+      const zoom = await prepareZoomMeetingPatch(ownerEmail, eventForZoom);
+      zoomMeetingLink = zoom.meetingLink;
+      zoomAlreadyPresent = zoom.alreadyPresent;
+      Object.assign(updates, zoom.patch);
+    }
+
+    const updatedKeys = Object.keys(updates).filter(
+      (key) => key !== "accountEmail",
+    );
+    if (updatedKeys.length === 0 && zoomAlreadyPresent) {
+      return {
+        success: true,
+        id: `google-${googleEventId}`,
+        accountEmail,
+        updated: [],
+        meetingLink: zoomMeetingLink,
+        message: "Zoom link already present.",
+      };
+    }
+
     const result = await googleCalendar.updateEvent(googleEventId, updates, {
       sendUpdates: args.sendUpdates,
       addGoogleMeet: args.addGoogleMeet,
@@ -124,8 +171,9 @@ export default defineAction({
       success: true,
       id: `google-${googleEventId}`,
       accountEmail,
-      updated: Object.keys(updates).filter((key) => key !== "accountEmail"),
+      updated: updatedKeys,
       hangoutLink: result.meetLink,
+      meetingLink: zoomMeetingLink,
       conferenceData: result.conferenceData,
     };
   },

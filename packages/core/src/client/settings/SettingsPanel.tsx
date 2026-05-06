@@ -1636,6 +1636,7 @@ export function SettingsPanel({
   const connectUrl = builder?.connectUrl;
   const orgName = builder?.orgName;
   const envManaged = !!builder?.envManaged;
+  const builderBranchesAvailable = !!builder?.builderEnabled;
   const builderFlow = useBuilderConnectFlow({ popupUrl: connectUrl });
 
   // Detect whether the app registered any secrets — controls whether the
@@ -1893,23 +1894,24 @@ export function SettingsPanel({
         />
       </SettingsSection>
 
-      {/* Background Agent */}
-      <SettingsSection
-        icon={<IconGitBranch size={14} />}
-        title="Background Agent"
-        subtitle="Make code changes from production mode via Builder."
-        connected={connected}
-        open={openSection === "background"}
-        onToggle={() => toggle("background")}
-      >
-        <UseBuilderCard
-          builderFlow={builderFlow}
-          connectUrl={connectUrl}
+      {builderBranchesAvailable && (
+        <SettingsSection
+          icon={<IconGitBranch size={14} />}
+          title="Background Agent"
+          subtitle="Make code changes from production mode via Builder."
           connected={connected}
-          orgName={orgName}
-          envManaged={envManaged}
-        />
-      </SettingsSection>
+          open={openSection === "background"}
+          onToggle={() => toggle("background")}
+        >
+          <UseBuilderCard
+            builderFlow={builderFlow}
+            connectUrl={connectUrl}
+            connected={connected}
+            orgName={orgName}
+            envManaged={envManaged}
+          />
+        </SettingsSection>
+      )}
 
       {/* Integrations */}
       <SettingsSection

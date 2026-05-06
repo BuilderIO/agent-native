@@ -4,6 +4,7 @@ import { emit } from "@agent-native/core/event-bus";
 import { z } from "zod";
 import type { CalendarEvent } from "../shared/api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
+import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
 import { cliBoolean } from "./event-action-helpers.js";
 
 // Accept attendees as either an array of {email, displayName?} objects (when
@@ -48,6 +49,11 @@ export default defineAction({
     addGoogleMeet: cliBoolean
       .optional()
       .describe("Generate and attach a Google Meet link to the event"),
+    addZoom: cliBoolean
+      .optional()
+      .describe(
+        "Create and attach a Zoom meeting link to the event. Requires Zoom to be connected in Settings.",
+      ),
     attendees: attendeesInput.describe(
       "Invitees — either an array of {email, displayName?} or a comma-separated string of emails",
     ),
@@ -65,6 +71,10 @@ export default defineAction({
   run: async (args) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
+
+    if (args.addGoogleMeet && args.addZoom) {
+      throw new Error("Choose either Google Meet or Zoom, not both.");
+    }
 
     if (!(await googleCalendar.isConnected(email))) {
       throw new Error(
@@ -100,6 +110,13 @@ export default defineAction({
       updatedAt: new Date().toISOString(),
     };
 
+    let zoomMeetingLink: string | undefined;
+    if (args.addZoom) {
+      const zoom = await prepareZoomMeetingPatch(email, calEvent);
+      zoomMeetingLink = zoom.meetingLink;
+      Object.assign(calEvent, zoom.patch);
+    }
+
     const result = await googleCalendar.createEvent(calEvent, {
       addGoogleMeet: args.addGoogleMeet,
       sendUpdates: args.sendUpdates ?? (attendees ? "all" : undefined),
@@ -110,6 +127,7 @@ export default defineAction({
     }
     if (result.meetLink) calEvent.hangoutLink = result.meetLink;
     if (result.conferenceData) calEvent.conferenceData = result.conferenceData;
+    if (zoomMeetingLink) calEvent.meetingLink = zoomMeetingLink;
 
     try {
       emit(

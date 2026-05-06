@@ -189,6 +189,8 @@ describe("NewWorkspaceAppFlow", () => {
       "Treat these as requested grants, not active grants before creation succeeds.",
     );
     expect(message).toContain("shared workspace database/hosting model");
+    expect(message).toContain("not a feature request for the current app");
+    expect(message).toContain("inside apps/starter");
     expect(message).toContain("workspace app registry metadata");
     expect(message).toContain(
       "workspace-apps.json or .agent-native/workspace-apps.json",

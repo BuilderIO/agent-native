@@ -54,7 +54,13 @@ export default defineAction({
             z.object({
               id: z.string(),
               label: z.string(),
-              type: z.enum(["color-swatch", "segment", "slider", "toggle"]),
+              type: z.enum([
+                "color-swatch",
+                "color-swatches",
+                "segment",
+                "slider",
+                "toggle",
+              ]),
               options: z
                 .array(
                   z.object({
@@ -220,7 +226,10 @@ export default defineAction({
       fileCount: files.length,
     };
     if (tweaks !== undefined) {
-      mergedData.tweaks = tweaks;
+      mergedData.tweaks = tweaks.map((tweak) => ({
+        ...tweak,
+        type: tweak.type === "color-swatches" ? "color-swatch" : tweak.type,
+      }));
     }
     designUpdates.data = JSON.stringify(mergedData);
 

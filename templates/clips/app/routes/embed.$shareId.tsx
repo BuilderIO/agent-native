@@ -167,6 +167,7 @@ export default function EmbedRoute() {
         recordingId={recording.id}
         videoUrl={recording.videoUrl}
         durationMs={recording.durationMs}
+        editsJson={recording.editsJson}
         thumbnailUrl={recording.thumbnailUrl}
         defaultSpeed={parseFloat(recording.defaultSpeed || "1.2") || 1.2}
         autoPlay={autoplay}

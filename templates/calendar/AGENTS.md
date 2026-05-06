@@ -118,16 +118,17 @@ cd templates/calendar && pnpm action <name> [args]
 
 ### Events
 
-| Action                 | Args                                                                                                                                | Purpose                         |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| `list-events`          | `--from`, `--to`, `--query`, `--json`                                                                                               | Query Google Calendar events    |
-| `search-events`        | `--query` (required), `--from`, `--to`                                                                                              | Search events by title          |
-| `get-event`            | `--id` (required), `--calendarId` (default: primary)                                                                                | Fetch a single event by id      |
-| `create-event`         | `--title`, `--start`, `--end`, `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--sendUpdates`                     | Create event on Google Calendar |
-| `update-event`         | `--id`, optional `--title`, `--start`, `--end`, `--recurrence`, `--attendees`, `--addGoogleMeet`, `--sendUpdates`, `--accountEmail` | Update an event or recurrence   |
-| `rsvp-event`           | `--id`, `--status accepted\|declined\|tentative`, optional `--scope single\|all\|thisAndFollowing`, `--accountEmail`                | RSVP to a meeting invitation    |
-| `delete-event`         | `--id`, optional `--scope single\|all\|thisAndFollowing`, `--removeOnly`, `--accountEmail`                                          | Delete/remove an event          |
-| `sync-google-calendar` | `--from`, `--to`                                                                                                                    | Pull Google Calendar events     |
+| Action                 | Args                                                                                                                                             | Purpose                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| `list-events`          | `--from`, `--to`, `--query`, `--json`                                                                                                            | Query Google Calendar events                        |
+| `search-events`        | `--query` (required), `--from`, `--to`                                                                                                           | Search events broadly, including recurring meetings |
+| `get-event`            | `--id` (required), `--calendarId` (default: primary)                                                                                             | Fetch a single event by id                          |
+| `create-event`         | `--title`, `--start`, `--end`, `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`                     | Create event on Google Calendar                     |
+| `update-event`         | `--id`, optional `--title`, `--start`, `--end`, `--recurrence`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`, `--accountEmail` | Update an event or recurrence                       |
+| `get-zoom-status`      | none                                                                                                                                             | Check Zoom OAuth configuration and connection       |
+| `rsvp-event`           | `--id`, `--status accepted\|declined\|tentative`, optional `--scope single\|all\|thisAndFollowing`, `--accountEmail`                             | RSVP to a meeting invitation                        |
+| `delete-event`         | `--id`, optional `--scope single\|all\|thisAndFollowing`, `--removeOnly`, `--accountEmail`                                                       | Delete/remove an event                              |
+| `sync-google-calendar` | `--from`, `--to`                                                                                                                                 | Pull Google Calendar events                         |
 
 ### Availability & Booking
 
@@ -170,6 +171,8 @@ The `--to` bound is exclusive, so use tomorrow's date for today's events.
 
 **For "today" / "this week" / relative dates, anchor on `currentDateInTimezone` from the runtime context — not on `navigation.date`.** The user may be looking at a different week than the actual current week. Computing "today" from the calendar's displayed date will be wrong any time the user has scrolled.
 
+For relationship-frequency questions like "how often do I meet with Mattel?", use `search-events --query <name>` first. It searches a broad one-year past/future window across titles, people, organizers, locations, and descriptions so recurring series outside the visible range are not missed.
+
 ## Common Tasks
 
 | User request                        | What to do                                                                                                           |
@@ -178,10 +181,13 @@ The `--to` bound is exclusive, so use tomorrow's date for today's events.
 | "What am I looking at?"             | `view-screen`                                                                                                        |
 | "Am I free Tuesday at 2pm?"         | `check-availability --date <tuesday>`                                                                                |
 | "Find a 1-hour slot this week"      | `check-availability` for each day with `--duration 60`                                                               |
+| "How often do I meet with X?"       | `search-events --query <X>`, then group by recurring series/title and dates                                          |
 | "Schedule a meeting with Alice"     | `create-event --title "Meeting with Alice" --start ... --end ... --attendees alice@example.com`                      |
 | "Schedule a Google Meet with Alice" | `create-event --title "Meeting with Alice" --start ... --end ... --attendees alice@example.com --addGoogleMeet=true` |
+| "Schedule a Zoom with Alice"        | `create-event --title "Meeting with Alice" --start ... --end ... --attendees alice@example.com --addZoom=true`       |
 | "Invite Bob to the 3pm meeting"     | `update-event --id=<event-id>` (use the action's attendees support — see event-management)                           |
 | "Add a Meet link to this meeting"   | `update-event --id=<event-id> --addGoogleMeet=true`                                                                  |
+| "Add Zoom to this meeting"          | `update-event --id=<event-id> --addZoom=true`                                                                        |
 | "RSVP yes/maybe/no to this meeting" | `rsvp-event --id=<event-id> --status=accepted\|tentative\|declined`                                                  |
 | "Find meetings about X"             | `search-events --query "X"`                                                                                          |
 | "Show my availability settings"     | `navigate --view=availability`                                                                                       |
@@ -248,3 +254,5 @@ Prefer editing the package component (`packages/scheduling/src/react/components/
 - Required env: `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET`. Redirect URI: `/_agent-native/zoom/callback`.
 - `server/lib/zoom.ts` wraps the scheduling package's Zoom provider and stores tokens in `oauth_tokens(provider="zoom_video", account_id=<zoom user id>, owner=<email>)`.
 - At booking time, `createZoomMeeting()` runs when `conferencing.type === "zoom"`; the returned URL lands on `bookings.meeting_link`.
+- For regular calendar events, use `create-event --addZoom=true` or `update-event --addZoom=true`. The action creates a real Zoom meeting with the user's connected Zoom account and writes the link into the Google Calendar event location/description.
+- If Zoom is not connected, use `get-zoom-status` and navigate the user to `settings`; do not create an extension for Zoom, Google Meet, or any first-party calendar/video integration.

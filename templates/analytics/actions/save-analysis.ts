@@ -1,10 +1,12 @@
-import { defineAction } from "@agent-native/core";
+import { AgentActionStopError, defineAction } from "@agent-native/core";
 import {
+  getRequestRunContext,
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server";
 import { z } from "zod";
 import { upsertAnalysis } from "../server/lib/dashboards-store";
+import { hasDataQueryAttempt } from "../server/lib/real-data-actions";
 
 function parseJsonArg(value: unknown, label: string): unknown {
   if (typeof value !== "string") return value;
@@ -22,11 +24,36 @@ function resolveScope() {
   return { orgId, email };
 }
 
+function hasStructuredEvidence(
+  value: unknown,
+): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && Object.keys(value).length > 0;
+}
+
+function stopWithoutEvidence(): never {
+  throw new AgentActionStopError(
+    "I couldn't save this analysis because it did not include structured evidence from a real data-source action in this turn. I stopped rather than risk saving fabricated analytics results.",
+    {
+      errorCode: "analysis_missing_data_evidence",
+      toolResult: JSON.stringify(
+        {
+          error: "analysis_missing_data_evidence",
+          message:
+            "save-analysis requires resultData with raw query results, row samples, aggregate metrics, or explicit provider error details from real data-source actions.",
+          stopped: true,
+        },
+        null,
+        2,
+      ),
+    },
+  );
+}
+
 export default defineAction({
   description:
     "Save an ad-hoc analysis. Stores the analysis question, instructions for re-running, data sources used, and the results. " +
     "This creates a reusable analysis that anyone can re-run later to get updated results. " +
-    "Call this after you've gathered all the data and formed your conclusions.",
+    "Call this only after you've gathered real data and include non-empty resultData with structured evidence from those data-source action results.",
   schema: z.object({
     id: z
       .string()
@@ -64,17 +91,23 @@ export default defineAction({
       ),
     resultData: z
       .preprocess(
-        (v) => (v === undefined ? undefined : parseJsonArg(v, "resultData")),
+        (v) => parseJsonArg(v, "resultData"),
         z.record(z.string(), z.unknown()),
       )
-      .optional()
       .describe(
-        "Optional structured data (JSON) backing the analysis — raw query results, metrics, etc. " +
-          "Useful for rendering charts or tables in the UI.",
+        "Required structured data (JSON) backing the analysis. Include raw query results, row samples, aggregate metrics, and any explicit provider error details from the real data-source actions used.",
       ),
   }),
   http: false,
   run: async (args) => {
+    const runCtx = getRequestRunContext();
+    if (
+      !args.dataSources.length ||
+      !hasStructuredEvidence(args.resultData) ||
+      (runCtx && !hasDataQueryAttempt(runCtx.toolResults))
+    ) {
+      stopWithoutEvidence();
+    }
     const { orgId, email } = resolveScope();
     await upsertAnalysis(
       args.id,
@@ -85,7 +118,7 @@ export default defineAction({
         instructions: args.instructions,
         dataSources: args.dataSources,
         resultMarkdown: args.resultMarkdown,
-        resultData: args.resultData ?? null,
+        resultData: args.resultData,
       },
       { email, orgId },
     );

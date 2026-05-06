@@ -365,12 +365,13 @@ export default defineAction({
 
       await writeAppState("refresh-signal", { ts: Date.now() });
 
-      // Kick off Whisper transcription in the background. The chunk endpoint
-      // already awaits this finalize call, so we fire-and-forget — the request
-      // context (user email via AsyncLocalStorage) carries through to any
-      // async continuations started before this run() returns. Without this
-      // the transcript row stays in `pending` forever and the UI shows an
-      // infinite "Transcribing…" spinner.
+      // Kick off transcription in the background. Native web/macOS speech rows
+      // are preserved first; cloud transcription only fills gaps/refines when
+      // needed. The chunk endpoint already awaits this finalize call, so we
+      // fire-and-forget — the request context (user email via AsyncLocalStorage)
+      // carries through to async continuations started before this run()
+      // returns. Without this the transcript row stays in `pending` forever and
+      // the UI shows an infinite "Transcribing…" spinner.
       void requestTranscript.run({ recordingId: id }).catch((err) => {
         console.error("[finalize] background transcript failed", {
           id,

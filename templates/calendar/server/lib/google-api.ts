@@ -333,6 +333,7 @@ export function calendarListEvents(
   params: {
     timeMin?: string;
     timeMax?: string;
+    q?: string;
     singleEvents?: boolean;
     orderBy?: string;
     maxResults?: number;

@@ -14,6 +14,7 @@ interface TweaksPanelProps {
   tweaks: TweakDefinition[];
   values: Record<string, string | number | boolean>;
   onChange: (id: string, value: string | number | boolean) => void;
+  onClose: () => void;
   visible: boolean;
 }
 
@@ -21,10 +22,12 @@ export function TweaksPanel({
   tweaks,
   values,
   onChange,
+  onClose,
   visible,
 }: TweaksPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [position, setPosition] = useState({ x: 16, y: 16 });
+  const panelRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
 
@@ -32,17 +35,26 @@ export function TweaksPanel({
     (e: React.MouseEvent) => {
       // Only start drag on left click
       if (e.button !== 0) return;
+      e.preventDefault();
       dragging.current = true;
+      const viewportHeight = document.documentElement.clientHeight;
       dragOffset.current = {
         x: e.clientX - position.x,
-        y: e.clientY - position.y,
+        y: viewportHeight - e.clientY - position.y,
       };
 
       const handleMouseMove = (ev: MouseEvent) => {
         if (!dragging.current) return;
+        const rect = panelRef.current?.getBoundingClientRect();
+        const viewportWidth = document.documentElement.clientWidth;
+        const viewportHeight = document.documentElement.clientHeight;
+        const panelWidth = rect?.width ?? 240;
+        const panelHeight = rect?.height ?? 220;
+        const nextX = ev.clientX - dragOffset.current.x;
+        const nextY = viewportHeight - ev.clientY - dragOffset.current.y;
         setPosition({
-          x: ev.clientX - dragOffset.current.x,
-          y: ev.clientY - dragOffset.current.y,
+          x: Math.min(Math.max(nextX, 8), viewportWidth - panelWidth - 8),
+          y: Math.min(Math.max(nextY, 8), viewportHeight - panelHeight - 8),
         });
       };
 
@@ -62,6 +74,7 @@ export function TweaksPanel({
 
   return (
     <div
+      ref={panelRef}
       className="fixed z-30 w-60 rounded-xl border border-border bg-card shadow-2xl backdrop-blur-sm"
       style={{ left: position.x, bottom: position.y }}
     >
@@ -73,6 +86,8 @@ export function TweaksPanel({
         <div className="flex items-center gap-1.5">
           <IconGripHorizontal className="h-3 w-3 text-muted-foreground/60" />
           <button
+            type="button"
+            onMouseDown={(e) => e.stopPropagation()}
             onClick={() => setCollapsed((c) => !c)}
             className="cursor-pointer text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-muted-foreground"
           >
@@ -80,8 +95,14 @@ export function TweaksPanel({
           </button>
         </div>
         <button
-          onClick={() => setCollapsed((c) => !c)}
+          type="button"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
           className="cursor-pointer text-muted-foreground/70 hover:text-muted-foreground"
+          aria-label="Close tweaks"
         >
           <IconX className="h-3 w-3" />
         </button>
@@ -119,12 +140,14 @@ function TweakControl({
         {tweak.label}
       </div>
 
-      {tweak.type === "color-swatch" && (
+      {(tweak.type as string) === "color-swatch" ||
+      (tweak.type as string) === "color-swatches" ? (
         <div className="flex gap-2">
           {tweak.options?.map((opt) => (
             <Tooltip key={opt.value}>
               <TooltipTrigger asChild>
                 <button
+                  type="button"
                   onClick={() => onChange(opt.value)}
                   className={cn(
                     "h-6 w-6 cursor-pointer rounded-full",
@@ -139,12 +162,13 @@ function TweakControl({
             </Tooltip>
           ))}
         </div>
-      )}
+      ) : null}
 
       {tweak.type === "segment" && (
         <div className="flex overflow-hidden rounded-lg border border-border">
           {tweak.options?.map((opt) => (
             <button
+              type="button"
               key={opt.value}
               onClick={() => onChange(opt.value)}
               className={cn(

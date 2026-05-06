@@ -40,6 +40,7 @@ interface AppEnv {
   envPath: string;
   databaseUrl: string;
   databaseAuthToken?: string;
+  secretsEncryptionMaterial?: string;
 }
 
 interface EnsureResult {
@@ -57,6 +58,10 @@ interface EnsureResult {
   betterAuthUserMissing: boolean;
   clipsSettingsCreated: boolean;
   activeOrgSet: boolean;
+  builderSecretsProvided?: boolean;
+  builderSecretsSynced?: boolean;
+  builderSecretsTableMissing?: boolean;
+  builderSecretsMissing?: string[];
 }
 
 interface A2ASecretSource {
@@ -65,13 +70,27 @@ interface A2ASecretSource {
   envName?: string;
 }
 
+const BUILDER_ORG_SECRET_KEYS = [
+  "BUILDER_BRANCH_PROJECT_ID",
+  "BUILDER_PROJECT_ID",
+  "BUILDER_PRIVATE_KEY",
+  "BUILDER_PUBLIC_KEY",
+] as const;
+
+type BuilderOrgSecretKey = (typeof BUILDER_ORG_SECRET_KEYS)[number];
+
+interface BuilderOrgSecrets {
+  values: Record<BuilderOrgSecretKey, string>;
+}
+
 const argv = process.argv.slice(2);
 const write = argv.includes("--write");
 const apps =
   flagValue("--apps")
     ?.split(",")
     .map((s) => s.trim())
-    .filter(Boolean) ?? DEFAULT_APPS;
+    .filter(Boolean) ??
+  (argv.includes("--all-templates") ? discoverTemplateApps() : DEFAULT_APPS);
 
 if (argv.includes("--help")) {
   printHelp();
@@ -82,6 +101,14 @@ const orgA2ASecretEnvNames = orgA2ASecretEnvCandidates();
 let orgA2ASecret: A2ASecretSource;
 try {
   orgA2ASecret = resolveOrgA2ASecret(orgA2ASecretEnvNames);
+} catch (error) {
+  console.error(`failed - ${formatError(error)}`);
+  process.exit(1);
+}
+
+let builderOrgSecrets: BuilderOrgSecrets | null;
+try {
+  builderOrgSecrets = resolveBuilderOrgSecrets();
 } catch (error) {
   console.error(`failed - ${formatError(error)}`);
   process.exit(1);
@@ -101,6 +128,11 @@ if (orgA2ASecret.source === "env") {
     )}); generated one secret for orgs created or filled during this run. Existing non-empty secrets will not be rotated.`,
   );
 }
+if (builderOrgSecrets) {
+  console.log(
+    "Builder org branch secrets provided; encrypted org-scoped app_secrets will be synced.",
+  );
+}
 
 const failures: Array<{ app: string; error: unknown }> = [];
 
@@ -115,6 +147,16 @@ for (const app of apps) {
       if (app === "clips") await ensureClipsOrgSettingsTable(db);
     }
     const result = await ensureBuilderOrg(db, app, write, orgA2ASecret);
+    if (builderOrgSecrets) {
+      Object.assign(
+        result,
+        await ensureBuilderOrgSecrets(db, result.orgId, write, {
+          app: env.app,
+          secrets: builderOrgSecrets,
+          encryptionMaterial: env.secretsEncryptionMaterial,
+        }),
+      );
+    }
     printResult(result, write);
   } catch (error) {
     failures.push({ app, error });
@@ -130,7 +172,7 @@ if (failures.length > 0) {
 }
 
 function printHelp(): void {
-  console.log(`Usage: pnpm exec tsx scripts/ensure-builder-orgs.ts [--write] [--apps mail,slides] [--org-a2a-secret-env AGENT_NATIVE_ORG_A2A_SECRET]
+  console.log(`Usage: pnpm exec tsx scripts/ensure-builder-orgs.ts [--write] [--apps mail,slides] [--all-templates] [--org-a2a-secret-env AGENT_NATIVE_ORG_A2A_SECRET]
 
 Creates or verifies the standard Builder.io organization in core app production
 databases from each app's templates/<app>/.env:
@@ -146,6 +188,13 @@ secret differs. Without a shared secret env, --write uses one generated secret
 for orgs created or filled during that run and leaves existing non-empty secrets
 untouched.
 
+When BUILDER_BRANCH_PROJECT_ID, BUILDER_PROJECT_ID, BUILDER_PRIVATE_KEY, and
+BUILDER_PUBLIC_KEY are all present in the environment, the script also writes
+those values as encrypted org-scoped app_secrets for the Builder.io org in each
+target app. Values are never printed. Each app must have SECRETS_ENCRYPTION_KEY
+or BETTER_AUTH_SECRET in templates/<app>/.env.local, templates/<app>/.env, or
+the current process environment when --write is used.
+
 Without --write, the script only reports what it would do. Secret values are
 never printed.`);
 }
@@ -159,6 +208,32 @@ function flagValue(name: string): string | null {
   return next && !next.startsWith("-") ? next : null;
 }
 
+function discoverTemplateApps(): string[] {
+  const templatesDir = path.resolve("templates");
+  if (!fs.existsSync(templatesDir)) return DEFAULT_APPS;
+
+  return fs
+    .readdirSync(templatesDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((app) => {
+      const envPath = path.join(templatesDir, app, ".env");
+      if (!fs.existsSync(envPath)) return false;
+      const parsed = parseEnv(fs.readFileSync(envPath, "utf8"));
+      const appKey = app.toUpperCase().replace(/-/g, "_");
+      return Boolean(
+        parsed[`${appKey}_DATABASE_URL`]?.trim() || parsed.DATABASE_URL?.trim(),
+      );
+    })
+    .sort();
+}
+
+function loadEnvFileIfPresent(envPath: string): Record<string, string> {
+  return fs.existsSync(envPath)
+    ? parseEnv(fs.readFileSync(envPath, "utf8"))
+    : {};
+}
+
 function loadAppEnv(app: string): AppEnv {
   const envPath = path.resolve("templates", app, ".env");
   if (!fs.existsSync(envPath)) {
@@ -166,6 +241,9 @@ function loadAppEnv(app: string): AppEnv {
   }
 
   const parsed = parseEnv(fs.readFileSync(envPath, "utf8"));
+  const localEnvPath = path.resolve("templates", app, ".env.local");
+  const localParsed = loadEnvFileIfPresent(localEnvPath);
+  const secretParsed = { ...parsed, ...localParsed };
   const appKey = app.toUpperCase().replace(/-/g, "_");
   const databaseUrl =
     parsed[`${appKey}_DATABASE_URL`]?.trim() || parsed.DATABASE_URL?.trim();
@@ -182,6 +260,12 @@ function loadAppEnv(app: string): AppEnv {
     envPath,
     databaseUrl,
     databaseAuthToken: databaseAuthToken || undefined,
+    secretsEncryptionMaterial:
+      secretParsed.SECRETS_ENCRYPTION_KEY?.trim() ||
+      secretParsed.BETTER_AUTH_SECRET?.trim() ||
+      process.env.SECRETS_ENCRYPTION_KEY?.trim() ||
+      process.env.BETTER_AUTH_SECRET?.trim() ||
+      undefined,
   };
 }
 
@@ -243,6 +327,25 @@ function validateA2ASecret(secret: string, source: string): void {
   if (secret.length < 32) {
     throw new Error(`${source} must be at least 32 characters.`);
   }
+}
+
+function resolveBuilderOrgSecrets(): BuilderOrgSecrets | null {
+  const values = Object.fromEntries(
+    BUILDER_ORG_SECRET_KEYS.map((key) => [key, process.env[key]?.trim() ?? ""]),
+  ) as Record<BuilderOrgSecretKey, string>;
+  const present = BUILDER_ORG_SECRET_KEYS.filter((key) => values[key]);
+  if (present.length === 0) return null;
+
+  const missing = BUILDER_ORG_SECRET_KEYS.filter((key) => !values[key]);
+  if (missing.length > 0) {
+    throw new Error(
+      `Builder org secret seeding requires all Builder secret env vars. Missing: ${missing.join(
+        ", ",
+      )}`,
+    );
+  }
+
+  return { values };
 }
 
 async function importWorkspacePackage<T>(specifier: string): Promise<T> {
@@ -443,6 +546,22 @@ async function ensureClipsOrgSettingsTable(db: Db): Promise<void> {
     default_visibility TEXT NOT NULL DEFAULT 'private',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+}
+
+async function ensureAppSecretsTable(db: Db): Promise<void> {
+  const intType = db.dialect === "postgres" ? "BIGINT" : "INTEGER";
+  await db.execute(`CREATE TABLE IF NOT EXISTS app_secrets (
+    id TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    encrypted_value TEXT NOT NULL,
+    description TEXT,
+    url_allowlist TEXT,
+    created_at ${intType} NOT NULL,
+    updated_at ${intType} NOT NULL,
+    UNIQUE(scope, scope_id, key)
   )`);
 }
 
@@ -761,6 +880,123 @@ async function ensureClipsOrgSettings(
   return created;
 }
 
+async function ensureBuilderOrgSecrets(
+  db: Db,
+  orgId: string,
+  shouldWrite: boolean,
+  opts: {
+    app: string;
+    secrets: BuilderOrgSecrets;
+    encryptionMaterial?: string;
+  },
+): Promise<
+  Pick<
+    EnsureResult,
+    | "builderSecretsProvided"
+    | "builderSecretsSynced"
+    | "builderSecretsTableMissing"
+    | "builderSecretsMissing"
+  >
+> {
+  const existingKeys = new Set<string>();
+  let tableMissing = false;
+  try {
+    const placeholders = BUILDER_ORG_SECRET_KEYS.map(() => "?").join(", ");
+    const existing = await db.execute(
+      `SELECT key
+       FROM app_secrets
+       WHERE scope = 'org'
+         AND scope_id = ?
+         AND key IN (${placeholders})`,
+      [orgId, ...BUILDER_ORG_SECRET_KEYS],
+    );
+    for (const row of existing.rows) {
+      if (row.key) existingKeys.add(String(row.key));
+    }
+  } catch {
+    tableMissing = true;
+  }
+
+  const missing = BUILDER_ORG_SECRET_KEYS.filter(
+    (key) => !existingKeys.has(key),
+  );
+
+  if (shouldWrite) {
+    if (!opts.encryptionMaterial) {
+      throw new Error(
+        `${opts.app}: cannot seed Builder org secrets without SECRETS_ENCRYPTION_KEY or BETTER_AUTH_SECRET`,
+      );
+    }
+    await ensureAppSecretsTable(db);
+    for (const key of BUILDER_ORG_SECRET_KEYS) {
+      await upsertEncryptedAppSecret(db, {
+        scope: "org",
+        scopeId: orgId,
+        key,
+        value: opts.secrets.values[key],
+        encryptionMaterial: opts.encryptionMaterial,
+      });
+    }
+  }
+
+  return {
+    builderSecretsProvided: true,
+    builderSecretsSynced: shouldWrite,
+    builderSecretsTableMissing: tableMissing,
+    builderSecretsMissing: missing,
+  };
+}
+
+async function upsertEncryptedAppSecret(
+  db: Db,
+  args: {
+    scope: "org";
+    scopeId: string;
+    key: string;
+    value: string;
+    encryptionMaterial: string;
+  },
+): Promise<void> {
+  const now = Date.now();
+  const encrypted = encryptSecretValue(args.value, args.encryptionMaterial);
+  const existing = await db.execute(
+    `SELECT id
+     FROM app_secrets
+     WHERE scope = ? AND scope_id = ? AND key = ?
+     LIMIT 1`,
+    [args.scope, args.scopeId, args.key],
+  );
+  const id = existing.rows[0]?.id ? String(existing.rows[0].id) : randomId();
+  if (existing.rows[0]) {
+    await db.execute(
+      `UPDATE app_secrets
+       SET encrypted_value = ?,
+           description = NULL,
+           url_allowlist = NULL,
+           updated_at = ?
+       WHERE id = ?`,
+      [encrypted, now, id],
+    );
+    return;
+  }
+
+  await db.execute(
+    `INSERT INTO app_secrets
+       (id, scope, scope_id, key, encrypted_value, description, url_allowlist, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+    [id, args.scope, args.scopeId, args.key, encrypted, now, now],
+  );
+}
+
+function encryptSecretValue(value: string, material: string): string {
+  const key = crypto.createHash("sha256").update(material).digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const ct = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `v1:${iv.toString("hex")}:${ct.toString("hex")}:${tag.toString("hex")}`;
+}
+
 async function availableOrgId(db: Db): Promise<string> {
   const candidates = [
     ORG_ID_BASE,
@@ -836,6 +1072,15 @@ function printResult(result: EnsureResult, didWrite: boolean): void {
           : "better-auth member present",
     result.clipsSettingsCreated ? "clips settings seeded" : null,
     result.activeOrgSet ? "active org set" : null,
+    result.builderSecretsProvided
+      ? result.builderSecretsSynced
+        ? "builder branch secrets synced"
+        : result.builderSecretsTableMissing
+          ? "builder branch secrets table missing"
+          : result.builderSecretsMissing?.length
+            ? `builder branch secrets missing ${result.builderSecretsMissing.length}`
+            : "builder branch secrets present"
+      : null,
   ].filter(Boolean);
 
   console.log(

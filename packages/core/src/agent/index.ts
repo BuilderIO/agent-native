@@ -3,6 +3,11 @@ export {
   type ActionEntry,
   type ScriptEntry,
   type ProductionAgentOptions,
+  type AgentLoopFinalResponseGuard,
+  type AgentLoopFinalResponseGuardContext,
+  type AgentLoopFinalResponseGuardResult,
+  type AgentLoopToolCallSummary,
+  type AgentLoopToolResultSummary,
 } from "./production-agent.js";
 export {
   type ActionTool,

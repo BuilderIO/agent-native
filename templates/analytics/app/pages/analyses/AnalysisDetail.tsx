@@ -101,7 +101,8 @@ export default function AnalysisDetail() {
     send({
       message: `Re-run the analysis "${analysis.name}" with the latest data and update the saved results.`,
       context:
-        `This is a re-run of a saved ad-hoc analysis. Use these instructions to reproduce it:\n\n` +
+        `This is a re-run of a saved ad-hoc analysis. REAL_DATA_REQUIRED: run at least one real data-source query action before saving or answering; data-source-status, generate-chart, and save-analysis do not count as data queries. If no source can answer, report the exact unavailable/error result instead of saving guessed results.\n\n` +
+        `Use these instructions to reproduce it:\n\n` +
         `Analysis ID: ${analysis.id}\n` +
         `Original question: ${analysis.question}\n\n` +
         `Instructions:\n${analysis.instructions}\n\n` +

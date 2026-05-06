@@ -12,10 +12,8 @@ import { registerRequiredSecret } from "@agent-native/core/secrets";
 //
 // We support three BYOK providers:
 //   1. Gemini — recommended for fast LLM cleanup in the desktop tray.
-//   2. Groq `whisper-large-v3-turbo` — preferred Whisper fallback. Same Whisper model family,
-//      ~10x faster than OpenAI's hosted whisper-1, ~$0.04/hour of audio,
-//      OpenAI-compatible API.
-//   3. OpenAI `whisper-1` — fallback. Fine, just slower.
+//   2. Groq `whisper-large-v3-turbo` — fast speech-to-text fallback.
+//   3. OpenAI `whisper-1` — final speech-to-text fallback.
 //
 // Neither is strictly required — videos still upload and play back without
 // cloud transcription.
@@ -114,7 +112,7 @@ registerRequiredSecret({
   key: "GROQ_API_KEY",
   label: "Groq API Key (recommended)",
   description:
-    "Fast Whisper transcription via Groq's whisper-large-v3-turbo — typically 10x faster than OpenAI Whisper, ~$0.04 per hour of audio. Either this or OPENAI_API_KEY unlocks transcription; Groq is preferred if both are set.",
+    "Fast speech-to-text fallback via Groq. Builder Gemini Flash-Lite is preferred when connected; Groq is used only when Builder/native transcription is unavailable.",
   docsUrl: "https://console.groq.com/keys",
   scope: "user",
   kind: "api-key",
@@ -177,7 +175,7 @@ registerRequiredSecret({
   key: "OPENAI_API_KEY",
   label: "OpenAI API Key",
   description:
-    "Fallback Whisper transcription via OpenAI's whisper-1. Used only if GROQ_API_KEY is not set. Either this or GROQ_API_KEY unlocks transcription.",
+    "Fallback speech-to-text via OpenAI. Builder Gemini Flash-Lite is preferred when connected; OpenAI is used only if Builder/native and Groq are unavailable.",
   docsUrl: "https://platform.openai.com/api-keys",
   scope: "user",
   kind: "api-key",

@@ -46,11 +46,12 @@ const LANGUAGES = [
   { value: "diff", label: "Diff" },
 ] as const;
 
-function CodeBlockView({ node, updateAttributes, extension }: NodeViewProps) {
+function CodeBlockView({ node, updateAttributes, editor }: NodeViewProps) {
   const [showPicker, setShowPicker] = useState(false);
   const [filter, setFilter] = useState("");
   const pickerRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
+  const isEditable = editor.isEditable;
 
   const currentLang = node.attrs.language as string | null;
   const displayLabel =
@@ -88,15 +89,21 @@ function CodeBlockView({ node, updateAttributes, extension }: NodeViewProps) {
     <NodeViewWrapper className="notion-code-block-wrapper">
       <div className="notion-code-block-header" contentEditable={false}>
         <div className="relative" ref={pickerRef}>
-          <button
-            type="button"
-            className="notion-code-lang-btn"
-            onClick={() => setShowPicker(!showPicker)}
-          >
-            {displayLabel}
-            <IconChevronDown size={12} />
-          </button>
-          {showPicker && (
+          {isEditable ? (
+            <button
+              type="button"
+              className="notion-code-lang-btn"
+              onClick={() => setShowPicker(!showPicker)}
+            >
+              {displayLabel}
+              <IconChevronDown size={12} />
+            </button>
+          ) : (
+            <span className="notion-code-lang-btn notion-code-lang-btn--readonly">
+              {displayLabel}
+            </span>
+          )}
+          {showPicker && isEditable && (
             <div className="notion-code-lang-picker">
               <input
                 ref={filterRef}

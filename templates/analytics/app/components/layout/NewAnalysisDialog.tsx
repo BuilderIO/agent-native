@@ -10,10 +10,12 @@ import { cn } from "@/lib/utils";
 
 const ANALYSIS_CONTEXT =
   "The user wants to kick off a new ad-hoc analysis. " +
+  "REAL_DATA_REQUIRED: before saving or answering, run at least one real data-source query action; `data-source-status`, `list-data-dictionary`, `generate-chart`, and `save-analysis` do not count as data queries. " +
+  "If no source can answer, report the exact unavailable/error result instead of saving a guessed analysis. " +
   "Read the `adhoc-analysis` skill first. Then: gather data from relevant sources, " +
   "synthesize findings, and save via `save-analysis` with --id, --name, --question, " +
   "--instructions (markdown recipe for re-running), --resultMarkdown (polished writeup), " +
-  "--sources (comma-separated data sources used), and --tags (comma-separated). " +
+  "--dataSources (JSON array of data sources used), and --resultData (structured raw query results and metrics from the successful data-source actions). " +
   "After saving, call `navigate --view=analyses --analysisId=<id>` so the user sees it. " +
   "No code files to create — analyses are persisted settings data.";
 

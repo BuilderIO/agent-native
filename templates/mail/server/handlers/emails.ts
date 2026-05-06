@@ -293,6 +293,8 @@ async function userEmail(event: H3Event): Promise<string> {
 const DEFAULT_SETTINGS: UserSettings = {
   name: "",
   email: "",
+  signature: "",
+  writingStyle: "",
   theme: "dark",
   density: "comfortable",
   previewPane: "right",
