@@ -1520,6 +1520,10 @@ function BuilderConnectCta({
 // ─── Builder Setup Card ─────────────────────────────────────────────────────
 
 function BuilderSetupCard({ onConnected }: { onConnected?: () => void }) {
+  const openSettings = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
+  }, []);
+
   return (
     <div className="mx-4 my-6 rounded-lg border border-border bg-card p-5">
       <div className="flex items-center gap-3 mb-3">
@@ -1528,7 +1532,7 @@ function BuilderSetupCard({ onConnected }: { onConnected?: () => void }) {
         </div>
         <div>
           <h3 className="text-sm font-medium text-foreground">
-            Connect Builder.io
+            Connect an LLM
           </h3>
           <p className="mt-0.5 text-[11px] text-muted-foreground">
             Use the hosted agent without adding a separate model provider key.
@@ -1538,6 +1542,15 @@ function BuilderSetupCard({ onConnected }: { onConnected?: () => void }) {
 
       <div className="space-y-3">
         <BuilderConnectCta onConnected={onConnected} />
+        <div className="text-center">
+          <button
+            type="button"
+            onClick={openSettings}
+            className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            Or add your own API key
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -9,7 +9,7 @@ export default createAuthPlugin({
   marketing: {
     appName: "Agent-Native Clips",
     tagline:
-      "Screen recording, calendar-synced meeting notes, and Fn-hold voice dictation — all transcribed, summarized, and searchable in one app you own. The open-source alternative to Loom, Granola, and Wisprflow.",
+      "Your AI agent transcribes, summarizes, and searches everything you record alongside you.",
     features: [
       "One-click screen recording (Loom-style) with auto titles, summaries, and chapters",
       "Calendar-synced meeting notes (Granola-style) with live transcripts and AI action items",
