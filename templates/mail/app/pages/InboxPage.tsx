@@ -23,6 +23,7 @@ import { useAccountFilter } from "@/hooks/use-account-filter";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { Button } from "@/components/ui/button";
 import type { EmailMessage } from "@shared/types";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 
 function ContactPanel({
   emailId,
@@ -89,6 +90,19 @@ function ThreadListSidebar({
   const navigate = useNavigate();
   const markRead = useMarkRead();
   const threads = useMemo(() => groupIntoThreads(emails), [emails]);
+  const selectAllThreads = useCallback(() => {
+    if (threads.length === 0) return;
+    setSelectedIds(
+      new Set(
+        threads.map(
+          (thread) =>
+            thread.latestMessage.threadId || thread.latestMessage.id,
+        ),
+      ),
+    );
+  }, [threads, setSelectedIds]);
+
+  useKeyboardShortcuts([{ key: "a", meta: true, handler: selectAllThreads }]);
 
   return (
     <div className="w-[220px] shrink-0 flex flex-col border-r border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)] overflow-hidden">
@@ -183,6 +197,7 @@ export function InboxPage() {
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selectedThreadIds = useMemo(() => Array.from(selectedIds), [selectedIds]);
   const [isMaximized, setIsMaximized] = useState(false);
   const compose = useComposeState();
   const navState = useNavigationState();
@@ -358,8 +373,10 @@ export function InboxPage() {
       focusedEmailId: focusedId ?? undefined,
       search: searchQ,
       label: activeLabel ?? undefined,
+      selectedThreadIds:
+        selectedThreadIds.length > 0 ? selectedThreadIds : undefined,
     });
-  }, [view, threadId, focusedId, searchQ, activeLabel]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [view, threadId, focusedId, searchQ, activeLabel, selectedThreadIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // One-shot agent navigation: agent writes navigate.json, UI reads it, navigates, deletes it
   const { data: navCommand } = navState.command;

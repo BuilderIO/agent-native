@@ -798,8 +798,21 @@ export function EmailList({
     [setSelectedIds],
   );
 
+  const selectAllThreads = useCallback(() => {
+    if (threads.length === 0) return;
+    setSelectedIds(
+      new Set(
+        threads.map(
+          (thread) =>
+            thread.latestMessage.threadId || thread.latestMessage.id,
+        ),
+      ),
+    );
+  }, [threads, setSelectedIds]);
+
   // Keyboard navigation — Gmail / Superhuman standard shortcuts
   useKeyboardShortcuts([
+    { key: "a", meta: true, handler: selectAllThreads },
     { key: "j", handler: () => moveFocus(1) },
     { key: "ArrowDown", handler: () => moveFocus(1) },
     { key: "k", handler: () => moveFocus(-1) },

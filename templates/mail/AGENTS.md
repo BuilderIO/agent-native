@@ -260,7 +260,7 @@ Ephemeral UI state is stored in the SQL `application_state` table, accessed via 
 
 | State Key      | Purpose                                            | Direction                                    |
 | -------------- | -------------------------------------------------- | -------------------------------------------- |
-| `navigation`   | Current view, thread, search, label, focused email | UI -> Agent (read-only for agent)            |
+| `navigation`   | Current view, thread, search, label, focused email, selected threads | UI -> Agent (read-only for agent)            |
 | `navigate`     | Navigate the user to a view/thread                 | Agent -> UI (one-shot command, auto-deleted) |
 | `compose-{id}` | Email draft (one entry per draft tab)              | Bidirectional                                |
 
@@ -285,12 +285,15 @@ The UI automatically writes `writeAppState("navigation", ...)` whenever the user
   "view": "inbox",
   "threadId": "thread-123",
   "focusedEmailId": "msg-456",
+  "selectedThreadIds": ["thread-123", "thread-789"],
   "search": "budget",
   "label": "important"
 }
 ```
 
 **Do NOT write to `navigation`** — it is overwritten by the UI. To navigate the user, use the `navigate` key instead. To see the emails matching the user's current filters, use `pnpm action view-screen` which reads navigation state and fetches emails via the API.
+
+When rows are multi-selected in an email list, including via Cmd/Ctrl+A, `selectedThreadIds` contains the selected thread keys (`threadId || id`) for bulk actions.
 
 ### Reading thread messages
 
