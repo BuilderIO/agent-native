@@ -231,6 +231,8 @@ export default function RecordRoute() {
   } | null>(null);
   const tickRef = useRef<number | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
+  // Bumped by doCancel() to invalidate any in-flight startFlow().
+  const startSessionRef = useRef(0);
 
   // -------------------------------------------------------------------------
   // Timer
@@ -293,6 +295,11 @@ export default function RecordRoute() {
       micDeviceId: string | null;
       cameraDeviceId: string | null;
     }) => {
+      // Claim a session id; doCancel() bumps the ref to invalidate us.
+      const session = startSessionRef.current + 1;
+      startSessionRef.current = session;
+      const isStale = () => startSessionRef.current !== session;
+
       setError(null);
       setRecordingMode(opts.mode);
       pendingStartOptsRef.current = opts;
@@ -372,8 +379,16 @@ export default function RecordRoute() {
         // 1. Acquire media (triggers permission prompts) while the click's
         // transient activation is still live.
         const { previewStream: ps, cameraStream: cs } = await engine.acquire();
+        if (isStale()) {
+          await engine.cancel().catch(() => {});
+          return;
+        }
 
         const status = await fetchVideoStorageStatus();
+        if (isStale()) {
+          await engine.cancel().catch(() => {});
+          return;
+        }
         setStorageConfigured(status.configured);
         if (!status.configured) {
           throw new Error(
@@ -419,6 +434,16 @@ export default function RecordRoute() {
         if (!info?.id) {
           throw new Error("create-recording did not return an id");
         }
+        // Cancelled mid-POST: pendingRef is still null, so trash directly.
+        if (isStale()) {
+          fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: info.id }),
+          }).catch(() => {});
+          await engine.cancel().catch(() => {});
+          return;
+        }
         const uploadChunkUrl = `${appBasePath()}${info.uploadChunkUrl!}`;
         const abortUrl = `${appBasePath()}${info.abortUrl!}`;
         pendingRef.current = {
@@ -436,6 +461,8 @@ export default function RecordRoute() {
         setCameraStream(cs);
         setUiState("countdown");
       } catch (err) {
+        // doCancel() owns teardown if a cancel raced ahead — don't clobber it.
+        if (isStale()) return;
         const message =
           err instanceof Error ? err.message : "Could not start recording";
         // If the recording row was created before the failure, trash it so it
@@ -803,6 +830,8 @@ export default function RecordRoute() {
   }, []);
 
   const doCancel = useCallback(async () => {
+    // Invalidate any in-flight startFlow().
+    startSessionRef.current += 1;
     const engine = engineRef.current;
     const pendingId = pendingRef.current?.id;
     liveTranscription.stop();

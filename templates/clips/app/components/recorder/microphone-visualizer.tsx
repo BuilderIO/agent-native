@@ -311,7 +311,13 @@ export function MicrophoneVisualizer({
       onStatusChange?.("error", { error: message });
       return;
     }
+
+    // Claim runId before the first await so a stale call can't win the race.
+    const runId = runIdRef.current + 1;
+    runIdRef.current = runId;
+
     const permissionState = await getMicrophonePermissionState();
+    if (runIdRef.current !== runId) return;
     if (permissionState === "denied") {
       const message =
         "Brave already has Microphone set to Block for this site, so it will not show the popup. Click the lock/tune icon in the address bar → Site settings → Microphone → Allow, then reload.";
@@ -321,8 +327,6 @@ export function MicrophoneVisualizer({
       return;
     }
 
-    const runId = runIdRef.current + 1;
-    runIdRef.current = runId;
     stopCurrent();
     setError(null);
     setStatus("starting");

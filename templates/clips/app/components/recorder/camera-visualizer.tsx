@@ -185,7 +185,13 @@ export function CameraVisualizer({
       onStatusChange?.("error", { error: message });
       return;
     }
+
+    // Claim runId before the first await so a stale call can't win the race.
+    const runId = runIdRef.current + 1;
+    runIdRef.current = runId;
+
     const permissionState = await getCameraPermissionState();
+    if (runIdRef.current !== runId) return;
     if (permissionState === "denied") {
       const message =
         "Brave already has Camera set to Block for this site, so it will not show the popup. Click the lock/tune icon in the address bar → Site settings → Camera → Allow, then reload.";
@@ -195,8 +201,6 @@ export function CameraVisualizer({
       return;
     }
 
-    const runId = runIdRef.current + 1;
-    runIdRef.current = runId;
     stopCurrent();
     setError(null);
     setStatus("starting");
