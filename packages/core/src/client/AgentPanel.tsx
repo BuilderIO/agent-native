@@ -21,7 +21,6 @@
  *   <AgentPanel className="h-screen" />
  */
 
-import ReactDOM from "react-dom";
 import React, {
   useState,
   useEffect,
@@ -592,7 +591,6 @@ function AgentPanelInner({
 
   const [tabMenuOpen, setTabMenuOpen] = useState<string | null>(null);
   const [cliPickerOpen, setCliPickerOpen] = useState(false);
-  const cliPickerBtnRef = useRef<HTMLButtonElement>(null);
 
   // Ref callback: scroll the active tab into view in the overflow container.
   // Uses getBoundingClientRect for reliable positioning regardless of offsetParent.
@@ -917,7 +915,9 @@ function AgentPanelInner({
                             >
                               Close Other Tabs
                             </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => closeAllCliTabs()}>
+                            <DropdownMenuItem
+                              onSelect={() => closeAllCliTabs()}
+                            >
                               Close All Tabs
                               <DropdownMenuShortcut>
                                 {closeAllTabsHint}
