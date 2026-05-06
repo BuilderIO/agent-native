@@ -151,22 +151,20 @@ describe("checkBridgePolicy (audit H4)", () => {
     expect(execRes.error).toMatch(/'viewer'/);
   });
 
-  it("denies appAction (any method) for viewers", () => {
+  it("allows appAction for viewers and leaves action-level gates to the server", () => {
     const res = checkBridgePolicy(
       "/_agent-native/actions/share-resource",
       "POST",
       viewer,
     );
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/appAction/);
+    expect(res.ok).toBe(true);
 
-    // Even a GET action is denied — viewers can't trigger side-effects.
     const getRes = checkBridgePolicy(
       "/_agent-native/actions/list-things",
       "GET",
       viewer,
     );
-    expect(getRes.ok).toBe(false);
+    expect(getRes.ok).toBe(true);
   });
 
   it("denies extensionFetch for viewers (the proxy POST surface)", () => {

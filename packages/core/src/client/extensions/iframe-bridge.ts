@@ -143,7 +143,7 @@ function isAllowedHeader(name: string): boolean {
 //
 //   role     | appFetch        | extensionFetch       | extensionData       | dbQuery | dbExec | appAction
 //   ---------|-----------------|-----------------|----------------|---------|--------|----------
-//   viewer   | GET only        | GET only        | get/list only  |  deny   |  deny  |  deny
+//   viewer   | GET only        | GET only        | get/list only  |  deny   |  deny  | allow*
 //   editor   | all methods     | all methods     | get/list/set/  |  allow  | allow* |  allow
 //            |                 |                 | remove         |         |        |
 //   admin    | all methods     | all methods     | all            |  allow  | allow* |  allow
@@ -220,15 +220,12 @@ export function checkBridgePolicy(
     };
   }
 
-  // Actions are denied entirely for viewers — even GET actions can mutate
-  // implicitly (e.g. "view" actions that create rows for analytics).
-  // toolCallable opt-in (audit H5) is enforced server-side as a second
-  // layer.
+  // Actions are allowed for viewers; action-routes enforces each action's
+  // `toolCallable` opt-out server-side. This keeps read-oriented widgets like
+  // inbox stats usable when shared while still blocking sensitive actions such
+  // as share/unshare through their per-action flags.
   if (path.startsWith("/_agent-native/actions/")) {
-    return {
-      ok: false,
-      error: deniedMessage("appAction", ctx.role),
-    };
+    return { ok: true };
   }
 
   // Extension-data writes/deletes are denied; reads (GET/HEAD) are allowed.

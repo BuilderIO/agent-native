@@ -198,6 +198,8 @@ export function EmbeddedExtension({
         const finalHeaders = new Headers(options.headers ?? undefined);
         finalHeaders.set("X-Agent-Native-Extension-Bridge", "1");
         finalHeaders.set("X-Agent-Native-Extension-Id", extensionId);
+        finalHeaders.set("X-Agent-Native-Tool-Bridge", "1");
+        finalHeaders.set("X-Agent-Native-Tool-Id", extensionId);
         const res = await fetch(agentNativePath(path), {
           ...options,
           headers: finalHeaders,

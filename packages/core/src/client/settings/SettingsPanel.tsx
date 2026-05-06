@@ -1515,7 +1515,8 @@ const environmentOptions: SettingsSelectOption[] = [
   {
     value: "production",
     label: "Production",
-    description: "Restricted to app tools only.",
+    description:
+      "App tools only; code, shell, and files require Builder or a local clone.",
   },
   {
     value: "development",

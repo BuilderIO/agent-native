@@ -3,7 +3,7 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import fs from "fs/promises";
 import path from "path";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
@@ -16,29 +16,35 @@ export default defineAction({
       return { error: "Composition id is required" };
     }
 
-    await assertAccess("composition", args.id, "admin");
-
     const db = getDb();
-    await db
-      .delete(schema.compositions)
-      .where(eq(schema.compositions.id, args.id));
+    const access = await resolveAccess("composition", args.id);
+    let deletedDatabase = false;
 
-    // The UI reads compositions from app/remotion/registry.ts (a static source
-    // file the agent edits), not from the DB. Deleting only from the DB means
-    // the entry reappears on reload. In dev, also remove it from the source.
-    if (process.env.NODE_ENV === "development") {
-      try {
-        await removeFromRegistry(args.id);
-      } catch (err) {
-        console.error("[delete-composition] Failed to update registry:", err);
-      }
+    if (access) {
+      await assertAccess("composition", args.id, "admin");
+      await db
+        .delete(schema.compositions)
+        .where(eq(schema.compositions.id, args.id));
+      deletedDatabase = true;
     }
 
-    return { success: true };
+    // Source-backed compositions exist only in app/remotion/registry.ts, so
+    // they have no DB row for assertAccess() to authorize. In dev, remove the
+    // source entry too; otherwise the card reappears on refresh.
+    let deletedRegistry = false;
+    if (process.env.NODE_ENV === "development") {
+      deletedRegistry = await removeFromRegistry(args.id);
+    }
+
+    if (!deletedDatabase && !deletedRegistry) {
+      return { error: "Composition not found or not deletable" };
+    }
+
+    return { success: true, deletedDatabase, deletedRegistry };
   },
 });
 
-async function removeFromRegistry(id: string) {
+async function removeFromRegistry(id: string): Promise<boolean> {
   const registryPath = path.join(process.cwd(), "app/remotion/registry.ts");
   const source = await fs.readFile(registryPath, "utf-8");
 
@@ -50,13 +56,13 @@ async function removeFromRegistry(id: string) {
   // panel) don't desync the depth counter and corrupt the registry.
   const idPattern = new RegExp(`id:\\s*["']${escapeRegex(id)}["']`);
   const idMatch = idPattern.exec(source);
-  if (!idMatch) return; // nothing to do
+  if (!idMatch) return false; // nothing to do
 
   const open = scanBackwardForObjectStart(source, idMatch.index - 1);
-  if (open === -1) return;
+  if (open === -1) return false;
 
   const close = scanForwardForObjectEnd(source, open);
-  if (close === -1) return;
+  if (close === -1) return false;
 
   // Expand the removal range to swallow a trailing comma + following
   // whitespace so we don't leave `,\n  ,` or a dangling blank line.
@@ -72,12 +78,13 @@ async function removeFromRegistry(id: string) {
     if (source[start - 1] === ",") {
       const next = source.slice(0, start - 1) + source.slice(close + 1);
       await fs.writeFile(registryPath, next, "utf-8");
-      return;
+      return true;
     }
   }
 
   const next = source.slice(0, open) + source.slice(end);
   await fs.writeFile(registryPath, next, "utf-8");
+  return true;
 }
 
 function escapeRegex(s: string) {

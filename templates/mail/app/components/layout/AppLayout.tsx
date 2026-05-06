@@ -1281,36 +1281,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       ))}
                     </div>
 
-                    {/* Tools section */}
-                    <div className="mt-3 pt-1 border-t border-border/20">
-                      <ExtensionsSidebarSection />
-                    </div>
-
-                    {/* Settings / Appearance / Feedback / Account */}
-                    <div className="mt-3 pt-1 border-t border-border/20">
-                      <div className="space-y-0.5">
-                        <Link
-                          to="/settings"
-                          onClick={closeSidebar}
-                          className={cn(
-                            "flex items-center rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
-                            location.pathname === "/settings"
-                              ? "bg-accent/60 text-foreground font-medium"
-                              : "text-foreground/70 hover:bg-accent/30",
-                          )}
-                        >
-                          Settings
-                        </Link>
-                        <SidebarThemeRow />
-                        <div className="mt-1">
-                          <FeedbackButton />
-                        </div>
-                        <div className="mt-2 px-1">
-                          <OrgSwitcher />
-                        </div>
-                      </div>
-                    </div>
-
                     {/* Pinned labels */}
                     {pinnedLabels.filter(
                       (l) => !collapsibleViews.some((v) => v.id === l),
@@ -1371,6 +1341,36 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         </div>
                       </>
                     )}
+
+                    {/* Tools section */}
+                    <div className="mt-3 pt-1 border-t border-border/20">
+                      <ExtensionsSidebarSection />
+                    </div>
+
+                    {/* Settings / Appearance / Feedback / Account */}
+                    <div className="mt-3 pt-1 border-t border-border/20">
+                      <div className="space-y-0.5">
+                        <Link
+                          to="/settings"
+                          onClick={closeSidebar}
+                          className={cn(
+                            "flex items-center rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
+                            location.pathname === "/settings"
+                              ? "bg-accent/60 text-foreground font-medium"
+                              : "text-foreground/70 hover:bg-accent/30",
+                          )}
+                        >
+                          Settings
+                        </Link>
+                        <SidebarThemeRow />
+                        <div className="mt-1">
+                          <FeedbackButton />
+                        </div>
+                        <div className="mt-2 px-1">
+                          <OrgSwitcher />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </>

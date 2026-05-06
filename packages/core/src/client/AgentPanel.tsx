@@ -42,6 +42,7 @@ import {
 } from "./components/ui/tooltip.js";
 import {
   IconMessageChatbot,
+  IconSparkles,
   IconTerminal2,
   IconSettings,
   IconLayoutSidebarRightCollapse,
@@ -469,7 +470,7 @@ function AgentPanelInner({
                 )}
                 style={AGENT_PANEL_CONTROL_STYLE}
               >
-                <IconMessageChatbot size={14} />
+                <IconSparkles size={14} />
                 Chat
               </button>
             </TooltipTrigger>
