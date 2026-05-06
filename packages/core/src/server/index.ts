@@ -214,6 +214,8 @@ export {
 export {
   getBuilderBranchProjectId,
   isBuilderBranchingEnabled,
+  resolveBuilderBranchProjectId,
+  resolveIsBuilderBranchingEnabled,
   runBuilderAgent,
   type RunBuilderAgentResult,
 } from "./builder-browser.js";

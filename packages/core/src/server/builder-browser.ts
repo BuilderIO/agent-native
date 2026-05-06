@@ -226,6 +226,31 @@ export function isBuilderBranchingEnabled(): boolean {
   return !!getConfiguredBuilderBranchProjectId();
 }
 
+export async function resolveBuilderBranchProjectId(): Promise<string> {
+  const envProjectId = getConfiguredBuilderBranchProjectId();
+  if (envProjectId) return envProjectId;
+
+  try {
+    const { resolveSecret } = await import("./credential-provider.js");
+    for (const key of [
+      "DISPATCH_BUILDER_PROJECT_ID",
+      "BUILDER_BRANCH_PROJECT_ID",
+      "BUILDER_PROJECT_ID",
+    ]) {
+      const value = await resolveSecret(key);
+      if (value?.trim()) return value.trim();
+    }
+  } catch {
+    // Secrets table or request context not ready — treat as not configured.
+  }
+
+  return "";
+}
+
+export async function resolveIsBuilderBranchingEnabled(): Promise<boolean> {
+  return !!(await resolveBuilderBranchProjectId());
+}
+
 /**
  * Build the Builder cli-auth URL for the connect popup. When a signed
  * `state` token is supplied it is embedded inside the `redirect_url`

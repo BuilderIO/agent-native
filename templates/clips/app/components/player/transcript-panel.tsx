@@ -30,6 +30,8 @@ export interface TranscriptSegment {
 
 export interface TranscriptPanelProps {
   segments: TranscriptSegment[];
+  fullText?: string | null;
+  durationMs?: number | null;
   currentMs: number;
   onSeek: (ms: number) => void;
   status?: "pending" | "ready" | "failed";
@@ -42,6 +44,8 @@ export interface TranscriptPanelProps {
 export function TranscriptPanel(props: TranscriptPanelProps) {
   const {
     segments,
+    fullText,
+    durationMs,
     currentMs,
     onSeek,
     status,
@@ -52,27 +56,42 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
 
+  const displaySegments = useMemo<TranscriptSegment[]>(() => {
+    if (segments.length > 0) return segments;
+    const text = fullText?.trim();
+    if (!text) return [];
+    return [
+      {
+        startMs: 0,
+        endMs: Math.max(1000, Math.round(durationMs ?? 0)),
+        text,
+      },
+    ];
+  }, [segments, fullText, durationMs]);
+
   const filtered = useMemo(() => {
-    if (!query.trim()) return segments;
+    if (!query.trim()) return displaySegments;
     const q = query.toLowerCase();
-    return segments.filter((s) => s.text.toLowerCase().includes(q));
-  }, [segments, query]);
+    return displaySegments.filter((s) => s.text.toLowerCase().includes(q));
+  }, [displaySegments, query]);
 
   const activeIndex = useMemo(
     () =>
-      segments.findIndex((s) => currentMs >= s.startMs && currentMs <= s.endMs),
-    [segments, currentMs],
+      displaySegments.findIndex(
+        (s) => currentMs >= s.startMs && currentMs <= s.endMs,
+      ),
+    [displaySegments, currentMs],
   );
 
   function copyAll() {
-    const text = segments.map((s) => s.text).join(" ");
+    const text = displaySegments.map((s) => s.text).join(" ");
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
 
   function downloadSrt() {
-    const srt = toSrt(segments);
+    const srt = toSrt(displaySegments);
     const blob = new Blob([srt], { type: "text/srt;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -100,8 +119,8 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         <div>
           <p>Transcribing…</p>
           <p className="text-xs mt-1">
-            Whisper is analyzing this recording. This usually takes about as
-            long as the video itself.
+            Native speech appears first when available; Gemini Flash-Lite
+            cleanup follows in the background.
           </p>
         </div>
       </div>
@@ -189,7 +208,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         ) : (
           <ul className="py-1">
             {filtered.map((seg) => {
-              const isActive = segments[activeIndex] === seg;
+              const isActive = displaySegments[activeIndex] === seg;
               return (
                 <li key={seg.startMs}>
                   <button

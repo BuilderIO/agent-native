@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { Link, useNavigate } from "react-router";
 import { IconAppWindow, IconArrowLeft, IconVideo } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -54,6 +55,7 @@ import {
 } from "@/components/recorder/confetti-canvas";
 import {
   RecorderEngine,
+  NO_MIC_DEVICE_ID,
   type DisplaySurface,
   type RecordingMode,
 } from "@/components/recorder/recorder-engine";
@@ -294,7 +296,9 @@ export default function RecordRoute() {
       setError(null);
       setRecordingMode(opts.mode);
       pendingStartOptsRef.current = opts;
-      setUiState("pickingSources");
+      flushSync(() => {
+        setUiState("pickingSources");
+      });
 
       try {
         // Build the engine and trigger browser media prompts before any
@@ -375,6 +379,11 @@ export default function RecordRoute() {
           return;
         }
 
+        const wantsMic = opts.micDeviceId !== NO_MIC_DEVICE_ID;
+        if (wantsMic && liveTranscription.supported) {
+          liveTranscription.start();
+        }
+
         const status = await fetchVideoStorageStatus();
         if (isStale()) {
           await engine.cancel().catch(() => {});
@@ -396,7 +405,8 @@ export default function RecordRoute() {
             body: JSON.stringify({
               title: "Untitled recording",
               hasCamera: opts.mode !== "screen",
-              hasAudio: true,
+              hasAudio: wantsMic,
+              visibility: "public",
             }),
           },
         );
@@ -456,6 +466,7 @@ export default function RecordRoute() {
         if (isStale()) return;
         const message =
           err instanceof Error ? err.message : "Could not start recording";
+        await liveTranscription.stopAndWait().catch(() => "");
         // If the recording row was created before the failure, trash it so it
         // doesn't sit in the library forever in 'uploading' status. This
         // is the bug that produced "stuck UPLOADING" cards from failed
@@ -486,7 +497,7 @@ export default function RecordRoute() {
         }
       }
     },
-    [showRecordingErrorToast],
+    [liveTranscription, markStorageConfigured, showRecordingErrorToast],
   );
 
   // -------------------------------------------------------------------------
@@ -682,9 +693,6 @@ export default function RecordRoute() {
     if (!engine) return;
     try {
       await engine.start();
-      if (liveTranscription.supported) {
-        liveTranscription.start();
-      }
       setUiState("recording");
       setIsPaused(false);
     } catch (err) {
@@ -724,19 +732,29 @@ export default function RecordRoute() {
       // engine finalizes. This gives the recording an instant transcript
       // (from Web Speech API) with no API key required.
       const browserTranscript = await liveTranscription.stopAndWait();
-      if (browserTranscript.trim()) {
-        void fetch(
+      const trimmedTranscript = browserTranscript.trim();
+      if (trimmedTranscript) {
+        const transcriptRes = await fetch(
           agentNativePath("/_agent-native/actions/save-browser-transcript"),
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               recordingId: pending.id,
-              fullText: browserTranscript,
+              fullText: trimmedTranscript,
               source: "web-speech",
             }),
           },
-        ).catch(() => {});
+        ).catch((err) => {
+          console.warn("[recorder] native transcript save failed:", err);
+          return null;
+        });
+        if (transcriptRes && !transcriptRes.ok) {
+          console.warn(
+            "[recorder] native transcript save failed:",
+            transcriptRes.status,
+          );
+        }
       }
 
       await engine.stop();
@@ -1070,7 +1088,9 @@ export default function RecordRoute() {
       {uiState === "pickingSources" && (
         <div className="flex min-h-screen flex-col items-center justify-center gap-3 text-muted-foreground">
           <div className="text-sm">Preparing sources…</div>
-          <div className="text-xs">Select what to share when prompted.</div>
+          <div className="text-xs">
+            Allow screen, microphone, and speech access before recording starts.
+          </div>
         </div>
       )}
 
