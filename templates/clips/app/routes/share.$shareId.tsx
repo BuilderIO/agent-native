@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { IconExternalLink, IconShare3 } from "@tabler/icons-react";
+import { eq } from "drizzle-orm";
 import {
   agentNativePath,
   appBasePath,
@@ -27,10 +29,94 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
+import { getDb, schema } from "../../server/db";
+import { getRequestUserEmail } from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
 
-export function meta() {
-  return [{ title: "Watch" }];
+type SharePageMetaRecording = {
+  id: string;
+  title: string;
+  description: string;
+  thumbnailUrl: string | null;
+  animatedThumbnailUrl: string | null;
+  visibility: "private" | "org" | "public";
+  status: "uploading" | "processing" | "ready" | "failed";
+};
+
+const CLIPS_DEFAULT_TITLE = "Untitled recording";
+
+function hasGeneratedTitle(title: string | null | undefined): boolean {
+  const trimmed = (title ?? "").trim();
+  return Boolean(trimmed && trimmed !== CLIPS_DEFAULT_TITLE);
 }
+
+function pageTitle(title: string | null | undefined): string {
+  return hasGeneratedTitle(title)
+    ? `${title!.trim()} · Clips`
+    : "Clip recording · Clips";
+}
+
+function metaDescription(recording: SharePageMetaRecording | null): string {
+  const description = recording?.description?.trim();
+  if (description) return description.slice(0, 160);
+  if (hasGeneratedTitle(recording?.title)) {
+    return `Watch "${recording!.title.trim()}" on Clips.`;
+  }
+  return "Watch this screen recording on Clips.";
+}
+
+export async function loader({ params }: LoaderFunctionArgs) {
+  const id = params.shareId;
+  if (!id) return { recording: null };
+
+  const [rec] = await getDb()
+    .select({
+      id: schema.recordings.id,
+      title: schema.recordings.title,
+      description: schema.recordings.description,
+      thumbnailUrl: schema.recordings.thumbnailUrl,
+      animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+      visibility: schema.recordings.visibility,
+      status: schema.recordings.status,
+    })
+    .from(schema.recordings)
+    .where(eq(schema.recordings.id, id))
+    .limit(1);
+
+  if (!rec) return { recording: null };
+
+  if (rec.visibility !== "public") {
+    const userEmail = getRequestUserEmail();
+    const access = userEmail ? await resolveAccess("recording", id) : null;
+    if (!access) return { recording: null };
+  }
+
+  const recording: SharePageMetaRecording = rec;
+  return { recording };
+}
+
+export const meta: MetaFunction<typeof loader> = ({ data }) => {
+  const recording = data?.recording ?? null;
+  const title = pageTitle(recording?.title);
+  const description = metaDescription(recording);
+  const image =
+    recording?.animatedThumbnailUrl || recording?.thumbnailUrl || undefined;
+
+  return [
+    { title },
+    { name: "description", content: description },
+    { property: "og:title", content: title },
+    { property: "og:description", content: description },
+    { property: "og:type", content: "video.other" },
+    ...(image ? [{ property: "og:image", content: image }] : []),
+    {
+      name: "twitter:card",
+      content: image ? "summary_large_image" : "summary",
+    },
+    { name: "twitter:title", content: title },
+    { name: "twitter:description", content: description },
+  ];
+};
 
 export function HydrateFallback() {
   return (
@@ -96,6 +182,11 @@ export default function ShareRoute() {
   const ctas = dataQ.data?.data?.ctas ?? [];
   const firstCta = ctas[0] ?? null;
   const viewerCanEdit = Boolean(dataQ.data?.data?.viewer?.canEdit);
+
+  useEffect(() => {
+    if (!recording) return;
+    document.title = pageTitle(recording.title);
+  }, [recording?.title]);
 
   useEffect(() => {
     if (!recording) return;

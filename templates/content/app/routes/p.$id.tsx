@@ -143,7 +143,7 @@ export default function PublicDocumentPage() {
       <div className="mx-auto flex max-w-3xl justify-end px-6 pt-5 sm:px-8">
         <button
           type="button"
-          onClick={() => window.dispatchEvent(new Event("agent-panel:open"))}
+          onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
           className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground shadow-sm hover:bg-accent"
         >
           <IconMessageCircle size={16} />

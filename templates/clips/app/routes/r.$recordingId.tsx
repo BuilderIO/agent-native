@@ -46,7 +46,7 @@ import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 
 export function meta({ params }: { params: { recordingId?: string } }) {
-  return [{ title: `Clip · ${params.recordingId ?? ""}` }];
+  return [{ title: "Clip recording · Clips" }];
 }
 
 export function HydrateFallback() {
@@ -162,6 +162,13 @@ export default function RecordingPage() {
     const s = parseFloat(recording.defaultSpeed || "1.2");
     if (!Number.isNaN(s)) setSpeed(s);
   }, [recording?.defaultSpeed]);
+
+  useEffect(() => {
+    if (!recording) return;
+    document.title = isDefaultTitle(recording.title)
+      ? "Clip recording · Clips"
+      : `${recording.title.trim()} · Clips`;
+  }, [recording?.title]);
 
   // Self-heal stuck transcripts. Older recordings (before finalize-recording
   // learned to auto-trigger transcription) can sit in `pending` forever with no
