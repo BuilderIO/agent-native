@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { NO_MIC_DEVICE_ID, type RecordingMode } from "./recorder-engine";
+import type { CameraBubbleSize } from "./camera-bubble";
 import { CameraVisualizer, type CameraTestStatus } from "./camera-visualizer";
 import {
   MicrophoneVisualizer,
@@ -32,6 +33,8 @@ export interface PreRecordPanelProps {
   onUpload?: (file: File) => void;
   onCancel?: () => void;
   busy?: boolean;
+  cameraSize?: CameraBubbleSize;
+  onCameraSizeChange?: (size: CameraBubbleSize) => void;
 }
 
 type MicTestState = {
@@ -88,6 +91,8 @@ export function PreRecordPanel({
   onUpload,
   onCancel,
   busy,
+  cameraSize = "md",
+  onCameraSizeChange,
 }: PreRecordPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<RecordingMode>("screen+camera");
@@ -331,6 +336,8 @@ export function PreRecordPanel({
               deviceId={cameraId === "default" ? null : cameraId}
               disabled={busy}
               selectedLabel={selectedCameraLabel}
+              size={cameraSize}
+              onSizeChange={onCameraSizeChange}
               onStatusChange={handleCameraStatusChange}
               onPreviewChange={handleCameraPreviewChange}
             />

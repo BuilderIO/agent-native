@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { CameraBubbleSize } from "./camera-bubble";
 
 export type CameraTestStatus = "idle" | "starting" | "live" | "error";
 
@@ -10,12 +11,26 @@ export interface CameraVisualizerProps {
   disabled?: boolean;
   selectedLabel?: string | null;
   className?: string;
+  size?: CameraBubbleSize;
+  onSizeChange?: (size: CameraBubbleSize) => void;
   onStatusChange?: (
     status: CameraTestStatus,
     detail?: { error?: string | null },
   ) => void;
   onPreviewChange?: (hasPreview: boolean) => void;
 }
+
+const CAMERA_BUBBLE_SIZE_PX: Record<CameraBubbleSize, number> = {
+  sm: 120,
+  md: 200,
+  lg: 320,
+};
+
+const CAMERA_SIZE_OPTIONS: Array<{ value: CameraBubbleSize; label: string }> = [
+  { value: "sm", label: "S" },
+  { value: "md", label: "M" },
+  { value: "lg", label: "L" },
+];
 
 type CameraPermissionState = PermissionState | "unknown";
 
@@ -106,6 +121,8 @@ export function CameraVisualizer({
   disabled,
   selectedLabel,
   className,
+  size = "md",
+  onSizeChange,
   onStatusChange,
   onPreviewChange,
 }: CameraVisualizerProps) {
@@ -241,19 +258,39 @@ export function CameraVisualizer({
     };
   }, [stopCurrent]);
 
+  useEffect(() => {
+    if (status !== "live" && status !== "starting") return;
+    const video = videoRef.current;
+    const stream = streamRef.current;
+    if (!video || !stream) return;
+    if (video.srcObject !== stream) {
+      video.srcObject = stream;
+    }
+    const tryPlay = () => {
+      video.play().catch(() => undefined);
+    };
+    tryPlay();
+    video.addEventListener("loadedmetadata", tryPlay, { once: true });
+    return () => {
+      video.removeEventListener("loadedmetadata", tryPlay);
+    };
+  }, [status]);
+
   const live = status === "live";
   const starting = status === "starting";
+  const showBubble = live || starting;
+  const sizePx = CAMERA_BUBBLE_SIZE_PX[size];
   const helper = disabled
     ? "Camera is off for this recording mode."
     : error
       ? error
       : live
         ? hasFrame
-          ? "Preview is live — your selected camera is working."
+          ? "Preview is live in the bottom-left bubble — this size carries into recording."
           : "Camera is connected. Waiting for the first frame…"
         : starting
           ? "Opening camera…"
-          : "Click Test camera to preview the selected camera before recording.";
+          : "Click Test camera to show the camera bubble before recording.";
 
   return (
     <div
@@ -283,41 +320,85 @@ export function CameraVisualizer({
           {live ? "Stop" : starting ? "Starting…" : "Test camera"}
         </Button>
       </div>
-      <div
-        className={cn(
-          "relative aspect-video overflow-hidden rounded-lg border bg-background",
-          live && hasFrame ? "border-foreground/40" : "border-border",
-        )}
-      >
-        <video
-          ref={videoRef}
-          autoPlay
-          muted
-          playsInline
-          onLoadedData={() => {
-            setHasFrame(true);
-            onPreviewChange?.(true);
-          }}
-          aria-label="Selected camera preview"
-          className={cn(
-            "h-full w-full object-cover [transform:scaleX(-1)]",
-            !live && "opacity-0",
-          )}
-        />
-        {!live && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-muted/70 to-background text-[11px] text-muted-foreground">
-            Camera preview
-          </div>
-        )}
-        {live && (
+      <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-2 py-1.5">
+        <span className="text-[11px] text-muted-foreground">Bubble size</span>
+        <div className="flex rounded-md bg-muted p-0.5">
+          {CAMERA_SIZE_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              disabled={disabled}
+              aria-pressed={size === option.value}
+              onClick={() => onSizeChange?.(option.value)}
+              className={cn(
+                "h-6 min-w-6 rounded px-2 text-[11px] font-medium text-muted-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                size === option.value &&
+                  "bg-background text-foreground shadow-sm",
+              )}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {showBubble && (
+        <div className="fixed bottom-4 left-4 z-40 flex flex-col items-start gap-2">
           <div
             className={cn(
-              "pointer-events-none absolute right-2 top-2 h-2 w-2 rounded-full",
-              hasFrame ? "bg-foreground" : "bg-muted-foreground/40",
+              "relative overflow-hidden rounded-full border-4 border-white/80 bg-black shadow-2xl ring-1",
+              live && hasFrame ? "ring-black/25" : "ring-border",
             )}
-          />
-        )}
-      </div>
+            style={{ width: sizePx, height: sizePx }}
+          >
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              onLoadedData={() => {
+                setHasFrame(true);
+                onPreviewChange?.(true);
+              }}
+              aria-label="Selected camera preview"
+              className={cn(
+                "h-full w-full rounded-full object-cover [transform:scaleX(-1)]",
+                !live && "opacity-0",
+              )}
+            />
+            {!live && (
+              <div className="absolute inset-0 flex items-center justify-center rounded-full bg-gradient-to-br from-muted/70 to-background px-5 text-center text-[11px] text-muted-foreground">
+                Camera preview
+              </div>
+            )}
+            {live && (
+              <div
+                className={cn(
+                  "pointer-events-none absolute bottom-[12%] right-[18%] h-2.5 w-2.5 rounded-full ring-2 ring-white",
+                  hasFrame ? "bg-foreground" : "bg-muted-foreground/40",
+                )}
+              />
+            )}
+          </div>
+          <div className="rounded-full border border-border bg-background/95 p-1 shadow-lg backdrop-blur">
+            {CAMERA_SIZE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                aria-label={`Set camera bubble size ${option.label}`}
+                aria-pressed={size === option.value}
+                onClick={() => onSizeChange?.(option.value)}
+                className={cn(
+                  "h-7 min-w-7 rounded-full px-2 text-[11px] font-medium text-muted-foreground transition-colors",
+                  size === option.value &&
+                    "bg-foreground text-background shadow-sm",
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <p
         className={cn(
           "mt-2 text-[11px] leading-snug text-muted-foreground",

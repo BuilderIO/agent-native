@@ -983,7 +983,12 @@ export default function RecordRoute() {
               </span>
             </div>
             {storageConfigured === null ? null : storageConfigured ? (
-              <PreRecordPanel onStart={startFlow} onUpload={uploadFile} />
+              <PreRecordPanel
+                onStart={startFlow}
+                onUpload={uploadFile}
+                cameraSize={cameraSize}
+                onCameraSizeChange={setCameraSize}
+              />
             ) : (
               <StorageSetupCard
                 onConfigured={() => setStorageConfigured(true)}
