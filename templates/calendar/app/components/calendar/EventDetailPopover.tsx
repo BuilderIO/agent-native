@@ -1243,7 +1243,7 @@ export function EventDetailPopover({
                   </div>
                 </div>
               </>
-            ) : (event.status || event.visibility) ? (
+            ) : event.status || event.visibility ? (
               <>
                 <div className="mx-4 my-2 border-t border-border/50" />
                 <div className="flex items-center gap-3 px-4 py-1.5 text-sm text-muted-foreground">

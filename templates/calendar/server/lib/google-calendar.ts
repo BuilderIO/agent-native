@@ -106,10 +106,9 @@ const LIST_EVENT_TYPES = [
   "workingLocation",
 ];
 
-function mapReminders(event: any): Pick<
-  CalendarEvent,
-  "reminders" | "remindersUseDefault"
-> {
+function mapReminders(
+  event: any,
+): Pick<CalendarEvent, "reminders" | "remindersUseDefault"> {
   return {
     remindersUseDefault: event.reminders?.useDefault ?? true,
     reminders: event.reminders?.overrides?.map((r: any) => ({

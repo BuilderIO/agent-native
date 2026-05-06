@@ -208,7 +208,7 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 
 `.env` is loaded automatically — **never manually set `DATABASE_URL` or other env vars**.
 
-In the built-in agent chat, use the framework `manage-progress` tool for long-running generation work. Start it before multi-slide deck generation or design-system extraction, update the current step after each visible batch, and complete it when the user can see the finished result.
+In the built-in agent chat, use the framework `manage-progress` tool for long-running generation work. Start it before multi-slide deck generation or design-system extraction, update the current step after each slide, and complete it when the user can see the finished result.
 
 ### Reading & Searching
 
@@ -238,13 +238,13 @@ If a metric or source would make the slide stronger but is not available, use qu
 
 1. If a deck is already open (check `<current-screen>` for `deckId`), skip to step 3.
 2. Otherwise, create an empty deck: `create-deck --title "X" --slides '[]'`, then `navigate --deckId=<returned-id>`.
-3. For decks larger than a few slides, start a `manage-progress` run so the header runs tray shows visible progress outside the chat pane. Update it after each batch and complete it when the requested slide count is reached.
-4. Call `add-slide --deckId=<id> --content="<html>"` once per slide. Add slide 1 as soon as it is ready, then continue in small visible batches. For requests above 6 slides, use at most 4 `add-slide` calls per model turn, pass `position` values so slide order stays stable, and continue after tool results until the requested slide count is reached. Do not spend a long turn designing the whole deck before slide 1 lands.
+3. For decks larger than a few slides, start a `manage-progress` run so the header runs tray shows visible progress outside the chat pane. Update it after each slide and complete it when the requested slide count is reached.
+4. Call `add-slide --deckId=<id> --content="<html>"` once per slide. Add slide 1 as soon as it is ready, wait for the action result, then add slide 2, and continue one-by-one in slide order until the requested slide count is reached. Do not fire multiple `add-slide` calls in parallel for the same deck; sequential writes are more reliable and still let the user watch the deck build live.
 
 **Why add-slide is preferred over create-deck with all slides:**
 
 - The user sees slides stream in one-by-one (create-deck drops them all at once).
-- Small batched tool calls keep the editor visibly filling in without making the user wait for the whole deck.
+- Sequential `add-slide` calls keep the editor visibly filling in without making the user wait for the whole deck.
 - If one slide fails, the others still land.
 
 **Other operations:**
@@ -254,7 +254,7 @@ If a metric or source would make the slide stronger but is not available, use qu
 
 | Action                     | Args                                                                                     | Purpose                                                               |
 | -------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `add-slide`                | `--deckId <id> --content "<html>" [--layout ...] [--position N]`                         | **PREFERRED** — add one slide to an existing deck; parallel-safe      |
+| `add-slide`                | `--deckId <id> --content "<html>" [--layout ...] [--position N]`                         | **PREFERRED** — add one slide to an existing deck; call sequentially  |
 | `create-deck`              | `--title "X" --slides '[]' [--aspectRatio 16:9\|1:1\|9:16\|4:5] [--designSystemId <id>]` | Create a new empty deck (optionally set aspect ratio / design system) |
 | `create-deck`              | `--title "X" --slides '[...]'`                                                           | Create a new deck with all slides (bulk, rarely preferred)            |
 | `create-deck`              | `--title "X" --slides '[...]' --deckId <id> [--designSystemId <id>]`                     | Replace all slides in an existing deck (atomic bulk replace)          |
@@ -347,22 +347,22 @@ Same rule for `/deck/<id>/present` (presentation mode), `/share/<token>` (share 
 
 ### Common Tasks
 
-| User request                          | What to do                                                                                                                |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| "What am I looking at?"               | `pnpm action view-screen`                                                                                                 |
-| "List my decks"                       | `pnpm action list-decks`                                                                                                  |
-| "Create a new deck about X"           | `create-deck --title "X" --slides '[]'` → `navigate --deckId=<returned-id>` → fire multiple `add-slide` calls in parallel |
-| "Fill this deck / add slides to this" | Read `deckId` from `<current-screen>`, then fire multiple `add-slide --deckId=<id>` calls in parallel — one per slide     |
-| "Add a slide about Y"                 | `add-slide --deckId <id> --content "<html>"` (new slide) or `update-slide --fullContent` (replace existing)               |
-| "Generate an image for this slide"    | `pnpm action generate-image --prompt "..." --deck-id <id>`                                                                |
-| "Open deck abc123"                    | `pnpm action navigate --deckId=abc123`                                                                                    |
-| "Go to the deck list"                 | `pnpm action navigate --view=list`                                                                                        |
-| "Find the company logo for X"         | `pnpm action logo-lookup --domain x.com`                                                                                  |
-| "Create a deck from this Google Doc"  | `import-google-doc --url <url>` first, then build slides from the returned text                                           |
-| "Import a PPTX file"                  | Upload file, then `import-pptx --filePath <path>`                                                                         |
-| "Export this deck as PowerPoint"      | `export-pptx --deckId <id>`                                                                                               |
-| "Set up brand identity"               | `analyze-brand-assets --websiteUrl "..."` then use results to `create-design-system`                                      |
-| "Generate an image with OpenAI"       | `generate-image --prompt "..." --model openai`                                                                            |
+| User request                          | What to do                                                                                                                  |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| "What am I looking at?"               | `pnpm action view-screen`                                                                                                   |
+| "List my decks"                       | `pnpm action list-decks`                                                                                                    |
+| "Create a new deck about X"           | `create-deck --title "X" --slides '[]'` → `navigate --deckId=<returned-id>` → call `add-slide` once per slide, sequentially |
+| "Fill this deck / add slides to this" | Read `deckId` from `<current-screen>`, then call `add-slide --deckId=<id>` once per slide, sequentially                     |
+| "Add a slide about Y"                 | `add-slide --deckId <id> --content "<html>"` (new slide) or `update-slide --fullContent` (replace existing)                 |
+| "Generate an image for this slide"    | `pnpm action generate-image --prompt "..." --deck-id <id>`                                                                  |
+| "Open deck abc123"                    | `pnpm action navigate --deckId=abc123`                                                                                      |
+| "Go to the deck list"                 | `pnpm action navigate --view=list`                                                                                          |
+| "Find the company logo for X"         | `pnpm action logo-lookup --domain x.com`                                                                                    |
+| "Create a deck from this Google Doc"  | `import-google-doc --url <url>` first, then build slides from the returned text                                             |
+| "Import a PPTX file"                  | Upload file, then `import-pptx --filePath <path>`                                                                           |
+| "Export this deck as PowerPoint"      | `export-pptx --deckId <id>`                                                                                                 |
+| "Set up brand identity"               | `analyze-brand-assets --websiteUrl "..."` then use results to `create-design-system`                                        |
+| "Generate an image with OpenAI"       | `generate-image --prompt "..." --model openai`                                                                              |
 
 ## Slide HTML Templates
 
@@ -597,19 +597,23 @@ When spawning a sub-agent for slide work, write an explicit task description —
 **Always include in every slide sub-agent task:**
 
 1. **The exact deckId** if working on an existing deck
-2. **Preferred action**: `add-slide` for slide-by-slide generation (parallel), not `create-deck` with a huge slides array
+2. **Preferred action**: `add-slide` for slide-by-slide generation, not `create-deck` with a huge slides array
 3. **DO NOT tell it to read skills or explore** — the templates are in this AGENTS.md
 
-**Example — filling an open deck (PREFERRED — parallel add-slide):**
+**Example — filling an open deck (PREFERRED — sequential add-slide):**
 
 ```
 The user has deck "deck-1234567-abc" open. Populate it with 5 slides about "AI trends in 2025".
 
-Fire FIVE parallel add-slide tool calls in a single turn:
+Call add-slide once, wait for the result, then call it again for the next slide:
   add-slide --deckId "deck-1234567-abc" --content "<title slide HTML>"
+  wait for result
   add-slide --deckId "deck-1234567-abc" --content "<slide 2 HTML>"
+  wait for result
   add-slide --deckId "deck-1234567-abc" --content "<slide 3 HTML>"
+  wait for result
   add-slide --deckId "deck-1234567-abc" --content "<slide 4 HTML>"
+  wait for result
   add-slide --deckId "deck-1234567-abc" --content "<closing slide HTML>"
 
 Use the slide HTML templates from the AGENTS.md. DO NOT use db-schema, search-files, resource-read, or shell.
@@ -622,7 +626,7 @@ Create a new deck titled "AI Trends 2025" with 5 slides.
 
 Step 1: create-deck --title "AI Trends 2025" --slides '[]'  (empty deck)
 Step 2: navigate --deckId=<returned-id>
-Step 3: Fire 5 parallel add-slide calls (same pattern as the "open deck" example above).
+Step 3: Add 5 slides one-by-one with add-slide (same pattern as the "open deck" example above).
 
 DO NOT bundle all slides into step 1's --slides array. Adding them one-by-one via add-slide lets the user watch the deck build live.
 ```

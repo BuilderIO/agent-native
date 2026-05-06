@@ -30,7 +30,7 @@ export default defineAction({
     const topic = args.topic;
     // Cap at 10. Single-shot Gemini JSON generation reliably truncates
     // beyond that — the resulting JSON fails to parse and the user sees
-    // an error. Larger decks should be assembled with parallel
+    // an error. Larger decks should be assembled with sequential
     // `add-slide` calls from the agent chat instead.
     const slideCount = Math.min(args.slideCount ?? 8, 10);
     const style = args.style;

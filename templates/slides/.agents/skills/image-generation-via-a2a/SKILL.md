@@ -29,6 +29,10 @@ pnpm action generate-image --prompt "..." --deck-id <id> --slide-id <id>
 
 If A2A is configured, the script delegates and prints the Images agent's reply (which contains `previewUrl`, `downloadUrl`, `embedPath`). Parse those URLs out of the reply and drop the `previewUrl` into the slide HTML's `<img src="...">`.
 
+The Images agent must mark delegated generations with `source: "a2a"` and
+`callerAppId: "slides"` when it calls `generate-image-batch` or `refine-image`.
+That keeps the Images audit log useful for design review.
+
 ## Multi-slide parallel generation
 
 For a 5-slide deck where every slide needs a hero, fire 5 parallel `add-slide` calls; each one's image generation will run its own A2A call. Concurrency:

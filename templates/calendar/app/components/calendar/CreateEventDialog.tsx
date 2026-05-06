@@ -190,7 +190,9 @@ export function CreateEventPopover({
           ? { remindersUseDefault: false, reminders: [] }
           : {
               remindersUseDefault: false,
-              reminders: [{ method: "popup" as const, minutes: Number(reminder) }],
+              reminders: [
+                { method: "popup" as const, minutes: Number(reminder) },
+              ],
             };
     const statusPatch =
       eventType === "default"

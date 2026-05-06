@@ -357,7 +357,7 @@ function AddSlidePopover({
         "If the user asked for multiple slides, call `add-slide` once per slide. Use positions starting at " +
           (activeSlideIndex + 1) +
           " so the new slides land after the active slide in order.",
-        "For larger requests, use visible batches: add at most 4 slides in one model turn, then continue with the next batch after the tool results. Start the first batch immediately; do not wait to design the entire sequence before adding slide 1.",
+        "For larger requests, keep adding slides sequentially: wait for each add-slide result, then call add-slide for the next slide. Start slide 1 immediately; do not wait to design the entire sequence before adding it.",
       ].join("\n");
 
       agentSubmit(

@@ -176,9 +176,9 @@ export default function DeckEditor() {
         "Answers:",
         formatted,
         "",
-        "Now generate the slides based on these preferences. Start a manage-progress run, add the first slide as soon as it is ready, then continue in small batches so the editor visibly fills in. Use add-slide with --deckId=" +
+        "Now generate the slides based on these preferences. Start a manage-progress run, add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in. Use add-slide with --deckId=" +
           id +
-          " to add slides one at a time. Use positions when batching so slide order stays stable.",
+          " to add slides sequentially. Wait for each add-slide result before calling it again.",
       ].join("\n");
 
       sendToAgentChat({
@@ -203,7 +203,7 @@ export default function DeckEditor() {
     sendToAgentChat({
       message:
         "Skip the questions — just go ahead and create the slides with your best judgment.",
-      context: `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults. Start a manage-progress run, add the first slide as soon as it is ready, then continue in small batches using add-slide with --deckId=${id}. Use positions when batching so slide order stays stable.`,
+      context: `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults. Start a manage-progress run, add the first slide as soon as it is ready, then continue sequentially using add-slide with --deckId=${id}. Wait for each add-slide result before calling it again.`,
       submit: true,
     });
 
