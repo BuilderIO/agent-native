@@ -85,9 +85,9 @@ function isPermissionError(message: string): boolean {
 function permissionGuidance(message: string): string | null {
   if (!isPermissionError(message)) return null;
   if (isMacPlatform()) {
-    return "Check Chrome Site settings first. If it still fails, open macOS System Settings > Privacy & Security and enable Screen Recording, Camera, and Microphone for Chrome, then quit and reopen Chrome.";
+    return "Check Brave/Chrome Site settings first. If it still fails, open macOS System Settings > Privacy & Security and enable Screen Recording, Camera, and Microphone for your browser, then quit and reopen it.";
   }
-  return "Open Chrome Site settings for this app and allow Camera and Microphone, then reload this page.";
+  return "Open Brave/Chrome Site settings for this app and allow Camera and Microphone, then reload this page.";
 }
 
 function captureThumbnailFromPreview(
@@ -237,7 +237,7 @@ export default function RecordRoute() {
   }, []);
 
   // -------------------------------------------------------------------------
-  // Create recording row, acquire media, start countdown.
+  // Acquire media, create recording row, start countdown.
   // -------------------------------------------------------------------------
   const startFlow = useCallback(
     async (opts: {
@@ -251,6 +251,79 @@ export default function RecordRoute() {
       setUiState("pickingSources");
 
       try {
+        // Build the engine and trigger browser media prompts before any
+        // network await. Brave drops the transient user activation after async
+        // work, so calling getDisplayMedia after create-recording can fail
+        // silently without showing a picker.
+        const engine = new RecorderEngine({
+          recordingId: "__pending__",
+          mode: opts.mode,
+          micDeviceId: opts.micDeviceId,
+          cameraDeviceId: opts.cameraDeviceId,
+          uploadUrl: "",
+          abortUrl: "",
+          onError: (err) => {
+            console.error("[recorder] error:", err);
+            showRecordingErrorToast(err.message);
+            setError(err.message);
+            setUiState("error");
+          },
+          onState: (state) => {
+            // Mirror the engine's compression pass into the UI so the
+            // "Saving your recording…" spinner becomes "Compressing…" for
+            // the duration. Other engine states are managed by the UI's
+            // own state machine in startFlow / doStop.
+            if (state === "compressing") {
+              setUiState("compressing");
+            } else if (state === "uploading") {
+              // Reset compression progress when the engine moves on to
+              // upload — applies whether or not we just came from
+              // compressing.
+              setCompressionProgress(null);
+              // Always sync the UI back to "uploading"; if we were already
+              // there from doStop's pre-stop transition, this is a no-op.
+              setUiState("uploading");
+            }
+          },
+          onChunk: ({ index, bytes }) => {
+            const recordingId = pendingRef.current?.id;
+            if (!recordingId) return;
+            void writeAppState(`recording-upload-${recordingId}`, {
+              recordingId,
+              status: "uploading",
+              chunksReceived: index + 1,
+              lastChunkBytes: bytes,
+              updatedAt: new Date().toISOString(),
+            }).catch(() => {});
+          },
+          // When the user clicks the browser's native "Stop sharing" button,
+          // delegate to doStop() so the UI runs its full stop flow: thumbnail
+          // capture, transcription flush, state updates, and navigation.
+          // Using a ref so we always call the latest version of doStop even
+          // though startFlow itself has empty deps.
+          onDisplayTrackEnded: () => {
+            void doStopRef.current();
+          },
+          onCompressionProgress: ({ stage, progress }) => {
+            // The recorder engine is responsible for transitioning into the
+            // `compressing` state. We mirror that into the UI via the
+            // generic onState handler below; here we just track the
+            // numeric progress so the spinner can show a percentage.
+            if (stage === "encoding" && typeof progress === "number") {
+              setCompressionProgress(progress);
+            } else if (stage === "loading-ffmpeg" || stage === "preparing") {
+              setCompressionProgress(null);
+            } else if (stage === "finalizing") {
+              setCompressionProgress(1);
+            }
+          },
+        });
+        engineRef.current = engine;
+
+        // 1. Acquire media (triggers permission prompts) while the click's
+        // transient activation is still live.
+        const { previewStream: ps, cameraStream: cs } = await engine.acquire();
+
         const statusRes = await fetch(
           agentNativePath("/_agent-native/file-upload/status"),
         );
@@ -263,7 +336,7 @@ export default function RecordRoute() {
           }
         }
 
-        // 1. Create the recording row server-side.
+        // 2. Create the recording row server-side once permissions are granted.
         const res = await fetch(
           agentNativePath("/_agent-native/actions/create-recording"),
           {
@@ -301,85 +374,26 @@ export default function RecordRoute() {
         if (!info?.id) {
           throw new Error("create-recording did not return an id");
         }
+        const uploadChunkUrl = `${appBasePath()}${info.uploadChunkUrl!}`;
+        const abortUrl = `${appBasePath()}${info.abortUrl!}`;
         pendingRef.current = {
           id: info.id,
-          uploadChunkUrl: `${appBasePath()}${info.uploadChunkUrl!}`,
-          abortUrl: `${appBasePath()}${info.abortUrl!}`,
+          uploadChunkUrl,
+          abortUrl,
         };
-
-        // 2. Build the engine and acquire media (triggers permission prompts).
-        const engine = new RecorderEngine({
+        engine.setUploadTarget({
           recordingId: info.id,
-          mode: opts.mode,
-          micDeviceId: opts.micDeviceId,
-          cameraDeviceId: opts.cameraDeviceId,
-          uploadUrl: `${appBasePath()}${info.uploadChunkUrl!}`,
-          abortUrl: `${appBasePath()}${info.abortUrl!}`,
-          onError: (err) => {
-            console.error("[recorder] error:", err);
-            showRecordingErrorToast(err.message);
-            setError(err.message);
-            setUiState("error");
-          },
-          onState: (state) => {
-            // Mirror the engine's compression pass into the UI so the
-            // "Saving your recording…" spinner becomes "Compressing…" for
-            // the duration. Other engine states are managed by the UI's
-            // own state machine in startFlow / doStop.
-            if (state === "compressing") {
-              setUiState("compressing");
-            } else if (state === "uploading") {
-              // Reset compression progress when the engine moves on to
-              // upload — applies whether or not we just came from
-              // compressing.
-              setCompressionProgress(null);
-              // Always sync the UI back to "uploading"; if we were already
-              // there from doStop's pre-stop transition, this is a no-op.
-              setUiState("uploading");
-            }
-          },
-          onChunk: ({ index, bytes }) => {
-            void writeAppState(`recording-upload-${info.id}`, {
-              recordingId: info.id,
-              status: "uploading",
-              chunksReceived: index + 1,
-              lastChunkBytes: bytes,
-              updatedAt: new Date().toISOString(),
-            }).catch(() => {});
-          },
-          // When the user clicks the browser's native "Stop sharing" button,
-          // delegate to doStop() so the UI runs its full stop flow: thumbnail
-          // capture, transcription flush, state updates, and navigation.
-          // Using a ref so we always call the latest version of doStop even
-          // though startFlow itself has empty deps.
-          onDisplayTrackEnded: () => {
-            void doStopRef.current();
-          },
-          onCompressionProgress: ({ stage, progress }) => {
-            // The recorder engine is responsible for transitioning into the
-            // `compressing` state. We mirror that into the UI via the
-            // generic onState handler below; here we just track the
-            // numeric progress so the spinner can show a percentage.
-            if (stage === "encoding" && typeof progress === "number") {
-              setCompressionProgress(progress);
-            } else if (stage === "loading-ffmpeg" || stage === "preparing") {
-              setCompressionProgress(null);
-            } else if (stage === "finalizing") {
-              setCompressionProgress(1);
-            }
-          },
+          uploadUrl: uploadChunkUrl,
+          abortUrl,
         });
-        engineRef.current = engine;
 
-        const { previewStream: ps, cameraStream: cs } = await engine.acquire();
         setPreviewStream(ps);
         setCameraStream(cs);
         setUiState("countdown");
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Could not start recording";
-        // If the recording row was created before the failure (i.e. media
-        // acquisition failed *after* create-recording), trash it so it
+        // If the recording row was created before the failure, trash it so it
         // doesn't sit in the library forever in 'uploading' status. This
         // is the bug that produced "stuck UPLOADING" cards from failed
         // record attempts.
