@@ -23,9 +23,7 @@ export function AgentWorkIndicator() {
       <div className="pointer-events-auto flex items-center justify-between gap-3 rounded-lg border border-border bg-popover/95 px-3 py-2 text-popover-foreground shadow-xl shadow-black/20 backdrop-blur">
         <div className="flex min-w-0 items-center gap-2">
           <IconLoader2 className="h-4 w-4 shrink-0 animate-spin text-[#609FF8]" />
-          <span className="truncate text-sm font-medium">
-            Agent is working
-          </span>
+          <span className="truncate text-sm font-medium">Agent is working</span>
         </div>
         <button
           type="button"

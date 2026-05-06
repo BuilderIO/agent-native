@@ -670,11 +670,10 @@ export default function DeckEditor() {
 
         {isNewDeckGenerating && deck.slides.length > 0 && (
           <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-lg border border-border bg-popover/95 px-3 py-2 text-sm text-popover-foreground shadow-lg backdrop-blur">
-            <span className="font-medium">
-              Building deck
-            </span>
+            <span className="font-medium">Building deck</span>
             <span className="ml-2 text-muted-foreground">
-              {deck.slides.length} slide{deck.slides.length === 1 ? "" : "s"} added
+              {deck.slides.length} slide{deck.slides.length === 1 ? "" : "s"}{" "}
+              added
             </span>
           </div>
         )}
@@ -691,62 +690,62 @@ export default function DeckEditor() {
         {!(isNewDeckGenerating && deck.slides.length === 0) &&
           !showQuestionFlow &&
           currentSlide && (
-          <SlideEditor
-            slide={currentSlide}
-            onUpdateSlide={(updates) =>
-              updateSlide(id, currentSlide.id, updates)
-            }
-            activeTab={activeTab}
-            onGenerateImage={() => setImageGenOpen(true)}
-            onOpenAssetLibrary={(src) => {
-              setReplaceImageSrc(src);
-              setAssetLibraryOpen(true);
-            }}
-            onUploadImage={(src) => {
-              setReplaceImageSrc(src);
-              uploadInputRef.current?.click();
-            }}
-            onSearchImage={(src) => {
-              setReplaceImageSrc(src);
-              setImageSearchOpen(true);
-            }}
-            onLogoSearch={(src) => {
-              setReplaceImageSrc(src);
-              setLogoSearchOpen(true);
-            }}
-            onToggleObjectFit={toggleObjectFit}
-            slideIndex={currentIndex >= 0 ? currentIndex : 0}
-            slideCount={deck.slides.length}
-            designSystem={designSystem}
-            aspectRatio={deck.aspectRatio}
-            ydoc={ydoc}
-            awareness={awareness}
-            collabUser={
-              currentUser
-                ? { name: currentUser.name, color: currentUser.color }
-                : undefined
-            }
-            agentActive={agentActive}
-            onComment={(quotedText) => {
-              setPendingComment({ quotedText });
-              setCommentsOpen(true);
-            }}
-            drawMode={drawMode}
-            onExitDrawMode={() => setDrawMode(false)}
-            pinMode={pinMode}
-            onExitPinMode={() => setPinMode(false)}
-            slideId={currentSlide.id}
-            slideTitle={(() => {
-              const m = currentSlide.content?.match(
-                /<h[12][^>]*>([^<]+)<\/h[12]>/i,
-              );
-              return (
-                m?.[1]?.trim() ||
-                `Slide ${(currentIndex >= 0 ? currentIndex : 0) + 1}`
-              );
-            })()}
-          />
-        )}
+            <SlideEditor
+              slide={currentSlide}
+              onUpdateSlide={(updates) =>
+                updateSlide(id, currentSlide.id, updates)
+              }
+              activeTab={activeTab}
+              onGenerateImage={() => setImageGenOpen(true)}
+              onOpenAssetLibrary={(src) => {
+                setReplaceImageSrc(src);
+                setAssetLibraryOpen(true);
+              }}
+              onUploadImage={(src) => {
+                setReplaceImageSrc(src);
+                uploadInputRef.current?.click();
+              }}
+              onSearchImage={(src) => {
+                setReplaceImageSrc(src);
+                setImageSearchOpen(true);
+              }}
+              onLogoSearch={(src) => {
+                setReplaceImageSrc(src);
+                setLogoSearchOpen(true);
+              }}
+              onToggleObjectFit={toggleObjectFit}
+              slideIndex={currentIndex >= 0 ? currentIndex : 0}
+              slideCount={deck.slides.length}
+              designSystem={designSystem}
+              aspectRatio={deck.aspectRatio}
+              ydoc={ydoc}
+              awareness={awareness}
+              collabUser={
+                currentUser
+                  ? { name: currentUser.name, color: currentUser.color }
+                  : undefined
+              }
+              agentActive={agentActive}
+              onComment={(quotedText) => {
+                setPendingComment({ quotedText });
+                setCommentsOpen(true);
+              }}
+              drawMode={drawMode}
+              onExitDrawMode={() => setDrawMode(false)}
+              pinMode={pinMode}
+              onExitPinMode={() => setPinMode(false)}
+              slideId={currentSlide.id}
+              slideTitle={(() => {
+                const m = currentSlide.content?.match(
+                  /<h[12][^>]*>([^<]+)<\/h[12]>/i,
+                );
+                return (
+                  m?.[1]?.trim() ||
+                  `Slide ${(currentIndex >= 0 ? currentIndex : 0) + 1}`
+                );
+              })()}
+            />
+          )}
 
         {commentsOpen && (
           <SlideCommentsPanel

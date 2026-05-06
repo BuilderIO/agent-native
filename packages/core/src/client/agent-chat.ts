@@ -134,6 +134,11 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
   // listens for this event; the parent-frame case is handled by whoever
   // owns that sidebar receiving the postMessage above.
   if (opts.openSidebar !== false && !opts.background) {
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:set-mode", {
+        detail: { mode: "chat" },
+      }),
+    );
     window.dispatchEvent(new CustomEvent("agent-panel:open"));
   }
   return tabId;
