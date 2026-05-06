@@ -14,6 +14,7 @@ import { ClientOnly, DefaultSpinner, appPath } from "@agent-native/core/client";
 import { getThemeInitScript } from "@agent-native/core/client";
 import { appApiPath } from "@/lib/api-path";
 import { TAB_ID } from "@/lib/tab-id";
+import { markExternalEmailRefresh } from "@/hooks/use-emails";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
@@ -120,6 +121,7 @@ function VisibilityRefresh() {
       const now = Date.now();
       if (now - lastRefresh.current < 1000) return;
       lastRefresh.current = now;
+      markExternalEmailRefresh();
       qc.invalidateQueries({ queryKey: ["emails"] });
       qc.invalidateQueries({ queryKey: ["labels"] });
     };

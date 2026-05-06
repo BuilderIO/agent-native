@@ -44,6 +44,12 @@ export function fetchThreadMessages(threadId: string): Promise<EmailMessage[]> {
   return apiFetch(`/api/threads/${threadId}/messages`);
 }
 
+let externalRefreshAt = 0;
+
+export function markExternalEmailRefresh() {
+  externalRefreshAt = Date.now();
+}
+
 function parseRecipients(value?: string): EmailMessage["to"] {
   return (value || "")
     .split(",")
@@ -281,6 +287,9 @@ export function useEmails(
       if (search) params.set("q", search);
       if (label) params.set("label", label);
       if (pageParam) params.set("pageToken", pageParam);
+      if (externalRefreshAt && Date.now() - externalRefreshAt < 5000) {
+        params.set("forceRefresh", String(externalRefreshAt));
+      }
       return apiFetch<EmailsPage>(`/api/emails?${params}`);
     },
     initialPageParam: undefined as string | undefined,

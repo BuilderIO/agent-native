@@ -41,6 +41,7 @@ import {
 } from "../lib/google-api.js";
 import {
   isConnected,
+  invalidateListCacheForOwner,
   listGmailMessages,
   gmailToEmailMessage,
   getAccountDisplayName,
@@ -369,10 +370,12 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     view = "inbox",
     q,
     label,
+    forceRefresh,
   } = getQuery(event) as {
     view?: string;
     q?: string;
     label?: string;
+    forceRefresh?: string;
   };
 
   if (view === "snoozed" || view === "scheduled") {
@@ -394,6 +397,8 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
   // If Google is connected, fetch from Gmail directly (skip demo data)
   if (await isConnected(email)) {
     try {
+      if (forceRefresh) invalidateListCacheForOwner(email);
+
       const { pageToken } = getQuery(event) as { pageToken?: string };
       // Decode composite page tokens (one per Gmail account)
       let pageTokens: Record<string, string> | undefined;
