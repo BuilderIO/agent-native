@@ -53,6 +53,7 @@ interface AttendeeAutocompleteProps {
   selectedEmails?: string[];
   onAdd: (attendee: AttendeeRecipient) => void;
   onRemove?: (email: string) => void;
+  inputId?: string;
   placeholder?: string;
   autoFocus?: boolean;
   variant?: "box" | "inline";
@@ -114,6 +115,7 @@ export const AttendeeAutocomplete = forwardRef<
     selectedEmails,
     onAdd,
     onRemove,
+    inputId,
     placeholder = "Add guests",
     autoFocus,
     variant = "box",
@@ -367,6 +369,7 @@ export const AttendeeAutocomplete = forwardRef<
           <div className="flex min-w-0 items-center gap-2">
             <input
               ref={inputRef}
+              id={inputId}
               data-attendee-input
               type="text"
               value={inputValue}

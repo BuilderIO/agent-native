@@ -34,6 +34,10 @@ import {
 import type { CalendarEvent } from "@shared/api";
 import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
 import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
+import {
+  AttendeeAutocomplete,
+  type AttendeeRecipient,
+} from "@/components/calendar/AttendeeAutocomplete";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import { useUpdateEvent } from "@/hooks/use-events";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
@@ -266,7 +270,6 @@ export function EventDetailPopover({
   const [editEndTime, setEditEndTime] = useState(() =>
     toTimeInputValue(event.end),
   );
-  const [editAttendeeEmail, setEditAttendeeEmail] = useState("");
   const [editMeetingLink, setEditMeetingLink] = useState("");
   const [pendingVideoProvider, setPendingVideoProvider] = useState<
     "meet" | "zoom" | null
@@ -276,7 +279,6 @@ export function EventDetailPopover({
   const zoomStatus = useZoomStatus();
   const connectZoom = useConnectZoom();
   const locationRef = useRef<HTMLInputElement>(null);
-  const attendeeRef = useRef<HTMLInputElement>(null);
   const meetingLinkRef = useRef<HTMLInputElement>(null);
 
   // Sync editing state when event changes
@@ -314,7 +316,6 @@ export function EventDetailPopover({
     if (!editingField) return;
     requestAnimationFrame(() => {
       if (editingField === "location") locationRef.current?.focus();
-      else if (editingField === "attendees") attendeeRef.current?.focus();
       else if (editingField === "meetingLink") meetingLinkRef.current?.focus();
     });
   }, [editingField]);
@@ -428,20 +429,23 @@ export function EventDetailPopover({
     saveField,
   ]);
 
-  const handleAddAttendee = useCallback(() => {
-    const email = editAttendeeEmail.trim().toLowerCase();
+  const handleAddAttendee = useCallback((attendee: AttendeeRecipient) => {
+    const email = attendee.email.trim().toLowerCase();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
 
     const existing = event.attendees || [];
-    if (existing.some((a) => a.email.toLowerCase() === email)) {
-      setEditAttendeeEmail("");
-      return;
-    }
+    if (existing.some((a) => a.email.toLowerCase() === email)) return;
 
-    const newAttendees = [...existing, { email }];
+    const newAttendees = [
+      ...existing,
+      {
+        email,
+        displayName: attendee.displayName,
+        photoUrl: attendee.photoUrl,
+      },
+    ];
     saveField({ attendees: newAttendees });
-    setEditAttendeeEmail("");
-  }, [editAttendeeEmail, event.attendees, saveField]);
+  }, [event.attendees, saveField]);
 
   const handleRemoveAttendee = useCallback(
     (emailToRemove: string) => {
@@ -589,7 +593,10 @@ export function EventDetailPopover({
         onInteractOutside={(e) => {
           // Don't close if clicking inside an Apollo popover (portaled to body)
           const target = e.target as HTMLElement;
-          if (target.closest("[data-apollo-popover]")) {
+          if (
+            target.closest("[data-apollo-popover]") ||
+            target.closest("[data-attendee-autocomplete]")
+          ) {
             e.preventDefault();
             return;
           }
@@ -831,35 +838,17 @@ export function EventDetailPopover({
               <div className="px-4 py-1">
                 <div className="flex items-center gap-3">
                   <IconPlus className="h-4 w-4 shrink-0 text-muted-foreground/40" />
-                  <input
-                    ref={attendeeRef}
-                    value={editAttendeeEmail}
-                    onChange={(e) => setEditAttendeeEmail(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleAddAttendee();
-                      }
-                      if (e.key === "Escape") {
-                        e.preventDefault();
-                        setEditAttendeeEmail("");
-                        (e.target as HTMLInputElement).blur();
-                      }
-                      e.stopPropagation();
-                    }}
+                  <AttendeeAutocomplete
+                    selectedEmails={(event.attendees || []).map(
+                      (attendee) => attendee.email,
+                    )}
+                    onAdd={handleAddAttendee}
                     placeholder="Add guests"
-                    className="flex-1 bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0"
+                    variant="inline"
+                    showChips={false}
+                    showAddButton
+                    inputClassName="text-foreground placeholder:text-muted-foreground/40"
                   />
-                  {editAttendeeEmail.trim() && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 text-xs shrink-0"
-                      onClick={handleAddAttendee}
-                    >
-                      Add
-                    </Button>
-                  )}
                 </div>
               </div>
             )}

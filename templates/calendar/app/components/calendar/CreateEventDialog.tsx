@@ -22,21 +22,33 @@ import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
 import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
 import {
+  AttendeeAutocomplete,
+  type AttendeeAutocompleteHandle,
+  type AttendeeRecipient,
+} from "@/components/calendar/AttendeeAutocomplete";
+import {
   IconBrandZoom,
   IconPlus,
   IconVideo,
   IconUsers,
-  IconX,
 } from "@tabler/icons-react";
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 type VideoProvider = "none" | "google_meet" | "zoom";
 
-function parseAttendeeInput(value: string): string[] {
-  return value
-    .split(/[\s,;]+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && EMAIL_RE.test(s));
+function uniqueAttendees(attendees: AttendeeRecipient[]) {
+  const byEmail = new Map<string, AttendeeRecipient>();
+  for (const attendee of attendees) {
+    const email = attendee.email.trim();
+    if (!email) continue;
+    const key = email.toLowerCase();
+    const existing = byEmail.get(key);
+    byEmail.set(key, {
+      email,
+      displayName: existing?.displayName ?? attendee.displayName,
+      photoUrl: existing?.photoUrl ?? attendee.photoUrl,
+    });
+  }
+  return Array.from(byEmail.values());
 }
 
 interface CreateEventPopoverProps {
@@ -65,14 +77,14 @@ export function CreateEventPopover({
   const [location, setLocation] = useState("");
   const [allDay, setAllDay] = useState(false);
   const [videoProvider, setVideoProvider] = useState<VideoProvider>("none");
-  const [attendees, setAttendees] = useState<string[]>([]);
-  const [attendeeDraft, setAttendeeDraft] = useState("");
+  const [attendees, setAttendees] = useState<AttendeeRecipient[]>([]);
 
   const createEvent = useCreateEvent();
   const delEvent = useDeleteEvent();
   const zoomStatus = useZoomStatus();
   const connectZoom = useConnectZoom();
   const formRef = useRef<HTMLFormElement>(null);
+  const attendeeAutocompleteRef = useRef<AttendeeAutocompleteHandle>(null);
 
   // Reset form when popover opens
   useEffect(() => {
@@ -86,15 +98,17 @@ export function CreateEventPopover({
       setAllDay(false);
       setVideoProvider("none");
       setAttendees([]);
-      setAttendeeDraft("");
     }
   }, [open, defaultDate, defaultStart, defaultEnd]);
 
-  function commitAttendeeDraft() {
-    const next = parseAttendeeInput(attendeeDraft);
-    if (next.length === 0) return;
-    setAttendees((prev) => Array.from(new Set([...prev, ...next])));
-    setAttendeeDraft("");
+  function addAttendee(attendee: AttendeeRecipient) {
+    setAttendees((prev) => uniqueAttendees([...prev, attendee]));
+  }
+
+  function removeAttendee(email: string) {
+    setAttendees((prev) =>
+      prev.filter((attendee) => attendee.email.toLowerCase() !== email.toLowerCase()),
+    );
   }
 
   // ⌘+Enter to submit
@@ -124,11 +138,13 @@ export function CreateEventPopover({
       ? new Date(`${date}T23:59:59`).toISOString()
       : new Date(`${date}T${endTime}:00`).toISOString();
 
-    // Pick up any unsubmitted draft so users don't lose typed-but-not-Entered emails
-    const trailingDraft = parseAttendeeInput(attendeeDraft);
-    const finalAttendees = Array.from(
-      new Set([...attendees, ...trailingDraft]),
-    );
+    // Pick up any unsubmitted typed email so users do not lose the final entry.
+    const trailingAttendees =
+      attendeeAutocompleteRef.current?.commitPending() ?? [];
+    const finalAttendees = uniqueAttendees([
+      ...attendees,
+      ...trailingAttendees,
+    ]);
 
     createEvent.mutate(
       {
@@ -142,7 +158,10 @@ export function CreateEventPopover({
         addZoom: videoProvider === "zoom",
         attendees:
           finalAttendees.length > 0
-            ? finalAttendees.map((email) => ({ email }))
+            ? finalAttendees.map((attendee) => ({
+                email: attendee.email,
+                displayName: attendee.displayName,
+              }))
             : undefined,
         color: undefined,
       },
@@ -184,6 +203,12 @@ export function CreateEventPopover({
         align="end"
         sideOffset={8}
         className="w-[calc(100vw-2rem)] p-4 sm:w-80"
+        onInteractOutside={(event) => {
+          const target = event.target as HTMLElement;
+          if (target.closest("[data-attendee-autocomplete]")) {
+            event.preventDefault();
+          }
+        }}
       >
         <div className="mb-3 text-sm font-semibold">New Event</div>
         <form ref={formRef} onSubmit={handleSubmit} className="space-y-3">
@@ -268,64 +293,14 @@ export function CreateEventPopover({
             <Label htmlFor="event-attendees" className="text-xs">
               Attendees
             </Label>
-            <div className="rounded-md border border-input bg-transparent px-2 py-1.5 text-sm focus-within:ring-1 focus-within:ring-ring">
-              {attendees.length > 0 && (
-                <div className="mb-1 flex flex-wrap gap-1">
-                  {attendees.map((email) => (
-                    <span
-                      key={email}
-                      className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px]"
-                    >
-                      {email}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setAttendees((prev) =>
-                            prev.filter((e) => e !== email),
-                          )
-                        }
-                        className="text-muted-foreground hover:text-foreground"
-                      >
-                        <IconX className="h-3 w-3" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-              <input
-                id="event-attendees"
-                type="text"
-                value={attendeeDraft}
-                onChange={(e) => setAttendeeDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (
-                    e.key === "Enter" ||
-                    e.key === "," ||
-                    e.key === " " ||
-                    e.key === "Tab"
-                  ) {
-                    if (parseAttendeeInput(attendeeDraft).length > 0) {
-                      e.preventDefault();
-                      commitAttendeeDraft();
-                    }
-                  } else if (
-                    e.key === "Backspace" &&
-                    attendeeDraft === "" &&
-                    attendees.length > 0
-                  ) {
-                    e.preventDefault();
-                    setAttendees((prev) => prev.slice(0, -1));
-                  }
-                }}
-                onBlur={commitAttendeeDraft}
-                placeholder={
-                  attendees.length === 0
-                    ? "alice@example.com, bob@example.com"
-                    : "Add another email…"
-                }
-                className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
-              />
-            </div>
+            <AttendeeAutocomplete
+              ref={attendeeAutocompleteRef}
+              attendees={attendees}
+              onAdd={addAttendee}
+              onRemove={removeAttendee}
+              inputId="event-attendees"
+              placeholder="Search contacts or type an email"
+            />
             {attendees.length > 0 && (
               <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
                 <IconUsers className="h-3 w-3" />
