@@ -1,6 +1,11 @@
 import { eq, and } from "drizzle-orm";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
+  registerBuiltinEngines,
+  resolveEngine,
+} from "@agent-native/core/agent/engine";
+import { runWithRequestContext } from "@agent-native/core/server";
+import {
   listOAuthAccounts,
   listOAuthAccountsByOwner,
   getOAuthTokens,
@@ -296,70 +301,115 @@ async function fetchNewInboxMessages(
   return { messages, newHistoryId };
 }
 
-// ─── Haiku evaluation ────────────────────────────────────────────────────────
+// ─── AI rule evaluation ──────────────────────────────────────────────────────
 
 interface RuleMatch {
   ruleId: string;
   match: boolean;
 }
 
+interface AutomationModelSettings {
+  engine?: string;
+  model?: string;
+}
+
 async function callModel(
-  apiKey: string,
   prompt: string,
-  model: string,
   ownerEmail: string,
+  settings: AutomationModelSettings,
 ): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
+  registerBuiltinEngines();
+
+  return runWithRequestContext({ userEmail: ownerEmail }, async () => {
+    const anthropicKey =
+      !settings.engine || settings.engine === "anthropic"
+        ? await resolveAnthropicKey(ownerEmail)
+        : undefined;
+    const engine = await resolveEngine({
+      engineOption: settings.engine,
+      apiKey: anthropicKey,
+    });
+    const model = settings.model || engine.defaultModel;
+    const controller = new AbortController();
+    let text = "";
+    let assistantText = "";
+    let usage:
+      | {
+          inputTokens: number;
+          outputTokens: number;
+          cacheReadTokens?: number;
+          cacheWriteTokens?: number;
+        }
+      | undefined;
+
+    for await (const event of engine.stream({
       model,
-      max_tokens: 2048,
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Anthropic API error (${res.status}): ${err}`);
-  }
-
-  const data = (await res.json()) as {
-    content: Array<{ type: string; text?: string }>;
-    usage?: {
-      input_tokens?: number;
-      output_tokens?: number;
-      cache_read_input_tokens?: number;
-      cache_creation_input_tokens?: number;
-    };
-  };
-
-  // Attribute this call under the "automation" label so users can see
-  // how much of their spend comes from email rule evaluation vs the
-  // main chat in the Usage settings panel.
-  if (data.usage) {
-    try {
-      const { recordUsage } = await import("@agent-native/core");
-      await recordUsage({
-        ownerEmail,
-        inputTokens: data.usage.input_tokens ?? 0,
-        outputTokens: data.usage.output_tokens ?? 0,
-        cacheReadTokens: data.usage.cache_read_input_tokens ?? 0,
-        cacheWriteTokens: data.usage.cache_creation_input_tokens ?? 0,
-        model,
-        label: "automation",
-        app: "mail",
-      });
-    } catch {
-      // Recording is best-effort — never break the automation run.
+      systemPrompt: "",
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: prompt }],
+        },
+      ],
+      tools: [],
+      abortSignal: controller.signal,
+      maxOutputTokens: 2048,
+    })) {
+      if (event.type === "text-delta") {
+        text += event.text;
+      } else if (event.type === "assistant-content") {
+        assistantText = event.parts
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("");
+      } else if (event.type === "usage") {
+        usage = {
+          inputTokens: event.inputTokens,
+          outputTokens: event.outputTokens,
+          cacheReadTokens: event.cacheReadTokens,
+          cacheWriteTokens: event.cacheWriteTokens,
+        };
+      } else if (event.type === "stop" && event.reason === "error") {
+        throw new Error(event.error || "Automation model call failed");
+      }
     }
-  }
 
-  return data.content[0]?.type === "text" ? (data.content[0].text ?? "") : "";
+    // Attribute this call under the "automation" label so users can see
+    // how much of their spend comes from email rule evaluation vs the
+    // main chat in the Usage settings panel.
+    if (usage) {
+      try {
+        const { recordUsage } = await import("@agent-native/core");
+        await recordUsage({
+          ownerEmail,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cacheReadTokens: usage.cacheReadTokens ?? 0,
+          cacheWriteTokens: usage.cacheWriteTokens ?? 0,
+          model,
+          label: "automation",
+          app: "mail",
+        });
+      } catch {
+        // Recording is best-effort — never break the automation run.
+      }
+    }
+
+    return text || assistantText;
+  });
+}
+
+async function getAutomationModelSettings(
+  ownerEmail: string,
+): Promise<AutomationModelSettings> {
+  const autoSettings = await getUserSetting(ownerEmail, "automation-settings");
+  if (autoSettings && typeof autoSettings === "object") {
+    return {
+      engine: (autoSettings as any).engine,
+      model: (autoSettings as any).model,
+    };
+  }
+  return { model: DEFAULT_MODEL };
 }
 
 async function evaluateRules(
