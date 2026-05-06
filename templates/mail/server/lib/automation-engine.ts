@@ -415,9 +415,8 @@ async function getAutomationModelSettings(
 async function evaluateRules(
   emails: EmailSummary[],
   rules: RuleRecord[],
-  apiKey: string,
   ownerEmail: string,
-  model: string = DEFAULT_MODEL,
+  modelSettings: AutomationModelSettings,
 ): Promise<Map<string, string[]>> {
   // Returns: messageId → array of matched ruleIds
   const results = new Map<string, string[]>();
@@ -459,7 +458,7 @@ For each email, evaluate ALL rules. Respond with ONLY a JSON array, no other tex
 Be precise: only mark a rule as matching if the email clearly fits the condition. When a condition mentions a specific sender, check the From field. When it mentions a topic or category, use the subject and snippet.`;
 
     try {
-      const text = await callModel(apiKey, prompt, model, ownerEmail);
+      const text = await callModel(prompt, ownerEmail, modelSettings);
 
       // Parse JSON from response (handle markdown code blocks)
       const jsonStr = text
@@ -480,8 +479,15 @@ Be precise: only mark a rule as matching if the email clearly fits the condition
         }
       }
     } catch (err: any) {
+      if (
+        /No LLM provider is connected|Connect an LLM provider|missing_credentials/i.test(
+          err?.message ?? "",
+        )
+      ) {
+        throw err;
+      }
       console.error(
-        "[automation-engine] Haiku evaluation failed:",
+        "[automation-engine] Rule evaluation failed:",
         err.message,
       );
       // Skip this batch, will retry on next cron tick
@@ -516,15 +522,9 @@ export async function processAutomationsForAccount(
   const rules = await loadActiveRules(ownerEmail, "mail");
   if (rules.length === 0) return result;
 
-  // 2. Resolve API key — prefer the user's own key from settings, fall back
-  //    to the server env var only if no per-user key is configured.
-  const apiKey = await resolveAnthropicKey(ownerEmail);
-  if (!apiKey) {
-    console.warn(
-      `[automation-engine] No Anthropic API key for ${ownerEmail}, skipping`,
-    );
-    return result;
-  }
+  // 2. Resolve model settings. Credentials are resolved by the selected engine
+  // under the owner's request context, so Builder-managed models work here too.
+  const modelSettings = await getAutomationModelSettings(ownerEmail);
 
   // 3. Get watermark and processed IDs
   const watermark = await getWatermark(ownerEmail);
@@ -572,15 +572,7 @@ export async function processAutomationsForAccount(
   }
 
   // 5. Evaluate rules with AI
-  const autoSettings = await getUserSetting(ownerEmail, "automation-settings");
-  const model = (autoSettings as any)?.model || DEFAULT_MODEL;
-  const matches = await evaluateRules(
-    messages,
-    rules,
-    apiKey,
-    ownerEmail,
-    model,
-  );
+  const matches = await evaluateRules(messages, rules, ownerEmail, modelSettings);
 
   // 6. Execute matched actions
   if (matches.size > 0) {
