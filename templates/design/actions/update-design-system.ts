@@ -10,7 +10,12 @@ export default defineAction({
     "Only provided fields are updated; omitted fields are left unchanged.",
   schema: z.object({
     id: z.string().min(1).describe("Design system ID"),
-    title: z.string().trim().min(1, "title cannot be empty").optional().describe("New title"),
+    title: z
+      .string()
+      .trim()
+      .min(1, "title cannot be empty")
+      .optional()
+      .describe("New title"),
     description: z.string().optional().describe("New description"),
     data: z
       .string()

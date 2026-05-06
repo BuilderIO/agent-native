@@ -39,6 +39,8 @@ import {
   type ResourceMeta,
 } from "./use-resources.js";
 import {
+  formatMcpServerError,
+  getMcpUrlValidationError,
   useMcpServers,
   useCreateMcpServer,
   useDeleteMcpServer,
@@ -180,10 +182,19 @@ function CreateMenu({
   useEffect(() => {
     if (view !== "menu" && view !== "agent-form") {
       setValue("");
+      if (view === "mcp-server") {
+        setMcpError(null);
+        setMcpTestResult(null);
+      }
       const t = setTimeout(() => inputRef.current?.focus(), 50);
       return () => clearTimeout(t);
     }
   }, [view]);
+
+  const clearMcpFeedback = () => {
+    setMcpError(null);
+    setMcpTestResult(null);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -206,6 +217,7 @@ function CreateMenu({
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         if (view !== "menu") {
+          if (view === "mcp-server") clearMcpFeedback();
           setView("menu");
         } else {
           setOpen(false);
@@ -418,6 +430,12 @@ The result should be a reusable agent profile, not a one-off task response.`,
     const name = mcpName.trim();
     const url = mcpUrl.trim();
     if (!name || !url || mcpBusy) return;
+    const validationError = getMcpUrlValidationError(url);
+    if (validationError) {
+      setMcpError(validationError);
+      setMcpTestResult(null);
+      return;
+    }
     setMcpError(null);
     setMcpBusy(true);
     try {
@@ -431,7 +449,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
       setOpen(false);
       onCreated?.();
     } catch (err: any) {
-      setMcpError(err?.message ?? String(err));
+      setMcpError(formatMcpServerError(err));
     } finally {
       setMcpBusy(false);
     }
@@ -440,6 +458,12 @@ The result should be a reusable agent profile, not a one-off task response.`,
   const runMcpTest = async () => {
     const url = mcpUrl.trim();
     if (!url || mcpBusy) return;
+    const validationError = getMcpUrlValidationError(url);
+    if (validationError) {
+      setMcpTestResult({ ok: false, message: validationError });
+      setMcpError(null);
+      return;
+    }
     setMcpTestResult(null);
     setMcpError(null);
     setMcpBusy(true);
@@ -454,7 +478,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
         setMcpTestResult({ ok: false, message: res.error ?? "Failed" });
       }
     } catch (err: any) {
-      setMcpTestResult({ ok: false, message: err?.message ?? String(err) });
+      setMcpTestResult({ ok: false, message: formatMcpServerError(err) });
     } finally {
       setMcpBusy(false);
     }

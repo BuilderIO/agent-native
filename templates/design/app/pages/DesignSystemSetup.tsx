@@ -53,6 +53,7 @@ export default function DesignSystemSetup() {
   const [assets, setAssets] = useState<UploadedFile[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [notes, setNotes] = useState("");
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const figInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
@@ -99,16 +100,34 @@ export default function DesignSystemSetup() {
 
   const addWebsiteUrl = useCallback(() => {
     const url = websiteUrl.trim();
-    if (!url) return;
+    if (!url) {
+      setValidationError("Enter a website URL before adding it.");
+      return;
+    }
+    if (!isHttpUrl(url)) {
+      setValidationError("Website URLs must start with http:// or https://.");
+      return;
+    }
     setWebsiteUrls((prev) => [...prev, url]);
     setWebsiteUrl("");
+    setValidationError(null);
   }, [websiteUrl]);
 
   const addGithubLink = useCallback(() => {
     const url = githubUrl.trim();
-    if (!url) return;
+    if (!url) {
+      setValidationError("Enter a GitHub repository URL before adding it.");
+      return;
+    }
+    if (!isGithubRepoUrl(url)) {
+      setValidationError(
+        "Use a full GitHub repository URL, like https://github.com/org/repo.",
+      );
+      return;
+    }
     setGithubLinks((prev) => [...prev, { id: crypto.randomUUID(), url }]);
     setGithubUrl("");
+    setValidationError(null);
   }, [githubUrl]);
 
   const removeGithubLink = useCallback((id: string) => {
@@ -235,6 +254,13 @@ export default function DesignSystemSetup() {
   );
 
   const handleContinue = useCallback(() => {
+    if (!hasAnySources) {
+      setValidationError(
+        "Add at least one source before generating a design system.",
+      );
+      return;
+    }
+
     const parts: string[] = [];
     parts.push(
       "Set up a design system from the following sources. Analyze each source, extract design tokens (colors, fonts, spacing, borders), and create a cohesive design system.",
@@ -327,6 +353,7 @@ export default function DesignSystemSetup() {
     sendToAgentChat({ message: parts.join("\n"), submit: true, newTab: true });
     navigate("/design-systems");
   }, [
+    hasAnySources,
     companyInfo,
     websiteUrls,
     githubLinks,
@@ -361,8 +388,8 @@ export default function DesignSystemSetup() {
     <Button
       size="sm"
       onClick={handleContinue}
-      disabled={!hasAnySources}
-      className="cursor-pointer"
+      aria-disabled={!hasAnySources}
+      className="cursor-pointer aria-disabled:opacity-50"
     >
       Continue to generation
     </Button>,
@@ -381,6 +408,15 @@ export default function DesignSystemSetup() {
               more accurate the extracted design system will be.
             </p>
           </div>
+
+          {validationError && (
+            <div
+              role="alert"
+              className="mb-6 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300"
+            >
+              {validationError}
+            </div>
+          )}
 
           <div className="space-y-8">
             {/* Company / Brand */}
@@ -787,8 +823,8 @@ export default function DesignSystemSetup() {
             <div className="pt-4">
               <Button
                 onClick={handleContinue}
-                disabled={!hasAnySources}
-                className="w-full cursor-pointer"
+                aria-disabled={!hasAnySources}
+                className="w-full cursor-pointer aria-disabled:opacity-50"
                 size="lg"
               >
                 Continue to generation
@@ -857,4 +893,28 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isGithubRepoUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const [, owner, repo] = url.pathname.split("/");
+    return (
+      url.hostname === "github.com" &&
+      Boolean(owner) &&
+      Boolean(repo) &&
+      !repo.endsWith(".")
+    );
+  } catch {
+    return false;
+  }
 }

@@ -51,6 +51,14 @@ export function normalizeChatError(errorMessage: string): NormalizedChatError {
   const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(raw);
   const text = looksHtml ? htmlToText(raw) : raw.trim();
 
+  if (/^Gateway error \(no detail; raw event:/i.test(text)) {
+    return {
+      message:
+        "The model gateway stopped without a specific error. The chat will try to recover automatically; if it keeps happening, retry with another model.",
+      details: text,
+    };
+  }
+
   if (/inactivity timeout/i.test(text)) {
     return {
       message:

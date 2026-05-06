@@ -58,6 +58,7 @@ export default function Index() {
   const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(false);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [duplicating, setDuplicating] = useState<string | null>(null);
+  const duplicatingRef = useRef<string | null>(null);
   const { generating, submit: agentSubmit } = useAgentGenerating();
   const anchorElRef = useRef<HTMLElement | null>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
@@ -196,7 +197,8 @@ export default function Index() {
 
   const handleDuplicate = useCallback(
     async (id: string) => {
-      if (duplicating) return;
+      if (duplicatingRef.current) return;
+      duplicatingRef.current = id;
       setDuplicating(id);
       try {
         const res = await fetch(
@@ -212,10 +214,11 @@ export default function Index() {
           navigate(`/deck/${newId}`);
         }
       } finally {
+        duplicatingRef.current = null;
         setDuplicating(null);
       }
     },
-    [duplicating, navigate],
+    [navigate],
   );
 
   useSetPageTitle("Decks");
@@ -292,6 +295,7 @@ export default function Index() {
                 onDelete={(id) => setDeckToDelete(id)}
                 onRename={handleRename}
                 onDuplicate={handleDuplicate}
+                isDuplicating={duplicating === deck.id}
               />
             ))}
           </div>

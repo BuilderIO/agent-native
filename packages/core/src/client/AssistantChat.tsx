@@ -2111,6 +2111,10 @@ const AssistantChatInner = forwardRef<
   const [dismissedRunErrorKey, setDismissedRunErrorKey] = useState<
     string | null
   >(null);
+  const userStoppedRunRef = useRef<{
+    at: number;
+    runId?: string;
+  } | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
@@ -2612,6 +2616,14 @@ const AssistantChatInner = forwardRef<
       };
       if (tabId && detail?.tabId && detail.tabId !== tabId) return;
       if (!detail?.message) return;
+      const stopped = userStoppedRunRef.current;
+      if (
+        stopped &&
+        Date.now() - stopped.at < 10_000 &&
+        (!stopped.runId || !detail.runId || stopped.runId === detail.runId)
+      ) {
+        return;
+      }
       setRunErrorInfo({
         message: detail.message,
         ...(detail.details ? { details: detail.details } : {}),
@@ -2696,6 +2708,7 @@ const AssistantChatInner = forwardRef<
       setLoopLimitInfo(null);
       setRunErrorInfo(null);
       setDismissedRunErrorKey(null);
+      userStoppedRunRef.current = null;
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
       clearPendingSelection();
@@ -2838,7 +2851,14 @@ const AssistantChatInner = forwardRef<
   const shouldShowRunError =
     !!visibleRunError &&
     !showRunningInUI &&
-    visibleRunErrorKey !== dismissedRunErrorKey;
+    visibleRunErrorKey !== dismissedRunErrorKey &&
+    !(
+      userStoppedRunRef.current &&
+      Date.now() - userStoppedRunRef.current.at < 10_000 &&
+      (!userStoppedRunRef.current.runId ||
+        !visibleRunError.runId ||
+        userStoppedRunRef.current.runId === visibleRunError.runId)
+    );
 
   return (
     <CheckpointContext.Provider value={checkpointCtx}>
@@ -3163,6 +3183,14 @@ const AssistantChatInner = forwardRef<
                               const activeRun = getActiveRun();
                               const runIdToAbort =
                                 reconnectRunIdRef.current ?? activeRun?.runId;
+                              userStoppedRunRef.current = {
+                                at: Date.now(),
+                                ...(runIdToAbort
+                                  ? { runId: runIdToAbort }
+                                  : {}),
+                              };
+                              setRunErrorInfo(null);
+                              setDismissedRunErrorKey(null);
                               if (runIdToAbort) {
                                 fetch(
                                   `${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`,

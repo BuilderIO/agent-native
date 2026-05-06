@@ -328,6 +328,7 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 | --------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------- |
 | `create-design-system`      | `--title "X" [--description "..."] --data '<json>'`                                       | Create a new design system        |
 | `update-design-system`      | `--id <id> [--title] [--description] [--data] [--assets]`                                 | Update design system tokens       |
+| `delete-design-system`      | `--id <id>`                                                                               | Delete a design system            |
 | `get-design-system`         | `--id <id>`                                                                               | Get design system with all tokens |
 | `list-design-systems`       | `[--compact true]`                                                                        | List all design systems           |
 | `set-default-design-system` | `--id <id>`                                                                               | Set one as the default            |

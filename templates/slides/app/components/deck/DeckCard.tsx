@@ -17,6 +17,7 @@ interface DeckCardProps {
   onDelete: (id: string) => void;
   onRename: (id: string, newTitle: string) => void;
   onDuplicate: (id: string) => void;
+  isDuplicating?: boolean;
 }
 
 export default function DeckCard({
@@ -24,9 +25,11 @@ export default function DeckCard({
   onDelete,
   onRename,
   onDuplicate,
+  isDuplicating = false,
 }: DeckCardProps) {
   const firstSlide = deck.slides?.[0];
   const [isRenaming, setIsRenaming] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [renameValue, setRenameValue] = useState(deck.title);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -102,7 +105,7 @@ export default function DeckCard({
 
       {/* Menu Button - always visible on touch devices */}
       <div className="absolute top-2 right-2 sm:opacity-0 sm:group-hover:opacity-100">
-        <DropdownMenu>
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <button
               onClick={(e) => {
@@ -120,6 +123,7 @@ export default function DeckCard({
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                setMenuOpen(false);
                 setIsRenaming(true);
               }}
             >
@@ -130,11 +134,13 @@ export default function DeckCard({
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                if (isDuplicating) return;
                 onDuplicate(deck.id);
               }}
+              disabled={isDuplicating}
             >
               <IconCopy className="w-3.5 h-3.5 mr-2" />
-              Duplicate
+              {isDuplicating ? "Duplicating..." : "Duplicate"}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem

@@ -285,6 +285,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   // Track client-created decks that haven't been confirmed on the server yet.
   // Prevents the poll from wiping optimistic decks before their POST lands.
   const pendingCreateIdsRef = useRef<Set<string>>(new Set());
+  const pendingDuplicateSourceIdsRef = useRef<Set<string>>(new Set());
 
   // Load decks from API on mount
   useEffect(() => {
@@ -555,6 +556,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   const duplicateDeck = useCallback(
     (sourceDeckId: string, newId: string, title?: string): Deck | null => {
+      if (pendingDuplicateSourceIdsRef.current.has(sourceDeckId)) return null;
       const source = decks.find((d) => d.id === sourceDeckId);
       if (!source) return null;
 
@@ -583,6 +585,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // Track as pending so the poll doesn't wipe the optimistic deck before
       // the duplicate-deck action's INSERT lands.
       pendingCreateIdsRef.current.add(newId);
+      pendingDuplicateSourceIdsRef.current.add(sourceDeckId);
 
       // Fire the action in the background. On error, roll back.
       fetch(`${appBasePath()}/_agent-native/actions/duplicate-deck`, {
@@ -601,6 +604,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         })
         .finally(() => {
           pendingCreateIdsRef.current.delete(newId);
+          pendingDuplicateSourceIdsRef.current.delete(sourceDeckId);
         });
 
       setDecksWithHistory("Duplicate deck", (prev) => [...prev, optimistic]);

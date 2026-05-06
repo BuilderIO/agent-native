@@ -8,7 +8,6 @@ import { IconPlus } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import {
   PromptComposer,
-  useAgentChatGenerating,
   useSendToAgentChat,
 } from "@agent-native/core/client";
 
@@ -25,30 +24,53 @@ export function NewCompositionPopover({
 }: NewCompositionPopoverProps) {
   const [open, setOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const { send, codeRequiredDialog } = useSendToAgentChat();
-
-  const [agentGenerating] = useAgentChatGenerating();
 
   // Auto-save after the agent finishes generating a new composition
   useEffect(() => {
-    if (agentGenerating || !isGenerating) return;
-    setIsGenerating(false);
-    onGeneratingChange?.(false);
-    setTimeout(() => {
-      const match = window.location.pathname.match(/\/c\/([^\/]+)/);
-      if (match && match[1] !== "new") {
-        try {
-          window.dispatchEvent(
-            new CustomEvent("videos.auto-save", {
-              detail: { compositionId: match[1] },
-            }),
-          );
-        } catch (error) {
-          console.error("[AI Auto-Save] Failed:", error);
+    if (!isGenerating) return;
+
+    const finish = () => {
+      setIsGenerating(false);
+      onGeneratingChange?.(false);
+      setTimeout(() => {
+        const match = window.location.pathname.match(/\/c\/([^\/]+)/);
+        if (match && match[1] !== "new") {
+          try {
+            window.dispatchEvent(
+              new CustomEvent("videos.auto-save", {
+                detail: { compositionId: match[1] },
+              }),
+            );
+          } catch (error) {
+            console.error("[AI Auto-Save] Failed:", error);
+          }
         }
-      }
-    }, 2000);
-  }, [agentGenerating, isGenerating, onGeneratingChange]);
+      }, 2000);
+    };
+
+    const handleChatRunning = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail?.isRunning === false) finish();
+    };
+    const handleRunError = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      const message =
+        typeof detail?.message === "string"
+          ? detail.message
+          : "The agent run failed before the composition could be created.";
+      sessionStorage.setItem("videos:new-composition-error", message);
+      finish();
+    };
+
+    window.addEventListener("agentNative.chatRunning", handleChatRunning);
+    window.addEventListener("agent-chat:run-error", handleRunError);
+    return () => {
+      window.removeEventListener("agentNative.chatRunning", handleChatRunning);
+      window.removeEventListener("agent-chat:run-error", handleRunError);
+    };
+  }, [isGenerating, onGeneratingChange]);
 
   async function fileToDataUrl(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -62,35 +84,57 @@ export function NewCompositionPopover({
   async function handleSubmit(text: string, files: File[]) {
     const trimmed = text.trim();
     if (!trimmed) return;
+    setSubmitError(null);
 
     let context =
-      "The user wants to generate a new Remotion video composition. Help them create the component, register it, and set up tracks.";
+      "The user wants to generate a new Videos composition. Use the Videos app's composition flow and actions, especially save-composition and navigate. Do not route this as an app source-code generation request unless the user explicitly asks to edit the app's code.";
 
     const allowed = files.filter(
       (f) => f.type.match(/^(image|video)\//) || f.name.endsWith(".svg"),
     );
-    if (allowed.length > 0) {
-      const attachments = await Promise.all(
-        allowed.map(async (f) => ({
-          name: f.name,
-          path: await fileToDataUrl(f),
-        })),
-      );
-      context +=
-        "\n\nAttached files:\n" +
-        attachments.map((a) => `- ${a.name}: ${a.path}`).join("\n");
+    try {
+      if (allowed.length > 0) {
+        const attachments = await Promise.all(
+          allowed.map(async (f) => ({
+            name: f.name,
+            path: await fileToDataUrl(f),
+          })),
+        );
+        context +=
+          "\n\nAttached files:\n" +
+          attachments.map((a) => `- ${a.name}: ${a.path}`).join("\n");
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Could not read attachment.";
+      setSubmitError(message);
+      setIsGenerating(false);
+      onGeneratingChange?.(false);
+      return;
     }
 
     const result = send({
       message: trimmed,
       context,
       submit: true,
-      requiresCode: true,
+      type: "content",
+      newTab: true,
     });
-    if (result === null) return;
+    if (result === null) {
+      setSubmitError("Could not start the composition request.");
+      setIsGenerating(false);
+      onGeneratingChange?.(false);
+      return;
+    }
 
     setIsGenerating(true);
     onGeneratingChange?.(true);
+    sessionStorage.setItem(
+      "videos:new-composition-generating",
+      String(Date.now()),
+    );
+    sessionStorage.removeItem("videos:new-composition-error");
+    window.dispatchEvent(new CustomEvent("videos:new-composition-status"));
     setOpen(false);
     onNavigate("/c/new");
   }
@@ -133,6 +177,11 @@ export function NewCompositionPopover({
             draftScope="videos:new-composition"
             onSubmit={handleSubmit}
           />
+          {submitError ? (
+            <p className="mt-2 px-1 text-xs text-destructive">
+              {submitError}
+            </p>
+          ) : null}
         </PopoverContent>
       </Popover>
     </>

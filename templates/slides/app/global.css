@@ -95,6 +95,14 @@ button[title="Open agent sidebar"] {
     word-break: break-word;
   }
 
+  button kbd {
+    flex-shrink: 0;
+    margin-left: 0.75rem;
+    overflow-wrap: normal;
+    white-space: nowrap;
+    word-break: normal;
+  }
+
   pre,
   code {
     overflow-x: auto;
