@@ -56,3 +56,25 @@ export function normalizeRecurrence(
     .map((rule) => rule.trim())
     .filter(Boolean);
 }
+
+export function extractVideoLink(event: {
+  location?: string;
+  description?: string;
+  hangoutLink?: string;
+  conferenceData?: {
+    entryPoints?: Array<{ entryPointType?: string; uri?: string }>;
+  };
+}): string | undefined {
+  const conferenceLink = event.conferenceData?.entryPoints?.find(
+    (entryPoint) => entryPoint.entryPointType === "video" && entryPoint.uri,
+  )?.uri;
+  if (conferenceLink) return conferenceLink;
+  if (event.hangoutLink) return event.hangoutLink;
+
+  const text = `${event.location || ""}\n${event.description || ""}`;
+  return (
+    text.match(/https?:\/\/[^\s<>"')]*zoom\.us\/[^\s<>"')]+/i)?.[0] ||
+    text.match(/https?:\/\/meet\.google\.com\/[^\s<>"')]+/i)?.[0] ||
+    text.match(/https?:\/\/teams\.microsoft\.com\/[^\s<>"')]+/i)?.[0]
+  );
+}

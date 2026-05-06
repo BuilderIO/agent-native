@@ -10,6 +10,7 @@ import type { CalendarEvent } from "../../shared/api.js";
 import { readBody, getSession } from "@agent-native/core/server";
 import { emit } from "@agent-native/core/event-bus";
 import * as googleCalendar from "../lib/google-calendar.js";
+import { prepareZoomMeetingPatch } from "../lib/event-video-conferencing.js";
 
 async function uEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);
@@ -240,7 +241,11 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
 
     const acctEmail = await resolveAccountEmail(body.accountEmail, email);
 
-    const { addGoogleMeet, ...eventBody } = body;
+    const { addGoogleMeet, addZoom, ...eventBody } = body;
+    if (addGoogleMeet === true && addZoom === true) {
+      setResponseStatus(event, 400);
+      return { error: "Choose either Google Meet or Zoom, not both." };
+    }
 
     const calEvent: CalendarEvent = {
       ...eventBody,
@@ -251,6 +256,13 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
       updatedAt: new Date().toISOString(),
     };
 
+    let zoomMeetingLink: string | undefined;
+    if (addZoom === true) {
+      const zoom = await prepareZoomMeetingPatch(email, calEvent);
+      zoomMeetingLink = zoom.meetingLink;
+      Object.assign(calEvent, zoom.patch);
+    }
+
     const result = await googleCalendar.createEvent(calEvent, {
       addGoogleMeet: addGoogleMeet === true,
     });
@@ -260,6 +272,7 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
     }
     if (result.meetLink) calEvent.hangoutLink = result.meetLink;
     if (result.conferenceData) calEvent.conferenceData = result.conferenceData;
+    if (zoomMeetingLink) calEvent.meetingLink = zoomMeetingLink;
 
     try {
       emit(
@@ -304,28 +317,72 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
     }
 
     const acctEmail = await resolveAccountEmail(body.accountEmail, email);
+    const { addGoogleMeet, addZoom, sendUpdates, ...rawUpdates } = body;
+    if (addGoogleMeet === true && addZoom === true) {
+      setResponseStatus(event, 400);
+      return { error: "Choose either Google Meet or Zoom, not both." };
+    }
+
+    const updates: Partial<CalendarEvent> = {
+      ...rawUpdates,
+      accountEmail: acctEmail,
+    };
+
+    let zoomMeetingLink: string | undefined;
+    let zoomAlreadyPresent = false;
+    if (addZoom === true) {
+      const existingEvent = await googleCalendar.getEvent(
+        googleEventId,
+        acctEmail,
+      );
+      const eventForZoom: CalendarEvent = {
+        ...existingEvent,
+        ...updates,
+        title: updates.title ?? existingEvent.title,
+        description: updates.description ?? existingEvent.description,
+        location: updates.location ?? existingEvent.location,
+        start: updates.start ?? existingEvent.start,
+        end: updates.end ?? existingEvent.end,
+      };
+      const zoom = await prepareZoomMeetingPatch(email, eventForZoom);
+      zoomMeetingLink = zoom.meetingLink;
+      zoomAlreadyPresent = zoom.alreadyPresent;
+      Object.assign(updates, zoom.patch);
+    }
+
+    const updatedKeys = Object.keys(updates).filter(
+      (key) => key !== "accountEmail",
+    );
+    if (updatedKeys.length === 0 && zoomAlreadyPresent) {
+      return {
+        success: true,
+        id,
+        googleEventId,
+        accountEmail: acctEmail,
+        meetingLink: zoomMeetingLink,
+        updatedAt: new Date().toISOString(),
+      };
+    }
 
     try {
       const result = await googleCalendar.updateEvent(
         googleEventId,
+        updates,
         {
-          ...body,
-          accountEmail: acctEmail,
-        },
-        {
-          sendUpdates: body.sendUpdates,
-          addGoogleMeet: body.addGoogleMeet === true,
+          sendUpdates,
+          addGoogleMeet: addGoogleMeet === true,
         },
       );
-      if (result.meetLink) body.hangoutLink = result.meetLink;
-      if (result.conferenceData) body.conferenceData = result.conferenceData;
+      if (result.meetLink) updates.hangoutLink = result.meetLink;
+      if (result.conferenceData) updates.conferenceData = result.conferenceData;
+      if (zoomMeetingLink) updates.meetingLink = zoomMeetingLink;
     } catch (error: any) {
       setResponseStatus(event, 500);
       return { error: `Failed to update Google event: ${error.message}` };
     }
 
     const updated = {
-      ...body,
+      ...updates,
       id,
       googleEventId,
       updatedAt: new Date().toISOString(),
@@ -336,10 +393,10 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
         "calendar.event.updated",
         {
           eventId: id,
-          title: body.title ?? "",
-          startTime: body.start ?? "",
-          endTime: body.end ?? "",
-          attendees: body.attendees ?? [],
+          title: updates.title ?? "",
+          startTime: updates.start ?? "",
+          endTime: updates.end ?? "",
+          attendees: updates.attendees ?? [],
           updatedBy: email,
         },
         { owner: email },

@@ -14,13 +14,24 @@ type CreateEventInput = Omit<
 > & {
   _tempId?: string;
   addGoogleMeet?: boolean;
+  addZoom?: boolean;
 };
 
 type UpdateEventInput = Partial<CalendarEvent> & {
   id: string;
   addGoogleMeet?: boolean;
+  addZoom?: boolean;
   sendUpdates?: "all" | "none";
 };
+
+async function readErrorMessage(res: Response, fallback: string) {
+  try {
+    const body = (await res.json()) as { error?: string; message?: string };
+    return body.error || body.message || fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 function buildEventsParams(
   from?: string,
@@ -104,7 +115,9 @@ export function useCreateEvent() {
           body: JSON.stringify(eventData),
         },
       );
-      if (!res.ok) throw new Error("Failed to create event");
+      if (!res.ok) {
+        throw new Error(await readErrorMessage(res, "Failed to create event"));
+      }
       const result = await res.json();
       return { ...result, _tempId };
     },
@@ -154,7 +167,9 @@ export function useUpdateEvent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error("Failed to update event");
+      if (!res.ok) {
+        throw new Error(await readErrorMessage(res, "Failed to update event"));
+      }
       return res.json();
     },
     onMutate: async (newData) => {
@@ -162,7 +177,8 @@ export function useUpdateEvent() {
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
         queryKey: ["action", "list-events"],
       });
-      const { addGoogleMeet, sendUpdates, ...optimisticData } = newData;
+      const { addGoogleMeet, addZoom, sendUpdates, ...optimisticData } =
+        newData;
       queryClient.setQueriesData<CalendarEvent[]>(
         { queryKey: ["action", "list-events"] },
         (old) =>
