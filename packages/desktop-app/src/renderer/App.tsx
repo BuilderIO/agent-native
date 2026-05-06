@@ -66,6 +66,7 @@ export default function App() {
   }, []);
 
   const enabledApps = apps.filter((a) => a.enabled);
+  const enabledAppIdsKey = enabledApps.map((a) => a.id).join(",");
   const rawAppDefs = enabledApps.map(toAppDefinition);
   // Keep this in sync with Sidebar's pinned-bottom order.
   const PINNED_BOTTOM_ORDER = ["dispatch", "starter"];
@@ -81,10 +82,14 @@ export default function App() {
 
   const [activeSidebarAppId, setActiveSidebarAppId] = useState("");
   const [appTabs, setAppTabs] = useState<Record<string, AppTabState>>({});
+  const [mountedAppIds, setMountedAppIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   // Initialize tabs when apps load
   useEffect(() => {
     if (enabledApps.length === 0) return;
+    const enabledIds = new Set(enabledApps.map((app) => app.id));
     setAppTabs((prev) => {
       // Only init tabs for apps that don't have tabs yet
       const next = { ...prev };
@@ -96,13 +101,32 @@ export default function App() {
       }
       return next;
     });
+    setMountedAppIds((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const appId of prev) {
+        if (enabledIds.has(appId)) next.add(appId);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
     setActiveSidebarAppId((prev) => {
       if (prev && enabledApps.find((a) => a.id === prev)) return prev;
       const def =
         enabledApps.find((a) => !("placeholder" in a)) ?? enabledApps[0];
       return def?.id ?? "";
     });
-  }, [enabledApps.map((a) => a.id).join(",")]);
+  }, [enabledAppIdsKey]);
+
+  useEffect(() => {
+    if (!activeSidebarAppId) return;
+    setMountedAppIds((prev) => {
+      if (prev.has(activeSidebarAppId)) return prev;
+      const next = new Set(prev);
+      next.add(activeSidebarAppId);
+      return next;
+    });
+  }, [activeSidebarAppId]);
 
   const closedTabsRef = useRef<{ tab: Tab; appId: string }[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -337,25 +361,29 @@ export default function App() {
     );
   }
 
-  // Mount only the active app's webviews. Electron <webview> guests are native
-  // surfaces on macOS; keeping every app mounted and hidden can leave stale
-  // compositor pixels on top of the newly-selected app even though React state
-  // and the accessibility tree have moved on.
+  // Keep app webviews warm once visited so switching apps feels like browser
+  // tabs: the guest page remains alive offscreen and keeps its runtime state.
   const allWebviews: {
     tab: Tab;
     app: AppConfig;
     appDef: AppDefinition;
     isActive: boolean;
   }[] = [];
-  const activeApp = enabledApps.find((app) => app.id === activeSidebarAppId);
-  const activeAppState = activeApp ? appTabs[activeApp.id] : undefined;
-  if (activeApp && activeAppState) {
-    for (const tab of activeAppState.tabs) {
+  for (const app of enabledApps) {
+    if (app.id !== activeSidebarAppId && !mountedAppIds.has(app.id)) {
+      continue;
+    }
+
+    const appState = appTabs[app.id];
+    if (!appState) continue;
+
+    for (const tab of appState.tabs) {
       allWebviews.push({
         tab,
-        app: activeApp,
-        appDef: toAppDefinition(activeApp),
-        isActive: tab.id === activeAppState.activeTabId,
+        app,
+        appDef: toAppDefinition(app),
+        isActive:
+          app.id === activeSidebarAppId && tab.id === appState.activeTabId,
       });
     }
   }
