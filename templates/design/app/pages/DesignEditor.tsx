@@ -20,6 +20,7 @@ import {
 } from "@tabler/icons-react";
 import {
   useActionQuery,
+  useActionMutation,
   useSession,
   useCollaborativeDoc,
   generateTabId,
@@ -36,6 +37,7 @@ import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
+import { EditPanel } from "@/components/design/EditPanel";
 import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { TweaksPanel } from "@/components/design/TweaksPanel";
@@ -91,6 +93,24 @@ interface PendingGeneration {
 }
 
 const pendingGenerationKey = (id: string) => `design.pending-generation.${id}`;
+
+function applyInlineStyleToHtml(
+  content: string,
+  selector: string,
+  property: string,
+  value: string,
+): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const element = doc.querySelector(selector) as HTMLElement | null;
+    if (!element) return null;
+    (element.style as any)[property] = value;
+    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  } catch {
+    return null;
+  }
+}
 
 function isDesignData(
   data: DesignData | string | undefined,
@@ -184,6 +204,41 @@ export default function DesignEditor() {
       refetchIntervalInBackground: true,
     },
   );
+  const updateFileMutation = useActionMutation("update-file");
+  const pendingFileSaveRef = useRef<{ id: string; content: string } | null>(
+    null,
+  );
+  const fileSaveTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(
+    null,
+  );
+
+  const queueFileContentSave = useCallback(
+    (fileId: string, content: string) => {
+      pendingFileSaveRef.current = { id: fileId, content };
+      if (fileSaveTimerRef.current) {
+        window.clearTimeout(fileSaveTimerRef.current);
+      }
+      fileSaveTimerRef.current = window.setTimeout(() => {
+        const pending = pendingFileSaveRef.current;
+        pendingFileSaveRef.current = null;
+        fileSaveTimerRef.current = null;
+        if (!pending) return;
+        updateFileMutation.mutate({
+          id: pending.id,
+          content: pending.content,
+        } as any);
+      }, 400);
+    },
+    [updateFileMutation],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (fileSaveTimerRef.current) {
+        window.clearTimeout(fileSaveTimerRef.current);
+      }
+    };
+  }, []);
 
   const design = isDesignData(designResult) ? designResult : null;
 
@@ -378,6 +433,37 @@ export default function DesignEditor() {
     setHoveredElement(info);
   }, []);
 
+  const handleStyleChange = useCallback(
+    (property: string, value: string) => {
+      if (!activeFile) return;
+      const selector = selectedElement?.selector ?? "body";
+      const sendStyleChange = (window as any).__designCanvasSendStyle;
+      if (typeof sendStyleChange === "function") {
+        sendStyleChange(selector, property, value);
+      }
+
+      const nextContent = applyInlineStyleToHtml(
+        activeContent,
+        selector,
+        property,
+        value,
+      );
+      if (!nextContent) return;
+
+      setCollabContent(nextContent);
+      queueFileContentSave(activeFile.id, nextContent);
+      setSelectedElement((prev) =>
+        prev
+          ? {
+              ...prev,
+              computedStyles: { ...prev.computedStyles, [property]: value },
+            }
+          : prev,
+      );
+    },
+    [activeContent, activeFile, queueFileContentSave, selectedElement],
+  );
+
   const handleZoomIn = useCallback(() => {
     setZoom((z) => {
       const next = ZOOM_PRESETS.find((p) => p > z);
@@ -402,6 +488,9 @@ export default function DesignEditor() {
       if (next === "draw") {
         setDrawMode(true);
         setPinMode(false);
+      } else if (next === "comment") {
+        setDrawMode(false);
+        setPinMode(Boolean(activeFile && viewMode !== "overview"));
       } else {
         setDrawMode(false);
         if (next === "edit") setPinMode(false);
@@ -409,6 +498,12 @@ export default function DesignEditor() {
     },
     [activeFile, viewMode],
   );
+
+  const handleCommentTabClick = useCallback(() => {
+    if (mode !== "comment" || !activeFile || viewMode === "overview") return;
+    setPinMode((current) => !current);
+    setDrawMode(false);
+  }, [activeFile, mode, viewMode]);
 
   const handleViewModeToggle = useCallback(() => {
     setDrawMode(false);
@@ -506,7 +601,11 @@ export default function DesignEditor() {
             onValueChange={(v) => handleModeChange(v as EditorMode)}
           >
             <TabsList className="h-8">
-              <TabsTrigger value="comment" className="h-6 px-2 text-xs gap-1">
+              <TabsTrigger
+                value="comment"
+                className="h-6 px-2 text-xs gap-1"
+                onClick={handleCommentTabClick}
+              >
                 <IconMessage className="w-3 h-3" />
                 Comment
               </TabsTrigger>
@@ -856,82 +955,11 @@ export default function DesignEditor() {
         )}
 
         {/* Edit panel (right side) */}
-        {mode === "edit" && selectedElement && (
-          <div className="w-64 border-l border-border bg-background p-4 overflow-y-auto shrink-0">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-              Element
-            </h3>
-            <div className="space-y-3">
-              <div>
-                <span className="text-[10px] text-muted-foreground uppercase">
-                  Tag
-                </span>
-                <p className="text-sm text-foreground/90 font-mono">
-                  {selectedElement.tagName}
-                  {selectedElement.id ? `#${selectedElement.id}` : ""}
-                </p>
-              </div>
-              {selectedElement.classes.length > 0 && (
-                <div>
-                  <span className="text-[10px] text-muted-foreground uppercase">
-                    Classes
-                  </span>
-                  <p className="text-xs text-muted-foreground font-mono break-all">
-                    {selectedElement.classes.join(" ")}
-                  </p>
-                </div>
-              )}
-              {selectedElement.textContent && (
-                <div>
-                  <span className="text-[10px] text-muted-foreground uppercase">
-                    Text
-                  </span>
-                  <p className="text-xs text-muted-foreground line-clamp-3">
-                    {selectedElement.textContent}
-                  </p>
-                </div>
-              )}
-              <div>
-                <span className="text-[10px] text-muted-foreground uppercase">
-                  Size
-                </span>
-                <p className="text-xs text-muted-foreground">
-                  {Math.round(selectedElement.boundingRect.width)} x{" "}
-                  {Math.round(selectedElement.boundingRect.height)}
-                </p>
-              </div>
-              <div>
-                <span className="text-[10px] text-muted-foreground uppercase">
-                  Styles
-                </span>
-                <div className="space-y-1 mt-1">
-                  {Object.entries(selectedElement.computedStyles)
-                    .filter(
-                      ([, v]) =>
-                        v &&
-                        v !== "normal" &&
-                        v !== "none" &&
-                        v !== "0px" &&
-                        v !== "auto",
-                    )
-                    .slice(0, 12)
-                    .map(([key, value]) => (
-                      <div
-                        key={key}
-                        className="flex items-center justify-between text-[10px]"
-                      >
-                        <span className="text-muted-foreground font-mono">
-                          {key}
-                        </span>
-                        <span className="text-muted-foreground font-mono truncate ml-2 max-w-[120px]">
-                          {value}
-                        </span>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            </div>
-          </div>
+        {mode === "edit" && (
+          <EditPanel
+            selectedElement={selectedElement}
+            onStyleChange={handleStyleChange}
+          />
         )}
 
         {/* Tweaks panel (floating, draggable). Renders agent-defined knobs
@@ -946,6 +974,7 @@ export default function DesignEditor() {
               onChange={(id, value) =>
                 setTweakSelections((prev) => ({ ...prev, [id]: value }))
               }
+              onClose={() => setTweaksVisible(false)}
               visible
             />
           ) : (
