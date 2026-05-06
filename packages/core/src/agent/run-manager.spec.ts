@@ -29,10 +29,12 @@ import {
 } from "./run-manager.js";
 import {
   getRunAbortState,
+  insertRun,
   getRunById,
   getRunByThread,
   getRunEventsSince,
   markRunAborted,
+  updateRunStatus,
 } from "./run-store.js";
 
 const originalTimeoutEnv = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
@@ -96,7 +98,9 @@ describe("run manager soft timeout", () => {
     vi.mocked(getRunAbortState).mockResolvedValue({ aborted: false });
     vi.mocked(getRunById).mockResolvedValue(null);
     vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(insertRun).mockResolvedValue(undefined);
     vi.mocked(markRunAborted).mockClear();
+    vi.mocked(updateRunStatus).mockClear();
   });
 
   afterEach(() => {
@@ -291,6 +295,42 @@ describe("run manager soft timeout", () => {
 
     expect(abortReason).toBe("no_progress");
     expect(run.abortReason).toBe("no_progress");
+  });
+
+  it("waits for the SQL run row insert before writing terminal status", async () => {
+    let resolveInsert!: () => void;
+    const insertPromise = new Promise<void>((resolve) => {
+      resolveInsert = resolve;
+    });
+    vi.mocked(insertRun).mockReturnValueOnce(insertPromise);
+
+    const run = startRun(
+      "run-insert-race",
+      "thread-insert-race",
+      async (send) => {
+        send({ type: "text", text: "fast answer" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(run.status).toBe("completed");
+    expect(updateRunStatus).not.toHaveBeenCalledWith(
+      "run-insert-race",
+      "completed",
+    );
+
+    resolveInsert();
+
+    await vi.waitFor(() =>
+      expect(updateRunStatus).toHaveBeenCalledWith(
+        "run-insert-race",
+        "completed",
+      ),
+    );
   });
 
   it("normalizes missing SQL abort reasons to user aborts", async () => {

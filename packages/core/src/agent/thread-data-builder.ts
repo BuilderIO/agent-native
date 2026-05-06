@@ -216,7 +216,9 @@ function messageText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
-    .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+    .filter(
+      (part: any) => part?.type === "text" && typeof part.text === "string",
+    )
     .map((part: any) => part.text)
     .join("");
 }

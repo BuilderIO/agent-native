@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildAssistantMessage } from "./thread-data-builder.js";
+import {
+  buildAssistantMessage,
+  upsertAssistantMessage,
+} from "./thread-data-builder.js";
 import type { RunEvent } from "./types.js";
 
 describe("buildAssistantMessage", () => {
@@ -92,5 +95,121 @@ describe("buildAssistantMessage", () => {
       { type: "text", text: "checking...\n\nError: Missing API key" },
     ]);
     expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
+  });
+
+  it("replaces a non-terminal partial assistant message for the same run", () => {
+    const finalMessage = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "I can see there are " } },
+        { seq: 1, event: { type: "text", text: "12 matching emails." } },
+        { seq: 2, event: { type: "done" } },
+      ],
+      "run-archive",
+    );
+    expect(finalMessage).not.toBeNull();
+
+    const repo = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "archive them" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "assistant-partial",
+            role: "assistant",
+            content: [{ type: "text", text: "I can see there are " }],
+            status: { type: "running" },
+            metadata: { custom: { runId: "run-archive" } },
+          },
+          parentId: "user-1",
+        },
+      ],
+    };
+
+    const updated = upsertAssistantMessage(repo, finalMessage!);
+
+    expect(updated.messages).toHaveLength(2);
+    expect(updated.messages[1].parentId).toBe("user-1");
+    expect(updated.messages[1].message).toMatchObject({
+      id: "server-run-archive",
+      role: "assistant",
+      content: [
+        { type: "text", text: "I can see there are 12 matching emails." },
+      ],
+      status: { type: "complete", reason: "stop" },
+      metadata: { runId: "run-archive" },
+    });
+  });
+
+  it("does not duplicate when the frontend already saved the final same-run message", () => {
+    const finalMessage = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Done." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-done",
+    );
+    expect(finalMessage).not.toBeNull();
+
+    const repo = {
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "do it" }],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Done." }],
+          status: { type: "complete", reason: "stop" },
+          metadata: { custom: { runId: "run-done" } },
+        },
+      ],
+    };
+
+    const updated = upsertAssistantMessage(repo, finalMessage!);
+
+    expect(updated.messages).toHaveLength(2);
+    expect(updated.messages[1]).toMatchObject({
+      id: "server-run-done",
+      role: "assistant",
+      content: [{ type: "text", text: "Done." }],
+      status: { type: "complete", reason: "stop" },
+      metadata: { runId: "run-done" },
+    });
+  });
+
+  it("appends when the last assistant belongs to a different completed run", () => {
+    const finalMessage = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "New answer." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-new",
+    );
+    expect(finalMessage).not.toBeNull();
+
+    const repo = {
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Old answer." }],
+          status: { type: "complete", reason: "stop" },
+          metadata: { runId: "run-old" },
+        },
+      ],
+    };
+
+    const updated = upsertAssistantMessage(repo, finalMessage!);
+
+    expect(updated.messages).toHaveLength(2);
+    expect(updated.messages[1]).toMatchObject({
+      id: "server-run-new",
+      content: [{ type: "text", text: "New answer." }],
+    });
   });
 });

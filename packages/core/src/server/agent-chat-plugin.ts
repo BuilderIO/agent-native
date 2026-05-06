@@ -3253,10 +3253,7 @@ export function createAgentChatPlugin(
                 // Try to extract the first sentence of the assistant's text response
                 let assistantText = "";
                 for (const { event } of run.events ?? []) {
-                  if (
-                    event.type === "text" &&
-                    typeof event.text === "string"
-                  ) {
+                  if (event.type === "text" && typeof event.text === "string") {
                     assistantText += event.text;
                   }
                 }
