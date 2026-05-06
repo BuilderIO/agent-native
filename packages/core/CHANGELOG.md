@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.12.3
+
+### Patch Changes
+
+- d83d5ec: Recognize Images artifacts in cross-app A2A responses.
+- d83d5ec: Improve the shared access-token login page with clearer guidance and visible failure states.
+
 ## 0.12.2
 
 ### Patch Changes
