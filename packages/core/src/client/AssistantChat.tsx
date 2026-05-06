@@ -2271,7 +2271,18 @@ const AssistantChatInner = forwardRef<
   // UI-only running state — drives the stop button and thinking indicator.
   const showRunningInUI = isRunning;
   const wasRunningRef = useRef(false);
+  const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
+
+  useEffect(() => {
+    if (lastBroadcastRunningRef.current === isRunning) return;
+    lastBroadcastRunningRef.current = isRunning;
+    window.dispatchEvent(
+      new CustomEvent("agentNative.chatRunning", {
+        detail: { isRunning, tabId: tabId || threadId },
+      }),
+    );
+  }, [isRunning, tabId, threadId]);
 
   // ─── Chat persistence ──────────────────────────────────────────────
   const hasRestoredRef = useRef(false);

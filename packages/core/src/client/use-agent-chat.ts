@@ -18,8 +18,8 @@ export function useAgentChatGenerating(): [
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
-      if (detail?.isRunning === false) {
-        setIsGenerating(false);
+      if (typeof detail?.isRunning === "boolean") {
+        setIsGenerating(detail.isRunning);
       }
     };
     window.addEventListener("agentNative.chatRunning", handler);
