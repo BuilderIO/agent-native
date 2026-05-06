@@ -227,6 +227,61 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("uses an explicit fallback prompt when the user sends only attachments", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-attachments",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "" }],
+            attachments: [
+              {
+                name: "source.txt",
+                contentType: "text/plain",
+                content: [{ type: "text", text: "Source material" }],
+              },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.message).toBe("Use the attached context.");
+    expect(body.attachments).toEqual([
+      {
+        type: "file",
+        name: "source.txt",
+        contentType: "text/plain",
+        text: "Source material",
+      },
+    ]);
+  });
+
   it("treats authentication failures as auth errors, not AI setup", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
