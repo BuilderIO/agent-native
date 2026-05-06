@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import {
   IconBuilding,
   IconUserPlus,
@@ -6,7 +6,6 @@ import {
   IconCrown,
   IconShieldCheck,
   IconLoader2,
-  IconMail,
   IconCheck,
   IconPencil,
   IconAt,
@@ -21,14 +20,12 @@ import {
   IconPlus,
   IconAlertTriangle,
 } from "@tabler/icons-react";
-import { agentNativePath } from "../api-path.js";
 import {
   useOrg,
   useOrgMembers,
   useOrgInvitations,
   useCreateOrg,
   useUpdateOrg,
-  useInviteMember,
   useBulkInviteMembers,
   useChangeMemberRole,
   useAcceptInvitation,
@@ -298,16 +295,15 @@ function MembersCard() {
   const { data: org } = useOrg();
   const { data: membersData, isLoading: isLoadingMembers } = useOrgMembers();
   const { data: invitationsData } = useOrgInvitations();
-  const inviteMember = useInviteMember();
   const removeMember = useRemoveMember();
   const switchOrg = useSwitchOrg();
 
-  const [inviteEmail, setInviteEmail] = useState("");
   const [showInviteForm, setShowInviteForm] = useState(false);
 
   if (!org?.orgId) return null;
 
-  const isOwnerOrAdmin = org.role === "owner" || org.role === "admin";
+  const isOwner = org.role === "owner";
+  const isOwnerOrAdmin = isOwner || org.role === "admin";
   const members = membersData?.members ?? [];
   const pendingInvites = invitationsData?.invitations ?? [];
   const hasMultipleOrgs = (org.orgs?.length ?? 0) > 1;
@@ -366,35 +362,13 @@ function MembersCard() {
           </>
         )}
         {members.map((m) => (
-          <div
+          <MemberRow
             key={m.email}
-            className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-accent/30"
-          >
-            <div className="flex items-center gap-2">
-              <span className="text-sm">{m.email}</span>
-              <RoleIcon role={m.role} />
-              {m.email === org.email && (
-                <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  You
-                </span>
-              )}
-            </div>
-            {isOwnerOrAdmin && m.email !== org.email && m.role !== "owner" && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    disabled={removeMember.isPending}
-                    onClick={() => removeMember.mutate(m.email)}
-                    className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
-                  >
-                    <IconTrash className="h-3.5 w-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Remove member</TooltipContent>
-              </Tooltip>
-            )}
-          </div>
+            email={m.email}
+            role={m.role}
+            isCurrentUser={m.email === org.email}
+            currentUserRole={org.role ?? null}
+          />
         ))}
         {pendingInvites.map((inv) => (
           <div
@@ -403,8 +377,9 @@ function MembersCard() {
           >
             <div className="flex items-center gap-2">
               <span className="text-sm">{inv.email}</span>
+              <RoleIcon role={inv.role} />
               <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                Invited
+                Invited{inv.role === "admin" ? " · admin" : ""}
               </span>
             </div>
           </div>
@@ -420,68 +395,25 @@ function MembersCard() {
               className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
             >
               <IconUserPlus className="h-3.5 w-3.5" />
-              Invite member
+              Invite members
             </button>
           ) : (
-            <div className="space-y-2">
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <IconMail className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                  <input
-                    type="email"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                    placeholder="colleague@company.com"
-                    className="w-full rounded-md border border-border bg-background pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
-                    autoFocus
-                  />
-                </div>
-                <button
-                  type="button"
-                  disabled={!inviteEmail.trim() || inviteMember.isPending}
-                  onClick={() =>
-                    inviteMember.mutate(inviteEmail.trim(), {
-                      onSuccess: () => {
-                        setInviteEmail("");
-                        setShowInviteForm(false);
-                      },
-                    })
-                  }
-                  className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
-                >
-                  {inviteMember.isPending ? (
-                    <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <span className="inline-flex items-center gap-1">
-                      <IconCheck className="h-3.5 w-3.5" />
-                      Send
-                    </span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowInviteForm(false);
-                    setInviteEmail("");
-                  }}
-                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-                >
-                  Cancel
-                </button>
-              </div>
-              <p className="text-[11px] text-muted-foreground">
-                They&apos;ll need to sign in with Google using this exact email
-                to accept the invitation.
-              </p>
-              <ErrorText error={inviteMember.error} />
-            </div>
+            <BulkInviteForm
+              currentUserRole={org.role}
+              onClose={() => setShowInviteForm(false)}
+            />
           )}
         </div>
       )}
 
-      {isOwnerOrAdmin && <DomainSettingsSection domain={org.allowedDomain} />}
+      {isOwnerOrAdmin && (
+        <DomainSettingsSection
+          domain={org.allowedDomain}
+          ownerEmail={org.email}
+        />
+      )}
 
-      {isOwnerOrAdmin && <A2ASecretSection secret={org.a2aSecret} />}
+      {isOwner && <A2ASecretSection secret={org.a2aSecret} />}
 
       <ErrorText error={removeMember.error} />
       <ErrorText error={switchOrg.error} />
@@ -489,10 +421,454 @@ function MembersCard() {
   );
 }
 
-function DomainSettingsSection({ domain }: { domain: string | null }) {
+function MemberRow({
+  email,
+  role,
+  isCurrentUser,
+  currentUserRole,
+}: {
+  email: string;
+  role: string;
+  isCurrentUser: boolean;
+  currentUserRole: string | null;
+}) {
+  const removeMember = useRemoveMember();
+  const changeRole = useChangeMemberRole();
+  const [editing, setEditing] = useState(false);
+
+  // Owners can manage admins + members. Admins can only manage members.
+  // Owners themselves are immutable through this UI; current user can't
+  // edit their own role here.
+  const canManage =
+    role !== "owner" &&
+    !isCurrentUser &&
+    (currentUserRole === "owner" ||
+      (currentUserRole === "admin" && role === "member"));
+
+  return (
+    <div className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-accent/30">
+      <div className="flex items-center gap-2">
+        <span className="text-sm">{email}</span>
+        <RoleIcon role={role} />
+        {isCurrentUser && (
+          <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            You
+          </span>
+        )}
+        {role === "admin" && (
+          <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-blue-600">
+            Admin
+          </span>
+        )}
+      </div>
+      {canManage && (
+        <div className="flex items-center gap-1">
+          {editing ? (
+            <select
+              autoFocus
+              value={role}
+              onChange={(e) => {
+                const next = e.target.value === "admin" ? "admin" : "member";
+                if (next !== role) {
+                  changeRole.mutate(
+                    { email, role: next },
+                    { onSuccess: () => setEditing(false) },
+                  );
+                } else {
+                  setEditing(false);
+                }
+              }}
+              onBlur={() => setEditing(false)}
+              disabled={changeRole.isPending}
+              className="rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px]"
+            >
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+            </select>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setEditing(true)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <IconPencil className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Change role</TooltipContent>
+            </Tooltip>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                disabled={removeMember.isPending}
+                onClick={() => removeMember.mutate(email)}
+                className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
+              >
+                <IconTrash className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Remove member</TooltipContent>
+          </Tooltip>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface DraftInvite {
+  email: string;
+  role: InviteRole;
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function parseEmailList(input: string): string[] {
+  return Array.from(
+    new Set(
+      input
+        .split(/[\s,;]+/)
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function parseCsvEmails(text: string): string[] {
+  // Tolerant CSV parse — split on lines, then on commas, take any cell
+  // that looks like an email. Handles "name,email,role" rows or just
+  // "email" per line. A robust full CSV parser would be overkill here.
+  const cells: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    for (const cell of line.split(",")) {
+      const trimmed = cell.trim().replace(/^"|"$/g, "");
+      if (trimmed) cells.push(trimmed);
+    }
+  }
+  return Array.from(
+    new Set(cells.filter((c) => EMAIL_RE.test(c)).map((c) => c.toLowerCase())),
+  );
+}
+
+function BulkInviteForm({
+  currentUserRole,
+  onClose,
+}: {
+  currentUserRole: string | null;
+  onClose: () => void;
+}) {
+  const bulkInvite = useBulkInviteMembers();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [drafts, setDrafts] = useState<DraftInvite[]>([
+    { email: "", role: "member" },
+  ]);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteValue, setPasteValue] = useState("");
+  const [pasteRole, setPasteRole] = useState<InviteRole>("member");
+  const [resultBanner, setResultBanner] = useState<{
+    succeeded: number;
+    failed: { email: string; error: string }[];
+  } | null>(null);
+
+  const canSetAdmin = currentUserRole === "owner";
+
+  const validDrafts = useMemo(
+    () =>
+      drafts
+        .map((d) => ({ ...d, email: d.email.trim().toLowerCase() }))
+        .filter((d) => EMAIL_RE.test(d.email)),
+    [drafts],
+  );
+
+  function setDraft(index: number, patch: Partial<DraftInvite>) {
+    setDrafts((prev) =>
+      prev.map((d, i) => (i === index ? { ...d, ...patch } : d)),
+    );
+  }
+
+  function appendEmails(emails: string[], role: InviteRole) {
+    if (!emails.length) return;
+    setDrafts((prev) => {
+      const existing = new Set(
+        prev.map((d) => d.email.trim().toLowerCase()).filter(Boolean),
+      );
+      const fresh: DraftInvite[] = [];
+      for (const e of emails) {
+        if (!existing.has(e)) {
+          fresh.push({ email: e, role });
+          existing.add(e);
+        }
+      }
+      // If the only existing row is an empty placeholder, drop it.
+      const cleaned = prev.filter(
+        (d, i) => !(i === 0 && !d.email.trim() && prev.length === 1),
+      );
+      return [...cleaned, ...fresh];
+    });
+  }
+
+  function handleFile(file: File) {
+    file.text().then((text) => {
+      const emails = parseCsvEmails(text);
+      if (emails.length) {
+        appendEmails(emails, "member");
+      } else {
+        setResultBanner({
+          succeeded: 0,
+          failed: [{ email: file.name, error: "No valid emails found in CSV" }],
+        });
+      }
+    });
+  }
+
+  async function submit() {
+    setResultBanner(null);
+    const dedup = new Map<string, DraftInvite>();
+    for (const d of validDrafts) {
+      // canSetAdmin guard mirrors server-side enforcement so an admin-only
+      // user editing the form can't even attempt to grant admin (they'd
+      // get a 403 anyway).
+      const role = canSetAdmin ? d.role : "member";
+      dedup.set(d.email, { ...d, role });
+    }
+    const invites = Array.from(dedup.values());
+    if (invites.length === 0) return;
+
+    const result = await bulkInvite.mutateAsync(invites);
+    setResultBanner({
+      succeeded: result.succeeded.length,
+      failed: result.failed,
+    });
+
+    // Wipe drafts that succeeded; leave failed ones so the user can fix
+    // and retry. If everything succeeded, reset to a single blank row.
+    const failedEmails = new Set(result.failed.map((f) => f.email));
+    setDrafts((prev) => {
+      const remaining = prev.filter((d) =>
+        failedEmails.has(d.email.trim().toLowerCase()),
+      );
+      return remaining.length > 0
+        ? remaining
+        : [{ email: "", role: "member" }];
+    });
+
+    // Auto-close on full success.
+    if (result.failed.length === 0 && result.succeeded.length > 0) {
+      setTimeout(() => onClose(), 1200);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-2">
+        {drafts.map((draft, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <input
+              type="email"
+              value={draft.email}
+              onChange={(e) => setDraft(i, { email: e.target.value })}
+              placeholder="colleague@company.com"
+              className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
+              autoFocus={i === drafts.length - 1}
+            />
+            <select
+              value={draft.role}
+              onChange={(e) =>
+                setDraft(i, {
+                  role: e.target.value === "admin" ? "admin" : "member",
+                })
+              }
+              disabled={!canSetAdmin}
+              title={
+                canSetAdmin
+                  ? undefined
+                  : "Only the organization owner can invite admins"
+              }
+              className="rounded-md border border-border bg-background px-2 py-1.5 text-xs disabled:opacity-50"
+            >
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+            </select>
+            {drafts.length > 1 && (
+              <button
+                type="button"
+                onClick={() =>
+                  setDrafts((prev) => prev.filter((_, j) => j !== i))
+                }
+                className="text-muted-foreground hover:text-red-500"
+              >
+                <IconX className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() =>
+            setDrafts((prev) => [...prev, { email: "", role: "member" }])
+          }
+          className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+        >
+          <IconPlus className="h-3.5 w-3.5" />
+          Add another
+        </button>
+        <button
+          type="button"
+          onClick={() => setPasteOpen((v) => !v)}
+          className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+        >
+          <IconUserPlus className="h-3.5 w-3.5" />
+          Paste many
+        </button>
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+        >
+          <IconFileImport className="h-3.5 w-3.5" />
+          Import CSV
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,text/csv,text/plain"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleFile(file);
+            // reset so re-uploading the same file re-fires onChange
+            e.target.value = "";
+          }}
+        />
+      </div>
+
+      {pasteOpen && (
+        <div className="space-y-2 rounded-md border border-border p-3">
+          <div className="text-xs font-medium text-muted-foreground">
+            Paste emails (comma, space, or newline separated)
+          </div>
+          <textarea
+            value={pasteValue}
+            onChange={(e) => setPasteValue(e.target.value)}
+            rows={4}
+            placeholder="alice@acme.com, bob@acme.com&#10;charlie@acme.com"
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
+          />
+          <div className="flex items-center gap-2">
+            <select
+              value={pasteRole}
+              onChange={(e) =>
+                setPasteRole(e.target.value === "admin" ? "admin" : "member")
+              }
+              disabled={!canSetAdmin}
+              className="rounded-md border border-border bg-background px-2 py-1.5 text-xs disabled:opacity-50"
+            >
+              <option value="member">Add as members</option>
+              <option value="admin">Add as admins</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => {
+                appendEmails(parseEmailList(pasteValue), pasteRole);
+                setPasteValue("");
+                setPasteOpen(false);
+              }}
+              disabled={parseEmailList(pasteValue).length === 0}
+              className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+            >
+              Add
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPasteValue("");
+                setPasteOpen(false);
+              }}
+              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={validDrafts.length === 0 || bulkInvite.isPending}
+          onClick={submit}
+          className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+        >
+          {bulkInvite.isPending ? (
+            <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <span className="inline-flex items-center gap-1">
+              <IconCheck className="h-3.5 w-3.5" />
+              Send {validDrafts.length || ""}{" "}
+              {validDrafts.length === 1 ? "invite" : "invites"}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          Close
+        </button>
+      </div>
+
+      <p className="text-[11px] text-muted-foreground">
+        Each invitee signs in with this exact email to accept.
+        {canSetAdmin
+          ? " Admins can manage members and workspace settings."
+          : " Only the organization owner can grant admin access."}
+      </p>
+
+      {resultBanner && (
+        <div className="space-y-1 rounded-md border border-border bg-accent/30 p-2.5">
+          {resultBanner.succeeded > 0 && (
+            <p className="text-[11px] text-green-600">
+              <IconCheck className="inline h-3 w-3 -mt-0.5" /> Sent{" "}
+              {resultBanner.succeeded}{" "}
+              {resultBanner.succeeded === 1 ? "invite" : "invites"}.
+            </p>
+          )}
+          {resultBanner.failed.length > 0 && (
+            <ul className="space-y-0.5 text-[11px] text-red-500">
+              {resultBanner.failed.map((f) => (
+                <li key={f.email}>
+                  <IconAlertTriangle className="inline h-3 w-3 -mt-0.5 mr-1" />
+                  {f.email}: {f.error}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <ErrorText error={bulkInvite.error} />
+    </div>
+  );
+}
+
+function DomainSettingsSection({
+  domain,
+  ownerEmail,
+}: {
+  domain: string | null;
+  ownerEmail: string;
+}) {
   const setOrgDomain = useSetOrgDomain();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(domain ?? "");
+
+  const ownDomain = ownerEmail.split("@")[1]?.toLowerCase() ?? "";
 
   function save() {
     const trimmed = draft.trim().toLowerCase();
@@ -511,8 +887,10 @@ function DomainSettingsSection({ domain }: { domain: string | null }) {
         Email domain auto-join
       </div>
       <p className="text-[11px] text-muted-foreground">
-        Anyone who signs up with an email from this domain can join your
-        organization without an invitation.
+        Anyone who signs up with an email at this domain will join your
+        organization automatically. You can only set your own email domain
+        ({ownDomain || "—"}); free email providers like gmail.com or
+        outlook.com aren&apos;t allowed.
       </p>
       {!editing ? (
         <div className="flex items-center gap-2">
@@ -555,13 +933,13 @@ function DomainSettingsSection({ domain }: { domain: string | null }) {
             <button
               type="button"
               onClick={() => {
-                setDraft("");
+                setDraft(ownDomain);
                 setEditing(true);
               }}
               className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
             >
               <IconAt className="h-3.5 w-3.5" />
-              Set allowed domain
+              Allow {ownDomain || "your domain"} to auto-join
             </button>
           )}
         </div>
@@ -575,7 +953,7 @@ function DomainSettingsSection({ domain }: { domain: string | null }) {
               if (e.key === "Enter") save();
               if (e.key === "Escape") setEditing(false);
             }}
-            placeholder="example.com"
+            placeholder={ownDomain || "example.com"}
             className="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
             autoFocus
           />

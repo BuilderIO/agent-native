@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useSearchParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, useChatModels } from "@agent-native/core/client";
 import { appApiPath } from "@/lib/api-path";
 import {
   IconUsers,
@@ -823,35 +823,59 @@ function TriggersSubsection() {
 
 // ─── Automations Section ─────────────────────────────────────────────────────
 
-const AUTOMATION_MODELS = [
-  { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5 (fastest)" },
-  { value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
-  { value: "claude-opus-4-6", label: "Opus 4.6" },
-];
-
 function AutomationsSection() {
   const { data: rules = [], isLoading } = useAutomations();
   const createAutomation = useCreateAutomation();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
+  const { availableModels, defaultModel } = useChatModels({
+    storageKey: "agent-native:mail-automations:model",
+  });
+  const modelOptions = useMemo(() => {
+    const configuredGroups = availableModels.filter((group) => group.configured);
+    const groups = configuredGroups.length > 0 ? configuredGroups : availableModels;
+    return groups.flatMap((group) =>
+      group.models.map((model) => ({
+        value: `${group.engine}::${model}`,
+        engine: group.engine,
+        model,
+        label: `${group.label} / ${model}`,
+      })),
+    );
+  }, [availableModels]);
 
   const { data: autoSettings } = useQuery({
     queryKey: ["automation-settings"],
     queryFn: async () => {
       const res = await fetch(appApiPath("/api/automations/settings"));
-      if (!res.ok) return { model: "claude-haiku-4-5-20251001" };
+      if (!res.ok) return { engine: "anthropic", model: defaultModel };
       return res.json();
     },
     staleTime: 30_000,
   });
 
   const queryClient = useQueryClient();
-  const handleModelChange = async (model: string) => {
-    queryClient.setQueryData(["automation-settings"], { model });
+  const selectedModel = autoSettings?.model || defaultModel;
+  const selectedEngine =
+    autoSettings?.engine ||
+    modelOptions.find((option) => option.model === selectedModel)?.engine ||
+    "anthropic";
+  const selectedValue =
+    modelOptions.find(
+      (option) =>
+        option.engine === selectedEngine && option.model === selectedModel,
+    )?.value ||
+    modelOptions[0]?.value ||
+    "loading";
+
+  const handleModelChange = async (value: string) => {
+    const [engine, model] = value.split("::");
+    if (!engine || !model) return;
+    queryClient.setQueryData(["automation-settings"], { engine, model });
     await fetch(appApiPath("/api/automations/settings"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model }),
+      body: JSON.stringify({ engine, model }),
     });
   };
 
@@ -879,18 +903,25 @@ function AutomationsSection() {
         </div>
         <div className="flex items-center gap-2">
           <Select
-            value={autoSettings?.model || "claude-haiku-4-5-20251001"}
+            value={selectedValue}
             onValueChange={handleModelChange}
+            disabled={modelOptions.length === 0}
           >
-            <SelectTrigger className="w-[180px] h-8 text-xs">
+            <SelectTrigger className="w-[260px] h-8 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {AUTOMATION_MODELS.map((m) => (
-                <SelectItem key={m.value} value={m.value} className="text-xs">
-                  {m.label}
+              {modelOptions.length === 0 ? (
+                <SelectItem value="loading" disabled className="text-xs">
+                  Loading models
                 </SelectItem>
-              ))}
+              ) : (
+                modelOptions.map((m) => (
+                  <SelectItem key={m.value} value={m.value} className="text-xs">
+                    {m.label}
+                  </SelectItem>
+                ))
+              )}
             </SelectContent>
           </Select>
         </div>

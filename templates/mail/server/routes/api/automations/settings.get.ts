@@ -1,5 +1,5 @@
 import { defineEventHandler } from "h3";
-import { getUserSetting } from "@agent-native/core/settings";
+import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { getSession } from "@agent-native/core/server";
 
 export default defineEventHandler(async (event) => {
@@ -10,7 +10,14 @@ export default defineEventHandler(async (event) => {
   }
   const email = session.email;
   const data = await getUserSetting(email, "automation-settings");
+  const agentEngine = (await getSetting("agent-engine").catch(() => null)) as
+    | { engine?: string; model?: string }
+    | null;
   return {
-    model: (data as any)?.model || "claude-haiku-4-5-20251001",
+    engine: (data as any)?.engine || agentEngine?.engine || "anthropic",
+    model:
+      (data as any)?.model ||
+      agentEngine?.model ||
+      "claude-haiku-4-5-20251001",
   };
 });

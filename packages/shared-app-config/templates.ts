@@ -243,6 +243,7 @@ export const TEMPLATES: TemplateMeta[] = [
     color: "#71717A",
     colorRgb: "113 113 122",
     devPort: 8089,
+    prodUrl: "https://starter.agent-native.com",
     defaultMode: "prod",
     alwaysAvailable: true,
     core: true,
