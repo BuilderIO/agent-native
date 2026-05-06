@@ -126,7 +126,7 @@ export const templates = [
     demoUrl: "https://images.agent-native.com",
     description:
       "Brand-consistent AI image generation. Curate libraries of reference images, palette, and brand assets; the agent grounds every generation in your style. Slides, design, and other apps call it via A2A to fill in real artwork.",
-    color: "#22D3EE",
+    color: "#0EA5E9",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c09b451d40c4a74a89a38d69170c2d8?format=webp&width=800",
   },
