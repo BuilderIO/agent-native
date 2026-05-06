@@ -442,6 +442,7 @@ export function VisualEditor({
         heading: { levels: [1, 2, 3] },
         codeBlock: false,
         paragraph: false,
+        link: false,
         horizontalRule: {},
         dropcursor: { color: "hsl(243 75% 59%)", width: 2 },
         // Disable built-in history when Collaboration is active (Yjs tracks undo)

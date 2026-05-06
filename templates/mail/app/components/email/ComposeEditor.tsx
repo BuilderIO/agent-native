@@ -81,6 +81,7 @@ export const ComposeEditor = forwardRef<
       (StarterKit as any).configure({
         heading: { levels: [1, 2, 3] },
         codeBlock: false,
+        link: false,
         dropcursor: { color: "hsl(220 10% 40%)", width: 2 },
       }),
       CodeBlockLowlight.configure({

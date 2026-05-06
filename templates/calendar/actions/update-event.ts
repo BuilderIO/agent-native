@@ -172,6 +172,7 @@ export default defineAction({
       id: `google-${googleEventId}`,
       accountEmail,
       updated: updatedKeys,
+      htmlLink: result.htmlLink,
       hangoutLink: result.meetLink,
       meetingLink: zoomMeetingLink,
       conferenceData: result.conferenceData,

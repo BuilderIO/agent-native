@@ -221,6 +221,7 @@ title: <event title>
 ````
 
 - `id` — the Google Calendar event id (raw id like `abc123xyz`, or the prefixed form `google-abc123xyz`)
+- `htmlLink` — Google Calendar web URL for opening a Google event in the browser when available
 - `calendarId` — calendar id, almost always `primary`
 - `aspect` — recommended `3/2` for a compact card
 

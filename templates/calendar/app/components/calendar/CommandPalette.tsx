@@ -8,6 +8,7 @@ import {
   IconArrowRight,
   IconUsers,
   IconLink,
+  IconExternalLink,
 } from "@tabler/icons-react";
 import { CommandMenu } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,8 @@ interface CommandPaletteProps {
   onCreateEvent: () => void;
   onViewChange: (view: ViewMode) => void;
   onToday: () => void;
+  selectedEvent?: CalendarEvent | null;
+  onOpenSelectedEventInGoogleCalendar?: (event: CalendarEvent) => void;
   onAddPeopleCalendar?: () => void;
   onAddUrlCalendar?: () => void;
 }
@@ -47,6 +50,8 @@ export function CommandPalette({
   onCreateEvent,
   onViewChange,
   onToday,
+  selectedEvent,
+  onOpenSelectedEventInGoogleCalendar,
   onAddPeopleCalendar,
   onAddUrlCalendar,
 }: CommandPaletteProps) {
@@ -85,6 +90,11 @@ export function CommandPalette({
       onClose();
     }
   }
+
+  const selectedGoogleEvent =
+    selectedEvent?.source === "google" && selectedEvent.htmlLink
+      ? selectedEvent
+      : null;
 
   return (
     <CommandMenu
@@ -137,7 +147,32 @@ export function CommandPalette({
         </CommandMenu.Group>
       )}
 
-      {(parsedDate || matchingEvents.length > 0) && <CommandMenu.Separator />}
+      {selectedGoogleEvent && onOpenSelectedEventInGoogleCalendar && (
+        <CommandMenu.Group heading="Selected event">
+          <CommandMenu.Item
+            onSelect={() =>
+              onOpenSelectedEventInGoogleCalendar(selectedGoogleEvent)
+            }
+            keywords={[
+              "open",
+              "google",
+              "calendar",
+              "selected",
+              "event",
+              selectedGoogleEvent.title.toLowerCase(),
+            ]}
+          >
+            <IconExternalLink className="h-4 w-4" />
+            <span className="min-w-0 flex-1 truncate">
+              Open in Google Calendar
+            </span>
+          </CommandMenu.Item>
+        </CommandMenu.Group>
+      )}
+
+      {(parsedDate || matchingEvents.length > 0 || selectedGoogleEvent) && (
+        <CommandMenu.Separator />
+      )}
 
       <CommandMenu.Group heading="Actions">
         <CommandMenu.Item

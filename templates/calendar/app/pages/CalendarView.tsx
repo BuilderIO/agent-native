@@ -247,6 +247,12 @@ export default function CalendarView() {
     [events, viewMode, selectedDate],
   );
 
+  const selectedEvent = useMemo(() => {
+    const candidate = sidebarEvent ?? focusedEvent;
+    if (!candidate) return null;
+    return events.find((event) => event.id === candidate.id) ?? candidate;
+  }, [events, sidebarEvent, focusedEvent]);
+
   function handleNavigate(direction: "prev" | "next") {
     const fns =
       direction === "next"
@@ -269,6 +275,38 @@ export default function CalendarView() {
   function handleGoToDate(date: Date) {
     setSelectedDate(date);
     setViewMode("day");
+  }
+
+  function handleOpenSelectedEventInGoogleCalendar(event: CalendarEvent) {
+    if (!event.htmlLink) {
+      toast.error("Google Calendar link unavailable");
+      return;
+    }
+
+    try {
+      const url = new URL(event.htmlLink);
+      const isGoogleCalendarUrl =
+        url.protocol === "https:" &&
+        (url.hostname === "calendar.google.com" ||
+          (url.hostname === "www.google.com" &&
+            url.pathname.startsWith("/calendar/")));
+
+      if (!isGoogleCalendarUrl) {
+        toast.error("Google Calendar link unavailable");
+        return;
+      }
+
+      const opened = window.open(
+        url.toString(),
+        "_blank",
+        "noopener,noreferrer",
+      );
+      if (!opened) {
+        window.location.assign(url.toString());
+      }
+    } catch {
+      toast.error("Google Calendar link unavailable");
+    }
   }
 
   function handleDirectDelete(ev: CalendarEvent) {
@@ -829,6 +867,10 @@ export default function CalendarView() {
           }}
           onViewChange={setViewMode}
           onToday={handleToday}
+          selectedEvent={selectedEvent}
+          onOpenSelectedEventInGoogleCalendar={
+            handleOpenSelectedEventInGoogleCalendar
+          }
           onAddPeopleCalendar={() => {
             setCommandPaletteOpen(false);
             setAddCalendarDefaultTab("people");

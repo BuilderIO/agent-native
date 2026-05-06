@@ -159,6 +159,7 @@ export const getEvent = defineEventHandler(async (event: H3Event) => {
           allDay: !evt.start?.dateTime,
           source: "google",
           googleEventId: evt.id || undefined,
+          htmlLink: evt.htmlLink || undefined,
           accountEmail: acctEmail,
           responseStatus: selfAttendee?.responseStatus || undefined,
           attendees: evt.attendees?.map((a: any) => ({
@@ -270,6 +271,7 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
       calEvent.id = `google-${result.id}`;
       calEvent.googleEventId = result.id;
     }
+    if (result.htmlLink) calEvent.htmlLink = result.htmlLink;
     if (result.meetLink) calEvent.hangoutLink = result.meetLink;
     if (result.conferenceData) calEvent.conferenceData = result.conferenceData;
     if (zoomMeetingLink) calEvent.meetingLink = zoomMeetingLink;
@@ -369,6 +371,7 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
         sendUpdates,
         addGoogleMeet: addGoogleMeet === true,
       });
+      if (result.htmlLink) updates.htmlLink = result.htmlLink;
       if (result.meetLink) updates.hangoutLink = result.meetLink;
       if (result.conferenceData) updates.conferenceData = result.conferenceData;
       if (zoomMeetingLink) updates.meetingLink = zoomMeetingLink;
