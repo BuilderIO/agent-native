@@ -22,13 +22,15 @@ function extractInvitationId(event: H3Event): string | undefined {
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 
-/** Extract the :email from member-delete paths. Same prefix-stripping caveat. */
+/** Extract the :email from member-delete and member-role paths. Same prefix-stripping caveat. */
 function extractMemberEmail(event: H3Event): string | undefined {
   const fromRouter = getRouterParam(event, "email");
   if (fromRouter) return fromRouter;
   const path = getRequestURL(event).pathname;
   const match =
-    path.match(/^\/([^\/]+)\/?$/) ?? path.match(/\/org\/members\/([^\/]+)\/?$/);
+    path.match(/^\/([^\/]+)\/role\/?$/) ??
+    path.match(/^\/([^\/]+)\/?$/) ??
+    path.match(/\/org\/members\/([^\/]+)(?:\/role)?\/?$/);
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 const nanoid = (): string =>

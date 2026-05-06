@@ -97,19 +97,84 @@ export function useCreateOrg() {
   });
 }
 
+export type InviteRole = "admin" | "member";
+
+export interface InviteVars {
+  email: string;
+  role?: InviteRole;
+}
+
 export function useInviteMember() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (email: string) =>
+    mutationFn: (vars: string | InviteVars) => {
+      const body: { email: string; role: InviteRole } =
+        typeof vars === "string"
+          ? { email: vars, role: "member" }
+          : { email: vars.email, role: vars.role ?? "member" };
+      return apiFetch(`${ORG_BASE}/invitations`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["org-members"] }),
+        qc.invalidateQueries({ queryKey: ["org-invitations"] }),
+      ]);
+    },
+  });
+}
+
+export interface BulkInviteResult {
+  succeeded: Array<{
+    id: string;
+    email: string;
+    role: InviteRole;
+    status: "pending";
+    emailSent: boolean;
+    emailError?: string;
+  }>;
+  failed: Array<{ email: string; error: string }>;
+  total: number;
+}
+
+export function useBulkInviteMembers() {
+  const qc = useQueryClient();
+  return useMutation<BulkInviteResult, Error, InviteVars[]>({
+    mutationFn: (invites) =>
       apiFetch(`${ORG_BASE}/invitations`, {
         method: "POST",
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({
+          invites: invites.map((i) => ({
+            email: i.email,
+            role: i.role ?? "member",
+          })),
+        }),
       }),
     onSuccess: async () => {
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["org-members"] }),
         qc.invalidateQueries({ queryKey: ["org-invitations"] }),
       ]);
+    },
+  });
+}
+
+export function useChangeMemberRole() {
+  const qc = useQueryClient();
+  return useMutation<
+    { email: string; role: InviteRole },
+    Error,
+    { email: string; role: InviteRole }
+  >({
+    mutationFn: ({ email, role }) =>
+      apiFetch(`${ORG_BASE}/members/${encodeURIComponent(email)}/role`, {
+        method: "PUT",
+        body: JSON.stringify({ role }),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-members"] });
     },
   });
 }
