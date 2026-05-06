@@ -2093,6 +2093,9 @@ function mountAuthFallbackRoutes(app: H3App): void {
         });
         return { ok: true };
       } catch (e: any) {
+        if (!isExpectedAuthFailure(e)) {
+          captureAuthError(e, { route: "signup", email });
+        }
         setResponseStatus(event, 409);
         return { error: e?.message || "Registration failed" };
       }
