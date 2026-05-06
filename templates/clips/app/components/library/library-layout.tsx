@@ -12,7 +12,7 @@ import {
   IconAppWindow,
   IconX,
   IconMenu2,
-  IconLayoutSidebarRightExpand,
+  IconMessageDots,
 } from "@tabler/icons-react";
 import {
   AgentSidebar,
@@ -66,7 +66,7 @@ function ClipsAgentToggleButton() {
           className="ml-1.5 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
           aria-label="Toggle agent panel"
         >
-          <IconLayoutSidebarRightExpand className="h-4 w-4" />
+          <IconMessageDots className="h-4 w-4" />
         </button>
       </TooltipTrigger>
       <TooltipContent>Toggle agent</TooltipContent>

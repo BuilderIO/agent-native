@@ -106,6 +106,10 @@ function hardNavigate(win: Window, href: string): void {
   }
 }
 
+function isAgentNativeDesktop(win: Window): boolean {
+  return /AgentNativeDesktop/i.test(win.navigator?.userAgent || "");
+}
+
 function recoverToIntendedNavigation(
   win: Window,
   state: RouteChunkRecoveryState,
@@ -114,6 +118,9 @@ function recoverToIntendedNavigation(
   if (!target) return false;
   state.recovering = true;
   state.recoveryHref = target;
+  // Desktop webviews stay open across many deploys; a forced navigation here
+  // reads as a random tab reload. Leave the current view alive instead.
+  if (isAgentNativeDesktop(win)) return true;
   try {
     win.history.replaceState(win.history.state, "", target);
   } catch {}
@@ -139,6 +146,12 @@ function patchHistoryMethod(
 function patchReload(win: Window, state: RouteChunkRecoveryState): void {
   const originalReload = win.location.reload.bind(win.location);
   const patchedReload = function patchedReload() {
+    if (
+      isAgentNativeDesktop(win) &&
+      Date.now() - state.routeModuleFailureAt <= 1_000
+    ) {
+      return;
+    }
     if (
       state.recoveryHref &&
       Date.now() - state.routeModuleFailureAt <= 1_000

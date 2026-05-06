@@ -321,7 +321,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       }
     }
     const threadRows = [...threadState.values()];
-    counts["inbox"] = threadRows.filter((row) => row.hasUnread).length;
+    const hasPinnedFilters = pinnedLabels.some(
+      (id) => !collapsibleViews.some((v) => v.id === id),
+    );
+    counts["inbox"] = threadRows.filter(
+      ({ latest, hasUnread }) =>
+        hasUnread &&
+        (!hasPinnedFilters ||
+          !latest.labelIds.some((lid) => pinnedShorts.includes(lid))),
+    ).length;
     // Count threads per pinned label: latest message must have that label
     // For "important", exclude threads that belong to any other pinned tab
     for (let i = 0; i < pinnedLabels.length; i++) {
@@ -346,8 +354,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     return counts;
   }, [inboxEmails, pinnedLabels, activeAccounts]);
 
-  // Full pinned navigation used by the left sidebar. The top bar intentionally
-  // renders only primary/system views so nested labels do not crowd it.
+  // Tabs to show in the bar: pinned triage filters first, then the inbox
+  // remainder as "Other". Without pinned filters, the inbox is just "Inbox".
+  const hasPinnedFilters = pinnedLabels.some(
+    (id) => !collapsibleViews.some((v) => v.id === id),
+  );
+
   const visibleTabs = useMemo(() => {
     const tabs: {
       id: string;
@@ -360,13 +372,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       type: "system" | "label";
     }[] = [];
 
-    tabs.push({
-      id: "inbox",
-      label: "Inbox",
-      href: "/inbox",
-      isActive: view === "inbox" && !activeLabel,
-      type: "system",
-    });
+    if (!hasPinnedFilters) {
+      tabs.push({
+        id: "inbox",
+        label: "Inbox",
+        href: "/inbox",
+        isActive: view === "inbox" && !activeLabel,
+        type: "system",
+      });
+    }
 
     const seenLabels = new Set<string>(["inbox"]);
     for (const id of pinnedLabels) {
@@ -417,25 +431,39 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       }
     }
 
+    if (hasPinnedFilters) {
+      tabs.push({
+        id: "inbox",
+        label: "Other",
+        href: "/inbox",
+        isActive: view === "inbox" && !activeLabel,
+        type: "system",
+      });
+    }
+
     return tabs;
-  }, [labels, pinnedLabels, labelAliases, view, activeLabel]);
+  }, [labels, pinnedLabels, labelAliases, view, activeLabel, hasPinnedFilters]);
 
   const topBarTabs = useMemo(() => {
-    const primaryIds = new Set(["inbox", ...collapsibleViews.map((v) => v.id)]);
-    const tabs = visibleTabs.filter(
-      (tab) => tab.type === "system" && primaryIds.has(tab.id),
-    );
-    if (activeLabel) {
-      const active = visibleTabs.find((tab) => tab.id === activeLabel);
+    const tabs = [...visibleTabs];
+    if (activeLabel && !tabs.some((tab) => tab.id === activeLabel)) {
+      const active = labels.find((label) => label.id === activeLabel);
       if (active) {
+        const aliasedName =
+          labelAliases[active.id] || shortLabelName(active.name);
         tabs.push({
-          ...active,
-          label: shortLabelName(active.fullLabel ?? active.label),
+          id: active.id,
+          label: aliasedName,
+          fullLabel: active.name,
+          href: `/inbox?label=${encodeURIComponent(active.id)}`,
+          isActive: true,
+          color: active.color,
+          type: "label",
         });
       }
     }
     return tabs;
-  }, [activeLabel, visibleTabs]);
+  }, [activeLabel, labels, labelAliases, visibleTabs]);
 
   // System views NOT pinned (go in the "more" dropdown)
   const hiddenViews = useMemo(

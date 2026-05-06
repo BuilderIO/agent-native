@@ -48,7 +48,7 @@ import {
 } from "./components/ui/dropdown-menu.js";
 import {
   IconMessageCircle,
-  IconMessageChatbot,
+  IconMessageDots,
   IconTerminal2,
   IconSettings,
   IconLayoutSidebarRightCollapse,
@@ -1906,7 +1906,7 @@ export function AgentToggleButton({ className }: { className?: string }) {
               className,
             )}
           >
-            <IconMessageChatbot size={16} />
+            <IconMessageDots size={16} />
           </button>
         </TooltipTrigger>
         <TooltipContent>Toggle agent</TooltipContent>

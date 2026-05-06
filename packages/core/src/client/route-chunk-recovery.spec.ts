@@ -12,7 +12,7 @@ import {
 
 function createFakeWindow(
   startHref = "https://example.com/dispatch/apps",
-  opts: { lockReload?: boolean } = {},
+  opts: { lockReload?: boolean; userAgent?: string } = {},
 ) {
   const documentListeners = new Map<string, EventListener[]>();
   const windowListeners = new Map<string, EventListener[]>();
@@ -63,6 +63,9 @@ function createFakeWindow(
     },
     location: fakeLocation,
     history: fakeHistory,
+    navigator: {
+      userAgent: opts.userAgent ?? "Mozilla/5.0",
+    },
     console: {
       error: vi.fn(),
     },
@@ -253,6 +256,41 @@ describe("route chunk recovery", () => {
     expect(originalReload).not.toHaveBeenCalled();
   });
 
+  it("suppresses stale route chunk auto-reloads inside Agent Native desktop", () => {
+    const { fakeWindow, fakeLocation, originalReload, dispatchDocument } =
+      createFakeWindow("https://example.com/dispatch/apps", {
+        userAgent: "Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7",
+      });
+
+    installRouteChunkRecovery(fakeWindow);
+
+    const anchor = {
+      tagName: "A",
+      href: "https://example.com/dispatch/new-app",
+      hasAttribute: () => false,
+      getAttribute: () => null,
+      parentElement: null,
+    };
+    dispatchDocument("click", {
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      target: anchor,
+    } as unknown as MouseEvent);
+
+    fakeWindow.console.error(
+      "Error loading route module `/dispatch/assets/new-app-stale.js`, reloading page...",
+    );
+    fakeLocation.reload();
+
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
+    expect(originalReload).not.toHaveBeenCalled();
+    expect(fakeLocation.href).toBe("https://example.com/dispatch/apps");
+  });
+
   it("recovers unhandled dynamic import rejections using the intended target", () => {
     const { fakeWindow, fakeLocation, dispatchDocument, dispatchWindow } =
       createFakeWindow();
@@ -287,6 +325,44 @@ describe("route chunk recovery", () => {
     expect(fakeLocation.assign).toHaveBeenCalledWith(
       "https://example.com/dispatch/new-app",
     );
+    expect(preventDefault).toHaveBeenCalled();
+  });
+
+  it("suppresses unhandled dynamic import navigation inside Agent Native desktop", () => {
+    const { fakeWindow, fakeLocation, dispatchDocument, dispatchWindow } =
+      createFakeWindow("https://example.com/dispatch/apps", {
+        userAgent: "Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7",
+      });
+
+    installRouteChunkRecovery(fakeWindow);
+
+    const anchor = {
+      tagName: "A",
+      href: "https://example.com/dispatch/new-app",
+      hasAttribute: () => false,
+      getAttribute: () => null,
+      parentElement: null,
+    };
+    dispatchDocument("click", {
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      target: anchor,
+    } as unknown as MouseEvent);
+
+    const preventDefault = vi.fn();
+    dispatchWindow("unhandledrejection", {
+      reason: new Error(
+        "Failed to fetch dynamically imported module: https://example.com/dispatch/assets/new-app-stale.js",
+      ),
+      preventDefault,
+    } as unknown as PromiseRejectionEvent);
+
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
+    expect(fakeLocation.href).toBe("https://example.com/dispatch/apps");
     expect(preventDefault).toHaveBeenCalled();
   });
 

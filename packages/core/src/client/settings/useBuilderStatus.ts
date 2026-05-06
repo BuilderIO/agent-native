@@ -155,6 +155,11 @@ export function useBuilderConnectFlow(
   const [error, setError] = useState<string | null>(null);
   const [hasFetchedStatus, setHasFetchedStatus] = useState(false);
   const [statusConnectUrl, setStatusConnectUrl] = useState<string | null>(null);
+  // When statusConnectUrl was last fetched. The server signs the embedded
+  // _an_connect token with a 10-minute TTL; using an older URL silently
+  // fails the same-origin check on the popup side. Track freshness so
+  // start() can fall back to the bare /builder/connect path when stale.
+  const statusConnectUrlAtRef = useRef<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
@@ -210,6 +215,7 @@ export function useBuilderConnectFlow(
       setEnvManaged(!!s.envManaged);
       setBuilderEnabled(!!s.builderEnabled);
       setStatusConnectUrl(s.connectUrl ?? null);
+      statusConnectUrlAtRef.current = s.connectUrl ? Date.now() : null;
       const org = s.orgName ?? null;
       setOrgName(org);
       if (s.configured && !notifiedConnectedRef.current) {
@@ -254,8 +260,17 @@ export function useBuilderConnectFlow(
     // before window.open lets the user-gesture token expire, which causes
     // popup blockers to block entirely or fall back to same-tab navigation.
     const origin = getCallbackOrigin() || window.location.origin;
+    // The signed _an_connect token in statusConnectUrl has a 10-minute TTL.
+    // If the panel has been open longer than that the token is dead and the
+    // popup will silently 403; drop the cached URL and let the bare /connect
+    // route do the same-origin Sec-Fetch-Site check instead.
+    const STATUS_CONNECT_URL_TTL_MS = 9 * 60 * 1000;
+    const cachedAt = statusConnectUrlAtRef.current;
+    const cachedFresh =
+      typeof cachedAt === "number" &&
+      Date.now() - cachedAt < STATUS_CONNECT_URL_TTL_MS;
     const url =
-      statusConnectUrl ??
+      (cachedFresh ? statusConnectUrl : null) ??
       popupUrl ??
       new URL(agentNativePath("/_agent-native/builder/connect"), origin).href;
     try {
@@ -278,6 +293,7 @@ export function useBuilderConnectFlow(
         setEnvManaged(!!s.envManaged);
         setBuilderEnabled(!!s.builderEnabled);
         setStatusConnectUrl(s.connectUrl ?? null);
+        statusConnectUrlAtRef.current = s.connectUrl ? Date.now() : null;
         const org = s.orgName ?? null;
         setOrgName(org);
         setConnecting(false);

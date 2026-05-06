@@ -16,8 +16,7 @@ import {
   IconBookmark,
   IconSun,
   IconMoon,
-  IconMessageChatbot,
-  IconBolt,
+  IconMessageDots,
   IconTarget,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
@@ -535,7 +534,7 @@ function SidebarFooter() {
             {isDark ? "Light theme" : "Dark theme"}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => openAgentSidebar()}>
-            <IconMessageChatbot className="h-4 w-4 mr-2" />
+            <IconMessageDots className="h-4 w-4 mr-2" />
             Open agent
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -561,7 +560,7 @@ function SidebarFooter() {
           className="flex items-center justify-center gap-1 rounded px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
           aria-label="Open agent"
         >
-          <IconBolt className="h-3.5 w-3.5" />
+          <IconMessageDots className="h-3.5 w-3.5" />
           Agent
         </button>
       </div>

@@ -213,7 +213,15 @@ async function handleDeepLink(url: string) {
           ...pendingTarget,
         });
       } else {
-        reloadAllWebviews();
+        const state = parsed.searchParams.get("state");
+        const pendingTarget = consumeOAuthState(state);
+        if (pendingTarget) {
+          reloadWebviewsForTarget(pendingTarget);
+        } else {
+          console.warn(
+            "[main] ignored oauth-complete deep link without token or matching OAuth state",
+          );
+        }
       }
     }
   } catch {
@@ -1069,6 +1077,52 @@ function openOAuthWindow(
 }
 
 const webviewOAuthNavigationHandlers = new WeakSet<Electron.WebContents>();
+const webviewReloadGuardHandlers = new WeakSet<Electron.WebContents>();
+const routeChunkReloadBlockedUntil = new WeakMap<
+  Electron.WebContents,
+  number
+>();
+
+function isRouteChunkReloadMessage(message: string): boolean {
+  return (
+    /Error loading route module `[^`]+`, reloading page\.\.\./.test(message) ||
+    message.includes("Failed to fetch dynamically imported module") ||
+    message.includes("error loading dynamically imported module") ||
+    message.includes("Importing a module script failed")
+  );
+}
+
+function installWebviewReloadGuard(contents: Electron.WebContents) {
+  if (webviewReloadGuardHandlers.has(contents)) return;
+  webviewReloadGuardHandlers.add(contents);
+
+  // Stale React Router chunks can ask the page to reload after a deploy.
+  // In the desktop shell, block that renderer-initiated refresh and let the
+  // user choose when to manually refresh the app.
+  contents.on(
+    "console-message",
+    (_event, _level, message: string | undefined) => {
+      if (!message || !isRouteChunkReloadMessage(message)) return;
+      routeChunkReloadBlockedUntil.set(contents, Date.now() + 2_000);
+    },
+  );
+
+  contents.on("will-navigate", (event, url) => {
+    const blockUntil = routeChunkReloadBlockedUntil.get(contents) ?? 0;
+    if (Date.now() > blockUntil) return;
+    try {
+      const current = new URL(contents.getURL());
+      const next = new URL(url);
+      if (current.origin !== next.origin) return;
+    } catch {
+      return;
+    }
+    event.preventDefault();
+    console.warn(
+      "[main] blocked renderer-initiated reload after stale route chunk failure",
+    );
+  });
+}
 
 function openOAuthFromWebviewNavigation(
   url: string,
@@ -1119,6 +1173,7 @@ app.on("web-contents-created", (_event, contents) => {
   if (contents.getType() !== "webview") {
     contents.on("did-attach-webview" as any, (_e: any, wc: any) => {
       installContextMenu(wc);
+      installWebviewReloadGuard(wc);
       installWebviewOAuthNavigationHandler(wc);
 
       wc.setWindowOpenHandler(({ url }: any) => {
@@ -1142,6 +1197,7 @@ app.on("web-contents-created", (_event, contents) => {
     return;
   }
 
+  installWebviewReloadGuard(contents);
   installWebviewOAuthNavigationHandler(contents);
 
   contents.setWindowOpenHandler(({ url }) => {
