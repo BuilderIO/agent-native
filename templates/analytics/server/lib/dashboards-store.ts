@@ -334,6 +334,9 @@ export async function upsertDashboard(
     .select()
     .from(schema.dashboards)
     .where(eq(schema.dashboards.id, id));
+  // Notify any sibling tabs (sidebar list, command palette, dashboard view)
+  // so create/update propagate just like delete and the legacy-migration path.
+  recordChange({ source: "dashboards", type: "change", key: id });
   return rowToDashboard(row);
 }
 

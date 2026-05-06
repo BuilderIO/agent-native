@@ -1,7 +1,10 @@
 import { format, type SqlLanguage } from "sql-formatter";
 import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
-const TEMPLATE_PARAM_REGEX = String.raw`\{\{[A-Za-z_][A-Za-z0-9_]*\}\}`;
+// Match {{name}} interpolation, {{?name}} conditional opens, and {{/name}}
+// conditional closes. Without the conditional patterns sql-formatter rejects
+// any panel that wraps optional filters in {{?...}}...{{/...}} blocks.
+const TEMPLATE_PARAM_REGEX = String.raw`\{\{[?/]?[A-Za-z_][A-Za-z0-9_]*\}\}`;
 
 function languageForSource(source: DataSourceType): SqlLanguage | null {
   if (source === "bigquery") return "bigquery";

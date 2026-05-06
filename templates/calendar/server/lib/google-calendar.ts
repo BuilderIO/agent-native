@@ -339,14 +339,22 @@ export async function getAuthStatus(
   for (const account of oauthAccounts) {
     const tokens = account.tokens as unknown as GoogleTokens;
     let photoUrl = optionalString(tokens.photoUrl);
+    let tokenValid = false;
     try {
       const accessToken = await getValidAccessToken(
         account.accountId,
         tokens,
         forEmail,
       );
+      tokenValid = true;
       photoUrl = await resolveAccountPhotoUrl(accessToken, photoUrl);
-    } catch {}
+    } catch {
+      // getValidAccessToken throws when the refresh token is permanently
+      // revoked (after deleting the broken row). Excluding the account here
+      // ensures `connected` flips to false instead of reporting a dead
+      // account as still connected.
+    }
+    if (!tokenValid) continue;
     result.push({
       email: account.accountId,
       expiresAt: tokens.expiry_date
