@@ -1,5 +1,12 @@
 # @agent-native/dispatch
 
+## 0.2.4
+
+### Patch Changes
+
+- 977af2b: Route Dispatch overview prompts to Builder chat in Builder frames and keep the app agent sidebar collapsed there by default.
+- a562b18: Validate external agent form fields before saving remote agent manifests.
+
 ## 0.2.3
 
 ### Patch Changes
