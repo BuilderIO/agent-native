@@ -365,14 +365,10 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
     }
 
     try {
-      const result = await googleCalendar.updateEvent(
-        googleEventId,
-        updates,
-        {
-          sendUpdates,
-          addGoogleMeet: addGoogleMeet === true,
-        },
-      );
+      const result = await googleCalendar.updateEvent(googleEventId, updates, {
+        sendUpdates,
+        addGoogleMeet: addGoogleMeet === true,
+      });
       if (result.meetLink) updates.hangoutLink = result.meetLink;
       if (result.conferenceData) updates.conferenceData = result.conferenceData;
       if (zoomMeetingLink) updates.meetingLink = zoomMeetingLink;

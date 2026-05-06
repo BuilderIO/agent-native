@@ -354,7 +354,9 @@ export function CreateEventPopover({
             </Label>
             <Select
               value={videoProvider}
-              onValueChange={(value) => setVideoProvider(value as VideoProvider)}
+              onValueChange={(value) =>
+                setVideoProvider(value as VideoProvider)
+              }
             >
               <SelectTrigger id="event-video-provider" className="h-8 text-sm">
                 <SelectValue />

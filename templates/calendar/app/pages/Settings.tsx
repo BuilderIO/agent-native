@@ -240,8 +240,7 @@ export default function Settings() {
                 size="sm"
                 onClick={handleConnectZoom}
                 disabled={
-                  connectZoom.isPending ||
-                  zoomStatus.data?.configured === false
+                  connectZoom.isPending || zoomStatus.data?.configured === false
                 }
               >
                 <IconBrandZoom className="mr-1.5 h-3.5 w-3.5" />
