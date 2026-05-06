@@ -827,7 +827,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
                             ? "bg-accent text-foreground"
                             : "text-muted-foreground hover:text-foreground",
                           (!hasOrg || !canCreateOrgMcp) &&
-                            "cursor-not-allowed opacity-40 hover:text-muted-foreground",
+                            "cursor-not-allowed opacity-50 hover:text-muted-foreground",
                         )}
                       >
                         Organization
@@ -844,28 +844,46 @@ The result should be a reusable agent profile, not a one-off task response.`,
                 </div>
                 <input
                   value={mcpName}
-                  onChange={(e) => setMcpName(e.target.value)}
+                  onChange={(e) => {
+                    setMcpName(e.target.value);
+                    clearMcpFeedback();
+                  }}
                   className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
                   placeholder="Server name (e.g. zapier)"
                 />
                 <input
                   value={mcpUrl}
-                  onChange={(e) => setMcpUrl(e.target.value)}
+                  onChange={(e) => {
+                    setMcpUrl(e.target.value);
+                    clearMcpFeedback();
+                  }}
                   className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
                   placeholder="https://mcp.example.com/"
                 />
                 <input
                   value={mcpDescription}
-                  onChange={(e) => setMcpDescription(e.target.value)}
+                  onChange={(e) => {
+                    setMcpDescription(e.target.value);
+                    clearMcpFeedback();
+                  }}
                   className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
                   placeholder="Description (optional)"
                 />
-                <label className="block text-[10px] font-medium text-muted-foreground/70">
-                  Headers (one per line, e.g. Authorization: Bearer …)
-                </label>
+                <div>
+                  <label className="block text-[10px] font-medium text-foreground">
+                    Headers
+                  </label>
+                  <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground/70">
+                    Optional. One per line, for example Authorization: Bearer
+                    sk-...
+                  </p>
+                </div>
                 <textarea
                   value={mcpHeadersText}
-                  onChange={(e) => setMcpHeadersText(e.target.value)}
+                  onChange={(e) => {
+                    setMcpHeadersText(e.target.value);
+                    clearMcpFeedback();
+                  }}
                   rows={2}
                   className="w-full resize-y rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
                   style={{
@@ -877,18 +895,22 @@ The result should be a reusable agent profile, not a one-off task response.`,
                 {mcpTestResult && (
                   <div
                     className={cn(
-                      "flex items-center gap-1 text-[11px]",
+                      "flex items-start gap-1 text-[11px] leading-snug",
                       mcpTestResult.ok
                         ? "text-green-600 dark:text-green-400"
                         : "text-red-600 dark:text-red-400",
                     )}
                   >
-                    {mcpTestResult.ok && <IconCheck className="h-3 w-3" />}
-                    {mcpTestResult.message}
+                    {mcpTestResult.ok && (
+                      <IconCheck className="mt-0.5 h-3 w-3 shrink-0" />
+                    )}
+                    <span className="min-w-0 break-words">
+                      {mcpTestResult.message}
+                    </span>
                   </div>
                 )}
                 {mcpError && (
-                  <div className="text-[11px] text-red-600 dark:text-red-400">
+                  <div className="break-words text-[11px] leading-snug text-red-600 dark:text-red-400">
                     {mcpError}
                   </div>
                 )}

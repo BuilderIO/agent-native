@@ -75,7 +75,9 @@ export default function DesignSystemSetup() {
   const hasAnySources = useMemo(() => {
     return (
       companyInfo.trim() ||
+      websiteUrl.trim() ||
       websiteUrls.length > 0 ||
+      githubUrl.trim() ||
       githubLinks.length > 0 ||
       codeFiles.length > 0 ||
       figFiles.length > 0 ||
@@ -87,7 +89,9 @@ export default function DesignSystemSetup() {
     );
   }, [
     companyInfo,
+    websiteUrl,
     websiteUrls,
+    githubUrl,
     githubLinks,
     codeFiles,
     figFiles,
@@ -261,6 +265,26 @@ export default function DesignSystemSetup() {
       return;
     }
 
+    const pendingWebsiteUrl = websiteUrl.trim();
+    const pendingGithubUrl = githubUrl.trim();
+    if (pendingWebsiteUrl && !isHttpUrl(pendingWebsiteUrl)) {
+      setValidationError("Website URLs must start with http:// or https://.");
+      return;
+    }
+    if (pendingGithubUrl && !isGithubRepoUrl(pendingGithubUrl)) {
+      setValidationError(
+        "Use a full GitHub repository URL, like https://github.com/org/repo.",
+      );
+      return;
+    }
+
+    const normalizedWebsiteUrls = pendingWebsiteUrl
+      ? [...websiteUrls, pendingWebsiteUrl]
+      : websiteUrls;
+    const normalizedGithubLinks = pendingGithubUrl
+      ? [...githubLinks, { id: "pending", url: pendingGithubUrl }]
+      : githubLinks;
+
     const parts: string[] = [];
     parts.push(
       "Set up a design system from the following sources. Analyze each source, extract design tokens (colors, fonts, spacing, borders), and create a cohesive design system.",
@@ -270,15 +294,15 @@ export default function DesignSystemSetup() {
       parts.push(`\n## Company / Brand\n${companyInfo.trim()}`);
     }
 
-    if (websiteUrls.length > 0) {
+    if (normalizedWebsiteUrls.length > 0) {
       parts.push(
-        `\n## Website URLs\nExtract design tokens from these websites:\n${websiteUrls.map((u) => `- ${u}`).join("\n")}\n\n**Best approach:** Call \`activate-browser\` first, then use chrome-devtools MCP tools to navigate each URL and extract computed styles (colors, fonts, spacing, CSS custom properties) via \`evaluate_script\`. This captures the real rendered design — including JS-injected styles, CSS-in-JS, and SPA content that plain HTML fetch misses. Take a screenshot too for visual reference. If Builder is not connected, fall back to \`import-from-url\` for each URL (limited to static HTML parsing).`,
+        `\n## Website URLs\nExtract design tokens from these websites:\n${normalizedWebsiteUrls.map((u) => `- ${u}`).join("\n")}\n\n**Best approach:** Call \`activate-browser\` first, then use chrome-devtools MCP tools to navigate each URL and extract computed styles (colors, fonts, spacing, CSS custom properties) via \`evaluate_script\`. This captures the real rendered design — including JS-injected styles, CSS-in-JS, and SPA content that plain HTML fetch misses. Take a screenshot too for visual reference. If Builder is not connected, fall back to \`import-from-url\` for each URL (limited to static HTML parsing).`,
       );
     }
 
-    if (githubLinks.length > 0) {
+    if (normalizedGithubLinks.length > 0) {
       parts.push(
-        `\n## GitHub Repositories\nExtract design tokens from code. Call \`import-github\` for each:\n${githubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nIf a repository is private or GitHub denies access, tell me to save a fine-grained GitHub token as \`GITHUB_TOKEN\` in Settings > Secrets. The token should be limited to the repository with Repository permissions > Contents: Read-only. Do not ask me to paste a PAT into chat.`,
+        `\n## GitHub Repositories\nExtract design tokens from code. Call \`import-github\` for each:\n${normalizedGithubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nIf a repository is private or GitHub denies access, tell me to save a fine-grained GitHub token as \`GITHUB_TOKEN\` in Settings > Secrets. The token should be limited to the repository with Repository permissions > Contents: Read-only. Do not ask me to paste a PAT into chat.`,
       );
     }
 
@@ -355,7 +379,9 @@ export default function DesignSystemSetup() {
   }, [
     hasAnySources,
     companyInfo,
+    websiteUrl,
     websiteUrls,
+    githubUrl,
     githubLinks,
     codeFiles,
     figFiles,

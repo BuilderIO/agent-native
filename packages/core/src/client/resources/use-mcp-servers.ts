@@ -150,10 +150,17 @@ export function formatMcpServerError(error: unknown): string {
   ) {
     return "That URL returned a web page instead of an MCP response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.";
   }
-  if (/streamable http/i.test(text) && /error|failed|non-200|status/i.test(text)) {
+  if (
+    /streamable http/i.test(text) &&
+    /error|failed|non-200|status/i.test(text)
+  ) {
     return "The server did not complete the Streamable HTTP MCP handshake. Check the URL and any required authorization headers.";
   }
-  if (/failed to fetch|fetch failed|networkerror|econnrefused|enotfound|timed out/i.test(text)) {
+  if (
+    /failed to fetch|fetch failed|networkerror|econnrefused|enotfound|timed out/i.test(
+      text,
+    )
+  ) {
     return "Could not reach that MCP server. Check the URL and make sure it is publicly reachable from this app.";
   }
   if (/401|403|unauthorized|forbidden/i.test(text)) {

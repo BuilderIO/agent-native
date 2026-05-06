@@ -6,10 +6,7 @@ import {
 } from "@/components/ui/popover";
 import { IconPlus } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
-import {
-  PromptComposer,
-  useSendToAgentChat,
-} from "@agent-native/core/client";
+import { PromptComposer, useSendToAgentChat } from "@agent-native/core/client";
 
 type NewCompositionPopoverProps = {
   isNew: boolean;
@@ -178,9 +175,7 @@ export function NewCompositionPopover({
             onSubmit={handleSubmit}
           />
           {submitError ? (
-            <p className="mt-2 px-1 text-xs text-destructive">
-              {submitError}
-            </p>
+            <p className="mt-2 px-1 text-xs text-destructive">{submitError}</p>
           ) : null}
         </PopoverContent>
       </Popover>

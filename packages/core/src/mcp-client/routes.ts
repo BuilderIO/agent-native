@@ -102,6 +102,44 @@ function statusFor(manager: McpClientManager, mergedId: string): ServerStatus {
   return { state: "unknown" };
 }
 
+export function formatMcpConnectError(error: unknown): string {
+  const raw =
+    typeof error === "string"
+      ? error
+      : error instanceof Error
+        ? error.message
+        : String(error ?? "");
+  const text = raw.trim();
+  if (!text) return "Could not connect to that MCP server.";
+  if (
+    /<!doctype|<html[\s>]|<\/html>|unexpected token '<'|is not valid json/i.test(
+      text,
+    )
+  ) {
+    return "That URL returned a web page instead of an MCP response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.";
+  }
+  if (
+    /streamable http/i.test(text) &&
+    /error|failed|non-200|status/i.test(text)
+  ) {
+    return "The server did not complete the Streamable HTTP MCP handshake. Check the URL and any required authorization headers.";
+  }
+  if (
+    /failed to fetch|fetch failed|networkerror|econnrefused|enotfound|timed out/i.test(
+      text,
+    )
+  ) {
+    return "Could not reach that MCP server. Check the URL and make sure it is publicly reachable from this app.";
+  }
+  if (/401|403|unauthorized|forbidden/i.test(text)) {
+    return "The MCP server rejected the request. Add or update the required Authorization header.";
+  }
+  if (/404|not found|405|method not allowed/i.test(text)) {
+    return "That URL is reachable, but it does not look like the MCP endpoint. Check the server's Streamable HTTP path.";
+  }
+  return text.length > 240 ? `${text.slice(0, 237).trimEnd()}...` : text;
+}
+
 /**
  * Build the merged MCP config the manager should run with: file/env config
  * plus **every** user-scope and org-scope remote server persisted in the
@@ -493,7 +531,7 @@ async function tryConnect(
       } catch {}
     }
   } catch (err: any) {
-    return { ok: false, error: err?.message ?? String(err) };
+    return { ok: false, error: formatMcpConnectError(err) };
   }
 }
 

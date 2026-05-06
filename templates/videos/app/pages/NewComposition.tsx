@@ -52,7 +52,10 @@ export default function NewComposition({ isGenerating }: NewCompositionProps) {
       5 * 60 * 1000,
     );
     return () => {
-      window.removeEventListener("videos:new-composition-status", handleStorage);
+      window.removeEventListener(
+        "videos:new-composition-status",
+        handleStorage,
+      );
       window.removeEventListener("agentNative.chatRunning", handleChatRunning);
       window.removeEventListener("agent-chat:run-error", handleRunError);
       window.clearTimeout(timeout);
