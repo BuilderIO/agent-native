@@ -792,7 +792,11 @@ export function getNodeBuiltinNames(): string[] {
  * Injected via esbuild --inject so CJS deps work on Workers runtime.
  */
 function generateRequireShim(): string {
-  // Only shim the commonly-used builtins to keep it small
+  // Only shim the commonly-used builtins to keep it small. `tty`, `readline`,
+  // `process`, and friends are added because terminal-detection helpers
+  // (chalk, picocolors, supports-color, debug, etc.) call require("tty") at
+  // module-init time — without a shim, the bundled worker throws
+  // "Cannot require: tty" before any code runs.
   const shimmed = [
     "fs",
     "path",
@@ -813,6 +817,12 @@ function generateRequireShim(): string {
     "timers",
     "child_process",
     "module",
+    "tty",
+    "readline",
+    "process",
+    "console",
+    "perf_hooks",
+    "string_decoder",
   ];
 
   // Bare module names — CF Pages Functions runs under nodejs_compat v1,
