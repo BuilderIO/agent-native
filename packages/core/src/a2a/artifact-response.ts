@@ -42,12 +42,20 @@ interface CreatedAnalysisArtifact {
   url?: string;
 }
 
+interface CreatedImageArtifact {
+  id: string;
+  runId?: string;
+  title?: string;
+  url?: string;
+}
+
 type ReferencedArtifactKind =
   | "deck"
   | "design"
   | "document"
   | "dashboard"
-  | "analysis";
+  | "analysis"
+  | "image";
 
 interface ReferencedArtifact {
   kind: ReferencedArtifactKind;
@@ -165,6 +173,32 @@ function analysisIdValue(parsed: Record<string, unknown>): string | undefined {
   return stringValue(parsed.id) ?? stringValue(parsed.analysisId);
 }
 
+function imageIdValue(parsed: Record<string, unknown>): string | undefined {
+  return (
+    stringValue(parsed.assetId) ??
+    stringValue(parsed.imageId) ??
+    stringValue(parsed.id)
+  );
+}
+
+function addImageArtifact(
+  images: Map<string, CreatedImageArtifact>,
+  parsed: Record<string, unknown>,
+): void {
+  const id = imageIdValue(parsed);
+  if (!id) return;
+  images.set(id, {
+    id,
+    runId: stringValue(parsed.runId) ?? stringValue(parsed.generationRunId),
+    title: stringValue(parsed.title),
+    url:
+      stringValue(parsed.pageUrl) ??
+      stringValue(parsed.detailUrl) ??
+      stringValue(parsed.url) ??
+      stringValue(parsed.urlPath),
+  });
+}
+
 function isReadyDeckArtifact(parsed: Record<string, unknown>): boolean {
   const slideCount = numberValue(parsed.slideCount);
   if (slideCount !== undefined) return slideCount > 0;
@@ -204,6 +238,7 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
   decks: CreatedDeckArtifact[];
   dashboards: CreatedDashboardArtifact[];
   analyses: CreatedAnalysisArtifact[];
+  images: CreatedImageArtifact[];
   designShells: CreatedDesignShell[];
   generatedDesigns: GeneratedDesignArtifact[];
 } {
@@ -211,6 +246,7 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
   const decks = new Map<string, CreatedDeckArtifact>();
   const dashboards = new Map<string, CreatedDashboardArtifact>();
   const analyses = new Map<string, CreatedAnalysisArtifact>();
+  const images = new Map<string, CreatedImageArtifact>();
   const designShells = new Map<string, CreatedDesignShell>();
   const generatedDesigns = new Map<string, GeneratedDesignArtifact>();
 
@@ -239,6 +275,13 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
             id: artifact.id,
             title: artifact.title,
             url: artifact.url,
+          });
+        } else if (artifact.kind === "image") {
+          images.set(artifact.id, {
+            id: artifact.id,
+            title: artifact.title,
+            url: artifact.url,
+            runId: artifact.runId,
           });
         } else if (artifact.kind === "design" && artifact.fileCount > 0) {
           generatedDesigns.set(artifact.id, {
@@ -331,6 +374,28 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
       continue;
     }
 
+    if (
+      toolResult.tool === "generate-image" ||
+      toolResult.tool === "refine-image" ||
+      toolResult.tool === "get-asset" ||
+      toolResult.tool === "save-generated-image" ||
+      toolResult.tool === "export-image"
+    ) {
+      addImageArtifact(images, parsed);
+      continue;
+    }
+
+    if (toolResult.tool === "generate-image-batch") {
+      if (Array.isArray(parsed.images)) {
+        for (const item of parsed.images) {
+          const image = asRecord(item);
+          if (!image || image.ok === false) continue;
+          addImageArtifact(images, image);
+        }
+      }
+      continue;
+    }
+
     if (toolResult.tool === "create-design") {
       const id = stringValue(parsed.id);
       if (id) {
@@ -416,6 +481,7 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
     decks: [...decks.values()],
     dashboards: [...dashboards.values()],
     analyses: [...analyses.values()],
+    images: [...images.values()],
     designShells: [...designShells.values()],
     generatedDesigns: [...generatedDesigns.values()],
   };
@@ -426,6 +492,7 @@ type DownstreamArtifact =
   | { kind: "document"; id: string; url: string; title?: string }
   | { kind: "dashboard"; id: string; url: string; title?: string }
   | { kind: "analysis"; id: string; url: string; title?: string }
+  | { kind: "image"; id: string; url: string; title?: string; runId?: string }
   | { kind: "design"; id: string; url: string; fileCount: number };
 
 function parseDownstreamArtifactBlock(result: string): DownstreamArtifact[] {
@@ -486,6 +553,22 @@ function parseDownstreamArtifactBlock(result: string): DownstreamArtifact[] {
         title: analysis[1],
         url: analysis[2],
         id,
+      });
+      continue;
+    }
+
+    const image = line.match(
+      /^- Image(?:\s+"([^"]+)")?:\s+(\S+)\s+\(ID:\s*([A-Za-z0-9_-]+)(?:,\s*Run:\s*([A-Za-z0-9_-]+))?\)$/,
+    );
+    if (image) {
+      const id = image[3];
+      if (!artifactUrlReferencesId(image[2], "image", id)) continue;
+      artifacts.push({
+        kind: "image",
+        title: image[1],
+        url: image[2],
+        id,
+        runId: image[4],
       });
       continue;
     }
@@ -565,6 +648,17 @@ function parseArtifactReferenceUrl(rawUrl: string): ReferencedArtifact | null {
   const analysis = path.match(/(?:^|\/)analyses\/([A-Za-z0-9_-]+)$/);
   if (analysis) return { kind: "analysis", id: analysis[1] };
 
+  const image = path.match(/(?:^|\/)image\/([A-Za-z0-9_-]+)$/);
+  if (image) return { kind: "image", id: image[1] };
+
+  const imageEmbed = path.match(/(?:^|\/)asset\/([A-Za-z0-9_-]+)\/embed$/);
+  if (imageEmbed) return { kind: "image", id: imageEmbed[1] };
+
+  const imageContent = path.match(
+    /(?:^|\/)api\/assets\/([A-Za-z0-9_-]+)\/content$/,
+  );
+  if (imageContent) return { kind: "image", id: imageContent[1] };
+
   return null;
 }
 
@@ -601,6 +695,15 @@ function formatAnalysisLine(
   return `- ${label}: ${artifactUrlFromResult({ url: analysis.url }, `/analyses/${analysis.id}`, baseUrl)} (ID: ${analysis.id})`;
 }
 
+function formatImageLine(
+  image: CreatedImageArtifact,
+  baseUrl: string | undefined,
+): string {
+  const label = image.title ? `Image "${image.title}"` : "Image";
+  const run = image.runId ? `, Run: ${image.runId}` : "";
+  return `- ${label}: ${artifactUrlFromResult({ url: image.url }, `/image/${image.id}`, baseUrl)} (ID: ${image.id}${run})`;
+}
+
 function formatDesignLine(
   design: GeneratedDesignArtifact,
   baseUrl: string | undefined,
@@ -626,7 +729,7 @@ function collectReferencedArtifacts(
   const refs = new Map<string, ReferencedArtifact>();
   const baseOrigin = safeOrigin(baseUrl);
   const artifactUrlPattern =
-    /(?:(https?:\/\/[^/\s<>()]+))?(?:\/[^\s<>()]*)?\/(deck|design|page|adhoc|analyses)\/([A-Za-z0-9_-]+)/g;
+    /(?:(https?:\/\/[^/\s<>()]+))?(?:\/[^\s<>()]*)?\/(deck|design|page|adhoc|analyses|image|asset)\/([A-Za-z0-9_-]+)/g;
 
   for (const match of text.matchAll(artifactUrlPattern)) {
     const origin = safeOrigin(match[1]);
@@ -641,7 +744,9 @@ function collectReferencedArtifacts(
             ? "document"
             : route === "adhoc"
               ? "dashboard"
-              : "analysis";
+              : route === "analyses"
+                ? "analysis"
+                : "image";
     if (!shouldValidateArtifactReference(origin, baseOrigin, kind)) continue;
     refs.set(`${kind}:${id}`, { kind, id });
   }
@@ -667,6 +772,7 @@ const KNOWN_AGENT_NATIVE_ARTIFACT_HOSTS: Record<
   document: new Set(["content.agent-native.com"]),
   dashboard: new Set(["analytics.agent-native.com"]),
   analysis: new Set(["analytics.agent-native.com"]),
+  image: new Set(["images.agent-native.com"]),
 };
 
 function safeHostnameFromOrigin(
@@ -698,12 +804,14 @@ function findUnverifiedArtifactReferences(
   decks: CreatedDeckArtifact[],
   dashboards: CreatedDashboardArtifact[],
   analyses: CreatedAnalysisArtifact[],
+  images: CreatedImageArtifact[],
   generatedDesigns: GeneratedDesignArtifact[],
 ): ReferencedArtifact[] {
   const documentIds = new Set(documents.map((document) => document.id));
   const deckIds = new Set(decks.map((deck) => deck.id));
   const dashboardIds = new Set(dashboards.map((dashboard) => dashboard.id));
   const analysisIds = new Set(analyses.map((analysis) => analysis.id));
+  const imageIds = new Set(images.map((image) => image.id));
   const designIds = new Set(generatedDesigns.map((design) => design.id));
 
   return collectReferencedArtifacts(text, baseUrl).filter((ref) => {
@@ -711,6 +819,7 @@ function findUnverifiedArtifactReferences(
     if (ref.kind === "deck") return !deckIds.has(ref.id);
     if (ref.kind === "dashboard") return !dashboardIds.has(ref.id);
     if (ref.kind === "analysis") return !analysisIds.has(ref.id);
+    if (ref.kind === "image") return !imageIds.has(ref.id);
     return !designIds.has(ref.id);
   });
 }
@@ -721,6 +830,7 @@ function formatUnverifiedArtifactMessage(
   decks: CreatedDeckArtifact[],
   dashboards: CreatedDashboardArtifact[],
   analyses: CreatedAnalysisArtifact[],
+  images: CreatedImageArtifact[],
   generatedDesigns: GeneratedDesignArtifact[],
   baseUrl: string | undefined,
 ): string {
@@ -729,6 +839,7 @@ function formatUnverifiedArtifactMessage(
   const hasOnlyDecks = refs.every((ref) => ref.kind === "deck");
   const hasOnlyDashboards = refs.every((ref) => ref.kind === "dashboard");
   const hasOnlyAnalyses = refs.every((ref) => ref.kind === "analysis");
+  const hasOnlyImages = refs.every((ref) => ref.kind === "image");
   const label = hasOnlyDesigns
     ? "design URL"
     : hasOnlyDocuments
@@ -739,7 +850,9 @@ function formatUnverifiedArtifactMessage(
           ? "dashboard URL"
           : hasOnlyAnalyses
             ? "report URL"
-            : "artifact URL";
+            : hasOnlyImages
+              ? "image URL"
+              : "artifact URL";
   const plural = refs.length === 1 ? label : `${label}s`;
   const message = `I could not verify the ${plural} in the final answer against a successful artifact action that saved app data, so I cannot return it.`;
   const verifiedLines = [
@@ -747,6 +860,7 @@ function formatUnverifiedArtifactMessage(
     ...decks.map((deck) => formatDeckLine(deck, baseUrl)),
     ...dashboards.map((dashboard) => formatDashboardLine(dashboard, baseUrl)),
     ...analyses.map((analysis) => formatAnalysisLine(analysis, baseUrl)),
+    ...images.map((image) => formatImageLine(image, baseUrl)),
     ...generatedDesigns.map((design) => formatDesignLine(design, baseUrl)),
   ];
 
@@ -768,6 +882,7 @@ export function appendA2AArtifactLinks(
     decks,
     dashboards,
     analyses,
+    images,
     designShells,
     generatedDesigns,
   } = collectArtifacts(toolResults);
@@ -799,6 +914,7 @@ export function appendA2AArtifactLinks(
     decks,
     dashboards,
     analyses,
+    images,
     generatedDesigns,
   );
   if (unverifiedRefs.length > 0) {
@@ -808,6 +924,7 @@ export function appendA2AArtifactLinks(
       decks,
       dashboards,
       analyses,
+      images,
       generatedDesigns,
       baseUrl,
     );
@@ -850,6 +967,15 @@ export function appendA2AArtifactLinks(
       missingLines.push(formatAnalysisLine(analysis, baseUrl));
     }
   }
+  for (const image of images) {
+    const path = `/image/${image.id}`;
+    if (
+      includeReferencedArtifacts ||
+      !responseAlreadyMentionsPath(text, path)
+    ) {
+      missingLines.push(formatImageLine(image, baseUrl));
+    }
+  }
   for (const design of generatedDesigns) {
     const path = `/design/${design.id}`;
     if (
@@ -870,13 +996,14 @@ export function buildA2ARecoverableArtifactMessage(
   options: A2AArtifactResponseOptions = {},
 ): string | null {
   const baseUrl = normalizeBaseUrl(options.baseUrl);
-  const { documents, decks, dashboards, analyses, generatedDesigns } =
+  const { documents, decks, dashboards, analyses, images, generatedDesigns } =
     collectArtifacts(toolResults);
   const lines = [
     ...documents.map((document) => formatDocumentLine(document, baseUrl)),
     ...decks.map((deck) => formatDeckLine(deck, baseUrl)),
     ...dashboards.map((dashboard) => formatDashboardLine(dashboard, baseUrl)),
     ...analyses.map((analysis) => formatAnalysisLine(analysis, baseUrl)),
+    ...images.map((image) => formatImageLine(image, baseUrl)),
     ...generatedDesigns.map((design) => formatDesignLine(design, baseUrl)),
   ];
 
