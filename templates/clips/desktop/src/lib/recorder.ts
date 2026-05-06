@@ -464,8 +464,7 @@ function createRecordingStartCue(): RecordingStartCue {
     const ctx = new AudioCtx();
     let played = false;
     let closed = false;
-    let cleanupTimer: ReturnType<typeof window.setTimeout> | null =
-      null;
+    let cleanupTimer: ReturnType<typeof window.setTimeout> | null = null;
 
     const close = () => {
       if (closed) return;
@@ -587,7 +586,7 @@ async function startNativeRecordingInner(
   if (wantsAudio) {
     console.log("[clips-recorder] acquiring audioStream (mic only)");
   }
-  const streamCleanups: Array<() => void> = [];
+  const streamCleanups: Array<() => void> = [recordingStartCue.cleanup];
 
   const displayStreamPromise: Promise<MediaStream> | null = wantsScreen
     ? (() => {
