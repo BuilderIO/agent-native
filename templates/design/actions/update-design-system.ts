@@ -9,11 +9,13 @@ export default defineAction({
     "Update an existing design system. Requires editor access. " +
     "Only provided fields are updated; omitted fields are left unchanged.",
   schema: z.object({
-    id: z.string().describe("Design system ID"),
-    title: z.string().optional().describe("New title"),
+    id: z.string().min(1).describe("Design system ID"),
+    title: z.string().trim().min(1, "title cannot be empty").optional().describe("New title"),
     description: z.string().optional().describe("New description"),
     data: z
       .string()
+      .trim()
+      .min(1, "data cannot be empty")
       .optional()
       .describe("Updated JSON string of DesignSystemData"),
     assets: z
@@ -25,9 +27,12 @@ export default defineAction({
     // Validate that data/assets are valid JSON when provided
     if (data !== undefined) {
       try {
-        JSON.parse(data);
+        const parsed = JSON.parse(data);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          throw new Error();
+        }
       } catch {
-        throw new Error("data must be a valid JSON string");
+        throw new Error("data must be a valid JSON object string");
       }
     }
     if (assets !== undefined) {
