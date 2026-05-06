@@ -9,11 +9,12 @@ import {
 
 export function ImageBlock({
   node,
-  updateAttributes,
+  editor,
   deleteNode,
   selected,
 }: NodeViewProps) {
   const [isHovered, setIsHovered] = useState(false);
+  const isEditable = editor.isEditable;
   const src = node.attrs.src as string;
   const alt = node.attrs.alt as string;
 
@@ -36,7 +37,7 @@ export function ImageBlock({
       >
         <img src={src} alt={alt || ""} className="media-block__content" />
 
-        {(isHovered || selected) && (
+        {isEditable && (isHovered || selected) && (
           <div className="media-block__overlay">
             <Tooltip>
               <TooltipTrigger asChild>

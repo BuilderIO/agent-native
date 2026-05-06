@@ -528,7 +528,6 @@ export function VisualEditor({
       },
     },
     editable,
-    immediatelyRender: false,
     onUpdate: ({ editor }) => {
       if (isSettingContent.current) return;
       lastTypedAtRef.current = Date.now();
@@ -635,7 +634,9 @@ export function VisualEditor({
 
   return (
     <div className="visual-editor-wrapper">
-      {editable ? <BubbleToolbar editor={editor} onComment={onComment} /> : null}
+      {editable ? (
+        <BubbleToolbar editor={editor} onComment={onComment} />
+      ) : null}
       {editable ? (
         <SlashCommandMenu editor={editor} documentId={documentId} />
       ) : null}

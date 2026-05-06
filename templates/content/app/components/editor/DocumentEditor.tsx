@@ -234,7 +234,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   } | null>(null);
   const { data: threads } = useComments(documentId);
   const hasComments =
-    canEdit && ((threads?.some((t) => !t.resolved) ?? false) || !!pendingComment);
+    canEdit &&
+    ((threads?.some((t) => !t.resolved) ?? false) || !!pendingComment);
   const isMobile = useIsMobile();
 
   const handleComment = useCallback((quotedText: string, offsetTop: number) => {
