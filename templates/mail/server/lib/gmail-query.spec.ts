@@ -45,8 +45,6 @@ describe("buildGmailEmailSearchQuery", () => {
 
 describe("gmailLabelSearchClause", () => {
   it("quotes Gmail labels that need quoting", () => {
-    expect(gmailLabelSearchClause("Team/Foo Bar")).toBe(
-      'label:"Team/Foo-Bar"',
-    );
+    expect(gmailLabelSearchClause("Team/Foo Bar")).toBe('label:"Team/Foo-Bar"');
   });
 });
