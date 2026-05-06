@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   IconCamera,
   IconDeviceScreen,
@@ -6,6 +6,7 @@ import {
   IconUpload,
   IconVideo,
 } from "@tabler/icons-react";
+import { agentNativePath } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -15,6 +16,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { NO_MIC_DEVICE_ID, type RecordingMode } from "./recorder-engine";
+import {
+  MicrophoneVisualizer,
+  type MicrophoneTestStatus,
+} from "./microphone-visualizer";
 
 export interface PreRecordPanelProps {
   onStart: (opts: {
@@ -26,6 +31,23 @@ export interface PreRecordPanelProps {
   onUpload?: (file: File) => void;
   onCancel?: () => void;
   busy?: boolean;
+}
+
+type MicTestState = {
+  status: MicrophoneTestStatus;
+  error: string | null;
+  hasSignal: boolean;
+};
+
+async function writeRecordingSetupState(value: unknown): Promise<void> {
+  await fetch(
+    agentNativePath("/_agent-native/application-state/recording-setup"),
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(value),
+    },
+  );
 }
 
 const MODE_OPTIONS: Array<{
@@ -67,6 +89,11 @@ export function PreRecordPanel({
   const [micId, setMicId] = useState<string>("default");
   const [cameraId, setCameraId] = useState<string>("default");
   const [enumError, setEnumError] = useState<string | null>(null);
+  const [micTest, setMicTest] = useState<MicTestState>({
+    status: "idle",
+    error: null,
+    hasSignal: false,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -99,6 +126,79 @@ export function PreRecordPanel({
   }, []);
 
   const needsCamera = mode === "camera" || mode === "screen+camera";
+
+  const selectedMicLabel = useMemo(() => {
+    if (micId === NO_MIC_DEVICE_ID) return "No microphone";
+    if (micId === "default") return "Default microphone";
+    return (
+      mics.find((mic) => mic.deviceId === micId)?.label ||
+      `Mic ${micId.slice(0, 4)}`
+    );
+  }, [micId, mics]);
+
+  const selectedCameraLabel = useMemo(() => {
+    if (!needsCamera) return null;
+    if (cameraId === "default") return "Default camera";
+    return (
+      cameras.find((camera) => camera.deviceId === cameraId)?.label ||
+      `Camera ${cameraId.slice(0, 4)}`
+    );
+  }, [cameraId, cameras, needsCamera]);
+
+  const handleMicStatusChange = useCallback(
+    (status: MicrophoneTestStatus, detail?: { error?: string | null }) => {
+      setMicTest({
+        status,
+        error: detail?.error ?? null,
+        hasSignal: false,
+      });
+    },
+    [],
+  );
+
+  const handleMicSignalChange = useCallback((hasSignal: boolean) => {
+    setMicTest((prev) => ({ ...prev, hasSignal }));
+  }, []);
+
+  useEffect(() => {
+    void writeRecordingSetupState({
+      view: "record",
+      mode,
+      microphone: {
+        enabled: micId !== NO_MIC_DEVICE_ID,
+        selected:
+          micId === NO_MIC_DEVICE_ID
+            ? "none"
+            : micId === "default"
+              ? "default"
+              : "specific",
+        label: selectedMicLabel,
+        testStatus: micTest.status,
+        testHasSignal: micTest.hasSignal,
+        testError: micTest.error,
+      },
+      camera: {
+        enabled: needsCamera,
+        selected: needsCamera
+          ? cameraId === "default"
+            ? "default"
+            : "specific"
+          : "none",
+        label: selectedCameraLabel,
+      },
+      updatedAt: new Date().toISOString(),
+    }).catch(() => {});
+  }, [
+    cameraId,
+    micId,
+    micTest.error,
+    micTest.hasSignal,
+    micTest.status,
+    mode,
+    needsCamera,
+    selectedCameraLabel,
+    selectedMicLabel,
+  ]);
 
   const startDisabled = useMemo(() => {
     if (busy) return true;
@@ -159,6 +259,15 @@ export function PreRecordPanel({
             </SelectContent>
           </Select>
         </div>
+
+        <MicrophoneVisualizer
+          className="ml-7"
+          deviceId={micId === "default" ? null : micId}
+          disabled={busy || micId === NO_MIC_DEVICE_ID}
+          selectedLabel={selectedMicLabel}
+          onStatusChange={handleMicStatusChange}
+          onSignalChange={handleMicSignalChange}
+        />
 
         {needsCamera && (
           <div className="flex items-center gap-3">

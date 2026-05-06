@@ -94,15 +94,16 @@ Visibility and sharing use the framework `sharing` system — recordings are reg
 
 Ephemeral UI state lives in `application_state`, accessed via `readAppState(key)` / `writeAppState(key, value)` from `@agent-native/core/application-state`. The UI syncs here so the agent always knows what's on screen.
 
-| State Key        | Purpose                                                               | Direction               |
-| ---------------- | --------------------------------------------------------------------- | ----------------------- |
-| `navigation`     | Current view + selected IDs (see shape below)                         | UI -> Agent (read-only) |
-| `navigate`       | One-shot navigation command (auto-deleted after UI reads)             | Agent -> UI             |
-| `refresh-signal` | Bump timestamp — invalidates lists (recordings, comments, etc.)       | Agent -> UI             |
-| `record-intent`  | Request that the UI start a new recording (mode: `screen` / `camera`) | Agent -> UI             |
-| `player-state`   | Current video time, playing, speed — set by the player                | UI -> Agent (read-only) |
-| `editor-draft`   | In-progress non-destructive edits for the recording being edited      | Bidirectional           |
-| `selection`      | User's current text selection inside transcript or comment            | UI -> Agent (read-only) |
+| State Key         | Purpose                                                                  | Direction               |
+| ----------------- | ------------------------------------------------------------------------ | ----------------------- |
+| `navigation`      | Current view + selected IDs (see shape below)                            | UI -> Agent (read-only) |
+| `navigate`        | One-shot navigation command (auto-deleted after UI reads)                | Agent -> UI             |
+| `refresh-signal`  | Bump timestamp — invalidates lists (recordings, comments, etc.)          | Agent -> UI             |
+| `record-intent`   | Request that the UI start a new recording (mode: `screen` / `camera`)    | Agent -> UI             |
+| `recording-setup` | Current `/record` mode, selected mic/camera labels, and mic-check status | UI -> Agent (read-only) |
+| `player-state`    | Current video time, playing, speed — set by the player                   | UI -> Agent (read-only) |
+| `editor-draft`    | In-progress non-destructive edits for the recording being edited         | Bidirectional           |
+| `selection`       | User's current text selection inside transcript or comment               | UI -> Agent (read-only) |
 
 > Active organization lives in the better-auth session (`session.activeOrganizationId`), **not** in application state. An older `current-workspace` app-state key is deprecated. To switch orgs, use `useSwitchOrg()` on the client or better-auth's `setActiveOrganization` API. The previous session's active org is restored automatically on login.
 

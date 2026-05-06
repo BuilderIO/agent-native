@@ -1,4 +1,5 @@
-import { defineEventHandler, getRequestURL } from "h3";
+import { defineEventHandler, getRequestURL, setResponseHeader } from "h3";
+import { MEDIA_CAPTURE_PERMISSIONS_POLICY } from "../lib/media-permissions.js";
 
 export default defineEventHandler((event) => {
   const { pathname } = getRequestURL(event);
@@ -10,8 +11,17 @@ export default defineEventHandler((event) => {
     });
   }
 
+  setResponseHeader(
+    event,
+    "Permissions-Policy",
+    MEDIA_CAPTURE_PERMISSIONS_POLICY,
+  );
+
   return new Response(null, {
     status: 200,
-    headers: { "content-type": "text/html" },
+    headers: {
+      "content-type": "text/html",
+      "Permissions-Policy": MEDIA_CAPTURE_PERMISSIONS_POLICY,
+    },
   });
 });

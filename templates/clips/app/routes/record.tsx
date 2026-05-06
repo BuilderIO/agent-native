@@ -53,6 +53,13 @@ export function meta() {
   return [{ title: "New recording — Clips" }];
 }
 
+export function headers() {
+  return {
+    "Permissions-Policy":
+      "camera=(self), microphone=(self), display-capture=(self), geolocation=(), screen-wake-lock=()",
+  };
+}
+
 type UiState =
   | "idle"
   | "pickingSources"

@@ -396,6 +396,7 @@ export default defineAction({
     const selection = await readAppState("selection");
     const organizationId = await getActiveOrganizationId();
     const recordIntent = await readAppState("record-intent");
+    const recordingSetup = await readAppState("recording-setup");
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
@@ -481,9 +482,12 @@ export default defineAction({
         }
         break;
       }
+      case "record": {
+        if (recordingSetup) screen.recordingSetup = recordingSetup;
+        break;
+      }
       case "archive":
       case "trash":
-      case "record":
       case "notifications":
       case "settings":
       default:
