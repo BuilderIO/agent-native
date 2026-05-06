@@ -219,7 +219,93 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
   return { members };
 });
 
-/** POST /_agent-native/org/invitations — invite a user by email */
+function normalizeInviteRole(input: unknown): "member" | "admin" {
+  return input === "admin" ? "admin" : "member";
+}
+
+interface SingleInviteResult {
+  id: string;
+  email: string;
+  role: "member" | "admin";
+  status: "pending";
+  emailSent: boolean;
+  emailError?: string;
+}
+
+interface SingleInviteFailure {
+  email: string;
+  error: string;
+}
+
+async function inviteOne(
+  ctx: { orgId: string; orgName: string | null; email: string },
+  rawEmail: string,
+  role: "member" | "admin",
+  event: H3Event,
+): Promise<SingleInviteResult> {
+  const email = rawEmail.trim().toLowerCase();
+  if (!email) {
+    throw createError({ statusCode: 400, message: "Email is required" });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw createError({
+      statusCode: 400,
+      message: `Invalid email: ${rawEmail}`,
+    });
+  }
+
+  const e = await exec();
+
+  const existingMember = await e.execute({
+    sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+    args: [ctx.orgId, email],
+  });
+  if (existingMember.rows.length > 0) {
+    throw createError({
+      statusCode: 409,
+      message: `${email} is already a member`,
+    });
+  }
+
+  const existingInvite = await e.execute({
+    sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
+    args: [ctx.orgId, email],
+  });
+  if (existingInvite.rows.length > 0) {
+    throw createError({
+      statusCode: 409,
+      message: `An invitation is already pending for ${email}`,
+    });
+  }
+
+  const id = nanoid();
+  await e.execute({
+    sql: `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role) VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+    args: [id, ctx.orgId, email, ctx.email, Date.now(), role],
+  });
+
+  let emailSent = false;
+  let emailError: string | undefined;
+  if (isEmailConfigured()) {
+    try {
+      const { subject, html, text } = renderInviteEmail({
+        invitee: email,
+        orgName: ctx.orgName || "your team",
+        acceptUrl: getInviteAppUrl(event),
+        inviter: ctx.email,
+      });
+      await sendEmail({ to: email, subject, html, text });
+      emailSent = true;
+    } catch (err) {
+      emailError = err instanceof Error ? err.message : String(err);
+      console.error("[org/invitations] failed to send invite email", err);
+    }
+  }
+
+  return { id, email, role, status: "pending", emailSent, emailError };
+}
+
+/** POST /_agent-native/org/invitations — invite one or many users by email */
 export const createInvitationHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
@@ -237,67 +323,59 @@ export const createInvitationHandler = defineEventHandler(
     }
 
     const body = await readBody(event);
-    const email = body?.email?.trim()?.toLowerCase();
-    if (!email) {
-      throw createError({ statusCode: 400, message: "Email is required" });
-    }
 
-    const e = await exec();
+    // Bulk shape: { invites: [{ email, role }, ...] } — preferred for any
+    // multi-recipient flow (paste-many, CSV upload). Single shape:
+    // { email, role } — kept for backwards compatibility.
+    const invitesInput: Array<{ email: string; role?: string }> | null =
+      Array.isArray(body?.invites)
+        ? body.invites.map((inv: any) => ({
+            email: String(inv?.email ?? ""),
+            role: inv?.role,
+          }))
+        : null;
 
-    // Existing rows in org_members / org_invitations may have any case
-    // (writes haven't been normalized historically). Compare with LOWER
-    // on both sides so an "alice@..." invite check correctly recognizes
-    // an existing "Alice@..." membership. `email` is already lowercased
-    // at parse time above, but call .toLowerCase() explicitly here so
-    // the contract at the SQL boundary matches every other handler in
-    // this file.
-    const existingMember = await e.execute({
-      sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
-      args: [ctx.orgId, email.toLowerCase()],
-    });
-    if (existingMember.rows.length > 0) {
-      throw createError({
-        statusCode: 409,
-        message: "User is already a member of this organization",
-      });
-    }
+    if (invitesInput) {
+      const succeeded: SingleInviteResult[] = [];
+      const failed: SingleInviteFailure[] = [];
+      const seen = new Set<string>();
 
-    const existingInvite = await e.execute({
-      sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
-      args: [ctx.orgId, email.toLowerCase()],
-    });
-    if (existingInvite.rows.length > 0) {
-      throw createError({
-        statusCode: 409,
-        message: "An invitation is already pending for this email",
-      });
-    }
+      for (const inv of invitesInput) {
+        const lower = inv.email.trim().toLowerCase();
+        if (!lower) continue;
+        if (seen.has(lower)) continue;
+        seen.add(lower);
 
-    const id = nanoid();
-    await e.execute({
-      sql: `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status) VALUES (?, ?, ?, ?, ?, 'pending')`,
-      args: [id, ctx.orgId, email, ctx.email, Date.now()],
-    });
-
-    let emailSent = false;
-    let emailError: string | undefined;
-    if (isEmailConfigured()) {
-      try {
-        const { subject, html, text } = renderInviteEmail({
-          invitee: email,
-          orgName: ctx.orgName || "your team",
-          acceptUrl: getInviteAppUrl(event),
-          inviter: ctx.email,
-        });
-        await sendEmail({ to: email, subject, html, text });
-        emailSent = true;
-      } catch (err) {
-        emailError = err instanceof Error ? err.message : String(err);
-        console.error("[org/invitations] failed to send invite email", err);
+        try {
+          const result = await inviteOne(
+            { orgId: ctx.orgId, orgName: ctx.orgName, email: ctx.email },
+            inv.email,
+            normalizeInviteRole(inv.role),
+            event,
+          );
+          succeeded.push(result);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          failed.push({ email: lower, error: message });
+        }
       }
+
+      return {
+        succeeded,
+        failed,
+        total: succeeded.length + failed.length,
+      };
     }
 
-    return { id, email, status: "pending", emailSent, emailError };
+    // Single-invite shape.
+    const role = normalizeInviteRole(body?.role);
+    const result = await inviteOne(
+      { orgId: ctx.orgId, orgName: ctx.orgName, email: ctx.email },
+      body?.email ?? "",
+      role,
+      event,
+    );
+    return result;
   },
 );
 
@@ -309,7 +387,7 @@ export const listInvitationsHandler = defineEventHandler(
 
     const e = await exec();
     const { rows } = await e.execute({
-      sql: `SELECT id, email, invited_by AS "invitedBy", created_at AS "createdAt", status
+      sql: `SELECT id, email, invited_by AS "invitedBy", created_at AS "createdAt", status, role
             FROM org_invitations
             WHERE org_id = ? AND status = 'pending'`,
       args: [ctx.orgId],
@@ -320,6 +398,10 @@ export const listInvitationsHandler = defineEventHandler(
       invitedBy: String(r.invitedBy ?? r.invited_by),
       createdAt: Number(r.createdAt ?? r.created_at),
       status: String(r.status),
+      role:
+        (String(r.role ?? "member") as OrgRole) === "admin"
+          ? "admin"
+          : "member",
     }));
     return { invitations };
   },
