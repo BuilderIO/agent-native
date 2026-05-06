@@ -28,6 +28,7 @@ import {
   IconMicrophone,
   IconBolt,
   IconGauge,
+  IconUserCircle,
 } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
 import {
@@ -47,6 +48,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useSession } from "../use-session.js";
+import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 
 const IntegrationsPanel = lazy(() =>
   import("../integrations/IntegrationsPanel.js").then((m) => ({
