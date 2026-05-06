@@ -64,12 +64,14 @@ export function CreateEventPopover({
   const [endTime, setEndTime] = useState(defaultEnd || "10:00");
   const [location, setLocation] = useState("");
   const [allDay, setAllDay] = useState(false);
-  const [addGoogleMeet, setAddGoogleMeet] = useState(false);
+  const [videoProvider, setVideoProvider] = useState<VideoProvider>("none");
   const [attendees, setAttendees] = useState<string[]>([]);
   const [attendeeDraft, setAttendeeDraft] = useState("");
 
   const createEvent = useCreateEvent();
   const delEvent = useDeleteEvent();
+  const zoomStatus = useZoomStatus();
+  const connectZoom = useConnectZoom();
   const formRef = useRef<HTMLFormElement>(null);
 
   // Reset form when popover opens
@@ -82,7 +84,7 @@ export function CreateEventPopover({
       setEndTime(defaultEnd || "10:00");
       setLocation("");
       setAllDay(false);
-      setAddGoogleMeet(false);
+      setVideoProvider("none");
       setAttendees([]);
       setAttendeeDraft("");
     }
@@ -136,7 +138,8 @@ export function CreateEventPopover({
         end: endISO,
         location,
         allDay,
-        addGoogleMeet,
+        addGoogleMeet: videoProvider === "google_meet",
+        addZoom: videoProvider === "zoom",
         attendees:
           finalAttendees.length > 0
             ? finalAttendees.map((email) => ({ email }))
@@ -161,7 +164,10 @@ export function CreateEventPopover({
             action: undo ? { label: "Undo", onClick: undo } : undefined,
           });
         },
-        onError: () => toast.error("Failed to create event"),
+        onError: (error) =>
+          toast.error(
+            error instanceof Error ? error.message : "Failed to create event",
+          ),
       },
     );
   }
@@ -342,19 +348,67 @@ export function CreateEventPopover({
             />
           </div>
 
-          <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-            <Label
-              htmlFor="event-google-meet"
-              className="flex items-center gap-2 text-xs"
-            >
-              <IconVideo className="h-4 w-4 text-muted-foreground" />
-              Google Meet
+          <div className="space-y-1.5">
+            <Label htmlFor="event-video-provider" className="text-xs">
+              Video
             </Label>
-            <Switch
-              id="event-google-meet"
-              checked={addGoogleMeet}
-              onCheckedChange={setAddGoogleMeet}
-            />
+            <Select
+              value={videoProvider}
+              onValueChange={(value) => setVideoProvider(value as VideoProvider)}
+            >
+              <SelectTrigger id="event-video-provider" className="h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No video</SelectItem>
+                <SelectItem value="google_meet">
+                  <span className="flex items-center gap-2">
+                    <IconVideo className="h-3.5 w-3.5" />
+                    Google Meet
+                  </span>
+                </SelectItem>
+                <SelectItem value="zoom">
+                  <span className="flex items-center gap-2">
+                    <IconBrandZoom className="h-3.5 w-3.5" />
+                    Zoom
+                  </span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            {videoProvider === "zoom" && !zoomStatus.data?.connected && (
+              <div className="rounded-md border border-border bg-muted/30 p-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    {zoomStatus.data?.configured === false
+                      ? "Zoom OAuth is not configured."
+                      : "Connect Zoom before creating this event."}
+                  </p>
+                  {zoomStatus.data?.configured !== false && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 shrink-0 gap-1.5 text-xs"
+                      disabled={connectZoom.isPending}
+                      onClick={() =>
+                        connectZoom.mutate(undefined, {
+                          onSuccess: () => toast("Zoom connection opened"),
+                          onError: (error) =>
+                            toast.error(
+                              error instanceof Error
+                                ? error.message
+                                : "Could not connect Zoom",
+                            ),
+                        })
+                      }
+                    >
+                      <IconBrandZoom className="h-3.5 w-3.5" />
+                      Connect
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between pt-1">

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import {
+  IconBrandZoom,
   IconExternalLink,
   IconUnlink,
   IconCircleCheck,
@@ -25,6 +26,11 @@ import {
   useGoogleAuthUrl,
   useDisconnectGoogle,
 } from "@/hooks/use-google-auth";
+import {
+  useConnectZoom,
+  useDisconnectZoom,
+  useZoomStatus,
+} from "@/hooks/use-zoom-auth";
 import { toast } from "sonner";
 
 export default function Settings() {
@@ -32,6 +38,9 @@ export default function Settings() {
   const updateSettings = useUpdateSettings();
   const googleStatus = useGoogleAuthStatus();
   const disconnectGoogle = useDisconnectGoogle();
+  const zoomStatus = useZoomStatus();
+  const connectZoom = useConnectZoom();
+  const disconnectZoom = useDisconnectZoom();
   const [wantAuthUrl, setWantAuthUrl] = useState(false);
   const authUrl = useGoogleAuthUrl(wantAuthUrl);
 
@@ -93,6 +102,23 @@ export default function Settings() {
     }
   }
 
+  function handleConnectZoom() {
+    connectZoom.mutate(undefined, {
+      onSuccess: () => toast("Zoom connection opened"),
+      onError: (error) =>
+        toast.error(
+          error instanceof Error ? error.message : "Could not connect Zoom",
+        ),
+    });
+  }
+
+  function handleDisconnectZoom() {
+    disconnectZoom.mutate(undefined, {
+      onSuccess: () => toast.success("Zoom disconnected"),
+      onError: () => toast.error("Failed to disconnect Zoom"),
+    });
+  }
+
   return (
     <div className="mx-auto max-w-2xl space-y-6 px-4 py-8 pb-12">
       <div>
@@ -148,6 +174,77 @@ export default function Settings() {
             ) : (
               <Button size="sm" onClick={handleConnect}>
                 <IconExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                Connect
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Zoom</CardTitle>
+          <CardDescription>
+            Connect Zoom to create meeting links for calendar events and
+            bookings.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              {zoomStatus.data?.connected ? (
+                <>
+                  <IconCircleCheck className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Connected</p>
+                    {zoomStatus.data.accounts?.length > 0 && (
+                      <p className="truncate text-xs text-muted-foreground">
+                        {zoomStatus.data.accounts
+                          .map((a) => a.email || a.displayName || a.id)
+                          .join(", ")}
+                      </p>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <IconCircleX className="h-5 w-5 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <p className="text-sm text-muted-foreground">
+                      {zoomStatus.data?.configured === false
+                        ? "Not configured"
+                        : "Not connected"}
+                    </p>
+                    {zoomStatus.data?.configured === false && (
+                      <p className="text-xs text-muted-foreground">
+                        Add Zoom OAuth credentials to enable connection.
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {zoomStatus.data?.connected ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDisconnectZoom}
+                disabled={disconnectZoom.isPending}
+              >
+                <IconUnlink className="mr-1.5 h-3.5 w-3.5" />
+                Disconnect
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={handleConnectZoom}
+                disabled={
+                  connectZoom.isPending ||
+                  zoomStatus.data?.configured === false
+                }
+              >
+                <IconBrandZoom className="mr-1.5 h-3.5 w-3.5" />
                 Connect
               </Button>
             )}
