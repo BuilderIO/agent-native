@@ -729,7 +729,7 @@ function collectReferencedArtifacts(
   const refs = new Map<string, ReferencedArtifact>();
   const baseOrigin = safeOrigin(baseUrl);
   const artifactUrlPattern =
-    /(?:(https?:\/\/[^/\s<>()]+))?(?:\/[^\s<>()]*)?\/(deck|design|page|adhoc|analyses|image|asset)\/([A-Za-z0-9_-]+)/g;
+    /(?:(https?:\/\/[^/\s<>()]+))?(?:\/[^\s<>()]*)?\/(deck|design|page|adhoc|analyses|image|asset|assets)\/([A-Za-z0-9_-]+)/g;
 
   for (const match of text.matchAll(artifactUrlPattern)) {
     const origin = safeOrigin(match[1]);
