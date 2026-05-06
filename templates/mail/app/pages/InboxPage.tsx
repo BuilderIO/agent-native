@@ -471,10 +471,12 @@ export function InboxPage() {
   const isMobile = useIsMobile();
   const hasThread = !!threadId;
   const isInboxZero =
+    view === "inbox" &&
     !isLoading &&
     !isError &&
     !hasThread &&
     !searchQuery &&
+    !activeLabel &&
     threads.length === 0;
   const [sidebarContactEmail, setSidebarContactEmail] = useState<
     string | undefined

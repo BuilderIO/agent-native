@@ -7,6 +7,7 @@ import {
   IconLink,
   IconPaperclip,
   IconChevronDown,
+  IconDots,
   IconLoader2,
   IconTrash,
   IconPlus,
@@ -433,11 +434,13 @@ export function ComposeModal({
   };
 
   const title = activeDraft
-    ? activeDraft.mode === "reply"
-      ? "Reply"
-      : activeDraft.mode === "forward"
-        ? "Forward"
-        : "New message"
+    ? activeDraft.queuedDraftId
+      ? "Queued draft"
+      : activeDraft.mode === "reply"
+        ? "Reply"
+        : activeDraft.mode === "forward"
+          ? "Forward"
+          : "New message"
     : "New message";
 
   return (
@@ -465,11 +468,13 @@ export function ComposeModal({
               const isActive = draft.id === activeId;
               const label =
                 draft.subject?.trim() ||
-                (draft.mode === "reply"
-                  ? "Reply"
-                  : draft.mode === "forward"
-                    ? "Forward"
-                    : "New message");
+                (draft.queuedDraftId
+                  ? "Queued draft"
+                  : draft.mode === "reply"
+                    ? "Reply"
+                    : draft.mode === "forward"
+                      ? "Forward"
+                      : "New message");
               return (
                 <button
                   key={draft.id}
@@ -876,10 +881,11 @@ function ComposeBody({
         <>
           <button
             type="button"
+            aria-label={showQuoted ? "Hide quoted text" : "Show quoted text"}
             onClick={() => setShowQuoted(!showQuoted)}
-            className="mt-1 text-muted-foreground/50 hover:text-muted-foreground text-[13px] tracking-[0.15em] transition-colors"
+            className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-accent hover:text-muted-foreground"
           >
-            ···
+            <IconDots className="h-4 w-4" />
           </button>
           {showQuoted && (
             <pre className="mt-2 whitespace-pre-wrap text-[13px] text-muted-foreground/60 font-sans leading-relaxed">

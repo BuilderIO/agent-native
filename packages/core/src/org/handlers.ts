@@ -22,13 +22,15 @@ function extractInvitationId(event: H3Event): string | undefined {
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 
-/** Extract the :email from member-delete paths. Same prefix-stripping caveat. */
+/** Extract the :email from member-delete and member-role paths. Same prefix-stripping caveat. */
 function extractMemberEmail(event: H3Event): string | undefined {
   const fromRouter = getRouterParam(event, "email");
   if (fromRouter) return fromRouter;
   const path = getRequestURL(event).pathname;
   const match =
-    path.match(/^\/([^\/]+)\/?$/) ?? path.match(/\/org\/members\/([^\/]+)\/?$/);
+    path.match(/^\/([^\/]+)\/role\/?$/) ??
+    path.match(/^\/([^\/]+)\/?$/) ??
+    path.match(/\/org\/members\/([^\/]+)(?:\/role)?\/?$/);
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 const nanoid = (): string =>
@@ -42,6 +44,7 @@ import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { renderInviteEmail } from "../server/email-templates.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { getOrgContext } from "./context.js";
+import { isFreeEmailProvider } from "./free-email-providers.js";
 import type { OrgRole } from "./types.js";
 
 function getInviteAppUrl(event: H3Event): string {
@@ -218,7 +221,93 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
   return { members };
 });
 
-/** POST /_agent-native/org/invitations — invite a user by email */
+function normalizeInviteRole(input: unknown): "member" | "admin" {
+  return input === "admin" ? "admin" : "member";
+}
+
+interface SingleInviteResult {
+  id: string;
+  email: string;
+  role: "member" | "admin";
+  status: "pending";
+  emailSent: boolean;
+  emailError?: string;
+}
+
+interface SingleInviteFailure {
+  email: string;
+  error: string;
+}
+
+async function inviteOne(
+  ctx: { orgId: string; orgName: string | null; email: string },
+  rawEmail: string,
+  role: "member" | "admin",
+  event: H3Event,
+): Promise<SingleInviteResult> {
+  const email = rawEmail.trim().toLowerCase();
+  if (!email) {
+    throw createError({ statusCode: 400, message: "Email is required" });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw createError({
+      statusCode: 400,
+      message: `Invalid email: ${rawEmail}`,
+    });
+  }
+
+  const e = await exec();
+
+  const existingMember = await e.execute({
+    sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+    args: [ctx.orgId, email],
+  });
+  if (existingMember.rows.length > 0) {
+    throw createError({
+      statusCode: 409,
+      message: `${email} is already a member`,
+    });
+  }
+
+  const existingInvite = await e.execute({
+    sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
+    args: [ctx.orgId, email],
+  });
+  if (existingInvite.rows.length > 0) {
+    throw createError({
+      statusCode: 409,
+      message: `An invitation is already pending for ${email}`,
+    });
+  }
+
+  const id = nanoid();
+  await e.execute({
+    sql: `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role) VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+    args: [id, ctx.orgId, email, ctx.email, Date.now(), role],
+  });
+
+  let emailSent = false;
+  let emailError: string | undefined;
+  if (isEmailConfigured()) {
+    try {
+      const { subject, html, text } = renderInviteEmail({
+        invitee: email,
+        orgName: ctx.orgName || "your team",
+        acceptUrl: getInviteAppUrl(event),
+        inviter: ctx.email,
+      });
+      await sendEmail({ to: email, subject, html, text });
+      emailSent = true;
+    } catch (err) {
+      emailError = err instanceof Error ? err.message : String(err);
+      console.error("[org/invitations] failed to send invite email", err);
+    }
+  }
+
+  return { id, email, role, status: "pending", emailSent, emailError };
+}
+
+/** POST /_agent-native/org/invitations — invite one or many users by email */
 export const createInvitationHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
@@ -236,67 +325,59 @@ export const createInvitationHandler = defineEventHandler(
     }
 
     const body = await readBody(event);
-    const email = body?.email?.trim()?.toLowerCase();
-    if (!email) {
-      throw createError({ statusCode: 400, message: "Email is required" });
-    }
 
-    const e = await exec();
+    // Bulk shape: { invites: [{ email, role }, ...] } — preferred for any
+    // multi-recipient flow (paste-many, CSV upload). Single shape:
+    // { email, role } — kept for backwards compatibility.
+    const invitesInput: Array<{ email: string; role?: string }> | null =
+      Array.isArray(body?.invites)
+        ? body.invites.map((inv: any) => ({
+            email: String(inv?.email ?? ""),
+            role: inv?.role,
+          }))
+        : null;
 
-    // Existing rows in org_members / org_invitations may have any case
-    // (writes haven't been normalized historically). Compare with LOWER
-    // on both sides so an "alice@..." invite check correctly recognizes
-    // an existing "Alice@..." membership. `email` is already lowercased
-    // at parse time above, but call .toLowerCase() explicitly here so
-    // the contract at the SQL boundary matches every other handler in
-    // this file.
-    const existingMember = await e.execute({
-      sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
-      args: [ctx.orgId, email.toLowerCase()],
-    });
-    if (existingMember.rows.length > 0) {
-      throw createError({
-        statusCode: 409,
-        message: "User is already a member of this organization",
-      });
-    }
+    if (invitesInput) {
+      const succeeded: SingleInviteResult[] = [];
+      const failed: SingleInviteFailure[] = [];
+      const seen = new Set<string>();
 
-    const existingInvite = await e.execute({
-      sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
-      args: [ctx.orgId, email.toLowerCase()],
-    });
-    if (existingInvite.rows.length > 0) {
-      throw createError({
-        statusCode: 409,
-        message: "An invitation is already pending for this email",
-      });
-    }
+      for (const inv of invitesInput) {
+        const lower = inv.email.trim().toLowerCase();
+        if (!lower) continue;
+        if (seen.has(lower)) continue;
+        seen.add(lower);
 
-    const id = nanoid();
-    await e.execute({
-      sql: `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status) VALUES (?, ?, ?, ?, ?, 'pending')`,
-      args: [id, ctx.orgId, email, ctx.email, Date.now()],
-    });
-
-    let emailSent = false;
-    let emailError: string | undefined;
-    if (isEmailConfigured()) {
-      try {
-        const { subject, html, text } = renderInviteEmail({
-          invitee: email,
-          orgName: ctx.orgName || "your team",
-          acceptUrl: getInviteAppUrl(event),
-          inviter: ctx.email,
-        });
-        await sendEmail({ to: email, subject, html, text });
-        emailSent = true;
-      } catch (err) {
-        emailError = err instanceof Error ? err.message : String(err);
-        console.error("[org/invitations] failed to send invite email", err);
+        try {
+          const result = await inviteOne(
+            { orgId: ctx.orgId, orgName: ctx.orgName, email: ctx.email },
+            inv.email,
+            normalizeInviteRole(inv.role),
+            event,
+          );
+          succeeded.push(result);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          failed.push({ email: lower, error: message });
+        }
       }
+
+      return {
+        succeeded,
+        failed,
+        total: succeeded.length + failed.length,
+      };
     }
 
-    return { id, email, status: "pending", emailSent, emailError };
+    // Single-invite shape.
+    const role = normalizeInviteRole(body?.role);
+    const result = await inviteOne(
+      { orgId: ctx.orgId, orgName: ctx.orgName, email: ctx.email },
+      body?.email ?? "",
+      role,
+      event,
+    );
+    return result;
   },
 );
 
@@ -308,7 +389,7 @@ export const listInvitationsHandler = defineEventHandler(
 
     const e = await exec();
     const { rows } = await e.execute({
-      sql: `SELECT id, email, invited_by AS "invitedBy", created_at AS "createdAt", status
+      sql: `SELECT id, email, invited_by AS "invitedBy", created_at AS "createdAt", status, role
             FROM org_invitations
             WHERE org_id = ? AND status = 'pending'`,
       args: [ctx.orgId],
@@ -319,6 +400,10 @@ export const listInvitationsHandler = defineEventHandler(
       invitedBy: String(r.invitedBy ?? r.invited_by),
       createdAt: Number(r.createdAt ?? r.created_at),
       status: String(r.status),
+      role:
+        (String(r.role ?? "member") as OrgRole) === "admin"
+          ? "admin"
+          : "member",
     }));
     return { invitations };
   },
@@ -343,7 +428,7 @@ export const acceptInvitationHandler = defineEventHandler(
     const invRes = await e.execute({
       // Case-insensitive on email — see comment on the analogous
       // pending-invitations query in getMyOrgHandler.
-      sql: `SELECT id, org_id AS "orgId" FROM org_invitations
+      sql: `SELECT id, org_id AS "orgId", role FROM org_invitations
             WHERE id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
       args: [invitationId, email.toLowerCase()],
     });
@@ -355,6 +440,7 @@ export const acceptInvitationHandler = defineEventHandler(
     }
     const inv = invRes.rows[0] as any;
     const invOrgId = String(inv.orgId ?? inv.org_id);
+    const inviteRole: OrgRole = inv.role === "admin" ? "admin" : "member";
 
     const existingMembership = await e.execute({
       sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
@@ -381,8 +467,8 @@ export const acceptInvitationHandler = defineEventHandler(
     }
 
     await e.execute({
-      sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, 'member', ?)`,
-      args: [nanoid(), invOrgId, email, Date.now()],
+      sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
+      args: [nanoid(), invOrgId, email, inviteRole, Date.now()],
     });
 
     await e.execute({
@@ -392,7 +478,7 @@ export const acceptInvitationHandler = defineEventHandler(
 
     await putUserSetting(email, "active-org-id", { orgId: invOrgId });
 
-    return { orgId: invOrgId, orgName, role: "member" as OrgRole };
+    return { orgId: invOrgId, orgName, role: inviteRole };
   },
 );
 
@@ -455,6 +541,85 @@ export const removeMemberHandler = defineEventHandler(
     });
 
     return { success: true };
+  },
+);
+
+/**
+ * PUT /_agent-native/org/members/:email/role — change a member's role
+ * (owner/admin only). Body: { role: "admin" | "member" }.
+ *
+ * Only owners can promote/demote admins. (Admins can manage members but
+ * not other admins — otherwise an admin could escalate themselves to
+ * owner-equivalent control by promoting a confederate.)
+ */
+export const changeMemberRoleHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.orgId) {
+      throw createError({ statusCode: 400, message: "No organization found" });
+    }
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can change member roles",
+      });
+    }
+
+    const memberEmail = extractMemberEmail(event);
+    if (!memberEmail) {
+      throw createError({ statusCode: 400, message: "Email is required" });
+    }
+    const memberEmailLower = memberEmail.toLowerCase();
+
+    const body = await readBody(event);
+    const role = body?.role === "admin" ? "admin" : "member";
+
+    const e = await exec();
+
+    // Look up the target member's current role to enforce sensible rules
+    // about what changes are allowed.
+    const current = await e.execute({
+      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      args: [ctx.orgId, memberEmailLower],
+    });
+    if (current.rows.length === 0) {
+      throw createError({ statusCode: 404, message: "Member not found" });
+    }
+    const currentRole = String((current.rows[0] as any).role) as OrgRole;
+
+    if (currentRole === "owner") {
+      throw createError({
+        statusCode: 400,
+        message: "Cannot change the organization owner's role",
+      });
+    }
+
+    // Admins are scoped to managing members. If they could promote
+    // members to admin, they could grant near-owner powers without owner
+    // approval. Restrict admin/admin role transitions to the owner.
+    if (ctx.role === "admin" && (currentRole === "admin" || role === "admin")) {
+      throw createError({
+        statusCode: 403,
+        message: "Only the organization owner can manage admins",
+      });
+    }
+
+    // Self-demotion guard: prevent the only admin from removing their own
+    // ability to manage things, and prevent the owner-self edge case
+    // (already filtered above by the currentRole check).
+    if (memberEmailLower === ctx.email.toLowerCase() && ctx.role === "admin") {
+      throw createError({
+        statusCode: 400,
+        message: "Use the owner account to change your own admin role",
+      });
+    }
+
+    await e.execute({
+      sql: `UPDATE org_members SET role = ? WHERE org_id = ? AND LOWER(email) = ?`,
+      args: [role, ctx.orgId, memberEmailLower],
+    });
+
+    return { email: memberEmailLower, role };
   },
 );
 
@@ -608,6 +773,33 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
       statusCode: 400,
       message: "Invalid domain format",
     });
+  }
+
+  if (raw) {
+    // Auto-join is "anyone with this domain joins automatically". That is
+    // safe for company domains (the company controls who gets an address)
+    // and catastrophic for shared mailbox providers — anyone in the world
+    // could create a matching mailbox and silently join the org.
+    if (isFreeEmailProvider(raw)) {
+      throw createError({
+        statusCode: 400,
+        message:
+          "Free email providers (gmail.com, outlook.com, etc.) cannot be used as an auto-join domain. Use your company's own domain.",
+      });
+    }
+
+    // Restrict to the admin's own email domain. Without this, an admin
+    // could set `allowed_domain` to a domain they don't control, and
+    // anyone signing up under that domain would join the org. Even with
+    // the free-provider blocklist above, that would still let an admin
+    // hijack a competitor's domain.
+    const ownDomain = ctx.email.split("@")[1]?.toLowerCase() ?? "";
+    if (raw !== ownDomain) {
+      throw createError({
+        statusCode: 400,
+        message: `You can only auto-join your own email domain (${ownDomain}).`,
+      });
+    }
   }
 
   const e = await exec();

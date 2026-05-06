@@ -218,7 +218,7 @@ function buildTrackingContext(
   body: string,
   tracking: UserSettings["tracking"],
 ): TrackingContext | undefined {
-  const trackOpens = tracking?.opens !== false;
+  const trackOpens = tracking?.opens === true;
   const trackClicks = tracking?.clicks === true;
   if (!trackOpens && !trackClicks) return undefined;
 

@@ -33,10 +33,10 @@ export async function acceptPendingInvitationsForEmail(
 
   const db = getDbExec();
 
-  let rows: Array<{ id: string; orgId: string }> = [];
+  let rows: Array<{ id: string; orgId: string; role: string | null }> = [];
   try {
     const res = await db.execute({
-      sql: `SELECT id, org_id AS "orgId" FROM org_invitations
+      sql: `SELECT id, org_id AS "orgId", role FROM org_invitations
             WHERE LOWER(email) = ? AND status = 'pending'
             ORDER BY created_at DESC`,
       args: [email],
@@ -44,6 +44,7 @@ export async function acceptPendingInvitationsForEmail(
     rows = res.rows.map((r: any) => ({
       id: String(r.id),
       orgId: String(r.orgId ?? r.org_id),
+      role: r.role == null ? null : String(r.role),
     }));
   } catch (err) {
     // Template doesn't use the org module / tables not migrated yet.
@@ -61,9 +62,10 @@ export async function acceptPendingInvitationsForEmail(
       args: [inv.orgId, email],
     });
     if (existing.rows.length === 0) {
+      const role = inv.role === "admin" ? "admin" : "member";
       await db.execute({
-        sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, 'member', ?)`,
-        args: [nanoid(), inv.orgId, email, Date.now()],
+        sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
+        args: [nanoid(), inv.orgId, email, role, Date.now()],
       });
     }
     await db.execute({

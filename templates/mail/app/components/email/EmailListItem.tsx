@@ -1,9 +1,12 @@
 import { memo, useRef, useState, useCallback } from "react";
 import { cn, formatEmailDate, truncate } from "@/lib/utils";
 import {
+  IconArchive,
   IconStarFilled,
   IconCheck,
   IconClock,
+  IconMail,
+  IconMailOpened,
   IconTrash,
   IconSquare,
   IconSquareCheck,
@@ -28,6 +31,9 @@ interface EmailListItemProps {
   onSelect: () => void;
   onToggleMultiSelect: (e: React.SyntheticEvent) => void;
   onStar: (e: React.MouseEvent) => void;
+  onToggleRead?: (e: React.MouseEvent) => void;
+  onArchive?: (e: React.MouseEvent) => void;
+  onSnooze?: (e: React.MouseEvent) => void;
   onTrash?: (e: React.MouseEvent) => void;
   onSendNow?: (e: React.MouseEvent) => void;
   onCancelSchedule?: (e: React.MouseEvent) => void;
@@ -141,6 +147,9 @@ export const EmailListItem = memo(function EmailListItem({
   onSelect,
   onToggleMultiSelect,
   onStar,
+  onToggleRead,
+  onArchive,
+  onSnooze,
   onTrash,
   onSendNow,
   onCancelSchedule,
@@ -424,13 +433,13 @@ export const EmailListItem = memo(function EmailListItem({
         )}
 
         {/* Selection / unread / account dot */}
-        <div className="relative w-5 shrink-0 flex items-center justify-center">
+        <div className="relative -ml-2 mr-1 flex h-full w-10 shrink-0 items-center justify-center">
           <button
             type="button"
             aria-label={isMultiSelected ? "Deselect email" : "Select email"}
             onClick={onToggleMultiSelect}
             className={cn(
-              "absolute inset-0 flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-opacity hover:text-foreground",
+              "absolute inset-y-0 left-0 flex w-10 items-center justify-center rounded text-muted-foreground transition-opacity hover:text-foreground",
               isMultiSelected
                 ? "opacity-100"
                 : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
@@ -525,6 +534,51 @@ export const EmailListItem = memo(function EmailListItem({
 
         {/* Hover actions — overlay on top of time */}
         <div className="hover-actions items-center gap-0.5">
+          {onToggleRead && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onToggleRead}
+                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  {isUnread ? (
+                    <IconMailOpened className="h-3.5 w-3.5" />
+                  ) : (
+                    <IconMail className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isUnread ? "Mark read" : "Mark unread"}
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {onArchive && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onArchive}
+                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400"
+                >
+                  <IconArchive className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Archive</TooltipContent>
+            </Tooltip>
+          )}
+          {onSnooze && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onSnooze}
+                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400"
+                >
+                  <IconClock className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Snooze</TooltipContent>
+            </Tooltip>
+          )}
           {onSendNow && (
             <Tooltip>
               <TooltipTrigger asChild>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   IconBrandApple,
   IconBrandWindows,
@@ -7,6 +7,7 @@ import {
 } from "@tabler/icons-react";
 import { appBasePath, appPath } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function meta() {
   return [
@@ -90,7 +91,7 @@ function pickAsset(
   return null;
 }
 
-function downloadButton(
+function primaryDownloadButton(
   variant: PlatformVariant,
   manifest: Manifest | null,
   manifestError: boolean,
@@ -108,12 +109,7 @@ function downloadButton(
     );
   }
   if (manifest === null && !manifestError) {
-    return (
-      <Button size="lg" className="h-12 gap-2 px-6 text-base" disabled>
-        <Icon className="h-5 w-5" />
-        Loading…
-      </Button>
-    );
+    return <Skeleton className="h-12 w-[252px] rounded-md" />;
   }
   return (
     <Button
@@ -130,10 +126,46 @@ function downloadButton(
   );
 }
 
+function secondaryDownloadButton(
+  variant: PlatformVariant,
+  manifest: Manifest | null,
+  manifestError: boolean,
+) {
+  const asset = pickAsset(manifest, variant);
+  const Icon = variant.icon;
+  const className =
+    "h-auto gap-1.5 px-2 py-1 text-sm font-normal text-muted-foreground hover:bg-transparent hover:text-foreground";
+  if (asset) {
+    return (
+      <Button asChild variant="ghost" className={className}>
+        <a href={asset.url} download>
+          <Icon className="h-4 w-4" />
+          Also available for {variant.label}
+        </a>
+      </Button>
+    );
+  }
+  if (manifest === null && !manifestError) {
+    return <Skeleton className="h-7 w-[208px] rounded-md" />;
+  }
+  return (
+    <Button asChild variant="ghost" className={className}>
+      <a href={RELEASE_PAGE_URL} rel="noreferrer">
+        <Icon className="h-4 w-4" />
+        Also available for {variant.label}
+      </a>
+    </Button>
+  );
+}
+
 export default function DownloadPage() {
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
-  const detected = useMemo(() => detectPlatform(), []);
+  const [detected, setDetected] = useState<PlatformId | null>(null);
+
+  useEffect(() => {
+    setDetected(detectPlatform());
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -186,9 +218,9 @@ export default function DownloadPage() {
             you stop.
           </p>
 
-          <div className="mt-10 flex flex-col items-center gap-4">
-            {downloadButton(primary, manifest, manifestError)}
-            {downloadButton(secondary, manifest, manifestError)}
+          <div className="mt-10 flex flex-col items-center gap-3">
+            {primaryDownloadButton(primary, manifest, manifestError)}
+            {secondaryDownloadButton(secondary, manifest, manifestError)}
             <div className="text-xs text-muted-foreground">
               {manifest ? (
                 <>

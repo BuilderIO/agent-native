@@ -58,6 +58,7 @@ import {
   normalizeReasoningEffortForModel,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
+import { isAgentActionStopError } from "../action.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
@@ -985,6 +986,9 @@ export async function runAgentLoop(opts: {
 
     if (toolCallParts.length === 0) break;
 
+    let requestedActionStop: { message: string; errorCode?: string } | null =
+      null;
+
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
@@ -1066,7 +1070,17 @@ export async function runAgentLoop(opts: {
         }
         result = resultStr;
       } catch (err: any) {
-        result = `Error running ${toolCall.name}: ${err?.message ?? String(err)}`;
+        if (isAgentActionStopError(err)) {
+          const message =
+            err.message || `Stopped after ${toolCall.name} failed.`;
+          result = err.toolResult || message;
+          requestedActionStop ??= {
+            message,
+            ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+          };
+        } else {
+          result = `Error running ${toolCall.name}: ${err?.message ?? String(err)}`;
+        }
         isError = true;
       }
 
@@ -1145,6 +1159,10 @@ export async function runAgentLoop(opts: {
     await flushParallelBatch();
 
     messages.push({ role: "user", content: toolResultParts });
+    if (requestedActionStop) {
+      send({ type: "text", text: requestedActionStop.message });
+      break;
+    }
   }
 
   if (!signal.aborted) send({ type: "done" });
@@ -1722,7 +1740,11 @@ export function createProductionAgentHandler(
 
         // Resolve connected agent @-mentions via A2A calls.
         if (agentRefs.length > 0 && requestMode !== "plan") {
-          const { A2AClient, callAgent } = await import("../a2a/client.js");
+          const [{ A2AClient, callAgent }, { resolveA2ACallerAuth }] =
+            await Promise.all([
+              import("../a2a/client.js"),
+              import("../a2a/caller-auth.js"),
+            ]);
           const results = await Promise.allSettled(
             agentRefs.map(async (ref) => {
               send({
@@ -1731,25 +1753,11 @@ export function createProductionAgentHandler(
                 status: "start",
               });
               try {
-                const a2aClient = new A2AClient(ref.path);
-                const callerEmail = getRequestUserEmail();
-
-                const a2aMetadata: Record<string, unknown> = {};
-                if (callerEmail) a2aMetadata.userEmail = callerEmail;
-                if (process.env.NODE_ENV === "production" && callerEmail) {
-                  try {
-                    const { listOAuthAccountsByOwner } =
-                      await import("../oauth-tokens/store.js");
-                    const accounts = await listOAuthAccountsByOwner(
-                      "google",
-                      callerEmail,
-                    );
-                    const tokens = accounts[0]?.tokens;
-                    if (tokens?.access_token) {
-                      a2aMetadata.googleToken = tokens.access_token;
-                    }
-                  } catch {}
-                }
+                const callerAuth = await resolveA2ACallerAuth({
+                  includeGoogleToken: true,
+                });
+                const a2aClient = new A2AClient(ref.path, callerAuth.apiKey);
+                const a2aMetadata = callerAuth.metadata;
 
                 let responseText = "";
                 let lastSentLength = 0;
@@ -1793,6 +1801,12 @@ export function createProductionAgentHandler(
                     responseText = await callAgent(
                       ref.path,
                       enrichedMessage + screenContext,
+                      {
+                        apiKey: callerAuth.apiKey,
+                        userEmail: callerAuth.userEmail,
+                        orgDomain: callerAuth.orgDomain,
+                        orgSecret: callerAuth.orgSecret,
+                      },
                     );
                   }
                 }

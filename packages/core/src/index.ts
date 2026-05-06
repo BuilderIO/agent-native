@@ -14,7 +14,13 @@ export {
   type AgentChatEvent,
   DEFAULT_MODEL,
 } from "./agent/index.js";
-export { defineAction, type ActionHttpConfig } from "./action.js";
+export {
+  defineAction,
+  AgentActionStopError,
+  isAgentActionStopError,
+  type ActionHttpConfig,
+  type AgentActionStopOptions,
+} from "./action.js";
 export { createDevScriptRegistry } from "./scripts/dev/index.js";
 export {
   createAgentChatPlugin,

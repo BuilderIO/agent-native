@@ -20,6 +20,7 @@ import {
   switchOrgHandler,
   listMembersHandler,
   removeMemberHandler,
+  changeMemberRoleHandler,
   listInvitationsHandler,
   createInvitationHandler,
   acceptInvitationHandler,
@@ -76,9 +77,10 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // /members and /members/:email — dispatch by path-tail + method in a
-    // single handler so H3's prefix-based `app.use` doesn't route a DELETE
-    // for /members/alice@example.com to the GET-only /members handler.
+    // /members, /members/:email, /members/:email/role — dispatch by path-
+    // tail + method in a single handler so H3's prefix-based `app.use`
+    // doesn't route a DELETE for /members/alice@example.com to the
+    // GET-only /members handler.
     //
     // NOTE: the framework request handler (packages/core/src/server/
     // framework-request-handler.ts) strips the mount prefix from
@@ -95,6 +97,14 @@ export function createOrgPlugin(): NitroPluginDef {
             return { error: "Method not allowed" };
           }
           return listMembersHandler(event);
+        }
+        // Tail is /:email/role
+        if (/^\/[^\/]+\/role\/?$/.test(tail)) {
+          if (method !== "PUT") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          return changeMemberRoleHandler(event);
         }
         // Tail is /:email
         if (method !== "DELETE") {

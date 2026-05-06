@@ -2,7 +2,7 @@ import { agentNativePath } from "../api-path.js";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { IconPlus, IconTool } from "@tabler/icons-react";
+import { IconArrowLeft, IconPlus, IconTool } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { AgentToggleButton } from "../AgentPanel.js";
 import { NotificationsBell } from "../notifications/NotificationsBell.js";
@@ -98,7 +98,16 @@ export function ExtensionsListPage() {
   return (
     <div className="flex h-full w-full flex-col">
       <header className="flex h-12 items-center justify-between border-b px-4 shrink-0">
-        <h1 className="text-sm font-semibold">Extensions</h1>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label="Back to app"
+          >
+            <IconArrowLeft className="h-4 w-4" />
+          </Link>
+          <h1 className="text-sm font-semibold">Extensions</h1>
+        </div>
         <div className="flex items-center gap-2">
           <Popover open={showCreate} onOpenChange={setShowCreate}>
             <PopoverTrigger asChild>

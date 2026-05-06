@@ -42,6 +42,7 @@ export {
   switchOrgHandler,
   listMembersHandler,
   removeMemberHandler,
+  changeMemberRoleHandler,
   listInvitationsHandler,
   createInvitationHandler,
   acceptInvitationHandler,
@@ -49,3 +50,5 @@ export {
   syncA2ASecretHandler,
   receiveA2ASecretHandler,
 } from "./handlers.js";
+
+export { isFreeEmailProvider } from "./free-email-providers.js";

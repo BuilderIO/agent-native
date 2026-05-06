@@ -53,4 +53,5 @@ export interface OrgPendingInvitation {
   invitedBy: string;
   createdAt: number;
   status: string;
+  role: "admin" | "member";
 }

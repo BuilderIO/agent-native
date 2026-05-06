@@ -24,4 +24,10 @@ export { agentChat } from "./shared/index.js";
 export { parseArgs, camelCaseArgs } from "./scripts/parse-args.js";
 
 // defineAction — used by template actions, no Node.js deps
-export { defineAction, type ActionHttpConfig } from "./action.js";
+export {
+  defineAction,
+  AgentActionStopError,
+  isAgentActionStopError,
+  type ActionHttpConfig,
+  type AgentActionStopOptions,
+} from "./action.js";

@@ -65,20 +65,7 @@ export type CompositionEntry = {
   version?: number;
 };
 
-export const compositions: CompositionEntry[] = [
-  {
-    id: "test-qa",
-    title: "QA Test Composition",
-    description: "Temporary composition for QA testing",
-    component: BlankComposition,
-    durationInFrames: 240,
-    fps: 30,
-    width: 1920,
-    height: 1080,
-    defaultProps: {} satisfies BlankCompositionProps,
-    tracks: createStandardTracks(240),
-  },
-];
+export const compositions: CompositionEntry[] = [];
 
 // Re-export track helpers
 export { createCameraTrack, createCursorTrack, createStandardTracks };

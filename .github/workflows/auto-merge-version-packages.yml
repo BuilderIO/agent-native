@@ -1,0 +1,58 @@
+name: Auto-merge Version Packages PR
+
+# The "Version Packages" PR is opened by `changesets/action` (see
+# auto-publish.yml) and contains nothing but version bumps + CHANGELOG
+# updates + .changeset/*.md removals. It needs no human review and no
+# heavy CI — but it sits behind the same required checks as every other
+# PR (Lint & format, Test, Build, Header rules, Redirect rules, Pages
+# changed), so it lingers until Build (~10 min) and the Netlify deploys
+# finish. That delays publish-to-npm by the same amount.
+#
+# This workflow auto-merges the PR with admin bypass as soon as it's
+# opened or updated. The `builder-io-integration` GitHub App
+# (BUILDER_BOT_FOR_LINT_APP_ID — same identity that creates the PR) is
+# in `bypass_actors` of the "Require CI checks on PRs to main" ruleset
+# with `bypass_mode: always`, so `gh pr merge --admin` skips the
+# in-progress required checks.
+#
+# The merge to main then fires auto-publish.yml, which runs
+# `changeset publish` and pushes the new versions to npm.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions: {}
+
+# Cancel earlier runs if the bot pushes another update to the same PR
+# while we're mid-merge.
+concurrency:
+  group: auto-merge-version-packages-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    name: Force-merge changeset-release/main
+    # Defense in depth: head ref alone is enough (only the bot pushes to
+    # changeset-release/main), but check the author too so a future
+    # branch-name collision can't trigger a merge.
+    if: |
+      github.event.pull_request.head.ref == 'changeset-release/main' &&
+      github.event.pull_request.user.login == 'builder-io-integration[bot]' &&
+      !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+
+      - name: Force-merge with admin bypass
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: gh pr merge "$PR_NUMBER" --repo "$REPO" --admin --squash

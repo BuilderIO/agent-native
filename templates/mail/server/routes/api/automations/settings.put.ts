@@ -10,12 +10,16 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
   const email = session.email;
-  const body = (await readBody(event)) as { model?: string };
+  const body = (await readBody(event)) as { engine?: string; model?: string };
 
   const existing =
     ((await getUserSetting(email, "automation-settings")) as any) || {};
-  const updated = { ...existing, model: body.model };
+  const updated = {
+    ...existing,
+    ...(body.engine ? { engine: body.engine } : {}),
+    ...(body.model ? { model: body.model } : {}),
+  };
   await putUserSetting(email, "automation-settings", updated as any);
 
-  return { success: true, model: updated.model };
+  return { success: true, engine: updated.engine, model: updated.model };
 });

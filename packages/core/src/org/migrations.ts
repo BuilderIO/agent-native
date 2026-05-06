@@ -43,4 +43,8 @@ export const ORG_MIGRATIONS = [
     version: 1005,
     sql: `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS a2a_secret TEXT`,
   },
+  {
+    version: 1006,
+    sql: `ALTER TABLE org_invitations ADD COLUMN IF NOT EXISTS role TEXT`,
+  },
 ];

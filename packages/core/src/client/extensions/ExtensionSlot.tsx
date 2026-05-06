@@ -172,6 +172,7 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
       openSidebar: true,
     });
   };
+  const slotDescription = describeSlot(slotId);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -200,8 +201,10 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
         className="w-72 p-0 overflow-hidden"
       >
         <div className="px-3 py-2 border-b border-border/40">
-          <p className="text-[12px] font-medium">Add widget here</p>
-          <p className="text-[11px] text-muted-foreground/70">{slotId}</p>
+          <p className="text-[12px] font-medium">{slotDescription.title}</p>
+          <p className="text-[11px] text-muted-foreground/70">
+            {slotDescription.description}
+          </p>
         </div>
         <div className="max-h-72 overflow-y-auto py-1">
           {isLoading && (
@@ -247,4 +250,19 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
       </PopoverContent>
     </Popover>
   );
+}
+
+function describeSlot(slotId: string): { title: string; description: string } {
+  if (slotId === "mail.contact-sidebar.bottom") {
+    return {
+      title: "Contact sidebar widget",
+      description:
+        "Appears beside the current conversation with contact and thread context.",
+    };
+  }
+
+  return {
+    title: "Add widget here",
+    description: slotId,
+  };
 }

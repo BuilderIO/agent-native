@@ -24,4 +24,5 @@ export const orgInvitations = table("org_invitations", {
   invitedBy: text("invited_by").notNull(),
   createdAt: integer("created_at").notNull(),
   status: text("status").notNull(),
+  role: text("role"),
 });

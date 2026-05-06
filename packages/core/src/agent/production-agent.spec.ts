@@ -7,6 +7,7 @@ import {
   runAgentLoop,
   type ActionEntry,
 } from "./production-agent.js";
+import { AgentActionStopError } from "../action.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 
 function actionEntry(opts: {
@@ -507,6 +508,78 @@ describe("runAgentLoop", () => {
     );
     expect(events).toContainEqual({ type: "text", text: "finished" });
     expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("stops the turn when an action throws AgentActionStopError", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "query-1",
+              name: "bigquery",
+              input: { sql: "select nope" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        bigquery: {
+          ...actionEntry({ readOnly: true }),
+          run: async () => {
+            throw new AgentActionStopError("BigQuery returned: nope", {
+              errorCode: "bigquery_query_failed",
+              toolResult: JSON.stringify({
+                error: "bigquery_query_failed",
+                message: "nope",
+              }),
+            });
+          },
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(1);
+    expect(events).toEqual([
+      { type: "tool_start", tool: "bigquery", input: { sql: "select nope" } },
+      {
+        type: "tool_done",
+        tool: "bigquery",
+        result: JSON.stringify({
+          error: "bigquery_query_failed",
+          message: "nope",
+        }),
+      },
+      { type: "text", text: "BigQuery returned: nope" },
+      { type: "done" },
+    ]);
   });
 
   it("returns tool input schema failures to the model instead of ending the run", async () => {

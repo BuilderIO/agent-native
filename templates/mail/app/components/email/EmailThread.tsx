@@ -41,8 +41,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  IconArchive,
   IconArrowLeft,
-  IconCheck,
   IconChevronUp,
   IconChevronDown,
   IconExternalLink,
@@ -55,6 +55,7 @@ import {
   IconDownload,
   IconPhoto,
   IconSearch,
+  IconDots,
   IconArrowsMaximize,
   IconArrowsMinimize,
 } from "@tabler/icons-react";
@@ -580,7 +581,7 @@ export function EmailThread({
     toast(
       targets.length > 1
         ? `Archived ${targets.length} conversations.`
-        : "Marked as Done.",
+        : "Archived.",
       {
         action: { label: "UNDO", onClick: undo },
         position: isMobile ? "top-center" : undefined,
@@ -1120,10 +1121,10 @@ export function EmailThread({
                       onClick={handleArchive}
                       className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                     >
-                      <IconCheck className="h-4 w-4" />
+                      <IconArchive className="h-4 w-4" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>Done (E)</TooltipContent>
+                  <TooltipContent>Archive (E)</TooltipContent>
                 </Tooltip>
                 <button
                   onClick={() => goToSibling(-1)}
@@ -2125,18 +2126,22 @@ function PlainTextBody({
       })}
       {hasSig && !showSig && !forceShowAll && (
         <button
+          type="button"
+          aria-label="Show signature"
           onClick={() => setShowSig(true)}
-          className="mt-1 text-[13px] text-muted-foreground/50 hover:text-muted-foreground tracking-wider"
+          className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-accent hover:text-muted-foreground"
         >
-          ···
+          <IconDots className="h-4 w-4" />
         </button>
       )}
       {hasQuoted && !showQuoted && !forceShowAll && (showSig || !hasSig) && (
         <button
+          type="button"
+          aria-label="Show quoted text"
           onClick={() => setShowQuoted(true)}
-          className="mt-1 text-[13px] text-muted-foreground/50 hover:text-muted-foreground tracking-wider"
+          className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-accent hover:text-muted-foreground"
         >
-          ···
+          <IconDots className="h-4 w-4" />
         </button>
       )}
     </div>

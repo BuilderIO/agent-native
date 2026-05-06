@@ -27,7 +27,7 @@ import {
 } from "@/hooks/use-google-auth";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
-import { SidebarThemeRow } from "@/components/ThemeToggle";
+import { SidebarThemeRow, ThemeToggle } from "@/components/ThemeToggle";
 import { SearchBar } from "./SearchBar";
 import {
   IconMenu2,
@@ -754,8 +754,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   // Get unread counts for tabs
   const getTotalCount = (viewId: string) => {
     const label = labels.find((l) => l.id === viewId);
-    if (label?.unreadCount !== undefined) return label.unreadCount;
     if (labelCounts[viewId] !== undefined) return labelCounts[viewId];
+    if (label?.unreadCount !== undefined) return label.unreadCount;
     return 0;
   };
 
@@ -785,7 +785,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => setSidebarOpen(!sidebarOpen)}
-                    className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+                    className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
                     aria-label="Toggle menu"
                   >
                     <IconMenu2 className="h-4 w-4" />
@@ -904,7 +904,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                               "flex h-6 w-6 items-center justify-center rounded transition-colors",
                               tabSettingsOpen
                                 ? "text-foreground bg-accent/50"
-                                : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30",
+                                : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
                             )}
                             aria-label="Configure tabs"
                           >
@@ -1251,7 +1251,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           href: "/scheduled",
                         },
                         { id: "drafts", label: "Drafts", href: "/drafts" },
-                        { id: "archive", label: "Done", href: "/archive" },
+                        { id: "archive", label: "Archive", href: "/archive" },
                         { id: "trash", label: "Trash", href: "/trash" },
                       ].map((item) => (
                         <Link
@@ -1279,36 +1279,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           )}
                         </Link>
                       ))}
-                    </div>
-
-                    {/* Tools section */}
-                    <div className="mt-3 pt-1 border-t border-border/20">
-                      <ExtensionsSidebarSection />
-                    </div>
-
-                    {/* Settings / Appearance / Feedback / Account */}
-                    <div className="mt-3 pt-1 border-t border-border/20">
-                      <div className="space-y-0.5">
-                        <Link
-                          to="/settings"
-                          onClick={closeSidebar}
-                          className={cn(
-                            "flex items-center rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
-                            location.pathname === "/settings"
-                              ? "bg-accent/60 text-foreground font-medium"
-                              : "text-foreground/70 hover:bg-accent/30",
-                          )}
-                        >
-                          Settings
-                        </Link>
-                        <SidebarThemeRow />
-                        <div className="mt-1">
-                          <FeedbackButton />
-                        </div>
-                        <div className="mt-2 px-1">
-                          <OrgSwitcher />
-                        </div>
-                      </div>
                     </div>
 
                     {/* Pinned labels */}
@@ -1371,6 +1341,43 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         </div>
                       </>
                     )}
+
+                    {/* Tools section */}
+                    <div className="mt-3 pt-1 border-t border-border/20">
+                      <ExtensionsSidebarSection />
+                    </div>
+
+                    {/* Settings / Appearance / Feedback / Account */}
+                    <div className="mt-3 border-t border-border/20 pt-3">
+                      <div className="flex items-center gap-1 px-1">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Link
+                              to="/settings"
+                              onClick={closeSidebar}
+                              aria-label="Settings"
+                              className={cn(
+                                "flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
+                                location.pathname === "/settings" &&
+                                  "bg-accent/60 text-foreground",
+                              )}
+                            >
+                              <IconSettings className="h-4 w-4" />
+                            </Link>
+                          </TooltipTrigger>
+                          <TooltipContent>Settings</TooltipContent>
+                        </Tooltip>
+                        <ThemeToggle />
+                        <FeedbackButton
+                          variant="icon"
+                          side="right"
+                          className="h-7 w-7"
+                        />
+                      </div>
+                      <div className="mt-3 px-1">
+                        <OrgSwitcher />
+                      </div>
+                    </div>
                   </div>
                 </div>
               </>
@@ -1626,7 +1633,7 @@ function StandardLayout({ children }: AppLayoutProps) {
                         href: "/scheduled",
                       },
                       { id: "drafts", label: "Drafts", href: "/drafts" },
-                      { id: "archive", label: "Done", href: "/archive" },
+                      { id: "archive", label: "Archive", href: "/archive" },
                       { id: "trash", label: "Trash", href: "/trash" },
                     ].map((item) => (
                       <Link
@@ -1655,27 +1662,34 @@ function StandardLayout({ children }: AppLayoutProps) {
                     <ExtensionsSidebarSection />
                   </div>
 
-                  <div className="mt-3 pt-1 border-t border-border/20">
-                    <div className="space-y-0.5">
-                      <Link
-                        to="/settings"
-                        onClick={() => setSidebarOpen(false)}
-                        className={cn(
-                          "flex items-center rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
-                          location.pathname === "/settings"
-                            ? "bg-accent/60 text-foreground font-medium"
-                            : "text-foreground/70 hover:bg-accent/30",
-                        )}
-                      >
-                        Settings
-                      </Link>
-                      <SidebarThemeRow />
-                      <div className="mt-1">
-                        <FeedbackButton />
-                      </div>
-                      <div className="mt-2 px-1">
-                        <OrgSwitcher />
-                      </div>
+                  <div className="mt-3 border-t border-border/20 pt-3">
+                    <div className="flex items-center gap-1 px-1">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Link
+                            to="/settings"
+                            onClick={() => setSidebarOpen(false)}
+                            aria-label="Settings"
+                            className={cn(
+                              "flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
+                              location.pathname === "/settings" &&
+                                "bg-accent/60 text-foreground",
+                            )}
+                          >
+                            <IconSettings className="h-4 w-4" />
+                          </Link>
+                        </TooltipTrigger>
+                        <TooltipContent>Settings</TooltipContent>
+                      </Tooltip>
+                      <ThemeToggle />
+                      <FeedbackButton
+                        variant="icon"
+                        side="right"
+                        className="h-7 w-7"
+                      />
+                    </div>
+                    <div className="mt-3 px-1">
+                      <OrgSwitcher />
                     </div>
                   </div>
                 </div>

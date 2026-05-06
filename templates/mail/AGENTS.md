@@ -149,7 +149,7 @@ Google OAuth tokens are stored via `@agent-native/core/oauth-tokens` (provider: 
 Sent emails get open + link-click tracking injected automatically. Stats appear under each sent message in the thread view.
 
 - Settings live under `getSetting("mail-settings").tracking`:
-  - `tracking.opens` (default `true`) — inject a 1×1 pixel so opens can be counted
+  - `tracking.opens` (default `false`) — inject a 1×1 pixel so opens can be counted
   - `tracking.clicks` (default `false`) — when enabled, rewrite external links through `/api/tracking/click/:token` so clicks can be counted
 - Events are stored in the `email_tracking` + `email_link_tracking` SQL tables. Quoted content in replies/forwards is NOT rewritten — only links in the new portion of the message.
 - Use `pnpm action get-tracking --id=<message-id>` to fetch open + click stats for any sent message, or `GET /api/emails/:id/tracking` from the frontend.
@@ -385,6 +385,7 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 | `archive-email`            | `--id <id>[,id2,id3]`                                  | Archive one or more emails                    |
 | `trash-email`              | `--id <id>[,id2,id3]`                                  | Trash one or more emails                      |
 | `mark-read`                | `--id <id>[,id2,id3] [--unread]`                       | Mark emails as read (or unread with --unread) |
+| `move-email`               | `--id <id>[,id2,id3] --label <name> [--removeLabel]`   | Move emails to a label/folder                 |
 | `star-email`               | `--id <id>[,id2,id3]`                                  | Toggle star on emails                         |
 | `send-email`               | `--to <email> --subject <s> --body <b> [--cc] [--bcc]` | Send an email                                 |
 | `cancel-scheduled-email`   | `--id <scheduled-job-id>`                              | Cancel a scheduled email                      |

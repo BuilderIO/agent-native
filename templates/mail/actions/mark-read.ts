@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { getAccessTokens } from "./helpers.js";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { writeAppState } from "@agent-native/core/application-state";
 import { gmailModifyMessage } from "../server/lib/google-api.js";
 import { isConnected } from "../server/lib/google-auth.js";
 import { z } from "zod";
@@ -37,6 +38,7 @@ export default defineAction({
         return { ...email, isRead: !markUnread };
       });
       await putUserSetting(ownerEmail, "local-emails", { emails: updated });
+      await writeAppState("refresh-signal", { ts: Date.now() });
       const action = markUnread ? "unread" : "read";
       return `Marked ${changed}/${ids.length} email(s) as ${action}`;
     }
@@ -71,6 +73,7 @@ export default defineAction({
 
     const action = markUnread ? "unread" : "read";
     const succeeded = results.filter((r) => r.success).length;
+    await writeAppState("refresh-signal", { ts: Date.now() });
     return `Marked ${succeeded}/${ids.length} email(s) as ${action}`;
   },
 });

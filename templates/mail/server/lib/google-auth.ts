@@ -23,6 +23,7 @@ import {
 } from "@agent-native/core/oauth-tokens";
 import { isOAuthConnected, getOAuthAccounts } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { decodeCommonHtmlEntities } from "@shared/markdown.js";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -1719,7 +1720,7 @@ export function gmailToEmailMessage(
     to,
     cc: cc.length > 0 ? cc : undefined,
     subject,
-    snippet: msg.snippet || "",
+    snippet: decodeCommonHtmlEntities(msg.snippet || ""),
     body: getBody(payload),
     bodyHtml,
     date: new Date(date).toISOString(),

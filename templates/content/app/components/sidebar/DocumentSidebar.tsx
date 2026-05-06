@@ -9,7 +9,6 @@ import {
   IconFileText,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
-  IconUsers,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -544,24 +543,7 @@ export function DocumentSidebar({
         </div>
       </ScrollArea>
 
-      {/* Pinned nav + footer */}
-      <div className="px-3 pt-2">
-        <Link
-          to="/team"
-          onClick={() => onNavigate?.()}
-          className={cn(
-            "flex w-full items-center gap-2 rounded-md px-3 py-[5px] text-sm",
-            location.pathname === "/team"
-              ? "bg-accent text-accent-foreground"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-          )}
-        >
-          <IconUsers size={14} className="shrink-0" />
-          <span>Workspace</span>
-        </Link>
-      </div>
-
-      <div className="border-t border-border px-3 py-1">
+      <div className="border-t border-border px-3 py-1 mt-2">
         <ExtensionsSidebarSection />
       </div>
 

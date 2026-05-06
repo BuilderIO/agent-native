@@ -28,6 +28,7 @@ import {
   IconMicrophone,
   IconBolt,
   IconGauge,
+  IconUserCircle,
 } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
 import {
@@ -47,6 +48,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useSession } from "../use-session.js";
+import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 
 const IntegrationsPanel = lazy(() =>
   import("../integrations/IntegrationsPanel.js").then((m) => ({
@@ -1512,7 +1515,8 @@ const environmentOptions: SettingsSelectOption[] = [
   {
     value: "production",
     label: "Production",
-    description: "Restricted to app tools only.",
+    description:
+      "App tools only; code, shell, and files require Builder or a local clone.",
   },
   {
     value: "development",
@@ -1520,6 +1524,106 @@ const environmentOptions: SettingsSelectOption[] = [
     description: "Full access to code editing, shell, and files.",
   },
 ];
+
+function AccountSectionInner({
+  open,
+  onToggle,
+}: {
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const { session, isLoading } = useSession();
+  const email = session?.email;
+  const avatarUrl = useAvatarUrl(email);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
+
+  const displayName = session?.name || email || "Signed out";
+  const initials = (session?.name || email || "?")
+    .split(/[ @._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+
+  const handleAvatarChange = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !email) return;
+    setUploading(true);
+    setStatus("idle");
+    try {
+      await uploadAvatar(file, email);
+      setStatus("saved");
+    } catch {
+      setStatus("error");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <SettingsSection
+      icon={<IconUserCircle size={14} />}
+      title="Account"
+      subtitle="Your profile photo and signed-in identity."
+      open={open}
+      onToggle={onToggle}
+    >
+      <div className="flex items-center gap-3">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-accent text-[13px] font-semibold text-muted-foreground">
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            initials
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[12px] font-medium text-foreground">
+            {isLoading ? "Loading..." : displayName}
+          </p>
+          {email && (
+            <p className="truncate text-[11px] text-muted-foreground">
+              {email}
+            </p>
+          )}
+          {status === "saved" && (
+            <p className="mt-1 text-[11px] text-green-600 dark:text-green-400">
+              Photo updated
+            </p>
+          )}
+          {status === "error" && (
+            <p className="mt-1 text-[11px] text-destructive">
+              Could not update photo
+            </p>
+          )}
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleAvatarChange}
+        />
+        <button
+          type="button"
+          disabled={!email || uploading}
+          onClick={() => fileInputRef.current?.click()}
+          className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-border bg-background px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-accent/50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {uploading ? "Uploading..." : "Change photo"}
+        </button>
+      </div>
+    </SettingsSection>
+  );
+}
 
 export function SettingsPanel({
   isDevMode,
@@ -1607,6 +1711,12 @@ export function SettingsPanel({
           )}
         </div>
       )}
+
+      {/* Account */}
+      <AccountSectionInner
+        open={openSection === "account"}
+        onToggle={() => toggle("account")}
+      />
 
       {/* LLM */}
       <LLMSectionInner

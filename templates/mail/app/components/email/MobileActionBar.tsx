@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import {
-  IconCheck,
+  IconArchive,
   IconTrash,
   IconStarFilled,
   IconStar,
@@ -60,8 +60,8 @@ const ACTION_META: Record<
   }
 > = {
   archive: {
-    label: "Done",
-    icon: () => <IconCheck className="h-5 w-5" />,
+    label: "Archive",
+    icon: () => <IconArchive className="h-5 w-5" />,
   },
   trash: {
     label: "Trash",
@@ -217,7 +217,7 @@ export function MobileActionBar({
             <div className="px-4 pb-6">
               <DrawerClose asChild>
                 <button className="w-full rounded-lg bg-accent py-2.5 text-sm font-medium">
-                  Done
+                  Close
                 </button>
               </DrawerClose>
             </div>

@@ -7,12 +7,16 @@ export {
   useCreateOrg,
   useUpdateOrg,
   useInviteMember,
+  useBulkInviteMembers,
+  useChangeMemberRole,
   useAcceptInvitation,
   useRemoveMember,
   useSwitchOrg,
   useJoinByDomain,
   useSetOrgDomain,
 } from "./hooks.js";
+
+export type { InviteRole, InviteVars, BulkInviteResult } from "./hooks.js";
 
 export { OrgSwitcher, type OrgSwitcherProps } from "./OrgSwitcher.js";
 export {
