@@ -412,6 +412,7 @@ export default function DesignEditor() {
       activeFileId: activeFile?.id ?? null,
       activeFilename: activeFile?.filename ?? null,
       selectedElement,
+      hoveredElement,
       mode,
     };
     (window as any).__designSelection = selection;
@@ -423,7 +424,7 @@ export default function DesignEditor() {
       delete el.dataset.designId;
       delete el.dataset.fileId;
     };
-  }, [id, design, activeFile, selectedElement, mode]);
+  }, [id, design, activeFile, selectedElement, hoveredElement, mode]);
 
   const handleElementSelect = useCallback((info: ElementInfo) => {
     setSelectedElement(info);
