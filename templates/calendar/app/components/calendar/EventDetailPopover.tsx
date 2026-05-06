@@ -19,6 +19,7 @@ import {
   IconBrandZoom,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Popover,
   PopoverTrigger,
@@ -69,6 +70,10 @@ function extractMeetingLink(event: CalendarEvent): {
   pin?: string;
   passcode?: string;
 } | null {
+  if (event.meetingLink) {
+    return { url: event.meetingLink, type: getMeetingType(event.meetingLink) };
+  }
+
   // Check conferenceData first
   if (event.conferenceData?.entryPoints) {
     const videoEntry = event.conferenceData.entryPoints.find(
@@ -116,6 +121,34 @@ function getMeetingLabel(type: "zoom" | "meet" | "teams" | "link"): string {
     default:
       return "Join Meeting";
   }
+}
+
+function getMeetingType(url: string): "zoom" | "meet" | "teams" | "link" {
+  if (url.includes("zoom.us")) return "zoom";
+  if (url.includes("meet.google.com")) return "meet";
+  if (url.includes("teams.microsoft.com")) return "teams";
+  return "link";
+}
+
+function MeetingLinkSkeleton({
+  provider,
+}: {
+  provider: "meet" | "zoom";
+}) {
+  return (
+    <div
+      role="status"
+      aria-label={`Adding ${provider === "zoom" ? "Zoom" : "Google Meet"} link`}
+      className="relative flex w-full items-center justify-center rounded-xl bg-[#4965E0] px-4 py-2"
+    >
+      <Skeleton className="mr-2 h-5 w-5 rounded-full bg-white/25" />
+      <Skeleton className="h-4 w-24 bg-white/30" />
+      <span className="absolute right-4 hidden items-center gap-1 sm:flex">
+        <Skeleton className="h-4 w-4 rounded bg-white/20" />
+        <Skeleton className="h-5 w-5 rounded bg-white/20" />
+      </span>
+    </div>
+  );
 }
 
 function formatReminderText(minutes: number): string {

@@ -374,13 +374,6 @@ export async function getHiddenExtensionIdsForCurrentUser(): Promise<
   return new Set(rows.map((row) => row.extensionId));
 }
 
-export async function isExtensionHiddenForCurrentUser(
-  id: string,
-): Promise<boolean> {
-  const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
-  return hiddenIds.has(id);
-}
-
 export async function hideExtension(id: string): Promise<boolean> {
   await ensureExtensionsTables();
   await assertAccess("extension", id, "viewer");

@@ -101,6 +101,9 @@ export default function CalendarView() {
   const [createDefaultStart, setCreateDefaultStart] = useState<string>();
   const [createDefaultEnd, setCreateDefaultEnd] = useState<string>();
   const [quickEditEventId, setQuickEditEventId] = useState<string | null>(null);
+  const [quickEditTempIds, setQuickEditTempIds] = useState<
+    Record<string, string>
+  >({});
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [deleteDialogEvent, setDeleteDialogEvent] =
@@ -210,7 +213,8 @@ export default function CalendarView() {
         if (e.overlayEmail && colorMap.has(e.overlayEmail)) {
           return { ...e, color: colorMap.get(e.overlayEmail) };
         }
-        return e;
+        const tempId = quickEditTempIds[e.id];
+        return tempId && !e._tempId ? { ...e, _tempId: tempId } : e;
       })
       .filter((e) => {
         // Hide events from hidden people overlays
@@ -232,7 +236,7 @@ export default function CalendarView() {
         }
         return true;
       });
-  }, [rawEvents, overlayPeople, hiddenCalendars]);
+  }, [rawEvents, overlayPeople, hiddenCalendars, quickEditTempIds]);
 
   // Filter events for day view
   const dayEvents = useMemo(
@@ -423,11 +427,18 @@ export default function CalendarView() {
           // in the cache so the inline input stays mounted when we update
           // quickEditEventId to the real ID.
           const { _tempId, ...realEvent } = result;
+          const stableTempId = _tempId ?? tempId;
+          setQuickEditTempIds((current) => ({
+            ...current,
+            [realEvent.id]: stableTempId,
+          }));
           queryClient.setQueriesData<CalendarEvent[]>(
             { queryKey: ["action", "list-events"] },
             (old) =>
               old?.map((e) =>
-                e.id === _tempId ? { ...e, ...realEvent, _tempId } : e,
+                e.id === stableTempId
+                  ? { ...e, ...realEvent, _tempId: stableTempId }
+                  : e,
               ),
           );
           setQuickEditEventId(realEvent.id);
@@ -445,6 +456,11 @@ export default function CalendarView() {
 
   function handleQuickEditSave(eventId: string, title: string) {
     setQuickEditEventId(null);
+    setQuickEditTempIds((current) => {
+      if (!current[eventId]) return current;
+      const { [eventId]: _removed, ...next } = current;
+      return next;
+    });
     if (title.trim() && title.trim() !== "(No title)") {
       updateEvent.mutate({ id: eventId, title: title.trim() });
     }
@@ -452,6 +468,11 @@ export default function CalendarView() {
 
   function handleQuickEditCancel(eventId: string) {
     setQuickEditEventId(null);
+    setQuickEditTempIds((current) => {
+      if (!current[eventId]) return current;
+      const { [eventId]: _removed, ...next } = current;
+      return next;
+    });
     // Delete the event if title was never set
     const ev = events.find((e) => e.id === eventId);
     if (!ev || ev.title === "(No title)") {
