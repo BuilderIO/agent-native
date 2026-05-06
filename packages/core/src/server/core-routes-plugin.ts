@@ -28,9 +28,8 @@ import {
   buildBuilderCliAuthUrl,
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
-  getBuilderBranchProjectId,
   getBuilderBrowserStatusForEvent,
-  isBuilderBranchingEnabled,
+  resolveBuilderBranchProjectId,
   resolveSafePreviewUrl,
   runBuilderAgent,
   verifyBuilderConnectToken,
@@ -478,19 +477,11 @@ export function createCoreRoutesPlugin(
           };
         };
 
-        // Env-managed mode: BUILDER_PRIVATE_KEY is set at the deployment
-        // level, so every user shares the operator's Builder identity.
-        // Skip per-user lookups entirely — the env key is authoritative
-        // and the UI must hide the connect/disconnect controls.
-        if (envStatus.envManaged) {
-          return withConnectToken(envStatus);
-        }
-
-        // Pass the user's active orgId so the status read can fall back
-        // to org-scoped credentials. Without it, an admin's org-scope
-        // OAuth result is invisible to every other org member's status
-        // poller and the UI would show "not connected" forever even
-        // though the chat actually resolves the org-shared credential.
+        // Pass the user's active orgId so status reads can fall back to
+        // org-scoped credentials and branch project IDs. Without it, an
+        // admin's org-scope OAuth result is invisible to every other org
+        // member's status poller and the UI would show "not connected" forever
+        // even though the chat actually resolves the org-shared credential.
         let orgId: string | null = null;
         if (!ownerContext.anonymous) {
           try {
@@ -503,6 +494,24 @@ export function createCoreRoutesPlugin(
         }
 
         return runWithRequestContext({ userEmail, orgId }, async () => {
+          const projectId = await resolveBuilderBranchProjectId();
+          const requestStatus = {
+            ...envStatus,
+            builderEnabled: !!projectId,
+            branchProjectIdConfigured: !!projectId,
+            branchProjectId: projectId || undefined,
+          };
+
+          // Env-managed mode: BUILDER_PRIVATE_KEY is set at the deployment
+          // level, so every user shares the operator's Builder identity.
+          // Skip per-user credential lookups entirely — the env key is
+          // authoritative and the UI must hide connect/disconnect controls.
+          // Branch project IDs are still request-scoped above so a Builder.io
+          // org secret can enable branches without a deploy env var.
+          if (envStatus.envManaged) {
+            return withConnectToken(requestStatus);
+          }
+
           // Per-user OAuth mode: read the user's app_secrets-stored creds.
           try {
             const { resolveBuilderCredentials } =
@@ -510,7 +519,7 @@ export function createCoreRoutesPlugin(
             const creds = await resolveBuilderCredentials();
             if (creds.privateKey) {
               return withConnectToken({
-                ...envStatus,
+                ...requestStatus,
                 configured: true,
                 privateKeyConfigured: true,
                 publicKeyConfigured: !!creds.publicKey,
@@ -534,7 +543,7 @@ export function createCoreRoutesPlugin(
               if (errRow && typeof errRow.message === "string") {
                 await deleteSetting(errKey).catch(() => {});
                 return withConnectToken({
-                  ...envStatus,
+                  ...requestStatus,
                   configured: false,
                   privateKeyConfigured: false,
                   publicKeyConfigured: false,
@@ -559,7 +568,7 @@ export function createCoreRoutesPlugin(
             const disconnected = await getSetting("builder-disconnected");
             if (disconnected) {
               return withConnectToken({
-                ...envStatus,
+                ...requestStatus,
                 configured: false,
                 privateKeyConfigured: false,
                 publicKeyConfigured: false,
@@ -575,7 +584,7 @@ export function createCoreRoutesPlugin(
           // and unauthenticated callers see "not connected" so they can
           // run through the OAuth flow.
           return withConnectToken({
-            ...envStatus,
+            ...requestStatus,
             configured: false,
             privateKeyConfigured: false,
             publicKeyConfigured: false,
@@ -766,20 +775,31 @@ export function createCoreRoutesPlugin(
           return { error: "Authentication required" };
         }
         const userEmail = session.email;
-        if (!isBuilderBranchingEnabled()) {
-          setResponseStatus(event, 403);
-          return {
-            error:
-              "Builder branch creation is not enabled for this deployment. Set ENABLE_BUILDER=true or BUILDER_BRANCH_PROJECT_ID.",
-          };
+
+        let orgId: string | null = null;
+        try {
+          const orgCtx = await getOrgContext(event);
+          orgId = orgCtx.orgId ?? null;
+        } catch {
+          /* org module not present in this template — keep userEmail-only */
         }
+
         // Wrap in runWithRequestContext so resolveBuilderCredential() inside
         // runBuilderAgent() resolves per-user app_secrets rather than falling
         // through to process.env — the same pattern the /builder/status endpoint
         // uses. Without this, per-user Builder keys stored in app_secrets are
         // invisible to the run path and the call throws "Builder keys are not
         // configured" even though the status endpoint correctly reports configured=true.
-        return runWithRequestContext({ userEmail }, async () => {
+        return runWithRequestContext({ userEmail, orgId }, async () => {
+          const projectId = await resolveBuilderBranchProjectId();
+          if (!projectId) {
+            setResponseStatus(event, 403);
+            return {
+              error:
+                "Builder branch creation is not available for this organization yet.",
+            };
+          }
+
           const { resolveBuilderCredential: resolveBuilderCred } =
             await import("./credential-provider.js");
           const builderUserId =
@@ -791,7 +811,7 @@ export function createCoreRoutesPlugin(
           try {
             const result = await runBuilderAgent({
               prompt,
-              projectId: getBuilderBranchProjectId(),
+              projectId,
               branchName:
                 typeof body?.branchName === "string"
                   ? body.branchName

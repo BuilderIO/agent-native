@@ -1,9 +1,10 @@
 /**
  * Regenerate the recording's title using its transcript.
  *
- * Title generation is delegated to the agent chat. Server actions do not call
- * LLMs directly; instead, this action writes a structured request to
- * application_state and the app's UI bridge dispatches it to the agent.
+ * Title generation uses the same Gemini 3.1 Flash-Lite media-pipeline path as
+ * transcript cleanup so a freshly recorded clip can get a useful title without
+ * waiting for the agent chat bridge. If the fast path is unavailable, we still
+ * queue the older agent-chat request as a fallback.
  *
  * Usage:
  *   pnpm action regenerate-title --recordingId=<id>
@@ -15,6 +16,9 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
+import cleanupTranscript from "./cleanup-transcript.js";
+
+const DEFAULT_TITLE = "Untitled recording";
 
 function transcriptTextFromSegments(raw: string | null | undefined): string {
   if (!raw) return "";
@@ -32,9 +36,23 @@ function transcriptTextFromSegments(raw: string | null | undefined): string {
   }
 }
 
+function isDefaultTitle(title: string | null | undefined): boolean {
+  const trimmed = (title ?? "").trim();
+  return !trimmed || trimmed === DEFAULT_TITLE;
+}
+
+function cleanGeneratedTitle(raw: string | null | undefined): string | null {
+  const title = (raw ?? "")
+    .replace(/^["'“”]+|["'“”]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!title) return null;
+  return title.slice(0, 80);
+}
+
 export default defineAction({
   description:
-    "Ask the agent to regenerate this recording's title based on its transcript. The agent reads the transcript from the delegation context and calls update-recording with the new title.",
+    "Regenerate this recording's title from its transcript using the Gemini 3.1 Flash-Lite cleanup/title path, falling back to the agent chat bridge when unavailable.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
   }),
@@ -64,6 +82,61 @@ export default defineAction({
     if (transcript?.status !== "ready" || !transcriptText) {
       throw new Error(
         "Transcript is not ready yet. Try again after transcription finishes.",
+      );
+    }
+
+    try {
+      const result = await cleanupTranscript.run({
+        transcript: transcriptText,
+        task: "title",
+        context:
+          rec.title && !isDefaultTitle(rec.title)
+            ? `Current title: ${rec.title}`
+            : undefined,
+      });
+      const generatedTitle = cleanGeneratedTitle(result.title);
+
+      if (generatedTitle) {
+        const [fresh] = await db
+          .select({ title: schema.recordings.title })
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, args.recordingId))
+          .limit(1);
+
+        if (!fresh) throw new Error(`Recording not found: ${args.recordingId}`);
+
+        if (isDefaultTitle(fresh.title) || fresh.title === rec.title) {
+          await db
+            .update(schema.recordings)
+            .set({
+              title: generatedTitle,
+              updatedAt: new Date().toISOString(),
+            })
+            .where(eq(schema.recordings.id, args.recordingId));
+          await writeAppState("refresh-signal", { ts: Date.now() });
+
+          console.log(
+            `Regenerated title for ${args.recordingId} via ${result.provider}: ${generatedTitle}`,
+          );
+          return {
+            updated: true,
+            recordingId: args.recordingId,
+            title: generatedTitle,
+            provider: result.provider,
+          };
+        }
+
+        return {
+          updated: false,
+          skipped: true,
+          reason: "Recording title changed before generation completed",
+          recordingId: args.recordingId,
+        };
+      }
+    } catch (err) {
+      console.warn(
+        `[clips] Gemini title generation failed for ${args.recordingId}; falling back to agent bridge:`,
+        (err as Error).message,
       );
     }
 
