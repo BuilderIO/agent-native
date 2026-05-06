@@ -503,48 +503,21 @@ export function createBuilderBrowserCallbackErrorPage(message: string): string {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <title>Builder connect failed</title>
-    <style>
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background:
-          radial-gradient(circle at top, rgba(244, 63, 94, 0.14), transparent 38%),
-          linear-gradient(180deg, #f7fafc 0%, #eef2f7 100%);
-        color: #0f172a;
-        font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
-      }
-      .card {
-        width: min(460px, calc(100vw - 32px));
-        border: 1px solid rgba(15, 23, 42, 0.08);
-        border-radius: 18px;
-        padding: 28px;
-        background: rgba(255, 255, 255, 0.92);
-        box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
-      }
-      h1 { margin: 0 0 8px; font-size: 22px; color: #b91c1c; }
-      p { margin: 0 0 12px; color: #475569; }
-      pre {
-        margin: 0 0 12px;
-        padding: 10px 12px;
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        border-radius: 8px;
-        color: #991b1b;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 12px;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    ${BUILDER_CALLBACK_THEME_SCRIPT}
+    <style>${BUILDER_CALLBACK_BASE_CSS}</style>
   </head>
   <body>
-    <main class="card">
+    <main class="card" role="alert" aria-live="assertive">
+      <span class="icon icon-error" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+      </span>
       <h1>Couldn't save Builder connection</h1>
-      <p>Builder authorized your account but the server couldn't persist the credentials.</p>
-      <pre id="msg"></pre>
-      <p>You can close this tab and try again from settings. The connect dialog has the same error so you can copy it.</p>
+      <p class="muted">Builder authorized your account but the server couldn't persist the credentials.</p>
+      <pre class="error-detail" id="msg"></pre>
+      <p class="muted" style="margin-top:12px">You can close this tab and try again from settings.</p>
     </main>
     <script>
       try {
