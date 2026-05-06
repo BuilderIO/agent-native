@@ -29,6 +29,9 @@ export const IPC = {
   SET_ACTIVE_APP: "webview:set-active-app",
   SET_ACTIVE_WEBVIEW: "webview:set-active-webview",
 
+  /** Clipboard helpers (renderer ↔ main) */
+  CLIPBOARD_WRITE_TEXT: "clipboard:write-text",
+
   /** Frame settings (renderer ↔ main) */
   FRAME_LOAD: "frame:load",
   FRAME_UPDATE: "frame:update",

@@ -569,6 +569,15 @@ function resetActiveWebviewZoom() {
   target.setZoomLevel(0);
 }
 
+ipcMain.handle(
+  IPC.CLIPBOARD_WRITE_TEXT,
+  (_event: IpcMainInvokeEvent, text: unknown): boolean => {
+    if (typeof text !== "string" || text.length === 0) return false;
+    clipboard.writeText(text);
+    return true;
+  },
+);
+
 // ---------- Native context menus ----------
 // Electron does not provide Chromium's standard right-click menu by default,
 // so add the useful browser/editing actions for both the shell and app webviews.
@@ -1190,9 +1199,10 @@ app.on("web-contents-created", (_event, contents) => {
       return;
     }
 
-    // Forward other Cmd+ shortcuts: F, R, T, Shift+T, 1-9, [, ]
+    // Forward other Cmd+ shortcuts: F, L, R, T, Shift+T, 1-9, [, ]
     const isShortcut =
       key === "f" ||
+      key === "l" ||
       key === "r" ||
       key === "t" ||
       key === "[" ||
@@ -1386,6 +1396,16 @@ app.whenReady().then(() => {
       _event.preventDefault();
       win.webContents.send("shortcut:keydown", {
         key: "f",
+        shiftKey: input.shift,
+      });
+      return;
+    }
+
+    // Cmd+L — copy the active webview URL.
+    if (key === "l") {
+      _event.preventDefault();
+      win.webContents.send("shortcut:keydown", {
+        key: "l",
         shiftKey: input.shift,
       });
       return;

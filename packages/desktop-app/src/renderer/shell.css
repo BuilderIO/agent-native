@@ -1309,3 +1309,33 @@ body {
   background: rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.85);
 }
+
+/* ─── Shell snackbar (shadcn/sonner) ─────────────────────────── */
+.shell [data-sonner-toaster].shell-snackbar-toaster {
+  --width: auto;
+}
+
+.shell [data-sonner-toast].shell-snackbar[data-styled="true"] {
+  width: max-content;
+  min-width: 148px;
+  max-width: min(360px, calc(100vw - 32px));
+  justify-content: center;
+  padding: 10px 14px;
+  background: #171717;
+  border-color: rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.42),
+    0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+}
+
+.shell [data-sonner-toast].shell-snackbar [data-content] {
+  align-items: center;
+}
+
+.shell-snackbar-title {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: rgba(255, 255, 255, 0.92);
+}

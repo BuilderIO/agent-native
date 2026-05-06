@@ -66,6 +66,12 @@ const electronAPI = {
   setActiveWebview: (target: ActiveWebviewTarget) =>
     ipcRenderer.send(IPC.SET_ACTIVE_WEBVIEW, target),
 
+  /** Clipboard helpers */
+  clipboard: {
+    writeText: (text: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.CLIPBOARD_WRITE_TEXT, text),
+  },
+
   /** Local dev frame settings */
   frame: {
     load: (): Promise<any> => ipcRenderer.invoke(IPC.FRAME_LOAD),

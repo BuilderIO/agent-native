@@ -39,6 +39,10 @@ interface ElectronAPI {
   setActiveApp(appId: string): void;
   setActiveWebview(target: { appId: string; webContentsId?: number }): void;
 
+  clipboard: {
+    writeText(text: string): Promise<boolean>;
+  };
+
   interApp: {
     send(targetAppId: string, event: string, data: unknown): void;
     on(cb: (from: string, event: string, data: unknown) => void): () => void;
