@@ -11,6 +11,7 @@ import {
   IconPlus,
   IconPencilPlus,
   IconPin,
+  IconWand,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -182,57 +183,65 @@ export function DesignToolbar({
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Tweaks toggle */}
-      <Button
-        variant="ghost"
-        size="icon"
-        className={cn("h-8 w-8", tweaksVisible && "bg-muted text-foreground")}
-        onClick={onTweaksToggle}
-      >
-        <IconAdjustments className="h-4 w-4" />
-      </Button>
-
-      {/* Draw on canvas */}
-      {onToggleDrawMode && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              data-toolbar-draw-button
-              className={cn(
-                "h-8 w-8 cursor-pointer",
-                drawMode && "bg-muted text-foreground",
+      {/* Tools — Tweaks / Draw / Pin consolidated so the bar isn't a wall of icons.
+          The dot indicator lights up when any of the modes is active. */}
+      {(() => {
+        const anyToolActive = Boolean(tweaksVisible || drawMode || pinMode);
+        return (
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "relative h-8 w-8",
+                      anyToolActive && "bg-muted text-foreground",
+                    )}
+                    aria-label="Design tools"
+                  >
+                    <IconWand className="h-4 w-4" />
+                    {anyToolActive && (
+                      <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-primary" />
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Design tools</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem
+                onClick={onTweaksToggle}
+                className={cn(tweaksVisible && "bg-accent/50")}
+              >
+                <IconAdjustments className="h-4 w-4 mr-2" />
+                Tweaks
+              </DropdownMenuItem>
+              {onToggleDrawMode && (
+                <DropdownMenuItem
+                  data-toolbar-draw-button
+                  onClick={onToggleDrawMode}
+                  className={cn(drawMode && "bg-accent/50")}
+                >
+                  <IconPencilPlus className="h-4 w-4 mr-2" />
+                  Draw on canvas
+                </DropdownMenuItem>
               )}
-              onClick={onToggleDrawMode}
-            >
-              <IconPencilPlus className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Draw on canvas</TooltipContent>
-        </Tooltip>
-      )}
-
-      {/* Drop comment pin */}
-      {onTogglePinMode && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              data-toolbar-pin-button
-              className={cn(
-                "h-8 w-8 cursor-pointer",
-                pinMode && "bg-muted text-foreground",
+              {onTogglePinMode && (
+                <DropdownMenuItem
+                  data-toolbar-pin-button
+                  onClick={onTogglePinMode}
+                  className={cn(pinMode && "bg-accent/50")}
+                >
+                  <IconPin className="h-4 w-4 mr-2" />
+                  Drop comment pin
+                </DropdownMenuItem>
               )}
-              onClick={onTogglePinMode}
-            >
-              <IconPin className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Drop comment pin</TooltipContent>
-        </Tooltip>
-      )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      })()}
 
       {/* Save status */}
       <SaveStatusIndicator saving={!!saving} className="ml-1 mr-1" />
