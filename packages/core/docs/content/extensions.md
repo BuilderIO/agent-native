@@ -137,7 +137,7 @@ Inside the iframe sandbox, every extension has these helpers on `window`:
 | Helper                                           | Purpose                                               | Example                                           |
 | ------------------------------------------------ | ----------------------------------------------------- | ------------------------------------------------- |
 | `appAction(name, params)`                        | Call any of the host template's actions               | `appAction('list-emails', { view: 'inbox' })`     |
-| `appFetch(path, options)`                        | Call any app endpoint                                 | `appFetch('/api/settings')`                       |
+| `appFetch(path, options)`                        | Call allowed framework endpoints under `/_agent-native/*` | `appFetch('/_agent-native/application-state/navigation')` |
 | `dbQuery(sql, args)`                             | Read from SQL (auto-scoped to the user)               | `dbQuery('SELECT id, name FROM tools')`           |
 | `dbExec(sql, args)`                              | Write to SQL                                          | `dbExec('INSERT INTO ...')`                       |
 | `extensionFetch(url, options)`                   | Hit external APIs through a secure proxy with secrets | `extensionFetch('https://api.github.com/user')`   |
@@ -149,6 +149,7 @@ Inside the iframe sandbox, every extension has these helpers on `window`:
 Two rules of thumb:
 
 - **Prefer `appAction` over `dbQuery`.** Actions are the template's official surface — they handle access control, scoping, and validation for you. Reach for raw SQL only when no action fits.
+- **Use `appAction` for template data.** Extension `appFetch` is limited to framework `/_agent-native/*` endpoints; template `/api/*` routes are blocked by the iframe bridge.
 - **Prefer `extensionData` over making new tables.** Each extension gets its own isolated key-value store. No schema, no migration. Set `{ scope: 'org' }` to share with the user's org, `'user'` (default) for private.
 
 ```html

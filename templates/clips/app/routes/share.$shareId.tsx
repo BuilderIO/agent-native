@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { IconExternalLink } from "@tabler/icons-react";
+import { IconExternalLink, IconShare3 } from "@tabler/icons-react";
 import {
   agentNativePath,
   appBasePath,
@@ -19,11 +19,14 @@ import { ReactionsTray } from "@/components/player/reactions-tray";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import { ShareRecordingPopover } from "@/components/player/share-dialog";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { isDefaultTitle } from "@/hooks/use-auto-title";
 
 export function meta() {
   return [{ title: "Watch" }];
@@ -86,11 +89,13 @@ export default function ShareRoute() {
   const reactions = dataQ.data?.data?.reactions ?? [];
   const chapters = dataQ.data?.data?.chapters ?? [];
   const transcriptSegments = dataQ.data?.data?.transcript?.segments ?? [];
+  const transcriptFullText = dataQ.data?.data?.transcript?.fullText ?? null;
   const transcriptStatus = dataQ.data?.data?.transcript?.status;
   const transcriptFailureReason =
     dataQ.data?.data?.transcript?.failureReason ?? null;
   const ctas = dataQ.data?.data?.ctas ?? [];
   const firstCta = ctas[0] ?? null;
+  const viewerCanEdit = Boolean(dataQ.data?.data?.viewer?.canEdit);
 
   useEffect(() => {
     if (!recording) return;
@@ -260,17 +265,49 @@ export default function ShareRoute() {
     <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-6xl px-4 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-md bg-primary flex items-center justify-center text-primary-foreground font-bold text-sm">
-            C
-          </div>
+          <img
+            src={appPath("/agent-native-icon-light.svg")}
+            alt=""
+            aria-hidden="true"
+            className="block h-4 w-auto dark:hidden"
+          />
+          <img
+            src={appPath("/agent-native-icon-dark.svg")}
+            alt=""
+            aria-hidden="true"
+            className="hidden h-4 w-auto dark:block"
+          />
           <span className="font-medium">Clips</span>
         </div>
-        <a
-          href={appPath("/")}
-          className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-        >
-          Try Clips <IconExternalLink className="h-3 w-3" />
-        </a>
+        <div className="flex items-center gap-2">
+          {viewerCanEdit ? (
+            <Button variant="ghost" size="sm" asChild>
+              <a href={appPath(`/r/${recording.id}`)} className="gap-1.5">
+                Open dashboard <IconExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </Button>
+          ) : (
+            <a
+              href={appPath("/")}
+              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+            >
+              Try Clips <IconExternalLink className="h-3 w-3" />
+            </a>
+          )}
+          {viewerCanEdit ? (
+            <ShareRecordingPopover
+              recordingId={recording.id}
+              recordingTitle={recording.title}
+              videoUrl={recording.videoUrl}
+              animatedThumbnailUrl={recording.animatedThumbnailUrl}
+            >
+              <Button size="sm" className="gap-1.5">
+                <IconShare3 className="h-4 w-4" />
+                Share
+              </Button>
+            </ShareRecordingPopover>
+          ) : null}
+        </div>
       </div>
 
       <div className="mx-auto max-w-6xl px-4 pb-8 grid grid-cols-[1fr_360px] gap-6">
@@ -281,6 +318,7 @@ export default function ShareRoute() {
               recordingId={recording.id}
               videoUrl={recording.videoUrl}
               durationMs={recording.durationMs}
+              editsJson={recording.editsJson}
               thumbnailUrl={recording.thumbnailUrl}
               defaultSpeed={speed}
               comments={comments}
@@ -296,7 +334,14 @@ export default function ShareRoute() {
 
           <div className="flex items-start gap-3">
             <div className="flex-1 min-w-0">
-              <h1 className="text-xl font-semibold">{recording.title}</h1>
+              {isDefaultTitle(recording.title) ? (
+                <Skeleton
+                  aria-label="Generating title"
+                  className="h-7 w-80 max-w-full"
+                />
+              ) : (
+                <h1 className="text-xl font-semibold">{recording.title}</h1>
+              )}
               {recording.description ? (
                 <p className="text-sm text-foreground/70 mt-1 whitespace-pre-wrap">
                   {recording.description}
@@ -361,6 +406,8 @@ export default function ShareRoute() {
               <div className="rounded-lg border border-border bg-muted/50 h-[600px] overflow-hidden">
                 <TranscriptPanel
                   segments={transcriptSegments}
+                  fullText={transcriptFullText}
+                  durationMs={recording.durationMs}
                   currentMs={currentMs}
                   onSeek={(ms) => playerRef.current?.seek(ms)}
                   status={transcriptStatus}

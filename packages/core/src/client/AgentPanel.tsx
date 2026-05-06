@@ -655,7 +655,7 @@ function AgentPanelInner({
             return (
               <>
                 <div className="flex items-center px-2 py-1 border-b border-border gap-0.5">
-                  <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
+                  <div className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1">
                     {mode === "chat"
                       ? mainTabs.map((tab) => {
                           // Highlight the parent tab if a child is active
@@ -932,7 +932,7 @@ function AgentPanelInner({
                 {/* Sub-agent tab row — shown when the active context has children */}
                 {mode === "chat" && hasSubTabs && (
                   <div className="flex items-center px-2 py-0.5 border-b border-border gap-0.5 bg-muted/30">
-                    <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
+                    <div className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1">
                       <div
                         role="button"
                         tabIndex={0}
@@ -1045,6 +1045,8 @@ function AgentPanelInner({
         dangerouslySetInnerHTML={{
           __html:
             ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}" +
+            ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
+            ".agent-tabs-scroll::-webkit-scrollbar{display:none;}" +
             `[data-agent-fullscreen='true'] .agent-thread-content,` +
             `[data-agent-fullscreen='true'] .agent-composer-area{` +
             `max-width:${FULLSCREEN_CONTENT_MAX_PX}px;` +
@@ -1191,6 +1193,8 @@ const SIDEBAR_STORAGE_KEY = "agent-native-sidebar-width";
 const SIDEBAR_FULLSCREEN_KEY = "agent-native-sidebar-fullscreen";
 const SIDEBAR_MIN = 280;
 const SIDEBAR_MAX = 700;
+const SIDEBAR_OVERLAY_Z_INDEX = 70;
+const SIDEBAR_FULLSCREEN_Z_INDEX = 90;
 /** Max width of the centered chat column in fullscreen mode (Claude-style). */
 const FULLSCREEN_CONTENT_MAX_PX = 760;
 
@@ -1764,7 +1768,7 @@ export function AgentSidebar({
       width,
       maxWidth: "85vw",
       maxHeight: "100vh",
-      zIndex: 40,
+      zIndex: SIDEBAR_OVERLAY_Z_INDEX,
       background: "hsl(var(--background))",
       borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
       borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
@@ -1784,7 +1788,7 @@ export function AgentSidebar({
       inset: 0,
       width: "100%",
       maxHeight: "100vh",
-      zIndex: 40,
+      zIndex: SIDEBAR_FULLSCREEN_Z_INDEX,
       background: "hsl(var(--background))",
       display: open ? "flex" : "none",
     };

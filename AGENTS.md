@@ -163,6 +163,8 @@ Extensions are 100% self-contained. They have FULL access to app data, external 
 
 > Legacy aliases `toolFetch` and `toolData` are still exposed inside the iframe for backward compatibility with existing extension HTML — prefer the `extension*` names in new code.
 
+Use `appAction(name, params)` for template data/actions such as `list-events` or `list-emails`. Extension `appFetch()` is limited to framework `/_agent-native/*` endpoints; template `/api/*` routes are intentionally blocked by the iframe bridge.
+
 **`extensionData` is a built-in per-extension key-value store with user/org scoping.** When a user asks to "add persistence", "save data", or "remember state" in an extension, use `extensionData` — no SQL schema, no new tables, no source code, no Builder. Data is automatically scoped by extension ID. All methods accept an optional `{ scope }` option: `'user'` (default, private), `'org'` (shared with org), or `'all'` (list/get only — returns both).
 
 **NEVER suggest Builder, source code changes, or new files for extension modifications.** All extension changes go through `update-extension-content` (to edit the Alpine.js HTML) or `extensionData` (to persist data).
