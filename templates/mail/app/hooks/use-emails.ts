@@ -606,6 +606,46 @@ export function useTrashEmail() {
   });
 }
 
+export function useMoveEmail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      label,
+      removeLabel,
+    }: {
+      id: string;
+      label: string;
+      removeLabel?: string;
+    }) =>
+      apiFetch(`/_agent-native/actions/move-email`, {
+        method: "POST",
+        body: JSON.stringify({ id, label, removeLabel }),
+      }),
+    onMutate: async ({ id }) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<InfiniteEmails>({
+        queryKey: ["emails"],
+      });
+      const target = previous
+        .flatMap(([, data]) => flattenInfiniteEmails(data))
+        .find((e) => e.id === id);
+      const threadId = target?.threadId || id;
+      invalidateCachedThread(threadId);
+      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+        mapInfiniteEmails(old, (emails) =>
+          emails.filter((e) => (e.threadId || e.id) !== threadId),
+        ),
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+  });
+}
+
 export function useSaveDraft() {
   const qc = useQueryClient();
   return useMutation({
