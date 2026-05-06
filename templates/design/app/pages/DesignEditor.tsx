@@ -208,9 +208,7 @@ export default function DesignEditor() {
   const pendingFileSaveRef = useRef<{ id: string; content: string } | null>(
     null,
   );
-  const fileSaveTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(
-    null,
-  );
+  const fileSaveTimerRef = useRef<number | null>(null);
 
   const queueFileContentSave = useCallback(
     (fileId: string, content: string) => {

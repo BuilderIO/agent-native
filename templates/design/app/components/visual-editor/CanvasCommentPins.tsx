@@ -112,8 +112,7 @@ export function CanvasCommentPins({
         ?.getAttribute("data-builder-id");
       if (builderId) targetSelector = `[data-builder-id="${builderId}"]`;
 
-      const targetText =
-        target?.textContent?.trim().slice(0, 80) || undefined;
+      const targetText = target?.textContent?.trim().slice(0, 80) || undefined;
 
       const newPin: CanvasPin = {
         id: crypto.randomUUID(),
