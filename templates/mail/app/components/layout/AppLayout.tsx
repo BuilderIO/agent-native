@@ -754,8 +754,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   // Get unread counts for tabs
   const getTotalCount = (viewId: string) => {
     const label = labels.find((l) => l.id === viewId);
-    if (label?.unreadCount !== undefined) return label.unreadCount;
     if (labelCounts[viewId] !== undefined) return labelCounts[viewId];
+    if (label?.unreadCount !== undefined) return label.unreadCount;
     return 0;
   };
 
@@ -785,7 +785,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => setSidebarOpen(!sidebarOpen)}
-                    className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+                    className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
                     aria-label="Toggle menu"
                   >
                     <IconMenu2 className="h-4 w-4" />
@@ -904,7 +904,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                               "flex h-6 w-6 items-center justify-center rounded transition-colors",
                               tabSettingsOpen
                                 ? "text-foreground bg-accent/50"
-                                : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30",
+                                : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
                             )}
                             aria-label="Configure tabs"
                           >
@@ -1251,7 +1251,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           href: "/scheduled",
                         },
                         { id: "drafts", label: "Drafts", href: "/drafts" },
-                        { id: "archive", label: "Done", href: "/archive" },
+                        { id: "archive", label: "Archive", href: "/archive" },
                         { id: "trash", label: "Trash", href: "/trash" },
                       ].map((item) => (
                         <Link
@@ -1626,7 +1626,7 @@ function StandardLayout({ children }: AppLayoutProps) {
                         href: "/scheduled",
                       },
                       { id: "drafts", label: "Drafts", href: "/drafts" },
-                      { id: "archive", label: "Done", href: "/archive" },
+                      { id: "archive", label: "Archive", href: "/archive" },
                       { id: "trash", label: "Trash", href: "/trash" },
                     ].map((item) => (
                       <Link

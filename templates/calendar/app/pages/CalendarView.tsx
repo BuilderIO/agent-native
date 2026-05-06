@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
+import { Link } from "react-router";
+import { cn } from "@/lib/utils";
 import {
   format,
   startOfMonth,
@@ -731,6 +733,7 @@ export default function CalendarView() {
                 defaultStartTime={createDefaultStart}
                 defaultEndTime={createDefaultEnd}
               />
+              <AccountAvatars />
               <AgentToggleButton />
             </div>
           </div>
@@ -865,5 +868,58 @@ export default function CalendarView() {
         />
       </div>
     </TooltipProvider>
+  );
+}
+
+function AccountAvatars() {
+  const googleStatus = useGoogleAuthStatus();
+  const accounts = googleStatus.data?.accounts ?? [];
+  if (accounts.length === 0) return null;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Link
+          to="/settings"
+          className="flex items-center hover:opacity-90 ml-1"
+          aria-label="Manage accounts"
+        >
+          <div className="flex items-center">
+            {accounts.map((account, i) => (
+              <div
+                key={account.email}
+                className={cn("relative rounded-full ring-2 ring-card")}
+                style={{
+                  marginLeft: i === 0 ? 0 : -8,
+                  zIndex: accounts.length - i,
+                }}
+              >
+                {account.photoUrl ? (
+                  <img
+                    src={account.photoUrl}
+                    alt=""
+                    className="h-7 w-7 rounded-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 text-[11px] font-semibold text-primary">
+                    {account.email[0]?.toUpperCase()}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </Link>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        <div className="space-y-0.5">
+          {accounts.map((a) => (
+            <div key={a.email} className="text-xs">
+              {a.email}
+            </div>
+          ))}
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
 }

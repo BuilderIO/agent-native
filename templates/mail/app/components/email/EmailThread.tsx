@@ -41,8 +41,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  IconArchive,
   IconArrowLeft,
-  IconCheck,
   IconChevronUp,
   IconChevronDown,
   IconExternalLink,
@@ -580,7 +580,7 @@ export function EmailThread({
     toast(
       targets.length > 1
         ? `Archived ${targets.length} conversations.`
-        : "Marked as Done.",
+        : "Archived.",
       {
         action: { label: "UNDO", onClick: undo },
         position: isMobile ? "top-center" : undefined,
@@ -1120,10 +1120,10 @@ export function EmailThread({
                       onClick={handleArchive}
                       className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                     >
-                      <IconCheck className="h-4 w-4" />
+                      <IconArchive className="h-4 w-4" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>Done (E)</TooltipContent>
+                  <TooltipContent>Archive (E)</TooltipContent>
                 </Tooltip>
                 <button
                   onClick={() => goToSibling(-1)}

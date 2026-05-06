@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   IconBrandApple,
   IconBrandWindows,
@@ -90,7 +90,7 @@ function pickAsset(
   return null;
 }
 
-function downloadButton(
+function primaryDownloadButton(
   variant: PlatformVariant,
   manifest: Manifest | null,
   manifestError: boolean,
@@ -130,10 +130,46 @@ function downloadButton(
   );
 }
 
+function secondaryDownloadButton(
+  variant: PlatformVariant,
+  manifest: Manifest | null,
+  manifestError: boolean,
+) {
+  const asset = pickAsset(manifest, variant);
+  const Icon = variant.icon;
+  const className =
+    "h-auto gap-1.5 px-2 py-1 text-sm font-normal text-muted-foreground hover:bg-transparent hover:text-foreground";
+  if (asset) {
+    return (
+      <Button asChild variant="ghost" className={className}>
+        <a href={asset.url} download>
+          <Icon className="h-4 w-4" />
+          Also available for {variant.label}
+        </a>
+      </Button>
+    );
+  }
+  if (manifest === null && !manifestError) {
+    return null;
+  }
+  return (
+    <Button asChild variant="ghost" className={className}>
+      <a href={RELEASE_PAGE_URL} rel="noreferrer">
+        <Icon className="h-4 w-4" />
+        Also available for {variant.label}
+      </a>
+    </Button>
+  );
+}
+
 export default function DownloadPage() {
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
-  const detected = useMemo(() => detectPlatform(), []);
+  const [detected, setDetected] = useState<PlatformId | null>(null);
+
+  useEffect(() => {
+    setDetected(detectPlatform());
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -186,9 +222,9 @@ export default function DownloadPage() {
             you stop.
           </p>
 
-          <div className="mt-10 flex flex-col items-center gap-4">
-            {downloadButton(primary, manifest, manifestError)}
-            {downloadButton(secondary, manifest, manifestError)}
+          <div className="mt-10 flex flex-col items-center gap-3">
+            {primaryDownloadButton(primary, manifest, manifestError)}
+            {secondaryDownloadButton(secondary, manifest, manifestError)}
             <div className="text-xs text-muted-foreground">
               {manifest ? (
                 <>

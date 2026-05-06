@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import {
-  IconCheck,
+  IconArchive,
   IconTrash,
   IconStarFilled,
   IconStar,
@@ -60,8 +60,8 @@ const ACTION_META: Record<
   }
 > = {
   archive: {
-    label: "Done",
-    icon: () => <IconCheck className="h-5 w-5" />,
+    label: "Archive",
+    icon: () => <IconArchive className="h-5 w-5" />,
   },
   trash: {
     label: "Trash",

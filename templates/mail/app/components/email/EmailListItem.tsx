@@ -1,6 +1,7 @@
 import { memo, useRef, useState, useCallback } from "react";
 import { cn, formatEmailDate, truncate } from "@/lib/utils";
 import {
+  IconArchive,
   IconStarFilled,
   IconCheck,
   IconClock,
@@ -28,6 +29,8 @@ interface EmailListItemProps {
   onSelect: () => void;
   onToggleMultiSelect: (e: React.SyntheticEvent) => void;
   onStar: (e: React.MouseEvent) => void;
+  onArchive?: (e: React.MouseEvent) => void;
+  onSnooze?: (e: React.MouseEvent) => void;
   onTrash?: (e: React.MouseEvent) => void;
   onSendNow?: (e: React.MouseEvent) => void;
   onCancelSchedule?: (e: React.MouseEvent) => void;
@@ -141,6 +144,8 @@ export const EmailListItem = memo(function EmailListItem({
   onSelect,
   onToggleMultiSelect,
   onStar,
+  onArchive,
+  onSnooze,
   onTrash,
   onSendNow,
   onCancelSchedule,
@@ -424,7 +429,7 @@ export const EmailListItem = memo(function EmailListItem({
         )}
 
         {/* Selection / unread / account dot */}
-        <div className="relative w-5 shrink-0 flex items-center justify-center">
+        <div className="relative flex h-5 w-5 shrink-0 items-center justify-center">
           <button
             type="button"
             aria-label={isMultiSelected ? "Deselect email" : "Select email"}
@@ -525,6 +530,32 @@ export const EmailListItem = memo(function EmailListItem({
 
         {/* Hover actions — overlay on top of time */}
         <div className="hover-actions items-center gap-0.5">
+          {onArchive && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onArchive}
+                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400"
+                >
+                  <IconArchive className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Archive</TooltipContent>
+            </Tooltip>
+          )}
+          {onSnooze && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onSnooze}
+                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400"
+                >
+                  <IconClock className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Snooze</TooltipContent>
+            </Tooltip>
+          )}
           {onSendNow && (
             <Tooltip>
               <TooltipTrigger asChild>

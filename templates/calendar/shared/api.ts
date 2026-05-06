@@ -160,7 +160,7 @@ export interface BookingLink {
 
 export interface GoogleAuthStatus {
   connected: boolean;
-  accounts: Array<{ email: string; expiresAt?: string }>;
+  accounts: Array<{ email: string; expiresAt?: string; photoUrl?: string }>;
 }
 
 export interface ExternalCalendar {

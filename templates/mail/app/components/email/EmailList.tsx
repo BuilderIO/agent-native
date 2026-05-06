@@ -1,4 +1,14 @@
-import { IconAlertCircle, IconTrash, IconX } from "@tabler/icons-react";
+import {
+  IconAlertCircle,
+  IconArchive,
+  IconClock,
+  IconInbox,
+  IconMail,
+  IconSend,
+  IconStar,
+  IconTrash,
+  IconX,
+} from "@tabler/icons-react";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { cn } from "@/lib/utils";
@@ -127,6 +137,74 @@ export function InboxZero() {
         </p>
         <p className="text-[13px] text-white/60 drop-shadow-lg mt-0.5">
           You&rsquo;re all caught up
+        </p>
+      </div>
+    </div>
+  );
+}
+
+const EMPTY_VIEW_COPY: Record<
+  string,
+  {
+    title: string;
+    subtitle: string;
+    icon: typeof IconMail;
+  }
+> = {
+  snoozed: {
+    title: "No snoozed emails",
+    subtitle: "Snoozed conversations will reappear here until their return time.",
+    icon: IconClock,
+  },
+  scheduled: {
+    title: "No scheduled emails",
+    subtitle: "Messages scheduled to send later will appear here.",
+    icon: IconSend,
+  },
+  starred: {
+    title: "No pinned emails",
+    subtitle: "Pinned conversations stay here for quick access.",
+    icon: IconStar,
+  },
+  sent: {
+    title: "No sent emails",
+    subtitle: "Messages you send will appear here.",
+    icon: IconSend,
+  },
+  drafts: {
+    title: "No drafts",
+    subtitle: "Saved compose drafts will appear here.",
+    icon: IconMail,
+  },
+  archive: {
+    title: "No archived emails",
+    subtitle: "Archived conversations will appear here.",
+    icon: IconArchive,
+  },
+  trash: {
+    title: "Trash is empty",
+    subtitle: "Deleted conversations will appear here.",
+    icon: IconTrash,
+  },
+};
+
+function EmptyMailboxState({ view }: { view: string }) {
+  const copy = EMPTY_VIEW_COPY[view] ?? {
+    title: "No emails here",
+    subtitle: "Conversations for this view will appear here.",
+    icon: IconInbox,
+  };
+  const EmptyIcon = copy.icon;
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
+        <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+          <EmptyIcon className="h-5 w-5 text-muted-foreground" />
+        </div>
+        <p className="text-sm font-medium text-foreground/85">{copy.title}</p>
+        <p className="mt-1 max-w-xs text-xs text-muted-foreground">
+          {copy.subtitle}
         </p>
       </div>
     </div>
@@ -403,8 +481,7 @@ export function EmailList({
     setSelectedIds,
   ]);
 
-  const archiveFocused = useCallback(() => {
-    const threadKeys = getActionThreadKeys();
+  const archiveThreadKeys = useCallback((threadKeys: string[]) => {
     if (threadKeys.length === 0) return;
     const actionKeySet = new Set(threadKeys);
 
@@ -470,7 +547,7 @@ export function EmailList({
     toast(
       threadKeys.length > 1
         ? `Archived ${threadKeys.length} conversations.`
-        : "Marked as Done.",
+        : "Archived.",
       { action: { label: "UNDO", onClick: undo } },
     );
     for (const t of targets) {
@@ -490,9 +567,12 @@ export function EmailList({
     labelParam,
     setFocusedId,
     setSelectedIds,
-    getActionThreadKeys,
     queryClient,
   ]);
+
+  const archiveFocused = useCallback(() => {
+    archiveThreadKeys(getActionThreadKeys());
+  }, [archiveThreadKeys, getActionThreadKeys]);
 
   const trashThreadKeys = useCallback(
     (threadKeys: string[]) => {
@@ -806,6 +886,11 @@ export function EmailList({
     trashThreadKeys([key]);
   };
 
+  const handleArchiveThread = (e: React.MouseEvent, thread: ThreadSummary) => {
+    e.stopPropagation();
+    archiveThreadKeys([thread.latestMessage.threadId || thread.latestMessage.id]);
+  };
+
   const getScheduledJobId = (email: EmailMessage): string | null =>
     view === "scheduled" && email.id.startsWith("scheduled-")
       ? email.id.slice("scheduled-".length)
@@ -890,7 +975,7 @@ export function EmailList({
         unarchiveEmail.mutate(id);
       };
       setUndoAction(undo);
-      toast("Marked as Done.", {
+      toast("Archived.", {
         action: { label: "UNDO", onClick: undo },
       });
       archiveEmail.mutate({
@@ -1014,7 +1099,10 @@ export function EmailList({
         </div>
       );
     }
-    return <InboxZero />;
+    if (view === "inbox" && !labelParam) {
+      return <InboxZero />;
+    }
+    return <EmptyMailboxState view={labelParam ? "label" : view} />;
   }
 
   return (
@@ -1033,14 +1121,24 @@ export function EmailList({
               {selectedIds.size} selected
             </span>
           </div>
-          <button
-            type="button"
-            onClick={trashFocused}
-            className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-          >
-            <IconTrash className="h-3.5 w-3.5" />
-            Move to Trash
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={archiveFocused}
+              className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400"
+            >
+              <IconArchive className="h-3.5 w-3.5" />
+              Archive
+            </button>
+            <button
+              type="button"
+              onClick={trashFocused}
+              className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+            >
+              <IconTrash className="h-3.5 w-3.5" />
+              Move to Trash
+            </button>
+          </div>
         </div>
       )}
       <div className="flex-1 overflow-y-auto">
@@ -1057,6 +1155,28 @@ export function EmailList({
             onSelect={() => handleSelect(thread)}
             onToggleMultiSelect={(e) => handleToggleMultiSelect(e, thread)}
             onStar={(e) => handleStar(e, thread)}
+            onArchive={
+              view !== "archive" &&
+              view !== "trash" &&
+              view !== "sent" &&
+              view !== "drafts" &&
+              view !== "scheduled" &&
+              view !== "snoozed"
+                ? (e) => handleArchiveThread(e, thread)
+                : undefined
+            }
+            onSnooze={
+              view !== "snoozed" &&
+              view !== "scheduled" &&
+              view !== "sent" &&
+              view !== "drafts" &&
+              view !== "trash"
+                ? (e) => {
+                    e.stopPropagation();
+                    handleSwipeSnooze(thread);
+                  }
+                : undefined
+            }
             onTrash={
               view === "trash" ? undefined : (e) => handleTrashThread(e, thread)
             }

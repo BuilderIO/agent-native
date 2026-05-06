@@ -15,6 +15,7 @@ import {
   calendarInsertEvent,
   calendarDeleteEvent,
   calendarPatchEvent,
+  peopleGetProfile,
 } from "./google-api.js";
 
 const SCOPES = [
@@ -298,14 +299,25 @@ export async function getAuthStatus(
     return { connected: false, accounts: [] };
   }
 
-  const result: Array<{ email: string; expiresAt?: string }> = [];
+  const result: Array<{
+    email: string;
+    expiresAt?: string;
+    photoUrl?: string;
+  }> = [];
   for (const account of oauthAccounts) {
     const tokens = account.tokens as unknown as GoogleTokens;
+    let photoUrl: string | undefined;
+    try {
+      const accessToken = await getValidAccessToken(account.accountId, tokens);
+      const profile = await peopleGetProfile(accessToken, "photos");
+      photoUrl = profile.photos?.[0]?.url ?? undefined;
+    } catch {}
     result.push({
       email: account.accountId,
       expiresAt: tokens.expiry_date
         ? new Date(tokens.expiry_date).toISOString()
         : undefined,
+      photoUrl,
     });
   }
 
