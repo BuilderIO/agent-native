@@ -75,7 +75,7 @@ export default function ImageGenPanel({
       "Do not render visible words, labels, spec text, prompt text, or UI copy inside the image unless the user's image prompt explicitly asks for exact text.",
     );
     contextParts.push(
-      "Do not browse, search, or inspect brand assets for style phrases like \"Builder.io\" unless the user explicitly asks to set up, import, save, or apply a brand/design system.",
+      'Do not browse, search, or inspect brand assets for style phrases like "Builder.io" unless the user explicitly asks to set up, import, save, or apply a brand/design system.',
     );
 
     if (prompt.trim()) {

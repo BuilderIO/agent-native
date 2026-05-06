@@ -194,20 +194,14 @@ function detectKeys(
   config?: SqlPanel["config"],
   forcedYKeys?: string[],
 ): { xKey: string; yKeys: string[] } {
-  if (config?.xKey && (config?.yKey || config?.yKeys?.length)) {
-    return {
-      xKey: config.xKey,
-      yKeys: config.yKeys ?? (config.yKey ? [config.yKey] : []),
-    };
-  }
-
   if (rows.length === 0) return { xKey: "", yKeys: [] };
 
   const cols = Object.keys(rows[0]);
+  const colSet = new Set(cols);
   const sample = rows[0] as Record<string, unknown>;
 
   // Find the x-axis: prefer a date-like or string column
-  let xKey = config?.xKey || "";
+  let xKey = config?.xKey && colSet.has(config.xKey) ? config.xKey : "";
   if (!xKey) {
     xKey =
       cols.find((c) => {
@@ -224,11 +218,13 @@ function detectKeys(
 
   // Pivoted data: caller already knows the series keys
   if (forcedYKeys && forcedYKeys.length) {
-    return { xKey, yKeys: forcedYKeys };
+    return { xKey, yKeys: forcedYKeys.filter((key) => colSet.has(key)) };
   }
 
   // Y keys: all numeric columns that aren't the x-axis
-  const yKeys = config?.yKeys ?? (config?.yKey ? [config.yKey] : []);
+  const yKeys = (config?.yKeys ?? (config?.yKey ? [config.yKey] : [])).filter(
+    (key) => colSet.has(key),
+  );
   if (yKeys.length === 0) {
     for (const c of cols) {
       if (c === xKey) continue;
@@ -240,6 +236,36 @@ function detectKeys(
   }
 
   return { xKey, yKeys };
+}
+
+function configuredKeysMissingFromRows(
+  rows: Record<string, unknown>[],
+  panel: SqlPanel,
+): string[] {
+  if (rows.length === 0) return [];
+  const rowKeys = new Set(Object.keys(rows[0]));
+  const missing = new Set<string>();
+  const config = panel.config;
+  if (config?.xKey && !rowKeys.has(config.xKey)) missing.add(config.xKey);
+  if (config?.yKey && !rowKeys.has(config.yKey)) missing.add(config.yKey);
+  for (const key of config?.yKeys ?? []) {
+    if (!rowKeys.has(key)) missing.add(key);
+  }
+  for (const col of config?.columns ?? []) {
+    if (!rowKeys.has(col.key)) missing.add(col.key);
+    if (col.linkKey && !rowKeys.has(col.linkKey)) missing.add(col.linkKey);
+  }
+  return Array.from(missing);
+}
+
+function ConfigWarning({ keys }: { keys: string[] }) {
+  if (keys.length === 0) return null;
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+      <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <span>Ignored missing result columns: {keys.join(", ")}</span>
+    </div>
+  );
 }
 
 interface SqlChartProps {
@@ -320,35 +346,45 @@ export function SqlChart({
       : (panel.chartType as string) === "stacked-area"
         ? "area"
         : panel.chartType;
+  const missingConfigKeys = configuredKeysMissingFromRows(rows, panel);
+  const withConfigWarning = (node: ReactNode) =>
+    missingConfigKeys.length > 0 ? (
+      <div className="space-y-2">
+        <ConfigWarning keys={missingConfigKeys} />
+        {node}
+      </div>
+    ) : (
+      node
+    );
 
   if (chartType === "metric") {
-    return <MetricRenderer rows={rows} panel={panel} />;
+    return withConfigWarning(<MetricRenderer rows={rows} panel={panel} />);
   }
 
   if (chartType === "table") {
-    return (
+    return withConfigWarning(
       <TableRenderer
         rows={rows}
         panel={panel}
         onExportCsvChange={onExportCsvChange}
-      />
+      />,
     );
   }
 
   if (chartType === "pie") {
-    return (
+    return withConfigWarning(
       <PieRenderer
         rows={rows}
         xKey={xKey}
         yKey={yKeys[0]}
         colors={colors}
         panel={panel}
-      />
+      />,
     );
   }
 
   if (chartType === "bar") {
-    return (
+    return withConfigWarning(
       <BarRenderer
         rows={rows}
         xKey={xKey}
@@ -357,23 +393,23 @@ export function SqlChart({
         yFormatter={yFormatter}
         stacked={panel.config?.stacked === true}
         panel={panel}
-      />
+      />,
     );
   }
 
   if (chartType === "heatmap") {
-    return <HeatmapRenderer rows={rows} panel={panel} />;
+    return withConfigWarning(<HeatmapRenderer rows={rows} panel={panel} />);
   }
 
   if (chartType === "callout") {
-    return <CalloutRenderer rows={rows} />;
+    return withConfigWarning(<CalloutRenderer rows={rows} />);
   }
 
   if (chartType !== "line" && chartType !== "area") {
-    return <TableRenderer rows={rows} panel={panel} />;
+    return withConfigWarning(<TableRenderer rows={rows} panel={panel} />);
   }
 
-  return (
+  return withConfigWarning(
     <TimeSeriesRenderer
       rows={rows}
       xKey={xKey}
@@ -383,7 +419,7 @@ export function SqlChart({
       chartType={chartType}
       stacked={panel.config?.stacked === true}
       panel={panel}
-    />
+    />,
   );
 }
 
@@ -497,8 +533,12 @@ function TableRenderer({
 
   // Resolve column list: explicit config wins, otherwise infer from first row
   const columns = useMemo<TableColumnConfig[]>(() => {
+    const rowKeys = new Set(Object.keys(rows[0] ?? {}));
     if (config?.columns?.length) {
-      return config.columns.filter((c) => !c.hidden);
+      const configured = config.columns.filter(
+        (c) => !c.hidden && rowKeys.has(c.key),
+      );
+      if (configured.length > 0) return configured;
     }
     return Object.keys(rows[0]).map((key) => ({ key }));
   }, [config?.columns, rows]);
@@ -752,7 +792,9 @@ function PieRenderer({
             {...CHART_TOOLTIP_PROPS}
             content={
               <ChartTooltip
-                valueFormatter={(v) => formatYValue(v, panel.config?.yFormatter)}
+                valueFormatter={(v) =>
+                  formatYValue(v, panel.config?.yFormatter)
+                }
               />
             }
           />

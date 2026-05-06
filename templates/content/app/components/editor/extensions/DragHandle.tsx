@@ -23,6 +23,7 @@ export const DragHandle = Extension.create({
   name: "dragHandle",
 
   addProseMirrorPlugins() {
+    const editor = this.editor;
     let handle: HTMLElement | null = null;
     let currentBlock: HTMLElement | null = null;
     let dragStartPos: number | null = null;
@@ -31,7 +32,7 @@ export const DragHandle = Extension.create({
       const el = document.createElement("div");
       el.className = "drag-handle";
       el.contentEditable = "false";
-      el.draggable = true;
+      el.draggable = false;
       el.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
         <circle cx="5.5" cy="3" r="1.5"/><circle cx="10.5" cy="3" r="1.5"/>
         <circle cx="5.5" cy="8" r="1.5"/><circle cx="10.5" cy="8" r="1.5"/>
@@ -59,6 +60,7 @@ export const DragHandle = Extension.create({
           // On mousedown, select the block node
           handle.addEventListener("mousedown", (e) => {
             e.preventDefault();
+            if (!editor.isEditable) return;
             if (dragStartPos === null) return;
             const sel = NodeSelection.create(
               editorView.state.doc,
@@ -70,6 +72,10 @@ export const DragHandle = Extension.create({
 
           // On dragstart, set up ProseMirror's drag state
           handle.addEventListener("dragstart", (e) => {
+            if (!editor.isEditable) {
+              e.preventDefault();
+              return;
+            }
             if (dragStartPos === null || !e.dataTransfer) return;
 
             const sel = NodeSelection.create(
@@ -97,6 +103,11 @@ export const DragHandle = Extension.create({
           handleDOMEvents: {
             mousemove(view, event) {
               if (!handle) return false;
+              if (!editor.isEditable) {
+                handle.draggable = false;
+                hideHandle();
+                return false;
+              }
 
               const pos = view.posAtCoords({
                 left: event.clientX,
@@ -123,6 +134,7 @@ export const DragHandle = Extension.create({
               const blockRect = block.node.getBoundingClientRect();
 
               handle.style.display = "flex";
+              handle.draggable = true;
               handle.style.top = `${blockRect.top - wrapperRect.top + 2}px`;
               handle.style.left = "-28px";
 

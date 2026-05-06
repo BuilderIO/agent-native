@@ -2,10 +2,17 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import { writeAppState } from "../application-state/script-helpers.js";
 import {
   createExtension,
+  deleteExtension,
+  getHiddenExtensionIdsForCurrentUser,
   getExtension,
+  hideExtension,
+  listExtensions,
+  unhideExtension,
   updateExtension,
   updateExtensionContent,
+  type ExtensionRow,
 } from "./store.js";
+import { resolveAccess } from "../sharing/access.js";
 import {
   addExtensionSlotTarget,
   installExtensionSlot,
@@ -18,6 +25,67 @@ type ExtensionPatch = { find: string; replace: string };
 
 export function createExtensionActionEntries(): Record<string, ActionEntry> {
   return {
+    "list-extensions": {
+      tool: {
+        description:
+          "List extensions visible in the current user's Extensions list/sidebar. Use this before updating, hiding, or deleting existing extensions; do not query the legacy tools table directly for extension management.",
+        parameters: {
+          type: "object",
+          properties: {
+            search: {
+              type: "string",
+              description:
+                "Optional case-insensitive filter matched against id, name, description, and owner email. Example: Connect Zoom.",
+            },
+            includeHidden: {
+              type: "boolean",
+              description:
+                "Include extensions the current user has hidden from their list. Defaults to false.",
+            },
+            includeContent: {
+              type: "boolean",
+              description:
+                "Include full Alpine.js content. Defaults to false to keep results concise.",
+            },
+            limit: {
+              type: "number",
+              description: "Maximum results to return. Defaults to 100.",
+            },
+          },
+        },
+      },
+      run: async (args) => {
+        const includeHidden = coerceBoolean(args?.includeHidden);
+        const includeContent = coerceBoolean(args?.includeContent);
+        const search = String(args?.search ?? "")
+          .trim()
+          .toLowerCase();
+        const limit = coerceLimit(args?.limit);
+        const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
+
+        let rows = await listExtensions({ includeHidden });
+        if (search) {
+          rows = rows.filter((row) =>
+            [row.id, row.name, row.description, row.ownerEmail]
+              .join("\n")
+              .toLowerCase()
+              .includes(search),
+          );
+        }
+
+        rows = rows.slice(0, limit);
+        const extensions = await Promise.all(
+          rows.map((row) => summarizeExtension(row, hiddenIds, includeContent)),
+        );
+        return {
+          ok: true,
+          count: extensions.length,
+          extensions,
+        };
+      },
+      readOnly: true,
+    },
+
     "create-extension": {
       tool: {
         description:
@@ -156,6 +224,92 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         if (!result) result = await getExtension(id);
         if (!result) return `Error: extension not found: ${id}`;
         return { ok: true, extension: result };
+      },
+    },
+
+    "delete-extension": {
+      tool: {
+        description:
+          "Permanently delete an extension everywhere it is shared. Requires owner/admin access. If the user only wants a shared extension removed from their own sidebar/list, use hide-extension instead.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description:
+                "Extension id to permanently delete. Use list-extensions first if you only know the display name.",
+            },
+          },
+          required: ["id"],
+        },
+      },
+      run: async (args) => {
+        const id = String(args?.id ?? "").trim();
+        if (!id) return "Error: id is required.";
+        const extension = await getExtension(id);
+        if (!extension) return `Error: extension not found: ${id}`;
+
+        try {
+          const ok = await deleteExtension(id);
+          if (!ok) return `Error: extension not found: ${id}`;
+          return { ok: true, deleted: summarizeDeletedExtension(extension) };
+        } catch (err: any) {
+          return {
+            ok: false,
+            error: err?.message ?? String(err),
+            next: "If the user wants this gone only from their own view, call hide-extension with the same id.",
+          };
+        }
+      },
+    },
+
+    "hide-extension": {
+      tool: {
+        description:
+          "Hide an accessible extension from the current user's Extensions list/sidebar without deleting it for anyone else. Use this when the user says to remove a shared extension from their view, or when delete-extension reports that the current user is not owner/admin.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description:
+                "Extension id to hide for the current user. Use list-extensions first if you only know the display name.",
+            },
+          },
+          required: ["id"],
+        },
+      },
+      run: async (args) => {
+        const id = String(args?.id ?? "").trim();
+        if (!id) return "Error: id is required.";
+        const extension = await getExtension(id);
+        if (!extension) return `Error: extension not found: ${id}`;
+
+        await hideExtension(id);
+        return { ok: true, hidden: summarizeDeletedExtension(extension) };
+      },
+    },
+
+    "unhide-extension": {
+      tool: {
+        description:
+          "Restore an extension the current user previously hid so it appears in their Extensions list/sidebar again. Use list-extensions with includeHidden=true to find hidden ids.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "Extension id to restore for the current user.",
+            },
+          },
+          required: ["id"],
+        },
+      },
+      run: async (args) => {
+        const id = String(args?.id ?? "").trim();
+        if (!id) return "Error: id is required.";
+        await unhideExtension(id);
+        return { ok: true, id };
       },
     },
 
@@ -305,6 +459,50 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
       readOnly: true,
     },
   };
+}
+
+async function summarizeExtension(
+  row: ExtensionRow,
+  hiddenIds: Set<string>,
+  includeContent: boolean,
+) {
+  const access = await resolveAccess("extension", row.id).catch(() => null);
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    icon: row.icon,
+    ownerEmail: row.ownerEmail,
+    visibility: row.visibility,
+    role: access?.role ?? null,
+    canEdit: access
+      ? ["owner", "admin", "editor"].includes(access.role)
+      : false,
+    canDelete: access ? ["owner", "admin"].includes(access.role) : false,
+    hidden: hiddenIds.has(row.id),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    ...(includeContent ? { content: row.content } : {}),
+  };
+}
+
+function summarizeDeletedExtension(row: ExtensionRow) {
+  return {
+    id: row.id,
+    name: row.name,
+    ownerEmail: row.ownerEmail,
+    visibility: row.visibility,
+  };
+}
+
+function coerceBoolean(value: unknown): boolean {
+  return value === true || value === "true";
+}
+
+function coerceLimit(value: unknown): number {
+  const limit = Number(value ?? 100);
+  if (!Number.isFinite(limit)) return 100;
+  return Math.min(Math.max(1, Math.floor(limit)), 500);
 }
 
 function parsePatches(value: unknown): ExtensionPatch[] | undefined {

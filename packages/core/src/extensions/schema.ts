@@ -32,6 +32,13 @@ export const extensions = table("tools", {
 
 export const extensionShares = createSharesTable("tool_shares");
 
+export const extensionHides = table("tool_hidden_extensions", {
+  id: text("id").primaryKey(),
+  extensionId: text("tool_id").notNull(),
+  ownerEmail: text("owner_email").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+
 export const EXTENSIONS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tools (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -132,6 +139,26 @@ export const EXTENSION_DATA_DROP_OLD_INDEX_SQL_PG = `DROP INDEX IF EXISTS tool_d
 export const EXTENSIONS_OWNER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_owner_idx ON tools (owner_email)`;
 export const EXTENSIONS_ORG_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_org_idx ON tools (org_id)`;
 export const EXTENSION_SHARES_RESOURCE_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tool_shares_resource_idx ON tool_shares (resource_id)`;
+
+export const EXTENSION_HIDES_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_hidden_extensions (
+  id TEXT PRIMARY KEY,
+  tool_id TEXT NOT NULL,
+  owner_email TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)`;
+
+export const EXTENSION_HIDES_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tool_hidden_extensions (
+  id TEXT PRIMARY KEY,
+  tool_id TEXT NOT NULL,
+  owner_email TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT now()
+)`;
+
+export const EXTENSION_HIDES_UNIQUE_INDEX_SQL = `CREATE UNIQUE INDEX IF NOT EXISTS tool_hidden_extensions_user_tool_idx
+  ON tool_hidden_extensions (owner_email, tool_id)`;
+
+export const EXTENSION_HIDES_OWNER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tool_hidden_extensions_owner_idx
+  ON tool_hidden_extensions (owner_email)`;
 
 // ---------------------------------------------------------------------------
 // extension_consents — vestigial, kept for additive-schema compliance

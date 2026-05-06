@@ -14,6 +14,7 @@ import {
 import { registerShareableResource } from "../sharing/registry.js";
 import {
   extensions,
+  extensionHides,
   extensionShares,
   EXTENSIONS_CREATE_SQL,
   EXTENSIONS_CREATE_SQL_PG,
@@ -28,12 +29,16 @@ import {
   EXTENSIONS_OWNER_INDEX_SQL,
   EXTENSIONS_ORG_INDEX_SQL,
   EXTENSION_SHARES_RESOURCE_INDEX_SQL,
+  EXTENSION_HIDES_CREATE_SQL,
+  EXTENSION_HIDES_CREATE_SQL_PG,
+  EXTENSION_HIDES_UNIQUE_INDEX_SQL,
+  EXTENSION_HIDES_OWNER_INDEX_SQL,
   EXTENSION_CONSENTS_CREATE_SQL,
   EXTENSION_CONSENTS_CREATE_SQL_PG,
   EXTENSION_CONSENTS_VIEWER_INDEX_SQL,
 } from "./schema.js";
 
-const getDb = createGetDb({ extensions, extensionShares });
+const getDb = createGetDb({ extensions, extensionShares, extensionHides });
 
 let _initPromise: Promise<void> | undefined;
 
@@ -72,6 +77,17 @@ export async function ensureExtensionsTables(): Promise<void> {
       await retryOnDdlRace(() => client.execute(EXTENSIONS_ORG_INDEX_SQL));
       await retryOnDdlRace(() =>
         client.execute(EXTENSION_SHARES_RESOURCE_INDEX_SQL),
+      );
+      await retryOnDdlRace(() =>
+        client.execute(
+          pg ? EXTENSION_HIDES_CREATE_SQL_PG : EXTENSION_HIDES_CREATE_SQL,
+        ),
+      );
+      await retryOnDdlRace(() =>
+        client.execute(EXTENSION_HIDES_UNIQUE_INDEX_SQL),
+      );
+      await retryOnDdlRace(() =>
+        client.execute(EXTENSION_HIDES_OWNER_INDEX_SQL),
       );
       // tool_consents was introduced for an audit-C1 per-viewer consent
       // gate that we removed once we settled on intra-org trust as the
@@ -201,15 +217,25 @@ export interface ExtensionRow {
   visibility: "private" | "org" | "public";
 }
 
-export async function listExtensions(): Promise<ExtensionRow[]> {
+export interface ListExtensionsOptions {
+  includeHidden?: boolean;
+}
+
+export async function listExtensions(
+  options: ListExtensionsOptions = {},
+): Promise<ExtensionRow[]> {
   await ensureExtensionsTables();
   const db = getDb();
-  return db
+  const rows = (await db
     .select()
     .from(extensions)
-    .where(accessFilter(extensions, extensionShares)) as Promise<
-    ExtensionRow[]
-  >;
+    .where(accessFilter(extensions, extensionShares))) as ExtensionRow[];
+
+  if (options.includeHidden) return rows;
+
+  const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
+  if (hiddenIds.size === 0) return rows;
+  return rows.filter((row) => !hiddenIds.has(row.id));
 }
 
 export async function getExtension(id: string): Promise<ExtensionRow | null> {
@@ -322,6 +348,7 @@ export async function deleteExtension(id: string): Promise<boolean> {
   const rows = await db.select().from(extensions).where(eq(extensions.id, id));
   if (!rows[0]) return false;
   await db.delete(extensionShares).where(eq(extensionShares.resourceId, id));
+  await db.delete(extensionHides).where(eq(extensionHides.extensionId, id));
   await getDbExec().execute({
     sql: `DELETE FROM tool_data WHERE tool_id = ?`,
     args: [id],
@@ -329,5 +356,55 @@ export async function deleteExtension(id: string): Promise<boolean> {
   const { cascadeDeleteExtensionSlots } = await import("./slots/store.js");
   await cascadeDeleteExtensionSlots(id);
   await db.delete(extensions).where(eq(extensions.id, id));
+  return true;
+}
+
+export async function getHiddenExtensionIdsForCurrentUser(): Promise<
+  Set<string>
+> {
+  await ensureExtensionsTables();
+  const userEmail = getRequestUserEmail();
+  if (!userEmail) return new Set();
+
+  const db = getDb();
+  const rows = await db
+    .select({ extensionId: extensionHides.extensionId })
+    .from(extensionHides)
+    .where(eq(extensionHides.ownerEmail, userEmail));
+  return new Set(rows.map((row) => row.extensionId));
+}
+
+export async function isExtensionHiddenForCurrentUser(
+  id: string,
+): Promise<boolean> {
+  const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
+  return hiddenIds.has(id);
+}
+
+export async function hideExtension(id: string): Promise<boolean> {
+  await ensureExtensionsTables();
+  await assertAccess("extension", id, "viewer");
+  const userEmail = getRequestUserEmail();
+  if (!userEmail) throw new Error("no authenticated user");
+
+  const now = new Date().toISOString();
+  await getDbExec().execute({
+    sql: `INSERT INTO tool_hidden_extensions (id, tool_id, owner_email, created_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT (owner_email, tool_id) DO NOTHING`,
+    args: [randomUUID(), id, userEmail, now],
+  });
+  return true;
+}
+
+export async function unhideExtension(id: string): Promise<boolean> {
+  await ensureExtensionsTables();
+  const userEmail = getRequestUserEmail();
+  if (!userEmail) throw new Error("no authenticated user");
+
+  await getDbExec().execute({
+    sql: `DELETE FROM tool_hidden_extensions WHERE tool_id = ? AND owner_email = ?`,
+    args: [id, userEmail],
+  });
   return true;
 }

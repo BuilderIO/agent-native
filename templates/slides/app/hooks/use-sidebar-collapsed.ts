@@ -4,9 +4,42 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 const KEY = "sidebarCollapsed";
 const URL = `/_agent-native/application-state/${KEY}`;
 const QUERY_KEY = ["app-state", KEY] as const;
+export const SIDEBAR_COLLAPSED_STORAGE_KEY =
+  "agent-native-slides-sidebar-collapsed";
 
 interface SidebarCollapsedState {
   collapsed: boolean;
+}
+
+function readStoredCollapsed(): SidebarCollapsedState | undefined {
+  if (typeof window === "undefined") return undefined;
+
+  try {
+    const stored = window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY);
+    if (stored === "true") return { collapsed: true };
+    if (stored === "false") return { collapsed: false };
+  } catch {
+    // localStorage is best-effort; application-state remains the source of truth.
+  }
+
+  return undefined;
+}
+
+function writeStoredCollapsed(collapsed: boolean) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(
+      SIDEBAR_COLLAPSED_STORAGE_KEY,
+      String(collapsed),
+    );
+  } catch {
+    // localStorage is best-effort; application-state remains the source of truth.
+  }
+}
+
+function fallbackState(): SidebarCollapsedState {
+  return readStoredCollapsed() ?? { collapsed: false };
 }
 
 export function useSidebarCollapsed() {
@@ -14,16 +47,23 @@ export function useSidebarCollapsed() {
 
   const { data } = useQuery<SidebarCollapsedState>({
     queryKey: QUERY_KEY,
+    initialData: readStoredCollapsed,
     queryFn: async () => {
-      const res = await fetch(URL);
-      if (!res.ok) return { collapsed: false };
-      const text = await res.text();
-      if (!text) return { collapsed: false };
       try {
-        const parsed = JSON.parse(text);
-        return { collapsed: Boolean(parsed?.collapsed) };
+        const res = await fetch(URL);
+        if (!res.ok) return fallbackState();
+        const text = await res.text();
+        if (!text) return fallbackState();
+        try {
+          const parsed = JSON.parse(text);
+          const state = { collapsed: Boolean(parsed?.collapsed) };
+          writeStoredCollapsed(state.collapsed);
+          return state;
+        } catch {
+          return fallbackState();
+        }
       } catch {
-        return { collapsed: false };
+        return fallbackState();
       }
     },
     refetchInterval: 2_000,
@@ -40,8 +80,11 @@ export function useSidebarCollapsed() {
       // when a stale 2s poll lands after the click).
       await qc.cancelQueries({ queryKey: QUERY_KEY });
       const prev =
-        qc.getQueryData<SidebarCollapsedState>(QUERY_KEY)?.collapsed ?? false;
+        qc.getQueryData<SidebarCollapsedState>(QUERY_KEY)?.collapsed ??
+        readStoredCollapsed()?.collapsed ??
+        false;
       const nextVal = typeof next === "function" ? next(prev) : next;
+      writeStoredCollapsed(nextVal);
       qc.setQueryData<SidebarCollapsedState>(QUERY_KEY, { collapsed: nextVal });
       fetch(URL, {
         method: "PUT",

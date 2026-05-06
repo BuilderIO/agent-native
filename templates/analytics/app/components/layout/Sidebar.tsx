@@ -643,10 +643,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const light = resolvedTheme === "light";
 
   useEffect(() => {
-    if (
-      typeof window !== "undefined" &&
-      window.localStorage.getItem("theme")
-    ) {
+    if (typeof window !== "undefined" && window.localStorage.getItem("theme")) {
       return;
     }
     fetch(appApiPath("/api/theme"))

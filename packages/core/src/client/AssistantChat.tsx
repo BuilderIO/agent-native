@@ -2934,14 +2934,38 @@ const AssistantChatInner = forwardRef<
     setTimeout(scrollToBottom, 80);
   }, [scrollToBottom]);
 
+  const scrollToBottomWhileLayoutSettles = useCallback(() => {
+    scrollToBottomAfterPaint();
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+
+    let stopped = false;
+    const observer = new ResizeObserver(() => {
+      if (!stopped) scrollToBottom();
+    });
+    observer.observe(el);
+    const timeout = window.setTimeout(() => {
+      stopped = true;
+      observer.disconnect();
+      scrollToBottom();
+    }, 1600);
+
+    return () => {
+      stopped = true;
+      window.clearTimeout(timeout);
+      observer.disconnect();
+    };
+  }, [scrollToBottom, scrollToBottomAfterPaint]);
+
   // Scroll to bottom when a restored thread finishes loading
   const wasRestoringRef = useRef(isRestoring);
   useEffect(() => {
-    if (wasRestoringRef.current && !isRestoring) {
-      scrollToBottomAfterPaint();
-    }
+    const wasRestoring = wasRestoringRef.current;
     wasRestoringRef.current = isRestoring;
-  }, [isRestoring, scrollToBottomAfterPaint]);
+    if (wasRestoring && !isRestoring) {
+      return scrollToBottomWhileLayoutSettles();
+    }
+  }, [isRestoring, scrollToBottomWhileLayoutSettles]);
 
   // Auto-scroll on new messages or queued messages (only if near bottom)
   useEffect(() => {
