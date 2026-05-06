@@ -1,6 +1,44 @@
 import type { ActionTool } from "./agent/types.js";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
+export interface AgentActionStopOptions {
+  /** Optional stable code surfaced in run metadata and tests. */
+  errorCode?: string;
+  /** Optional short tool-result text. Defaults to the user-facing message. */
+  toolResult?: string;
+}
+
+/**
+ * Throw from an action when the agent should stop the current turn instead of
+ * feeding the failure back to the model for another retry.
+ */
+export class AgentActionStopError extends Error {
+  readonly agentNativeStop = true;
+  readonly errorCode?: string;
+  readonly toolResult?: string;
+
+  constructor(message: string, options: AgentActionStopOptions = {}) {
+    super(message);
+    this.name = "AgentActionStopError";
+    this.errorCode = options.errorCode;
+    this.toolResult = options.toolResult;
+  }
+}
+
+export function isAgentActionStopError(
+  err: unknown,
+): err is AgentActionStopError {
+  return (
+    err instanceof AgentActionStopError ||
+    Boolean(
+      err &&
+        typeof err === "object" &&
+        "agentNativeStop" in err &&
+        (err as { agentNativeStop?: unknown }).agentNativeStop === true,
+    )
+  );
+}
+
 /** HTTP exposure config for an action. */
 export interface ActionHttpConfig {
   /** HTTP method. Default: "POST". Use "GET" for read-only actions. */

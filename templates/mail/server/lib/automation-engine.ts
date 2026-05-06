@@ -486,10 +486,7 @@ Be precise: only mark a rule as matching if the email clearly fits the condition
       ) {
         throw err;
       }
-      console.error(
-        "[automation-engine] Rule evaluation failed:",
-        err.message,
-      );
+      console.error("[automation-engine] Rule evaluation failed:", err.message);
       // Skip this batch, will retry on next cron tick
     }
   }
@@ -572,7 +569,12 @@ export async function processAutomationsForAccount(
   }
 
   // 5. Evaluate rules with AI
-  const matches = await evaluateRules(messages, rules, ownerEmail, modelSettings);
+  const matches = await evaluateRules(
+    messages,
+    rules,
+    ownerEmail,
+    modelSettings,
+  );
 
   // 6. Execute matched actions
   if (matches.size > 0) {

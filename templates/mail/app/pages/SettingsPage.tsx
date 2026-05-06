@@ -832,8 +832,11 @@ function AutomationsSection() {
     storageKey: "agent-native:mail-automations:model",
   });
   const modelOptions = useMemo(() => {
-    const configuredGroups = availableModels.filter((group) => group.configured);
-    const groups = configuredGroups.length > 0 ? configuredGroups : availableModels;
+    const configuredGroups = availableModels.filter(
+      (group) => group.configured,
+    );
+    const groups =
+      configuredGroups.length > 0 ? configuredGroups : availableModels;
     return groups.flatMap((group) =>
       group.models.map((model) => ({
         value: `${group.engine}::${model}`,

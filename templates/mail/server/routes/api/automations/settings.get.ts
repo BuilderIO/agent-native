@@ -10,14 +10,13 @@ export default defineEventHandler(async (event) => {
   }
   const email = session.email;
   const data = await getUserSetting(email, "automation-settings");
-  const agentEngine = (await getSetting("agent-engine").catch(() => null)) as
-    | { engine?: string; model?: string }
-    | null;
+  const agentEngine = (await getSetting("agent-engine").catch(() => null)) as {
+    engine?: string;
+    model?: string;
+  } | null;
   return {
     engine: (data as any)?.engine || agentEngine?.engine || "anthropic",
     model:
-      (data as any)?.model ||
-      agentEngine?.model ||
-      "claude-haiku-4-5-20251001",
+      (data as any)?.model || agentEngine?.model || "claude-haiku-4-5-20251001",
   };
 });

@@ -58,6 +58,7 @@ import {
   normalizeReasoningEffortForModel,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
+import { isAgentActionStopError } from "../action.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
@@ -985,6 +986,10 @@ export async function runAgentLoop(opts: {
 
     if (toolCallParts.length === 0) break;
 
+    let requestedActionStop:
+      | { message: string; errorCode?: string }
+      | null = null;
+
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
@@ -1066,7 +1071,16 @@ export async function runAgentLoop(opts: {
         }
         result = resultStr;
       } catch (err: any) {
-        result = `Error running ${toolCall.name}: ${err?.message ?? String(err)}`;
+        if (isAgentActionStopError(err)) {
+          const message = err.message || `Stopped after ${toolCall.name} failed.`;
+          result = err.toolResult || message;
+          requestedActionStop ??= {
+            message,
+            ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+          };
+        } else {
+          result = `Error running ${toolCall.name}: ${err?.message ?? String(err)}`;
+        }
         isError = true;
       }
 
@@ -1145,6 +1159,10 @@ export async function runAgentLoop(opts: {
     await flushParallelBatch();
 
     messages.push({ role: "user", content: toolResultParts });
+    if (requestedActionStop) {
+      send({ type: "text", text: requestedActionStop.message });
+      break;
+    }
   }
 
   if (!signal.aborted) send({ type: "done" });

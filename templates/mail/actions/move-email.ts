@@ -28,7 +28,11 @@ const SYSTEM_LABELS: Record<string, string> = {
 };
 
 function normalizeLabel(value: string): string {
-  return value.toLowerCase().replace(/^label:/, "").replace(/_/g, " ").trim();
+  return value
+    .toLowerCase()
+    .replace(/^label:/, "")
+    .replace(/_/g, " ")
+    .trim();
 }
 
 function resolveLabelId(input: string, labels: GmailLabel[]): string | null {
@@ -52,10 +56,7 @@ export default defineAction({
   description:
     "Move one or more email threads to a Gmail label/folder. Removes Inbox and the current label by default.",
   schema: z.object({
-    id: z
-      .string()
-      .optional()
-      .describe("Email ID(s) to move, comma-separated"),
+    id: z.string().optional().describe("Email ID(s) to move, comma-separated"),
     label: z
       .string()
       .optional()
@@ -128,9 +129,12 @@ export default defineAction({
             const removeLabelId = resolveLabelId(args.removeLabel, labels);
             if (removeLabelId) removeLabelIds.push(removeLabelId);
           }
-          await gmailModifyThread(accessToken, msg.threadId, [addLabelId], [
-            ...new Set(removeLabelIds),
-          ]);
+          await gmailModifyThread(
+            accessToken,
+            msg.threadId,
+            [addLabelId],
+            [...new Set(removeLabelIds)],
+          );
           success = true;
           break;
         } catch (err: any) {

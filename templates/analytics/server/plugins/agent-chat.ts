@@ -65,7 +65,8 @@ export default createAgentChatPlugin({
     const sourceGuidance =
       "<data-source-guidance>\n" +
       "Use configured data sources and actions only. Call `data-source-status` when you need to know which providers are connected, and treat provider actions as unavailable for analysis if they return missing credentials, permission, syntax, quota, or network errors. " +
-      'If `bigquery` returns `{ error: "bigquery_not_configured", message, settingsPath }`, surface that message and the settings path to the user. ' +
+      "If a provider action fails, stop using that provider for the turn, surface the actual error, and wait for the user to choose whether to fix SQL, use another source, or retry. Do not loop through more queries after a failed provider call. " +
+      "For ordinary ad-hoc data questions, answer the explicit question after the first relevant successful query instead of continuing into suggested follow-up investigations. " +
       "For schema questions, prefer data-dictionary entries and configured warehouse schemas over assumptions. " +
       "Never substitute fabricated numbers for a failed query or unavailable provider.\n" +
       "</data-source-guidance>";
