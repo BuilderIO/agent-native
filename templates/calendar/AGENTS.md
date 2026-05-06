@@ -121,7 +121,7 @@ cd templates/calendar && pnpm action <name> [args]
 | Action                 | Args                                                                                                                                             | Purpose                                       |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------- |
 | `list-events`          | `--from`, `--to`, `--query`, `--json`                                                                                                            | Query Google Calendar events                  |
-| `search-events`        | `--query` (required), `--from`, `--to`                                                                                                           | Search events by title                        |
+| `search-events`        | `--query` (required), `--from`, `--to`                                                                                                           | Search events broadly, including recurring meetings |
 | `get-event`            | `--id` (required), `--calendarId` (default: primary)                                                                                             | Fetch a single event by id                    |
 | `create-event`         | `--title`, `--start`, `--end`, `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`                     | Create event on Google Calendar               |
 | `update-event`         | `--id`, optional `--title`, `--start`, `--end`, `--recurrence`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`, `--accountEmail` | Update an event or recurrence                 |
@@ -171,6 +171,8 @@ The `--to` bound is exclusive, so use tomorrow's date for today's events.
 
 **For "today" / "this week" / relative dates, anchor on `currentDateInTimezone` from the runtime context — not on `navigation.date`.** The user may be looking at a different week than the actual current week. Computing "today" from the calendar's displayed date will be wrong any time the user has scrolled.
 
+For relationship-frequency questions like "how often do I meet with Mattel?", use `search-events --query <name>` first. It searches a broad one-year past/future window across titles, people, organizers, locations, and descriptions so recurring series outside the visible range are not missed.
+
 ## Common Tasks
 
 | User request                        | What to do                                                                                                           |
@@ -179,6 +181,7 @@ The `--to` bound is exclusive, so use tomorrow's date for today's events.
 | "What am I looking at?"             | `view-screen`                                                                                                        |
 | "Am I free Tuesday at 2pm?"         | `check-availability --date <tuesday>`                                                                                |
 | "Find a 1-hour slot this week"      | `check-availability` for each day with `--duration 60`                                                               |
+| "How often do I meet with X?"       | `search-events --query <X>`, then group by recurring series/title and dates                                          |
 | "Schedule a meeting with Alice"     | `create-event --title "Meeting with Alice" --start ... --end ... --attendees alice@example.com`                      |
 | "Schedule a Google Meet with Alice" | `create-event --title "Meeting with Alice" --start ... --end ... --attendees alice@example.com --addGoogleMeet=true` |
 | "Schedule a Zoom with Alice"        | `create-event --title "Meeting with Alice" --start ... --end ... --attendees alice@example.com --addZoom=true`       |

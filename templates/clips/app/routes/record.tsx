@@ -386,6 +386,7 @@ export default function RecordRoute() {
 
         const status = await fetchVideoStorageStatus();
         if (isStale()) {
+          await liveTranscription.stopAndWait().catch(() => "");
           await engine.cancel().catch(() => {});
           return;
         }
@@ -437,6 +438,7 @@ export default function RecordRoute() {
         }
         // Cancelled mid-POST: pendingRef is still null, so trash directly.
         if (isStale()) {
+          await liveTranscription.stopAndWait().catch(() => "");
           fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },

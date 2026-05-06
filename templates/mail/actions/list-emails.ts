@@ -39,24 +39,52 @@ function toCompact(emails: any[]): any[] {
     snippet: e.snippet,
     date: e.date,
     isRead: e.isRead,
+    hasUnread: e.hasUnread ?? !e.isRead,
+    unreadCount: e.unreadCount,
+    messageCount: e.messageCount,
     isStarred: e.isStarred,
     accountEmail: e.accountEmail,
   }));
 }
 
 function latestPerThread(emails: any[]): any[] {
-  const byThread = new Map<string, any>();
+  const byThread = new Map<
+    string,
+    { latest: any; hasUnread: boolean; unreadCount: number; messageCount: number }
+  >();
   for (const email of emails) {
     const key = `${email.accountEmail ?? ""}:${email.threadId || email.id}`;
     const existing = byThread.get(key);
+    if (!existing) {
+      byThread.set(key, {
+        latest: email,
+        hasUnread: !email.isRead,
+        unreadCount: email.isRead ? 0 : 1,
+        messageCount: 1,
+      });
+      continue;
+    }
+    existing.messageCount += 1;
+    if (!email.isRead) {
+      existing.hasUnread = true;
+      existing.unreadCount += 1;
+    }
     if (
-      !existing ||
-      new Date(email.date).getTime() > new Date(existing.date).getTime()
+      new Date(email.date).getTime() >
+      new Date(existing.latest.date).getTime()
     ) {
-      byThread.set(key, email);
+      existing.latest = email;
     }
   }
-  return Array.from(byThread.values()).sort(
+  return Array.from(byThread.values()).map(
+    ({ latest, hasUnread, unreadCount, messageCount }) => ({
+      ...latest,
+      isRead: !hasUnread,
+      hasUnread,
+      unreadCount,
+      messageCount,
+    }),
+  ).sort(
     (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   );
 }
@@ -99,6 +127,9 @@ export default defineAction({
       .number()
       .optional()
       .describe("Max number of emails to return (default: 50)"),
+    includeCounts: cliBoolean
+      .optional()
+      .describe("Set to true to include thread/page unread counts and Gmail total estimate"),
     compact: cliBoolean.optional().describe("Set to true for compact output"),
   }),
   http: { method: "GET" },
@@ -106,6 +137,7 @@ export default defineAction({
     const view = args.view ?? "inbox";
     const query = args.q;
     const limit = args.limit ?? 50;
+    const includeCounts = args.includeCounts === true;
     const compact = args.compact !== false;
     const accountFilter = args.account?.toLowerCase();
     const ownerEmail = getRequestUserEmail();
@@ -152,7 +184,7 @@ export default defineAction({
       const gmailQuery = [viewPrefix, query].filter(Boolean).join(" ");
       const effectiveQuery =
         view === "all" && !query ? "" : gmailQuery || "in:inbox -in:sent";
-      const { messages, errors } = await listGmailMessages(
+      const { messages, errors, resultSizeEstimate } = await listGmailMessages(
         effectiveQuery,
         limit,
         ownerEmail,
@@ -179,7 +211,22 @@ export default defineAction({
 
       emails = latestPerThread(emails).slice(0, limit);
 
-      return JSON.stringify(compact ? toCompact(emails) : emails, null, 2);
+      const payload = compact ? toCompact(emails) : emails;
+      if (includeCounts) {
+        return JSON.stringify(
+          {
+            emails: payload,
+            threadCount: emails.length,
+            unreadInPage: emails.filter((e: any) => e.hasUnread).length,
+            ...(resultSizeEstimate !== undefined && {
+              totalEstimate: resultSizeEstimate,
+            }),
+          },
+          null,
+          2,
+        );
+      }
+      return JSON.stringify(payload, null, 2);
     }
 
     // Fallback: local store
@@ -230,10 +277,20 @@ export default defineAction({
       );
     }
 
-    return JSON.stringify(
-      compact ? toCompact(emails.slice(0, limit)) : emails.slice(0, limit),
-      null,
-      2,
-    );
+    emails = latestPerThread(emails).slice(0, limit);
+    const payload = compact ? toCompact(emails) : emails;
+    if (includeCounts) {
+      return JSON.stringify(
+        {
+          emails: payload,
+          threadCount: emails.length,
+          unreadInPage: emails.filter((e: any) => e.hasUnread).length,
+          totalEstimate: emails.length,
+        },
+        null,
+        2,
+      );
+    }
+    return JSON.stringify(payload, null, 2);
   },
 });

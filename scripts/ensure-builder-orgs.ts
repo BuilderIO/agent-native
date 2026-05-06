@@ -222,15 +222,16 @@ function discoverTemplateApps(): string[] {
       const parsed = parseEnv(fs.readFileSync(envPath, "utf8"));
       const appKey = app.toUpperCase().replace(/-/g, "_");
       return Boolean(
-        parsed[`${appKey}_DATABASE_URL`]?.trim() ||
-          parsed.DATABASE_URL?.trim(),
+        parsed[`${appKey}_DATABASE_URL`]?.trim() || parsed.DATABASE_URL?.trim(),
       );
     })
     .sort();
 }
 
 function loadEnvFileIfPresent(envPath: string): Record<string, string> {
-  return fs.existsSync(envPath) ? parseEnv(fs.readFileSync(envPath, "utf8")) : {};
+  return fs.existsSync(envPath)
+    ? parseEnv(fs.readFileSync(envPath, "utf8"))
+    : {};
 }
 
 function loadAppEnv(app: string): AppEnv {
@@ -888,13 +889,15 @@ async function ensureBuilderOrgSecrets(
     secrets: BuilderOrgSecrets;
     encryptionMaterial?: string;
   },
-): Promise<Pick<
-  EnsureResult,
-  | "builderSecretsProvided"
-  | "builderSecretsSynced"
-  | "builderSecretsTableMissing"
-  | "builderSecretsMissing"
->> {
+): Promise<
+  Pick<
+    EnsureResult,
+    | "builderSecretsProvided"
+    | "builderSecretsSynced"
+    | "builderSecretsTableMissing"
+    | "builderSecretsMissing"
+  >
+> {
   const existingKeys = new Set<string>();
   let tableMissing = false;
   try {
