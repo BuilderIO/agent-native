@@ -46,6 +46,7 @@ import {
   getAccountDisplayName,
   setAccountDisplayName,
 } from "../lib/google-auth.js";
+import { buildGmailEmailSearchQuery } from "../lib/gmail-query.js";
 import {
   incrementSendFrequency,
   getContactFrequencyMap,
@@ -120,12 +121,6 @@ const THREAD_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 function threadCacheKey(ownerEmail: string, threadId: string) {
   return `${ownerEmail}:${threadId}`;
-}
-
-function gmailLabelSearchClause(label: string): string {
-  const value = label.trim().replace(/\s+/g, "-").replace(/"/g, '\\"');
-  if (!value) return "";
-  return /[/"()]/.test(value) ? `label:"${value}"` : `label:${value}`;
 }
 
 export function invalidateThreadCache(ownerEmail: string, threadId: string) {
@@ -412,70 +407,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         }
       }
 
-      // Map view to Gmail search query.
-      // `-in:sent` excludes user-sent messages (replies the user wrote get
-      // both INBOX and SENT labels in Gmail) so they don't pollute the inbox.
-      const gmailQuery: Record<string, string> = {
-        inbox: "in:inbox -in:sent",
-        unread: "is:unread in:inbox -in:sent",
-        starred: "is:starred",
-        sent: "in:sent",
-        drafts: "in:drafts",
-        archive: "-in:inbox -in:sent -in:drafts -in:trash",
-        trash: "in:trash",
-        all: "",
-      };
-      let searchQuery: string;
-      if (q) {
-        // Gmail's plain search already matches subject, body, sender name,
-        // sender address, recipient, and Cc. A prior `{from:(q) to:(q) cc:(q) q}`
-        // wrapper silently dropped results (e.g. the user's own "SPMB Status
-        // Update 4/17" thread) — Gmail parses the braces in surprising ways
-        // when mixed with field qualifiers and bare terms.
-        searchQuery = q;
-      } else {
-        searchQuery = gmailQuery[view] ?? `label:${view}`;
-      }
-      // If a specific label filter is active (e.g. a pinned label tab), scope
-      // the Gmail query server-side. gmailToEmailMessage normalizes Gmail's
-      // CATEGORY_* labels into friendly IDs like "updates"/"promotions" and
-      // synthesizes virtual IDs like "note-to-self" (self-sent mail). Translate
-      // those back into the right Gmail search operator — plain `label:updates`
-      // doesn't match the Updates category.
-      if (label) {
-        let labelClause = "";
-        const id = label.toLowerCase();
-        const categoryIds = new Set([
-          "personal",
-          "social",
-          "updates",
-          "promotions",
-          "forums",
-        ]);
-        if (categoryIds.has(id)) {
-          // Gmail normalizes CATEGORY_PERSONAL → "personal" on the client, but
-          // its search operator for the Primary tab is `category:primary`.
-          labelClause = `category:${id === "personal" ? "primary" : id}`;
-        } else if (id === "important") {
-          labelClause = "is:important";
-        } else if (id === "note-to-self") {
-          // "Note to self" is synthesized client-side for self-sent mail that
-          // still landed in the inbox. Gmail has no such label — match by
-          // sender (each account's `from:me` resolves per-account).
-          labelClause = "from:me";
-        } else {
-          // User-created label: Gmail's `label:` operator wants the display
-          // name with spaces replaced by hyphens; nested labels use `/`.
-          labelClause = gmailLabelSearchClause(label);
-        }
-        // Gmail-like label views are not limited to Inbox: archived mail with
-        // that label should still appear. Category/Important filters remain
-        // valid without an explicit `in:inbox` clause.
-        if (!q) searchQuery = "";
-        searchQuery = searchQuery
-          ? `${searchQuery} ${labelClause}`
-          : labelClause;
-      }
+      const searchQuery = buildGmailEmailSearchQuery({ view, q, label });
 
       // Fetch label name mapping from all accounts (cached)
       const accountTokens = await getAccountTokens(email);
