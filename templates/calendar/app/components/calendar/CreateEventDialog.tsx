@@ -432,7 +432,10 @@ export function CreateEventPopover({
                 type="submit"
                 size="sm"
                 className="h-7 text-xs"
-                disabled={createEvent.isPending}
+                disabled={
+                  createEvent.isPending ||
+                  (videoProvider === "zoom" && !zoomStatus.data?.connected)
+                }
               >
                 {createEvent.isPending ? "Creating…" : "Create"}
               </Button>
