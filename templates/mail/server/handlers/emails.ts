@@ -298,7 +298,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   previewPane: "right",
   sendAndArchive: false,
   undoSendDelay: 5,
-  tracking: { opens: true, clicks: false },
+  tracking: { opens: false, clicks: false },
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -1908,7 +1908,7 @@ function buildTrackingContext(
   body: string,
   settings: UserSettings,
 ): TrackingContext | undefined {
-  const trackOpens = settings.tracking?.opens !== false;
+  const trackOpens = settings.tracking?.opens === true;
   const trackClicks = settings.tracking?.clicks === true;
   if (!trackOpens && !trackClicks) return undefined;
 

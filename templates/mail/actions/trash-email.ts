@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { getAccessTokens } from "./helpers.js";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { writeAppState } from "@agent-native/core/application-state";
 import { gmailGetMessage, gmailTrashThread } from "../server/lib/google-api.js";
 import { isConnected } from "../server/lib/google-auth.js";
 import { z } from "zod";
@@ -32,6 +33,7 @@ export default defineAction({
         return { ...email, isTrashed: true };
       });
       await putUserSetting(ownerEmail, "local-emails", { emails: updated });
+      await writeAppState("refresh-signal", { ts: Date.now() });
       return `Trashed ${changed} email(s) successfully`;
     }
 
@@ -61,6 +63,7 @@ export default defineAction({
 
     const succeeded = results.filter((r) => r.success).length;
     const failed = results.filter((r) => !r.success).length;
+    await writeAppState("refresh-signal", { ts: Date.now() });
     if (failed > 0) {
       return `Trashed ${succeeded}/${ids.length} email(s). Failures: ${results
         .filter((r) => !r.success)
