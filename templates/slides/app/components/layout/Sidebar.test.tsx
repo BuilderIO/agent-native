@@ -5,6 +5,7 @@ import { render, screen, cleanup } from "@testing-library/react";
 afterEach(() => cleanup());
 import { MemoryRouter } from "react-router";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 vi.mock("@agent-native/core", () => ({
   cn: (...args: unknown[]) =>
@@ -17,13 +18,21 @@ vi.mock("@agent-native/core/client/extensions", () => ({
   ExtensionsSidebarSection: () => null,
 }));
 vi.mock("@agent-native/core/client", () => ({
+  appPath: (path: string) => path,
   FeedbackButton: () => null,
+}));
+vi.mock("@agent-native/core/client/org", () => ({
+  OrgSwitcher: () => null,
 }));
 
 import { Sidebar } from "./Sidebar";
 
 function renderAt(path: string, ui: ReactNode) {
-  return render(<MemoryRouter initialEntries={[path]}>{ui}</MemoryRouter>);
+  return render(
+    <TooltipProvider>
+      <MemoryRouter initialEntries={[path]}>{ui}</MemoryRouter>
+    </TooltipProvider>,
+  );
 }
 
 describe("<Sidebar collapsed>", () => {
@@ -34,13 +43,13 @@ describe("<Sidebar collapsed>", () => {
     const aside = screen.getByRole("complementary");
     expect(aside.className).toContain("w-12");
 
-    const expandBtn = screen.getByTitle("Expand sidebar");
+    const expandBtn = screen.getByLabelText("Expand sidebar");
     expect(expandBtn).toBeDefined();
     expandBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onToggle).toHaveBeenCalledTimes(1);
 
     expect(screen.queryByText("Slides")).toBeNull();
-    expect(screen.queryByTitle("Collapse sidebar")).toBeNull();
+    expect(screen.queryByLabelText("Collapse sidebar")).toBeNull();
   });
 
   it("hides nav labels but keeps each nav item as a clickable icon with a tooltip", () => {
@@ -49,9 +58,9 @@ describe("<Sidebar collapsed>", () => {
     expect(screen.queryByText("Design Systems")).toBeNull();
     expect(screen.queryByText("Team")).toBeNull();
 
-    expect(screen.getByTitle("Decks")).toBeDefined();
-    expect(screen.getByTitle("Design Systems")).toBeDefined();
-    expect(screen.getByTitle("Team")).toBeDefined();
+    expect(screen.getByLabelText("Decks")).toBeDefined();
+    expect(screen.getByLabelText("Design Systems")).toBeDefined();
+    expect(screen.getByLabelText("Team")).toBeDefined();
   });
 });
 
@@ -68,11 +77,11 @@ describe("<Sidebar expanded>", () => {
     expect(screen.getByText("Design Systems")).toBeDefined();
     expect(screen.getByText("Team")).toBeDefined();
 
-    const collapseBtn = screen.getByTitle("Collapse sidebar");
+    const collapseBtn = screen.getByLabelText("Collapse sidebar");
     collapseBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onToggle).toHaveBeenCalledTimes(1);
 
-    expect(screen.queryByTitle("Expand sidebar")).toBeNull();
+    expect(screen.queryByLabelText("Expand sidebar")).toBeNull();
   });
 
   it("highlights the active nav item based on the current route", () => {
@@ -92,16 +101,16 @@ describe("<Sidebar expanded>", () => {
 describe("<Sidebar> without onToggleCollapsed (mobile drawer)", () => {
   it("hides the Collapse button in the expanded layout", () => {
     renderAt("/", <Sidebar collapsed={false} />);
-    expect(screen.queryByTitle("Collapse sidebar")).toBeNull();
+    expect(screen.queryByLabelText("Collapse sidebar")).toBeNull();
     // Nav still renders.
     expect(screen.getByText("Decks")).toBeDefined();
   });
 
   it("hides the Expand button in the collapsed layout", () => {
     renderAt("/", <Sidebar collapsed={true} />);
-    expect(screen.queryByTitle("Expand sidebar")).toBeNull();
+    expect(screen.queryByLabelText("Expand sidebar")).toBeNull();
     // Nav icons still render.
-    expect(screen.getByTitle("Decks")).toBeDefined();
+    expect(screen.getByLabelText("Decks")).toBeDefined();
   });
 });
 

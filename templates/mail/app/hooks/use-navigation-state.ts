@@ -6,6 +6,7 @@ export interface NavigationState {
   view: string;
   threadId?: string;
   focusedEmailId?: string;
+  selectedThreadIds?: string[];
   search?: string;
   label?: string;
   queuedDraftId?: string;

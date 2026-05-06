@@ -19,7 +19,7 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { getEventAutoColor } from "@/lib/event-colors";
+import { getEventDisplayColor } from "@/lib/event-colors";
 import type { CalendarEvent } from "@shared/api";
 import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
 import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
@@ -29,6 +29,7 @@ import {
   AutoGrowTextarea,
 } from "@/components/calendar/EventDescription";
 import { useUpdateEvent } from "@/hooks/use-events";
+import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { toast } from "sonner";
 
 interface EventDetailPanelProps {
@@ -63,10 +64,6 @@ function safeUrl(u: string | undefined): string {
   }
 }
 
-function getEventColor(event: CalendarEvent): string {
-  return getEventAutoColor(event);
-}
-
 function extractMeetingLink(event: CalendarEvent): string | null {
   const videoEntry = event.conferenceData?.entryPoints?.find(
     (entry) => entry.entryPointType === "video",
@@ -89,8 +86,9 @@ export function EventDetailPanel({
   onTitleSave,
 }: EventDetailPanelProps) {
   const { setEventDetailSidebar } = useCalendarContext();
+  const { prefs } = useViewPreferences();
   const isOpen = event !== null;
-  const color = event ? getEventColor(event) : null;
+  const color = event ? getEventDisplayColor(event, prefs) : null;
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editingTitle, setEditingTitle] = useState("");
   const [isEditingDescription, setIsEditingDescription] = useState(false);

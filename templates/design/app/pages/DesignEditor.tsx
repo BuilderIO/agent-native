@@ -17,6 +17,8 @@ import {
   IconX,
   IconPencilPlus,
   IconPin,
+  IconDownload,
+  IconCode,
 } from "@tabler/icons-react";
 import {
   useActionQuery,
@@ -36,6 +38,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
 import { EditPanel } from "@/components/design/EditPanel";
 import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
@@ -61,6 +69,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { toast } from "sonner";
 
 const TAB_ID = generateTabId();
 
@@ -205,6 +214,9 @@ export default function DesignEditor() {
     },
   );
   const updateFileMutation = useActionMutation("update-file");
+  const createCodingHandoffMutation = useActionMutation(
+    "export-coding-handoff",
+  );
   const pendingFileSaveRef = useRef<{ id: string; content: string } | null>(
     null,
   );
@@ -536,6 +548,40 @@ export default function DesignEditor() {
     setDrawMode(false);
   }, [activeFile, pinMode, viewMode]);
 
+  const handleCopyCodingHandoff = useCallback(() => {
+    if (!id) return;
+    createCodingHandoffMutation.mutate(
+      {
+        id,
+        origin: window.location.origin,
+        format: "markdown",
+      } as any,
+      {
+        onSuccess: async (result: any) => {
+          const text =
+            typeof result?.clipboardText === "string"
+              ? result.clipboardText
+              : typeof result?.prompt === "string"
+                ? result.prompt
+                : "";
+          if (!text) {
+            toast.error("Could not create coding handoff");
+            return;
+          }
+          try {
+            await navigator.clipboard.writeText(text);
+            toast.success("Coding handoff copied");
+          } catch {
+            toast.error("Clipboard blocked");
+          }
+        },
+        onError: (error) => {
+          toast.error(error.message || "Could not create coding handoff");
+        },
+      },
+    );
+  }, [createCodingHandoffMutation, id]);
+
   if (!id) {
     navigate("/");
     return null;
@@ -798,6 +844,35 @@ export default function DesignEditor() {
               update-file actions). Surface the indicator so the UX matches
               slides; flip `saving` off until we wire a real source. */}
           <SaveStatusIndicator saving={false} className="ml-1 mr-1" />
+
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 cursor-pointer"
+                    disabled={
+                      !activeFile || createCodingHandoffMutation.isPending
+                    }
+                  >
+                    <IconDownload className="w-3.5 h-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Export</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem
+                onClick={handleCopyCodingHandoff}
+                disabled={!activeFile || createCodingHandoffMutation.isPending}
+              >
+                <IconCode className="mr-2 h-4 w-4" />
+                Copy coding handoff
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <PresenceBar
             activeUsers={activeUsers}

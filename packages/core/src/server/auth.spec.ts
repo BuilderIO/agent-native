@@ -249,6 +249,32 @@ describe("server/auth", () => {
       logSpy.mockRestore();
     });
 
+    it("renders a clearer access-token login page with mounted auth paths", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_BASE_PATH", "/demo");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const result = await guard(createMockEvent({ path: "/demo" }));
+      expect(result).toBeInstanceOf(Response);
+
+      const html = await (result as Response).text();
+      expect(html).toContain("This app is private");
+      expect(html).toContain("not your Netlify personal access token");
+      expect(html).toContain('var configuredBasePath = "/demo";');
+      expect(html).toContain("__anPath('/_agent-native/auth/login')");
+      expect(html).toContain("__anPath('/_agent-native/auth/session')");
+      expect(html).toContain("The token was accepted, but the browser");
+    });
+
     it("recognizes auth routes under APP_BASE_PATH in the global guard", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");

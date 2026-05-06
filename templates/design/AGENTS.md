@@ -352,11 +352,12 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 
 ### Export
 
-| Action        | Args              | Purpose                                    |
-| ------------- | ----------------- | ------------------------------------------ |
-| `export-html` | `--id <designId>` | Export as standalone HTML with CDN scripts |
-| `export-zip`  | `--id <designId>` | Export as ZIP with all files + README      |
-| `export-pdf`  | `--id <designId>` | Prepare data for client-side PDF rendering |
+| Action                  | Args                                                               | Purpose                                                                 |
+| ----------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `export-html`           | `--id <designId>`                                                  | Export as standalone HTML with CDN scripts                              |
+| `export-zip`            | `--id <designId>`                                                  | Export as ZIP with all files + README                                   |
+| `export-pdf`            | `--id <designId>`                                                  | Prepare data for client-side PDF rendering                              |
+| `export-coding-handoff` | `--id <designId> [--origin <appOrigin>] [--format markdown\|json]` | Copy-ready prompt plus tokenized raw-code URL for external coding tools |
 
 ### Sharing
 

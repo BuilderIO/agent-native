@@ -16,7 +16,7 @@ import {
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
-import { getEventAutoColor, allOtherDeclined } from "@/lib/event-colors";
+import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { EventDetailPopover } from "./EventDetailPopover";
 import type { CalendarEvent } from "@shared/api";
@@ -68,10 +68,6 @@ const END_HOUR = 24;
 const HOUR_HEIGHT = 60;
 const DESKTOP_GUTTER_WIDTH = 60;
 const MOBILE_GUTTER_WIDTH = 40;
-
-function getEventColor(event: CalendarEvent) {
-  return getEventAutoColor(event);
-}
 
 /** Format an event's time range in compact Notion style: "8–10:30 AM" or "9 AM" */
 function formatEventTime(start: Date, end: Date): string {
@@ -488,7 +484,7 @@ export function WeekView({
 
               {/* Spanning all-day event bars */}
               {allDaySpans.map(({ event, startCol, endCol }) => {
-                const color = getEventColor(event);
+                const color = getEventDisplayColor(event, prefs);
                 const rowIdx = allDayRowAssignments.get(event.id) ?? 0;
                 const colCount = days.length;
                 const leftPct = (startCol / colCount) * 100;
@@ -686,7 +682,7 @@ export function WeekView({
                           height: `${overrides.height}px`,
                         }
                       : getEventStyle(event);
-                    const color = getEventColor(event);
+                    const color = getEventDisplayColor(event, prefs);
                     const start = parseISO(event.start);
                     const end = parseISO(event.end);
                     const durationMin = overrides

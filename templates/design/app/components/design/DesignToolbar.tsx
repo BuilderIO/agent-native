@@ -76,8 +76,7 @@ const EXPORT_FORMATS = [
   { value: "zip", label: "Download ZIP" },
   { value: "pdf", label: "Export PDF" },
   { value: "html", label: "Export HTML" },
-  { value: "handoff", label: "Handoff to Claude Code" },
-  { value: "copy-prompt", label: "Copy prompt" },
+  { value: "coding-handoff", label: "Copy coding handoff" },
 ];
 
 const PRESENT_MODES = [

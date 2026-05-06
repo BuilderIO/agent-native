@@ -1,5 +1,9 @@
 import { cn } from "@/lib/utils";
-import { getEventAutoColor, allOtherDeclined } from "@/lib/event-colors";
+import {
+  getEventDisplayColor,
+  allOtherDeclined,
+  type CalendarColorPreferences,
+} from "@/lib/event-colors";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import type { CalendarEvent } from "@shared/api";
 
@@ -11,10 +15,7 @@ interface EventCardProps {
   onDragStart?: (id: string) => void;
   onDragEnd?: () => void;
   dimmed?: boolean;
-}
-
-function getEventAccentColor(event: CalendarEvent): string {
-  return getEventAutoColor(event);
+  colorPreferences?: CalendarColorPreferences;
 }
 
 export function EventCard({
@@ -25,8 +26,9 @@ export function EventCard({
   onDragStart,
   onDragEnd,
   dimmed = false,
+  colorPreferences,
 }: EventCardProps) {
-  const accentColor = getEventAccentColor(event);
+  const accentColor = getEventDisplayColor(event, colorPreferences);
 
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("text/plain", event.id);

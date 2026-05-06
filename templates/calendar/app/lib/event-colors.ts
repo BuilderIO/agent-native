@@ -1,4 +1,5 @@
 import type { CalendarEvent } from "@shared/api";
+import type { CalendarColorMode } from "./calendar-view-preferences";
 
 // ─── Palette (dark-mode editor inspired) ─────────────────────────────────────
 
@@ -13,6 +14,11 @@ export const EVENT_CATEGORY_COLORS = {
 } as const;
 
 export type EventCategory = keyof typeof EVENT_CATEGORY_COLORS;
+
+export interface CalendarColorPreferences {
+  colorMode?: CalendarColorMode;
+  singleColor?: string;
+}
 
 // ─── Free email providers (skip internal/external when user is on one) ───────
 
@@ -113,4 +119,19 @@ export function getEventAutoColor(event: CalendarEvent): string {
   // Auto-classify Google events
   const category = classifyEvent(event);
   return EVENT_CATEGORY_COLORS[category];
+}
+
+export function getEventDisplayColor(
+  event: CalendarEvent,
+  preferences?: CalendarColorPreferences,
+): string {
+  if (
+    preferences?.colorMode === "single" &&
+    preferences.singleColor &&
+    event.source === "google" &&
+    !event.overlayEmail
+  ) {
+    return preferences.singleColor;
+  }
+  return getEventAutoColor(event);
 }

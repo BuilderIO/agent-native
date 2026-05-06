@@ -420,6 +420,7 @@ export async function listEvents(
             htmlLink: event.htmlLink || undefined,
             accountEmail: email,
             responseStatus: selfAttendee?.responseStatus,
+            transparency: event.transparency || undefined,
             attendees: event.attendees?.map((a: any) => ({
               email: a.email,
               displayName: a.displayName || undefined,
@@ -579,6 +580,7 @@ export async function getEvent(
     htmlLink: event.htmlLink || undefined,
     accountEmail,
     responseStatus: selfAttendee?.responseStatus || undefined,
+    transparency: event.transparency || undefined,
     attendees: event.attendees?.map((a: any) => ({
       email: a.email,
       displayName: a.displayName || undefined,
@@ -714,6 +716,9 @@ export async function updateEvent(
   }
   if (event.recurrence !== undefined) {
     requestBody.recurrence = event.recurrence;
+  }
+  if (event.transparency !== undefined) {
+    requestBody.transparency = event.transparency;
   }
   if (options?.addGoogleMeet) {
     requestBody.conferenceData = createGoogleMeetRequest();

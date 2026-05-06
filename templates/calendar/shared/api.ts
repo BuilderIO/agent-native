@@ -16,6 +16,8 @@ export interface CalendarEvent {
   color?: string;
   /** User's RSVP status from Google Calendar */
   responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
+  /** Google Calendar free/busy visibility; transparent means the event is free */
+  transparency?: "opaque" | "transparent";
   attendees?: Array<{
     email: string;
     displayName?: string;

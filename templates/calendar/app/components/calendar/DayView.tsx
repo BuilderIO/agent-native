@@ -11,12 +11,13 @@ import {
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
-import { getEventAutoColor, allOtherDeclined } from "@/lib/event-colors";
+import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { EventDetailPopover } from "./EventDetailPopover";
 import type { CalendarEvent } from "@shared/api";
 import { useEventDrag } from "@/hooks/use-event-drag";
 import { useCalendarContext } from "@/components/layout/AppLayout";
+import { useViewPreferences } from "@/hooks/use-view-preferences";
 
 interface DayViewProps {
   events: CalendarEvent[];
@@ -41,10 +42,6 @@ const DAY_SKELETONS: [number, number, number, number][] = [
 const START_HOUR = 6;
 const END_HOUR = 23;
 const HOUR_HEIGHT = 72;
-
-function getEventColor(event: CalendarEvent) {
-  return getEventAutoColor(event);
-}
 
 interface LayoutInfo {
   left: number; // percentage 0-100
@@ -106,6 +103,7 @@ export function DayView({
   isLoading = false,
 }: DayViewProps) {
   const { setFocusedEvent } = useCalendarContext();
+  const { prefs } = useViewPreferences();
   const [now, setNow] = useState(new Date());
   const [focusedEventId, setFocusedEventId] = useState<string | null>(null);
   const currentTimeRef = useRef<HTMLDivElement>(null);
@@ -217,7 +215,7 @@ export function DayView({
           </p>
           <div className="space-y-1">
             {allDayEvents.map((event) => {
-              const color = getEventColor(event);
+              const color = getEventDisplayColor(event, prefs);
               return (
                 <EventDetailPopover
                   key={event.id}
@@ -362,7 +360,7 @@ export function DayView({
                     height: `${overrides.height}px`,
                   }
                 : getEventStyle(event);
-              const color = getEventColor(event);
+              const color = getEventDisplayColor(event, prefs);
               const durationMin = overrides
                 ? (overrides.height / HOUR_HEIGHT) * 60
                 : differenceInMinutes(

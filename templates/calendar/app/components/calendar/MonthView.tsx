@@ -197,6 +197,7 @@ export function MonthView({
                       <div onClick={(e) => e.stopPropagation()}>
                         <EventCard
                           event={event}
+                          colorPreferences={prefs}
                           compact
                           draggable
                           onDragStart={(id) => setDraggingId(id)}

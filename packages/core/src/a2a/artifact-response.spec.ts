@@ -679,4 +679,81 @@ describe("appendA2AArtifactLinks", () => {
       "https://analytics.agent.test/analyses/q2-pipeline-report",
     );
   });
+
+  it("appends a verified image artifact from generate-image", () => {
+    const text = appendA2AArtifactLinks(
+      "Generated the hero image.",
+      [
+        {
+          tool: "generate-image",
+          result: JSON.stringify({
+            id: "asset_123",
+            runId: "run_123",
+          }),
+        },
+      ],
+      { baseUrl: "https://images.agent.test" },
+    );
+
+    expect(text).toContain(
+      "- Image: https://images.agent.test/image/asset_123 (ID: asset_123, Run: run_123)",
+    );
+  });
+
+  it("treats image batch results as recoverable artifacts", () => {
+    const text = buildA2ARecoverableArtifactMessage(
+      [
+        {
+          tool: "generate-image-batch",
+          result: JSON.stringify({
+            images: [
+              { ok: true, id: "asset_one", runId: "run_one" },
+              { ok: false, error: "blocked" },
+              { ok: true, assetId: "asset_two" },
+            ],
+          }),
+        },
+      ],
+      { baseUrl: "https://images.agent.test/" },
+    );
+
+    expect(text).toContain(
+      "- Image: https://images.agent.test/image/asset_one (ID: asset_one, Run: run_one)",
+    );
+    expect(text).toContain(
+      "- Image: https://images.agent.test/image/asset_two (ID: asset_two)",
+    );
+    expect(text).not.toContain("blocked");
+  });
+
+  it("blocks unverified production image URLs from other apps", () => {
+    const text = appendA2AArtifactLinks(
+      "Image ready: https://images.agent-native.com/image/asset_fake",
+      [],
+      { baseUrl: "https://slides.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the image URL");
+    expect(text).not.toContain("asset_fake");
+  });
+
+  it("allows image URLs proven by a downstream call-agent artifact block", () => {
+    const text = appendA2AArtifactLinks(
+      "Image: https://images.agent-native.com/image/asset_real",
+      [
+        {
+          tool: "call-agent",
+          result: [
+            "Artifacts:",
+            "- Image: https://images.agent-native.com/image/asset_real (ID: asset_real, Run: run_real)",
+          ].join("\n"),
+        },
+      ],
+      { baseUrl: "https://slides.agent-native.com" },
+    );
+
+    expect(text).toBe(
+      "Image: https://images.agent-native.com/image/asset_real",
+    );
+  });
 });
