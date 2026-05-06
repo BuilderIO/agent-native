@@ -76,24 +76,66 @@ export interface RequestContext {
 }
 
 const GLOBAL_KEY = "__agentNativeRequestContextAls" as const;
+const OBSERVERS_KEY = "__agentNativeRequestContextObservers" as const;
+type RequestContextObserver = (ctx: RequestContext) => void;
 type GlobalWithRequestContext = typeof globalThis & {
   [GLOBAL_KEY]?: AsyncLocalStorage<RequestContext>;
+  [OBSERVERS_KEY]?: RequestContextObserver[];
 };
 const globalRef = globalThis as GlobalWithRequestContext;
 if (!globalRef[GLOBAL_KEY]) {
   globalRef[GLOBAL_KEY] = new AsyncLocalStorage<RequestContext>();
 }
+if (!globalRef[OBSERVERS_KEY]) {
+  globalRef[OBSERVERS_KEY] = [];
+}
 const als = globalRef[GLOBAL_KEY]!;
+const observers = globalRef[OBSERVERS_KEY]!;
+
+/**
+ * Register a callback fired every time `runWithRequestContext` enters a new
+ * scope. The hook runs INSIDE the AsyncLocalStorage scope, so observability
+ * helpers that read the current isolation scope (e.g. Sentry) attach to the
+ * right per-request context.
+ *
+ * Returned function unregisters the observer. Observers must never throw —
+ * any error is swallowed so a misbehaving observer can't break the request
+ * path.
+ */
+export function addRequestContextObserver(
+  observer: RequestContextObserver,
+): () => void {
+  observers.push(observer);
+  return () => {
+    const i = observers.indexOf(observer);
+    if (i !== -1) observers.splice(i, 1);
+  };
+}
 
 /**
  * Run a callback within a per-request context. The context is available to all
  * async operations spawned from `fn` via `getRequestUserEmail()` / `getRequestOrgId()`.
+ *
+ * Any registered `addRequestContextObserver` callbacks fire inside the new
+ * scope before `fn` runs, so observability code can pin user/org info onto
+ * isolation-scoped backends (Sentry, OpenTelemetry, etc.).
  */
 export function runWithRequestContext<T>(
   ctx: RequestContext,
   fn: () => T | Promise<T>,
 ): T | Promise<T> {
-  return als.run(ctx, fn);
+  return als.run(ctx, () => {
+    if (observers.length > 0) {
+      for (const obs of observers) {
+        try {
+          obs(ctx);
+        } catch {
+          // Observers must never break the request path.
+        }
+      }
+    }
+    return fn();
+  });
 }
 
 /**

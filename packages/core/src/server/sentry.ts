@@ -198,6 +198,69 @@ export function setSentryUserForRequest(session: AuthSession | null): void {
   }
 }
 
+/**
+ * Pin a user/org onto the current isolation scope from a lighter
+ * `RequestContext`-shaped payload. Used by the request-context observer so
+ * action handlers, agent-chat runs, and integration webhook processors —
+ * all of which already wrap their work in `runWithRequestContext({ userEmail,
+ * orgId, ... })` — automatically tag Sentry events with the right user even
+ * when the Nitro `request` hook didn't see a cookie (e.g. webhook delivery,
+ * A2A calls, internal background runs).
+ *
+ * Skips overwriting a richer user identity already set by
+ * `setSentryUserForRequest` — the cookie-resolved session has
+ * userId/username on top of email, which we shouldn't clobber.
+ */
+export function setSentryRequestContext(ctx: {
+  userEmail?: string;
+  orgId?: string;
+}): void {
+  if (!_initSucceeded) return;
+  try {
+    const scope = Sentry.getIsolationScope();
+    if (ctx.userEmail) {
+      const existing = scope.getScopeData().user;
+      if (!existing?.id && !existing?.email) {
+        scope.setUser({ id: ctx.userEmail, email: ctx.userEmail });
+      }
+    }
+    if (ctx.orgId) {
+      scope.setTag("orgId", ctx.orgId);
+    }
+  } catch {
+    // never throw
+  }
+}
+
+/**
+ * Capture an error from one of the auth attempt routes (login / signup)
+ * with the email pinned to the event so support can filter by user. Sets
+ * Sentry level to `warning` (not `error`) — bad-password attempts aren't
+ * actionable, but a sustained spike of warnings on a route IS the signal
+ * we care about.
+ *
+ * Caller should still return their normal HTTP response (401/409/etc.);
+ * this just records the error for observability.
+ */
+export function captureAuthError(
+  error: unknown,
+  context: { route: "login" | "signup" | "logout"; email?: string },
+): string | undefined {
+  if (!_initSucceeded) return undefined;
+  try {
+    return Sentry.withScope((scope) => {
+      scope.setLevel("warning");
+      scope.setTag("auth", context.route);
+      if (context.email) {
+        scope.setUser({ id: context.email, email: context.email });
+      }
+      return Sentry.captureException(error);
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 export interface RouteErrorContext {
   /** The full request path (e.g. `/_agent-native/agent-chat`). */
   route?: string;
