@@ -189,6 +189,46 @@ export type AutomationRule = {
   updatedAt: string;
 };
 
+// ─── Gmail filter types ──────────────────────────────────────────────────────
+
+export type GmailFilterCriteria = {
+  from?: string;
+  to?: string;
+  subject?: string;
+  query?: string;
+  negatedQuery?: string;
+  hasAttachment?: boolean;
+  excludeChats?: boolean;
+  size?: number;
+  sizeComparison?: "smaller" | "larger" | "unspecified";
+};
+
+export type GmailFilterAction = {
+  addLabelIds?: string[];
+  removeLabelIds?: string[];
+  forward?: string;
+};
+
+export type ManagedGmailFilter = {
+  id: string;
+  accountEmail: string;
+  criteria: GmailFilterCriteria;
+  action: GmailFilterAction;
+  criteriaSummary: string;
+  actionSummary: string;
+  actionLabels: Array<{
+    id: string;
+    name: string;
+    type?: string;
+    operation: "add" | "remove";
+  }>;
+};
+
+export type ManagedGmailFiltersAccount = {
+  accountEmail: string;
+  filters: ManagedGmailFilter[];
+};
+
 export type ApolloPersonResult = {
   id?: string;
   first_name?: string;
