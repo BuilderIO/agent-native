@@ -27,7 +27,7 @@ import {
 } from "@/hooks/use-google-auth";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { SidebarThemeRow } from "@/components/ThemeToggle";
 import { SearchBar } from "./SearchBar";
 import {
   IconMenu2,
@@ -37,7 +37,6 @@ import {
   IconCheck,
   IconPlus,
   IconTool,
-  IconClock,
   IconRefresh,
   IconPin,
   IconPinnedFilled,
@@ -47,6 +46,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
 import {
   getCallbackOrigin,
   AgentSidebar,
@@ -216,6 +216,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   }, [activeAccounts]);
   const [tabSettingsOpen, setTabSettingsOpen] = useState(false);
   const [labelSearch, setLabelSearch] = useState("");
+  // Spin the refresh icon only when the user clicked the button — background
+  // poll-driven `inboxIsFetching` should not animate the icon. Reset shortly
+  // after click so the spin always feels like a deliberate action.
+  const [isManuallyRefreshing, setIsManuallyRefreshing] = useState(false);
 
   const isGoogleConnected = (googleStatus.data?.accounts?.length ?? 0) > 0;
   const connectedEmails = useMemo(
