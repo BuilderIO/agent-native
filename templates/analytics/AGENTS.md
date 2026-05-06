@@ -279,47 +279,47 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 
 ### Data Source Scripts
 
-| Action                         | Args / Flags                | Use For                                                                                                                                               |
-| ------------------------------ | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `data-source-status`           | `[--key <name>]`            | Show configured data-source credentials without revealing values                                                                                      |
-| `github-prs`                   | `--org`, `--query`          | PR & issue search                                                                                                                                     |
-| `hubspot-deals`                |                             | CRM deals, pipelines                                                                                                                                  |
-| `hubspot-metrics`              |                             | CRM metrics summary                                                                                                                                   |
-| `hubspot-pipelines`            |                             | Pipeline stages                                                                                                                                       |
-| `jira-search`                  | `--jql`, `--fields`         | Ticket search                                                                                                                                         |
-| `jira-analytics`               |                             | Sprint tracking, velocity                                                                                                                             |
-| `jira`                         | `--mode`, `--jql`, `--key`  | Jira issues, issue details, projects, statuses, boards, sprints, and analytics                                                                        |
-| `pylon-issues`                 | `--account`, `--state`      | Support tickets                                                                                                                                       |
-| `gong-calls`                   | `--company`, `--days`       | Sales call recordings                                                                                                                                 |
-| `apollo-search`                | `--query`                   | Contact/company enrichment                                                                                                                            |
-| `sentry`                       | `--mode`, `--statsPeriod`   | Sentry projects, frequent issues, issue events, and error stats                                                                                       |
-| `grafana`                      | `--mode`, `--search`        | Grafana dashboards, datasources, alert rules, and datasource queries                                                                                  |
-| `gcloud`                       | `--mode`, `--service`       | Google Cloud services, Cloud Monitoring metrics, and Cloud Logging entries                                                                            |
-| `stripe`                       | `--mode`, `--email`         | Stripe billing, subscriptions, refunds, and payment status                                                                                            |
-| `slack-messages`               | `--mode`, `--channel`       | Slack team info, channels, channel history, multi-channel history, and message search                                                                 |
-| `seo-top-keywords`             | `--limit`                   | Keyword rankings                                                                                                                                      |
-| `seo-page-keywords`            | `--url`                     | Keywords for a specific page                                                                                                                          |
-| `seo-blog-pages`               |                             | Blog page SEO metrics                                                                                                                                 |
-| `ga4-report`                   | `--metrics`, `--dimensions` | Google Analytics reports                                                                                                                              |
-| `bigquery`                     | `--sql`                     | Ad-hoc BigQuery queries when BigQuery is configured. Surface missing-credential or API errors; never invent warehouse data                            |
-| `query-agent-native-analytics` | `--sql`                     | Query first-party `analytics_events` recorded via `/track`, including traffic, product events, and app/template usage collected by this analytics app |
-| `create-analytics-public-key`  | `[--name <label>]`          | Generate a public write key for hosted apps to send events to `analytics.agent-native.com/track`                                                      |
-| `list-analytics-public-keys`   |                             | List active/revoked first-party analytics write keys                                                                                                  |
-| `revoke-analytics-public-key`  | `--id <keyId>`              | Revoke a first-party analytics write key                                                                                                              |
-| `mixpanel-events`              |                             | Mixpanel event data                                                                                                                                   |
-| `posthog-events`               |                             | PostHog event data                                                                                                                                    |
-| `amplitude-events`             |                             | Amplitude event data                                                                                                                                  |
-| `commonroom-members`           | `--query`, `--email`        | Community member lookup                                                                                                                               |
-| `twitter-tweets`               |                             | Tweet engagement                                                                                                                                      |
+| Action                         | Args / Flags                | Use For                                                                                                                                                   |
+| ------------------------------ | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `data-source-status`           | `[--key <name>]`            | Show configured data-source credentials without revealing values                                                                                          |
+| `github-prs`                   | `--org`, `--query`          | PR & issue search                                                                                                                                         |
+| `hubspot-deals`                |                             | CRM deals, pipelines                                                                                                                                      |
+| `hubspot-metrics`              |                             | CRM metrics summary                                                                                                                                       |
+| `hubspot-pipelines`            |                             | Pipeline stages                                                                                                                                           |
+| `jira-search`                  | `--jql`, `--fields`         | Ticket search                                                                                                                                             |
+| `jira-analytics`               |                             | Sprint tracking, velocity                                                                                                                                 |
+| `jira`                         | `--mode`, `--jql`, `--key`  | Jira issues, issue details, projects, statuses, boards, sprints, and analytics                                                                            |
+| `pylon-issues`                 | `--account`, `--state`      | Support tickets                                                                                                                                           |
+| `gong-calls`                   | `--company`, `--days`       | Sales call recordings                                                                                                                                     |
+| `apollo-search`                | `--query`                   | Contact/company enrichment                                                                                                                                |
+| `sentry`                       | `--mode`, `--statsPeriod`   | Sentry projects, frequent issues, issue events, and error stats                                                                                           |
+| `grafana`                      | `--mode`, `--search`        | Grafana dashboards, datasources, alert rules, and datasource queries                                                                                      |
+| `gcloud`                       | `--mode`, `--service`       | Google Cloud services, Cloud Monitoring metrics, and Cloud Logging entries                                                                                |
+| `stripe`                       | `--mode`, `--email`         | Stripe billing, subscriptions, refunds, and payment status                                                                                                |
+| `slack-messages`               | `--mode`, `--channel`       | Slack team info, channels, channel history, multi-channel history, and message search                                                                     |
+| `seo-top-keywords`             | `--limit`                   | Keyword rankings                                                                                                                                          |
+| `seo-page-keywords`            | `--url`                     | Keywords for a specific page                                                                                                                              |
+| `seo-blog-pages`               |                             | Blog page SEO metrics                                                                                                                                     |
+| `ga4-report`                   | `--metrics`, `--dimensions` | Google Analytics reports                                                                                                                                  |
+| `bigquery`                     | `--sql`                     | Ad-hoc BigQuery queries when BigQuery is configured. Surface missing-credential or API errors; never invent warehouse data                                |
+| `query-agent-native-analytics` | `--sql`                     | Query first-party `analytics_events` recorded via `/track`, including traffic, product events, and app/template usage collected by this analytics app     |
+| `create-analytics-public-key`  | `[--name <label>]`          | Generate a public write key for hosted apps to send events to `analytics.agent-native.com/track`                                                          |
+| `list-analytics-public-keys`   |                             | List active/revoked first-party analytics write keys                                                                                                      |
+| `revoke-analytics-public-key`  | `--id <keyId>`              | Revoke a first-party analytics write key                                                                                                                  |
+| `mixpanel-events`              |                             | Mixpanel event data                                                                                                                                       |
+| `posthog-events`               |                             | PostHog event data                                                                                                                                        |
+| `amplitude-events`             |                             | Amplitude event data                                                                                                                                      |
+| `commonroom-members`           | `--query`, `--email`        | Community member lookup                                                                                                                                   |
+| `twitter-tweets`               |                             | Tweet engagement                                                                                                                                          |
 | `generate-chart`               | `--type`, `--data`          | Generate a static PNG chart **for `save-analysis` artifacts only**. For in-chat answers, use a live `/chart` embed instead (see "Inline Charts in Chat"). |
-| `top-amplitude-events`         | `[--days N]`                | Top 20 Amplitude events by count from BigQuery (default 90 days)                                                                                      |
-| `bigquery-table-info`          |                             | Explain how to find configured BigQuery table and column metadata                                                                                     |
-| `content-calendar`             |                             | Get all entries from the Notion content calendar                                                                                                      |
-| `content-calendar-schema`      |                             | Return content calendar field schema                                                                                                                  |
-| `notion-page`                  | `--pageId`                  | Read a Notion page's title and blocks                                                                                                                 |
-| `check-form-schema`            |                             | Show the inbound forms table schema in the app database                                                                                               |
-| `query-inbound-forms`          | `[--limit N]`               | Query inbound form submissions from the app database                                                                                                  |
-| `onboarding-events`            | `[--days N]`                | Onboarding funnel events from BigQuery                                                                                                                |
+| `top-amplitude-events`         | `[--days N]`                | Top 20 Amplitude events by count from BigQuery (default 90 days)                                                                                          |
+| `bigquery-table-info`          |                             | Explain how to find configured BigQuery table and column metadata                                                                                         |
+| `content-calendar`             |                             | Get all entries from the Notion content calendar                                                                                                          |
+| `content-calendar-schema`      |                             | Return content calendar field schema                                                                                                                      |
+| `notion-page`                  | `--pageId`                  | Read a Notion page's title and blocks                                                                                                                     |
+| `check-form-schema`            |                             | Show the inbound forms table schema in the app database                                                                                                   |
+| `query-inbound-forms`          | `[--limit N]`               | Query inbound form submissions from the app database                                                                                                      |
+| `onboarding-events`            | `[--days N]`                | Onboarding funnel events from BigQuery                                                                                                                    |
 
 ### Action-Specific Filtering
 
@@ -331,24 +331,24 @@ pnpm action commonroom-members --query="enterprise" --limit=10
 
 ## Common Tasks
 
-| User request                        | What to do                                                                     |
-| ----------------------------------- | ------------------------------------------------------------------------------ |
-| "What am I looking at?"             | `view-screen`                                                                  |
+| User request                        | What to do                                                                                                                                                         |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| "What am I looking at?"             | `view-screen`                                                                                                                                                      |
 | "Show weekly signup trends"         | Query the configured signup source, then emit a live `/chart` embed (see Inline Charts in Chat). Do **not** use `generate-chart` — that's for saved analyses only. |
-| "Create a dashboard for X"          | Use `update-dashboard`, then navigate to it                                    |
-| "How many open bugs?"               | `jira-search --jql="issuetype = Bug AND resolution = Unresolved"`              |
-| "Find deals over $50k"              | `hubspot-deals --grep="50000" --fields=dealname,amount,stageLabel`             |
-| "Check error rates"                 | `sentry --mode=issues --statsPeriod=7d`                                        |
-| "Show me PRs from this week"        | `github-prs --org=<github-org> --query="is:open created:>2026-03-27"`          |
-| "Top keywords for our blog"         | `seo-top-keywords --fields=keyword,rank_absolute,etv`                          |
-| "Go to the overview"                | `navigate --view=overview`                                                     |
-| "Open the weekly metrics dashboard" | `navigate --view=adhoc --dashboardId=weekly-metrics`                           |
-| "Analyze our closed-lost deals"     | Read `adhoc-analysis` skill, gather data, save with `save-analysis`            |
-| "Re-run this analysis"              | Read saved instructions, re-gather data, update with `save-analysis`           |
-| "Show me my analyses"               | `navigate --view=analyses`                                                     |
-| "Build me a dashboard for X"        | `list-data-dictionary --search=X` FIRST, then compose from entries             |
-| "Document this metric"              | `save-data-dictionary-entry --metric="…" --definition="…" …`                   |
-| "Populate the data dictionary"      | Ask where definitions live, fetch them, loop over `save-data-dictionary-entry` |
+| "Create a dashboard for X"          | Use `update-dashboard`, then navigate to it                                                                                                                        |
+| "How many open bugs?"               | `jira-search --jql="issuetype = Bug AND resolution = Unresolved"`                                                                                                  |
+| "Find deals over $50k"              | `hubspot-deals --grep="50000" --fields=dealname,amount,stageLabel`                                                                                                 |
+| "Check error rates"                 | `sentry --mode=issues --statsPeriod=7d`                                                                                                                            |
+| "Show me PRs from this week"        | `github-prs --org=<github-org> --query="is:open created:>2026-03-27"`                                                                                              |
+| "Top keywords for our blog"         | `seo-top-keywords --fields=keyword,rank_absolute,etv`                                                                                                              |
+| "Go to the overview"                | `navigate --view=overview`                                                                                                                                         |
+| "Open the weekly metrics dashboard" | `navigate --view=adhoc --dashboardId=weekly-metrics`                                                                                                               |
+| "Analyze our closed-lost deals"     | Read `adhoc-analysis` skill, gather data, save with `save-analysis`                                                                                                |
+| "Re-run this analysis"              | Read saved instructions, re-gather data, update with `save-analysis`                                                                                               |
+| "Show me my analyses"               | `navigate --view=analyses`                                                                                                                                         |
+| "Build me a dashboard for X"        | `list-data-dictionary --search=X` FIRST, then compose from entries                                                                                                 |
+| "Document this metric"              | `save-data-dictionary-entry --metric="…" --definition="…" …`                                                                                                       |
+| "Populate the data dictionary"      | Ask where definitions live, fetch them, loop over `save-data-dictionary-entry`                                                                                     |
 
 **Key principle**: When asked a question, don't say "check the dashboard" — actually query the data, get results, and present the answer directly in chat with tables and/or charts.
 
