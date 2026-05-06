@@ -123,6 +123,65 @@ Options:
     throw new Error("Script failed");
   }
 
+  // ── A2A delegation to the Images app ────────────────────────────────────
+  // If the workspace has the images app deployed and IMAGES_A2A_URL +
+  // IMAGES_A2A_KEY are set (typically via per-user/org credentials), prefer
+  // delegating to it so the generated image is grounded in the user's brand
+  // library rather than the slides app's generic style references. We pick up
+  // the A2A endpoint via env so this works in single-tenant deploys; for
+  // multi-tenant we resolve credentials per-request.
+  //
+  // On any failure (network error, A2A timeout, no library matched, etc.) we
+  // fall through to the existing direct-Gemini path so slides keeps working
+  // standalone. See the `image-generation-via-a2a` skill for the contract.
+  const imagesA2AUrl = (
+    process.env.IMAGES_A2A_URL ||
+    process.env.AGENT_NATIVE_IMAGES_URL ||
+    ""
+  ).trim();
+  const imagesA2AKey = (
+    process.env.IMAGES_A2A_KEY ||
+    process.env.AGENT_NATIVE_IMAGES_KEY ||
+    process.env.A2A_SECRET ||
+    ""
+  ).trim();
+  if (imagesA2AUrl) {
+    try {
+      const { callAgent } = await import("@agent-native/core/a2a");
+      const slideHints: string[] = [];
+      if (opts["deck-id"]) slideHints.push(`deckId: ${opts["deck-id"]}`);
+      if (opts["slide-id"]) slideHints.push(`slideId: ${opts["slide-id"]}`);
+      if (opts["slide-content"]) {
+        slideHints.push(
+          `slideContent: ${stripHtml(opts["slide-content"]).slice(0, 280)}`,
+        );
+      }
+      const message =
+        `Generate ${opts["count"] ?? "1"} brand-consistent image candidate(s) ` +
+        `for an agent-native slides deck.\n\n` +
+        `Prompt: ${prompt}\n` +
+        `Aspect ratio: 16:9\n` +
+        (slideHints.length ? `Slide context: ${slideHints.join(", ")}\n` : "") +
+        `\nPick the best matching library via match-library if no libraryId is ` +
+        `obvious. Return previewUrl + downloadUrl in the response so the slides ` +
+        `agent can drop them into the slide HTML.`;
+      const replyText = await callAgent(imagesA2AUrl, message, {
+        apiKey: imagesA2AKey || undefined,
+        timeoutMs: 240_000,
+      });
+      // Successful A2A response — print it verbatim so the calling agent can
+      // parse the URLs out of the reply.
+      console.log(replyText);
+      return;
+    } catch (err: any) {
+      console.warn(
+        `[slides/generate-image] A2A delegation to ${imagesA2AUrl} failed; ` +
+          `falling back to direct provider. Error: ${err?.message ?? err}`,
+      );
+      // Fall through to the direct provider path below.
+    }
+  }
+
   // Validate that at least one provider is configured
   const { getProvider } =
     await import("../server/handlers/image-providers/index.js");
