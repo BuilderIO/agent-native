@@ -1,4 +1,10 @@
-import { useEditor, EditorContent, Extension } from "@tiptap/react";
+import {
+  useEditor,
+  EditorContent,
+  Extension,
+  Node,
+  mergeAttributes,
+} from "@tiptap/react";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import type { Doc as YDoc } from "yjs";
@@ -43,16 +49,41 @@ import {
  * On the parse side, the updateDOM hook strips &nbsp; from paragraphs
  * so TipTap creates truly empty paragraph nodes (no visible space).
  *
- * Directly patches the MarkdownSerializer instance's `nodes` getter
- * rather than trying to modify extension storage, which is fragile
- * across tiptap-markdown versions.
+ * This replaces StarterKit's paragraph node so tiptap-markdown reads the
+ * serializer from the paragraph extension itself. A separate monkey-patch
+ * extension was too timing-sensitive and could miss the serializer instance.
  */
-export const EmptyLineParagraph = Extension.create({
-  name: "emptyLineParagraph",
+export const EmptyLineParagraph = Node.create({
+  name: "paragraph",
+
+  group: "block",
+  content: "inline*",
+
+  parseHTML() {
+    return [{ tag: "p" }];
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    return ["p", mergeAttributes(HTMLAttributes), 0];
+  },
+
   addStorage() {
     return {
       markdown: {
-        serialize: null as any,
+        serialize(state: any, node: any, parent: any, index: number) {
+          if (node.childCount === 0) {
+            state.write("&nbsp;");
+            state.closeBlock(node);
+            return;
+          }
+
+          defaultMarkdownSerializer.nodes.paragraph(
+            state,
+            node,
+            parent,
+            index,
+          );
+        },
         parse: {
           updateDOM(element: HTMLElement) {
             for (const p of element.querySelectorAll("p")) {
@@ -68,49 +99,6 @@ export const EmptyLineParagraph = Extension.create({
         },
       },
     };
-  },
-  onCreate() {
-    // Patch the serializer's nodes getter directly on the instance.
-    // This is more robust than patching extension storage because
-    // tiptap-markdown's getMarkdownSpec merges default and instance
-    // specs in ways that can silently drop our override.
-    const serializer = (this.editor.storage as any).markdown?.serializer;
-    if (!serializer) return;
-
-    const proto = Object.getPrototypeOf(serializer);
-    const desc = Object.getOwnPropertyDescriptor(proto, "nodes");
-    if (!desc?.get) return;
-
-    const origGet = desc.get;
-
-    Object.defineProperty(serializer, "nodes", {
-      get() {
-        const nodes = origGet.call(this);
-        const origParagraph = nodes.paragraph;
-        nodes.paragraph = (
-          state: any,
-          node: any,
-          parent: any,
-          index: number,
-        ) => {
-          if (node.childCount === 0) {
-            state.write("&nbsp;");
-            state.closeBlock(node);
-          } else if (origParagraph) {
-            origParagraph(state, node, parent, index);
-          } else {
-            defaultMarkdownSerializer.nodes.paragraph(
-              state,
-              node,
-              parent,
-              index,
-            );
-          }
-        };
-        return nodes;
-      },
-      configurable: true,
-    });
   },
 });
 
@@ -458,6 +446,7 @@ export function VisualEditor({
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
         codeBlock: false,
+        paragraph: false,
         horizontalRule: {},
         dropcursor: { color: "hsl(243 75% 59%)", width: 2 },
         // Disable built-in history when Collaboration is active (Yjs tracks undo)

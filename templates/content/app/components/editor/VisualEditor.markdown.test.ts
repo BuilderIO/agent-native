@@ -16,6 +16,7 @@ function createMarkdownEditor(content: string) {
     extensions: [
       StarterKit.configure({
         codeBlock: false,
+        paragraph: false,
       }),
       CodeBlock,
       EmptyLineParagraph,

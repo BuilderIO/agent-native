@@ -210,6 +210,13 @@ function preserveEmptyLines(markdown: string): string {
     }
     lastWasNbspBlock = false;
 
+    // Markdown serializers put a structural paragraph separator before an
+    // `&nbsp;` empty paragraph. The sentinel itself carries the intentional
+    // blank block, so keeping this separator adds a phantom blank on save.
+    if (trimmed === "" && lines[i + 1]?.trim() === "&nbsp;") {
+      continue;
+    }
+
     // A blank line that follows another blank line is extra spacing
     if (trimmed === "" && i > 0) {
       const prevTrimmed =
