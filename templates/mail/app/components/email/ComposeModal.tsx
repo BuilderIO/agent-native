@@ -7,6 +7,7 @@ import {
   IconLink,
   IconPaperclip,
   IconChevronDown,
+  IconDots,
   IconLoader2,
   IconTrash,
   IconPlus,
@@ -880,10 +881,11 @@ function ComposeBody({
         <>
           <button
             type="button"
+            aria-label={showQuoted ? "Hide quoted text" : "Show quoted text"}
             onClick={() => setShowQuoted(!showQuoted)}
-            className="mt-1 text-muted-foreground/50 hover:text-muted-foreground text-[13px] tracking-[0.15em] transition-colors"
+            className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-accent hover:text-muted-foreground"
           >
-            ···
+            <IconDots className="h-4 w-4" />
           </button>
           {showQuoted && (
             <pre className="mt-2 whitespace-pre-wrap text-[13px] text-muted-foreground/60 font-sans leading-relaxed">

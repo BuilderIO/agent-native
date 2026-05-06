@@ -55,6 +55,7 @@ import {
   IconDownload,
   IconPhoto,
   IconSearch,
+  IconDots,
   IconArrowsMaximize,
   IconArrowsMinimize,
 } from "@tabler/icons-react";
@@ -2125,18 +2126,22 @@ function PlainTextBody({
       })}
       {hasSig && !showSig && !forceShowAll && (
         <button
+          type="button"
+          aria-label="Show signature"
           onClick={() => setShowSig(true)}
-          className="mt-1 text-[13px] text-muted-foreground/50 hover:text-muted-foreground tracking-wider"
+          className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-accent hover:text-muted-foreground"
         >
-          ···
+          <IconDots className="h-4 w-4" />
         </button>
       )}
       {hasQuoted && !showQuoted && !forceShowAll && (showSig || !hasSig) && (
         <button
+          type="button"
+          aria-label="Show quoted text"
           onClick={() => setShowQuoted(true)}
-          className="mt-1 text-[13px] text-muted-foreground/50 hover:text-muted-foreground tracking-wider"
+          className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-accent hover:text-muted-foreground"
         >
-          ···
+          <IconDots className="h-4 w-4" />
         </button>
       )}
     </div>
