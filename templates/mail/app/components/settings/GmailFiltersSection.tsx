@@ -6,6 +6,7 @@ import {
   IconLoader2,
   IconPencil,
   IconPlus,
+  IconShieldCheck,
   IconStar,
   IconTag,
   IconTrash,
@@ -56,6 +57,9 @@ type FilterFormState = {
   forward: string;
   archive: boolean;
   markRead: boolean;
+  neverSpam: boolean;
+  neverImportant: boolean;
+  important: boolean;
   starred: boolean;
   trash: boolean;
   createLabel: boolean;
@@ -71,6 +75,9 @@ const EMPTY_STATE: FilterFormState = {
   forward: "",
   archive: true,
   markRead: false,
+  neverSpam: false,
+  neverImportant: false,
+  important: false,
   starred: false,
   trash: false,
   createLabel: true,
@@ -112,6 +119,9 @@ function initialState(
     forward: filter.action.forward ?? "",
     archive: remove.has("INBOX"),
     markRead: remove.has("UNREAD"),
+    neverSpam: remove.has("SPAM"),
+    neverImportant: remove.has("IMPORTANT"),
+    important: add.has("IMPORTANT"),
     starred: add.has("STARRED"),
     trash: add.has("TRASH"),
     createLabel: true,
@@ -138,6 +148,11 @@ function toPayload(
     replaceCriteria: replacing ? true : undefined,
     archive: replacing ? state.archive : state.archive || undefined,
     markRead: replacing ? state.markRead : state.markRead || undefined,
+    neverSpam: replacing ? state.neverSpam : state.neverSpam || undefined,
+    neverImportant: replacing
+      ? state.neverImportant
+      : state.neverImportant || undefined,
+    important: replacing ? state.important : state.important || undefined,
     starred: replacing ? state.starred : state.starred || undefined,
     trash: replacing ? state.trash : state.trash || undefined,
     label: compact(state.label),
@@ -160,6 +175,9 @@ function hasAction(state: FilterFormState) {
   return Boolean(
     state.archive ||
     state.markRead ||
+    state.neverSpam ||
+    state.neverImportant ||
+    state.important ||
     state.starred ||
     state.trash ||
     compact(state.label) ||
@@ -297,6 +315,36 @@ function FilterEditRow({
           onChange={(value) => setField("markRead", value)}
         />
         <FilterSwitch
+          icon={IconShieldCheck}
+          label="Never spam"
+          checked={state.neverSpam}
+          onChange={(value) => setField("neverSpam", value)}
+        />
+        <FilterSwitch
+          icon={IconShieldCheck}
+          label="Never important"
+          checked={state.neverImportant}
+          onChange={(value) =>
+            setState((current) => ({
+              ...current,
+              neverImportant: value,
+              important: value ? false : current.important,
+            }))
+          }
+        />
+        <FilterSwitch
+          icon={IconStar}
+          label="Important"
+          checked={state.important}
+          onChange={(value) =>
+            setState((current) => ({
+              ...current,
+              important: value,
+              neverImportant: value ? false : current.neverImportant,
+            }))
+          }
+        />
+        <FilterSwitch
           icon={IconStar}
           label="Star"
           checked={state.starred}
@@ -329,6 +377,18 @@ function FilterEditRow({
           />
           Create label
         </label>
+      </div>
+
+      <div>
+        <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          Forward to
+        </label>
+        <Input
+          value={state.forward}
+          onChange={(event) => setField("forward", event.target.value)}
+          placeholder="verified-address@example.com"
+          className="h-8 px-3 text-[13px]"
+        />
       </div>
 
       <div className="flex items-center gap-2">

@@ -17,6 +17,9 @@ export type ManageGmailFiltersInput = {
   replaceCriteria?: boolean;
   archive?: boolean;
   markRead?: boolean;
+  neverSpam?: boolean;
+  neverImportant?: boolean;
+  important?: boolean;
   starred?: boolean;
   trash?: boolean;
   label?: string;
