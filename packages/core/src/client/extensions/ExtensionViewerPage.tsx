@@ -11,7 +11,10 @@ export function ExtensionViewerPage() {
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: { view: "extensions", extensionId: id } }),
+      body: JSON.stringify({
+        view: "extensions",
+        ...(id && id !== "new" ? { extensionId: id } : {}),
+      }),
     }).catch(() => {});
   }, [id]);
 

@@ -123,10 +123,15 @@ function EditToolPopover({
     const trimmed = text.trim();
     if (!trimmed) return;
     sendToAgentChat({
-      message: trimmed,
-      context: `The user is viewing extension "${extension.name}" (id: ${extension.id}) and wants to edit it.`,
+      message: `Update extension "${extension.name}" (${extension.id}): ${trimmed}`,
+      context: [
+        `The user is viewing extension "${extension.name}" (id: ${extension.id}) and wants to edit it.`,
+        "This is an existing sandboxed Alpine.js extension stored in SQL. Use list-extensions/update-extension for this extension id.",
+        "Do not call connect-builder and do not route this to a source-code change flow.",
+      ].join("\n"),
       submit: true,
       openSidebar: true,
+      newTab: true,
     });
     setOpenAndNotify(false);
   };
