@@ -6,7 +6,7 @@ import { sendToAgentChat, type AgentChatMessage } from "./agent-chat.js";
  *
  * Returns [isGenerating, send] where:
  * - isGenerating: true after send() is called, false when the
- *   builder.chatRunning event fires with detail.isRunning === false
+ *   agentNative.chatRunning event reports that the run has stopped
  * - send: wrapper around sendToAgentChat that sets isGenerating to true
  */
 export function useAgentChatGenerating(): [

@@ -124,7 +124,7 @@ export default function Index() {
   const openNewDeck = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
       anchorElRef.current = e.currentTarget;
-      setSelectedDesignSystemId(defaultSystem?.id ?? "none");
+      setSelectedDesignSystemId(defaultSystem?.id ?? "");
       setShowNewDeckPrompt(true);
     },
     [defaultSystem?.id],
@@ -137,7 +137,7 @@ export default function Index() {
 
   useEffect(() => {
     if (!showNewDeckPrompt || selectedDesignSystemId) return;
-    setSelectedDesignSystemId(defaultSystem?.id ?? "none");
+    setSelectedDesignSystemId(defaultSystem?.id ?? "");
   }, [defaultSystem?.id, selectedDesignSystemId, showNewDeckPrompt]);
 
   // Restore a prompt that was held back when the user wasn't signed in:

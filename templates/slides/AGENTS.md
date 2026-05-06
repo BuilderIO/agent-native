@@ -208,6 +208,8 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 
 `.env` is loaded automatically — **never manually set `DATABASE_URL` or other env vars**.
 
+In the built-in agent chat, use the framework `manage-progress` tool for long-running generation work. Start it before multi-slide deck generation or design-system extraction, update the current step after each visible batch, and complete it when the user can see the finished result.
+
 ### Reading & Searching
 
 | Action        | Args            | Purpose                        |
@@ -236,13 +238,13 @@ If a metric or source would make the slide stronger but is not available, use qu
 
 1. If a deck is already open (check `<current-screen>` for `deckId`), skip to step 3.
 2. Otherwise, create an empty deck: `create-deck --title "X" --slides '[]'`, then `navigate --deckId=<returned-id>`.
-3. Call `add-slide --deckId=<id> --content="<html>"` once per slide. **Fire multiple `add-slide` calls in parallel in the same turn** — they run concurrently and the user sees each slide appear live.
-4. For requests above 6 slides, work in visible batches of at most 4 `add-slide` calls per model turn. Add the first batch immediately, then continue with the next batch after tool results until the requested slide count is reached. Do not spend a long turn designing the whole deck before slide 1 lands.
+3. For decks larger than a few slides, start a `manage-progress` run so the header runs tray shows visible progress outside the chat pane. Update it after each batch and complete it when the requested slide count is reached.
+4. Call `add-slide --deckId=<id> --content="<html>"` once per slide. Add slide 1 as soon as it is ready, then continue in small visible batches. For requests above 6 slides, use at most 4 `add-slide` calls per model turn, pass `position` values so slide order stays stable, and continue after tool results until the requested slide count is reached. Do not spend a long turn designing the whole deck before slide 1 lands.
 
 **Why add-slide is preferred over create-deck with all slides:**
 
 - The user sees slides stream in one-by-one (create-deck drops them all at once).
-- Parallel tool calls mean all slides generate concurrently.
+- Small batched tool calls keep the editor visibly filling in without making the user wait for the whole deck.
 - If one slide fails, the others still land.
 
 **Other operations:**
