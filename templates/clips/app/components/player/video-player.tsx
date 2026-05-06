@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { appBasePath } from "@agent-native/core/client";
+import { appBasePath, captureClientException } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/spinner";
 import { PlayerControls } from "./player-controls";
@@ -324,7 +324,24 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               headers: { "Content-Type": blob.type || "image/jpeg" },
               body: blob,
             }).catch((err) => {
+              // Thumbnails are best-effort — never fail the player UI.
+              // Still log to console for dev visibility, and report to
+              // Sentry so we can spot regressions / Builder.io upload
+              // outages without users ever seeing a broken-looking page.
               console.warn("[clips] thumbnail upload failed", err);
+              try {
+                captureClientException(err, {
+                  tags: { uploadStep: "thumbnail" },
+                  extra: {
+                    recordingId,
+                    blobBytes: blob.size,
+                    mimeType: blob.type || "image/jpeg",
+                    message: err instanceof Error ? err.message : String(err),
+                  },
+                });
+              } catch {
+                // Best-effort — never throw from a fire-and-forget catch.
+              }
             });
           },
           "image/jpeg",

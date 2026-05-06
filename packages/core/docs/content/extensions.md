@@ -1,230 +1,265 @@
 ---
 title: "Extensions"
-description: "Lightweight interactive apps — dashboards, widgets, calculators, monitors — that the agent creates for you instantly, without changing your app's code."
+description: "Mini-apps your users build inside your template — a custom KPI tile in Analytics, a meeting-prep checklist in Calendar, a contact CRM widget in Mail. No deploys, no code edits, no schema changes."
 ---
 
 # Extensions
 
-Extensions are lightweight interactive apps that live inside your agent-native app. Think dashboards, widgets, calculators, API monitors, data lookups — anything you'd otherwise build by hand.
+Extensions are **mini-apps your users build inside your template**.
 
-The key difference from the rest of your app: **extensions don't require code changes.** The agent creates and updates them at runtime, they're stored in the database, and they're ready to use immediately. No deploys, no builds, no pull requests.
+If you've used QuickBooks Online, you've seen the model: QBO ships a core accounting product, and users layer on small custom widgets — a custom report, a payroll calculator, a tax-rule checker — that live inside the same app and use the same data. Extensions are the agent-native version of that idea, except your users don't write any code. They describe what they want, and the agent builds it.
 
-## Extensions vs. LLM tools {#extensions-vs-llm-tools}
+The framing matters: an extension isn't a generic "do whatever you want" sandbox. It's a **mini-app that extends a specific template** — Mail, Analytics, Calendar, Clips, Design — and uses that template's actions and data. A Mail extension reads emails. An Analytics extension reads a dashboard's metrics. A Calendar extension acts on the open event. They feel like part of the host product because they _are_ part of the host product.
 
-The word "tools" gets used in two different ways in this codebase, so we use distinct names to keep them clear:
+Three things make extensions work:
 
-- **Extensions** (this primitive) — sandboxed Alpine.js mini-apps, rendered inside an iframe. They have a UI the user can interact with, persistent storage, and the ability to call your app's actions and external APIs. The rest of this page is about extensions.
-- **LLM tools / agent tools** — the function calls the agent makes during a turn (the things you define with `defineAction`, MCP tools, or that show up in `tools/list` / `tools/call`). These are not user-facing apps; they're the function-call surface area the model sees. When you read `tool: { description, parameters }` on an `ActionEntry`, "agent's tools", or "tool calls" elsewhere in these docs, that's the LLM-tools sense.
+- **No code, no deploy.** The agent writes them and they're live in seconds. Stored in the database, not the repo.
+- **Full access to the template's data.** Extensions can call the same actions the agent calls — `list-emails` in Mail, `list-decks` in Slides, `list-recordings` in Clips — so they have everything the host app has.
+- **Built-in storage.** Each extension has its own per-user / per-org key-value store, so it can save state without you adding a new SQL table.
 
-Both senses can show up on the same page (extensions can _call_ agent actions, which the agent also sees as tools), so when in doubt: if it has a UI inside an iframe, it's an extension; if it's a function-call name on a model turn, it's an LLM tool.
+## A quick gallery {#gallery}
 
-## Extensions vs. editing the app {#extensions-vs-code}
+Real extensions people would actually build, grouped by the template they live in. Each one is one focused thing — not a Swiss-army knife.
 
-Your agent-native app has a full codebase — React components, routes, actions, styles. When the agent edits that code, it's changing the app itself. That's powerful, but it requires a build step and a deploy.
+### Mail
 
-Extensions are different:
+A user is reading an email from `priya@acme.com`. What kind of widget would help right there?
 
-|                       | App code                                | Extensions                                         |
-| --------------------- | --------------------------------------- | -------------------------------------------------- |
-| **Created by**        | Developer or agent editing source files | Agent or user, instantly from chat                 |
-| **Stored in**         | Git repository                          | Database                                           |
-| **Requires a build**  | Yes                                     | No                                                 |
-| **Requires a deploy** | Yes                                     | No                                                 |
-| **Scope**             | Part of the app for all users           | Private by default, shareable                      |
-| **Best for**          | Core app features                       | Personal dashboards, utilities, quick integrations |
+- **Contact notes** — a sticky-note pad pinned to whoever the user is emailing. Loads notes for that contact, lets the user jot more.
+- **Recent threads with this person** — a small list of the last five threads with the open contact, separate from the inbox view.
+- **CRM enrichment** — pulls the contact's company size, last meeting date, or open deals from your CRM.
+- **Meeting scheduler shortcut** — turns "find a time next week" into a one-click "send these slots" widget.
 
-Use app code for features that are core to the product. Use extensions for everything else — one-off utilities, personal dashboards, quick integrations, monitors, and things you want to spin up in seconds.
+Sketch — Contact notes (saves a note tied to whoever you're emailing):
 
-## When to build an extension vs. a template feature {#when-to-build}
+```html
+<div
+  class="p-4"
+  x-data="{
+    contactEmail: window.slotContext?.contactEmail,
+    note: '',
+    async init() {
+      if (!this.contactEmail) return;
+      const saved = await extensionData.get('notes', this.contactEmail);
+      if (saved) this.note = JSON.parse(saved.data).text;
+    },
+    async save() {
+      await extensionData.set('notes', this.contactEmail, { text: this.note });
+    }
+  }"
+>
+  <p class="text-xs text-muted-foreground mb-2" x-text="contactEmail"></p>
+  <textarea
+    x-model="note"
+    @blur="save()"
+    class="w-full rounded-md border bg-background p-2 text-sm"
+    rows="4"
+    placeholder="Notes about this contact..."
+  ></textarea>
+</div>
+```
 
-A quick decision rubric:
+### Analytics
 
-**Build an extension when:**
+A user is staring at a dashboard. What's the missing tile?
 
-- It's for one user or one team, not the whole product.
-- It's a quick utility, dashboard, or widget you want now, not next sprint.
-- No new database schema is needed (or per-extension key-value storage is enough).
-- You want to ship it inside a single chat turn, no deploy.
+- **Custom KPI box** — a single big number for a metric that isn't a built-in panel. "Trials started this week," "MRR delta vs last month."
+- **Goal tracker** — pulls a metric the user picks and shows progress against a target the user typed in.
+- **Top customers leaderboard** — joins a metric with a customer table, ranks the top 10.
 
-**Add a template feature when:**
+Sketch — Custom KPI box (calls one of the analytics template's `appAction` queries):
 
-- Every user of the template should get it.
-- It needs new SQL tables, migrations, or shared schema changes.
-- The UI is complex enough to warrant React components, routes, and proper testing.
-- It's part of the product surface — something you'd advertise on a landing page.
+```html
+<div
+  class="p-4"
+  x-data="{
+  value: null,
+  async init() {
+    const result = await appAction('query-agent-native-analytics', {
+      metric: 'trials_started',
+      range: '7d'
+    });
+    this.value = result?.total ?? 0;
+  }
+}"
+>
+  <p class="text-xs uppercase tracking-wider text-muted-foreground">
+    Trials this week
+  </p>
+  <p class="text-3xl font-bold mt-1" x-text="value ?? '—'"></p>
+</div>
+```
 
-When in doubt, start as an extension. Promoting an extension to a template feature later is straightforward; rolling back a half-shipped product feature is not.
+### Calendar
 
-## Creating an extension {#creating}
+The user has an event open. What would help in that moment?
 
-### From the sidebar
+- **Meeting prep checklist** — auto-loads agenda items, attendees, and prior thread summaries for the open event.
+- **Travel time** — "you have 35 minutes until your next meeting at the Mission location."
+- **Timezone helper** — shows the meeting time in every attendee's local time at a glance.
 
-Click the **+** button in the Extensions section of the sidebar. Describe what you want in plain language — "a dashboard that shows my open GitHub PRs" — and the agent builds it for you.
+### Clips
 
-### From chat
+A user is reviewing a screen recording. What enhances that view?
 
-Just ask: "Create an extension that monitors our API health" or "Make me a calculator for shipping costs." The agent handles the rest.
+- **Action item extractor** — reads the clip transcript (the agent fetches it via `appAction`), lists the to-dos.
+- **Auto-share** — one-click "post this clip's link to my #recordings Slack channel."
+- **Highlight reel** — pulls the chapters the agent generated and turns them into a quick navigation menu.
 
-### Updating an extension
+### Design
 
-Ask the agent: "Update my PR dashboard to also show draft PRs" or "Add a dark mode toggle to the weather widget." The agent makes surgical edits without regenerating the whole thing.
+A user has a draft Alpine/Tailwind page open. What would smooth the prototyping loop?
 
-## What extensions can do {#capabilities}
+- **Brand color swatch** — palette pulled from the user's brand config, click to copy a color into the editor.
+- **Asset picker** — lists images the user has uploaded, drops the URL on click.
+- **Spacing inspector** — shows the gap/padding/margin tokens the active page uses, so the user can stay consistent.
 
-Extensions are fully capable despite being lightweight. They can:
+Pattern across all of these: extensions are about **the moment** the user is in inside the host template. The agent already knows which contact, which dashboard, which event, which clip — the extension uses that context.
 
-- **Call external APIs** — GitHub, Stripe, weather services, any REST API. Requests go through a secure server-side proxy that keeps your API keys safe.
-- **Call your app's actions** — anything your agent can do, an extension can trigger.
-- **Query your app's database** — read and write data directly.
-- **Store their own data** — each extension has built-in persistent storage, no setup required. Save notes, preferences, cached results — whatever the extension needs.
-- **Call any endpoint in your app** — hit custom API routes, webhooks, or internal services.
+## How a user builds one {#building}
 
-All of this works out of the box. No configuration, no new files, no schema changes.
+The simple path:
 
-## Layout defaults {#layout}
+1. **Click "New Extension"** in the sidebar (or just ask in chat).
+2. **Describe what you want in one sentence.** "A sticky-note pad for the contact I'm emailing." "A KPI box for trials started this week."
+3. **The agent writes it and it appears in your Extensions list, ready to use.**
 
-Extensions render with modest canvas padding by default so simple widgets and dashboards do not hug the iframe edge. For full-bleed experiences such as maps, canvases, or custom editors, set `data-tool-layout="full-bleed"` or `data-tool-padding="none"` on the outermost element. (The `data-tool-*` attribute names are kept for backward compatibility — `data-extension-layout` / `data-extension-padding` aliases are also accepted.)
+No file to edit, no deploy. The agent picks the right helpers (`appAction`, `extensionData`, `extensionFetch`) and writes the Alpine.js HTML.
 
-## Persistent storage {#persistent-storage}
+If the extension needs an API key — a CRM token, a weather API — the agent tells you what to add and where to add it. Keys are stored encrypted and locked to specific domains.
 
-Every extension has access to a built-in key-value store via the `extensionData` helper (also exposed as `toolData` for backward compatibility). Data is automatically scoped per extension and per user — your data stays yours.
+If you want to change something later, just say so: "Add a search box to my contact notes." The agent edits the HTML in place — no regeneration of the whole thing.
 
-When you ask the agent to "add persistence" or "remember state" in an extension, it uses this built-in storage. No database tables to create, no migrations to run.
+## What an extension can do {#capabilities}
 
-### Scopes
+Inside the iframe sandbox, every extension has these helpers on `window`:
 
-All `extensionData` methods accept an optional `{ scope }` option:
+| Helper                                           | Purpose                                               | Example                                           |
+| ------------------------------------------------ | ----------------------------------------------------- | ------------------------------------------------- |
+| `appAction(name, params)`                        | Call any of the host template's actions               | `appAction('list-emails', { view: 'inbox' })`     |
+| `appFetch(path, options)`                        | Call any app endpoint                                 | `appFetch('/api/settings')`                       |
+| `dbQuery(sql, args)`                             | Read from SQL (auto-scoped to the user)               | `dbQuery('SELECT id, name FROM tools')`           |
+| `dbExec(sql, args)`                              | Write to SQL                                          | `dbExec('INSERT INTO ...')`                       |
+| `extensionFetch(url, options)`                   | Hit external APIs through a secure proxy with secrets | `extensionFetch('https://api.github.com/user')`   |
+| `extensionData.set(collection, id, data, opts?)` | Persist data per-extension (user / org scoping)       | `extensionData.set('notes', id, { text: '...' })` |
+| `extensionData.list(collection, opts?)`          | List persisted items                                  | `extensionData.list('notes', { scope: 'all' })`   |
+| `extensionData.get(collection, id, opts?)`       | Get a single item                                     | `extensionData.get('notes', 'note-1')`            |
+| `extensionData.remove(collection, id, opts?)`    | Delete a persisted item                               | `extensionData.remove('notes', 'note-1')`         |
 
-- `'user'` (default) — private to the current user.
-- `'org'` — shared across the user's organization.
-- `'all'` — list/get only; returns both user-scoped and org-scoped items.
+Two rules of thumb:
+
+- **Prefer `appAction` over `dbQuery`.** Actions are the template's official surface — they handle access control, scoping, and validation for you. Reach for raw SQL only when no action fits.
+- **Prefer `extensionData` over making new tables.** Each extension gets its own isolated key-value store. No schema, no migration. Set `{ scope: 'org' }` to share with the user's org, `'user'` (default) for private.
 
 ```html
 <script>
   // Private to me
-  await extensionData.set('notes', 'note-1', { title: 'My Note' });
+  await extensionData.set('notes', 'note-1', { title: 'My note' });
 
   // Shared with my org
-  await extensionData.set('notes', 'team-note', { title: 'Team Note' }, { scope: 'org' });
+  await extensionData.set('notes', 'team-note', { title: 'Team note' }, { scope: 'org' });
 
-  // List my notes (default)
-  const mine = await extensionData.list('notes');
-
-  // List both mine and the org's
-  const everything = await extensionData.list('notes', { scope: 'all' });
+  // List everything visible to me (mine + org)
+  const all = await extensionData.list('notes', { scope: 'all' });
 </script>
 ```
 
-> **Legacy alias.** The original helper was named `toolData`; both `toolData` and `extensionData` resolve to the same store and accept identical arguments. New extensions should use `extensionData`; existing code using `toolData` keeps working.
-
-## API keys and secrets {#secrets}
-
-When an extension needs an API key (for GitHub, OpenAI, a weather service, etc.), the agent will tell you what's needed and where to get it. You add the key through the Settings UI in the agent sidebar.
-
-Keys are encrypted and stored securely. Each key is restricted to specific domains — a GitHub token can only be sent to `api.github.com`, never anywhere else.
-
-### Secrets in extensions {#secrets-in-extensions}
-
-Extensions reference secrets in `extensionFetch()` calls (legacy alias: `toolFetch()`) using the `${keys.NAME}` template pattern. The proxy substitutes the encrypted value server-side; the actual key never reaches the browser.
+External APIs go through `extensionFetch`, which proxies the call server-side and substitutes secrets via the `${keys.NAME}` template:
 
 ```html
 <script>
   const res = await extensionFetch('https://api.github.com/user', {
-    headers: {
-      Authorization: 'Bearer ${keys.GITHUB_TOKEN}',
-    },
+    headers: { Authorization: 'Bearer ${keys.GITHUB_TOKEN}' },
   });
 </script>
 ```
 
-When an extension needs a one-off key, the agent can register an ad-hoc secret via `POST /_agent-native/secrets/adhoc` with a `urlAllowlist` that pins which domains the secret may be sent to. A request to any other host is rejected before the proxy fires. Combined with SSRF and private-network protections, this means a leaked extension can't exfiltrate secrets to an attacker-controlled URL.
+The actual key never reaches the browser. Each key is locked to an allowlist of domains, so a leaked extension can't exfiltrate it elsewhere.
+
+## Slots — putting an extension inside the host UI {#slots}
+
+The gallery above describes _what_ an extension does. Slots describe _where_ it appears.
+
+By default, an extension lives on its own page in the Extensions list — open it like a small app. That's fine for dashboards, calculators, and standalone widgets.
+
+But the most QBO-shaped use case is different: the user wants their widget pinned _inside_ the template's UI — under the contact info in Mail's sidebar, in the corner of an Analytics dashboard, on the right side of a Calendar event. That's what **slots** are for.
+
+A slot is a named widget area a template ships:
+
+| Template      | Example slot                   | Where it shows up                            |
+| ------------- | ------------------------------ | -------------------------------------------- |
+| **Mail**      | `mail.contact-sidebar.bottom`  | Below the contact info on every email thread |
+| **Analytics** | `analytics.dashboard.tiles`    | Alongside the dashboard's built-in panels    |
+| **Calendar**  | `calendar.event-detail.bottom` | Below the open event                         |
+| **Clips**     | `clips.right-panel.tabs`       | A new tab in the clip review panel           |
+
+When an extension is **installed into a slot**, the host pushes the relevant context — the contact's email, the dashboard id, the event id — into the iframe. The extension reads `window.slotContext` to know what the user is looking at.
+
+### A concrete example
+
+Imagine the contact-notes extension from the gallery. On its own, it's a standalone widget. To make it appear inside the Mail contact sidebar:
+
+1. Build the extension once. Use `window.slotContext.contactEmail` so it knows which contact the user is on.
+2. Tell it the slot it can fill: `add-extension-slot-target { extensionId, slotId: "mail.contact-sidebar.bottom" }`.
+3. Install it: `install-extension { extensionId, slotId: "mail.contact-sidebar.bottom" }`.
+
+The next time you open an email thread, your sticky-note pad is right under the contact info — populated with notes for the person you're emailing. Switch to a different thread, the notes for _that_ contact load. Same extension, different context, no rewrites.
+
+In practice you don't run those three commands by hand. Just say "pin this widget to my contact sidebar" and the agent handles target + install for you.
+
+> **Slots are an _added_ capability, not a prerequisite.** Plenty of useful extensions never get installed into a slot — they live happily on their own page. Reach for slots when the widget needs to be _next to_ what the user is looking at in the host template.
+
+For deeper detail on slots — how to declare them in your template, how the context contract works, how installs are scoped — see the `extension-points` skill.
 
 ## Sharing {#sharing}
 
-Extensions are **private by default** — only you can see and use an extension you create.
+Extensions are private to the user who created them by default. To share:
 
-You can share extensions with your team:
+- **Org-visible** — everyone in the org can see and use it.
+- **Per-user grants** — invite specific people as viewer / editor / admin.
 
-- **Org-visible** — everyone in your organization can use it.
-- **Per-user sharing** — grant access to specific people as viewers, editors, or admins.
+Shared extensions have their own URLs and plug into the same share dialog as documents, decks, and dashboards. Slot installs are always personal — sharing an extension means others _can_ install it; it doesn't auto-pin it to their UI.
 
-Shared extensions have their own URLs, so you can link to them directly.
+## Extensions vs. editing the app code {#vs-app-code}
 
-Under the hood, extensions use the same ownable-resource model as the rest of the framework — `ownableColumns()` on the `extensions` Drizzle export (physical SQL table: `tools`) and a standard `createSharesTable()` for grants (physical table: `tool_shares`, exported as `extensionShares`). That means extensions plug into the same share dialog, access checks, and audit surfaces as documents, decks, dashboards, and any other shareable resource. See [Security](/docs/security) for the full access model.
+The framework lets the agent edit the app's source code directly — components, routes, styles. So when should you reach for an extension instead?
+
+|                       | Extension                                         | App code edit                        |
+| --------------------- | ------------------------------------------------- | ------------------------------------ |
+| **Created by**        | Agent (or user) at runtime                        | Agent editing source files           |
+| **Stored in**         | The database                                      | The git repository                   |
+| **Requires a build**  | No                                                | Yes                                  |
+| **Requires a deploy** | No                                                | Yes                                  |
+| **Scope**             | One user (or shared with org)                     | The entire product, every user       |
+| **Best for**          | Personal widgets, custom KPIs, per-team utilities | Core features that ship to all users |
+
+Rule of thumb: **if it's for one user or one team, it's an extension.** If every user of the template should get it, ship it as a real feature.
 
 ## Security {#security}
 
-Extensions run in a secure sandbox:
+Extensions run in a sandboxed iframe:
 
-- **Isolated** — extensions can't access your app's cookies, session, or page content.
-- **API keys stay server-side** — secrets are injected by the server, never exposed to the browser.
-- **Domain-restricted secrets** — each API key can only be sent to its approved domains.
-- **Private network protection** — extensions can't reach internal/private network addresses.
-- **Authentication required** — only logged-in users can use extensions.
+- **Isolated** from the parent app's cookies, session, and DOM.
+- **Server-side secret injection** via the `${keys.NAME}` template — the actual key value never reaches the browser.
+- **Domain-locked secrets** — each key is bound to a URL allowlist; the proxy refuses requests to other hosts.
+- **Private-network protection** — extensions can't reach internal addresses.
+- **Auth required** — extensions only run for logged-in users, and `dbQuery` / `dbExec` calls are auto-scoped.
 
-## Extension API reference {#api-reference}
+## A few things to know about naming {#naming-back-compat}
 
-Every extension runs inside a sandboxed iframe with the following helpers injected on `window`. They are the complete surface area — anything else an extension needs has to go through one of these.
+If you're poking around the SQL or the source, you'll see a mix of "extension" and "tool" names. Quick decoder:
 
-| Helper                                           | Purpose                    | Example                                           |
-| ------------------------------------------------ | -------------------------- | ------------------------------------------------- |
-| `extensionData.set(collection, id, data, opts?)` | Persist data per-extension | `extensionData.set('notes', id, { text: '...' })` |
-| `extensionData.list(collection, opts?)`          | List persisted items       | `extensionData.list('notes', { scope: 'all' })`   |
-| `extensionData.get(collection, id, opts?)`       | Get a single item          | `extensionData.get('notes', 'note-1')`            |
-| `extensionData.remove(collection, id, opts?)`    | Delete persisted item      | `extensionData.remove('notes', 'note-1')`         |
-| `appAction(name, params)`                        | Call any app action        | `appAction('list-emails', { view: 'inbox' })`     |
-| `dbQuery(sql, args)`                             | Read from SQL              | `dbQuery('SELECT * FROM tools')`                  |
-| `dbExec(sql, args)`                              | Write to SQL               | `dbExec('INSERT INTO ...')`                       |
-| `appFetch(path, options)`                        | Call any app endpoint      | `appFetch('/api/settings')`                       |
-| `extensionFetch(url, options)`                   | External API via proxy     | `extensionFetch('https://api.github.com/...')`    |
+- The user-facing primitive used to be called "Tools." It's now **Extensions**.
+- The physical SQL tables (`tools`, `tool_data`, `tool_shares`, `tool_slots`, `tool_slot_installs`) keep their original names — renaming a table is a destructive migration, and the framework doesn't ship destructive migrations.
+- The Drizzle / TypeScript exports use the new names: `extensions`, `extensionData`, `extensionShares`, `extensionSlots`, `extensionSlotInstalls`.
+- Inside an extension's iframe, the canonical helpers are `extensionFetch` and `extensionData`. The legacy names `toolFetch` and `toolData` still resolve, so older extension HTML keeps working.
 
-`appAction` is the preferred way to trigger app behavior — it routes through the same actions the agent and the frontend use, so authorization and access scoping happen automatically. Drop down to `dbQuery`/`dbExec` only when there's no action that fits.
-
-> **Legacy aliases and physical names.** `toolData` and `toolFetch` are kept as aliases for `extensionData` and `extensionFetch`. The physical SQL tables (`tools`, `tool_data`, `tool_shares`) and the `tool_id` foreign-key column also keep their original names — only the public Drizzle/TypeScript exports (`extensions`, `extensionData`, `extensionShares`) and the iframe globals were renamed.
-
-### Routes {#routes}
-
-The framework mounts the following endpoints under `/_agent-native/extensions/`. Extensions themselves rarely call these directly — they're useful when integrating extensions with external scripts or custom UI. The legacy `/_agent-native/tools/*` paths still resolve and are kept for backward compatibility.
-
-| Method | Path                                   | Purpose                                           |
-| ------ | -------------------------------------- | ------------------------------------------------- |
-| GET    | `/_agent-native/extensions`            | List extensions (filtered by ownership + sharing) |
-| POST   | `/_agent-native/extensions`            | Create an extension                               |
-| GET    | `/_agent-native/extensions/:id`        | Get a single extension                            |
-| PUT    | `/_agent-native/extensions/:id`        | Update (supports `patches` for diffing)           |
-| DELETE | `/_agent-native/extensions/:id`        | Delete an extension                               |
-| GET    | `/_agent-native/extensions/:id/render` | Render the iframe HTML                            |
-| POST   | `/_agent-native/extensions/proxy`      | Authenticated proxy with secret injection         |
-
-### Agent actions {#agent-actions}
-
-The agent uses three actions to manage extensions on your behalf:
-
-| Action             | What it does                                                              |
-| ------------------ | ------------------------------------------------------------------------- |
-| `create-extension` | Create a new extension (name, description, Alpine.js HTML content)        |
-| `update-extension` | Update an extension — use `patches` array for find/replace diffs          |
-| `navigate`         | Navigate to `--view=extensions` or `--view=extensions --extensionId=<id>` |
-
-> **Legacy action names.** `create-tool` and `update-tool` continue to work as aliases for `create-extension` and `update-extension`. New code should use the `*-extension` names.
-
-## Examples {#examples}
-
-Here are some things people build as extensions:
-
-- **GitHub PR dashboard** — see open PRs, review status, and CI checks at a glance
-- **API health monitor** — check if your services are up with a single click
-- **Weather widget** — quick weather lookup for any city
-- **Stripe payment lookup** — search recent payments and refunds
-- **Database explorer** — browse and query your app's data
-- **Shipping cost calculator** — compute rates based on weight and destination
-- **Meeting notes summarizer** — paste notes, get action items
-- **Social media scheduler** — draft and schedule posts across platforms
-
-To create any of these, just describe what you want in the agent chat.
+You also won't see this in normal use, but the agent has a third related concept called "LLM tools" — the function-call surface area on a model turn (defined via `defineAction`, MCP, etc.). Those are the function-calling primitive, not the user-facing widgets. When this page says "extension," it means the user-facing widget; when other docs say "tool" alongside `defineAction`, that's the LLM concept.
 
 ## What's next
 
-- [**Actions**](/docs/actions) — the operations that extensions (and the agent) can call
-- [**Workspace**](/docs/workspace) — the broader workspace system extensions live alongside
-- [**Security**](/docs/security) — the framework's data scoping and access control
+- [**Templates**](/docs/cloneable-saas) — the host apps extensions extend
+- [**Actions**](/docs/actions) — the operations an extension calls via `appAction`
+- [**Sharing & Privacy**](/docs/sharing) — how extension visibility, org sharing, and per-user grants work
+- [**Onboarding & API Keys**](/docs/onboarding) — how secrets surface in the settings UI
+- [**Security**](/docs/security) — the framework's data scoping and access model
