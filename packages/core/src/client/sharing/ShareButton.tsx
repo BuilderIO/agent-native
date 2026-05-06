@@ -14,6 +14,7 @@ import {
   IconTrash,
   IconCheck,
   IconChevronDown,
+  IconCopy,
 } from "@tabler/icons-react";
 import * as Select from "@radix-ui/react-select";
 import {
@@ -36,6 +37,8 @@ export interface ShareButtonProps {
    *  button next to an iframe use this to disable the iframe's pointer events
    *  while the popover is open, so popover hover/clicks aren't swallowed. */
   onOpenChange?: (open: boolean) => void;
+  /** Optional public/share URL shown as a copyable link in the popover. */
+  shareUrl?: string;
 }
 
 type Visibility = "private" | "org" | "public";
@@ -89,7 +92,7 @@ const VIS_META: Record<
   },
   public: {
     label: "Public",
-    description: "Anyone signed in with the link can view",
+    description: "Anyone with the link can view",
     Icon: IconWorld,
   },
 };
@@ -603,9 +606,55 @@ function SharePanel(
         </div>
       </div>
 
+      {props.shareUrl ? <CopyLinkField value={props.shareUrl} /> : null}
+
       <div className="mt-2 flex justify-end">
         <button type="button" onClick={onClose} className={BUTTON_PRIMARY_SM}>
           Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CopyLinkField({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  const resetRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => {
+    return () => {
+      if (resetRef.current) clearTimeout(resetRef.current);
+    };
+  }, []);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      if (resetRef.current) clearTimeout(resetRef.current);
+      resetRef.current = setTimeout(() => setCopied(false), 1400);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <div className="mb-4">
+      <div className="mb-2 text-sm font-semibold">Share link</div>
+      <div className="flex min-w-0 items-center gap-2">
+        <input
+          readOnly
+          value={value}
+          className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm text-muted-foreground outline-none"
+          onFocus={(event) => event.currentTarget.select()}
+        />
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground hover:bg-accent"
+        >
+          {copied ? <IconCheck size={15} /> : <IconCopy size={15} />}
+          {copied ? "Copied" : "Copy"}
         </button>
       </div>
     </div>

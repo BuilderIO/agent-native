@@ -52,6 +52,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu.js";
 import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
@@ -246,6 +248,95 @@ async function waitForThreadRunToClear(apiUrl: string, threadId?: string) {
       window.setTimeout(resolve, ACTIVE_RUN_POLL_INTERVAL_MS),
     );
   }
+}
+
+interface FormattedMessageTimestamp {
+  short: string;
+  full: string;
+}
+
+function coerceMessageDate(value: unknown): Date | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value === "string" || typeof value === "number") {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  return null;
+}
+
+function isSameCalendarDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function formatMessageTimestamp(
+  value: unknown,
+): FormattedMessageTimestamp | null {
+  const date = coerceMessageDate(value);
+  if (!date) return null;
+
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const time = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+
+  let short: string;
+  if (isSameCalendarDay(date, now)) {
+    short = time;
+  } else if (isSameCalendarDay(date, yesterday)) {
+    short = `Yesterday ${time}`;
+  } else if (date.getFullYear() === now.getFullYear()) {
+    short = `${new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+    }).format(date)}, ${time}`;
+  } else {
+    short = `${new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(date)}, ${time}`;
+  }
+
+  return {
+    short,
+    full: new Intl.DateTimeFormat(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(date),
+  };
+}
+
+function MessageTimestamp({
+  timestamp,
+  className,
+}: {
+  timestamp: FormattedMessageTimestamp;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "text-[11px] leading-none text-muted-foreground",
+        className,
+      )}
+      title={timestamp.full}
+    >
+      {timestamp.short}
+    </span>
+  );
 }
 
 function SelectionAttachedPill() {
@@ -1058,6 +1149,8 @@ function UserMessage() {
   const [expanded, setExpanded] = useState(false);
   const [isExpandable, setIsExpandable] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  const messageRuntime = useMessageRuntime();
+  const timestamp = formatMessageTimestamp(messageRuntime.getState().createdAt);
 
   useEffect(() => {
     const el = contentRef.current;
@@ -1074,7 +1167,10 @@ function UserMessage() {
   }, []);
 
   return (
-    <div className="flex justify-end" style={{ contentVisibility: "auto" }}>
+    <div
+      className="group flex justify-end"
+      style={{ contentVisibility: "auto" }}
+    >
       <div className="max-w-[85%]">
         <UserMessageAttachments />
         <div
@@ -1126,6 +1222,14 @@ function UserMessage() {
             {expanded ? "Collapse" : "Expand"}
           </button>
         )}
+        {timestamp && (
+          <div className="mt-1 flex justify-end">
+            <MessageTimestamp
+              timestamp={timestamp}
+              className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1152,6 +1256,7 @@ function MessageActionsMenu({
   const [copied, setCopied] = useState<string | null>(null);
   const messageRuntime = useMessageRuntime();
   const actionsCtx = React.useContext(MessageActionsContext);
+  const timestamp = formatMessageTimestamp(messageRuntime.getState().createdAt);
 
   const handleCopyMessage = useCallback(() => {
     const m = messageRuntime.getState();
@@ -1208,15 +1313,20 @@ function MessageActionsMenu({
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <button
+          aria-label="Message actions"
           className={cn(
-            "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground",
+            "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground",
             open && "bg-accent text-foreground",
           )}
         >
           <IconDots className="h-3.5 w-3.5" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" sideOffset={4} className="w-44">
+      <DropdownMenuContent
+        align="start"
+        sideOffset={6}
+        className="w-48 rounded-lg border-border p-1.5 shadow-xl"
+      >
         {actionsCtx?.onForkChat && (
           <DropdownMenuItem onSelect={handleForkChat}>
             <IconGitFork className="h-3.5 w-3.5" />
@@ -1255,6 +1365,14 @@ function MessageActionsMenu({
             Revert to here
           </DropdownMenuItem>
         )}
+        {timestamp && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="px-2 py-1 text-[11px] font-normal text-muted-foreground">
+              Sent {timestamp.short}
+            </DropdownMenuLabel>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -1268,6 +1386,7 @@ function AssistantMessage() {
   const thread = useThread();
   const chatRunning = React.useContext(ChatRunningContext);
   const msg = messageRuntime.getState();
+  const timestamp = formatMessageTimestamp(msg.createdAt);
   const isLast =
     thread.messages.length > 0 &&
     thread.messages[thread.messages.length - 1].id === msg.id;
@@ -1342,10 +1461,18 @@ function AssistantMessage() {
       </div>
       {isComplete && (
         <div className="mt-1 flex items-center justify-between">
-          <MessageActionsMenu
-            showRevert={showRestore && restoreState === "idle"}
-            onRevert={handleRestore}
-          />
+          <div className="flex min-w-0 items-center gap-2">
+            <MessageActionsMenu
+              showRevert={showRestore && restoreState === "idle"}
+              onRevert={handleRestore}
+            />
+            {timestamp && (
+              <MessageTimestamp
+                timestamp={timestamp}
+                className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+              />
+            )}
+          </div>
           {showRestore && restoreState === "confirming" ? (
             <div className="flex items-center gap-1 text-xs">
               <button

@@ -11,5 +11,14 @@ export default createAuthPlugin({
       "Search, summarize, and cross-reference documents instantly",
     ],
   },
-  publicPaths: ["/api/pages/public", "/p"],
+  publicPaths: [
+    "/api/pages/public",
+    "/p",
+    "/_agent-native/agent-chat",
+    "/_agent-native/agent-engine/status",
+    "/_agent-native/builder/callback",
+    "/_agent-native/builder/connect",
+    "/_agent-native/builder/status",
+    "/_agent-native/env-status",
+  ],
 });

@@ -4,10 +4,16 @@ import {
 } from "@agent-native/core/server";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { getOrgContext } from "@agent-native/core/org";
+import {
+  publicDocumentExtraContext,
+  resolvePublicViewerOwner,
+} from "../lib/public-documents.js";
 
 export default createAgentChatPlugin({
   appId: "content",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
+  anonymousOwner: resolvePublicViewerOwner,
+  extraContext: publicDocumentExtraContext,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   mentionProviders: async () => {
     const { getDb } = await import("../db/index.js");

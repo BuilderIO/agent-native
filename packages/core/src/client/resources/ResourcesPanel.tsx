@@ -1294,6 +1294,18 @@ export function ResourcesPanel() {
             ) : null}
           </div>
           <div className="flex items-center gap-1 shrink-0">
+            {!selectedMcpServer && resourceQuery.data && (
+              <span
+                aria-live="polite"
+                className="mr-1 w-16 text-right text-[11px] text-muted-foreground/60"
+              >
+                {saveStatus === "saving"
+                  ? "Saving..."
+                  : saveStatus === "saved"
+                    ? "Saved"
+                    : ""}
+              </span>
+            )}
             {!selectedMcpServer &&
               resourceQuery.data &&
               (resourceQuery.data.mimeType === "text/markdown" ||
@@ -1337,13 +1349,6 @@ export function ResourcesPanel() {
                   </TooltipProvider>
                 </div>
               )}
-            <span className="text-[11px] text-muted-foreground/60 mr-1">
-              {saveStatus === "saving"
-                ? "Saving..."
-                : saveStatus === "saved"
-                  ? "Saved"
-                  : ""}
-            </span>
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>

@@ -47,8 +47,8 @@ import {
   DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu.js";
 import {
+  IconMessageCircle,
   IconMessageChatbot,
-  IconSparkles,
   IconTerminal2,
   IconSettings,
   IconLayoutSidebarRightCollapse,
@@ -476,7 +476,7 @@ function AgentPanelInner({
                 )}
                 style={AGENT_PANEL_CONTROL_STYLE}
               >
-                <IconSparkles size={14} />
+                <IconMessageCircle size={14} />
                 Chat
               </button>
             </TooltipTrigger>

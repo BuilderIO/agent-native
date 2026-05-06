@@ -132,6 +132,8 @@ Documents are **private by default** — only the creator can see them. To grant
 
 Read (`get-document`, `list-documents`, `search-documents`) admits rows the current user owns, has been shared on, or that match the resource's visibility. Write (`update-document`, `edit-document`) requires `editor` role or above; `delete-document` requires `admin` (owners always satisfy). See the `sharing` skill for the full model.
 
+Public documents are reachable at `/p/<id>` once visibility is `public`. Anyone with the link can read the page. The public page mounts a read-only agent chat with the document injected as context; public viewers must not create, edit, comment on, delete, or share documents through that chat.
+
 ## Common Tasks
 
 | User request                   | What to do                                                                     |

@@ -22,7 +22,9 @@ import { upsertEnvFile } from "./create-server.js";
 import type { EnvKeyConfig } from "./create-server.js";
 import { readBody } from "./h3-helpers.js";
 import {
+  BUILDER_CONNECT_PARAM,
   BUILDER_ENV_KEYS,
+  appendBuilderConnectToken,
   buildBuilderCliAuthUrl,
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
@@ -31,6 +33,7 @@ import {
   isBuilderBranchingEnabled,
   resolveSafePreviewUrl,
   runBuilderAgent,
+  verifyBuilderConnectToken,
 } from "./builder-browser.js";
 import {
   getState,
@@ -185,6 +188,12 @@ export interface CoreRoutesPluginOptions {
   disableAppState?: boolean;
   /** Env key configuration. Enables env-status and env-vars routes. */
   envKeys?: EnvKeyConfig[];
+  /**
+   * Optional owner resolver for narrowly-scoped public routes. Used by public
+   * pages that let anonymous viewers connect Builder credentials for their
+   * own browser-scoped agent session.
+   */
+  anonymousOwner?: (event: H3Event) => string | null | Promise<string | null>;
 }
 
 /**
@@ -431,19 +440,50 @@ export function createCoreRoutesPlugin(
       );
     }
 
+    type BuilderOwnerContext = {
+      email: string | undefined;
+      session: Awaited<ReturnType<typeof getSession>> | null;
+      anonymous: boolean;
+    };
+
+    const resolveBuilderOwnerContext = async (
+      event: H3Event,
+    ): Promise<BuilderOwnerContext> => {
+      const session = await getSession(event).catch(() => null);
+      if (session?.email) {
+        return { email: session.email, session, anonymous: false };
+      }
+
+      const anonymousOwner = await options.anonymousOwner?.(event);
+      if (anonymousOwner) {
+        return { email: anonymousOwner, session: null, anonymous: true };
+      }
+
+      return { email: undefined, session: null, anonymous: false };
+    };
+
     getH3App(nitroApp).use(
       `${P}/builder/status`,
       defineEventHandler(async (event) => {
         const envStatus = getBuilderBrowserStatusForEvent(event);
-        const session = await getSession(event).catch(() => null);
-        const userEmail = session?.email;
+        const ownerContext = await resolveBuilderOwnerContext(event);
+        const userEmail = ownerContext.email;
+        const withConnectToken = <T extends { connectUrl: string }>(
+          status: T,
+        ): T => {
+          if (!userEmail) return status;
+          return {
+            ...status,
+            connectUrl: appendBuilderConnectToken(status.connectUrl, userEmail),
+          };
+        };
 
         // Env-managed mode: BUILDER_PRIVATE_KEY is set at the deployment
         // level, so every user shares the operator's Builder identity.
         // Skip per-user lookups entirely — the env key is authoritative
         // and the UI must hide the connect/disconnect controls.
         if (envStatus.envManaged) {
-          return envStatus;
+          return withConnectToken(envStatus);
         }
 
         // Pass the user's active orgId so the status read can fall back
@@ -452,12 +492,14 @@ export function createCoreRoutesPlugin(
         // poller and the UI would show "not connected" forever even
         // though the chat actually resolves the org-shared credential.
         let orgId: string | null = null;
-        try {
-          const { getOrgContext } = await import("../org/context.js");
-          const orgCtx = await getOrgContext(event);
-          orgId = orgCtx.orgId ?? null;
-        } catch {
-          /* org module not present in this template — keep userEmail-only */
+        if (!ownerContext.anonymous) {
+          try {
+            const { getOrgContext } = await import("../org/context.js");
+            const orgCtx = await getOrgContext(event);
+            orgId = orgCtx.orgId ?? null;
+          } catch {
+            /* org module not present in this template — keep userEmail-only */
+          }
         }
 
         return runWithRequestContext({ userEmail, orgId }, async () => {
@@ -467,7 +509,7 @@ export function createCoreRoutesPlugin(
               await import("./credential-provider.js");
             const creds = await resolveBuilderCredentials();
             if (creds.privateKey) {
-              return {
+              return withConnectToken({
                 ...envStatus,
                 configured: true,
                 privateKeyConfigured: true,
@@ -475,7 +517,7 @@ export function createCoreRoutesPlugin(
                 userId: creds.userId || envStatus.userId,
                 orgName: creds.orgName || envStatus.orgName,
                 orgKind: creds.orgKind || envStatus.orgKind,
-              };
+              });
             }
           } catch {
             // Secrets table not ready — fall through to env status
@@ -491,7 +533,7 @@ export function createCoreRoutesPlugin(
               const errRow = await getSetting(errKey);
               if (errRow && typeof errRow.message === "string") {
                 await deleteSetting(errKey).catch(() => {});
-                return {
+                return withConnectToken({
                   ...envStatus,
                   configured: false,
                   privateKeyConfigured: false,
@@ -506,7 +548,7 @@ export function createCoreRoutesPlugin(
                         ? (errRow.at as number)
                         : Date.now(),
                   },
-                };
+                });
               }
             }
           } catch {
@@ -516,7 +558,7 @@ export function createCoreRoutesPlugin(
           try {
             const disconnected = await getSetting("builder-disconnected");
             if (disconnected) {
-              return {
+              return withConnectToken({
                 ...envStatus,
                 configured: false,
                 privateKeyConfigured: false,
@@ -524,7 +566,7 @@ export function createCoreRoutesPlugin(
                 userId: undefined,
                 orgName: undefined,
                 orgKind: undefined,
-              };
+              });
             }
           } catch {
             // DB not reachable
@@ -532,7 +574,7 @@ export function createCoreRoutesPlugin(
           // No env, no per-user creds → not configured. Both authenticated
           // and unauthenticated callers see "not connected" so they can
           // run through the OAuth flow.
-          return {
+          return withConnectToken({
             ...envStatus,
             configured: false,
             privateKeyConfigured: false,
@@ -540,7 +582,7 @@ export function createCoreRoutesPlugin(
             userId: undefined,
             orgName: undefined,
             orgKind: undefined,
-          };
+          });
         });
       }),
     );
@@ -586,28 +628,31 @@ export function createCoreRoutesPlugin(
     // inside a click handler, avoiding the popup-blocker downgrade that
     // happens when an await sits before window.open.
     //
-    // CSRF protection here is two-layer because session cookies are
+    // CSRF protection here is layered because session cookies are
     // SameSite=None;Secure (so the editor iframe can ride along) — that
     // means a session cookie alone does NOT prevent cross-origin
     // window.open from initiating a connect flow on the victim's behalf:
-    //   1. Sec-Fetch-Site header — modern browsers stamp every request
-    //      with the navigation context. We only allow `same-origin` or
-    //      `none` (typed/bookmark/extension); cross-site / same-site are
-    //      rejected. The previous "URL-embedded signed state" was dropped
-    //      because Builder's /cli-auth strips arbitrary query params; this
-    //      replaces that defense with a browser-native one.
-    //   2. Pending row keyed by session email + bound nonce — the callback
+    //   1. Signed connect token from /builder/status — proves the opener
+    //      could read same-origin JSON, which cross-site attackers cannot.
+    //      This covers local/embedded browsers that conservatively label a
+    //      legitimate popup navigation as same-site/cross-site.
+    //   2. Sec-Fetch-Site header fallback — modern browsers stamp every
+    //      request with the navigation context. We allow `same-origin` or
+    //      `none` (typed/bookmark/extension); cross-site / same-site without
+    //      a valid connect token are rejected.
+    //   3. Pending row keyed by session email + bound nonce — the callback
     //      requires both a valid session and a one-time row that this
     //      handler wrote during the same flow. Without the same-origin
-    //      check above, an attacker could prime the row from cross-site
-    //      and then trick the victim into hitting a callback URL with
-    //      attacker-controlled p-key/api-key, hijacking the victim's
-    //      account. With the check, the attacker can't prime the row.
+    //      gate or connect token above, an attacker could prime the row from
+    //      cross-site and then trick the victim into hitting a callback URL
+    //      with attacker-controlled p-key/api-key, hijacking the victim's
+    //      account.
     getH3App(nitroApp).use(
       `${P}/builder/connect`,
       defineEventHandler(async (event) => {
-        const session = await getSession(event).catch(() => null);
-        if (!session?.email) {
+        const ownerContext = await resolveBuilderOwnerContext(event);
+        const ownerEmail = ownerContext.email;
+        if (!ownerEmail) {
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
         }
@@ -628,15 +673,24 @@ export function createCoreRoutesPlugin(
           };
         }
 
-        // Same-origin gate. Sec-Fetch-Site is the primary signal; fall
-        // back to Origin/Referer for older browsers. Reject any context
-        // that isn't this exact app's origin — including same-site
-        // subdomains, since a compromised subdomain shouldn't be able
-        // to mint Builder credential writes for users of the main app.
-        if (!isSameOriginConnect(event)) {
-          trackBuilderLifecycle("builder connect failed", session.email, {
+        const requestUrl = new URL(
+          `${event.url?.pathname || "/"}${event.url?.search || ""}`,
+          getOrigin(event),
+        );
+        const connectToken = requestUrl.searchParams.get(BUILDER_CONNECT_PARAM);
+        const hasValidConnectToken = verifyBuilderConnectToken(
+          connectToken,
+          ownerEmail,
+        );
+
+        // Same-origin gate. Sec-Fetch-Site remains the fast path; the signed
+        // connect token is the compatibility path for legitimate embedded or
+        // local desktop popups stamped as same-site/cross-site by the browser.
+        if (!isSameOriginConnect(event) && !hasValidConnectToken) {
+          trackBuilderLifecycle("builder connect failed", ownerEmail, {
             reason: "cross_origin",
             stage: "connect",
+            has_connect_token: Boolean(connectToken),
           });
           setResponseStatus(event, 403);
           return { error: "Cross-origin connect requests are not allowed" };
@@ -646,7 +700,7 @@ export function createCoreRoutesPlugin(
         // useBuilderStatus polling sees the stale error and aborts the
         // new attempt before it can complete.
         try {
-          await deleteSetting(`builder-connect-error:${session.email}`);
+          await deleteSetting(`builder-connect-error:${ownerEmail}`);
         } catch {
           // No prior error row — fine
         }
@@ -656,11 +710,11 @@ export function createCoreRoutesPlugin(
         // via BroadcastChannel, rather than letting the popup show raw
         // JSON and the parent poll for 5 minutes.
         try {
-          await putSetting(`builder-pending-connect:${session.email}`, {
+          await putSetting(`builder-pending-connect:${ownerEmail}`, {
             expiresAt: Date.now() + BUILDER_CONNECT_PENDING_TTL_MS,
           });
         } catch (err) {
-          trackBuilderLifecycle("builder connect failed", session.email, {
+          trackBuilderLifecycle("builder connect failed", ownerEmail, {
             reason: "pending_storage_unavailable",
             stage: "connect",
           });
@@ -672,7 +726,7 @@ export function createCoreRoutesPlugin(
           );
           // Best-effort: also write the error row so the parent's
           // /builder/status poll picks it up if BroadcastChannel doesn't.
-          await putSetting(`builder-connect-error:${session.email}`, {
+          await putSetting(`builder-connect-error:${ownerEmail}`, {
             message: msg,
             at: Date.now(),
           }).catch(() => {});
@@ -680,7 +734,7 @@ export function createCoreRoutesPlugin(
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
           return createBuilderBrowserCallbackErrorPage(msg);
         }
-        trackBuilderLifecycle("builder connect started", session.email, {
+        trackBuilderLifecycle("builder connect started", ownerEmail, {
           stage: "connect",
         });
         // Build the cli-auth URL without embedding state in redirect_url:
@@ -789,14 +843,12 @@ export function createCoreRoutesPlugin(
           return { error: "Method not allowed" };
         }
 
-        // Session blocks anonymous callers; the pending-row check below
-        // (combined with the same-origin gate on /builder/connect) blocks
-        // CSRF. Session cookies are SameSite=None;Secure for the iframe
-        // editor, so they ride along on attacker-crafted top-level links —
-        // the SameSite=None concession is exactly why the connect flow
-        // can't rely on session-cookie identity alone.
-        const session = await getSession(event).catch(() => null);
-        if (!session?.email) {
+        // A real session or a template-approved anonymous owner is required;
+        // the pending-row check below (combined with the same-origin gate on
+        // /builder/connect) blocks CSRF and callback replay.
+        const ownerContext = await resolveBuilderOwnerContext(event);
+        const ownerEmail = ownerContext.email;
+        if (!ownerEmail) {
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
         }
@@ -821,7 +873,7 @@ export function createCoreRoutesPlugin(
         let pendingError: string | null = null;
         try {
           const pending = (await getSetting(
-            `builder-pending-connect:${session.email}`,
+            `builder-pending-connect:${ownerEmail}`,
           )) as { expiresAt?: number } | null;
           if (
             pending &&
@@ -829,7 +881,7 @@ export function createCoreRoutesPlugin(
             Date.now() < pending.expiresAt
           ) {
             try {
-              await deleteSetting(`builder-pending-connect:${session.email}`);
+              await deleteSetting(`builder-pending-connect:${ownerEmail}`);
               pendingValid = true;
             } catch (err) {
               pendingError =
@@ -845,13 +897,13 @@ export function createCoreRoutesPlugin(
         }
 
         if (pendingError) {
-          trackBuilderLifecycle("builder connect failed", session.email, {
+          trackBuilderLifecycle("builder connect failed", ownerEmail, {
             reason: "pending_consume_storage_error",
             stage: "callback",
           });
           // Best-effort signal to the parent's poll loop, then render the
           // popup-friendly error page so the BroadcastChannel notify fires.
-          await putSetting(`builder-connect-error:${session.email}`, {
+          await putSetting(`builder-connect-error:${ownerEmail}`, {
             message: pendingError,
             at: Date.now(),
           }).catch(() => {});
@@ -861,7 +913,7 @@ export function createCoreRoutesPlugin(
         }
 
         if (!pendingValid) {
-          trackBuilderLifecycle("builder connect failed", session.email, {
+          trackBuilderLifecycle("builder connect failed", ownerEmail, {
             reason: "missing_pending_connect",
             stage: "callback",
           });
@@ -870,7 +922,7 @@ export function createCoreRoutesPlugin(
           // Write an error signal so the polling loop in the parent tab
           // terminates quickly instead of waiting 5 minutes for the timeout.
           try {
-            await putSetting(`builder-connect-error:${session.email}`, {
+            await putSetting(`builder-connect-error:${ownerEmail}`, {
               message: msg,
               at: Date.now(),
             });
@@ -886,7 +938,7 @@ export function createCoreRoutesPlugin(
         const publicKey = requestUrl.searchParams.get("api-key");
 
         if (!privateKey || !publicKey) {
-          trackBuilderLifecycle("builder connect failed", session.email, {
+          trackBuilderLifecycle("builder connect failed", ownerEmail, {
             reason: "missing_credentials",
             stage: "callback",
           });
@@ -896,7 +948,7 @@ export function createCoreRoutesPlugin(
           // 5-minute timeout.
           const msg =
             "Builder didn't return credentials. Restart the connect flow from settings.";
-          await putSetting(`builder-connect-error:${session.email}`, {
+          await putSetting(`builder-connect-error:${ownerEmail}`, {
             message: msg,
             at: Date.now(),
           }).catch(() => {});
@@ -932,16 +984,18 @@ export function createCoreRoutesPlugin(
           // legacy per-user behaviour for that connection.
           let orgId: string | null = null;
           let role: string | null = null;
-          try {
-            const { getOrgContext } = await import("../org/context.js");
-            const orgCtx = await getOrgContext(event);
-            orgId = orgCtx.orgId ?? null;
-            role = orgCtx.role ?? null;
-          } catch {
-            /* org module not present in this template — keep user scope */
+          if (!ownerContext.anonymous) {
+            try {
+              const { getOrgContext } = await import("../org/context.js");
+              const orgCtx = await getOrgContext(event);
+              orgId = orgCtx.orgId ?? null;
+              role = orgCtx.role ?? null;
+            } catch {
+              /* org module not present in this template — keep user scope */
+            }
           }
           await writeBuilderCredentials(
-            session.email,
+            ownerEmail,
             { privateKey, publicKey, userId, orgName, orgKind },
             { orgId, role },
           );
@@ -954,7 +1008,7 @@ export function createCoreRoutesPlugin(
         }
 
         if (writeError) {
-          trackBuilderLifecycle("builder connect failed", session.email, {
+          trackBuilderLifecycle("builder connect failed", ownerEmail, {
             reason: "credential_write_failed",
             stage: "callback",
           });
@@ -962,7 +1016,7 @@ export function createCoreRoutesPlugin(
           // (entire DB unreachable) the popup's postMessage still notifies
           // the parent. If both fail the parent times out at 5min as today.
           try {
-            await putSetting(`builder-connect-error:${session.email}`, {
+            await putSetting(`builder-connect-error:${ownerEmail}`, {
               message: writeError,
               at: Date.now(),
             });
@@ -985,7 +1039,7 @@ export function createCoreRoutesPlugin(
           // DB not ready — proceed
         }
         try {
-          await deleteSetting(`builder-connect-error:${session.email}`);
+          await deleteSetting(`builder-connect-error:${ownerEmail}`);
         } catch {
           // No prior error row — fine
         }
@@ -994,7 +1048,7 @@ export function createCoreRoutesPlugin(
           requestUrl.searchParams.get("preview-url"),
           event,
         );
-        trackBuilderLifecycle("builder connect succeeded", session.email, {
+        trackBuilderLifecycle("builder connect succeeded", ownerEmail, {
           stage: "callback",
           has_preview_url: Boolean(previewUrl),
           org_kind: orgKind || undefined,
