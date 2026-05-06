@@ -2027,8 +2027,20 @@ function ensureMessageMetadata(repo: any): any {
     if (!msg.metadata) {
       msg.metadata = {};
     }
-    if (msg.role === "assistant" && !msg.status) {
-      msg.status = { type: "complete", reason: "stop" };
+    if (msg.role === "assistant") {
+      const statusType =
+        msg.status && typeof msg.status === "object"
+          ? (msg.status as { type?: unknown }).type
+          : undefined;
+      const isTerminal =
+        statusType === "complete" || statusType === "incomplete";
+      if (!isTerminal) {
+        const runError =
+          msg.metadata?.custom?.runError ?? msg.metadata?.runError;
+        msg.status = runError
+          ? { type: "incomplete", reason: "error" }
+          : { type: "complete", reason: "stop" };
+      }
     }
   }
   return repo;

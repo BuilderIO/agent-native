@@ -174,8 +174,10 @@ export function startRun(
   activeRuns.set(runId, run);
   threadToRun.set(threadId, runId);
 
-  // Persist run to SQL (fire-and-forget — don't block the response)
-  insertRun(runId, threadId).catch(() => {});
+  // Persist run to SQL without blocking the response. Keep the promise so
+  // final status cannot race ahead of a slow initial INSERT and then get
+  // overwritten by a late row stuck at status='running'.
+  const insertRunPromise = insertRun(runId, threadId).catch(() => {});
 
   // Periodic SQL abort check interval (for cross-isolate abort on Workers)
   let lastAbortCheck = Date.now() - 3000;
@@ -337,6 +339,7 @@ export function startRun(
             ? "errored"
             : "completed";
       try {
+        await insertRunPromise;
         await updateRunStatus(runId, finalStatus);
       } catch {
         // Best-effort — reapIfStale will eventually clean this up via
