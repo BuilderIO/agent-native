@@ -268,6 +268,9 @@ export function EventDetailPopover({
   );
   const [editAttendeeEmail, setEditAttendeeEmail] = useState("");
   const [editMeetingLink, setEditMeetingLink] = useState("");
+  const [pendingVideoProvider, setPendingVideoProvider] = useState<
+    "meet" | "zoom" | null
+  >(null);
 
   const updateEvent = useUpdateEvent();
   const zoomStatus = useZoomStatus();
@@ -291,9 +294,13 @@ export function EventDetailPopover({
       setOpen(true);
       setIsEditingTitle(true);
       isNewEventRef.current = true;
-      setEditingTitle(event.title === "(No title)" ? "" : event.title);
+      setEditingTitle((current) => {
+        const hasDraft = current.trim().length > 0 && current !== "(No title)";
+        if (hasDraft && current !== event.title) return current;
+        return event.title === "(No title)" ? "" : event.title;
+      });
     }
-  }, [defaultOpen]);
+  }, [defaultOpen, event.title]);
 
   // Focus title input when editing starts
   useEffect(() => {
@@ -329,6 +336,7 @@ export function EventDetailPopover({
 
   const handleAddGoogleMeet = useCallback(() => {
     if (!event.id || updateEvent.isPending) return;
+    setPendingVideoProvider("meet");
     updateEvent.mutate(
       {
         id: event.id,
@@ -338,6 +346,7 @@ export function EventDetailPopover({
       {
         onSuccess: () => toast("Google Meet added"),
         onError: () => toast.error("Failed to add Google Meet"),
+        onSettled: () => setPendingVideoProvider(null),
       },
     );
   }, [event.id, event.accountEmail, updateEvent]);
@@ -346,6 +355,7 @@ export function EventDetailPopover({
     if (!event.id || updateEvent.isPending || connectZoom.isPending) return;
 
     if (zoomStatus.data?.connected) {
+      setPendingVideoProvider("zoom");
       updateEvent.mutate(
         {
           id: event.id,
@@ -358,6 +368,7 @@ export function EventDetailPopover({
             toast.error(
               error instanceof Error ? error.message : "Failed to add Zoom",
             ),
+          onSettled: () => setPendingVideoProvider(null),
         },
       );
       return;
@@ -521,6 +532,7 @@ export function EventDetailPopover({
           const trimmed = editingTitle.trim();
           if (trimmed && trimmed !== "(No title)") {
             onTitleSave?.(event.id, trimmed);
+            isNewEventRef.current = false;
           } else if (isNewEventRef.current && onDismissNew) {
             onDismissNew(event.id);
           }
@@ -664,6 +676,7 @@ export function EventDetailPopover({
                       trimmed !== event.title
                     ) {
                       onTitleSave?.(event.id, trimmed);
+                      isNewEventRef.current = false;
                     }
                     setIsEditingTitle(false);
                   }}
@@ -925,42 +938,46 @@ export function EventDetailPopover({
                   </div>
                 ) : (
                   <div className="px-4 py-1.5">
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
-                        disabled={updateEvent.isPending}
-                        onClick={handleAddGoogleMeet}
-                      >
-                        <IconVideo className="h-3.5 w-3.5" />
-                        Meet
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
-                        disabled={
-                          updateEvent.isPending || connectZoom.isPending
-                        }
-                        onClick={handleAddZoom}
-                      >
-                        <IconBrandZoom className="h-3.5 w-3.5" />
-                        Zoom
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs text-muted-foreground"
-                        onClick={() => setEditingField("meetingLink")}
-                      >
-                        <IconPlus className="h-3.5 w-3.5" />
-                        Paste link
-                      </Button>
-                    </div>
+                    {pendingVideoProvider ? (
+                      <MeetingLinkSkeleton provider={pendingVideoProvider} />
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
+                          disabled={updateEvent.isPending}
+                          onClick={handleAddGoogleMeet}
+                        >
+                          <IconVideo className="h-3.5 w-3.5" />
+                          Meet
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
+                          disabled={
+                            updateEvent.isPending || connectZoom.isPending
+                          }
+                          onClick={handleAddZoom}
+                        >
+                          <IconBrandZoom className="h-3.5 w-3.5" />
+                          Zoom
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs text-muted-foreground"
+                          onClick={() => setEditingField("meetingLink")}
+                        >
+                          <IconPlus className="h-3.5 w-3.5" />
+                          Paste link
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 )}
               </>
