@@ -1,6 +1,7 @@
 export interface ElementInfo {
   tagName: string;
   id?: string;
+  selector?: string;
   classes: string[];
   computedStyles: Record<string, string>;
   boundingRect: { x: number; y: number; width: number; height: number };

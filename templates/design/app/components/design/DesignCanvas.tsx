@@ -19,7 +19,7 @@ import {
  * silently no-ops in the default Comment mode.
  */
 const TWEAK_BRIDGE_SCRIPT = `
-<script>
+<script data-agent-native-tweak-bridge>
 (function() {
   window.addEventListener('message', function(e) {
     if (e.origin !== window.location.origin) return;
@@ -39,8 +39,50 @@ const TWEAK_BRIDGE_SCRIPT = `
  * style-change messages. Only injected when the user is in Edit mode.
  */
 const EDIT_BRIDGE_SCRIPT = `
-<script>
+<script data-agent-native-edit-bridge>
 (function() {
+  function escapeIdent(value) {
+    if (window.CSS && typeof window.CSS.escape === 'function') {
+      return window.CSS.escape(value);
+    }
+    return String(value).replace(/[^a-zA-Z0-9_-]/g, '\\\\$&');
+  }
+
+  function getSelector(el) {
+    if (el.id) return '#' + escapeIdent(el.id);
+    var builderId = el.closest('[data-builder-id]') &&
+      el.closest('[data-builder-id]').getAttribute('data-builder-id');
+    if (builderId) return '[data-builder-id="' + builderId.replace(/"/g, '\\\\"') + '"]';
+
+    var parts = [];
+    var node = el;
+    while (node && node.nodeType === 1 && node !== document.documentElement) {
+      var part = node.tagName.toLowerCase();
+      if (node.id) {
+        part += '#' + escapeIdent(node.id);
+        parts.unshift(part);
+        break;
+      }
+      var parent = node.parentElement;
+      if (parent) {
+        var sameTag = Array.prototype.filter.call(
+          parent.children,
+          function(child) { return child.tagName === node.tagName; }
+        );
+        if (sameTag.length > 1) {
+          part += ':nth-of-type(' + (sameTag.indexOf(node) + 1) + ')';
+        }
+      }
+      parts.unshift(part);
+      node = parent;
+      if (node === document.body) {
+        parts.unshift('body');
+        break;
+      }
+    }
+    return parts.join(' > ');
+  }
+
   function getElementInfo(el) {
     var cs = window.getComputedStyle(el);
     var rect = el.getBoundingClientRect();
@@ -50,6 +92,7 @@ const EDIT_BRIDGE_SCRIPT = `
     return {
       tagName: el.tagName.toLowerCase(),
       id: el.id || undefined,
+      selector: getSelector(el),
       classes: Array.from(el.classList),
       computedStyles: {
         color: cs.color,
@@ -89,39 +132,58 @@ const EDIT_BRIDGE_SCRIPT = `
   }
 
   var highlightOverlay = document.createElement('div');
+  highlightOverlay.setAttribute('data-agent-native-edit-overlay', 'highlight');
   highlightOverlay.style.cssText = 'position:fixed;pointer-events:none;z-index:99999;border:2px solid #609FF8;background:rgba(96,159,248,0.08);display:none;';
   document.body.appendChild(highlightOverlay);
 
   var selectionOverlay = document.createElement('div');
+  selectionOverlay.setAttribute('data-agent-native-edit-overlay', 'selection');
   selectionOverlay.style.cssText = 'position:fixed;pointer-events:none;z-index:99998;border:2px solid #609FF8;background:rgba(96,159,248,0.12);display:none;';
   document.body.appendChild(selectionOverlay);
 
+  var selectedEl = null;
+  var hoveredEl = null;
+
+  function positionOverlay(overlay, el) {
+    if (!el || !document.documentElement.contains(el)) {
+      overlay.style.display = 'none';
+      return;
+    }
+    var rect = el.getBoundingClientRect();
+    overlay.style.display = 'block';
+    overlay.style.top = rect.top + 'px';
+    overlay.style.left = rect.left + 'px';
+    overlay.style.width = rect.width + 'px';
+    overlay.style.height = rect.height + 'px';
+  }
+
+  function refreshOverlays() {
+    if (hoveredEl) positionOverlay(highlightOverlay, hoveredEl);
+    if (selectedEl) positionOverlay(selectionOverlay, selectedEl);
+  }
+
   document.addEventListener('click', function(e) {
+    if (e.target && e.target.closest('[data-agent-native-edit-overlay]')) return;
     e.preventDefault();
-    var info = getElementInfo(e.target);
-    var rect = e.target.getBoundingClientRect();
-    selectionOverlay.style.display = 'block';
-    selectionOverlay.style.top = rect.top + 'px';
-    selectionOverlay.style.left = rect.left + 'px';
-    selectionOverlay.style.width = rect.width + 'px';
-    selectionOverlay.style.height = rect.height + 'px';
+    e.stopPropagation();
+    selectedEl = e.target;
+    var info = getElementInfo(selectedEl);
+    positionOverlay(selectionOverlay, selectedEl);
     window.parent.postMessage({ type: 'element-select', payload: info }, window.location.origin);
-  });
+  }, true);
 
   document.addEventListener('mouseover', function(e) {
-    var rect = e.target.getBoundingClientRect();
-    highlightOverlay.style.display = 'block';
-    highlightOverlay.style.top = rect.top + 'px';
-    highlightOverlay.style.left = rect.left + 'px';
-    highlightOverlay.style.width = rect.width + 'px';
-    highlightOverlay.style.height = rect.height + 'px';
-    var info = getElementInfo(e.target);
+    if (e.target && e.target.closest('[data-agent-native-edit-overlay]')) return;
+    hoveredEl = e.target;
+    positionOverlay(highlightOverlay, hoveredEl);
+    var info = getElementInfo(hoveredEl);
     window.parent.postMessage({ type: 'element-hover', payload: info }, window.location.origin);
-  });
+  }, true);
 
   document.addEventListener('mouseout', function() {
+    hoveredEl = null;
     highlightOverlay.style.display = 'none';
-  });
+  }, true);
 
   window.addEventListener('message', function(e) {
     if (e.origin !== window.location.origin) return;
@@ -132,6 +194,9 @@ const EDIT_BRIDGE_SCRIPT = `
     var el = sel ? document.querySelector(sel) : null;
     if (el) el.style[prop] = val;
   });
+
+  window.addEventListener('scroll', refreshOverlays, true);
+  window.addEventListener('resize', refreshOverlays);
 })();
 </script>
 `;
