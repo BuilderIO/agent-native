@@ -19,6 +19,7 @@ export const BUILDER_CALLBACK_PATH = "/_agent-native/builder/callback";
  * connect time and read it back on the callback.
  */
 export const BUILDER_STATE_PARAM = "_an_state";
+export const BUILDER_CONNECT_PARAM = "_an_connect";
 
 const BUILDER_STATE_TTL_MS = 10 * 60 * 1000;
 
@@ -53,10 +54,67 @@ export interface BrowserConnectionArgs {
   proxyDestination?: string;
 }
 
-function macForParts(nonce: string, emailEncoded: string, ts: number): string {
-  return createHmac("sha256", `builder-csrf:${getAuthSecret()}`)
+type BuilderSignedTokenPurpose = "callback" | "connect";
+
+function signingKeyForPurpose(purpose: BuilderSignedTokenPurpose): string {
+  // Preserve the original callback-state signing key for any in-flight legacy
+  // callbacks; use a separate key domain for connect-entry tokens.
+  return purpose === "callback"
+    ? `builder-csrf:${getAuthSecret()}`
+    : `builder-connect:${getAuthSecret()}`;
+}
+
+function macForParts(
+  purpose: BuilderSignedTokenPurpose,
+  nonce: string,
+  emailEncoded: string,
+  ts: number,
+): string {
+  return createHmac("sha256", signingKeyForPurpose(purpose))
     .update(`${nonce}.${emailEncoded}.${ts}`)
     .digest("base64url");
+}
+
+function signEmailBoundBuilderToken(
+  ownerEmail: string,
+  purpose: BuilderSignedTokenPurpose,
+): string {
+  const nonce = randomBytes(16).toString("base64url");
+  const ts = Date.now();
+  const emailEncoded = Buffer.from(ownerEmail, "utf8").toString("base64url");
+  const mac = macForParts(purpose, nonce, emailEncoded, ts);
+  return `${nonce}.${emailEncoded}.${ts}.${mac}`;
+}
+
+function verifyEmailBoundBuilderToken(
+  token: string | null | undefined,
+  ownerEmail: string,
+  purpose: BuilderSignedTokenPurpose,
+): boolean {
+  if (typeof token !== "string" || token.length === 0) return false;
+  const parts = token.split(".");
+  if (parts.length !== 4) return false;
+  const [nonce, emailEncoded, tsStr, mac] = parts;
+  if (!nonce || !emailEncoded || !tsStr || !mac) return false;
+
+  let boundEmail: string;
+  try {
+    boundEmail = Buffer.from(emailEncoded, "base64url").toString("utf8");
+  } catch {
+    return false;
+  }
+  if (boundEmail !== ownerEmail) return false;
+
+  const ts = Number(tsStr);
+  if (!Number.isFinite(ts)) return false;
+  // Reject expired AND far-future timestamps so leaked tokens do not gain an
+  // arbitrary lifetime through clock skew or forged future issue times.
+  if (Math.abs(Date.now() - ts) > BUILDER_STATE_TTL_MS) return false;
+
+  const expected = Buffer.from(macForParts(purpose, nonce, emailEncoded, ts));
+  const candidate = Buffer.from(mac);
+  if (expected.length !== candidate.length) return false;
+  return timingSafeEqual(expected, candidate);
 }
 
 /**
@@ -71,11 +129,7 @@ function macForParts(nonce: string, emailEncoded: string, ts: number): string {
  * URL that may end up in server logs / browser history.
  */
 export function signBuilderCallbackState(sessionEmail: string): string {
-  const nonce = randomBytes(16).toString("base64url");
-  const ts = Date.now();
-  const emailEncoded = Buffer.from(sessionEmail, "utf8").toString("base64url");
-  const mac = macForParts(nonce, emailEncoded, ts);
-  return `${nonce}.${emailEncoded}.${ts}.${mac}`;
+  return signEmailBoundBuilderToken(sessionEmail, "callback");
 }
 
 /**
@@ -86,31 +140,30 @@ export function verifyBuilderCallbackState(
   token: string | null | undefined,
   sessionEmail: string,
 ): boolean {
-  if (typeof token !== "string" || token.length === 0) return false;
-  const parts = token.split(".");
-  if (parts.length !== 4) return false;
-  const [nonce, emailEncoded, tsStr, mac] = parts;
-  if (!nonce || !emailEncoded || !tsStr || !mac) return false;
+  return verifyEmailBoundBuilderToken(token, sessionEmail, "callback");
+}
 
-  let boundEmail: string;
-  try {
-    boundEmail = Buffer.from(emailEncoded, "base64url").toString("utf8");
-  } catch {
-    return false;
-  }
-  if (boundEmail !== sessionEmail) return false;
+export function signBuilderConnectToken(ownerEmail: string): string {
+  return signEmailBoundBuilderToken(ownerEmail, "connect");
+}
 
-  const ts = Number(tsStr);
-  if (!Number.isFinite(ts)) return false;
-  // Reject expired AND far-future timestamps — a clock-skew attacker
-  // (or a bug that mints states with `ts` in the future) shouldn't get
-  // an arbitrarily-long-lived token.
-  if (Math.abs(Date.now() - ts) > BUILDER_STATE_TTL_MS) return false;
+export function verifyBuilderConnectToken(
+  token: string | null | undefined,
+  ownerEmail: string,
+): boolean {
+  return verifyEmailBoundBuilderToken(token, ownerEmail, "connect");
+}
 
-  const expected = Buffer.from(macForParts(nonce, emailEncoded, ts));
-  const candidate = Buffer.from(mac);
-  if (expected.length !== candidate.length) return false;
-  return timingSafeEqual(expected, candidate);
+export function appendBuilderConnectToken(
+  connectUrl: string,
+  ownerEmail: string,
+): string {
+  const url = new URL(connectUrl);
+  url.searchParams.set(
+    BUILDER_CONNECT_PARAM,
+    signBuilderConnectToken(ownerEmail),
+  );
+  return url.toString();
 }
 
 function isAllowedBrowserReturnUrl(urlString: string): boolean {
@@ -210,12 +263,10 @@ export function buildBuilderCliAuthUrl(
 }
 
 /**
- * The URL surfaced to clients (chat card, settings panels, status
- * endpoint) as `connectUrl`. Pointing every entry point at our local 302
- * means the cli-auth URL — and the CSRF state token bound to the current
- * session — are minted server-side at click time, instead of being baked
- * into a status response that may be cached or rendered for a different
- * session.
+ * The bare URL surfaced to clients as `connectUrl`. The status route appends
+ * a short-lived signed connect token when it knows the current owner; this
+ * helper stays bare so server-rendered cards can still render without a
+ * request-bound owner and the connect route can fall back to Fetch Metadata.
  */
 export function getBuilderBrowserConnectUrl(origin: string): string {
   return `${normalizeOrigin(origin)}${getAppBasePath()}/_agent-native/builder/connect`;

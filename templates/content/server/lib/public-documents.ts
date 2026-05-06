@@ -1,0 +1,92 @@
+import { getCookie, getHeader, setCookie, type H3Event } from "h3";
+import { randomUUID } from "node:crypto";
+
+const PUBLIC_VIEWER_COOKIE = "content_public_viewer";
+const PUBLIC_VIEWER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
+
+function publicDocumentIdFromEvent(event: H3Event): string | null {
+  const referrer = getHeader(event, "referer");
+  if (!referrer) return null;
+
+  try {
+    const url = new URL(referrer);
+    const match = url.pathname.match(/(?:^|\/)p\/([^/?#]+)/);
+    return match?.[1] ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function getPublicDocumentForEvent(event: H3Event) {
+  const id = publicDocumentIdFromEvent(event);
+  if (!id) return null;
+
+  const { getDb } = await import("../db/index.js");
+  const { documents } = await import("../db/schema.js");
+  const { and, eq } = await import("drizzle-orm");
+
+  const [doc] = await getDb()
+    .select({
+      id: documents.id,
+      title: documents.title,
+      content: documents.content,
+      updatedAt: documents.updatedAt,
+      visibility: documents.visibility,
+    })
+    .from(documents)
+    .where(and(eq(documents.id, id), eq(documents.visibility, "public")))
+    .limit(1);
+
+  return doc ?? null;
+}
+
+export async function resolvePublicViewerOwner(
+  event: H3Event,
+): Promise<string | null> {
+  const doc = await getPublicDocumentForEvent(event);
+  let viewerId = getCookie(event, PUBLIC_VIEWER_COOKIE);
+
+  if (!doc) {
+    const path = event.node?.req?.url ?? event.path ?? "";
+    if (
+      path.includes("/_agent-native/builder/callback") &&
+      viewerId &&
+      /^[0-9a-f-]{36}$/i.test(viewerId)
+    ) {
+      return `public-${viewerId}@agent-native.local`;
+    }
+    return null;
+  }
+
+  if (!viewerId || !/^[0-9a-f-]{36}$/i.test(viewerId)) {
+    viewerId = randomUUID();
+    const proto =
+      getHeader(event, "x-forwarded-proto") ??
+      (getHeader(event, "origin")?.startsWith("https://") ? "https" : "http");
+    setCookie(event, PUBLIC_VIEWER_COOKIE, viewerId, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: proto === "https",
+      path: "/",
+      maxAge: PUBLIC_VIEWER_COOKIE_MAX_AGE,
+    });
+  }
+
+  return `public-${viewerId}@agent-native.local`;
+}
+
+export async function publicDocumentExtraContext(event: H3Event) {
+  const doc = await getPublicDocumentForEvent(event);
+  if (!doc) return null;
+
+  return `<public-shared-document>
+The user is viewing a public, read-only shared Content document. Answer questions using this document as the primary context. Do not create, edit, delete, comment on, share, or otherwise mutate document data for public viewers.
+
+Document ID: ${doc.id}
+Title: ${doc.title}
+Updated at: ${doc.updatedAt}
+
+Markdown:
+${doc.content}
+</public-shared-document>`;
+}

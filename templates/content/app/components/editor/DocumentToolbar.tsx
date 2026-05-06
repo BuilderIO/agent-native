@@ -23,6 +23,7 @@ import {
   AgentToggleButton,
   NotificationsBell,
   PresenceBar,
+  appPath,
   type CollabUser,
 } from "@agent-native/core/client";
 import { ShareButton } from "@agent-native/core/client";
@@ -115,6 +116,10 @@ export function DocumentToolbar({
     pushDocument.isPending ||
     resolveConflict.isPending ||
     createAndLink.isPending;
+  const shareUrl =
+    typeof window === "undefined"
+      ? `/p/${documentId}`
+      : `${window.location.origin}${appPath(`/p/${documentId}`)}`;
 
   const { data: searchResults, isLoading: searchLoading } =
     useSearchNotionPages(debouncedQuery, open && isConnected && !isLinked);
@@ -261,6 +266,7 @@ export function DocumentToolbar({
         resourceType="document"
         resourceId={documentId}
         resourceTitle={documentTitle}
+        shareUrl={shareUrl}
         variant="compact"
       />
 

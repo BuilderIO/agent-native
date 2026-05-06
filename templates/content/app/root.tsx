@@ -6,7 +6,7 @@ import {
   ScrollRestoration,
   useLocation,
 } from "react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { useTheme } from "next-themes";
@@ -17,6 +17,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import {
   ClientOnly,
   DefaultSpinner,
+  AgentSidebar,
   appPath,
   CommandMenu,
   useCommandMenuShortcut,
@@ -92,6 +93,49 @@ function ThemeToggleItem() {
   );
 }
 
+function PublicAgentShell({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    if (!window.matchMedia("(min-width: 768px)").matches) return;
+    const id = window.setTimeout(() => {
+      window.dispatchEvent(new Event("agent-panel:open"));
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [mounted]);
+
+  const content = <>{children}</>;
+
+  if (!mounted) {
+    return (
+      <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
+        <div className="flex min-w-0 flex-1 flex-col overflow-auto">
+          {content}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <AgentSidebar
+      position="right"
+      defaultOpen
+      defaultSidebarWidth={420}
+      emptyStateText="Ask me anything about this document"
+      suggestions={[
+        "Summarize this document",
+        "What are the key takeaways?",
+        "Turn this into an action plan",
+      ]}
+    >
+      {content}
+    </AgentSidebar>
+  );
+}
+
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
@@ -99,7 +143,13 @@ export default function Root() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
 
   if (location.pathname.startsWith("/p/")) {
-    return <Outlet />;
+    return (
+      <QueryClientProvider client={queryClient}>
+        <PublicAgentShell>
+          <Outlet />
+        </PublicAgentShell>
+      </QueryClientProvider>
+    );
   }
 
   return (

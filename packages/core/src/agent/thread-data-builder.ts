@@ -62,6 +62,7 @@ export function buildAssistantMessage(
   options: BuildAssistantMessageOptions = {},
 ): {
   id: string;
+  createdAt: Date;
   role: "assistant";
   content: ContentPart[];
   status:
@@ -183,6 +184,7 @@ export function buildAssistantMessage(
 
   return {
     id: `server-${runId ?? Date.now()}`,
+    createdAt: new Date(),
     role: "assistant",
     content,
     status: runError

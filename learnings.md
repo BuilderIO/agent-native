@@ -5,3 +5,4 @@
 - Project-wide domain rule: always use `agent-native.com` for docs/site links; do not use `agent-native.dev`
 - When Steve asks to look up production template app data, use the `DATABASE_URL` from that template's `.env` file; those env files intentionally point at the prod DBs.
 - For local app QA, test with the built-in browser before calling the work done. If creating test accounts, use emails with `+qa` in the local part.
+- Avoid sparkle and wand icons in first-party UI; use message-style icons for chat / agent affordances.

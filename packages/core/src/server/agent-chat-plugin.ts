@@ -147,6 +147,14 @@ function wrapCliScript(
   };
 }
 
+function filterReadOnlyActions(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  return Object.fromEntries(
+    Object.entries(actions).filter(([, entry]) => entry.readOnly === true),
+  );
+}
+
 function resolveArtifactBaseUrl(event: any | undefined): string | undefined {
   const fromEnv =
     process.env.APP_URL ||
@@ -1360,6 +1368,20 @@ export interface AgentChatPluginOptions {
    * need custom org resolution logic (e.g., Atlassian org mapping).
    */
   resolveOrgId?: (event: any) => string | null | Promise<string | null>;
+  /**
+   * Optional owner resolver for public/anonymous chat surfaces. When the
+   * normal app session is missing, this callback may return a synthetic
+   * owner id for a narrowly-scoped public request (for example, a public
+   * shared document page). Anonymous requests use a read-only tool set by
+   * default so public viewers cannot mutate app data through the agent.
+   */
+  anonymousOwner?: (event: any) => string | null | Promise<string | null>;
+  /**
+   * Keep anonymous-owner requests on read-only template actions. Defaults to
+   * true. Only disable for single-tenant apps that intentionally allow public
+   * agent mutations.
+   */
+  anonymousReadOnly?: boolean;
   /**
    * Optional callback to append template-specific context to the system
    * prompt on each request. Runs after AGENTS.md / skills / memory are
@@ -3103,17 +3125,42 @@ export function createAgentChatPlugin(
         },
       });
 
-      // Resolve owner from the H3 event's session — matches how resources are created
-      const getOwnerFromEvent = async (event: any): Promise<string> => {
-        const session = await getSession(event);
-        if (!session?.email) {
-          const { createError } = await import("h3");
-          throw createError({
-            statusCode: 401,
-            statusMessage: "Unauthenticated",
-          });
+      type OwnerContext = { owner: string; anonymous: boolean };
+      const OWNER_CONTEXT_KEY = "__agentNativeOwnerContext";
+
+      // Resolve owner from the H3 event's session, with an optional
+      // template-provided anonymous owner for public read-only surfaces.
+      const resolveOwnerContext = async (event: any): Promise<OwnerContext> => {
+        const eventContext = event?.context as
+          | (Record<string, unknown> & { [OWNER_CONTEXT_KEY]?: OwnerContext })
+          | undefined;
+        if (eventContext?.[OWNER_CONTEXT_KEY]) {
+          return eventContext[OWNER_CONTEXT_KEY];
         }
-        return session.email;
+
+        const session = await getSession(event);
+        if (session?.email) {
+          const resolved = { owner: session.email, anonymous: false };
+          if (eventContext) eventContext[OWNER_CONTEXT_KEY] = resolved;
+          return resolved;
+        }
+
+        const anonymousOwner = await options?.anonymousOwner?.(event);
+        if (anonymousOwner) {
+          const resolved = { owner: anonymousOwner, anonymous: true };
+          if (eventContext) eventContext[OWNER_CONTEXT_KEY] = resolved;
+          return resolved;
+        }
+
+        const { createError } = await import("h3");
+        throw createError({
+          statusCode: 401,
+          statusMessage: "Unauthenticated",
+        });
+      };
+
+      const getOwnerFromEvent = async (event: any): Promise<string> => {
+        return (await resolveOwnerContext(event)).owner;
       };
 
       // Auto-mount template actions as HTTP endpoints under /_agent-native/actions/
@@ -3395,6 +3442,9 @@ export function createAgentChatPlugin(
         ...chatScripts,
         ...toolActions,
       });
+      const anonymousReadOnlyActions = attachToolSearch(
+        filterReadOnlyActions(templateScripts),
+      );
 
       const prodActions = attachToolSearch({
         ...templateScripts,
@@ -3433,6 +3483,10 @@ export function createAgentChatPlugin(
       // Skip resource loading and schema block — those add DB round-trips
       // and tokens that minimal/voice apps don't need.
       const leanBasePrompt = (options?.systemPrompt ?? "") + prodActionsPrompt;
+      const anonymousReadOnlyPrompt =
+        (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT_COMPACT) +
+        generateActionsPrompt(filterReadOnlyActions(templateScripts), "tool") +
+        "\n\nYou are answering from a public shared page. Treat the visible resource as read-only: do not create, edit, delete, comment on, share, or otherwise mutate app data. If the user asks for a change, describe what you would change or suggest signing in to edit.";
 
       // Per-request preamble shared by both prod and dev handlers. Resolves
       // owner + user API key onto the AsyncLocalStorage run context so
@@ -3519,6 +3573,47 @@ export function createAgentChatPlugin(
         // Resolve owner from session for usage attribution in hosted prod
         resolveOwnerEmail: isHostedProd ? getOwnerFromEvent : undefined,
       });
+
+      const anonymousHandler =
+        options?.anonymousOwner && options.anonymousReadOnly !== false
+          ? createProductionAgentHandler({
+              actions: anonymousReadOnlyActions,
+              systemPrompt: async (event: any) => {
+                const { extra } = await prepareRun(event);
+                return setSystemPromptOnContext(
+                  anonymousReadOnlyPrompt +
+                    runtimeContextForEvent(event) +
+                    extra,
+                );
+              },
+              model: options?.model ?? DEFAULT_MODEL,
+              apiKey: options?.apiKey,
+              runSoftTimeoutMs: options?.runSoftTimeoutMs,
+              skipFilesContext: true,
+              onEngineResolved: (engine, model) => {
+                const runCtx = ensureRequestRunContext();
+                if (runCtx) {
+                  runCtx.engine = engine;
+                  runCtx.model = model;
+                }
+              },
+              onRunStart: (
+                send: (
+                  event: import("../agent/types.js").AgentChatEvent,
+                ) => void,
+                threadId: string,
+              ) => {
+                _runSendByThread.set(threadId, send);
+                const runCtx = ensureRequestRunContext();
+                if (runCtx) runCtx.threadId = threadId;
+              },
+              onRunComplete: async (run: any, threadId: string | undefined) => {
+                if (threadId) _runSendByThread.delete(threadId);
+                await onRunComplete(run, threadId);
+              },
+              resolveOwnerEmail: getOwnerFromEvent,
+            })
+          : null;
 
       // Build the dev handler (with filesystem/shell/db tools) if environment allows toggling
       let devHandler: ReturnType<typeof createProductionAgentHandler> | null =
@@ -4642,7 +4737,8 @@ export function createAgentChatPlugin(
           }
 
           // Resolve per-request auth context
-          const owner = await getOwnerFromEvent(event);
+          const ownerContext = await resolveOwnerContext(event);
+          const owner = ownerContext.owner;
 
           // Resolve org ID: explicit callback > session.orgId from Better Auth
           let resolvedOrgId: string | undefined;
@@ -4672,7 +4768,11 @@ export function createAgentChatPlugin(
             { userEmail: owner, orgId: resolvedOrgId, timezone },
             () => {
               const handler =
-                currentDevMode && devHandler ? devHandler : prodHandler;
+                ownerContext.anonymous && anonymousHandler
+                  ? anonymousHandler
+                  : currentDevMode && devHandler
+                    ? devHandler
+                    : prodHandler;
               return handler(event);
             },
           );

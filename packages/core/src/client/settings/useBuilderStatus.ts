@@ -154,6 +154,7 @@ export function useBuilderConnectFlow(
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasFetchedStatus, setHasFetchedStatus] = useState(false);
+  const [statusConnectUrl, setStatusConnectUrl] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
@@ -181,6 +182,7 @@ export function useBuilderConnectFlow(
         envManaged?: boolean;
         builderEnabled?: boolean;
         orgName?: string | null;
+        connectUrl?: string;
         connectError?: { message: string; at: number };
       };
     } catch {
@@ -207,6 +209,7 @@ export function useBuilderConnectFlow(
       setConfigured(!!s.configured);
       setEnvManaged(!!s.envManaged);
       setBuilderEnabled(!!s.builderEnabled);
+      setStatusConnectUrl(s.connectUrl ?? null);
       const org = s.orgName ?? null;
       setOrgName(org);
       if (s.configured && !notifiedConnectedRef.current) {
@@ -252,6 +255,7 @@ export function useBuilderConnectFlow(
     // popup blockers to block entirely or fall back to same-tab navigation.
     const origin = getCallbackOrigin() || window.location.origin;
     const url =
+      statusConnectUrl ??
       popupUrl ??
       new URL(agentNativePath("/_agent-native/builder/connect"), origin).href;
     try {
@@ -273,6 +277,7 @@ export function useBuilderConnectFlow(
         setConfigured(true);
         setEnvManaged(!!s.envManaged);
         setBuilderEnabled(!!s.builderEnabled);
+        setStatusConnectUrl(s.connectUrl ?? null);
         const org = s.orgName ?? null;
         setOrgName(org);
         setConnecting(false);
@@ -300,7 +305,7 @@ export function useBuilderConnectFlow(
         );
       }
     }, POLL_INTERVAL_MS);
-  }, [envManaged, fetchStatus, popupUrl, stopPoll]);
+  }, [envManaged, fetchStatus, popupUrl, statusConnectUrl, stopPoll]);
 
   // Popup-side fast path: the error page broadcasts a message so we stop
   // polling immediately rather than waiting for the next 2s tick.

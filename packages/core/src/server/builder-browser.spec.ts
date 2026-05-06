@@ -1,13 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
+  appendBuilderConnectToken,
   buildBuilderCliAuthUrl,
   BUILDER_CALLBACK_PATH,
+  BUILDER_CONNECT_PARAM,
   BUILDER_STATE_PARAM,
   getBuilderBranchProjectId,
   getBuilderBrowserConnectUrl,
   isBuilderBranchingEnabled,
   runBuilderAgent,
+  signBuilderConnectToken,
   signBuilderCallbackState,
+  verifyBuilderConnectToken,
   verifyBuilderCallbackState,
 } from "./builder-browser.js";
 
@@ -165,6 +169,43 @@ describe("Builder callback CSRF state", () => {
     it("works with the AUTH_MODE=local bypass email", () => {
       const token = signBuilderCallbackState("local@localhost");
       expect(verifyBuilderCallbackState(token, "local@localhost")).toBe(true);
+    });
+  });
+
+  describe("signBuilderConnectToken / verifyBuilderConnectToken", () => {
+    it("verifies a fresh token bound to the same owner email", () => {
+      const token = signBuilderConnectToken("alice@example.com");
+      expect(verifyBuilderConnectToken(token, "alice@example.com")).toBe(true);
+    });
+
+    it("rejects a token signed for a different owner email", () => {
+      const token = signBuilderConnectToken("alice@example.com");
+      expect(verifyBuilderConnectToken(token, "bob@example.com")).toBe(false);
+    });
+
+    it("keeps connect tokens separate from callback state tokens", () => {
+      const callbackToken = signBuilderCallbackState("alice@example.com");
+      expect(
+        verifyBuilderConnectToken(callbackToken, "alice@example.com"),
+      ).toBe(false);
+    });
+
+    it("rejects expired connect tokens", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-04-24T12:00:00.000Z"));
+      const token = signBuilderConnectToken("alice@example.com");
+      vi.setSystemTime(new Date("2026-04-24T12:11:00.000Z"));
+      expect(verifyBuilderConnectToken(token, "alice@example.com")).toBe(false);
+    });
+
+    it("appends a verifiable connect token to the surfaced URL", () => {
+      const connectUrl = appendBuilderConnectToken(
+        "https://alice.agent-native.com/_agent-native/builder/connect",
+        "alice@example.com",
+      );
+      const token = new URL(connectUrl).searchParams.get(BUILDER_CONNECT_PARAM);
+      expect(token).toBeTruthy();
+      expect(verifyBuilderConnectToken(token, "alice@example.com")).toBe(true);
     });
   });
 
