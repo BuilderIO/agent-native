@@ -123,6 +123,8 @@ export function useAutoTitleBridge(): void {
               context: JSON.stringify(buildRequestContext(rec, request)),
               submit: true,
               openSidebar: false,
+              newTab: true,
+              background: true,
             });
 
             void clearRequest(rec.id);

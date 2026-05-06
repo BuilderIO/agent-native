@@ -1,7 +1,8 @@
 /**
  * Finalize a recording — assemble chunks, upload the final blob,
  * update the recording row, flip status to 'processing' → 'ready',
- * and trigger a background agent chat to produce title/summary/chapters.
+ * and request transcription. Title generation is queued by the transcript
+ * path once usable transcript text exists.
  *
  * Usage:
  *   pnpm action finalize-recording --id=<recordingId>
@@ -375,30 +376,6 @@ export default defineAction({
           id,
           error: err instanceof Error ? err.message : String(err),
         });
-      });
-
-      // Queue a background agent run by writing a structured message to
-      // application_state. The frontend's agent-chat-bridge picks up
-      // `agent-task-*` keys and dispatches sendToAgentChat({ background: true }).
-      await writeAppState(`agent-task-recording-${id}`, {
-        kind: "post-recording-processing",
-        recordingId: id,
-        background: true,
-        openSidebar: false,
-        message: [
-          `A new recording (${id}) just finished uploading.`,
-          "Please do the following in the background:",
-          "1. If a transcript is already ready, generate a 1-2 sentence summary and store it in the description.",
-          "2. If a transcript is already ready, produce a short chapters list (chaptersJson: [{startMs, title}]) and save it on the recording row.",
-          "3. Do not transcribe or invent transcript text. Transcripts come from the web/macOS native transcription capture and may be cleaned up asynchronously.",
-          "Do NOT prompt the user — this is a silent background task.",
-        ].join("\n"),
-        context: {
-          recordingId: id,
-          videoUrl,
-          durationMs: args.durationMs ?? 0,
-        },
-        createdAt: new Date().toISOString(),
       });
 
       // Emit clip.created event — best-effort, never block the main flow.

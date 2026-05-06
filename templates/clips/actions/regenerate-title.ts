@@ -16,6 +16,22 @@ import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 
+function transcriptTextFromSegments(raw: string | null | undefined): string {
+  if (!raw) return "";
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return "";
+    return parsed
+      .map((segment) =>
+        typeof segment?.text === "string" ? segment.text.trim() : "",
+      )
+      .filter(Boolean)
+      .join("\n");
+  } catch {
+    return "";
+  }
+}
+
 export default defineAction({
   description:
     "Ask the agent to regenerate this recording's title based on its transcript. The agent reads the transcript from the delegation context and calls update-recording with the new title.",
@@ -42,7 +58,15 @@ export default defineAction({
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
       .limit(1);
 
-    const transcriptText = transcript?.fullText?.trim() ?? "";
+    const transcriptText =
+      transcript?.fullText?.trim() ||
+      transcriptTextFromSegments(transcript?.segmentsJson);
+    if (transcript?.status !== "ready" || !transcriptText) {
+      throw new Error(
+        "Transcript is not ready yet. Try again after transcription finishes.",
+      );
+    }
+
     const request = {
       kind: "regenerate-title" as const,
       recordingId: args.recordingId,
@@ -50,11 +74,13 @@ export default defineAction({
       currentTitle: rec.title,
       transcriptStatus: transcript?.status ?? "pending",
       transcriptText,
+      segmentsJson: transcript?.segmentsJson ?? "[]",
       message:
         `Regenerate the title for recording ${args.recordingId}. ` +
         `Read the transcript in this request's context and call ` +
         `\`update-recording --id=${args.recordingId} --title="..."\` with a concise ` +
-        `4-9 word descriptive title. Current title: "${rec.title}".`,
+        `4-9 word descriptive title. Current title: "${rec.title}". ` +
+        "Do not prompt the user.",
     };
 
     await writeAppState(`clips-ai-request-${args.recordingId}`, request as any);

@@ -126,7 +126,7 @@ export default function Root() {
         >
           <TooltipProvider>
             <DbSyncSetup />
-            <Toaster richColors position="top-right" />
+            <Toaster richColors position="bottom-center" />
             <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
               <CommandMenu.Group heading="Actions">
                 <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>

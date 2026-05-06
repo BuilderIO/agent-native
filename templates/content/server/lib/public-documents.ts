@@ -8,8 +8,7 @@ function getAppOrigin(event: H3Event): string | null {
   const proto =
     getHeader(event, "x-forwarded-proto") ??
     (getHeader(event, "origin")?.startsWith("https://") ? "https" : "http");
-  const host =
-    getHeader(event, "x-forwarded-host") ?? getHeader(event, "host");
+  const host = getHeader(event, "x-forwarded-host") ?? getHeader(event, "host");
   if (!host) return null;
   return `${proto}://${host}`;
 }
@@ -75,11 +74,7 @@ export async function resolvePublicViewerOwner(
     const isBuilderCallback =
       pathOnly === "/_agent-native/builder/callback" ||
       pathOnly.endsWith("/_agent-native/builder/callback");
-    if (
-      isBuilderCallback &&
-      viewerId &&
-      /^[0-9a-f-]{36}$/i.test(viewerId)
-    ) {
+    if (isBuilderCallback && viewerId && /^[0-9a-f-]{36}$/i.test(viewerId)) {
       return `public-${viewerId}@agent-native.local`;
     }
     return null;
