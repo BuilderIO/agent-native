@@ -36,7 +36,7 @@ pnpm dlx @agent-native/core create my-design --template design --standalone
 
 ### Customize It
 
-Design is a cloneable SaaS template. Some practical extension ideas:
+Design is a complete, cloneable template. Some practical extension ideas:
 
 - "Add a reusable ecommerce design system with our tokens and sample components."
 - "Add an export step that uploads the ZIP to our internal review system."
@@ -44,10 +44,10 @@ Design is a cloneable SaaS template. Some practical extension ideas:
 - "Add a saved prompt library for product-page, dashboard, and onboarding-screen briefs."
 - "Add a custom PDF export preset for stakeholder review."
 
-The agent edits routes, components, actions, and SQL-backed models as needed. See [Cloneable SaaS](/docs/cloneable-saas) for the full clone, customize, deploy flow, and [Getting Started](/docs/getting-started) if this is your first agent-native template.
+The agent edits routes, components, actions, and SQL-backed models as needed. See [Templates](/docs/cloneable-saas) for the full clone, customize, deploy flow, and [Getting Started](/docs/getting-started) if this is your first agent-native template.
 
 ## What's Next
 
-- [**Cloneable SaaS**](/docs/cloneable-saas) — the clone-and-own model
+- [**Templates**](/docs/cloneable-saas) — the clone-and-own model
 - [**Context Awareness**](/docs/context-awareness) — how the agent knows what the user is viewing
 - [**Creating Templates**](/docs/creating-templates) — current build patterns for agent-native templates

@@ -98,6 +98,7 @@ cd templates/content && pnpm action <name> [args]
 | `edit-document`    | `--id <id> --find <text> --replace <text>`         | Surgical text edit (preferred for modifications) |
 | `edit-document`    | `--id <id> --edits <json>`                         | Batch surgical text edits                        |
 | `update-document`  | `--id <id> [--title] [--content] [--icon]`         | Full rewrite of document fields                  |
+| `move-document`    | `--id <id> [--parentId] [--position]`              | Move or reorder a document in the page tree      |
 | `delete-document`  | `--id <id>`                                        | Delete with recursive children                   |
 
 ### Notion Integration
@@ -143,6 +144,7 @@ Read (`get-document`, `list-documents`, `search-documents`) admits rows the curr
 | "Write new content here"       | `view-screen` to get ID, `update-document --id ... --content "..."`            |
 | "Delete this page"             | `view-screen` to get ID, `delete-document --id ...`                            |
 | "Add a sub-page"               | `view-screen` to get parent ID, `create-document --title ... --parentId ...`   |
+| "Move this page"               | `view-screen` to get ID, `move-document --id ... --position ...`               |
 | "Show me the document list"    | `list-documents`                                                               |
 | "Open document X"              | `navigate --documentId=<id>`                                                   |
 | "Go to the list view"          | `navigate --path=/`                                                            |

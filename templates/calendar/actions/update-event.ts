@@ -38,6 +38,20 @@ export default defineAction({
       .describe(
         "Google recurrence rules. For weekdays only, use RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR. Pass an empty string or [] to clear recurrence.",
       ),
+    attendees: z
+      .union([
+        z.array(
+          z.object({
+            email: z.string(),
+            displayName: z.string().optional(),
+          }),
+        ),
+        z.string(),
+      ])
+      .optional()
+      .describe(
+        "Replace the event's attendee list. Accepts an array of {email, displayName?} or a comma-separated string of emails. Pass an empty array to clear all attendees.",
+      ),
     sendUpdates: z
       .enum(["all", "none"])
       .optional()
@@ -59,6 +73,21 @@ export default defineAction({
     );
     const recurrence = normalizeRecurrence(args.recurrence);
 
+    let attendees: CalendarEvent["attendees"] | undefined;
+    if (args.attendees !== undefined) {
+      if (typeof args.attendees === "string") {
+        const emails = args.attendees
+          .split(/[\s,;]+/)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0 && s.includes("@"));
+        attendees = emails.map((email) => ({ email }));
+      } else {
+        attendees = args.attendees.filter(
+          (a) => a.email && a.email.includes("@"),
+        );
+      }
+    }
+
     const hasPatch =
       args.title !== undefined ||
       args.description !== undefined ||
@@ -67,6 +96,7 @@ export default defineAction({
       args.end !== undefined ||
       args.allDay !== undefined ||
       recurrence !== undefined ||
+      attendees !== undefined ||
       args.addGoogleMeet === true;
 
     if (!hasPatch) {
@@ -83,6 +113,7 @@ export default defineAction({
     if (args.end !== undefined) updates.end = args.end;
     if (args.allDay !== undefined) updates.allDay = args.allDay;
     if (recurrence !== undefined) updates.recurrence = recurrence;
+    if (attendees !== undefined) updates.attendees = attendees;
 
     const result = await googleCalendar.updateEvent(googleEventId, updates, {
       sendUpdates: args.sendUpdates,

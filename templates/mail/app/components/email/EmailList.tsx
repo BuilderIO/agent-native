@@ -1,4 +1,4 @@
-import { IconAlertCircle } from "@tabler/icons-react";
+import { IconAlertCircle, IconTrash, IconX } from "@tabler/icons-react";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,10 @@ import {
   useUntrashEmail,
   unsuppressThread,
 } from "@/hooks/use-emails";
+import {
+  useDeleteScheduledJob,
+  useSendScheduledJobNow,
+} from "@/hooks/use-scheduled-jobs";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
@@ -275,6 +279,8 @@ export function EmailList({
   const unarchiveEmail = useUnarchiveEmail();
   const trashEmail = useTrashEmail();
   const untrashEmail = useUntrashEmail();
+  const cancelScheduledJob = useDeleteScheduledJob();
+  const sendScheduledJobNow = useSendScheduledJobNow();
   const queryClient = useQueryClient();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -488,79 +494,90 @@ export function EmailList({
     queryClient,
   ]);
 
+  const trashThreadKeys = useCallback(
+    (threadKeys: string[]) => {
+      if (threadKeys.length === 0) return;
+      const actionKeySet = new Set(threadKeys);
+
+      const targets = threadKeys
+        .map((key) =>
+          threads.find(
+            (t) => (t.latestMessage.threadId || t.latestMessage.id) === key,
+          ),
+        )
+        .filter((t): t is ThreadSummary => !!t);
+      const emailIds = targets.map((t) => t.latestMessage.id);
+
+      // Move focus to the next non-selected thread
+      const lastIdx = threads.findIndex(
+        (t) =>
+          (t.latestMessage.threadId || t.latestMessage.id) ===
+          threadKeys[threadKeys.length - 1],
+      );
+      const remaining = threads.filter(
+        (t) =>
+          !actionKeySet.has(t.latestMessage.threadId || t.latestMessage.id),
+      );
+      if (remaining.length > 0) {
+        const nextIdx = Math.min(lastIdx, remaining.length - 1);
+        setFocusedId(remaining[nextIdx].latestMessage.id);
+      } else {
+        setFocusedId(null);
+      }
+
+      // Snapshot removed thread emails so undo can restore them
+      const snapshots: EmailMessage[] = [];
+      for (const key of threadKeys) {
+        snapshots.push(...emails.filter((e) => (e.threadId || e.id) === key));
+      }
+
+      const undo = () => {
+        for (const key of threadKeys) unsuppressThread(key);
+        queryClient.setQueriesData<InfiniteEmails>(
+          { queryKey: ["emails"] },
+          (old) => {
+            if (!old) return old;
+            const firstPage = old.pages[0];
+            const restored = [...(firstPage?.emails ?? []), ...snapshots].sort(
+              (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+            );
+            return {
+              ...old,
+              pages: [
+                { ...firstPage, emails: restored },
+                ...old.pages.slice(1),
+              ],
+            };
+          },
+        );
+        for (const id of emailIds) untrashEmail.mutate(id);
+      };
+      setUndoAction(undo);
+      toast(
+        threadKeys.length > 1
+          ? `Trashed ${threadKeys.length} conversations.`
+          : "Moved to Trash.",
+        { action: { label: "UNDO", onClick: undo } },
+      );
+      for (const id of emailIds) trashEmail.mutate(id);
+      setSelectedIds(new Set());
+    },
+    [
+      threads,
+      emails,
+      trashEmail,
+      untrashEmail,
+      setFocusedId,
+      setSelectedIds,
+      queryClient,
+    ],
+  );
+
   const trashFocused = useCallback(() => {
     const threadKeys = getActionThreadKeys();
     if (threadKeys.length === 0) return;
-    const actionKeySet = new Set(threadKeys);
-
-    const targets = threadKeys
-      .map((key) =>
-        threads.find(
-          (t) => (t.latestMessage.threadId || t.latestMessage.id) === key,
-        ),
-      )
-      .filter((t): t is ThreadSummary => !!t);
-    const emailIds = targets.map((t) => t.latestMessage.id);
-
-    // Move focus to the next non-selected thread
-    const lastIdx = threads.findIndex(
-      (t) =>
-        (t.latestMessage.threadId || t.latestMessage.id) ===
-        threadKeys[threadKeys.length - 1],
-    );
-    const remaining = threads.filter(
-      (t) => !actionKeySet.has(t.latestMessage.threadId || t.latestMessage.id),
-    );
-    if (remaining.length > 0) {
-      const nextIdx = Math.min(lastIdx, remaining.length - 1);
-      setFocusedId(remaining[nextIdx].latestMessage.id);
-    } else {
-      setFocusedId(null);
-    }
-
-    // Snapshot removed thread emails so undo can restore them
-    const snapshots: EmailMessage[] = [];
-    for (const key of threadKeys) {
-      snapshots.push(...emails.filter((e) => (e.threadId || e.id) === key));
-    }
-
-    const undo = () => {
-      for (const key of threadKeys) unsuppressThread(key);
-      queryClient.setQueriesData<InfiniteEmails>(
-        { queryKey: ["emails"] },
-        (old) => {
-          if (!old) return old;
-          const firstPage = old.pages[0];
-          const restored = [...(firstPage?.emails ?? []), ...snapshots].sort(
-            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-          );
-          return {
-            ...old,
-            pages: [{ ...firstPage, emails: restored }, ...old.pages.slice(1)],
-          };
-        },
-      );
-      for (const id of emailIds) untrashEmail.mutate(id);
-    };
-    setUndoAction(undo);
-    toast(
-      threadKeys.length > 1
-        ? `Trashed ${threadKeys.length} conversations.`
-        : "Moved to Trash.",
-      { action: { label: "UNDO", onClick: undo } },
-    );
-    for (const id of emailIds) trashEmail.mutate(id);
-    setSelectedIds(new Set());
-  }, [
-    threads,
-    emails,
-    trashEmail,
-    untrashEmail,
-    setFocusedId,
-    setSelectedIds,
-    getActionThreadKeys,
-    queryClient,
-  ]);
+    trashThreadKeys(threadKeys);
+  }, [getActionThreadKeys, trashThreadKeys]);
 
   const resolveTargets = useCallback(
     (keys: string[]): ThreadSummary[] =>
@@ -767,6 +784,64 @@ export function EmailList({
     toggleStar.mutate({ id: email.id, isStarred: !email.isStarred });
   };
 
+  const handleToggleMultiSelect = (
+    e: React.SyntheticEvent,
+    thread: ThreadSummary,
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const key = thread.latestMessage.threadId || thread.latestMessage.id;
+    setFocusedId(thread.latestMessage.id);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const handleTrashThread = (e: React.MouseEvent, thread: ThreadSummary) => {
+    e.stopPropagation();
+    const key = thread.latestMessage.threadId || thread.latestMessage.id;
+    trashThreadKeys([key]);
+  };
+
+  const getScheduledJobId = (email: EmailMessage): string | null =>
+    view === "scheduled" && email.id.startsWith("scheduled-")
+      ? email.id.slice("scheduled-".length)
+      : null;
+
+  const handleSendScheduledNow = (
+    e: React.MouseEvent,
+    thread: ThreadSummary,
+  ) => {
+    e.stopPropagation();
+    const jobId = getScheduledJobId(thread.latestMessage);
+    if (!jobId) return;
+    sendScheduledJobNow.mutate(jobId, {
+      onSuccess: () => toast("Scheduled email sent."),
+      onError: (error) =>
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Failed to send scheduled email",
+        ),
+    });
+  };
+
+  const handleCancelScheduled = (
+    e: React.MouseEvent,
+    thread: ThreadSummary,
+  ) => {
+    e.stopPropagation();
+    const jobId = getScheduledJobId(thread.latestMessage);
+    if (!jobId) return;
+    cancelScheduledJob.mutate(jobId, {
+      onSuccess: () => toast("Scheduled email cancelled."),
+      onError: () => toast.error("Failed to cancel scheduled email"),
+    });
+  };
+
   // ── Swipe gesture handlers ─────────────────────────────────────────────
   // Swipe targets exactly one thread (the swiped one) — unlike the keyboard
   // `e` shortcut, which respects multi-selection. We also clear any existing
@@ -944,6 +1019,30 @@ export function EmailList({
 
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
+      {selectedIds.size > 0 && (
+        <div className="flex h-10 shrink-0 items-center justify-between border-b border-border/40 bg-muted/40 px-3">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <IconX className="h-4 w-4" />
+            </button>
+            <span className="text-xs font-medium text-muted-foreground">
+              {selectedIds.size} selected
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={trashFocused}
+            className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+          >
+            <IconTrash className="h-3.5 w-3.5" />
+            Move to Trash
+          </button>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto">
         {threads.map((thread) => (
           <EmailListItem
@@ -956,7 +1055,21 @@ export function EmailList({
               thread.latestMessage.threadId || thread.latestMessage.id,
             )}
             onSelect={() => handleSelect(thread)}
+            onToggleMultiSelect={(e) => handleToggleMultiSelect(e, thread)}
             onStar={(e) => handleStar(e, thread)}
+            onTrash={
+              view === "trash" ? undefined : (e) => handleTrashThread(e, thread)
+            }
+            onSendNow={
+              getScheduledJobId(thread.latestMessage)
+                ? (e) => handleSendScheduledNow(e, thread)
+                : undefined
+            }
+            onCancelSchedule={
+              getScheduledJobId(thread.latestMessage)
+                ? (e) => handleCancelScheduled(e, thread)
+                : undefined
+            }
             onHover={() => {
               setFocusedId(thread.latestMessage.id);
               const targetThreadId =

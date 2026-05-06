@@ -35,40 +35,42 @@ export function InvitationBanner({ className }: InvitationBannerProps) {
     <div
       className={`border-b border-border bg-blue-50 dark:bg-blue-950/30 px-3 py-2.5 sm:px-4 ${className ?? ""}`}
     >
-      {pendingInvitations.map((inv) => (
-        <div
-          key={inv.id}
-          className="flex items-center justify-between gap-3 text-sm"
-        >
-          <span className="text-foreground">
-            <span className="font-medium">{inv.invitedBy}</span> invited you to
-            join <span className="font-medium">{inv.orgName}</span>
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              acceptInvitation.mutate(inv.id);
-            }}
-            disabled={acceptInvitation.isPending}
-            className="rounded-md bg-green-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 cursor-pointer"
+      <div className="space-y-2 divide-y divide-blue-200/70 dark:divide-blue-800/50">
+        {pendingInvitations.map((inv, index) => (
+          <div
+            key={inv.id}
+            className={`flex items-center justify-between gap-4 text-sm ${index > 0 ? "pt-2" : ""}`}
           >
-            {acceptInvitation.isPending ? (
-              <IconLoader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              "Join"
-            )}
-          </button>
-        </div>
-      ))}
+            <span className="min-w-0 flex-1 text-foreground">
+              <span className="font-medium">{inv.invitedBy}</span> invited you
+              to join <span className="font-medium">{inv.orgName}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                acceptInvitation.mutate(inv.id);
+              }}
+              disabled={acceptInvitation.isPending}
+              className="shrink-0 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 cursor-pointer"
+            >
+              {acceptInvitation.isPending ? (
+                <IconLoader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                "Join"
+              )}
+            </button>
+          </div>
+        ))}
+      </div>
       {domainMatches.map((match) => {
         const isJoining =
           joinByDomain.isPending && joiningOrgId === match.orgId;
         return (
           <div
             key={match.orgId}
-            className="flex items-center justify-between gap-3 text-sm"
+            className={`${pendingInvitations.length > 0 ? "mt-2 border-t border-blue-200/70 pt-2 dark:border-blue-800/50" : ""} flex items-center justify-between gap-4 text-sm`}
           >
-            <span className="text-foreground">
+            <span className="min-w-0 flex-1 text-foreground">
               Your team is already using this app. Join{" "}
               <span className="font-medium">{match.orgName}</span> to
               collaborate.
@@ -82,7 +84,7 @@ export function InvitationBanner({ className }: InvitationBannerProps) {
                 });
               }}
               disabled={joinByDomain.isPending}
-              className="rounded-md bg-green-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 cursor-pointer"
+              className="shrink-0 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 cursor-pointer"
             >
               {isJoining ? (
                 <IconLoader2 className="h-3 w-3 animate-spin" />

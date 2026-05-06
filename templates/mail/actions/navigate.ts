@@ -10,7 +10,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "View to navigate to (inbox, starred, sent, drafts, archive, trash, draft-queue)",
+        "View to navigate to (inbox, starred, sent, drafts, scheduled, archive, trash, draft-queue)",
       ),
     threadId: z.string().optional().describe("Thread ID to open"),
     queuedDraftId: z

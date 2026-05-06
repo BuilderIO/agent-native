@@ -16,7 +16,16 @@ import {
 } from "@/lib/compress";
 
 export type RecordingMode = "screen" | "camera" | "screen+camera";
+export type DisplaySurface = "monitor" | "window" | "browser";
 export const NO_MIC_DEVICE_ID = "__clips_no_microphone__";
+
+type ExtendedDisplayMediaOptions = DisplayMediaStreamOptions & {
+  video: MediaTrackConstraints & { displaySurface?: DisplaySurface };
+  preferCurrentTab?: boolean;
+  selfBrowserSurface?: "include" | "exclude";
+  surfaceSwitching?: "include" | "exclude";
+  systemAudio?: "include" | "exclude";
+};
 
 export type RecorderState =
   | "idle"
@@ -35,6 +44,8 @@ export interface RecorderEngineOptions {
   recordingId: string;
   /** Capture mode. */
   mode: RecordingMode;
+  /** Preferred browser picker surface when recording the screen. */
+  displaySurface?: DisplaySurface;
   /** Selected mic deviceId (optional — default used when omitted). */
   micDeviceId?: string | null;
   /** Selected camera deviceId (optional — default used when omitted). */
@@ -214,10 +225,18 @@ export class RecorderEngine {
 
     try {
       if (this.opts.mode === "screen" || this.opts.mode === "screen+camera") {
-        this.displayStream = await navigator.mediaDevices.getDisplayMedia({
-          video: { frameRate: { ideal: 30 } },
+        const displaySurface = this.opts.displaySurface ?? "window";
+        const displayOptions: ExtendedDisplayMediaOptions = {
+          video: { frameRate: { ideal: 30 }, displaySurface },
           audio: true,
-        });
+          preferCurrentTab: displaySurface === "browser",
+          selfBrowserSurface:
+            displaySurface === "browser" ? "include" : "exclude",
+          surfaceSwitching: "include",
+          systemAudio: "include",
+        };
+        this.displayStream =
+          await navigator.mediaDevices.getDisplayMedia(displayOptions);
       }
 
       if (this.opts.mode === "camera" || this.opts.mode === "screen+camera") {

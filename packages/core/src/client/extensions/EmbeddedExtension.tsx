@@ -96,12 +96,22 @@ export function EmbeddedExtension({
     },
   });
 
+  // Initial dark state is baked into the URL on first load only; subsequent
+  // theme toggles update the iframe's <html class="dark"> via postMessage so
+  // the user's interaction state inside the extension survives the toggle.
+  const initialDarkRef = useRef(isDark);
   const iframeSrc = useMemo(() => {
     const v = encodeURIComponent(extension?.updatedAt ?? "");
     return agentNativePath(
-      `/_agent-native/extensions/${extensionId}/render?slot=${encodeURIComponent(slotId)}&dark=${isDark}&v=${v}`,
+      `/_agent-native/extensions/${extensionId}/render?slot=${encodeURIComponent(slotId)}&dark=${initialDarkRef.current}&v=${v}`,
     );
-  }, [extensionId, slotId, isDark, extension?.updatedAt]);
+  }, [extensionId, slotId, extension?.updatedAt]);
+
+  useEffect(() => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    win.postMessage({ type: "agent-native-theme-update", isDark }, "*");
+  }, [isDark]);
 
   // Forward slot context whenever it changes. The iframe's own load handler
   // posts the initial value once it's ready; this effect handles updates.

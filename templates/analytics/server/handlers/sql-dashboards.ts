@@ -283,6 +283,28 @@ function validateDashboardConfig(
   if (typeof config.name !== "string" || config.name.trim().length === 0) {
     return "name is required";
   }
+  // Filter ID collisions cause two controls to read/write the same URL param
+  // — the symptom we caught in the wild was a "Closed-Lost" dashboard whose
+  // start-date and end-date both used `id: "close_date"`, so changing one
+  // value visibly updated the other. A single date-range filter (which the
+  // FilterBar splits into <id>Start / <id>End) is the right shape.
+  const filters = config.filters;
+  if (filters !== undefined && !Array.isArray(filters)) {
+    return "filters must be an array";
+  }
+  if (Array.isArray(filters)) {
+    const seen = new Set<string>();
+    for (let i = 0; i < filters.length; i++) {
+      const f = filters[i] as Record<string, unknown> | null;
+      if (!f || typeof f !== "object") return `filters[${i}] must be an object`;
+      const id = typeof f.id === "string" ? f.id.trim() : "";
+      if (!id) return `filters[${i}].id is required`;
+      if (seen.has(id)) {
+        return `filters[${i}].id "${id}" is a duplicate. Use unique ids per filter, or a single date-range filter for paired start/end dates (it auto-expands to <id>Start and <id>End in SQL).`;
+      }
+      seen.add(id);
+    }
+  }
   const panels = config.panels;
   if (panels !== undefined && !Array.isArray(panels)) {
     return "panels must be an array";

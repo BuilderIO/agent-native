@@ -60,7 +60,17 @@ export interface ResolveRunSoftTimeoutOptions {
 }
 
 function isHostedRuntime(): boolean {
-  if (process.env.NETLIFY === "true" && process.env.NETLIFY_LOCAL !== "true") {
+  if (
+    process.env.NETLIFY &&
+    process.env.NETLIFY !== "false" &&
+    process.env.NETLIFY_LOCAL !== "true"
+  ) {
+    return true;
+  }
+  if (
+    process.env.AWS_LAMBDA_FUNCTION_NAME &&
+    process.env.NETLIFY_LOCAL !== "true"
+  ) {
     return true;
   }
   return Boolean(

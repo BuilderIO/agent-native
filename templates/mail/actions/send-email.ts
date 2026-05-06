@@ -21,6 +21,7 @@ import {
 import { getAppProductionUrl } from "@agent-native/core/server";
 import type { UserSettings } from "../shared/types.js";
 import {
+  decodeCommonHtmlEntities,
   markdownPreviewSnippet,
   normalizeMarkdownHardBreaks,
 } from "../shared/markdown.js";
@@ -52,7 +53,9 @@ function applyInlineMarkdown(text: string): string {
 }
 
 function markdownToHtml(markdown: string): string {
-  const normalized = normalizeMarkdownHardBreaks(markdown).trim();
+  const normalized = decodeCommonHtmlEntities(
+    normalizeMarkdownHardBreaks(markdown),
+  ).trim();
   if (!normalized) return "<div></div>";
 
   const blocks = normalized.split(/\n{2,}/).map((block) => block.trim());
@@ -95,7 +98,7 @@ function markdownToHtml(markdown: string): string {
 }
 
 function markdownToPlainText(markdown: string): string {
-  return normalizeMarkdownHardBreaks(markdown)
+  return decodeCommonHtmlEntities(normalizeMarkdownHardBreaks(markdown))
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1 ($2)")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")

@@ -1,21 +1,43 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
-  useAgentChatGenerating,
   sendToAgentChat,
+  type AgentChatMessage,
 } from "@agent-native/core/client";
 
 /**
  * Tracks whether an agent chat submission is in progress.
- * Wraps @agent-native/core's useAgentChatGenerating hook.
+ * Design generation can start on one route and complete on another, so this
+ * follows the global chat-running bridge instead of only local submissions.
  */
 export function useAgentGenerating() {
-  const [generating, send] = useAgentChatGenerating();
+  const [generating, setGenerating] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (typeof detail?.isRunning === "boolean") {
+        setGenerating(detail.isRunning);
+      }
+    };
+    window.addEventListener("agentNative.chatRunning", handler);
+    return () => window.removeEventListener("agentNative.chatRunning", handler);
+  }, []);
 
   const submit = useCallback(
-    (message: string, context: string) => {
-      send({ message, context, submit: true });
+    (
+      message: string,
+      context: string,
+      options?: Omit<AgentChatMessage, "message" | "context">,
+    ) => {
+      setGenerating(true);
+      return sendToAgentChat({
+        ...options,
+        message,
+        context,
+        submit: options?.submit ?? true,
+      });
     },
-    [send],
+    [],
   );
 
   return { generating, submit };

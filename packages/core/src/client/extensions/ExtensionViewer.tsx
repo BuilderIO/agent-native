@@ -1,8 +1,10 @@
 import { agentNativePath } from "../api-path.js";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import {
+  IconArrowLeft,
+  IconChevronRight,
   IconDots,
   IconLoader2,
   IconPencil,
@@ -86,8 +88,18 @@ export interface ExtensionViewerProps {
   extensionId: string;
 }
 
-function EditToolPopover({ extension }: { extension: Extension }) {
+function EditToolPopover({
+  extension,
+  onOpenChange,
+}: {
+  extension: Extension;
+  onOpenChange?: (open: boolean) => void;
+}) {
   const [open, setOpen] = useState(false);
+  const setOpenAndNotify = (v: boolean) => {
+    setOpen(v);
+    onOpenChange?.(v);
+  };
 
   // Radix's outside-click detection runs in the parent document, so a click
   // inside the extension iframe (or any other iframe) never fires it. The browser
@@ -99,7 +111,8 @@ function EditToolPopover({ extension }: { extension: Extension }) {
       // Defer until after the focus actually lands so document.activeElement
       // reflects the iframe (or whatever the user clicked on).
       setTimeout(() => {
-        if (document.activeElement?.tagName === "IFRAME") setOpen(false);
+        if (document.activeElement?.tagName === "IFRAME")
+          setOpenAndNotify(false);
       }, 0);
     };
     window.addEventListener("blur", handleBlur);
@@ -115,11 +128,11 @@ function EditToolPopover({ extension }: { extension: Extension }) {
       submit: true,
       openSidebar: true,
     });
-    setOpen(false);
+    setOpenAndNotify(false);
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpenAndNotify}>
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
@@ -157,6 +170,16 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
   const [renameValue, setRenameValue] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
+  // Tracks how many toolbar popovers are open. Iframes capture pointer events
+  // from areas they visually overlap, so when a popover opens above the iframe,
+  // hover and click on the popover items get swallowed by the iframe. Disabling
+  // pointer-events on the iframe while any popover is open lets the popover
+  // receive its own events. Each popover increments on open / decrements on
+  // close, so concurrent popovers (rare) compose correctly.
+  const [openPopoverCount, setOpenPopoverCount] = useState(0);
+  const onPopoverOpenChange = useCallback((open: boolean) => {
+    setOpenPopoverCount((c) => Math.max(0, c + (open ? 1 : -1)));
+  }, []);
   const queryClient = useQueryClient();
   // (audit H4) Role plumbed through from the iframe's render binding. Until
   // the iframe announces its role we deny non-trivial helper calls — that
@@ -478,39 +501,66 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
   return (
     <TooltipProvider delayDuration={200}>
       <div className="flex h-full w-full flex-col">
-        <div className="flex h-12 items-center justify-between border-b px-3 shrink-0">
-          <div className="group/name flex items-center gap-1">
-            {isRenaming ? (
-              <input
-                ref={renameInputRef}
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onBlur={submitRename}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") submitRename();
-                  if (e.key === "Escape") setIsRenaming(false);
-                }}
-                className="text-sm font-medium bg-transparent border-b border-primary outline-none py-0 px-0"
-              />
-            ) : (
-              <>
-                <span className="text-sm font-medium">{extension.name}</span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={startRename}
-                      className="cursor-pointer rounded p-0.5 text-muted-foreground/40 opacity-0 group-hover/name:opacity-100 hover:text-foreground"
-                    >
-                      <IconPencil className="h-3 w-3" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>Rename</TooltipContent>
-                </Tooltip>
-              </>
-            )}
+        <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b px-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link
+                  to="/"
+                  className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  aria-label="Back to app"
+                >
+                  <IconArrowLeft className="h-4 w-4" />
+                  <span className="hidden sm:inline">Back to app</span>
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent>Back to app</TooltipContent>
+            </Tooltip>
+            <nav
+              aria-label="Extension breadcrumb"
+              className="group/name flex min-w-0 items-center gap-1 text-sm"
+            >
+              <Link
+                to="/extensions"
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                Extensions
+              </Link>
+              <IconChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+              {isRenaming ? (
+                <input
+                  ref={renameInputRef}
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onBlur={submitRename}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") submitRename();
+                    if (e.key === "Escape") setIsRenaming(false);
+                  }}
+                  className="min-w-0 bg-transparent px-0 py-0 text-sm font-medium outline-none border-b border-primary"
+                />
+              ) : (
+                <>
+                  <span className="truncate text-sm font-medium">
+                    {extension.name}
+                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={startRename}
+                        className="shrink-0 cursor-pointer rounded p-0.5 text-muted-foreground/40 opacity-0 group-hover/name:opacity-100 hover:text-foreground"
+                      >
+                        <IconPencil className="h-3 w-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Rename</TooltipContent>
+                  </Tooltip>
+                </>
+              )}
+            </nav>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex shrink-0 items-center gap-1">
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -523,13 +573,21 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
               </TooltipTrigger>
               <TooltipContent>Refresh</TooltipContent>
             </Tooltip>
-            <EditToolPopover extension={extension} />
+            <EditToolPopover
+              extension={extension}
+              onOpenChange={onPopoverOpenChange}
+            />
             <ShareButton
               resourceType="extension"
               resourceId={extensionId}
               resourceTitle={extension.name}
+              onOpenChange={onPopoverOpenChange}
             />
-            <ToolMoreMenu extensionId={extensionId} toolName={extension.name} />
+            <ToolMoreMenu
+              extensionId={extensionId}
+              toolName={extension.name}
+              onOpenChange={onPopoverOpenChange}
+            />
             <NotificationsBell />
             <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
           </div>
@@ -551,6 +609,9 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
             className="h-full w-full border-0"
             sandbox="allow-scripts allow-forms"
             title={extension.name}
+            style={{
+              pointerEvents: openPopoverCount > 0 ? "none" : "auto",
+            }}
             onLoad={() => {
               sendThemeToIframe();
               setTimeout(() => setIframeReady(true), 150);
@@ -571,14 +632,20 @@ interface SlotDeclaration {
 function ToolMoreMenu({
   extensionId,
   toolName,
+  onOpenChange,
 }: {
   extensionId: string;
   toolName: string;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const setOpenAndNotify = (v: boolean) => {
+    setOpen(v);
+    onOpenChange?.(v);
+  };
 
   const { data: slots = [] } = useQuery<SlotDeclaration[]>({
     queryKey: ["extension-slots", extensionId],
@@ -593,7 +660,7 @@ function ToolMoreMenu({
   });
 
   const closeMenu = () => {
-    setOpen(false);
+    setOpenAndNotify(false);
     setConfirmingDelete(false);
   };
 
@@ -632,7 +699,7 @@ function ToolMoreMenu({
     <Popover
       open={open}
       onOpenChange={(o) => {
-        setOpen(o);
+        setOpenAndNotify(o);
         if (!o) setConfirmingDelete(false);
       }}
     >

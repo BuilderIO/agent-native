@@ -9,11 +9,14 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNotNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
-import { requireOrganizationAccess } from "../server/lib/recordings.js";
+import {
+  getCurrentOwnerEmail,
+  requireOrganizationAccess,
+} from "../server/lib/recordings.js";
 
 interface OrgRow {
   id: string;
@@ -64,6 +67,7 @@ export default defineAction({
     const db = getDb();
     const exec = getDbExec();
     const pg = isPostgres();
+    const ownerEmail = getCurrentOwnerEmail();
 
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
@@ -146,11 +150,20 @@ export default defineAction({
       db
         .select()
         .from(schema.folders)
-        .where(eq(schema.folders.organizationId, organizationId))
+        .where(
+          and(
+            eq(schema.folders.organizationId, organizationId),
+            or(
+              isNotNull(schema.folders.spaceId),
+              eq(schema.folders.ownerEmail, ownerEmail),
+            ),
+          ),
+        )
         .orderBy(asc(schema.folders.position)),
     ]);
 
     return {
+      currentUserEmail: ownerEmail,
       organization: {
         id: org.id,
         name: org.name,

@@ -60,6 +60,11 @@ import {
   persistTracking,
   type TrackingContext,
 } from "../lib/email-tracking.js";
+import {
+  bodyToHtml as outgoingBodyToHtml,
+  buildRawEmail as buildOutgoingRawEmail,
+  resolveComposeAttachments,
+} from "../lib/outgoing-email.js";
 import { getAppProductionUrl } from "@agent-native/core/server";
 import { isBlockedToolUrl } from "@agent-native/core/tools/url-safety";
 
@@ -1270,8 +1275,8 @@ export const deleteEmail = defineEventHandler(async (event: H3Event) => {
 export const sendEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const settings = await readSettings(email);
-  const { to, cc, bcc, subject, body, replyToId, accountEmail } =
-    await readBody(event);
+  const reqBody = await readBody(event);
+  const { to, cc, bcc, subject, body, replyToId, accountEmail } = reqBody;
 
   if (!to || subject === undefined || body === undefined) {
     setResponseStatus(event, 400);
@@ -1291,6 +1296,14 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
   ) {
     setResponseStatus(event, 400);
     return { error: "Invalid recipient address" };
+  }
+
+  let attachments;
+  try {
+    attachments = await resolveComposeAttachments(reqBody.attachments, email);
+  } catch {
+    setResponseStatus(event, 400);
+    return { error: "One or more attachments could not be read" };
   }
 
   // If Gmail is connected, send via Gmail API
@@ -1381,16 +1394,17 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
 
         const tracking = buildTrackingContext(event, body || "", settings);
 
-        const raw = buildRawEmail({
+        const raw = buildOutgoingRawEmail({
           from: fromHeader,
-          to: to || "",
-          cc: cc || "",
-          bcc: bcc || "",
+          to: cleanedTo,
+          cc: cleanedCc,
+          bcc: cleanedBcc,
           subject: subject || "(no subject)",
           body: body || "",
           inReplyTo,
           references,
           tracking,
+          attachments,
         });
 
         const sendBody: any = { raw };
@@ -1499,7 +1513,7 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
     subject,
     snippet: markdownPreviewSnippet(body),
     body,
-    bodyHtml: bodyToHtml(body),
+    bodyHtml: outgoingBodyToHtml(body),
     date: new Date().toISOString(),
     isRead: true,
     isStarred: false,
@@ -1507,6 +1521,17 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
     isArchived: false,
     isTrashed: false,
     labelIds: ["sent"],
+    ...(attachments.length > 0
+      ? {
+          attachments: attachments.map((att) => ({
+            id: att.filename,
+            filename: att.originalName,
+            mimeType: att.mimeType,
+            size: att.size,
+            url: att.url,
+          })),
+        }
+      : {}),
   };
 
   emails.push(newEmail);
@@ -1522,8 +1547,17 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const settings = await readSettings(email);
   const reqBody = await readBody(event);
-  const { to, cc, bcc, subject, body, draftId, replyToId, replyToThreadId } =
-    reqBody;
+  const {
+    to,
+    cc,
+    bcc,
+    subject,
+    body,
+    draftId,
+    replyToId,
+    replyToThreadId,
+    accountEmail,
+  } = reqBody;
 
   // Validate header values after stripCrlf — same protection as sendEmail.
   // Drafts go through the same buildRawEmail path so they need the same
@@ -1537,6 +1571,14 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     return { error: "Invalid recipient address" };
   }
 
+  let attachments;
+  try {
+    attachments = await resolveComposeAttachments(reqBody.attachments, email);
+  } catch {
+    setResponseStatus(event, 400);
+    return { error: "One or more attachments could not be read" };
+  }
+
   // If Gmail is connected, create/update a Gmail draft
   if (await isConnected(email)) {
     const acct = await resolveAccountEmail(reqBody?.accountEmail, email);
@@ -1546,14 +1588,15 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
       return { error: "No valid access token for account" };
     }
     try {
-      const draftFrom = reqBody?.accountEmail || "me";
-      const raw = buildRawEmail({
+      const draftFrom = accountEmail || "me";
+      const raw = buildOutgoingRawEmail({
         from: draftFrom,
         to: to || "",
         cc: cc || "",
         bcc: bcc || "",
         subject: subject || "(no subject)",
         body: body || "",
+        attachments,
       });
 
       if (draftId) {
@@ -1632,7 +1675,7 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     subject: subject || "(no subject)",
     snippet: markdownPreviewSnippet(body || ""),
     body: body || "",
-    bodyHtml: bodyToHtml(body || ""),
+    bodyHtml: outgoingBodyToHtml(body || ""),
     date: new Date().toISOString(),
     isRead: true,
     isStarred: false,
@@ -1640,6 +1683,17 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     isArchived: false,
     isTrashed: false,
     labelIds: ["drafts"],
+    ...(attachments.length > 0
+      ? {
+          attachments: attachments.map((att) => ({
+            id: att.filename,
+            filename: att.originalName,
+            mimeType: att.mimeType,
+            size: att.size,
+            url: att.url,
+          })),
+        }
+      : {}),
     ...(replyToId ? { replyToId } : {}),
     ...(replyToThreadId ? { replyToThreadId } : {}),
   };

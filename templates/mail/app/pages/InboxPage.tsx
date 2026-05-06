@@ -183,6 +183,7 @@ export function InboxPage() {
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isMaximized, setIsMaximized] = useState(false);
   const compose = useComposeState();
   const navState = useNavigationState();
   const [lastArchivedId, setLastArchivedId] = useState<string | null>(null);
@@ -521,8 +522,8 @@ export function InboxPage() {
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      {/* Thin email list sidebar — shown when viewing a thread, hidden on mobile */}
-      {hasThread && !isMobile && (
+      {/* Thin email list sidebar — shown when viewing a thread, hidden on mobile or when maximized */}
+      {hasThread && !isMobile && !isMaximized && (
         <ThreadListSidebar
           emails={emails}
           activeThreadId={threadId!}
@@ -545,6 +546,8 @@ export function InboxPage() {
             setSelectedIds={setSelectedIds}
             onContactSelect={setSidebarContactEmail}
             onNavigateThread={setPendingThreadId}
+            isMaximized={isMaximized}
+            onToggleMaximize={() => setIsMaximized((v) => !v)}
           />
         ) : (
           <EmailList
@@ -561,8 +564,8 @@ export function InboxPage() {
         )}
       </div>
 
-      {/* Right contact panel — hidden during initial load */}
-      {!isLoading && (
+      {/* Right contact panel — hidden during initial load or when maximized */}
+      {!isLoading && !(hasThread && isMaximized) && (
         <div className="hidden lg:flex w-[260px] shrink-0 flex-col border-l border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)]">
           <ContactPanel
             emailId={contactEmailId}

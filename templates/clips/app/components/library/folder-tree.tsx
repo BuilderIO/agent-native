@@ -274,16 +274,12 @@ function FolderItem({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                if (!organizationId) {
-                  toast.error("Organization not ready");
-                  return;
-                }
                 const name = newValue.trim();
                 if (!name) return;
                 createFolder.mutate(
                   {
                     name,
-                    organizationId,
+                    ...(organizationId ? { organizationId } : {}),
                     spaceId: spaceId ?? undefined,
                     parentId: node.id,
                   },

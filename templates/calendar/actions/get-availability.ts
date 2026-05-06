@@ -21,7 +21,7 @@ function createDefaultAvailability(timezone: string): AvailabilityConfig {
       sunday: { enabled: false, slots: [] },
     },
     bufferMinutes: 15,
-    minNoticeHours: 24,
+    minNoticeHours: 1,
     maxAdvanceDays: 60,
     slotDurationMinutes: 30,
     bookingPageSlug: "book",

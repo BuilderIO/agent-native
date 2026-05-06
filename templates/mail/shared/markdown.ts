@@ -25,11 +25,36 @@ export function normalizeMarkdownHardBreaks(markdown: string): string {
     .join("\n");
 }
 
+export function decodeCommonHtmlEntities(value: string): string {
+  return value.replace(
+    /&(amp|lt|gt|quot|apos|#39|nbsp);/g,
+    (match, entity: string) => {
+      switch (entity) {
+        case "amp":
+          return "&";
+        case "lt":
+          return "<";
+        case "gt":
+          return ">";
+        case "quot":
+          return '"';
+        case "apos":
+        case "#39":
+          return "'";
+        case "nbsp":
+          return " ";
+        default:
+          return match;
+      }
+    },
+  );
+}
+
 export function markdownPreviewSnippet(
   markdown: string,
   maxLength = 120,
 ): string {
-  return normalizeMarkdownHardBreaks(markdown)
+  return decodeCommonHtmlEntities(normalizeMarkdownHardBreaks(markdown))
     .slice(0, maxLength)
     .replace(/\n/g, " ");
 }

@@ -26,9 +26,9 @@ cd my-platform
 pnpm install && pnpm dev
 ```
 
-The `create` command shows a multi-select picker — pick one template or several (Mail + Calendar + Forms, for example) and they all scaffold into one workspace sharing auth, brand, and agent config.
+The `create` command defaults to a workspace monorepo. It shows a multi-select picker — pick one template or several (Mail + Calendar + Forms, for example) and they all scaffold into one workspace sharing auth, brand, and agent config. If you want one app directory instead, pass `--standalone`.
 
-Open the URL the dev server prints (usually `http://localhost:3000`).
+Open the URL the dev server prints. Workspace apps use app-specific ports, often `http://localhost:8080` or another 808x port; standalone apps usually use `http://localhost:3000`.
 
 ## What just happened? {#what-just-happened}
 
@@ -40,24 +40,26 @@ You now have a real, full-featured app running on your machine. Open it in the b
 
 That parity between agent and UI is the whole point — see [What Is Agent-Native?](/docs/what-is-agent-native) for the bigger picture.
 
-## What's next {#whats-next}
+## Try one concrete next step {#first-next-step}
 
 From here, use any AI coding tool (Claude Code, Cursor, Windsurf, Builder.io) to customize the app. The agent instructions in `AGENTS.md` are already set up so any tool understands the codebase.
 
-Common next steps:
+Good first moves:
 
-- **Add another app to the same workspace** — run `agent-native add-app` from inside the workspace folder. See [Multi-App Workspace](/docs/multi-app-workspace) for sharing auth, components, and credentials across apps.
+- **Ask the built-in agent what it sees** — open the agent panel and type "what app am I looking at, and what can you do here?" This verifies the app, UI state, and agent loop are all talking to each other.
+- **Make a tiny customization** — ask your coding tool to rename the app, change the first screen copy, or add one field to a form. It will read `AGENTS.md` for the framework conventions.
+- **Add another app to the same workspace** — use `npx @agent-native/core add-app` from inside the workspace folder. The command starts at `npx`.
 - **Single app instead of a monorepo?** Pass `--standalone` when creating: `npx @agent-native/core create my-app --standalone --template mail`.
-- **Build a brand-new template from scratch** — see [Creating Templates](/docs/creating-templates) for the full Vite, Tailwind, and TypeScript setup.
-- **Understand the architecture** — see [Key Concepts](/docs/key-concepts) for how SQL, actions, polling sync, and context awareness fit together.
 
-## What's next {#next-steps}
+## Next docs to read {#next-docs}
 
-Once your app is running, the most common next steps are:
+Once your app is running, the most useful follow-ups are:
 
 - **Connect Slack or email** so you can message your agent from anywhere — see [Messaging](/docs/messaging).
 - **Set up Dispatch as your central inbox** to triage messages and orchestrate across multiple apps — see [Dispatch](/docs/dispatch).
 - **Customize via Workspace** — edit instructions, skills, memory, and connect MCP servers per user — see [Workspace](/docs/workspace).
+- **Troubleshoot common setup questions** — see the [FAQ](/docs/faq).
+- **Understand the architecture** — see [Key Concepts](/docs/key-concepts) for how SQL, actions, polling sync, and context awareness fit together.
 
 ## Templates {#templates}
 
@@ -77,7 +79,7 @@ Each template is a complete app with UI, agent actions, database schema, and AI 
 | [Dispatch](/docs/template-dispatch) | Workspace control plane — secrets, routing, jobs |
 | [Starter](/docs/template-starter)   | Minimal scaffold — build from scratch            |
 
-Browse the [template gallery](/templates) for live demos, or see [Cloneable SaaS](/docs/cloneable-saas) for the full list and the clone → customize → deploy flow.
+Browse the [template gallery](/templates) for live demos, or see [Templates](/docs/cloneable-saas) for the full list and the clone → customize → deploy flow.
 
 ## Project structure {#project-structure}
 

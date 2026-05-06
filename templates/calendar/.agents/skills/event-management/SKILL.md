@@ -65,10 +65,20 @@ pnpm action create-event \
   --end 2026-04-03T13:00:00 \
   --location "Cafe" \
   --description "Discuss Q2 plans"
+
+# Invite attendees — Google sends email invitations by default
+pnpm action create-event \
+  --title "Q2 planning" \
+  --start 2026-04-03T14:00:00 \
+  --end 2026-04-03T15:00:00 \
+  --attendees "alice@example.com,bob@example.com" \
+  --addGoogleMeet=true
 ```
 
 Required: `--title`, `--start`, `--end` (all ISO datetime format).
-Optional: `--description`, `--location`.
+Optional: `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--sendUpdates`.
+
+`--attendees` accepts a comma- or space-separated list of email addresses. When attendees are provided, Google sends email invitations automatically (`sendUpdates=all`). Use `--sendUpdates=none` to suppress emails.
 
 The event is created directly on Google Calendar. Google Calendar must be connected first.
 
@@ -79,7 +89,17 @@ Update an existing Google Calendar event. Use the event `id` from `list-events`,
 ```bash
 pnpm action update-event --id google-event-id --title "New title"
 pnpm action update-event --id google-event-id --start 2026-04-03T10:00:00 --end 2026-04-03T10:30:00
+
+# Replace attendee list (Google sends invites to anyone newly added)
+pnpm action update-event \
+  --id google-event-id \
+  --attendees "alice@example.com,bob@example.com,carol@example.com"
+
+# Suppress invitation emails
+pnpm action update-event --id google-event-id --attendees "alice@example.com" --sendUpdates none
 ```
+
+`--attendees` REPLACES the entire attendee list — to add someone, fetch the existing attendees first via `get-event` and pass the merged list. Pass an empty string to clear all attendees.
 
 For recurring events, pass a Google Calendar RRULE in `--recurrence`. Example: to make a daily event weekdays only, use:
 

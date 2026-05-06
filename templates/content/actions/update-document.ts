@@ -24,7 +24,7 @@ export default defineAction({
     id: z.string().optional().describe("Document ID (required)"),
     title: z.string().optional().describe("New title"),
     content: z.string().optional().describe("New markdown content"),
-    icon: z.string().optional().describe("New emoji icon"),
+    icon: z.string().nullable().optional().describe("New emoji icon"),
     isFavorite: z.coerce
       .boolean()
       .optional()
@@ -130,7 +130,9 @@ export default defineAction({
     const updated: string[] = [];
     if (args.title) updated.push(`title="${args.title}"`);
     if (content !== undefined) updated.push("content");
-    if (args.icon) updated.push(`icon="${args.icon}"`);
+    if (args.icon !== undefined) {
+      updated.push(args.icon ? `icon="${args.icon}"` : "icon removed");
+    }
     if (updated.length > 0) {
       console.log(`Updated document ${id}: ${updated.join(", ")}`);
     }

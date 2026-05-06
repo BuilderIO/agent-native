@@ -34,6 +34,8 @@ export default defineAction({
     const ownerEmail = getCurrentOwnerEmail();
     const id = nanoid();
     const now = new Date().toISOString();
+    const name = args.name.trim();
+    if (!name) throw new Error("Folder name is required");
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
     );
@@ -53,25 +55,29 @@ export default defineAction({
     }
 
     if (args.parentId) {
+      const parentWhereClauses = [
+        eq(schema.folders.id, args.parentId),
+        eq(schema.folders.organizationId, organizationId),
+        args.spaceId
+          ? eq(schema.folders.spaceId, args.spaceId)
+          : isNull(schema.folders.spaceId),
+      ];
+      if (!args.spaceId) {
+        parentWhereClauses.push(eq(schema.folders.ownerEmail, ownerEmail));
+      }
       const [parent] = await db
-        .select({ id: schema.folders.id })
+        .select({ id: schema.folders.id, spaceId: schema.folders.spaceId })
         .from(schema.folders)
-        .where(
-          and(
-            eq(schema.folders.id, args.parentId),
-            eq(schema.folders.organizationId, organizationId),
-            eq(schema.folders.ownerEmail, ownerEmail),
-          ),
-        )
+        .where(and(...parentWhereClauses))
         .limit(1);
       if (!parent) throw new Error(`Parent folder not found: ${args.parentId}`);
     }
 
     // Next position within siblings
-    const whereClauses = [
-      eq(schema.folders.organizationId, organizationId),
-      eq(schema.folders.ownerEmail, ownerEmail),
-    ];
+    const whereClauses = [eq(schema.folders.organizationId, organizationId)];
+    if (!args.spaceId) {
+      whereClauses.push(eq(schema.folders.ownerEmail, ownerEmail));
+    }
     whereClauses.push(
       args.spaceId
         ? eq(schema.folders.spaceId, args.spaceId)
@@ -95,7 +101,7 @@ export default defineAction({
       parentId: args.parentId ?? null,
       spaceId: args.spaceId ?? null,
       ownerEmail,
-      name: args.name,
+      name,
       position,
       createdAt: now,
     });
@@ -108,7 +114,7 @@ export default defineAction({
       parentId: args.parentId ?? null,
       spaceId: args.spaceId ?? null,
       ownerEmail,
-      name: args.name,
+      name,
       position,
       createdAt: now,
     };

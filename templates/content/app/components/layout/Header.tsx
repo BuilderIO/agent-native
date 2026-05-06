@@ -25,7 +25,7 @@ export function Header() {
   const actions = useHeaderActions();
 
   return (
-    <header className="flex h-12 items-center gap-3 border-b border-border bg-background px-4 lg:px-6 shrink-0">
+    <header className="flex h-12 items-center gap-3 border-b border-border bg-background pl-16 pr-4 md:pl-4 lg:px-6 shrink-0">
       <div className="flex items-center gap-3 flex-1 min-w-0">
         {title ?? (
           <h1 className="text-lg font-semibold tracking-tight truncate">

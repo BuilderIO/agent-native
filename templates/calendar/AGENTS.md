@@ -83,6 +83,8 @@ Calendar view modes: `day`, `week`, `month`.
 
 **Do NOT write to `navigation`** — it is overwritten by the UI. Use `navigate` to control the UI.
 
+**`navigation.date` is what the user is LOOKING AT, not what day it is.** The user can scroll to any week/month. For "today", "tomorrow", "this week" etc., always use `currentDateInTimezone` from the `<runtime-context>` block — that's the authoritative wall clock. Only treat `navigation.date` as "today" when the user explicitly says "the day I'm looking at" or similar.
+
 ### Navigate command (control the UI)
 
 ```bash
@@ -116,16 +118,16 @@ cd templates/calendar && pnpm action <name> [args]
 
 ### Events
 
-| Action                 | Args                                                                                                                 | Purpose                         |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| `list-events`          | `--from`, `--to`, `--query`, `--json`                                                                                | Query Google Calendar events    |
-| `search-events`        | `--query` (required), `--from`, `--to`                                                                               | Search events by title          |
-| `get-event`            | `--id` (required), `--calendarId` (default: primary)                                                                 | Fetch a single event by id      |
-| `create-event`         | `--title`, `--start`, `--end`, `--description`, `--location`, `--addGoogleMeet`                                      | Create event on Google Calendar |
-| `update-event`         | `--id`, optional `--title`, `--start`, `--end`, `--recurrence`, `--addGoogleMeet`, `--accountEmail`                  | Update an event or recurrence   |
-| `rsvp-event`           | `--id`, `--status accepted\|declined\|tentative`, optional `--scope single\|all\|thisAndFollowing`, `--accountEmail` | RSVP to a meeting invitation    |
-| `delete-event`         | `--id`, optional `--scope single\|all\|thisAndFollowing`, `--removeOnly`, `--accountEmail`                           | Delete/remove an event          |
-| `sync-google-calendar` | `--from`, `--to`                                                                                                     | Pull Google Calendar events     |
+| Action                 | Args                                                                                                                                | Purpose                         |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `list-events`          | `--from`, `--to`, `--query`, `--json`                                                                                               | Query Google Calendar events    |
+| `search-events`        | `--query` (required), `--from`, `--to`                                                                                              | Search events by title          |
+| `get-event`            | `--id` (required), `--calendarId` (default: primary)                                                                                | Fetch a single event by id      |
+| `create-event`         | `--title`, `--start`, `--end`, `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--sendUpdates`                     | Create event on Google Calendar |
+| `update-event`         | `--id`, optional `--title`, `--start`, `--end`, `--recurrence`, `--attendees`, `--addGoogleMeet`, `--sendUpdates`, `--accountEmail` | Update an event or recurrence   |
+| `rsvp-event`           | `--id`, `--status accepted\|declined\|tentative`, optional `--scope single\|all\|thisAndFollowing`, `--accountEmail`                | RSVP to a meeting invitation    |
+| `delete-event`         | `--id`, optional `--scope single\|all\|thisAndFollowing`, `--removeOnly`, `--accountEmail`                                          | Delete/remove an event          |
+| `sync-google-calendar` | `--from`, `--to`                                                                                                                    | Pull Google Calendar events     |
 
 ### Availability & Booking
 
@@ -157,32 +159,35 @@ Read (`list-booking-links`) admits rows the current user owns, has been shared o
 
 ### Querying Today's Events
 
-**Always use `list-events` to answer schedule questions — never guess or return empty results.**
+**Always use `list-events` to answer schedule questions — never guess or return empty results.** The current UI page is only context; if the user asks "what's on my calendar" while Settings or another tab is open, still call `list-events` for the requested range. Do not infer a broken Google connection from the active page alone.
 
 ```bash
-# Today is 2026-04-03
+# Today is 2026-04-03 — use currentDateInTimezone from <runtime-context>, never navigation.date
 pnpm action list-events --from 2026-04-03 --to 2026-04-04
 ```
 
 The `--to` bound is exclusive, so use tomorrow's date for today's events.
 
+**For "today" / "this week" / relative dates, anchor on `currentDateInTimezone` from the runtime context — not on `navigation.date`.** The user may be looking at a different week than the actual current week. Computing "today" from the calendar's displayed date will be wrong any time the user has scrolled.
+
 ## Common Tasks
 
-| User request                        | What to do                                                                             |
-| ----------------------------------- | -------------------------------------------------------------------------------------- |
-| "What's on my calendar today?"      | `view-screen`, then `list-events --from <today> --to <tomorrow>`                       |
-| "What am I looking at?"             | `view-screen`                                                                          |
-| "Am I free Tuesday at 2pm?"         | `check-availability --date <tuesday>`                                                  |
-| "Find a 1-hour slot this week"      | `check-availability` for each day with `--duration 60`                                 |
-| "Schedule a meeting with Alice"     | `create-event --title "Meeting with Alice" --start ... --end ...`                      |
-| "Schedule a Google Meet with Alice" | `create-event --title "Meeting with Alice" --start ... --end ... --addGoogleMeet=true` |
-| "Add a Meet link to this meeting"   | `update-event --id=<event-id> --addGoogleMeet=true`                                    |
-| "RSVP yes/maybe/no to this meeting" | `rsvp-event --id=<event-id> --status=accepted\|tentative\|declined`                    |
-| "Find meetings about X"             | `search-events --query "X"`                                                            |
-| "Show my availability settings"     | `navigate --view=availability`                                                         |
-| "Show my bookings"                  | `navigate --view=bookings`                                                             |
-| "Switch to day/week/month view"     | `navigate --view=calendar --calendarViewMode=day`                                      |
-| "Go to next week"                   | `navigate --view=calendar --date=<next-monday>`                                        |
+| User request                        | What to do                                                                                                           |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| "What's on my calendar today?"      | `view-screen`, then `list-events --from <today> --to <tomorrow>`                                                     |
+| "What am I looking at?"             | `view-screen`                                                                                                        |
+| "Am I free Tuesday at 2pm?"         | `check-availability --date <tuesday>`                                                                                |
+| "Find a 1-hour slot this week"      | `check-availability` for each day with `--duration 60`                                                               |
+| "Schedule a meeting with Alice"     | `create-event --title "Meeting with Alice" --start ... --end ... --attendees alice@example.com`                      |
+| "Schedule a Google Meet with Alice" | `create-event --title "Meeting with Alice" --start ... --end ... --attendees alice@example.com --addGoogleMeet=true` |
+| "Invite Bob to the 3pm meeting"     | `update-event --id=<event-id>` (use the action's attendees support — see event-management)                           |
+| "Add a Meet link to this meeting"   | `update-event --id=<event-id> --addGoogleMeet=true`                                                                  |
+| "RSVP yes/maybe/no to this meeting" | `rsvp-event --id=<event-id> --status=accepted\|tentative\|declined`                                                  |
+| "Find meetings about X"             | `search-events --query "X"`                                                                                          |
+| "Show my availability settings"     | `navigate --view=availability`                                                                                       |
+| "Show my bookings"                  | `navigate --view=bookings`                                                                                           |
+| "Switch to day/week/month view"     | `navigate --view=calendar --calendarViewMode=day`                                                                    |
+| "Go to next week"                   | `navigate --view=calendar --date=<next-monday>`                                                                      |
 
 ## Google Calendar OAuth Flow
 

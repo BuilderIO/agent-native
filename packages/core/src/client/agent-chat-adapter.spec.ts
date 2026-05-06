@@ -770,6 +770,76 @@ describe("createAgentChatAdapter", () => {
     expect(finalText).not.toContain("checking the dashboard");
   });
 
+  it("stops after repeated stale-run recoveries", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return sseResponse([
+        { type: "text", text: "partial answer" },
+        {
+          type: "error",
+          error:
+            "The agent stopped before it could finish. It may have hit a server timeout or the worker may have been interrupted.",
+          errorCode: "stale_run",
+          recoverable: true,
+        },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-stale-run",
+      threadId: "thread-stale-run",
+    });
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish the analysis" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const chatPosts = fetchSpy.mock.calls.filter(
+      ([url, init]) =>
+        url === "/_agent-native/agent-chat" && init?.method === "POST",
+    );
+    expect(chatPosts).toHaveLength(4);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "connection_error",
+          details: expect.stringContaining("stale_run_continuations: 4"),
+        }),
+      }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.content.at(-1).text).toContain(
+      "The agent connection kept failing",
+    );
+  });
+
   it("does not exhaust stalled recovery attempts while each continuation makes progress", async () => {
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();

@@ -6,6 +6,8 @@ import {
   IconStar,
   IconTrash,
   IconDots,
+  IconArrowUp,
+  IconArrowDown,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import type { DocumentTreeNode } from "@shared/api";
@@ -13,6 +15,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -40,6 +43,8 @@ interface DocumentTreeItemProps {
   onSelect: (id: string) => void;
   onCreateChild: (parentId: string) => void;
   onDelete: (id: string) => void;
+  onMove: (id: string, direction: "up" | "down") => void;
+  moveAvailability: Map<string, { up: boolean; down: boolean }>;
   onToggleFavorite: (id: string, isFavorite: boolean) => void;
 }
 
@@ -52,11 +57,14 @@ export function DocumentTreeItem({
   onSelect,
   onCreateChild,
   onDelete,
+  onMove,
+  moveAvailability,
   onToggleFavorite,
 }: DocumentTreeItemProps) {
   const expanded = expandedIds.has(node.id);
   const hasChildren = node.children.length > 0;
   const isActive = node.id === activeId;
+  const movement = moveAvailability.get(node.id) ?? { up: false, down: false };
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   return (
@@ -122,6 +130,28 @@ export function DocumentTreeItem({
                 <IconPlus size={14} className="mr-2" />
                 Add sub-page
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={!movement.up}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMove(node.id, "up");
+                }}
+              >
+                <IconArrowUp size={14} className="mr-2" />
+                Move up
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!movement.down}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMove(node.id, "down");
+                }}
+              >
+                <IconArrowDown size={14} className="mr-2" />
+                Move down
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation();
@@ -177,6 +207,8 @@ export function DocumentTreeItem({
               onSelect={onSelect}
               onCreateChild={onCreateChild}
               onDelete={onDelete}
+              onMove={onMove}
+              moveAvailability={moveAvailability}
               onToggleFavorite={onToggleFavorite}
             />
           ))}

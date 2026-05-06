@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useZoomStatus, useConnectZoom } from "@/hooks/use-zoom-auth";
 import {
+  BookingLinkCreateDialog,
   CustomFieldsEditor as SharedCustomFieldsEditor,
   SlugEditor,
 } from "@agent-native/scheduling/react/components";
@@ -472,6 +473,7 @@ export default function BookingLinksPage({
   });
   const [customDurationInput, setCustomDurationInput] = useState("");
   const [showCustomDurationInput, setShowCustomDurationInput] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
   // Availability state
   const { data: availability } = useAvailability();
@@ -618,6 +620,15 @@ export default function BookingLinksPage({
   }
 
   const previewUrl = getBookingUrl(draft.slug);
+  const createSlugPrefix = useMemo(() => {
+    const host =
+      typeof window !== "undefined" && window.location.hostname !== "localhost"
+        ? window.location.host
+        : PRODUCTION_DOMAIN;
+    const username =
+      bookingUsername || usernameInput || suggestedUsername || "your-name";
+    return `${host}/book/${username}/`;
+  }, [bookingUsername, usernameInput, suggestedUsername]);
   const draftSignature = useMemo(() => getDraftSignature(draft), [draft]);
   const hasUnsavedChanges =
     !!selectedLink &&
@@ -625,17 +636,28 @@ export default function BookingLinksPage({
     draftSignature !== savedDraftSignature;
 
   function handleCreate() {
-    const n = bookingLinks.length + 1;
-    const baseTitle = n > 1 ? `Meeting ${n}` : "Meeting";
-    const baseSlug = slugify(baseTitle);
+    setCreateDialogOpen(true);
+  }
+
+  function handleCreateSubmit(input: {
+    title: string;
+    slug: string;
+    length: number;
+    description: string;
+  }) {
+    const title = input.title.trim();
+    const slug = slugify(input.slug);
+    const duration = input.length;
+    if (!title || !slug || !Number.isFinite(duration)) return;
     // Pre-generate an optimistic id so we can navigate instantly; the mutation
     // inserts the row into the list cache synchronously via onMutate.
     const optimisticId = `optimistic_${nanoid()}`;
     createBookingLink.mutate(
       {
-        title: baseTitle,
-        slug: baseSlug,
-        duration: 30,
+        title,
+        slug,
+        duration,
+        description: input.description.trim() || undefined,
         isActive: true,
         optimisticId,
       },
@@ -643,17 +665,22 @@ export default function BookingLinksPage({
         onSuccess: (created) => {
           // Swap URL from optimistic id to the real one without a back-stack entry.
           navigate(`/booking-links/${created.id}`, { replace: true });
+          toast.success("Booking link created");
         },
-        onError: () => {
+        onError: (error) => {
           // Cache was rolled back by the hook's onError. Bring the user back.
           navigate("/booking-links", { replace: true });
-          toast.error("Failed to create booking link");
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Failed to create booking link",
+          );
         },
       },
     );
     // Navigate *immediately* — the optimistic row is already in the list cache.
     navigate(`/booking-links/${optimisticId}`);
-    toast.success("Booking link created");
+    setCreateDialogOpen(false);
   }
 
   async function handleSave() {
@@ -1584,6 +1611,14 @@ export default function BookingLinksPage({
           />
         </div>
       )}
+      <BookingLinkCreateDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        slugPrefix={createSlugPrefix}
+        defaultLength={30}
+        submitLabel="Create link"
+        onSubmit={handleCreateSubmit}
+      />
     </div>
   );
 }

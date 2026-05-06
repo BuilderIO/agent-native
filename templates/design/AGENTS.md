@@ -1420,7 +1420,7 @@ If Builder is not connected, fall back to `import-from-url --url "https://exampl
 
         <!-- Screen content -->
         <div class="px-5 pt-2 pb-24">
-          <h1 class="text-2xl font-bold mb-1">Good morning</h1>
+          <h1 class="text-2xl font-bold mb-1">Today's focus</h1>
           <p class="text-sm text-[var(--color-text-muted)] mb-6">
             3 routines ready
           </p>

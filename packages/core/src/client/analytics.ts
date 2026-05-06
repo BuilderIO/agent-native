@@ -170,6 +170,61 @@ export function setSentryUser(
   }
 }
 
+export interface ClientCaptureContext {
+  /** Searchable Sentry tags (low-cardinality strings only). */
+  tags?: Record<string, string | undefined>;
+  /**
+   * High-cardinality / structured payload — not searchable but visible in
+   * the Sentry event detail (file sizes, request URLs, response body
+   * tails, etc.).
+   */
+  extra?: Record<string, unknown>;
+  /**
+   * Grouped contexts shown as separate cards in the Sentry event UI.
+   */
+  contexts?: Record<string, Record<string, unknown>>;
+}
+
+/**
+ * Capture an exception to Sentry from browser code without forcing the
+ * caller to depend on `@sentry/browser` directly.
+ *
+ * Templates can route a thrown Error through here on a known failure path
+ * (chunk-upload 500, thumbnail upload, etc.) to attach searchable tags and
+ * structured extra context. No-ops gracefully when Sentry isn't
+ * initialized — never throws back into the caller, so a Sentry hiccup
+ * can't mask the original error.
+ */
+export function captureClientException(
+  error: unknown,
+  context: ClientCaptureContext = {},
+): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    ensureSentry();
+    return Sentry.withScope((scope) => {
+      if (context.tags) {
+        for (const [k, v] of Object.entries(context.tags)) {
+          if (typeof v === "string") scope.setTag(k, v);
+        }
+      }
+      if (context.extra) {
+        for (const [k, v] of Object.entries(context.extra)) {
+          if (v !== undefined) scope.setExtra(k, v);
+        }
+      }
+      if (context.contexts) {
+        for (const [k, v] of Object.entries(context.contexts)) {
+          scope.setContext(k, v);
+        }
+      }
+      return Sentry.captureException(error);
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 function getPageviewTrackingState(): PageviewTrackingState {
   const g = globalThis as typeof globalThis & {
     [PAGEVIEW_TRACKING_STATE_KEY]?: PageviewTrackingState;

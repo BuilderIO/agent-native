@@ -16,6 +16,7 @@ import {
   listQueuedDrafts,
   requireQueuedDraft,
 } from "../server/lib/queued-drafts.js";
+import { getSyntheticEmailsForView } from "../server/lib/jobs.js";
 
 const VIEW_QUERIES: Record<string, string> = {
   inbox: "in:inbox -in:sent",
@@ -53,6 +54,21 @@ async function fetchEmailList(
   try {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
+    if (view === "snoozed" || view === "scheduled") {
+      let emails = await getSyntheticEmailsForView(ownerEmail, view);
+      if (search) {
+        const q = search.toLowerCase();
+        emails = emails.filter(
+          (e: any) =>
+            e.subject?.toLowerCase().includes(q) ||
+            e.snippet?.toLowerCase().includes(q) ||
+            e.body?.toLowerCase().includes(q) ||
+            e.from?.name?.toLowerCase().includes(q) ||
+            e.from?.email?.toLowerCase().includes(q),
+        );
+      }
+      return emails.slice(0, 50);
+    }
     if (await isConnected(ownerEmail)) {
       const clients = await getClients(ownerEmail);
       const labelMap = new Map<string, string>();

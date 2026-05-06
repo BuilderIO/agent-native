@@ -15,13 +15,30 @@ export function getCurrentOwnerEmail(): string {
   return email;
 }
 
-export async function getEventOwnerEmail(event: H3Event): Promise<string> {
+export async function getEventOwnerContext(event: H3Event): Promise<{
+  userEmail: string;
+  orgId?: string;
+}> {
   const session = await getSession(event);
   if (!session?.email) {
     const { createError } = await import("h3");
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
-  return session.email;
+  let orgId = session.orgId ?? null;
+  if (!orgId) {
+    try {
+      const { getOrgContext } = await import("@agent-native/core/org");
+      const ctx = await getOrgContext(event);
+      orgId = ctx?.orgId ?? null;
+    } catch {
+      // Keep the auth context usable even if org resolution is unavailable.
+    }
+  }
+  return { userEmail: session.email, orgId: orgId ?? undefined };
+}
+
+export async function getEventOwnerEmail(event: H3Event): Promise<string> {
+  return (await getEventOwnerContext(event)).userEmail;
 }
 
 export type OrganizationAccessRole = "owner" | "admin" | "member";

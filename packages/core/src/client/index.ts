@@ -125,6 +125,8 @@ export {
   trackSessionStatus,
   configureTracking,
   setSentryUser,
+  captureClientException,
+  type ClientCaptureContext,
 } from "./analytics.js";
 export {
   useCollaborativeDoc,

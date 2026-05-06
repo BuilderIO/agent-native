@@ -52,7 +52,7 @@ Clips is a larger template with a native recorder (it ships a desktop companion 
 
 ### Customize it
 
-Clips is a full cloneable SaaS — fork it and ask the agent to extend it. Some examples:
+Clips is a complete, cloneable template — fork it and ask the agent to extend it. Some examples:
 
 - "Add a filler-word removal button that strips ums and uhs from the transcript and re-stitches the video."
 - "Auto-post my standup notes to Slack #eng whenever a meeting ends." (Connect Slack first via [Messaging](/docs/messaging).)
@@ -61,10 +61,10 @@ Clips is a full cloneable SaaS — fork it and ask the agent to extend it. Some 
 - "Add a 'Generate blog post from this clip' button that drafts a post from the transcript and saves it as a draft."
 - "Let viewers leave timestamped reactions on a shared clip."
 
-The agent edits routes, components, the transcript pipeline, and the schema as needed. See [Cloneable SaaS](/docs/cloneable-saas) for the full clone, customize, deploy flow, and [Getting Started](/docs/getting-started) if this is your first agent-native template.
+The agent edits routes, components, the transcript pipeline, and the schema as needed. See [Templates](/docs/cloneable-saas) for the full clone, customize, deploy flow, and [Getting Started](/docs/getting-started) if this is your first agent-native template.
 
 ## What's next
 
-- [**Cloneable SaaS**](/docs/cloneable-saas) — the clone-and-own model
+- [**Templates**](/docs/cloneable-saas) — the clone-and-own model
 - [**Context Awareness**](/docs/context-awareness) — how the agent knows the current clip and playhead
 - [**Agent Teams**](/docs/agent-teams) — delegate transcript cleanup to a specialist sub-agent

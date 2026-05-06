@@ -83,7 +83,7 @@ Google Calendar events are NOT stored in the local database. They are fetched li
 - \`pnpm action duplicate-booking-link --sourceSlug meeting --copies '[...]'\` — Duplicate one booking link into one or more variants
 
 ## Google Connection Check
-Before running calendar scripts, run view-screen first. If it indicates Google is not connected, tell the user to go to Settings to configure credentials and connect.
+Before answering schedule questions, run view-screen first for context, then use list-events for the requested date range even if the user is currently on Settings, Booking Links, or another non-calendar page. Do not infer a Google Calendar connection problem just because the current page is Settings. Only ask the user to reconnect Google if list-events or the explicit Google status reports an auth/connection error.
 
 ## Context Awareness
 The UI writes navigation state including the current view, date, view mode (day/week/month), and selected event ID. Always check view-screen to know what the user sees before responding.

@@ -907,6 +907,68 @@ body {
   background: rgba(255, 255, 255, 0.1);
 }
 
+/* Larger pill for the global mode toggle */
+.settings-mode-toggle--lg {
+  border-radius: 6px;
+}
+
+.settings-mode-toggle--lg .settings-mode-btn {
+  padding: 6px 14px;
+  font-size: 12px;
+}
+
+/* Global mode hero card */
+.settings-mode-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.settings-mode-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-mode-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.settings-mode-card-status {
+  font-size: 11px;
+  color: #777;
+}
+
+/* Disclosure button */
+.settings-disclosure {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 8px 4px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  transition: color var(--ease);
+}
+
+.settings-disclosure:hover {
+  color: #ccc;
+}
+
 /* Toggle switch */
 .settings-toggle {
   position: relative;

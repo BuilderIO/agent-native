@@ -11,6 +11,7 @@ import { streamFile, getSession } from "@agent-native/core/server";
 import fs from "node:fs";
 import path from "node:path";
 import { nanoid } from "nanoid";
+import { getStoredUpload, putStoredUpload } from "../lib/upload-store.js";
 
 const UPLOADS_DIR = path.resolve("data/uploads");
 
@@ -67,17 +68,26 @@ export const uploadMedia = defineEventHandler(async (event: H3Event) => {
     const id = nanoid(12) + ext;
     const filePath = path.join(UPLOADS_DIR, id);
 
-    fs.writeFileSync(filePath, body);
-
     const mimeType = MIME_MAP[ext] || "application/octet-stream";
-
-    return {
+    const payload = {
       url: `/api/media/${id}`,
       filename: id,
       originalName,
       mimeType,
       size: body.length,
     };
+
+    try {
+      fs.writeFileSync(filePath, body);
+    } catch {
+      await putStoredUpload(session.email, {
+        ...payload,
+        dataBase64: Buffer.from(body).toString("base64"),
+        createdAt: Date.now(),
+      });
+    }
+
+    return payload;
   } catch (err) {
     console.error("[media] Upload failed:", err);
     setResponseStatus(event, 500);
@@ -95,13 +105,35 @@ export const serveMedia = defineEventHandler(async (event: H3Event) => {
   }
 
   const filePath = path.join(UPLOADS_DIR, filename);
+  const ext = path.extname(filename).toLowerCase();
 
   if (!fs.existsSync(filePath)) {
-    setResponseStatus(event, 404);
-    return { error: "File not found" };
+    const session = await getSession(event).catch(() => null);
+    const stored = session?.email
+      ? await getStoredUpload(session.email, filename)
+      : null;
+    if (!stored) {
+      setResponseStatus(event, 404);
+      return { error: "File not found" };
+    }
+
+    setResponseHeader(event, "Content-Type", stored.mimeType);
+    setResponseHeader(
+      event,
+      "Cache-Control",
+      "private, max-age=31536000, immutable",
+    );
+    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+    if (ext === ".svg" || ext === ".html" || ext === ".htm") {
+      setResponseHeader(
+        event,
+        "Content-Disposition",
+        `attachment; filename="${filename}"`,
+      );
+    }
+    return Buffer.from(stored.dataBase64, "base64");
   }
 
-  const ext = path.extname(filename).toLowerCase();
   const mimeType = MIME_MAP[ext] || "application/octet-stream";
 
   setResponseHeader(event, "Content-Type", mimeType);

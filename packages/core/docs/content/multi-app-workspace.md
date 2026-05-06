@@ -86,13 +86,13 @@ Every app already knows how to log in, share the same database, and load the wor
 From anywhere inside the workspace:
 
 ```bash
-agent-native add-app
+npx @agent-native/core add-app
 ```
 
 The CLI shows the template picker again with apps you've already installed filtered out. Pick one or more and they get scaffolded under `apps/`. Non-interactive variant:
 
 ```bash
-agent-native add-app crm --template content
+npx @agent-native/core add-app crm --template content
 ```
 
 Any first-party template works as a workspace app — the CLI runs a small **workspacify** transform on the template that adds the shared package as a dep and resolves `workspace:*` references. No parallel "workspace-app" scaffold to maintain.

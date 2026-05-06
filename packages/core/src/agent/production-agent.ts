@@ -510,6 +510,7 @@ function isRetryableError(err: unknown): boolean {
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (code === "builder_gateway_timeout") return false;
   return (
+    code === "builder_gateway_error" ||
     code === "http_502" ||
     code === "http_503" ||
     code === "http_504" ||
@@ -520,6 +521,7 @@ function isRetryableError(err: unknown): boolean {
     msg.includes("502") ||
     msg.includes("503") ||
     msg.includes("504") ||
+    msg.includes("gateway error") ||
     msg.includes("too many requests") ||
     msg.includes("timeout") ||
     msg.includes("gateway timeout") ||

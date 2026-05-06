@@ -20,7 +20,7 @@ The twist: **it's SQL rows, not filesystem files.** Each user gets their own wor
 | Per-project `CLAUDE.md` / skills | Per-app `AGENTS.md` + workspace memory resources   |
 | MCP config in a JSON file        | MCP config in JSON _or_ the settings UI, per scope |
 
-Same capabilities. Different economics. See [Cloneable SaaS](/docs/cloneable-saas) for why this matters for SaaS.
+Same capabilities. Different economics. See [Templates](/docs/cloneable-saas) for why this matters for SaaS.
 
 ## The Workspace tab {#the-tab}
 

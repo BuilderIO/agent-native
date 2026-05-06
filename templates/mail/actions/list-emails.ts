@@ -8,6 +8,7 @@ import {
   fetchGmailLabelMap,
   isConnected,
 } from "../server/lib/google-auth.js";
+import { getSyntheticEmailsForView } from "../server/lib/jobs.js";
 import { z } from "zod";
 
 const VIEW_QUERIES: Record<string, string> = {
@@ -70,7 +71,7 @@ async function readLocalEmails(ownerEmail: string): Promise<any[]> {
 
 export default defineAction({
   description:
-    "List emails from a view (inbox, unread, starred, sent, drafts, archive, trash) with optional search query.",
+    "List emails from a view (inbox, unread, starred, sent, drafts, scheduled, archive, trash) with optional search query.",
   schema: z.object({
     view: z
       .enum([
@@ -79,6 +80,8 @@ export default defineAction({
         "starred",
         "sent",
         "drafts",
+        "snoozed",
+        "scheduled",
         "archive",
         "trash",
         "all",
@@ -107,6 +110,31 @@ export default defineAction({
     const accountFilter = args.account?.toLowerCase();
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
+
+    if (view === "snoozed" || view === "scheduled") {
+      let emails = await getSyntheticEmailsForView(ownerEmail, view);
+      if (query) {
+        const q = query.toLowerCase();
+        emails = emails.filter(
+          (e) =>
+            e.subject?.toLowerCase().includes(q) ||
+            e.snippet?.toLowerCase().includes(q) ||
+            e.body?.toLowerCase().includes(q) ||
+            e.from?.name?.toLowerCase().includes(q) ||
+            e.from?.email?.toLowerCase().includes(q),
+        );
+      }
+      if (accountFilter) {
+        emails = emails.filter(
+          (e) => e.accountEmail?.toLowerCase() === accountFilter,
+        );
+      }
+      return JSON.stringify(
+        compact ? toCompact(emails.slice(0, limit)) : emails.slice(0, limit),
+        null,
+        2,
+      );
+    }
 
     if (await isConnected(ownerEmail)) {
       const clients = await getClients(ownerEmail);

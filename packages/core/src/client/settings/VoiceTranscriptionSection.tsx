@@ -817,107 +817,94 @@ interface VersionStatusPayload {
   reason?: string;
 }
 
+// Tauri v2 exposes `window.__TAURI_INTERNALS__.invoke` as the runtime entry
+// point that `@tauri-apps/api/core` itself wraps. Calling it directly avoids
+// pulling `@tauri-apps/api` into the web bundle's import graph — a dynamic
+// `import("@tauri-apps/api/core")` survives Vite's prebundle as a literal
+// specifier and trips `vite:import-analysis` with a "Failed to resolve" error
+// in fresh CLI installs that don't have the desktop dep installed.
+type TauriInvoke = (cmd: string, args?: unknown) => Promise<unknown>;
+function getTauriInvoke(): TauriInvoke | null {
+  if (typeof window === "undefined") return null;
+  const internals = (
+    window as unknown as { __TAURI_INTERNALS__?: { invoke?: TauriInvoke } }
+  ).__TAURI_INTERNALS__;
+  return internals?.invoke ?? null;
+}
+
 function SystemAudioStatus() {
   const [state, setState] = useState<SystemAudioState | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    if (typeof window === "undefined") return;
-    const tauri = (window as unknown as { __TAURI_INTERNALS__?: unknown })
-      .__TAURI_INTERNALS__;
-    if (!tauri) return; // Web users: render nothing.
+    const invoke = getTauriInvoke();
+    if (!invoke) return; // Web users: render nothing.
     setState({ kind: "loading" });
-    // Dynamic import keeps `@tauri-apps/api` out of the web bundle's static
-    // graph; it is only resolved inside the desktop shell where the dep is
-    // present at build time.
-    // Cast to suppress missing types — `@tauri-apps/api` is a desktop-shell
-    // dep, not a static dep of `packages/core`. Resolves at runtime only when
-    // we're inside Tauri (gated by the `__TAURI_INTERNALS__` check above).
-    (
-      import(/* @vite-ignore */ "@tauri-apps/api/core" as string) as Promise<{
-        invoke: (cmd: string, args?: unknown) => Promise<unknown>;
-      }>
-    )
-      .then(async ({ invoke }) => {
+    void (async () => {
+      try {
+        const status = (await invoke("system_audio_version_status")) as
+          | VersionStatusPayload
+          | undefined;
+        if (cancelled) return;
+        if (status && !status.supported) {
+          setState({
+            kind: "unsupported",
+            reason:
+              status.reason ??
+              `ScreenCaptureKit is unavailable on ${status.os_version}.`,
+          });
+          return;
+        }
+        // Supported — now probe permission. This may prompt; calling it
+        // here matches the original on-mount semantics requested in the
+        // settings flow.
         try {
-          const status = (await invoke("system_audio_version_status")) as
-            | VersionStatusPayload
-            | undefined;
+          const granted = (await invoke(
+            "system_audio_request_permission",
+          )) as boolean;
           if (cancelled) return;
-          if (status && !status.supported) {
-            setState({
-              kind: "unsupported",
-              reason:
-                status.reason ??
-                `ScreenCaptureKit is unavailable on ${status.os_version}.`,
-            });
-            return;
-          }
-          // Supported — now probe permission. This may prompt; calling it
-          // here matches the original on-mount semantics requested in the
-          // settings flow.
-          try {
-            const granted = (await invoke(
-              "system_audio_request_permission",
-            )) as boolean;
-            if (cancelled) return;
-            setState(granted ? { kind: "available" } : { kind: "denied" });
-          } catch (err) {
-            if (cancelled) return;
-            const msg = String(err ?? "");
-            if (/macOS\s*1[0-2]|requires macOS 13/i.test(msg)) {
-              setState({ kind: "unsupported", reason: msg });
-            } else {
-              setState({ kind: "denied" });
-            }
-          }
-        } catch {
-          // Older desktop builds may not have the new command yet —
-          // fall back to the permission probe.
+          setState(granted ? { kind: "available" } : { kind: "denied" });
+        } catch (err) {
           if (cancelled) return;
-          try {
-            const granted = (await invoke(
-              "system_audio_request_permission",
-            )) as boolean;
-            if (cancelled) return;
-            setState(granted ? { kind: "available" } : { kind: "denied" });
-          } catch (err) {
-            if (cancelled) return;
-            const msg = String(err ?? "");
-            if (/macOS|ScreenCaptureKit/i.test(msg)) {
-              setState({ kind: "unsupported", reason: msg });
-            } else {
-              setState({ kind: "denied" });
-            }
+          const msg = String(err ?? "");
+          if (/macOS\s*1[0-2]|requires macOS 13/i.test(msg)) {
+            setState({ kind: "unsupported", reason: msg });
+          } else {
+            setState({ kind: "denied" });
           }
         }
-      })
-      .catch(() => {
-        // @tauri-apps/api not resolvable -> behave like web.
-        if (!cancelled) setState(null);
-      });
+      } catch {
+        // Older desktop builds may not have the new command yet —
+        // fall back to the permission probe.
+        if (cancelled) return;
+        try {
+          const granted = (await invoke(
+            "system_audio_request_permission",
+          )) as boolean;
+          if (cancelled) return;
+          setState(granted ? { kind: "available" } : { kind: "denied" });
+        } catch (err) {
+          if (cancelled) return;
+          const msg = String(err ?? "");
+          if (/macOS|ScreenCaptureKit/i.test(msg)) {
+            setState({ kind: "unsupported", reason: msg });
+          } else {
+            setState({ kind: "denied" });
+          }
+        }
+      }
+    })();
     return () => {
       cancelled = true;
     };
   }, []);
 
   const openPrivacy = useCallback(() => {
-    if (typeof window === "undefined") return;
-    const tauri = (window as unknown as { __TAURI_INTERNALS__?: unknown })
-      .__TAURI_INTERNALS__;
-    if (!tauri) return;
-    // Cast to suppress missing types — `@tauri-apps/api` is a desktop-shell
-    // dep, not a static dep of `packages/core`. Resolves at runtime only when
-    // we're inside Tauri (gated by the `__TAURI_INTERNALS__` check above).
-    (
-      import(/* @vite-ignore */ "@tauri-apps/api/core" as string) as Promise<{
-        invoke: (cmd: string, args?: unknown) => Promise<unknown>;
-      }>
-    )
-      .then(({ invoke }) => invoke("system_audio_open_privacy_settings"))
-      .catch(() => {
-        // Older desktop builds without this command — no-op.
-      });
+    const invoke = getTauriInvoke();
+    if (!invoke) return;
+    void invoke("system_audio_open_privacy_settings").catch(() => {
+      // Older desktop builds without this command — no-op.
+    });
   }, []);
 
   if (!state || state.kind === "loading") return null;

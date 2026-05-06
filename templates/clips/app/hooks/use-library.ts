@@ -93,7 +93,7 @@ export function useCreateFolder() {
     any,
     {
       name: string;
-      organizationId: string;
+      organizationId?: string;
       spaceId?: string;
       parentId?: string | null;
     }

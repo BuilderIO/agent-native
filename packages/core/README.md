@@ -18,9 +18,9 @@ The agent and the UI are equal citizens of the same system. Every action works b
 - **Any database, any host** — Any SQL database Drizzle supports. Any hosting target Nitro supports. No lock-in.
 - **Any AI agent** — Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io. Use whichever agent you prefer.
 
-## Cloneable SaaS Templates
+## Templates
 
-Start from a complete, production-grade SaaS app. Each one replaces tools you're paying for — except you own everything and can customize it however you want. Not demos; products.
+Start from a complete, production-grade SaaS app — cloneable, not scaffolded. Each one replaces tools you're paying for, except you own everything and can customize it however you want. Not demos; products.
 
 <table>
 <tr>

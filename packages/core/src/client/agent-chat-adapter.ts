@@ -22,6 +22,7 @@ const AUTO_CONTINUE_PROMPT =
   "Continue from where you left off and finish the user's original request. Do not repeat completed work, do not mention internal reconnects, time limits, or step limits, and continue as if this is the same uninterrupted run.";
 const MAX_RECONNECT_ATTEMPTS = 5;
 const MAX_STARTUP_RECOVERY_ATTEMPTS = 8;
+const MAX_STALE_RUN_CONTINUATIONS = 3;
 const MAX_STALLED_TRANSIENT_CONTINUATIONS = 8;
 const MAX_TOTAL_TRANSIENT_CONTINUATIONS = 32;
 const RETRY_BASE_DELAY_MS = 500;
@@ -90,11 +91,13 @@ function autoContinueMessage(signal: AgentAutoContinueSignal): string {
   const reason =
     signal.reason === "loop_limit"
       ? "The previous run reached an internal step budget."
-      : signal.reason === "no_progress"
-        ? "The previous run stopped producing progress events while the connection stayed open."
-        : signal.reason === "stream_ended"
-          ? "The previous stream ended before the agent sent a final completion signal."
-          : "The previous run reached an internal execution budget.";
+      : signal.reason === "stale_run"
+        ? "The previous run stopped unexpectedly in the server runtime before it could finish."
+        : signal.reason === "no_progress"
+          ? "The previous run stopped producing progress events while the connection stayed open."
+          : signal.reason === "stream_ended"
+            ? "The previous stream ended before the agent sent a final completion signal."
+            : "The previous run reached an internal execution budget.";
   return `${AUTO_CONTINUE_PROMPT}\n\nInternal note: ${reason}`;
 }
 
@@ -336,6 +339,7 @@ export function createAgentChatAdapter(options?: {
       let includeAttachments = attachments.length > 0;
       let includeReferences = Boolean(runConfig?.custom?.references);
       let startupRecoveryAttempts = 0;
+      let staleRunContinuationAttempts = 0;
       let stalledTransientContinuationAttempts = 0;
       let totalTransientContinuationAttempts = 0;
       const continuationHistoryFragments: string[] = [];
@@ -348,6 +352,7 @@ export function createAgentChatAdapter(options?: {
           lastAutoContinueReason
             ? `last_auto_continue_reason: ${lastAutoContinueReason}`
             : "",
+          `stale_run_continuations: ${staleRunContinuationAttempts}`,
           `stalled_transient_continuations: ${stalledTransientContinuationAttempts}`,
           `total_transient_continuations: ${totalTransientContinuationAttempts}`,
           attemptedRunIds.length > 0
@@ -499,6 +504,12 @@ export function createAgentChatAdapter(options?: {
             stalledTransientContinuationAttempts = 0;
           } else {
             totalTransientContinuationAttempts += 1;
+            if (signal.reason === "stale_run") {
+              staleRunContinuationAttempts += 1;
+              if (staleRunContinuationAttempts > MAX_STALE_RUN_CONTINUATIONS) {
+                return { ok: false, resetVisibleContent: false };
+              }
+            }
             stalledTransientContinuationAttempts = madeProgress
               ? 0
               : stalledTransientContinuationAttempts + 1;

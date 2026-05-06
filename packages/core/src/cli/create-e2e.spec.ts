@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { createApp } from "./create.js";
+import { addAppToWorkspace, createApp } from "./create.js";
 import {
   _scaffoldWorkspaceRoot,
   _scaffoldAppTemplate,
@@ -277,6 +277,20 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
 });
 
 describe("workspace add-app scaffold", { timeout: 60000 }, () => {
+  it("allows Dispatch to be added later as the canonical workspace app", async () => {
+    const wsDir = path.join(tmpDir, "my-ws");
+    await _scaffoldWorkspaceRoot(wsDir, "my-ws");
+
+    process.chdir(wsDir);
+    await addAppToWorkspace("dispatch", { template: "dispatch" });
+
+    const dispatchPkg = readPkg(path.join(wsDir, "apps", "dispatch"));
+    expect(dispatchPkg.name).toBe("dispatch");
+    expect(
+      fs.existsSync(path.join(wsDir, "apps", "dispatch", "package.json")),
+    ).toBe(true);
+  });
+
   it("rewrites starter tracking identity for a renamed workspace app", async () => {
     await createApp("my-ws", { template: "starter,dispatch" });
 

@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { EventCard } from "./EventCard";
 import { EventDetailPopover } from "./EventDetailPopover";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useViewPreferences } from "@/hooks/use-view-preferences";
 import type { CalendarEvent } from "@shared/api";
 
 interface MonthViewProps {
@@ -49,6 +50,7 @@ export function MonthView({
   isLoading = false,
 }: MonthViewProps) {
   const isMobile = useIsMobile();
+  const { prefs } = useViewPreferences();
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
@@ -56,7 +58,21 @@ export function MonthView({
   const monthEnd = endOfMonth(selectedDate);
   const calendarStart = startOfWeek(monthStart);
   const calendarEnd = endOfWeek(monthEnd);
-  const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
+  const allDays = eachDayOfInterval({
+    start: calendarStart,
+    end: calendarEnd,
+  });
+  const days = prefs.hideWeekends
+    ? allDays.filter((d) => d.getDay() !== 0 && d.getDay() !== 6)
+    : allDays;
+  const colCount = prefs.hideWeekends ? 5 : 7;
+  const headers = prefs.hideWeekends
+    ? (isMobile ? WEEKDAY_HEADERS_SHORT : WEEKDAY_HEADERS).filter(
+        (_, i) => i !== 0 && i !== 6,
+      )
+    : isMobile
+      ? WEEKDAY_HEADERS_SHORT
+      : WEEKDAY_HEADERS;
 
   // Pre-group events by date key once so each cell does O(1) lookup
   const eventsByDay = useMemo(() => {
@@ -89,8 +105,11 @@ export function MonthView({
   return (
     <div className="flex h-full flex-col">
       {/* Weekday headers */}
-      <div className="grid grid-cols-7 border-b border-border bg-card">
-        {(isMobile ? WEEKDAY_HEADERS_SHORT : WEEKDAY_HEADERS).map((day, i) => (
+      <div
+        className="grid border-b border-border bg-card"
+        style={{ gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))` }}
+      >
+        {headers.map((day, i) => (
           <div
             key={`${day}-${i}`}
             className="py-2 text-center text-[10px] font-medium text-muted-foreground tracking-wide sm:py-2.5 sm:text-xs"
@@ -101,7 +120,10 @@ export function MonthView({
       </div>
 
       {/* Day grid */}
-      <div className="grid flex-1 auto-rows-fr grid-cols-7">
+      <div
+        className="grid flex-1 auto-rows-fr"
+        style={{ gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))` }}
+      >
         {days.map((day) => {
           const dayEvents = eventsByDay.get(format(day, "yyyy-MM-dd")) ?? [];
           const inMonth = isSameMonth(day, selectedDate);

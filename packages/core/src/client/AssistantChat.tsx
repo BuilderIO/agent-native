@@ -195,6 +195,8 @@ const markdownStyles = `
  * below tells the user the context is attached and lets them clear it.
  */
 const PENDING_SELECTION_KEY = "pending-selection-context";
+const ACTIVE_RUN_CLEAR_TIMEOUT_MS = 5_000;
+const ACTIVE_RUN_POLL_INTERVAL_MS = 150;
 
 function clearPendingSelection() {
   fetch(
@@ -209,6 +211,35 @@ function clearPendingSelection() {
   ).catch(() => {});
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("agent-panel:selection-cleared"));
+  }
+}
+
+async function waitForThreadRunToClear(apiUrl: string, threadId?: string) {
+  if (!threadId) return;
+  const deadline = Date.now() + ACTIVE_RUN_CLEAR_TIMEOUT_MS;
+
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(
+        `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+      );
+      if (res.ok) {
+        const info = await res.json();
+        const heartbeatAt =
+          typeof info?.heartbeatAt === "number" ? info.heartbeatAt : null;
+        const stale =
+          info?.status === "running" &&
+          heartbeatAt != null &&
+          Date.now() - heartbeatAt > 5000;
+        if (!info?.active || info?.status !== "running" || stale) return;
+      }
+    } catch {
+      // Transient poll failure — try again until the short grace period ends.
+    }
+
+    await new Promise((resolve) =>
+      window.setTimeout(resolve, ACTIVE_RUN_POLL_INTERVAL_MS),
+    );
   }
 }
 
@@ -2589,25 +2620,32 @@ const AssistantChatInner = forwardRef<
       setQueuedMessages(rest);
       // Small delay to let the runtime settle after completion
       setTimeout(() => {
-        const content: Array<
-          { type: "text"; text: string } | { type: "image"; image: string }
-        > = [{ type: "text", text: next.text }];
-        if (next.images) {
-          for (const img of next.images) {
-            content.push({ type: "image", image: img });
+        void (async () => {
+          // In serverless/cross-isolate deployments the client can receive the
+          // terminal SSE event a beat before SQL has marked the previous run
+          // complete. Starting the queued turn during that window can reconnect
+          // to the old run and replay the old answer under the new prompt.
+          await waitForThreadRunToClear(apiUrl, threadId);
+          const content: Array<
+            { type: "text"; text: string } | { type: "image"; image: string }
+          > = [{ type: "text", text: next.text }];
+          if (next.images) {
+            for (const img of next.images) {
+              content.push({ type: "image", image: img });
+            }
           }
-        }
-        threadRuntime.append({
-          role: "user",
-          content,
-          ...(next.references && next.references.length > 0
-            ? { runConfig: { custom: { references: next.references } } }
-            : {}),
-        });
+          threadRuntime.append({
+            role: "user",
+            content,
+            ...(next.references && next.references.length > 0
+              ? { runConfig: { custom: { references: next.references } } }
+              : {}),
+          });
+        })();
       }, 100);
     }
     wasRunningRef.current = isRunning;
-  }, [isRunning, queuedMessages, threadRuntime]);
+  }, [apiUrl, isRunning, queuedMessages, threadId, threadRuntime]);
 
   // Clear frozen reconnect content + forceStopped only on the false→true
   // transition of isRuntimeRunning (i.e. a NEW run is actually starting).

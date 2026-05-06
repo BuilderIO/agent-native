@@ -9,10 +9,12 @@ import { db, schema } from "../db/index.js";
 import { readBody, getSession } from "@agent-native/core/server";
 import * as chrono from "chrono-node";
 import {
+  cancelScheduledJobForOwner,
   createScheduledJobRecord,
   listPendingJobs,
   scheduleEmailSend,
   scheduleSnooze,
+  sendScheduledJobNowForOwner,
   type SendLaterPayload,
 } from "../lib/jobs.js";
 
@@ -177,18 +179,42 @@ export const deleteScheduledJob = defineEventHandler(async (event: H3Event) => {
     return { error: "id required" };
   }
 
-  await db
-    .update(schema.scheduledJobs)
-    .set({ status: "cancelled" } as any)
-    .where(
-      and(
-        eq(schema.scheduledJobs.id, id),
-        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
-      ),
-    );
+  const cancelled = await cancelScheduledJobForOwner(ownerEmail, id);
+  if (!cancelled) {
+    setResponseStatus(event, 404);
+    return { error: "Job not found" };
+  }
 
-  return { ok: true };
+  return { ok: true, job: cancelled };
 });
+
+/** POST /api/scheduled-jobs/:id/send-now — send a pending scheduled email now */
+export const sendScheduledJobNow = defineEventHandler(
+  async (event: H3Event) => {
+    const session = await getSession(event);
+    if (!session?.email) {
+      setResponseStatus(event, 401);
+      return { error: "Unauthenticated" };
+    }
+    const id = getRouterParam(event, "id");
+    if (!id) {
+      setResponseStatus(event, 400);
+      return { error: "id required" };
+    }
+
+    try {
+      const job = await sendScheduledJobNowForOwner(session.email, id);
+      return { ok: true, job };
+    } catch (error: any) {
+      const message = error?.message || "Failed to send scheduled email";
+      setResponseStatus(
+        event,
+        message === "Scheduled email not found" ? 404 : 400,
+      );
+      return { error: message };
+    }
+  },
+);
 
 /** POST /api/parse-date — NL date parsing (for UI preview) */
 export const parseDateNl = defineEventHandler(async (event: H3Event) => {
@@ -298,6 +324,7 @@ export const scheduleEmail = defineEventHandler(async (event: H3Event) => {
       accountEmail: body.accountEmail,
       replyToId: body.replyToId,
       threadId: body.threadId,
+      attachments: body.attachments,
     },
   });
 

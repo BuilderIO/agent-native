@@ -43,7 +43,8 @@ export type AgentAutoContinueReason =
   | "run_timeout"
   | "loop_limit"
   | "no_progress"
-  | "stream_ended";
+  | "stream_ended"
+  | "stale_run";
 
 export class AgentAutoContinueSignal extends Error {
   readonly reason: AgentAutoContinueReason;
@@ -86,6 +87,7 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   }
 
   if (
+    code === "builder_gateway_error" ||
     code === "builder_gateway_timeout" ||
     code === "stale_run" ||
     code === "timeout" ||
@@ -110,6 +112,7 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     msg.includes("rate_limit") ||
     msg.includes("too many requests") ||
     msg.includes("timeout") ||
+    msg.includes("gateway error") ||
     msg.includes("gateway timeout") ||
     msg.includes("inactivity timeout") ||
     msg.includes("connection") ||
@@ -314,7 +317,10 @@ export function processEvent(
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-chat:missing-api-key"));
     }
-    content.push({ type: "text", text: "" });
+    content.push({
+      type: "text",
+      text: "No LLM provider is connected. Connect Builder.io or set an `ANTHROPIC_API_KEY` in Settings, then try again.",
+    });
     return {
       action: "missing_api_key",
       result: {
@@ -401,11 +407,13 @@ export function processEvent(
         action: "auto_continue",
         autoContinue: {
           reason:
-            ev.errorCode === "builder_gateway_timeout" ||
-            ev.errorCode === "run_timeout" ||
-            errMsg.toLowerCase().includes("timeout")
-              ? "run_timeout"
-              : "stream_ended",
+            ev.errorCode === "stale_run"
+              ? "stale_run"
+              : ev.errorCode === "builder_gateway_timeout" ||
+                  ev.errorCode === "run_timeout" ||
+                  errMsg.toLowerCase().includes("timeout")
+                ? "run_timeout"
+                : "stream_ended",
         },
       };
     }

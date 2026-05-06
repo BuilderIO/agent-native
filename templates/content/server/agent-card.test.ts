@@ -16,6 +16,7 @@ const REQUIRED_CONTENT_ACTIONS = [
   "list-documents",
   "search-documents",
   "update-document",
+  "move-document",
   "navigate",
 ];
 

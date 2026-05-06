@@ -20,6 +20,10 @@ export interface ShareButtonProps {
   /** @deprecated No longer affects rendering — trigger always says
    *  "Share". Kept for callsite compatibility. */
   variant?: "compact" | "label";
+  /** Notified when the share popover opens or closes. Hosts that render the
+   *  button next to an iframe use this to disable the iframe's pointer events
+   *  while the popover is open, so popover hover/clicks aren't swallowed. */
+  onOpenChange?: (open: boolean) => void;
 }
 
 type Visibility = "private" | "org" | "public";
@@ -97,6 +101,10 @@ const ROLE_OPTIONS: Array<{ value: Role; label: string; description: string }> =
  */
 export function ShareButton(props: ShareButtonProps) {
   const [open, setOpen] = useState(false);
+  const handleOpenChange = (v: boolean) => {
+    setOpen(v);
+    props.onOpenChange?.(v);
+  };
   const sharesQuery = useActionQuery<SharesResponse>("list-resource-shares", {
     resourceType: props.resourceType,
     resourceId: props.resourceId,
@@ -117,7 +125,7 @@ export function ShareButton(props: ShareButtonProps) {
         : IconLock;
 
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
+    <Popover.Root open={open} onOpenChange={handleOpenChange}>
       <Popover.Trigger asChild>
         <button type="button" className={BUTTON_OUTLINE_SM}>
           {loaded ? (
@@ -141,7 +149,7 @@ export function ShareButton(props: ShareButtonProps) {
           <SharePanel
             {...props}
             sharesQuery={sharesQuery}
-            onClose={() => setOpen(false)}
+            onClose={() => handleOpenChange(false)}
           />
         </Popover.Content>
       </Popover.Portal>

@@ -9,8 +9,8 @@
   NPM_CONFIG_PRODUCTION = "false"
 
 # A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).
-# The framework does not impose a default agent-run timeout; if a template sets
-# AGENT_RUN_SOFT_TIMEOUT_MS, keep it below this function timeout so the hidden
-# auto-continuation path can hand off before Netlify kills the function.
+# Hosted agent chat uses a soft timeout before this function timeout so the
+# hidden auto-continuation path can hand off before Netlify kills the function.
+# If AGENT_RUN_SOFT_TIMEOUT_MS is customized, keep it below this timeout.
 [functions."*"]
   timeout = 75

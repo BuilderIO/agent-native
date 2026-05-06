@@ -46,6 +46,7 @@ import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import { openFilePicker, uploadFile, formatFileSize } from "@/lib/upload";
 import type { ComposeAttachment } from "@shared/types";
 import { useAccountFilter } from "@/hooks/use-account-filter";
+import { canUseAgentGenerate } from "@/lib/agent-generate";
 
 /**
  * Split a compose body into the editable portion and the quoted history.
@@ -235,6 +236,7 @@ export function ComposeModal({
           replyToId: draftSnapshot.replyToId,
           replyToThreadId: draftSnapshot.replyToThreadId,
           accountEmail: draftSnapshot.accountEmail,
+          attachments: draftSnapshot.attachments,
         })
       : undefined;
 
@@ -283,6 +285,7 @@ export function ComposeModal({
           body: draftSnapshot.body,
           replyToId: draftSnapshot.replyToId,
           accountEmail: draftSnapshot.accountEmail,
+          attachments: draftSnapshot.attachments,
         },
         {
           onSuccess: (result) => {
@@ -325,6 +328,7 @@ export function ComposeModal({
         replyToId: draftSnapshot.replyToId,
         threadId: draftSnapshot.replyToThreadId,
         accountEmail: draftSnapshot.accountEmail,
+        attachments: draftSnapshot.attachments,
         runAt,
       });
 
@@ -368,6 +372,13 @@ export function ComposeModal({
 
   const handleGenerate = async () => {
     if (!generatePrompt.trim() || !activeId || !activeDraft) return;
+    if (!(await canUseAgentGenerate())) {
+      toast.error(
+        "Connect Builder or another AI engine before using Generate.",
+      );
+      window.dispatchEvent(new CustomEvent("agent-panel:open"));
+      return;
+    }
 
     // Flush current state to file so agent can read it
     await onFlush(activeId);

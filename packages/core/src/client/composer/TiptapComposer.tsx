@@ -159,7 +159,9 @@ Use the create-extension action with Alpine.js HTML content. The extension runs 
 
 After creating the extension, navigate the user to it with set-url-path using pathname "/extensions/<id>".
 
-Make the extension functional and visually polished. Extensions can use extensionFetch() for external API calls, appAction()/appFetch() for app operations, extensionData for per-extension persistence, and dbQuery()/dbExec() only for existing app tables.`,
+Make the extension functional and visually polished. Extensions can use extensionFetch() for external API calls, appAction()/appFetch() for app operations, extensionData for per-extension persistence, and dbQuery()/dbExec() only for existing app tables.
+
+Prefer appAction()/appFetch() for app data. Some actions return JSON strings for CLI compatibility, so parse string results before counting rows or reading arrays. Do not guess raw SQL table names or columns for app data; use dbQuery()/dbExec() only when the table is known to exist in the current schema.`,
   },
 };
 

@@ -18,7 +18,7 @@ export interface FrameSettings {
 
 const DEFAULT_FRAME_SETTINGS: FrameSettings = {
   enabled: true,
-  mode: "dev",
+  mode: "prod",
 };
 
 function getFrameStorePath(): string {

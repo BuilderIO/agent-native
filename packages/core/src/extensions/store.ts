@@ -45,6 +45,7 @@ export async function ensureExtensionsTables(): Promise<void> {
       await retryOnDdlRace(() =>
         client.execute(pg ? EXTENSIONS_CREATE_SQL_PG : EXTENSIONS_CREATE_SQL),
       );
+      await migrateMisnamedExtensionsTable(client, pg);
       await retryOnDdlRace(() =>
         client.execute(
           pg ? EXTENSION_SHARES_CREATE_SQL_PG : EXTENSION_SHARES_CREATE_SQL,
@@ -88,6 +89,34 @@ export async function ensureExtensionsTables(): Promise<void> {
     })();
   }
   return _initPromise;
+}
+
+async function migrateMisnamedExtensionsTable(
+  client: ReturnType<typeof getDbExec>,
+  pg: boolean,
+): Promise<void> {
+  const sql = pg
+    ? `INSERT INTO tools (id, name, description, content, icon, created_at, updated_at, owner_email, org_id, visibility)
+       SELECT id, name, description, content, icon, created_at, updated_at, owner_email, org_id, visibility
+       FROM extensions
+       ON CONFLICT (id) DO NOTHING`
+    : `INSERT OR IGNORE INTO tools (id, name, description, content, icon, created_at, updated_at, owner_email, org_id, visibility)
+       SELECT id, name, description, content, icon, created_at, updated_at, owner_email, org_id, visibility
+       FROM extensions`;
+
+  try {
+    await client.execute(sql);
+  } catch (err: any) {
+    const message = String(err?.message ?? err).toLowerCase();
+    if (
+      message.includes("no such table: extensions") ||
+      message.includes('relation "extensions" does not exist') ||
+      message.includes("relation extensions does not exist")
+    ) {
+      return;
+    }
+    throw err;
+  }
 }
 
 async function ensureExtensionDataItemId(

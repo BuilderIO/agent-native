@@ -45,6 +45,7 @@ const originalVercelEnv = process.env.VERCEL_ENV;
 const originalRender = process.env.RENDER;
 const originalFlyAppName = process.env.FLY_APP_NAME;
 const originalKService = process.env.K_SERVICE;
+const originalAwsLambdaFunctionName = process.env.AWS_LAMBDA_FUNCTION_NAME;
 
 function clearHostedEnvForTest() {
   delete process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
@@ -57,6 +58,7 @@ function clearHostedEnvForTest() {
   delete process.env.RENDER;
   delete process.env.FLY_APP_NAME;
   delete process.env.K_SERVICE;
+  delete process.env.AWS_LAMBDA_FUNCTION_NAME;
 }
 
 function restoreHostedEnvAfterTest() {
@@ -82,6 +84,9 @@ function restoreHostedEnvAfterTest() {
   else process.env.FLY_APP_NAME = originalFlyAppName;
   if (originalKService === undefined) delete process.env.K_SERVICE;
   else process.env.K_SERVICE = originalKService;
+  if (originalAwsLambdaFunctionName === undefined)
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+  else process.env.AWS_LAMBDA_FUNCTION_NAME = originalAwsLambdaFunctionName;
 }
 
 describe("run manager soft timeout", () => {
@@ -149,6 +154,22 @@ describe("run manager soft timeout", () => {
 
   it("uses a hosted default for callers that opt in", () => {
     process.env.NETLIFY = "true";
+
+    expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
+      DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
+    );
+  });
+
+  it("detects truthy Netlify runtime values beyond the literal string true", () => {
+    process.env.NETLIFY = "1";
+
+    expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
+      DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
+    );
+  });
+
+  it("uses a hosted default inside Netlify's Lambda runtime", () => {
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "analytics-agent-chat";
 
     expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
       DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,

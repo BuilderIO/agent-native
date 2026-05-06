@@ -55,6 +55,8 @@ import {
   IconDownload,
   IconPhoto,
   IconSearch,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
 } from "@tabler/icons-react";
 import {
   InlineReplyComposer,
@@ -72,6 +74,8 @@ export function EmailThread({
   setSelectedIds,
   onContactSelect,
   onNavigateThread,
+  isMaximized = false,
+  onToggleMaximize,
 }: {
   activeThreadId?: string;
   onArchived?: (id: string) => void;
@@ -91,6 +95,8 @@ export function EmailThread({
   setSelectedIds?: React.Dispatch<React.SetStateAction<Set<string>>>;
   onContactSelect?: (email: string) => void;
   onNavigateThread?: (threadId: string | undefined) => void;
+  isMaximized?: boolean;
+  onToggleMaximize?: () => void;
 }) {
   const { view = "inbox", threadId: routeThreadId } = useParams<{
     view: string;
@@ -1131,6 +1137,27 @@ export function EmailThread({
                 >
                   <IconChevronDown className="h-3.5 w-3.5" />
                 </button>
+                {onToggleMaximize && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={onToggleMaximize}
+                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
+                        aria-label={isMaximized ? "Minimize" : "Maximize"}
+                        aria-pressed={isMaximized}
+                      >
+                        {isMaximized ? (
+                          <IconArrowsMinimize className="h-3.5 w-3.5" />
+                        ) : (
+                          <IconArrowsMaximize className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {isMaximized ? "Minimize" : "Maximize"}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
               </div>
             </div>
             {(githubPrUrl || unsubscribeInfo) && (
@@ -1822,9 +1849,11 @@ const ExpandedMessageCard = forwardRef<
               {email.attachments
                 .filter((a) => a.mimeType.startsWith("image/"))
                 .map((att) => {
-                  const url = appApiPath(
-                    `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}&mimeType=${encodeURIComponent(att.mimeType)}`,
-                  );
+                  const url = att.url
+                    ? appApiPath(att.url)
+                    : appApiPath(
+                        `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}&mimeType=${encodeURIComponent(att.mimeType)}`,
+                      );
                   return (
                     <Tooltip key={att.id}>
                       <TooltipTrigger asChild>
@@ -1855,9 +1884,13 @@ const ExpandedMessageCard = forwardRef<
               .map((att) => (
                 <a
                   key={att.id}
-                  href={appApiPath(
-                    `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`,
-                  )}
+                  href={
+                    att.url
+                      ? appApiPath(att.url)
+                      : appApiPath(
+                          `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`,
+                        )
+                  }
                   download={att.filename}
                   className="flex items-center gap-2 rounded-lg bg-accent/60 px-3 py-2 text-xs hover:bg-accent cursor-pointer"
                 >
@@ -1875,9 +1908,11 @@ const ExpandedMessageCard = forwardRef<
                 onClick={() => {
                   for (const att of email.attachments!) {
                     const a = document.createElement("a");
-                    a.href = appApiPath(
-                      `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`,
-                    );
+                    a.href = att.url
+                      ? appApiPath(att.url)
+                      : appApiPath(
+                          `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`,
+                        );
                     a.download = att.filename;
                     a.click();
                   }

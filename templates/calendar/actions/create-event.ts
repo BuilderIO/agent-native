@@ -6,6 +6,36 @@ import type { CalendarEvent } from "../shared/api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { cliBoolean } from "./event-action-helpers.js";
 
+// Accept attendees as either an array of {email, displayName?} objects (when
+// invoked via JSON) or a comma/whitespace-separated string of emails (when
+// invoked from the CLI as `--attendees alice@x.com,bob@y.com`).
+const attendeesInput = z
+  .union([
+    z.array(
+      z.object({
+        email: z.string(),
+        displayName: z.string().optional(),
+      }),
+    ),
+    z.string(),
+  ])
+  .optional();
+
+function normalizeAttendees(
+  input: z.infer<typeof attendeesInput>,
+): Array<{ email: string; displayName?: string }> | undefined {
+  if (!input) return undefined;
+  if (typeof input === "string") {
+    const emails = input
+      .split(/[\s,;]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && s.includes("@"));
+    if (emails.length === 0) return undefined;
+    return emails.map((email) => ({ email }));
+  }
+  return input.filter((a) => a.email && a.email.includes("@"));
+}
+
 export default defineAction({
   description: "Create a calendar event on Google Calendar",
   schema: z.object({
@@ -18,6 +48,15 @@ export default defineAction({
     addGoogleMeet: cliBoolean
       .optional()
       .describe("Generate and attach a Google Meet link to the event"),
+    attendees: attendeesInput.describe(
+      "Invitees — either an array of {email, displayName?} or a comma-separated string of emails",
+    ),
+    sendUpdates: z
+      .enum(["all", "externalOnly", "none"])
+      .optional()
+      .describe(
+        "Whether to email invitations to attendees. Defaults to 'all' when attendees are present.",
+      ),
     accountEmail: z
       .string()
       .optional()
@@ -44,6 +83,8 @@ export default defineAction({
       acctEmail = args.accountEmail;
     }
 
+    const attendees = normalizeAttendees(args.attendees);
+
     const calEvent: CalendarEvent = {
       id: "",
       title: args.title,
@@ -54,12 +95,14 @@ export default defineAction({
       allDay: args.allDay ?? false,
       source: "google",
       accountEmail: acctEmail,
+      attendees,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
     const result = await googleCalendar.createEvent(calEvent, {
       addGoogleMeet: args.addGoogleMeet,
+      sendUpdates: args.sendUpdates ?? (attendees ? "all" : undefined),
     });
     if (result.id) {
       calEvent.id = `google-${result.id}`;
@@ -76,7 +119,7 @@ export default defineAction({
           title: calEvent.title,
           startTime: calEvent.start,
           endTime: calEvent.end,
-          attendees: [],
+          attendees: attendees?.map((a) => a.email) ?? [],
           createdBy: email,
         },
         { owner: email },

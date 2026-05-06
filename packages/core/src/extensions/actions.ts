@@ -1,4 +1,5 @@
 import type { ActionEntry } from "../agent/production-agent.js";
+import { writeAppState } from "../application-state/script-helpers.js";
 import {
   createExtension,
   getExtension,
@@ -20,7 +21,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "create-extension": {
       tool: {
         description:
-          "Create a sandboxed Alpine.js mini-app extension. Use this when the user asks to create, build, or make an extension/widget/dashboard/calculator. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), and extensionData.",
+          "Create a sandboxed Alpine.js mini-app extension. Use this when the user asks to create, build, or make an extension/widget/dashboard/calculator. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), and extensionData. Prefer appAction()/appFetch() for app data; parse JSON string action results before aggregating; use dbQuery()/dbExec() only for known existing SQL tables.",
         parameters: {
           type: "object",
           properties: {
@@ -36,7 +37,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             content: {
               type: "string",
               description:
-                "Self-contained Alpine.js HTML body snippet. The iframe body has no padding, so add p-4 or p-6 to the outermost element. Use semantic Tailwind colors (bg-background, text-foreground, bg-primary, etc.) for native theming. Do not include a full app build, React code, or source files.",
+                "Self-contained Alpine.js HTML body snippet. The iframe canvas already has modest default padding, so avoid duplicate outer padding unless the design needs it. Use semantic Tailwind colors (bg-background, text-foreground, bg-primary, etc.) for native theming. Do not include a full app build, React code, or source files.",
             },
             icon: {
               type: "string",
@@ -59,10 +60,23 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           icon: args?.icon ? String(args.icon) : undefined,
         });
 
+        // Auto-navigate so the user lands on the new extension instead of
+        // having to read the JSON response and click a link. Writes a
+        // one-shot `navigate` app-state command the UI consumes and clears.
+        try {
+          await writeAppState("navigate", {
+            view: "extensions",
+            extensionId: extension.id,
+            path: `/extensions/${extension.id}`,
+          });
+        } catch {
+          // Non-fatal — agent can still mention the path in its reply.
+        }
+
         return {
           ok: true,
           extension,
-          next: `Navigate to /extensions/${extension.id} or use the navigate action with --view=extensions --extensionId=${extension.id}.`,
+          next: `Created. The user is being navigated to the new extension automatically — no further navigation tool calls needed.`,
         };
       },
     },

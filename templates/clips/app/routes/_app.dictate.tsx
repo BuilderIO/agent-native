@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   IconArrowsExchange,
@@ -6,9 +6,12 @@ import {
   IconChevronRight,
   IconCommand,
   IconCopy,
+  IconDeviceDesktop,
   IconKeyboard,
   IconLoader2,
   IconMicrophone2,
+  IconPlayerPlay,
+  IconPlayerStop,
 } from "@tabler/icons-react";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -43,7 +46,65 @@ interface Dictation {
   createdAt: string;
 }
 
-type SourceFilter = "all" | "fn-hold" | "cmd-shift-space";
+type SourceFilter = "all" | "fn-hold" | "cmd-shift-space" | "manual";
+type BrowserDictationSource = "manual" | "cmd-shift-space";
+
+interface SpeechRecognitionAlternative {
+  transcript: string;
+}
+
+interface SpeechRecognitionResultLike {
+  isFinal: boolean;
+  [index: number]: SpeechRecognitionAlternative | undefined;
+}
+
+interface SpeechRecognitionResultListLike {
+  length: number;
+  [index: number]: SpeechRecognitionResultLike | undefined;
+}
+
+interface SpeechRecognitionEventLike {
+  resultIndex: number;
+  results: SpeechRecognitionResultListLike;
+}
+
+interface SpeechRecognitionErrorEventLike {
+  error?: string;
+}
+
+interface SpeechRecognitionLike {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+}
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+function getSpeechRecognitionCtor(): SpeechRecognitionConstructor | null {
+  if (typeof window === "undefined") return null;
+  const w = window as typeof window & {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName.toLowerCase();
+  return (
+    tag === "input" ||
+    tag === "textarea" ||
+    tag === "select" ||
+    target.isContentEditable
+  );
+}
 
 function formatDuration(ms?: number | null): string {
   if (!ms || ms <= 0) return "—";
@@ -103,6 +164,11 @@ function sourceMeta(source: string | undefined): {
         label: "Cmd+Shift+Space",
         icon: <IconCommand className="h-3 w-3" />,
       };
+    case "manual":
+      return {
+        label: "Browser",
+        icon: <IconMicrophone2 className="h-3 w-3" />,
+      };
     default:
       return {
         label: source ?? "Voice",
@@ -151,23 +217,22 @@ function HowToCard({ defaultOpen = true }: { defaultOpen?: boolean }) {
         <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="rounded-md border border-border bg-background px-3 py-3">
             <div className="flex items-center gap-2 mb-1.5">
-              <Kbd>Fn</Kbd>
-              <span className="text-xs font-medium">Hold to dictate</span>
+              <IconMicrophone2 className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-xs font-medium">Browser dictation</span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Hold the Fn key anywhere on your Mac. Speak. Release. Your text is
-              dictated into the focused field.
+              Use the button on this page, or press the shortcut while this tab
+              is focused. Browser dictation saves here for copy and cleanup.
             </p>
           </div>
           <div className="rounded-md border border-border bg-background px-3 py-3">
             <div className="flex items-center gap-2 mb-1.5">
-              <Kbd>⌘</Kbd>
-              <Kbd>⇧</Kbd>
-              <Kbd>Space</Kbd>
-              <span className="text-xs font-medium">Toggle hands-free</span>
+              <IconDeviceDesktop className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-xs font-medium">Desktop shortcuts</span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Press once to start, again to stop. Useful for longer thoughts.
+              Hold <Kbd>Fn</Kbd> anywhere on your Mac, or use <Kbd>⌘</Kbd>{" "}
+              <Kbd>⇧</Kbd> <Kbd>Space</Kbd>, in the desktop app.
             </p>
           </div>
         </div>
@@ -187,6 +252,7 @@ function FilterTabs({
 }) {
   const tabs: Array<{ id: SourceFilter; label: string }> = [
     { id: "all", label: "All" },
+    { id: "manual", label: "Browser" },
     { id: "fn-hold", label: "Hold Fn" },
     { id: "cmd-shift-space", label: "Cmd+Shift+Space" },
   ];
@@ -218,6 +284,84 @@ function FilterTabs({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function WebDictationPanel({
+  supported,
+  listening,
+  saving,
+  draftText,
+  interimText,
+  onStart,
+  onStop,
+}: {
+  supported: boolean;
+  listening: boolean;
+  saving: boolean;
+  draftText: string;
+  interimText: string;
+  onStart: () => void;
+  onStop: () => void;
+}) {
+  const preview = [draftText, interimText].filter(Boolean).join(" ").trim();
+  return (
+    <div className="mb-6 rounded-lg border border-border bg-background px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <IconMicrophone2 className="h-4 w-4 text-foreground" />
+            Browser dictation
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Press{" "}
+            <span className="inline-flex items-center gap-1">
+              <Kbd>⌘</Kbd>
+              <Kbd>⇧</Kbd>
+              <Kbd>Space</Kbd>
+            </span>{" "}
+            while this tab is focused to toggle.
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          onClick={listening ? onStop : onStart}
+          disabled={!supported || saving}
+          className="gap-1.5"
+        >
+          {saving ? (
+            <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : listening ? (
+            <IconPlayerStop className="h-3.5 w-3.5" />
+          ) : (
+            <IconPlayerPlay className="h-3.5 w-3.5" />
+          )}
+          {saving ? "Saving" : listening ? "Stop" : "Start dictation"}
+        </Button>
+      </div>
+
+      {!supported ? (
+        <div className="mt-3 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs text-muted-foreground">
+          Browser speech recognition is unavailable here. Use Chrome or the
+          desktop app for global dictation.
+        </div>
+      ) : listening || preview ? (
+        <div className="mt-3 rounded-md border border-border bg-accent/20 px-3 py-2">
+          <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase text-muted-foreground">
+            {listening && (
+              <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+            )}
+            {listening ? "Listening" : "Last capture"}
+          </div>
+          <p className="min-h-5 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+            {preview || (
+              <span className="text-muted-foreground">Start speaking...</span>
+            )}
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -446,13 +590,13 @@ function EmptyState() {
         Start your first dictation
       </p>
       <p className="mt-1 text-xs text-muted-foreground max-w-sm mx-auto leading-relaxed">
-        Hold a key anywhere on your Mac, speak, and let Clips clean it up. Your
-        history will live here.
+        Start browser dictation here, or use the desktop app for global
+        shortcuts. Your history will live here.
       </p>
       <div className="mt-5 flex items-center justify-center gap-3 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
-          <Kbd>Fn</Kbd>
-          <span>hold</span>
+          <IconMicrophone2 className="h-3.5 w-3.5" />
+          <span>browser</span>
         </span>
         <span className="text-muted-foreground/40">or</span>
         <span className="inline-flex items-center gap-1.5">
@@ -471,6 +615,185 @@ export default function DictateRoute() {
   >("list-dictations", {}, { retry: false });
 
   const [filter, setFilter] = useState<SourceFilter>("all");
+  const [listening, setListening] = useState(false);
+  const [draftText, setDraftText] = useState("");
+  const [interimText, setInterimText] = useState("");
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const qc = useQueryClient();
+  const createDictation = useActionMutation("create-dictation");
+
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const transcriptRef = useRef("");
+  const interimRef = useRef("");
+  const startedAtRef = useRef(0);
+  const startedAtIsoRef = useRef("");
+  const sourceRef = useRef<BrowserDictationSource>("manual");
+  const saveOnEndRef = useRef(false);
+  const finishingRef = useRef(false);
+
+  useEffect(() => {
+    setSpeechSupported(getSpeechRecognitionCtor() !== null);
+  }, []);
+
+  const finishBrowserDictation = useCallback(() => {
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+    const shouldSave = saveOnEndRef.current;
+    saveOnEndRef.current = false;
+    setListening(false);
+
+    const text = [transcriptRef.current, interimRef.current]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    setDraftText(text);
+    setInterimText("");
+    interimRef.current = "";
+
+    if (!shouldSave) {
+      finishingRef.current = false;
+      return;
+    }
+    if (!text) {
+      toast.error("No speech captured");
+      finishingRef.current = false;
+      return;
+    }
+
+    const durationMs =
+      startedAtRef.current > 0 ? Date.now() - startedAtRef.current : 0;
+    createDictation.mutate(
+      {
+        fullText: text,
+        durationMs,
+        source: sourceRef.current,
+        startedAt: startedAtIsoRef.current || new Date().toISOString(),
+      },
+      {
+        onSuccess: () => {
+          toast.success("Dictation saved");
+          qc.invalidateQueries({ queryKey: ["action", "list-dictations"] });
+        },
+        onError: (err: Error) => {
+          toast.error(err.message || "Couldn't save dictation");
+        },
+        onSettled: () => {
+          finishingRef.current = false;
+        },
+      },
+    );
+  }, [createDictation, qc]);
+
+  const stopBrowserDictation = useCallback(() => {
+    const recognition = recognitionRef.current;
+    if (!recognition) {
+      finishBrowserDictation();
+      return;
+    }
+    try {
+      recognition.stop();
+    } catch {
+      finishBrowserDictation();
+    }
+  }, [finishBrowserDictation]);
+
+  const startBrowserDictation = useCallback(
+    (source: BrowserDictationSource = "manual") => {
+      if (listening || createDictation.isPending) return;
+      const Recognition = getSpeechRecognitionCtor();
+      if (!Recognition) {
+        toast.error("Browser speech recognition is unavailable here");
+        return;
+      }
+
+      const recognition = new Recognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = navigator.language || "en-US";
+      recognitionRef.current = recognition;
+      transcriptRef.current = "";
+      interimRef.current = "";
+      startedAtRef.current = Date.now();
+      startedAtIsoRef.current = new Date().toISOString();
+      sourceRef.current = source;
+      saveOnEndRef.current = true;
+      finishingRef.current = false;
+      setDraftText("");
+      setInterimText("");
+
+      recognition.onresult = (event) => {
+        let finalText = transcriptRef.current;
+        let interim = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          const text = result?.[0]?.transcript ?? "";
+          if (!text) continue;
+          if (result?.isFinal) finalText = `${finalText} ${text}`.trim();
+          else interim = `${interim} ${text}`.trim();
+        }
+        transcriptRef.current = finalText;
+        interimRef.current = interim;
+        setDraftText(finalText);
+        setInterimText(interim);
+      };
+      recognition.onerror = (event) => {
+        const error = event.error ?? "speech-recognition";
+        if (error !== "no-speech" && error !== "aborted") {
+          toast.error(
+            error === "not-allowed"
+              ? "Allow microphone access to dictate in the browser"
+              : `Dictation error: ${error}`,
+          );
+        }
+      };
+      recognition.onend = () => {
+        if (recognitionRef.current === recognition) {
+          recognitionRef.current = null;
+        }
+        finishBrowserDictation();
+      };
+
+      try {
+        recognition.start();
+        setListening(true);
+      } catch (err) {
+        recognitionRef.current = null;
+        saveOnEndRef.current = false;
+        finishingRef.current = false;
+        toast.error(err instanceof Error ? err.message : "Couldn't start");
+      }
+    },
+    [createDictation.isPending, finishBrowserDictation, listening],
+  );
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (isEditableTarget(event.target)) return;
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.shiftKey &&
+        event.code === "Space"
+      ) {
+        event.preventDefault();
+        if (listening) stopBrowserDictation();
+        else startBrowserDictation("cmd-shift-space");
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [listening, startBrowserDictation, stopBrowserDictation]);
+
+  useEffect(() => {
+    return () => {
+      saveOnEndRef.current = false;
+      try {
+        recognitionRef.current?.abort();
+      } catch {
+        // ignore
+      }
+      recognitionRef.current = null;
+    };
+  }, []);
 
   const dictations: Dictation[] = useMemo(() => {
     if (!data) return [];
@@ -483,10 +806,12 @@ export default function DictateRoute() {
       all: dictations.length,
       "fn-hold": 0,
       "cmd-shift-space": 0,
+      manual: 0,
     };
     for (const d of dictations) {
       if (d.source === "fn-hold") c["fn-hold"]++;
       else if (d.source === "cmd-shift-space") c["cmd-shift-space"]++;
+      else if (d.source === "manual") c.manual++;
     }
     return c;
   }, [dictations]);
@@ -520,12 +845,22 @@ export default function DictateRoute() {
       <div className="p-6 max-w-5xl mx-auto w-full">
         <div className="mb-6">
           <p className="text-sm text-muted-foreground">
-            Voice-to-text dictation with AI cleanup. Hold Fn anywhere on your
-            Mac to start.
+            Voice-to-text dictation with AI cleanup. Use browser capture here or
+            the desktop app for global shortcuts.
           </p>
         </div>
 
         <HowToCard defaultOpen={isEmpty} />
+
+        <WebDictationPanel
+          supported={speechSupported}
+          listening={listening}
+          saving={createDictation.isPending}
+          draftText={draftText}
+          interimText={interimText}
+          onStart={() => startBrowserDictation("manual")}
+          onStop={stopBrowserDictation}
+        />
 
         {isLoading ? (
           <div className="space-y-2">

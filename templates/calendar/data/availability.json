@@ -25,7 +25,7 @@
     "sunday": { "enabled": false, "slots": [] }
   },
   "bufferMinutes": 15,
-  "minNoticeHours": 4,
+  "minNoticeHours": 1,
   "maxAdvanceDays": 60,
   "slotDurationMinutes": 30,
   "bookingPageSlug": "meeting"

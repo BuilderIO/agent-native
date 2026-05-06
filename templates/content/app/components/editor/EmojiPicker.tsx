@@ -361,28 +361,29 @@ export function EmojiPicker({ icon, onSelect }: EmojiPickerProps) {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        {icon ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button className="text-5xl leading-none cursor-pointer hover:bg-accent/50 rounded-md p-1 -ml-1">
+      <Tooltip>
+        <PopoverTrigger asChild>
+          <TooltipTrigger asChild>
+            {icon ? (
+              <button
+                type="button"
+                className="text-5xl leading-none cursor-pointer hover:bg-accent/50 rounded-md p-1 -ml-1"
+              >
                 {icon}
               </button>
-            </TooltipTrigger>
-            <TooltipContent>Change icon</TooltipContent>
-          </Tooltip>
-        ) : (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button className="flex items-center gap-1.5 text-sm text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/50 rounded-md px-1.5 py-1 -ml-1.5 cursor-pointer opacity-0 group-hover/title:opacity-100 data-[state=open]:opacity-100">
+            ) : (
+              <button
+                type="button"
+                className="flex items-center gap-1.5 text-sm text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/50 rounded-md px-1.5 py-1 -ml-1.5 cursor-pointer opacity-0 group-hover/title:opacity-100 data-[state=open]:opacity-100"
+              >
                 <IconMoodSmile size={18} />
                 <span>Add icon</span>
               </button>
-            </TooltipTrigger>
-            <TooltipContent>Add icon</TooltipContent>
-          </Tooltip>
-        )}
-      </PopoverTrigger>
+            )}
+          </TooltipTrigger>
+        </PopoverTrigger>
+        <TooltipContent>{icon ? "Change icon" : "Add icon"}</TooltipContent>
+      </Tooltip>
       <PopoverContent align="start" className="w-80 p-0">
         {/* Search */}
         <div className="p-2 border-b">
@@ -411,6 +412,7 @@ export function EmojiPicker({ icon, onSelect }: EmojiPickerProps) {
                 <div className="grid grid-cols-7 gap-0 sm:grid-cols-8">
                   {category.emojis.map((emoji) => (
                     <button
+                      type="button"
                       key={emoji}
                       onClick={() => handleSelect(emoji)}
                       className="w-9 h-9 flex items-center justify-center text-lg rounded hover:bg-accent cursor-pointer"
@@ -428,6 +430,7 @@ export function EmojiPicker({ icon, onSelect }: EmojiPickerProps) {
         {icon && (
           <div className="border-t p-1.5">
             <button
+              type="button"
               onClick={handleRemove}
               className="w-full text-left text-sm text-muted-foreground hover:text-foreground hover:bg-accent px-2.5 py-1.5 rounded-md cursor-pointer"
             >

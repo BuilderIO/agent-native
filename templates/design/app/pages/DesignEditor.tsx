@@ -50,7 +50,6 @@ import type {
   ElementInfo,
   DeviceFrameType,
   ViewportTab,
-  DrawAnnotation,
 } from "@/components/design/types";
 import { ZOOM_PRESETS } from "@/components/design/types";
 import { prettyScreenName } from "@/lib/screen-names";
@@ -84,6 +83,21 @@ interface DesignData {
   files: DesignFile[];
 }
 
+interface PendingGeneration {
+  prompt?: string;
+  files?: UploadedFile[];
+  title?: string;
+  source?: string;
+}
+
+const pendingGenerationKey = (id: string) => `design.pending-generation.${id}`;
+
+function isDesignData(
+  data: DesignData | string | undefined,
+): data is DesignData {
+  return !!data && typeof data === "object" && Array.isArray(data.files);
+}
+
 export default function DesignEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -106,7 +120,6 @@ export default function DesignEditor() {
   const [tweakSelections, setTweakSelections] = useState<
     Record<string, string | number | boolean>
   >({});
-  const [drawAnnotations, setDrawAnnotations] = useState<DrawAnnotation[]>([]);
   // Shared visual-editor modes (overlays the iframe). drawMode toggles the
   // pencil overlay, pinMode lets the user drop comment pins. They're
   // mutually exclusive — turning one on turns the other off.
@@ -117,6 +130,14 @@ export default function DesignEditor() {
   const promptAnchorRef = useRef<HTMLElement | null>(null);
   promptAnchorRef.current = generateBtnRef.current;
   const { generating, submit: agentSubmit } = useAgentGenerating();
+  const [hasPendingGeneration, setHasPendingGeneration] = useState(() => {
+    if (typeof window === "undefined" || !id) return false;
+    try {
+      return !!window.sessionStorage.getItem(pendingGenerationKey(id));
+    } catch {
+      return false;
+    }
+  });
 
   // Question flow + variant flow — full-canvas overlays driven by the agent.
   const {
@@ -142,12 +163,76 @@ export default function DesignEditor() {
     : undefined;
 
   // Data fetching
-  const { data: design, isLoading: designLoading } = useActionQuery<DesignData>(
+  useEffect(() => {
+    if (!id) return;
+    try {
+      setHasPendingGeneration(
+        !!window.sessionStorage.getItem(pendingGenerationKey(id)),
+      );
+    } catch {
+      setHasPendingGeneration(false);
+    }
+  }, [id]);
+
+  const { data: designResult, isLoading: designLoading } = useActionQuery<
+    DesignData | string
+  >(
     "get-design",
     { id: id! },
+    {
+      refetchInterval: hasPendingGeneration || generating ? 1000 : false,
+      refetchIntervalInBackground: true,
+    },
   );
 
+  const design = isDesignData(designResult) ? designResult : null;
+
   const files = design?.files ?? [];
+
+  useEffect(() => {
+    if (!id || !design || files.length > 0) return;
+
+    const key = pendingGenerationKey(id);
+    let pending: PendingGeneration | null = null;
+    try {
+      const raw = window.sessionStorage.getItem(key);
+      pending = raw ? (JSON.parse(raw) as PendingGeneration) : null;
+      if (raw) window.sessionStorage.removeItem(key);
+    } catch {
+      pending = null;
+    }
+
+    if (!pending) {
+      setHasPendingGeneration(false);
+      return;
+    }
+
+    setHasPendingGeneration(false);
+
+    const prompt =
+      pending.prompt?.trim() || `Create an initial design for ${design.title}.`;
+    const uploadedFiles = Array.isArray(pending.files) ? pending.files : [];
+    const fileContext =
+      uploadedFiles.length > 0
+        ? `\n\nThe user uploaded ${uploadedFiles.length} file(s) for context:\n${uploadedFiles.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
+        : "";
+    const sourceContext = pending.source
+      ? `The user picked the "${pending.source}" example template.`
+      : "The user just created a new empty design.";
+
+    const context = [
+      sourceContext,
+      `Design id: "${id}"`,
+      `Design title: "${design.title}"`,
+      `User request: "${prompt}"`,
+      fileContext,
+      "",
+      `Use the \`generate-design --designId="${id}"\` action with one or more files (index.html, etc.). The design already exists — DO NOT call create-design.`,
+      "Each file's content must be complete, self-contained HTML with Alpine.js + Tailwind via CDN. HTML templates are in your AGENTS.md.",
+    ].join("\n");
+
+    agentSubmit(`Create design: ${prompt}`, context, { newTab: true });
+  }, [id, design, files.length, agentSubmit]);
 
   // Set active file to first file when data loads
   useEffect(() => {
@@ -307,12 +392,62 @@ export default function DesignEditor() {
     });
   }, []);
 
+  const handleModeChange = useCallback(
+    (next: EditorMode) => {
+      if (next === "draw" && (!activeFile || viewMode === "overview")) return;
+
+      setMode(next);
+      setSelectedElement(null);
+
+      if (next === "draw") {
+        setDrawMode(true);
+        setPinMode(false);
+      } else {
+        setDrawMode(false);
+        if (next === "edit") setPinMode(false);
+      }
+    },
+    [activeFile, viewMode],
+  );
+
+  const handleViewModeToggle = useCallback(() => {
+    setDrawMode(false);
+    setPinMode(false);
+    if (viewMode === "single") setMode("comment");
+    setViewMode((current) => {
+      return current === "overview" ? "single" : "overview";
+    });
+  }, [viewMode]);
+
+  const handleDrawToolToggle = useCallback(() => {
+    if (!activeFile || viewMode === "overview") return;
+    if (drawMode) {
+      setDrawMode(false);
+      setMode("comment");
+      return;
+    }
+    setMode("draw");
+    setDrawMode(true);
+    setPinMode(false);
+  }, [activeFile, drawMode, viewMode]);
+
+  const handlePinToolToggle = useCallback(() => {
+    if (!activeFile || viewMode === "overview") return;
+    if (pinMode) {
+      setPinMode(false);
+      return;
+    }
+    setMode("comment");
+    setPinMode(true);
+    setDrawMode(false);
+  }, [activeFile, pinMode, viewMode]);
+
   if (!id) {
     navigate("/");
     return null;
   }
 
-  if (designLoading) {
+  if (designLoading || (!design && hasPendingGeneration)) {
     return (
       <div className="flex-1 bg-background flex items-center justify-center">
         <Spinner className="size-8 text-foreground/30" />
@@ -366,7 +501,10 @@ export default function DesignEditor() {
 
         <div className="flex items-center gap-1">
           {/* Mode switcher */}
-          <Tabs value={mode} onValueChange={(v) => setMode(v as EditorMode)}>
+          <Tabs
+            value={mode}
+            onValueChange={(v) => handleModeChange(v as EditorMode)}
+          >
             <TabsList className="h-8">
               <TabsTrigger value="comment" className="h-6 px-2 text-xs gap-1">
                 <IconMessage className="w-3 h-3" />
@@ -376,7 +514,11 @@ export default function DesignEditor() {
                 <IconPencil className="w-3 h-3" />
                 Edit
               </TabsTrigger>
-              <TabsTrigger value="draw" className="h-6 px-2 text-xs gap-1">
+              <TabsTrigger
+                value="draw"
+                className="h-6 px-2 text-xs gap-1"
+                disabled={!activeFile || viewMode === "overview"}
+              >
                 <IconBrush className="w-3 h-3" />
                 Draw
               </TabsTrigger>
@@ -393,9 +535,7 @@ export default function DesignEditor() {
                 variant={viewMode === "overview" ? "secondary" : "ghost"}
                 size="icon"
                 className="h-7 w-7 cursor-pointer"
-                onClick={() =>
-                  setViewMode((v) => (v === "overview" ? "single" : "overview"))
-                }
+                onClick={handleViewModeToggle}
               >
                 <IconLayoutGrid className="w-3.5 h-3.5" />
               </Button>
@@ -517,15 +657,19 @@ export default function DesignEditor() {
                 size="icon"
                 className="h-7 w-7 cursor-pointer"
                 data-toolbar-draw-button
-                onClick={() => {
-                  setDrawMode((d) => !d);
-                  setPinMode(false);
-                }}
+                onClick={handleDrawToolToggle}
+                disabled={!activeFile || viewMode === "overview"}
               >
                 <IconPencilPlus className="w-3.5 h-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Draw on canvas</TooltipContent>
+            <TooltipContent>
+              {viewMode === "overview"
+                ? "Open a single screen to draw"
+                : drawMode
+                  ? "Exit draw mode"
+                  : "Draw on current screen"}
+            </TooltipContent>
           </Tooltip>
 
           {/* Drop comment pin — overlays the iframe with click-to-comment. */}
@@ -536,15 +680,19 @@ export default function DesignEditor() {
                 size="icon"
                 className="h-7 w-7 cursor-pointer"
                 data-toolbar-pin-button
-                onClick={() => {
-                  setPinMode((p) => !p);
-                  setDrawMode(false);
-                }}
+                onClick={handlePinToolToggle}
+                disabled={!activeFile || viewMode === "overview"}
               >
                 <IconPin className="w-3.5 h-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Drop comment pin</TooltipContent>
+            <TooltipContent>
+              {viewMode === "overview"
+                ? "Open a single screen to comment"
+                : pinMode
+                  ? "Exit comment pin mode"
+                  : "Drop comment pin"}
+            </TooltipContent>
           </Tooltip>
 
           {/* Save state — currently the design template doesn't expose a
@@ -666,7 +814,10 @@ export default function DesignEditor() {
               onElementHover={handleElementHover}
               tweakValues={cssVarValues}
               drawMode={drawMode}
-              onExitDrawMode={() => setDrawMode(false)}
+              onExitDrawMode={() => {
+                setDrawMode(false);
+                setMode("comment");
+              }}
               pinMode={pinMode}
               onExitPinMode={() => setPinMode(false)}
               designId={id}
@@ -676,19 +827,30 @@ export default function DesignEditor() {
         ) : (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              <p className="text-sm text-muted-foreground mb-3">
-                No files yet. Ask the agent to generate a design.
-              </p>
-              <Button
-                ref={generateBtnRef}
-                variant="outline"
-                size="sm"
-                className="cursor-pointer"
-                onClick={() => setShowPrompt(true)}
-              >
-                <IconPlus className="w-3.5 h-3.5" />
-                Generate Design
-              </Button>
+              {generating || hasPendingGeneration ? (
+                <>
+                  <Spinner className="mx-auto mb-3 size-6 text-foreground/30" />
+                  <p className="text-sm text-muted-foreground">
+                    Generating design...
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    No files yet. Ask the agent to generate a design.
+                  </p>
+                  <Button
+                    ref={generateBtnRef}
+                    variant="outline"
+                    size="sm"
+                    className="cursor-pointer"
+                    onClick={() => setShowPrompt(true)}
+                  >
+                    <IconPlus className="w-3.5 h-3.5" />
+                    Generate Design
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -806,27 +968,6 @@ export default function DesignEditor() {
               </p>
             </div>
           ))}
-
-        {/* Draw overlay */}
-        {mode === "draw" && (
-          <div className="absolute inset-0 pointer-events-none z-10">
-            <svg className="w-full h-full">
-              {drawAnnotations.map((ann) =>
-                ann.type === "path" && ann.pathData ? (
-                  <path
-                    key={ann.id}
-                    d={ann.pathData}
-                    stroke={ann.color}
-                    strokeWidth={ann.lineWidth}
-                    fill="none"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                ) : null,
-              )}
-            </svg>
-          </div>
-        )}
       </div>
 
       <PromptPopover

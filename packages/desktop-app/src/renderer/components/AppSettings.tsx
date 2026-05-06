@@ -6,6 +6,8 @@ import {
   IconEdit,
   IconRotate,
   IconCheck,
+  IconChevronRight,
+  IconChevronDown,
 } from "@tabler/icons-react";
 import type { AppConfig, TemplateMeta } from "@shared/app-registry";
 import {
@@ -67,6 +69,7 @@ export default function AppSettings({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [frameSettings, setFrameSettings] = useState<FrameSettings | null>(
     null,
   );
@@ -116,6 +119,37 @@ export default function AppSettings({
     [onAppsChanged],
   );
 
+  const handleAllToMode = useCallback(
+    async (mode: "dev" | "prod") => {
+      if (!window.electronAPI?.appConfig) return;
+      let latest = apps;
+      for (const app of apps) {
+        if ((app.mode ?? "prod") !== mode) {
+          latest = await window.electronAPI.appConfig.update(app.id, { mode });
+        }
+      }
+      onAppsChanged(latest);
+      if (
+        window.electronAPI?.frame &&
+        frameSettings &&
+        frameSettings.mode !== mode
+      ) {
+        const updated = await window.electronAPI.frame.update({ mode });
+        setFrameSettings(updated);
+      }
+    },
+    [apps, frameSettings, onAppsChanged],
+  );
+
+  const allMode: "dev" | "prod" | null = (() => {
+    if (!frameSettings) return null;
+    const modes = new Set<"dev" | "prod">([
+      frameSettings.mode,
+      ...apps.map((a) => (a.mode ?? "prod") as "dev" | "prod"),
+    ]);
+    return modes.size === 1 ? (modes.values().next().value ?? null) : null;
+  })();
+
   const handleRemove = useCallback(
     async (id: string) => {
       if (window.electronAPI?.appConfig) {
@@ -162,126 +196,178 @@ export default function AppSettings({
         </div>
 
         <div className="settings-body">
-          {/* Local Dev Frame */}
+          {/* Hero: global mode toggle */}
           {frameSettings && (
-            <div className="settings-section">
-              <h3>Local Dev Frame</h3>
-              <div className="settings-app-row">
-                <div className="settings-app-info">
-                  <span className="settings-app-name">Code editing frame</span>
-                  <span className="settings-app-url">
-                    Chat + CLI sidebar for code editing
-                  </span>
-                </div>
-                <div className="settings-app-actions">
-                  <div className="settings-mode-toggle">
-                    <button
-                      className={`settings-mode-btn${frameSettings.mode === "prod" ? " settings-mode-btn--active" : ""}`}
-                      onClick={() => handleFrameModeToggle("prod")}
-                    >
-                      Prod
-                    </button>
-                    <button
-                      className={`settings-mode-btn${frameSettings.mode === "dev" ? " settings-mode-btn--active" : ""}`}
-                      onClick={() => handleFrameModeToggle("dev")}
-                    >
-                      Dev
-                    </button>
-                  </div>
-                  <label className="settings-toggle">
-                    <input
-                      type="checkbox"
-                      checked={frameSettings.enabled}
-                      onChange={(e) => handleFrameToggle(e.target.checked)}
-                    />
-                    <span className="settings-toggle-track" />
-                  </label>
-                </div>
+            <div className="settings-mode-card">
+              <div className="settings-mode-card-text">
+                <span className="settings-mode-card-title">Mode</span>
+                <span className="settings-mode-card-status">
+                  {allMode === "dev"
+                    ? "All apps run in dev mode"
+                    : allMode === "prod"
+                      ? "All apps run on production"
+                      : "Mixed — some apps overridden"}
+                </span>
+              </div>
+              <div className="settings-mode-toggle settings-mode-toggle--lg">
+                <button
+                  className={`settings-mode-btn${allMode === "prod" ? " settings-mode-btn--active" : ""}`}
+                  onClick={() => handleAllToMode("prod")}
+                >
+                  Prod
+                </button>
+                <button
+                  className={`settings-mode-btn${allMode === "dev" ? " settings-mode-btn--active" : ""}`}
+                  onClick={() => handleAllToMode("dev")}
+                >
+                  Dev
+                </button>
               </div>
             </div>
           )}
 
-          {/* App list */}
-          <div className="settings-section">
-            <h3>Installed Apps</h3>
-            {apps.map((app) => (
-              <div key={app.id} className="settings-app-row">
-                <div
-                  className="settings-app-dot"
-                  style={{ backgroundColor: app.color }}
-                />
-                <div className="settings-app-info">
-                  <span className="settings-app-name">{app.name}</span>
-                  <span className="settings-app-url">{app.url}</span>
-                </div>
-                <div className="settings-app-actions">
-                  <div className="settings-mode-toggle">
-                    <button
-                      className={`settings-mode-btn${(app.mode ?? "prod") === "prod" ? " settings-mode-btn--active" : ""}`}
-                      onClick={() => handleModeToggle(app.id, "prod")}
-                    >
-                      Prod
-                    </button>
-                    <button
-                      className={`settings-mode-btn${app.mode === "dev" ? " settings-mode-btn--active" : ""}`}
-                      onClick={() => handleModeToggle(app.id, "dev")}
-                    >
-                      Dev
-                    </button>
-                  </div>
-                  <button
-                    className="settings-icon-btn"
-                    onClick={() => setEditingId(app.id)}
-                    title="Edit"
-                  >
-                    <IconEdit size={14} />
-                  </button>
-                  {!app.isBuiltIn && (
-                    <button
-                      className="settings-icon-btn settings-icon-btn--danger"
-                      onClick={() => handleRemove(app.id)}
-                      title="Remove"
-                    >
-                      <IconTrash size={14} />
-                    </button>
-                  )}
-                  <label className="settings-toggle">
-                    <input
-                      type="checkbox"
-                      checked={app.enabled}
-                      onChange={(e) => handleToggle(app.id, e.target.checked)}
-                    />
-                    <span className="settings-toggle-track" />
-                  </label>
-                </div>
-              </div>
-            ))}
-          </div>
+          {/* Disclosure */}
+          <button
+            type="button"
+            className="settings-disclosure"
+            onClick={() => setShowAdvanced((v) => !v)}
+          >
+            {showAdvanced ? (
+              <IconChevronDown size={14} />
+            ) : (
+              <IconChevronRight size={14} />
+            )}
+            <span>Customize per app</span>
+          </button>
 
-          {/* Add / Reset */}
-          <div className="settings-section">
-            <button
-              className="settings-btn settings-btn--primary"
-              onClick={() => setShowTemplatePicker(true)}
-            >
-              <IconPlus size={15} /> Add From Template
-            </button>
-            <button
-              className="settings-btn"
-              onClick={() => {
-                setEditingId(null);
-                setShowAddForm(true);
-              }}
-            >
-              <IconPlus size={15} /> Add Custom App
-            </button>
-            <button
-              className="settings-btn settings-btn--danger"
-              onClick={handleReset}
-            >
-              <IconRotate size={14} /> Reset to Defaults
-            </button>
-          </div>
+          {showAdvanced && (
+            <>
+              {/* Local Dev Frame */}
+              {frameSettings && (
+                <div className="settings-section">
+                  <h3>Code Editing Frame</h3>
+                  <div className="settings-app-row">
+                    <div className="settings-app-info">
+                      <span className="settings-app-name">
+                        Code editing frame
+                      </span>
+                      <span className="settings-app-url">
+                        Chat + CLI sidebar for code editing
+                      </span>
+                    </div>
+                    <div className="settings-app-actions">
+                      <div className="settings-mode-toggle">
+                        <button
+                          className={`settings-mode-btn${frameSettings.mode === "prod" ? " settings-mode-btn--active" : ""}`}
+                          onClick={() => handleFrameModeToggle("prod")}
+                        >
+                          Prod
+                        </button>
+                        <button
+                          className={`settings-mode-btn${frameSettings.mode === "dev" ? " settings-mode-btn--active" : ""}`}
+                          onClick={() => handleFrameModeToggle("dev")}
+                        >
+                          Dev
+                        </button>
+                      </div>
+                      <label className="settings-toggle">
+                        <input
+                          type="checkbox"
+                          checked={frameSettings.enabled}
+                          onChange={(e) => handleFrameToggle(e.target.checked)}
+                        />
+                        <span className="settings-toggle-track" />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* App list */}
+              <div className="settings-section">
+                <h3>Installed Apps</h3>
+                {apps.map((app) => (
+                  <div key={app.id} className="settings-app-row">
+                    <div
+                      className="settings-app-dot"
+                      style={{ backgroundColor: app.color }}
+                    />
+                    <div className="settings-app-info">
+                      <span className="settings-app-name">{app.name}</span>
+                      <span className="settings-app-url">{app.url}</span>
+                    </div>
+                    <div className="settings-app-actions">
+                      <div className="settings-mode-toggle">
+                        <button
+                          className={`settings-mode-btn${(app.mode ?? "prod") === "prod" ? " settings-mode-btn--active" : ""}`}
+                          onClick={() => handleModeToggle(app.id, "prod")}
+                        >
+                          Prod
+                        </button>
+                        <button
+                          className={`settings-mode-btn${app.mode === "dev" ? " settings-mode-btn--active" : ""}`}
+                          onClick={() => handleModeToggle(app.id, "dev")}
+                        >
+                          Dev
+                        </button>
+                      </div>
+                      <button
+                        className="settings-icon-btn"
+                        onClick={() => setEditingId(app.id)}
+                        title="Edit"
+                      >
+                        <IconEdit size={14} />
+                      </button>
+                      {!app.isBuiltIn && (
+                        <button
+                          className="settings-icon-btn settings-icon-btn--danger"
+                          onClick={() => handleRemove(app.id)}
+                          title="Remove"
+                        >
+                          <IconTrash size={14} />
+                        </button>
+                      )}
+                      <label className="settings-toggle">
+                        <input
+                          type="checkbox"
+                          checked={app.enabled}
+                          onChange={(e) =>
+                            handleToggle(app.id, e.target.checked)
+                          }
+                        />
+                        <span className="settings-toggle-track" />
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Add / Reset */}
+              <div className="settings-section">
+                <button
+                  className="settings-btn settings-btn--primary"
+                  onClick={() => setShowTemplatePicker(true)}
+                >
+                  <IconPlus size={15} /> Add From Template
+                </button>
+                <button
+                  className="settings-btn"
+                  onClick={() => {
+                    setEditingId(null);
+                    setShowAddForm(true);
+                  }}
+                >
+                  <IconPlus size={15} /> Add Custom App
+                </button>
+                <button
+                  className="settings-btn settings-btn--danger"
+                  onClick={handleReset}
+                >
+                  <IconRotate size={14} /> Reset to Defaults
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Template picker */}
