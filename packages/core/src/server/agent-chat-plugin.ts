@@ -93,7 +93,7 @@ import nodePath from "node:path";
 import { readBody } from "./h3-helpers.js";
 import {
   getBuilderBrowserConnectUrl,
-  isBuilderBranchingEnabled,
+  resolveBuilderBranchProjectId,
 } from "./builder-browser.js";
 import { captureCliOutput } from "./cli-capture.js";
 import { withConfiguredAppBasePath } from "./app-base-path.js";
@@ -1009,11 +1009,12 @@ function createBuilderBrowserTool(deps: {
           await import("./credential-provider.js");
         const creds = await resolveBuilderCredentials();
         const configured = !!(creds.privateKey && creds.publicKey);
+        const branchProjectId = await resolveBuilderBranchProjectId();
         const prompt = typeof args?.prompt === "string" ? args.prompt : "";
         return JSON.stringify({
           kind: "connect-builder-card",
           configured,
-          builderEnabled: isBuilderBranchingEnabled(),
+          builderEnabled: !!branchProjectId,
           connectUrl: getBuilderBrowserConnectUrl(deps.getOrigin()),
           orgName: creds.orgName || null,
           prompt,

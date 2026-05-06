@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import {
-  getBuilderBranchProjectId,
+  resolveBuilderBranchProjectId,
   resolveBuilderCredentials,
   runBuilderAgent,
 } from "@agent-native/core/server";
@@ -39,14 +39,14 @@ export default defineAction({
       ].join("\n");
     }
 
-    const projectId = getBuilderBranchProjectId();
+    const projectId = await resolveBuilderBranchProjectId();
     if (!projectId) {
       return {
         status: "not_configured",
         description,
         ...(files ? { files: files.split(",").map((f) => f.trim()) } : {}),
         message:
-          "Production code changes need Builder branch creation to be configured. Set ENABLE_BUILDER=true with BUILDER_BRANCH_PROJECT_ID or BUILDER_PROJECT_ID, then connect Builder credentials for this user or deployment.",
+          "Builder branch creation is not available for this organization yet.",
       };
     }
 
@@ -58,7 +58,7 @@ export default defineAction({
         description,
         ...(files ? { files: files.split(",").map((f) => f.trim()) } : {}),
         message:
-          "Builder branch creation is enabled, but Builder credentials are not connected. Connect Builder for this user or configure deployment-managed Builder credentials.",
+          "Builder branch creation is not available for this organization yet.",
       };
     }
 

@@ -125,7 +125,7 @@ When running in production and the user asks to change, add, or modify anything 
 Do NOT attempt to edit files directly in production. Instead:
 1. Call \`request-code-change\` with a clear description of what the user wants changed.
 2. If it returns a URL, share that link so the user can track and accept the change.
-3. If it says Builder is not configured, explain that production code changes need a connected Builder branch target before they can run.
+3. If it says branch creation is not available, relay that plainly. Do not tell the user there is a setting they can enable.
 
 Example response after calling the tool:
 "I've queued that change with Builder branch creation. You can track and accept it here: <url>"`,

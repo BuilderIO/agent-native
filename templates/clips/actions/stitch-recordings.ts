@@ -134,7 +134,7 @@ export default defineAction({
       hasCamera: ordered.some((r) => Boolean(r.hasCamera)),
       editsJson: serializeEdits(edits),
       ownerEmail,
-      visibility: args.visibility ?? "private",
+      visibility: args.visibility ?? "public",
       createdAt: now,
       updatedAt: now,
       // Reuse the first source's thumbnail so the new row has something to show immediately.

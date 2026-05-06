@@ -83,7 +83,7 @@ export default defineAction({
       uploadProgress: 0,
       hasAudio: args.hasAudio ?? true,
       hasCamera: args.hasCamera ?? false,
-      visibility: args.visibility ?? "private",
+      visibility: args.visibility ?? "public",
       width: args.width ?? 0,
       height: args.height ?? 0,
       ownerEmail,
