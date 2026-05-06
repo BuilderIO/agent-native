@@ -427,12 +427,35 @@ export async function compressBlobIfTooLarge(
       outputMimeType: inputMimeType,
     };
   } finally {
-    clearTimeout(timeoutId);
-    if (externalAbortHandler && opts.signal) {
-      opts.signal.removeEventListener("abort", externalAbortHandler);
+    // Each cleanup is wrapped independently — a throw from one (e.g.
+    // `removeEventListener` after the signal was already torn down, or
+    // `ffmpeg.off` on an instance whose worker was just terminated)
+    // must NOT prevent the others from running, or stale listeners pile
+    // up on the shared ffmpeg instance and cause memory leaks across
+    // recordings. Don't collapse this to a single `try { … }` — that
+    // defeats the purpose.
+    try {
+      clearTimeout(timeoutId);
+    } catch {
+      // ignore
     }
-    ffmpeg.off("progress", handleProgress);
-    removeFfmpegLogListener(onLog);
+    try {
+      if (externalAbortHandler && opts.signal) {
+        opts.signal.removeEventListener("abort", externalAbortHandler);
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      ffmpeg.off("progress", handleProgress);
+    } catch {
+      // ignore
+    }
+    try {
+      removeFfmpegLogListener(onLog);
+    } catch {
+      // ignore
+    }
   }
 }
 

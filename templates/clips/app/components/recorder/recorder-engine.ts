@@ -678,6 +678,16 @@ export class RecorderEngine {
           signal: abort.signal,
         });
       } catch (err) {
+        // The user clicking Cancel mid-fetch makes the AbortController
+        // abort and `fetch` rejects with a DOMException whose
+        // `name === "AbortError"`. Wrapping that into a generic network
+        // error would lose the AbortError identity, so doStop()'s catch
+        // would surface a misleading "Upload failed (network error)"
+        // toast for what is actually an intentional cancel. Re-throw the
+        // abort untouched; only wrap genuine non-abort failures.
+        if ((err as { name?: string } | null)?.name === "AbortError") {
+          throw err;
+        }
         throw new Error(
           `Couldn't prepare the recording for re-upload (network error contacting reset-chunks). ${
             err instanceof Error ? err.message : String(err)
@@ -791,8 +801,15 @@ export class RecorderEngine {
     // terminates the wasm worker, and re-throws — propagating up through
     // stop() which transitions to "error". Without this, ffmpeg keeps
     // encoding for minutes against a recording the user already discarded.
+    //
+    // The abort reason carries `name === "AbortError"` so any consumer
+    // downstream (compress.ts, the reset-chunks fetch, the chunked upload
+    // loop, record.tsx's doStop catch) can identify cancellation by name
+    // alone — no regex matching against the message string.
     if (this.compressionAbort) {
-      this.compressionAbort.abort(new Error("Recording cancelled"));
+      const cancelErr = new Error("Recording cancelled");
+      cancelErr.name = "AbortError";
+      this.compressionAbort.abort(cancelErr);
       this.compressionAbort = null;
     }
     this.cleanupTracks();

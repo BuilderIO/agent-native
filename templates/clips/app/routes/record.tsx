@@ -684,16 +684,21 @@ export default function RecordRoute() {
       // Distinguish user-initiated cancel from real failure. When the user
       // clicks Cancel mid-compression, engine.cancel() aborts the in-flight
       // compression pass; the still-pending engine.stop() above then throws
-      // an AbortError. The recording was intentionally discarded — surfacing
-      // it as "Upload failed" is misleading (and was the original bug). So
-      // skip the error toast on the cancel path; doCancel() owns the UI
-      // teardown. Anything else (real upload failures, compression timeouts
-      // — which now throw with name === "TimeoutError" — network errors)
-      // keeps the existing error toast.
-      const isCancel =
-        err instanceof Error &&
-        (err.name === "AbortError" || /cancel/i.test(err.message));
-      if (isCancel) {
+      // an error with `name === "AbortError"`. The recording was
+      // intentionally discarded — surfacing it as "Upload failed" is
+      // misleading (and was the original bug). So skip the error toast on
+      // the cancel path; doCancel() owns the UI teardown. Anything else
+      // (real upload failures, compression timeouts — which throw with
+      // `name === "TimeoutError"` — network errors) keeps the existing
+      // error toast.
+      //
+      // Detection is name-only. The abort invariant is: every cancel-shaped
+      // error from the engine arrives with `name === "AbortError"` —
+      // `RecorderEngine.cancel()` sets the name on the abort reason it
+      // creates, and downstream sites that interpret abort signals
+      // (`compress.ts`, the reset-chunks fetch catch in `recorder-engine`)
+      // preserve that identity. So we don't need to grep error messages.
+      if (err instanceof Error && err.name === "AbortError") {
         return;
       }
       fetch(pending.abortUrl, {
