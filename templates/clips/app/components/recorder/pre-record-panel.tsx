@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { NO_MIC_DEVICE_ID, type RecordingMode } from "./recorder-engine";
+import { CameraVisualizer, type CameraTestStatus } from "./camera-visualizer";
 import {
   MicrophoneVisualizer,
   type MicrophoneTestStatus,
@@ -37,6 +38,12 @@ type MicTestState = {
   status: MicrophoneTestStatus;
   error: string | null;
   hasSignal: boolean;
+};
+
+type CameraTestState = {
+  status: CameraTestStatus;
+  error: string | null;
+  hasPreview: boolean;
 };
 
 async function writeRecordingSetupState(value: unknown): Promise<void> {
@@ -93,6 +100,11 @@ export function PreRecordPanel({
     status: "idle",
     error: null,
     hasSignal: false,
+  });
+  const [cameraTest, setCameraTest] = useState<CameraTestState>({
+    status: "idle",
+    error: null,
+    hasPreview: false,
   });
 
   useEffect(() => {
@@ -160,6 +172,26 @@ export function PreRecordPanel({
     setMicTest((prev) => ({ ...prev, hasSignal }));
   }, []);
 
+  const handleCameraStatusChange = useCallback(
+    (status: CameraTestStatus, detail?: { error?: string | null }) => {
+      setCameraTest({
+        status,
+        error: detail?.error ?? null,
+        hasPreview: false,
+      });
+    },
+    [],
+  );
+
+  const handleCameraPreviewChange = useCallback((hasPreview: boolean) => {
+    setCameraTest((prev) => ({ ...prev, hasPreview }));
+  }, []);
+
+  useEffect(() => {
+    if (needsCamera) return;
+    setCameraTest({ status: "idle", error: null, hasPreview: false });
+  }, [needsCamera]);
+
   useEffect(() => {
     void writeRecordingSetupState({
       view: "record",
@@ -185,11 +217,17 @@ export function PreRecordPanel({
             : "specific"
           : "none",
         label: selectedCameraLabel,
+        testStatus: cameraTest.status,
+        testHasPreview: cameraTest.hasPreview,
+        testError: cameraTest.error,
       },
       updatedAt: new Date().toISOString(),
     }).catch(() => {});
   }, [
     cameraId,
+    cameraTest.error,
+    cameraTest.hasPreview,
+    cameraTest.status,
     micId,
     micTest.error,
     micTest.hasSignal,
@@ -270,22 +308,33 @@ export function PreRecordPanel({
         />
 
         {needsCamera && (
-          <div className="flex items-center gap-3">
-            <IconCamera className="h-4 w-4 text-muted-foreground" />
-            <Select value={cameraId} onValueChange={setCameraId}>
-              <SelectTrigger className="flex-1">
-                <SelectValue placeholder="Default camera" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="default">Default camera</SelectItem>
-                {cameras.map((c) => (
-                  <SelectItem key={c.deviceId} value={c.deviceId}>
-                    {c.label || `Camera ${c.deviceId.slice(0, 4)}`}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <>
+            <div className="flex items-center gap-3">
+              <IconCamera className="h-4 w-4 text-muted-foreground" />
+              <Select value={cameraId} onValueChange={setCameraId}>
+                <SelectTrigger className="flex-1">
+                  <SelectValue placeholder="Default camera" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">Default camera</SelectItem>
+                  {cameras.map((c) => (
+                    <SelectItem key={c.deviceId} value={c.deviceId}>
+                      {c.label || `Camera ${c.deviceId.slice(0, 4)}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <CameraVisualizer
+              className="ml-7"
+              deviceId={cameraId === "default" ? null : cameraId}
+              disabled={busy}
+              selectedLabel={selectedCameraLabel}
+              onStatusChange={handleCameraStatusChange}
+              onPreviewChange={handleCameraPreviewChange}
+            />
+          </>
         )}
 
         {enumError && (
