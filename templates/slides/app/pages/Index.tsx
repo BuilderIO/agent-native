@@ -210,6 +210,8 @@ export default function Index() {
       "Add slides ONE AT A TIME using the `add-slide` action with --deckId=" +
         deck.id +
         ". You can fire multiple add-slide calls in parallel — they run concurrently and the user sees each slide appear as soon as it lands.",
+      "For larger requests, use visible batches: add at most 4 slides in one model turn, then continue with the next batch after the tool results. Start the first batch immediately; do not wait to design the entire deck before adding slide 1.",
+      "If the user asked for a specific slide count, keep going in batches until that count is reached unless a tool error blocks you.",
       "Each slide's --content must be full HTML. Slide HTML templates are in your AGENTS.md.",
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, resource-read, or search-files.",
     ].join("\n");

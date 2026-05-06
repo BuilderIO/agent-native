@@ -54,6 +54,10 @@ import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { getPreset } from "@/lib/design-systems";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
+import {
+  shouldClearNewDeckGeneratingState,
+  shouldShowNewDeckGeneratingOverlay,
+} from "@/lib/generation-state";
 import { toast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { nanoid } from "nanoid";
@@ -87,9 +91,9 @@ export default function DeckEditor() {
   } = useDecks();
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
   const { generating } = useAgentGenerating();
-  // Track new-deck-creation intent: set once on mount if ?generating=1, cleared when done
+  // Track new-deck-creation intent: set once on mount if ?generating=1.
+  // The editor reveals partial slides as soon as the first one lands.
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
-  const isNewDeckGenerating = generating && wasNewDeckCreation.current;
   const [activeTab, setActiveTab] = useState<"visual" | "code">("visual");
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
@@ -120,6 +124,12 @@ export default function DeckEditor() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const deck = getDeck(id || "");
+  const slideCount = deck?.slides.length ?? 0;
+  const isNewDeckGenerating = shouldShowNewDeckGeneratingOverlay({
+    generating,
+    isNewDeckCreation: wasNewDeckCreation.current,
+    slideCount,
+  });
   const { designSystem, designSystemTitle } = useDeckDesignSystem(
     deck?.designSystemId,
   );
@@ -204,29 +214,24 @@ export default function DeckEditor() {
     }).catch(() => {});
   }, [id, queryClient]);
 
-  // If deck already has slides on mount, it's not a fresh new-deck creation
+  // Clean up the generating URL param/ref when generation completes or when
+  // the first slide lands, so partial progress is visible during long decks.
   useEffect(() => {
-    if (deck && deck.slides.length > 0 && wasNewDeckCreation.current) {
-      wasNewDeckCreation.current = false;
+    if (!shouldClearNewDeckGeneratingState({ generating, slideCount })) {
+      return;
     }
-  }, []); // only on mount
-
-  // Clean up the generating URL param and ref when generation completes
-  useEffect(() => {
-    if (!generating) {
-      wasNewDeckCreation.current = false;
-      if (searchParams.get("generating")) {
-        setSearchParams(
-          (prev) => {
-            const next = new URLSearchParams(prev);
-            next.delete("generating");
-            return next;
-          },
-          { replace: true },
-        );
-      }
+    wasNewDeckCreation.current = false;
+    if (searchParams.get("generating")) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("generating");
+          return next;
+        },
+        { replace: true },
+      );
     }
-  }, [generating, searchParams, setSearchParams]);
+  }, [generating, searchParams, setSearchParams, slideCount]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { assertAccess } from "@agent-native/core/sharing";
+import { notifyClients } from "../server/handlers/decks.js";
 
 export default defineAction({
   description:
@@ -24,6 +25,8 @@ export default defineAction({
       .update(schema.decks)
       .set({ designSystemId, updatedAt: now })
       .where(eq(schema.decks.id, deckId));
+
+    notifyClients(deckId);
 
     return { deckId, designSystemId, applied: true };
   },

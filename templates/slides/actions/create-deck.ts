@@ -59,11 +59,18 @@ export default defineAction({
       .describe(
         "Slide aspect ratio for the deck (defaults to 16:9 when omitted)",
       ),
+    designSystemId: z
+      .string()
+      .optional()
+      .describe("Optional design system ID to link to the deck"),
   }),
   http: false,
-  run: async ({ title, slides, deckId, aspectRatio }) => {
+  run: async ({ title, slides, deckId, aspectRatio, designSystemId }) => {
     const db = getDb();
     const now = new Date().toISOString();
+    if (designSystemId) {
+      await assertAccess("design-system", designSystemId, "viewer");
+    }
 
     if (deckId) {
       // Update existing deck — requires editor access.
@@ -79,10 +86,16 @@ export default defineAction({
         slides,
         updatedAt: now,
         aspectRatio: aspectRatio ?? prevData.aspectRatio,
+        designSystemId: designSystemId ?? prevData.designSystemId,
       };
       await db
         .update(schema.decks)
-        .set({ title, data: JSON.stringify(data), updatedAt: now })
+        .set({
+          title,
+          data: JSON.stringify(data),
+          designSystemId: designSystemId ?? existing[0]?.designSystemId ?? null,
+          updatedAt: now,
+        })
         .where(eq(schema.decks.id, deckId));
       // Broadcast to open editors (in-process SSE) + application-state
       // refresh signal (cross-process polling fallback for serverless).
@@ -104,10 +117,12 @@ export default defineAction({
       updatedAt: now,
     };
     if (aspectRatio) data.aspectRatio = aspectRatio;
+    if (designSystemId) data.designSystemId = designSystemId;
     await db.insert(schema.decks).values({
       id,
       title,
       data: JSON.stringify(data),
+      designSystemId: designSystemId ?? null,
       ownerEmail: (() => {
         const e = getRequestUserEmail();
         if (!e) throw new Error("no authenticated user");
