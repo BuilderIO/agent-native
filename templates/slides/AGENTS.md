@@ -208,6 +208,8 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 
 `.env` is loaded automatically — **never manually set `DATABASE_URL` or other env vars**.
 
+In the built-in agent chat, use the framework `manage-progress` tool for long-running generation work. Start it before multi-slide deck generation or design-system extraction, update the current step after each visible batch, and complete it when the user can see the finished result.
+
 ### Reading & Searching
 
 | Action        | Args            | Purpose                        |
@@ -236,12 +238,13 @@ If a metric or source would make the slide stronger but is not available, use qu
 
 1. If a deck is already open (check `<current-screen>` for `deckId`), skip to step 3.
 2. Otherwise, create an empty deck: `create-deck --title "X" --slides '[]'`, then `navigate --deckId=<returned-id>`.
-3. Call `add-slide --deckId=<id> --content="<html>"` once per slide. **Fire multiple `add-slide` calls in parallel in the same turn** — they run concurrently and the user sees each slide appear live.
+3. For decks larger than a few slides, start a `manage-progress` run so the header runs tray shows visible progress outside the chat pane. Update it after each batch and complete it when the requested slide count is reached.
+4. Call `add-slide --deckId=<id> --content="<html>"` once per slide. Add slide 1 as soon as it is ready, then continue in small visible batches. For requests above 6 slides, use at most 4 `add-slide` calls per model turn, pass `position` values so slide order stays stable, and continue after tool results until the requested slide count is reached. Do not spend a long turn designing the whole deck before slide 1 lands.
 
 **Why add-slide is preferred over create-deck with all slides:**
 
 - The user sees slides stream in one-by-one (create-deck drops them all at once).
-- Parallel tool calls mean all slides generate concurrently.
+- Small batched tool calls keep the editor visibly filling in without making the user wait for the whole deck.
 - If one slide fails, the others still land.
 
 **Other operations:**
@@ -249,15 +252,15 @@ If a metric or source would make the slide stronger but is not available, use qu
 - **Replace one slide's content:** `update-slide --find/--replace` (surgical, syncs live via Yjs) or `--fullContent`.
 - **Bulk replace (rare):** `create-deck --deckId <existing>` to atomically replace ALL slides in one deck.
 
-| Action                     | Args                                                             | Purpose                                                               |
-| -------------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `add-slide`                | `--deckId <id> --content "<html>" [--layout ...] [--position N]` | **PREFERRED** — add one slide to an existing deck; parallel-safe      |
-| `create-deck`              | `--title "X" --slides '[]' [--aspectRatio 16:9\|1:1\|9:16\|4:5]` | Create a new empty deck (optionally set the aspect ratio)             |
-| `create-deck`              | `--title "X" --slides '[...]'`                                   | Create a new deck with all slides (bulk, rarely preferred)            |
-| `create-deck`              | `--title "X" --slides '[...]' --deckId <id>`                     | Replace all slides in an existing deck (atomic bulk replace)          |
-| `update-slide`             | `--deckId <id> --slideId <id> --find "old" --replace "new"`      | Surgical text edit — syncs live to editors                            |
-| `update-slide`             | `--deckId <id> --slideId <id> --fullContent "<html>"`            | Full slide content replacement                                        |
-| `update-deck-aspect-ratio` | `--deckId <id> --aspectRatio 16:9\|1:1\|9:16\|4:5`               | Set the deck's aspect ratio (affects editor, presentation, PDF, PPTX) |
+| Action                     | Args                                                                                     | Purpose                                                               |
+| -------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `add-slide`                | `--deckId <id> --content "<html>" [--layout ...] [--position N]`                         | **PREFERRED** — add one slide to an existing deck; parallel-safe      |
+| `create-deck`              | `--title "X" --slides '[]' [--aspectRatio 16:9\|1:1\|9:16\|4:5] [--designSystemId <id>]` | Create a new empty deck (optionally set aspect ratio / design system) |
+| `create-deck`              | `--title "X" --slides '[...]'`                                                           | Create a new deck with all slides (bulk, rarely preferred)            |
+| `create-deck`              | `--title "X" --slides '[...]' --deckId <id> [--designSystemId <id>]`                     | Replace all slides in an existing deck (atomic bulk replace)          |
+| `update-slide`             | `--deckId <id> --slideId <id> --find "old" --replace "new"`                              | Surgical text edit — syncs live to editors                            |
+| `update-slide`             | `--deckId <id> --slideId <id> --fullContent "<html>"`                                    | Full slide content replacement                                        |
+| `update-deck-aspect-ratio` | `--deckId <id> --aspectRatio 16:9\|1:1\|9:16\|4:5`                                       | Set the deck's aspect ratio (affects editor, presentation, PDF, PPTX) |
 
 ### Navigation
 

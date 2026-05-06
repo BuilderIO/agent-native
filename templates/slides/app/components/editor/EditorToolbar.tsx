@@ -26,6 +26,7 @@ import {
   IconSun,
   IconMoon,
   IconDots,
+  IconPalette,
 } from "@tabler/icons-react";
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
 import { useSaveState } from "@/context/DeckContext";
@@ -45,6 +46,7 @@ import {
   PresenceBar,
   type CollabUser,
 } from "@agent-native/core/client";
+import { RunsTray } from "@agent-native/core/client/progress";
 import {
   Tooltip,
   TooltipContent,
@@ -119,6 +121,8 @@ interface EditorToolbarProps {
   aspectRatio?: AspectRatio;
   /** Change the deck's aspect ratio */
   onSetAspectRatio?: (ratio: AspectRatio) => void;
+  /** Title of the design system linked to this deck, if any */
+  designSystemTitle?: string | null;
 }
 
 const slideLayoutOptions: { value: SlideLayout; label: string }[] = [
@@ -238,6 +242,7 @@ export default function EditorToolbar({
   onExportPdf,
   aspectRatio,
   onSetAspectRatio,
+  designSystemTitle,
 }: EditorToolbarProps) {
   const activeAspectRatio: AspectRatio = aspectRatio ?? DEFAULT_ASPECT_RATIO;
   const saveState = useSaveState();
@@ -331,6 +336,24 @@ export default function EditorToolbar({
       <span className="text-xs text-muted-foreground/70 flex-shrink-0 hidden sm:inline">
         {currentSlideIndex + 1}/{slideCount}
       </span>
+
+      {deck.designSystemId && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="hidden max-w-[180px] items-center gap-1.5 rounded-md border border-border bg-accent/35 px-2 py-1 text-xs text-muted-foreground sm:flex">
+              <IconPalette className="h-3.5 w-3.5 shrink-0 text-[#609FF8]" />
+              <span className="truncate">
+                {designSystemTitle || "Design system"}
+              </span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>
+            {designSystemTitle
+              ? `Using ${designSystemTitle}`
+              : "Using a linked design system"}
+          </TooltipContent>
+        </Tooltip>
+      )}
 
       {/* Spacer */}
       <div className="flex-1 min-w-2" />
@@ -816,6 +839,7 @@ graph TD
           resourceTitle={deckTitle}
         />
       </div>
+      <RunsTray pollMs={1500} className="flex-shrink-0" />
 
       {/* Present button — matches Share trigger height (h-9) */}
       <Link

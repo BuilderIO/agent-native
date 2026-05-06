@@ -27,6 +27,7 @@ export default defineAction({
   description:
     "Add a single slide to an existing deck. Use this to build decks slide-by-slide — " +
     "you can call this in parallel for multiple slides at once to generate an entire deck concurrently. " +
+    "For larger decks, use small visible batches of at most 4 add-slide calls per model turn. " +
     "Returns the new slide ID and updated slide count.",
   schema: z.object({
     deckId: z.string().describe("Target deck ID"),

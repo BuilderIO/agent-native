@@ -45,6 +45,7 @@ export default defineAction({
     deckData.title = newTitle;
     deckData.createdAt = now;
     deckData.updatedAt = now;
+    deckData.designSystemId = source.designSystemId ?? deckData.designSystemId;
 
     await db.insert(schema.decks).values({
       id: newId,

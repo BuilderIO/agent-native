@@ -156,6 +156,7 @@ export const listDecks = defineEventHandler(async (event) => {
         id: row.id,
         title: row.title,
         visibility: row.visibility,
+        designSystemId: row.designSystemId ?? deck.designSystemId ?? null,
         slides: deck.slides || [],
       };
     });
@@ -180,6 +181,7 @@ export const getDeck = defineEventHandler(async (event) => {
         id: row.id,
         title: row.title,
         visibility: row.visibility,
+        designSystemId: row.designSystemId ?? deck.designSystemId ?? null,
       };
     } catch (err) {
       if (err instanceof ForbiddenError) {
@@ -217,6 +219,10 @@ export const updateDeck = defineEventHandler(async (event) => {
     deck.id = id;
     deck.updatedAt = now;
     const title = deck.title || "Untitled";
+    const nextDesignSystemId =
+      typeof deck.designSystemId === "string" && deck.designSystemId
+        ? deck.designSystemId
+        : null;
 
     // Resolve access first — this loads the row AND tells us the caller's
     // effective role in one pass, so we never run an unscoped existence
@@ -235,11 +241,15 @@ export const updateDeck = defineEventHandler(async (event) => {
           new ForbiddenError("Sign in to create a deck"),
         );
       }
+      if (nextDesignSystemId) {
+        await assertAccess("design-system", nextDesignSystemId, "viewer");
+      }
       try {
         await db.insert(schema.decks).values({
           id,
           title,
           data: JSON.stringify(deck),
+          designSystemId: nextDesignSystemId,
           ownerEmail: email,
           orgId: orgId ?? null,
           createdAt: now,
@@ -258,6 +268,9 @@ export const updateDeck = defineEventHandler(async (event) => {
       access.role === "admin" ||
       access.role === "editor"
     ) {
+      if (nextDesignSystemId) {
+        await assertAccess("design-system", nextDesignSystemId, "viewer");
+      }
       // Caller has editor+ access — perform the update. The access check
       // above already confirmed the row exists and the caller can write.
       await db
@@ -265,6 +278,7 @@ export const updateDeck = defineEventHandler(async (event) => {
         .set({
           title,
           data: JSON.stringify(deck),
+          designSystemId: nextDesignSystemId ?? access.resource.designSystemId,
           updatedAt: now,
         })
         .where(eq(schema.decks.id, id));
@@ -304,11 +318,20 @@ export const createDeck = defineEventHandler(async (event) => {
 
     const db = getDb();
     const now = new Date().toISOString();
+    const designSystemId =
+      typeof deck.designSystemId === "string" && deck.designSystemId
+        ? deck.designSystemId
+        : null;
+
+    if (designSystemId) {
+      await assertAccess("design-system", designSystemId, "viewer");
+    }
 
     await db.insert(schema.decks).values({
       id: deck.id,
       title: deck.title || "Untitled",
       data: JSON.stringify(deck),
+      designSystemId,
       ownerEmail: email,
       orgId: orgId ?? null,
       createdAt: now,

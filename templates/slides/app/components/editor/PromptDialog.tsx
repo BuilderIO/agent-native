@@ -24,6 +24,7 @@ interface PromptPopoverProps {
   centered?: boolean;
   /** Forwarded to PromptComposer/TipTap for draft persistence in localStorage. */
   draftScope?: string;
+  children?: React.ReactNode;
 }
 
 export default function PromptPopover({
@@ -38,6 +39,7 @@ export default function PromptPopover({
   anchorRef,
   centered = false,
   draftScope,
+  children,
 }: PromptPopoverProps) {
   const [uploading, setUploading] = useState(false);
   const [promptText, setPromptText] = useState("");
@@ -173,6 +175,8 @@ export default function PromptPopover({
             draftScope={draftScope}
           />
         </div>
+
+        {children}
 
         <GoogleDocImportHint
           promptText={promptText}

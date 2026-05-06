@@ -54,6 +54,10 @@ import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { getPreset } from "@/lib/design-systems";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
+import {
+  shouldClearNewDeckGeneratingState,
+  shouldShowNewDeckGeneratingOverlay,
+} from "@/lib/generation-state";
 import { toast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { nanoid } from "nanoid";
@@ -87,9 +91,9 @@ export default function DeckEditor() {
   } = useDecks();
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
   const { generating } = useAgentGenerating();
-  // Track new-deck-creation intent: set once on mount if ?generating=1, cleared when done
+  // Track new-deck-creation intent: set once on mount if ?generating=1.
+  // The editor reveals partial slides as soon as the first one lands.
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
-  const isNewDeckGenerating = generating && wasNewDeckCreation.current;
   const [activeTab, setActiveTab] = useState<"visual" | "code">("visual");
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
@@ -120,7 +124,15 @@ export default function DeckEditor() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const deck = getDeck(id || "");
-  const { designSystem } = useDeckDesignSystem(deck?.designSystemId);
+  const slideCount = deck?.slides.length ?? 0;
+  const isNewDeckGenerating = shouldShowNewDeckGeneratingOverlay({
+    generating,
+    isNewDeckCreation: wasNewDeckCreation.current,
+    slideCount,
+  });
+  const { designSystem, designSystemTitle } = useDeckDesignSystem(
+    deck?.designSystemId,
+  );
 
   // Poll for question flow from agent (show-questions application state)
   const { data: questionFlowData } = useQuery<{
@@ -164,9 +176,9 @@ export default function DeckEditor() {
         "Answers:",
         formatted,
         "",
-        "Now generate the slides based on these preferences. Use add-slide with --deckId=" +
+        "Now generate the slides based on these preferences. Start a manage-progress run, add the first slide as soon as it is ready, then continue in small batches so the editor visibly fills in. Use add-slide with --deckId=" +
           id +
-          " to add slides one at a time in parallel.",
+          " to add slides one at a time. Use positions when batching so slide order stays stable.",
       ].join("\n");
 
       sendToAgentChat({
@@ -191,7 +203,7 @@ export default function DeckEditor() {
     sendToAgentChat({
       message:
         "Skip the questions — just go ahead and create the slides with your best judgment.",
-      context: `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults and generate slides using add-slide with --deckId=${id}.`,
+      context: `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults. Start a manage-progress run, add the first slide as soon as it is ready, then continue in small batches using add-slide with --deckId=${id}. Use positions when batching so slide order stays stable.`,
       submit: true,
     });
 
@@ -202,29 +214,24 @@ export default function DeckEditor() {
     }).catch(() => {});
   }, [id, queryClient]);
 
-  // If deck already has slides on mount, it's not a fresh new-deck creation
+  // Clean up the generating URL param/ref when generation completes or when
+  // the first slide lands, so partial progress is visible during long decks.
   useEffect(() => {
-    if (deck && deck.slides.length > 0 && wasNewDeckCreation.current) {
-      wasNewDeckCreation.current = false;
+    if (!shouldClearNewDeckGeneratingState({ generating, slideCount })) {
+      return;
     }
-  }, []); // only on mount
-
-  // Clean up the generating URL param and ref when generation completes
-  useEffect(() => {
-    if (!generating) {
-      wasNewDeckCreation.current = false;
-      if (searchParams.get("generating")) {
-        setSearchParams(
-          (prev) => {
-            const next = new URLSearchParams(prev);
-            next.delete("generating");
-            return next;
-          },
-          { replace: true },
-        );
-      }
+    wasNewDeckCreation.current = false;
+    if (searchParams.get("generating")) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("generating");
+          return next;
+        },
+        { replace: true },
+      );
     }
-  }, [generating, searchParams, setSearchParams]);
+  }, [generating, searchParams, setSearchParams, slideCount]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -600,6 +607,7 @@ export default function DeckEditor() {
           }
         }}
         aspectRatio={deck.aspectRatio}
+        designSystemTitle={designSystemTitle}
         onSetAspectRatio={(ratio: AspectRatio) => {
           const previous = deck.aspectRatio;
           // Optimistic UI: update local cache immediately so canvas resizes.
@@ -656,7 +664,19 @@ export default function DeckEditor() {
           </>
         )}
 
-        {isNewDeckGenerating && <GeneratingOverlay />}
+        {isNewDeckGenerating && deck.slides.length === 0 && (
+          <GeneratingOverlay />
+        )}
+
+        {isNewDeckGenerating && deck.slides.length > 0 && (
+          <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-lg border border-border bg-popover/95 px-3 py-2 text-sm text-popover-foreground shadow-lg backdrop-blur">
+            <span className="font-medium">Building deck</span>
+            <span className="ml-2 text-muted-foreground">
+              {deck.slides.length} slide{deck.slides.length === 1 ? "" : "s"}{" "}
+              added
+            </span>
+          </div>
+        )}
 
         {showQuestionFlow && !isNewDeckGenerating && (
           <QuestionFlow
@@ -667,63 +687,65 @@ export default function DeckEditor() {
           />
         )}
 
-        {!isNewDeckGenerating && !showQuestionFlow && currentSlide && (
-          <SlideEditor
-            slide={currentSlide}
-            onUpdateSlide={(updates) =>
-              updateSlide(id, currentSlide.id, updates)
-            }
-            activeTab={activeTab}
-            onGenerateImage={() => setImageGenOpen(true)}
-            onOpenAssetLibrary={(src) => {
-              setReplaceImageSrc(src);
-              setAssetLibraryOpen(true);
-            }}
-            onUploadImage={(src) => {
-              setReplaceImageSrc(src);
-              uploadInputRef.current?.click();
-            }}
-            onSearchImage={(src) => {
-              setReplaceImageSrc(src);
-              setImageSearchOpen(true);
-            }}
-            onLogoSearch={(src) => {
-              setReplaceImageSrc(src);
-              setLogoSearchOpen(true);
-            }}
-            onToggleObjectFit={toggleObjectFit}
-            slideIndex={currentIndex >= 0 ? currentIndex : 0}
-            slideCount={deck.slides.length}
-            designSystem={designSystem}
-            aspectRatio={deck.aspectRatio}
-            ydoc={ydoc}
-            awareness={awareness}
-            collabUser={
-              currentUser
-                ? { name: currentUser.name, color: currentUser.color }
-                : undefined
-            }
-            agentActive={agentActive}
-            onComment={(quotedText) => {
-              setPendingComment({ quotedText });
-              setCommentsOpen(true);
-            }}
-            drawMode={drawMode}
-            onExitDrawMode={() => setDrawMode(false)}
-            pinMode={pinMode}
-            onExitPinMode={() => setPinMode(false)}
-            slideId={currentSlide.id}
-            slideTitle={(() => {
-              const m = currentSlide.content?.match(
-                /<h[12][^>]*>([^<]+)<\/h[12]>/i,
-              );
-              return (
-                m?.[1]?.trim() ||
-                `Slide ${(currentIndex >= 0 ? currentIndex : 0) + 1}`
-              );
-            })()}
-          />
-        )}
+        {!(isNewDeckGenerating && deck.slides.length === 0) &&
+          !showQuestionFlow &&
+          currentSlide && (
+            <SlideEditor
+              slide={currentSlide}
+              onUpdateSlide={(updates) =>
+                updateSlide(id, currentSlide.id, updates)
+              }
+              activeTab={activeTab}
+              onGenerateImage={() => setImageGenOpen(true)}
+              onOpenAssetLibrary={(src) => {
+                setReplaceImageSrc(src);
+                setAssetLibraryOpen(true);
+              }}
+              onUploadImage={(src) => {
+                setReplaceImageSrc(src);
+                uploadInputRef.current?.click();
+              }}
+              onSearchImage={(src) => {
+                setReplaceImageSrc(src);
+                setImageSearchOpen(true);
+              }}
+              onLogoSearch={(src) => {
+                setReplaceImageSrc(src);
+                setLogoSearchOpen(true);
+              }}
+              onToggleObjectFit={toggleObjectFit}
+              slideIndex={currentIndex >= 0 ? currentIndex : 0}
+              slideCount={deck.slides.length}
+              designSystem={designSystem}
+              aspectRatio={deck.aspectRatio}
+              ydoc={ydoc}
+              awareness={awareness}
+              collabUser={
+                currentUser
+                  ? { name: currentUser.name, color: currentUser.color }
+                  : undefined
+              }
+              agentActive={agentActive}
+              onComment={(quotedText) => {
+                setPendingComment({ quotedText });
+                setCommentsOpen(true);
+              }}
+              drawMode={drawMode}
+              onExitDrawMode={() => setDrawMode(false)}
+              pinMode={pinMode}
+              onExitPinMode={() => setPinMode(false)}
+              slideId={currentSlide.id}
+              slideTitle={(() => {
+                const m = currentSlide.content?.match(
+                  /<h[12][^>]*>([^<]+)<\/h[12]>/i,
+                );
+                return (
+                  m?.[1]?.trim() ||
+                  `Slide ${(currentIndex >= 0 ? currentIndex : 0) + 1}`
+                );
+              })()}
+            />
+          )}
 
         {commentsOpen && (
           <SlideCommentsPanel

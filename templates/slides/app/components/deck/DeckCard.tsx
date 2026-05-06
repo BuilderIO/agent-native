@@ -1,5 +1,11 @@
 import { Link } from "react-router";
-import { IconDots, IconTrash, IconCopy, IconPencil } from "@tabler/icons-react";
+import {
+  IconDots,
+  IconTrash,
+  IconCopy,
+  IconPencil,
+  IconPalette,
+} from "@tabler/icons-react";
 import { useState, useRef, useEffect } from "react";
 import type { Deck } from "@/context/DeckContext";
 import SlideRenderer from "./SlideRenderer";
@@ -18,6 +24,7 @@ interface DeckCardProps {
   onRename: (id: string, newTitle: string) => void;
   onDuplicate: (id: string) => void;
   isDuplicating?: boolean;
+  designSystemTitle?: string | null;
 }
 
 export default function DeckCard({
@@ -26,6 +33,7 @@ export default function DeckCard({
   onRename,
   onDuplicate,
   isDuplicating = false,
+  designSystemTitle,
 }: DeckCardProps) {
   const firstSlide = deck.slides?.[0];
   const [isRenaming, setIsRenaming] = useState(false);
@@ -97,8 +105,18 @@ export default function DeckCard({
             )}
             <VisibilityBadge visibility={deck.visibility} />
           </div>
-          <div className="text-xs text-muted-foreground mt-1">
-            {deck.slides.length} slide{deck.slides.length !== 1 ? "s" : ""}
+          <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+            <span>
+              {deck.slides.length} slide{deck.slides.length !== 1 ? "s" : ""}
+            </span>
+            {deck.designSystemId && (
+              <span className="inline-flex min-w-0 items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground/80">
+                <IconPalette className="h-3 w-3 shrink-0 text-[#609FF8]" />
+                <span className="max-w-28 truncate">
+                  {designSystemTitle || "Design system"}
+                </span>
+              </span>
+            )}
           </div>
         </div>
       </Link>

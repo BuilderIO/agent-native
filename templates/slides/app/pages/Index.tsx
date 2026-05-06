@@ -7,6 +7,7 @@ import DeckCard from "@/components/deck/DeckCard";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { useDesignSystems } from "@/hooks/use-design-systems";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -29,6 +30,13 @@ import {
 } from "@/components/ui/alert-dialog";
 
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const MAX_SOURCE_CONTEXT_CHARS = 60_000;
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
@@ -94,10 +102,12 @@ async function waitForDeckServerRow(deckId: string): Promise<boolean> {
 
 export default function Index() {
   const { decks, createDeck, deleteDeck, updateDeck, loading } = useDecks();
+  const { designSystems, defaultSystem } = useDesignSystems();
   const { session } = useSession();
   const navigate = useNavigate();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(false);
+  const [selectedDesignSystemId, setSelectedDesignSystemId] = useState("");
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [duplicating, setDuplicating] = useState<string | null>(null);
   const duplicatingRef = useRef<string | null>(null);
@@ -106,11 +116,38 @@ export default function Index() {
   const anchorRef = useRef<HTMLElement | null>(null);
   // Keep anchorRef.current in sync so PromptPopover can read it
   anchorRef.current = anchorElRef.current;
+  const designSystemTitleById = useMemo(
+    () => new Map(designSystems.map((ds) => [ds.id, ds.title])),
+    [designSystems],
+  );
 
-  const openNewDeck = useCallback((e: React.MouseEvent<HTMLElement>) => {
-    anchorElRef.current = e.currentTarget;
-    setShowNewDeckPrompt(true);
+  const openNewDeck = useCallback(
+    (e: React.MouseEvent<HTMLElement>) => {
+      anchorElRef.current = e.currentTarget;
+      setSelectedDesignSystemId(defaultSystem?.id ?? "");
+      setShowNewDeckPrompt(true);
+    },
+    [defaultSystem?.id],
+  );
+
+  const setNewDeckPromptOpen = useCallback((open: boolean) => {
+    setShowNewDeckPrompt(open);
+    if (!open) setSelectedDesignSystemId("");
   }, []);
+
+  useEffect(() => {
+    if (!showNewDeckPrompt || selectedDesignSystemId) return;
+    if (defaultSystem?.id) {
+      setSelectedDesignSystemId(defaultSystem.id);
+    } else if (designSystems.length > 0) {
+      setSelectedDesignSystemId("none");
+    }
+  }, [
+    defaultSystem?.id,
+    designSystems.length,
+    selectedDesignSystemId,
+    showNewDeckPrompt,
+  ]);
 
   // Restore a prompt that was held back when the user wasn't signed in:
   // we wrote the text to sessionStorage before redirecting to sign-in,
@@ -139,13 +176,20 @@ export default function Index() {
       );
       sessionStorage.removeItem(PENDING_PROMPT_KEY);
     } catch {}
+    setSelectedDesignSystemId(defaultSystem?.id ?? "none");
     setShowNewDeckPrompt(true);
-  }, [session]);
+  }, [defaultSystem?.id, session]);
 
   const handleCreateDeckBlank = () => {
+    const selectedDesignSystem =
+      selectedDesignSystemId && selectedDesignSystemId !== "none"
+        ? designSystems.find((ds) => ds.id === selectedDesignSystemId)
+        : undefined;
     let deck: ReturnType<typeof createDeck> | undefined;
     flushSync(() => {
-      deck = createDeck();
+      deck = createDeck(undefined, {
+        designSystemId: selectedDesignSystem?.id ?? null,
+      });
     });
     if (!deck) return;
     navigate(`/deck/${deck.id}`);
@@ -164,17 +208,24 @@ export default function Index() {
       try {
         sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
       } catch {}
-      setShowNewDeckPrompt(false);
+      setNewDeckPromptOpen(false);
       setShowSignInDialog(true);
       return;
     }
 
+    const selectedDesignSystem =
+      selectedDesignSystemId && selectedDesignSystemId !== "none"
+        ? designSystems.find((ds) => ds.id === selectedDesignSystemId)
+        : undefined;
     let deck: ReturnType<typeof createDeck> | undefined;
     flushSync(() => {
-      deck = createDeck(undefined, { noDefaultSlides: true });
+      deck = createDeck(undefined, {
+        noDefaultSlides: true,
+        designSystemId: selectedDesignSystem?.id ?? null,
+      });
     });
     if (!deck) return;
-    setShowNewDeckPrompt(false);
+    setNewDeckPromptOpen(false);
     navigate(`/deck/${deck.id}?generating=1`);
 
     const trimmedPrompt = prompt.trim();
@@ -194,6 +245,20 @@ export default function Index() {
             "If the action cannot read a private document, tell the user the exact sharing step from the action error instead of generating from the URL alone.",
           ].join("\n")
         : "";
+    const designSystemContext = selectedDesignSystem
+      ? [
+          "",
+          "Design system selection:",
+          `- Use "${selectedDesignSystem.title}" (id: ${selectedDesignSystem.id}).`,
+          "- The deck has already been linked to this design system.",
+          `- Before adding slides, call \`get-design-system --id ${selectedDesignSystem.id}\` and use its tokens for colors, typography, spacing, imagery, and slide defaults.`,
+          "- Do not choose or apply a different design system.",
+        ].join("\n")
+      : [
+          "",
+          "Design system selection:",
+          "- None selected. Do not apply a design system unless the user asks for one.",
+        ].join("\n");
 
     const context = [
       `The user just created a new empty deck (id: "${deck.id}") and wants to fill it with slides.`,
@@ -206,10 +271,13 @@ export default function Index() {
         : "",
       googleDocContext,
       fileContext,
+      designSystemContext,
       "",
+      "Start a `manage-progress` run so progress appears in the app header. Add the first slide as soon as it is ready, then continue in small batches of 3-5 slides so the editor visibly fills in.",
       "Add slides ONE AT A TIME using the `add-slide` action with --deckId=" +
         deck.id +
-        ". You can fire multiple add-slide calls in parallel — they run concurrently and the user sees each slide appear as soon as it lands.",
+        ". You may batch add-slide calls, but keep batches small and pass `position` values so slide order stays stable.",
+      "If the user asked for a specific slide count, keep going in batches until that count is reached unless a tool error blocks you.",
       "Each slide's --content must be full HTML. Slide HTML templates are in your AGENTS.md.",
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, resource-read, or search-files.",
     ].join("\n");
@@ -336,6 +404,11 @@ export default function Index() {
                 onRename={handleRename}
                 onDuplicate={handleDuplicate}
                 isDuplicating={duplicating === deck.id}
+                designSystemTitle={
+                  deck.designSystemId
+                    ? designSystemTitleById.get(deck.designSystemId)
+                    : null
+                }
               />
             ))}
           </div>
@@ -369,7 +442,7 @@ export default function Index() {
 
       <PromptPopover
         open={showNewDeckPrompt}
-        onOpenChange={setShowNewDeckPrompt}
+        onOpenChange={setNewDeckPromptOpen}
         title="New deck"
         placeholder="Describe your deck..."
         onSkip={handleCreateDeckBlank}
@@ -378,7 +451,32 @@ export default function Index() {
         loading={generating}
         anchorRef={anchorRef}
         draftScope={NEW_DECK_DRAFT_SCOPE}
-      />
+      >
+        {designSystems.length > 0 && (
+          <div className="border-t border-border px-3.5 py-2">
+            <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
+              Design system
+            </label>
+            <Select
+              value={selectedDesignSystemId || "none"}
+              onValueChange={setSelectedDesignSystemId}
+            >
+              <SelectTrigger className="h-8 w-full bg-accent/40 text-xs">
+                <SelectValue placeholder="Choose a design system" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {designSystems.map((ds) => (
+                  <SelectItem key={ds.id} value={ds.id}>
+                    {ds.title}
+                    {ds.isDefault ? " (Default)" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </PromptPopover>
 
       {/* Sign-in required to create a deck. Shown when an unauthenticated
           user submits a prompt — the typed prompt is preserved in

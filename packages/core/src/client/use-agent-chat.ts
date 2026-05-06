@@ -6,7 +6,7 @@ import { sendToAgentChat, type AgentChatMessage } from "./agent-chat.js";
  *
  * Returns [isGenerating, send] where:
  * - isGenerating: true after send() is called, false when the
- *   builder.chatRunning event fires with detail.isRunning === false
+ *   agentNative.chatRunning event reports that the run has stopped
  * - send: wrapper around sendToAgentChat that sets isGenerating to true
  */
 export function useAgentChatGenerating(): [
@@ -18,8 +18,8 @@ export function useAgentChatGenerating(): [
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
-      if (detail?.isRunning === false) {
-        setIsGenerating(false);
+      if (typeof detail?.isRunning === "boolean") {
+        setIsGenerating(detail.isRunning);
       }
     };
     window.addEventListener("agentNative.chatRunning", handler);

@@ -8,6 +8,7 @@ import { InvitationBanner } from "@agent-native/core/client/org";
 import { IconMenu2 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
+import { AgentWorkIndicator } from "./AgentWorkIndicator";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -101,6 +102,7 @@ export function Layout({ children }: LayoutProps) {
             <InvitationBanner />
             {children}
           </div>
+          <AgentWorkIndicator />
         </div>
       </AgentSidebar>
     </HeaderActionsProvider>

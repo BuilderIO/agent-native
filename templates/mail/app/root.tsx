@@ -14,6 +14,7 @@ import { ClientOnly, DefaultSpinner, appPath } from "@agent-native/core/client";
 import { getThemeInitScript } from "@agent-native/core/client";
 import { appApiPath } from "@/lib/api-path";
 import { TAB_ID } from "@/lib/tab-id";
+import { markExternalEmailRefresh } from "@/hooks/use-emails";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
@@ -110,18 +111,26 @@ function AutomationTrigger() {
   return null;
 }
 
-/** Invalidate email queries when the window regains visibility */
+/** Invalidate email queries when the window regains focus or visibility */
 function VisibilityRefresh() {
   const qc = useQueryClient();
+  const lastRefresh = useRef(0);
   useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === "visible") {
-        qc.invalidateQueries({ queryKey: ["emails"] });
-        qc.invalidateQueries({ queryKey: ["labels"] });
-      }
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastRefresh.current < 1000) return;
+      lastRefresh.current = now;
+      markExternalEmailRefresh();
+      qc.invalidateQueries({ queryKey: ["emails"] });
+      qc.invalidateQueries({ queryKey: ["labels"] });
     };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
   }, [qc]);
   return null;
 }

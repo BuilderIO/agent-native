@@ -3,7 +3,8 @@ import type { GeneratedSlide } from "@shared/api";
 import { z } from "zod";
 
 export default defineAction({
-  description: "Generate slide deck content using Gemini AI.",
+  description:
+    "Legacy helper for the Generate Slides dialog. It returns markdown slide drafts, not the app's rendered slide HTML. Agent chat should create decks with create-deck slides: [] plus add-slide HTML instead of this action.",
   schema: z.object({
     topic: z.string().describe("Presentation topic"),
     slideCount: z.coerce
