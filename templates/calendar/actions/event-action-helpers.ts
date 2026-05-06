@@ -6,6 +6,39 @@ export const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
   .transform((value) => value === true || value === "true");
 
+export const eventTypeInput = z
+  .enum(["default", "outOfOffice", "focusTime", "workingLocation"])
+  .optional();
+
+export const availabilityInput = z.enum(["opaque", "transparent"]).optional();
+
+export const visibilityInput = z
+  .enum(["default", "public", "private", "confidential"])
+  .optional();
+
+export const reminderMethodInput = z.enum(["popup", "email"]).optional();
+
+export const reminderMinutesInput = z.coerce
+  .number()
+  .int()
+  .min(0)
+  .max(40320)
+  .optional();
+
+export const remindersInput = z
+  .array(
+    z.object({
+      method: z.enum(["popup", "email"]),
+      minutes: z.coerce.number().int().min(0).max(40320),
+    }),
+  )
+  .max(5)
+  .optional();
+
+export const workingLocationTypeInput = z
+  .enum(["homeOffice", "officeLocation", "customLocation"])
+  .optional();
+
 export function requireActionUserEmail(): string {
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");
@@ -77,4 +110,79 @@ export function extractVideoLink(event: {
     text.match(/https?:\/\/meet\.google\.com\/[^\s<>"')]+/i)?.[0] ||
     text.match(/https?:\/\/teams\.microsoft\.com\/[^\s<>"')]+/i)?.[0]
   );
+}
+
+export function buildReminderOverrides(args: {
+  reminders?: Array<{ method: "popup" | "email"; minutes: number }>;
+  reminderMinutes?: number;
+  reminderMethod?: "popup" | "email";
+  useDefaultReminders?: boolean;
+}): {
+  reminders?: Array<{ method: "popup" | "email"; minutes: number }>;
+  remindersUseDefault?: boolean;
+} {
+  if (args.useDefaultReminders !== undefined) {
+    return args.useDefaultReminders
+      ? { remindersUseDefault: true }
+      : { remindersUseDefault: false, reminders: args.reminders ?? [] };
+  }
+  if (args.reminders !== undefined) {
+    return { remindersUseDefault: false, reminders: args.reminders };
+  }
+  if (args.reminderMinutes !== undefined) {
+    return {
+      remindersUseDefault: false,
+      reminders: [
+        {
+          method: args.reminderMethod ?? "popup",
+          minutes: args.reminderMinutes,
+        },
+      ],
+    };
+  }
+  return {};
+}
+
+export function buildStatusEventFields(args: {
+  eventType?: "default" | "outOfOffice" | "focusTime" | "workingLocation";
+  location?: string;
+  title?: string;
+  workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
+  workingLocationLabel?: string;
+}) {
+  if (!args.eventType || args.eventType === "default") return {};
+  if (args.eventType === "outOfOffice") {
+    return {
+      eventType: args.eventType,
+      transparency: "opaque" as const,
+      outOfOfficeProperties: {
+        autoDeclineMode: "declineNone" as const,
+      },
+    };
+  }
+  if (args.eventType === "focusTime") {
+    return {
+      eventType: args.eventType,
+      transparency: "opaque" as const,
+      focusTimeProperties: {
+        autoDeclineMode: "declineNone" as const,
+        chatStatus: "doNotDisturb" as const,
+      },
+    };
+  }
+
+  const type = args.workingLocationType ?? "customLocation";
+  const label =
+    args.workingLocationLabel || args.location || args.title || "Working";
+  return {
+    eventType: args.eventType,
+    transparency: "transparent" as const,
+    visibility: "public" as const,
+    workingLocationProperties:
+      type === "homeOffice"
+        ? { type, homeOffice: {} }
+        : type === "officeLocation"
+          ? { type, officeLocation: { label } }
+          : { type, customLocation: { label } },
+  };
 }

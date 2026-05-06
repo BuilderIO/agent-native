@@ -18,6 +18,14 @@ export interface CalendarEvent {
   responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
   /** Google Calendar free/busy visibility; transparent means the event is free */
   transparency?: "opaque" | "transparent";
+  /** Native Google Calendar event type. Non-default types cannot be changed after creation. */
+  eventType?:
+    | "default"
+    | "birthday"
+    | "focusTime"
+    | "fromGmail"
+    | "outOfOffice"
+    | "workingLocation";
   attendees?: Array<{
     email: string;
     displayName?: string;
@@ -27,6 +35,8 @@ export interface CalendarEvent {
     self?: boolean;
   }>;
   reminders?: Array<{ method: "popup" | "email"; minutes: number }>;
+  /** Whether this event uses the calendar's default reminder policy. */
+  remindersUseDefault?: boolean;
   recurrence?: string[]; // RRULE strings from Google Calendar
   recurringEventId?: string;
   hangoutLink?: string; // Google Meet link
@@ -51,6 +61,35 @@ export interface CalendarEvent {
   }>;
   visibility?: "default" | "public" | "private" | "confidential";
   status?: "confirmed" | "tentative" | "cancelled";
+  outOfOfficeProperties?: {
+    autoDeclineMode?:
+      | "declineNone"
+      | "declineAllConflictingInvitations"
+      | "declineOnlyNewConflictingInvitations";
+    declineMessage?: string;
+  };
+  focusTimeProperties?: {
+    autoDeclineMode?:
+      | "declineNone"
+      | "declineAllConflictingInvitations"
+      | "declineOnlyNewConflictingInvitations";
+    declineMessage?: string;
+    chatStatus?: "available" | "doNotDisturb";
+  };
+  workingLocationProperties?: {
+    type?: "homeOffice" | "officeLocation" | "customLocation";
+    homeOffice?: unknown;
+    officeLocation?: {
+      buildingId?: string;
+      deskId?: string;
+      floorId?: string;
+      floorSectionId?: string;
+      label?: string;
+    };
+    customLocation?: {
+      label?: string;
+    };
+  };
   organizer?: { email: string; displayName?: string; self?: boolean };
   createdAt: string;
   updatedAt: string;

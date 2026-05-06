@@ -8,6 +8,7 @@ import type { EngineStreamOptions } from "./types.js";
 
 const credentialState = vi.hoisted(() => ({
   builderPrivateKey: "bpk-test" as string | null,
+  builderPublicKey: "space-test" as string | null,
   builderOrgName: null as string | null,
 }));
 
@@ -20,6 +21,7 @@ vi.mock("../../server/credential-provider.js", async (importOriginal) => {
     resolveBuilderCredential: vi.fn(async (key: string) => {
       if (key === "BUILDER_PRIVATE_KEY")
         return credentialState.builderPrivateKey;
+      if (key === "BUILDER_PUBLIC_KEY") return credentialState.builderPublicKey;
       if (key === "BUILDER_ORG_NAME") return credentialState.builderOrgName;
       return null;
     }),
@@ -70,8 +72,10 @@ const BASE_OPTS: EngineStreamOptions = {
 describe("createBuilderEngine", () => {
   beforeEach(() => {
     credentialState.builderPrivateKey = "bpk-test";
+    credentialState.builderPublicKey = "space-test";
     credentialState.builderOrgName = null;
     vi.stubEnv("BUILDER_PRIVATE_KEY", "bpk-test");
+    vi.stubEnv("BUILDER_PUBLIC_KEY", "space-test");
     vi.stubEnv("BUILDER_GATEWAY_BASE_URL", "https://test.example/gateway/v1");
   });
 
@@ -121,7 +125,22 @@ describe("createBuilderEngine", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("POSTs to the gateway /messages endpoint with bearer auth", async () => {
+  it("short-circuits with missing-credentials when BUILDER_PUBLIC_KEY is unset", async () => {
+    credentialState.builderPublicKey = null;
+
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("missing_credentials");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("POSTs to the gateway /messages endpoint with bearer auth and space id", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(
       jsonlResponse([
         { type: "text-delta", text: "Hi!" },
@@ -136,7 +155,9 @@ describe("createBuilderEngine", () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe("https://test.example/gateway/v1/messages");
+    expect(url).toBe(
+      "https://test.example/gateway/v1/messages?apiKey=space-test",
+    );
     expect(init.method).toBe("POST");
     expect(init.headers.Authorization).toBe("Bearer bpk-test");
     expect(init.headers["Content-Type"]).toBe("application/json");

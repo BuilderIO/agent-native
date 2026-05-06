@@ -58,8 +58,8 @@ beforeEach(() => {
 });
 
 describe("add-slide", () => {
-  it("declares same-turn parallel execution as safe", () => {
-    expect(action.parallelSafe).toBe(true);
+  it("does not advertise parallel execution for deck writes", () => {
+    expect(action.parallelSafe).toBeUndefined();
   });
 
   it("accepts CLI-style string positions and inserts at the requested index", async () => {

@@ -8,8 +8,9 @@
  * concurrency) into structured stop events that carry an upgrade URL when
  * the chat UI needs to prompt the user to upgrade.
  *
- * Credentials come from BUILDER_PRIVATE_KEY (set via the Builder CLI-auth
- * onboarding flow). Base URL is overridable via BUILDER_GATEWAY_BASE_URL.
+ * Credentials come from BUILDER_PRIVATE_KEY + BUILDER_PUBLIC_KEY (set via the
+ * Builder CLI-auth onboarding flow). Base URL is overridable via
+ * BUILDER_GATEWAY_BASE_URL.
  */
 
 import type {
@@ -127,8 +128,11 @@ class BuilderEngine implements AgentEngine {
   readonly capabilities = BUILDER_CAPABILITIES;
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
-    const authHeader = await resolveBuilderAuthHeader();
-    if (!authHeader) {
+    const [authHeader, spaceId] = await Promise.all([
+      resolveBuilderAuthHeader(),
+      resolveBuilderCredential("BUILDER_PUBLIC_KEY"),
+    ]);
+    if (!authHeader || !spaceId) {
       yield {
         type: "stop",
         reason: "error",
@@ -164,11 +168,16 @@ class BuilderEngine implements AgentEngine {
     };
 
     const gatewayBaseUrl = getBuilderGatewayBaseUrl();
+    const gatewayUrl = new URL(
+      "messages",
+      gatewayBaseUrl.endsWith("/") ? gatewayBaseUrl : `${gatewayBaseUrl}/`,
+    );
+    gatewayUrl.searchParams.set("apiKey", spaceId);
     const orgLabel =
       (await resolveBuilderCredential("BUILDER_ORG_NAME")) || "unknown-org";
     const tStart = Date.now();
     console.log(
-      `[builder-engine] → POST ${gatewayBaseUrl}/messages model=${opts.model} tools=${tools.length} org=${orgLabel}`,
+      `[builder-engine] → POST ${gatewayUrl.origin}${gatewayUrl.pathname} model=${opts.model} tools=${tools.length} org=${orgLabel}`,
     );
 
     const gatewayTimeoutMs = getBuilderGatewayTimeoutMs();
@@ -179,7 +188,7 @@ class BuilderEngine implements AgentEngine {
     try {
       let response: Response;
       try {
-        response = await fetch(`${gatewayBaseUrl}/messages`, {
+        response = await fetch(gatewayUrl.toString(), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

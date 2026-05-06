@@ -4,11 +4,17 @@ import type { CalendarEvent } from "../shared/api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
 import {
+  availabilityInput,
+  buildReminderOverrides,
   cliBoolean,
   normalizeGoogleEventId,
   normalizeRecurrence,
+  reminderMethodInput,
+  reminderMinutesInput,
+  remindersInput,
   requireActionUserEmail,
   resolveOwnedAccountEmail,
+  visibilityInput,
 } from "./event-action-helpers.js";
 
 export default defineAction({
@@ -30,6 +36,30 @@ export default defineAction({
     start: z.string().optional().describe("New start time/date as ISO string"),
     end: z.string().optional().describe("New end time/date as ISO string"),
     allDay: cliBoolean.optional().describe("Whether the event is all-day"),
+    transparency: availabilityInput.describe(
+      "Google Calendar availability: opaque blocks time (Busy), transparent does not block time (Free).",
+    ),
+    visibility: visibilityInput.describe(
+      "Google Calendar visibility: default, public, private, or confidential.",
+    ),
+    status: z
+      .enum(["confirmed", "tentative", "cancelled"])
+      .optional()
+      .describe("Google Calendar event status."),
+    remindersUseDefault: cliBoolean
+      .optional()
+      .describe(
+        "Whether to use calendar default reminders. Set false with no reminders to clear alert notifications.",
+      ),
+    reminders: remindersInput.describe(
+      "Custom reminder overrides, max 5, such as [{method:'popup', minutes:10}].",
+    ),
+    reminderMinutes: reminderMinutesInput.describe(
+      "Convenience field for a single reminder in minutes before the event.",
+    ),
+    reminderMethod: reminderMethodInput.describe(
+      "Reminder method for reminderMinutes. Defaults to popup.",
+    ),
     addGoogleMeet: cliBoolean
       .optional()
       .describe("Generate and attach a Google Meet link to the event"),
@@ -82,6 +112,12 @@ export default defineAction({
       ownerEmail,
     );
     const recurrence = normalizeRecurrence(args.recurrence);
+    const reminderFields = buildReminderOverrides({
+      reminders: args.reminders,
+      reminderMinutes: args.reminderMinutes,
+      reminderMethod: args.reminderMethod,
+      useDefaultReminders: args.remindersUseDefault,
+    });
 
     let attendees: CalendarEvent["attendees"] | undefined;
     if (args.attendees !== undefined) {
@@ -105,8 +141,12 @@ export default defineAction({
       args.start !== undefined ||
       args.end !== undefined ||
       args.allDay !== undefined ||
+      args.transparency !== undefined ||
+      args.visibility !== undefined ||
+      args.status !== undefined ||
       recurrence !== undefined ||
       attendees !== undefined ||
+      Object.keys(reminderFields).length > 0 ||
       args.addGoogleMeet === true ||
       args.addZoom === true;
 
@@ -123,8 +163,13 @@ export default defineAction({
     if (args.start !== undefined) updates.start = args.start;
     if (args.end !== undefined) updates.end = args.end;
     if (args.allDay !== undefined) updates.allDay = args.allDay;
+    if (args.transparency !== undefined)
+      updates.transparency = args.transparency;
+    if (args.visibility !== undefined) updates.visibility = args.visibility;
+    if (args.status !== undefined) updates.status = args.status;
     if (recurrence !== undefined) updates.recurrence = recurrence;
     if (attendees !== undefined) updates.attendees = attendees;
+    Object.assign(updates, reminderFields);
 
     let zoomMeetingLink: string | undefined;
     let zoomAlreadyPresent = false;

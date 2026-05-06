@@ -5,10 +5,9 @@ import { getDb, schema } from "../server/db/index.js";
 import { assertAccess } from "@agent-native/core/sharing";
 import { notifyClients } from "../server/handlers/decks.js";
 
-// In-process serialization per deckId. The agent fires parallel add-slide calls
-// from a single turn (see production-agent.ts parallel tool execution), and a
-// naive read-modify-write on decks.data would lose writes. All parallel calls
-// in one turn share this process, so a per-deckId promise chain is enough.
+// In-process serialization per deckId. `add-slide` is intentionally advertised
+// as a sequential write, but the lock still protects against accidental
+// concurrent calls and any direct integrations that bypass agent guidance.
 const deckLocks = new Map<string, Promise<unknown>>();
 
 function withDeckLock<T>(deckId: string, fn: () => Promise<T>): Promise<T> {
@@ -26,8 +25,8 @@ function withDeckLock<T>(deckId: string, fn: () => Promise<T>): Promise<T> {
 export default defineAction({
   description:
     "Add a single slide to an existing deck. Use this to build decks slide-by-slide — " +
-    "you can call this in parallel for multiple slides at once to generate an entire deck concurrently. " +
-    "For larger decks, use small visible batches of at most 4 add-slide calls per model turn. " +
+    "call it once per slide in slide order and wait for each result before adding the next slide. " +
+    "Avoid parallel add-slide calls for the same deck; sequential writes keep the editor and agent connection stable. " +
     "Returns the new slide ID and updated slide count.",
   schema: z.object({
     deckId: z.string().describe("Target deck ID"),
@@ -64,10 +63,6 @@ export default defineAction({
       ),
   }),
   http: false,
-  // The deck-level lock above serializes writes that target the same deck,
-  // while calls for different decks can proceed independently. This lets the
-  // agent build several slides from one model turn without wasting wall time.
-  parallelSafe: true,
   run: async ({ deckId, content, slideId, layout, notes, position }) =>
     withDeckLock(deckId, async () => {
       await assertAccess("deck", deckId, "editor");

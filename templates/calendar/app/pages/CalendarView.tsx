@@ -907,6 +907,14 @@ export default function CalendarView() {
                 end: snapshot.end,
                 allDay: snapshot.allDay ?? false,
                 color: snapshot.color,
+                eventType: snapshot.eventType,
+                transparency: snapshot.transparency,
+                visibility: snapshot.visibility,
+                reminders: snapshot.reminders,
+                remindersUseDefault: snapshot.remindersUseDefault,
+                outOfOfficeProperties: snapshot.outOfOfficeProperties,
+                focusTimeProperties: snapshot.focusTimeProperties,
+                workingLocationProperties: snapshot.workingLocationProperties,
               });
             };
             // Optimistic: close dialog immediately

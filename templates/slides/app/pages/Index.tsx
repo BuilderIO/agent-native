@@ -273,11 +273,11 @@ export default function Index() {
       fileContext,
       designSystemContext,
       "",
-      "Start a `manage-progress` run so progress appears in the app header. Add the first slide as soon as it is ready, then continue in small batches of 3-5 slides so the editor visibly fills in.",
+      "Start a `manage-progress` run so progress appears in the app header. Add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in.",
       "Add slides ONE AT A TIME using the `add-slide` action with --deckId=" +
         deck.id +
-        ". You may batch add-slide calls, but keep batches small and pass `position` values so slide order stays stable.",
-      "If the user asked for a specific slide count, keep going in batches until that count is reached unless a tool error blocks you.",
+        ". Wait for each `add-slide` result before calling it again; do not batch or parallelize slide writes.",
+      "If the user asked for a specific slide count, keep going sequentially until that count is reached unless a tool error blocks you.",
       "Each slide's --content must be full HTML. Slide HTML templates are in your AGENTS.md.",
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, resource-read, or search-files.",
     ].join("\n");

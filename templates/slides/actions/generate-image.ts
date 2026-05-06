@@ -164,7 +164,8 @@ Options:
         (slideHints.length ? `Slide context: ${slideHints.join(", ")}\n` : "") +
         `\nPick the best matching library via match-library if no libraryId is ` +
         `obvious. Return previewUrl + downloadUrl in the response so the slides ` +
-        `agent can drop them into the slide HTML.`;
+        `agent can drop them into the slide HTML. When calling Images actions, ` +
+        `set source: "a2a" and callerAppId: "slides" for audit logging.`;
       const replyText = await callAgent(imagesA2AUrl, message, {
         apiKey: imagesA2AKey || undefined,
         timeoutMs: 240_000,
