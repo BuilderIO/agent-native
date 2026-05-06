@@ -378,6 +378,11 @@ export function InboxPage() {
         ? `/draft-queue?id=${encodeURIComponent(navCommand.queuedDraftId)}`
         : "/draft-queue";
       navigate(target);
+    } else if (targetView === "settings") {
+      const target = navCommand.settingsSection
+        ? `/settings?section=${encodeURIComponent(navCommand.settingsSection)}`
+        : "/settings";
+      navigate(target);
     } else if (targetThread) {
       navigate(`/${targetView}/${targetThread}`);
     } else if (targetView !== view) {

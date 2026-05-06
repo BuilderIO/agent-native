@@ -47,6 +47,7 @@ import {
   useUpdateAlias,
   useDeleteAlias,
 } from "@/hooks/use-aliases";
+import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   useAutomations,
   useCreateAutomation,
@@ -1326,9 +1327,30 @@ const navItems: {
   { id: "team", label: "Team", icon: IconUsers },
 ];
 
+function isSettingsSection(value: string | null): value is SettingsSection {
+  return navItems.some((item) => item.id === value);
+}
+
 export function SettingsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navState = useNavigationState();
   const [activeSection, setActiveSection] =
     useState<SettingsSection>("drafting");
+
+  useEffect(() => {
+    const section = searchParams.get("section");
+    if (!isSettingsSection(section)) return;
+    setActiveSection(section);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("section");
+      return next;
+    });
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    navState.sync({ view: "settings", settingsSection: activeSection });
+  }, [activeSection]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="flex flex-1 flex-col sm:flex-row overflow-hidden">

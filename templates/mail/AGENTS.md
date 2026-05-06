@@ -418,7 +418,7 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 | `open-queued-draft`   | `--id <id>`                                                                               | Open queued draft in compose             |
 | `send-queued-drafts`  | `--id <id>` or `--all=true`                                                               | Send queued draft(s) assigned to you     |
 | `list-org-members`    | none                                                                                      | List valid queued-draft owners           |
-| `navigate`            | `--view <name> [--threadId <id>] [--queuedDraftId <id>]`                                  | Navigate the UI to a view/thread/queue   |
+| `navigate`            | `--view <name> [--threadId <id>] [--queuedDraftId <id>] [--settingsSection <id>]`          | Navigate the UI to a view/thread/queue/settings |
 
 ### Utilities
 
