@@ -115,15 +115,31 @@ const collapsibleViews = [
 
 export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
+  const isMobile = useIsMobile();
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
   }
 
-  if (isStandardLayoutPath(location.pathname)) {
-    return <StandardLayout>{children}</StandardLayout>;
-  }
+  const content = isStandardLayoutPath(location.pathname) ? (
+    <StandardLayout>{children}</StandardLayout>
+  ) : (
+    <AppLayoutInner>{children}</AppLayoutInner>
+  );
 
-  return <AppLayoutInner>{children}</AppLayoutInner>;
+  return (
+    <AgentSidebar
+      position="right"
+      defaultOpen={!isMobile}
+      emptyStateText="Ask me anything about your emails"
+      suggestions={[
+        "What's in my inbox?",
+        "Summarize my unread emails",
+        "Show me the database schema",
+      ]}
+    >
+      {content}
+    </AgentSidebar>
+  );
 }
 
 function AppLayoutInner({ children }: AppLayoutProps) {
@@ -794,18 +810,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   return (
     <AccountFilterContext.Provider value={accountFilterValue}>
-      <div className="flex h-screen overflow-hidden bg-background">
-        <AgentSidebar
-          position="right"
-          defaultOpen={!isMobile}
-          emptyStateText="Ask me anything about your emails"
-          suggestions={[
-            "What's in my inbox?",
-            "Summarize my unread emails",
-            "Show me the database schema",
-          ]}
-        >
-          <div className="relative flex flex-1 flex-col overflow-hidden">
+      <div className="relative flex flex-1 flex-col overflow-hidden bg-background">
             {/* Top nav bar */}
             <header className="relative z-20 flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2 inbox-zero-header">
               {/* Hamburger menu */}
@@ -1431,8 +1436,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 {children}
               </main>
             )}
-          </div>
-        </AgentSidebar>
+      </div>
 
         {(() => {
           // Filter out inline drafts (rendered in thread view, not the popout composer)

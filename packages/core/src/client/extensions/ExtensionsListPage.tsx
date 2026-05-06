@@ -1,8 +1,14 @@
 import { agentNativePath } from "../api-path.js";
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { IconArrowLeft, IconPlus, IconTool } from "@tabler/icons-react";
+import {
+  IconArrowLeft,
+  IconDotsVertical,
+  IconPlus,
+  IconTool,
+  IconTrash,
+} from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { AgentToggleButton } from "../AgentPanel.js";
 import { NotificationsBell } from "../notifications/NotificationsBell.js";
@@ -26,11 +32,22 @@ interface Extension {
   icon?: string;
 }
 
+let lastCreateSubmission: { prompt: string; at: number } | null = null;
+
 function submitCreateTool(prompt: string) {
   const trimmed = prompt.trim();
   if (!trimmed) return;
+  const now = Date.now();
+  if (
+    lastCreateSubmission &&
+    lastCreateSubmission.prompt === trimmed &&
+    now - lastCreateSubmission.at < 2_000
+  ) {
+    return;
+  }
+  lastCreateSubmission = { prompt: trimmed, at: now };
   sendToAgentChat({
-    message: `Create a extension: ${trimmed}`,
+    message: `Create an extension: ${trimmed}`,
     submit: true,
     openSidebar: true,
     newTab: true,
@@ -53,6 +70,9 @@ function CreateToolInput({ className }: { className?: string }) {
 
 export function ExtensionsListPage() {
   const [showCreate, setShowCreate] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [toolOrderState, setToolOrderState] = useState<string[]>(() =>
     typeof window !== "undefined" ? getToolsOrder() : [],
   );
@@ -93,6 +113,27 @@ export function ExtensionsListPage() {
   const handleCreate = (text: string) => {
     submitCreateTool(text);
     setShowCreate(false);
+  };
+
+  const handleDelete = async (extension: Extension) => {
+    setDeletingId(extension.id);
+    const previous = queryClient.getQueryData<Extension[]>(["extensions"]);
+    queryClient.setQueryData<Extension[]>(["extensions"], (old) =>
+      (old ?? []).filter((item) => item.id !== extension.id),
+    );
+    try {
+      const res = await fetch(
+        agentNativePath(`/_agent-native/extensions/${extension.id}`),
+        { method: "DELETE" },
+      );
+      if (!res.ok) throw new Error("Delete failed");
+    } catch {
+      if (previous) queryClient.setQueryData(["extensions"], previous);
+    } finally {
+      setDeletingId(null);
+      setConfirmDeleteId(null);
+      queryClient.invalidateQueries({ queryKey: ["extensions"] });
+    }
   };
 
   return (
@@ -168,26 +209,78 @@ export function ExtensionsListPage() {
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {toolList.map((extension) => (
-              <Link
+              <div
                 key={extension.id}
-                to={`/extensions/${extension.id}`}
                 className={cn(
-                  "group cursor-pointer rounded-lg border border-border bg-card p-5",
+                  "group relative rounded-lg border border-border bg-card",
                   "hover:border-primary/30 hover:shadow-sm",
                 )}
               >
-                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary">
-                  <IconTool className="h-5 w-5" />
-                </div>
-                <h3 className="mb-1 text-sm font-semibold text-foreground">
-                  {extension.name}
-                </h3>
-                {extension.description && (
-                  <p className="line-clamp-2 text-xs text-muted-foreground">
-                    {extension.description}
-                  </p>
-                )}
-              </Link>
+                <Link
+                  to={`/extensions/${extension.id}`}
+                  className="block p-5 pr-12"
+                >
+                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary">
+                    <IconTool className="h-5 w-5" />
+                  </div>
+                  <h3 className="mb-1 text-sm font-semibold text-foreground">
+                    {extension.name}
+                  </h3>
+                  {extension.description && (
+                    <p className="line-clamp-2 text-xs text-muted-foreground">
+                      {extension.description}
+                    </p>
+                  )}
+                </Link>
+                <Popover
+                  open={confirmDeleteId === extension.id}
+                  onOpenChange={(open) =>
+                    setConfirmDeleteId(open ? extension.id : null)
+                  }
+                >
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover:opacity-100"
+                      aria-label={`Options for ${extension.name}`}
+                    >
+                      <IconDotsVertical className="h-4 w-4" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" sideOffset={4} className="w-64 p-0">
+                    <div className="p-3">
+                      <p className="text-[12px]">
+                        Delete{" "}
+                        <span className="font-medium">{extension.name}</span>?
+                        This removes it everywhere it is shared.
+                      </p>
+                      <div className="mt-3 flex justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="rounded-md px-2 py-1 text-[12px] hover:bg-accent"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(extension)}
+                          disabled={deletingId === extension.id}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-md bg-destructive px-2 py-1 text-[12px] text-destructive-foreground hover:bg-destructive/90",
+                            deletingId === extension.id && "opacity-60",
+                          )}
+                        >
+                          <IconTrash className="h-3.5 w-3.5" />
+                          {deletingId === extension.id
+                            ? "Deleting..."
+                            : "Delete"}
+                        </button>
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
             ))}
           </div>
         )}
