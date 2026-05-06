@@ -42,6 +42,7 @@ import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { renderInviteEmail } from "../server/email-templates.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { getOrgContext } from "./context.js";
+import { isFreeEmailProvider } from "./free-email-providers.js";
 import type { OrgRole } from "./types.js";
 
 function getInviteAppUrl(event: H3Event): string {
@@ -608,6 +609,33 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
       statusCode: 400,
       message: "Invalid domain format",
     });
+  }
+
+  if (raw) {
+    // Auto-join is "anyone with this domain joins automatically". That is
+    // safe for company domains (the company controls who gets an address)
+    // and catastrophic for shared mailbox providers — anyone in the world
+    // could create a matching mailbox and silently join the org.
+    if (isFreeEmailProvider(raw)) {
+      throw createError({
+        statusCode: 400,
+        message:
+          "Free email providers (gmail.com, outlook.com, etc.) cannot be used as an auto-join domain. Use your company's own domain.",
+      });
+    }
+
+    // Restrict to the admin's own email domain. Without this, an admin
+    // could set `allowed_domain` to a domain they don't control, and
+    // anyone signing up under that domain would join the org. Even with
+    // the free-provider blocklist above, that would still let an admin
+    // hijack a competitor's domain.
+    const ownDomain = ctx.email.split("@")[1]?.toLowerCase() ?? "";
+    if (raw !== ownDomain) {
+      throw createError({
+        statusCode: 400,
+        message: `You can only auto-join your own email domain (${ownDomain}).`,
+      });
+    }
   }
 
   const e = await exec();
