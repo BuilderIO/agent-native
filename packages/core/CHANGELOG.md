@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.12.2
+
+### Patch Changes
+
+- b878dd8: `agentNative.chatRunning` event now reflects both true and false transitions of `isRunning`, allowing UI consumers to track agent work state in real time.
+- b878dd8: Broadcast agent chat running state when normal runs start or stop, and switch the agent panel back to chat when submitting a visible prompt.
+
 ## 0.12.1
 
 ### Patch Changes
