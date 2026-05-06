@@ -311,7 +311,7 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 | `amplitude-events`             |                             | Amplitude event data                                                                                                                                  |
 | `commonroom-members`           | `--query`, `--email`        | Community member lookup                                                                                                                               |
 | `twitter-tweets`               |                             | Tweet engagement                                                                                                                                      |
-| `generate-chart`               | `--type`, `--data`          | Generate inline charts for chat                                                                                                                       |
+| `generate-chart`               | `--type`, `--data`          | Generate a static PNG chart **for `save-analysis` artifacts only**. For in-chat answers, use a live `/chart` embed instead (see "Inline Charts in Chat"). |
 | `top-amplitude-events`         | `[--days N]`                | Top 20 Amplitude events by count from BigQuery (default 90 days)                                                                                      |
 | `bigquery-table-info`          |                             | Explain how to find configured BigQuery table and column metadata                                                                                     |
 | `content-calendar`             |                             | Get all entries from the Notion content calendar                                                                                                      |
@@ -334,7 +334,7 @@ pnpm action commonroom-members --query="enterprise" --limit=10
 | User request                        | What to do                                                                     |
 | ----------------------------------- | ------------------------------------------------------------------------------ |
 | "What am I looking at?"             | `view-screen`                                                                  |
-| "Show weekly signup trends"         | Use the configured signup source, generate chart, present in chat              |
+| "Show weekly signup trends"         | Query the configured signup source, then emit a live `/chart` embed (see Inline Charts in Chat). Do **not** use `generate-chart` — that's for saved analyses only. |
 | "Create a dashboard for X"          | Use `update-dashboard`, then navigate to it                                    |
 | "How many open bugs?"               | `jira-search --jql="issuetype = Bug AND resolution = Unresolved"`              |
 | "Find deals over $50k"              | `hubspot-deals --grep="50000" --fields=dealname,amount,stageLabel`             |
@@ -354,29 +354,34 @@ pnpm action commonroom-members --query="enterprise" --limit=10
 
 ## Inline Charts in Chat
 
-Two ways to show charts inline in chat:
+**Decision rule, no exceptions:**
 
-1. **Live interactive iframe (preferred for one-off questions)** — use the framework's `embed` fence with the `/chart` route. The iframe mounts a live `SqlChart` with tooltips, hover states, and data that re-queries when the underlying source changes.
+- **In-chat data question → live `/chart` embed.** This is the default and the right answer for "show me weekly signups", "trend X over Y", "break this down by Z", and any other question the user is asking right now in chat. The chart re-queries on its own and updates when the underlying source changes. Never reach for `generate-chart` here.
+- **Saving a `save-analysis` artifact → static PNG via `generate-chart`.** Only use the static PNG path when the chart needs to survive outside this app (an emailed report, an analysis artifact a teammate reads later). If the user is asking a question, this is the wrong tool.
 
-   Build a `SqlPanel` object, JSON-stringify, base64url-encode, and emit:
+If `generate-chart` ever fails (rejected JSON shape, missing field, parse error), do not retry it with a different param permutation. Switch to the live `/chart` embed below — that's the supported path for chat answers, and it doesn't have rigid string-encoded JSON params.
 
-   ````
-   ```embed
-   src: /chart?panel=<base64url-encoded SqlPanel JSON>
-   aspect: 16/9
-   title: Weekly signups
-   ```
-   ````
+### Live `/chart` embed (default for chat)
 
-   The `SqlPanel` shape is the same one used by `update-dashboard` (see `app/pages/adhoc/sql-dashboard/types.ts`). Required fields: `id`, `title`, `sql`, `source` (`"bigquery" | "ga4" | "amplitude" | "first-party"`), `chartType` (`"line" | "area" | "bar" | "metric" | "table" | "pie"`), `width` (`1` or `2`). Optional `config` for axis keys, formatting, pivots.
+Build a `SqlPanel` object, JSON-stringify, base64url-encode, and emit:
 
-   Keep the JSON compact — URLs are capped around 4KB. If the SQL is long, consider persisting it as a saved dashboard panel instead and linking to that dashboard.
+````
+```embed
+src: /chart?panel=<base64url-encoded SqlPanel JSON>
+aspect: 16/9
+title: Weekly signups
+```
+````
 
-   Use base64url (replace `+` → `-`, `/` → `_`, strip `=` padding) so the payload is URL-safe.
+The `SqlPanel` shape is the same one used by `update-dashboard` (see `app/pages/adhoc/sql-dashboard/types.ts`). Required fields: `id`, `title`, `sql`, `source` (`"bigquery" | "ga4" | "amplitude" | "first-party"`), `chartType` (`"line" | "area" | "bar" | "metric" | "table" | "pie"`), `width` (`1` or `2`). Optional `config` for axis keys, formatting, pivots.
 
-2. **Static PNG via `generate-chart`** — use when you want a stable, share-able image (email / report / analysis artifact). The output is a markdown image; no interactivity.
+Keep the JSON compact — URLs are capped around 4KB. If the SQL is long, persist it as a saved dashboard panel instead and link to that dashboard.
 
-Prefer (1) for answering a user's in-chat question; prefer (2) when the chart is part of a saved analysis (`save-analysis`) or needs to survive outside this app.
+Use base64url (replace `+` → `-`, `/` → `_`, strip `=` padding) so the payload is URL-safe.
+
+### Static PNG via `generate-chart` (save-analysis only)
+
+Use only when writing an analysis artifact via `save-analysis` — the markdown body needs to render later in contexts where the live embed isn't available (exports, emails, archived reports). Pass `--title`, `--labels` (JSON array), `--data` (JSON array of numbers OR `[{label,data,color}]`). If the action returns an `error`, do not retry — the user is in chat, switch to the live embed above instead.
 
 ## Learnings & Skills (MANDATORY)
 

@@ -47,9 +47,11 @@ pnpm action hubspot-deals --fields=dealname,amount,stageLabel
 pnpm action seo-top-keywords --grep=remix --fields=keyword,rank_absolute,etv
 ```
 
-## Generating Charts
+## Showing Charts In Chat
 
-Use the `generate-chart` script to create inline charts for chat responses. See `.builder/skills/charts/SKILL.md` for chart types, styling options, and examples.
+For an in-chat answer, **emit a live `/chart` embed** — never `generate-chart`. The embed mounts a live `SqlChart` that re-queries when its source changes, and it doesn't choke on rigid JSON params the way the PNG action does. Full shape in `AGENTS.md` ("Inline Charts in Chat" section). Reach for `generate-chart` only when you're building a `save-analysis` artifact whose markdown will render outside the app.
+
+If `generate-chart` returns an error in any chat-answering flow, the recovery is to switch to the live embed, not to retry with reformatted params.
 
 ## Script Patterns
 
