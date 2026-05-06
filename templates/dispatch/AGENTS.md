@@ -183,4 +183,12 @@ The embedded page at `/approval` is chromeless (no sidebar or header). It shows 
 
 When the agent lists pending approvals and wants the user to act on one, prefer emitting an embed block over plain text so the user can approve or reject inline.
 
+## UI Components
+
+**Always use shadcn/ui components** from `app/components/ui/` for all standard UI patterns (dialogs, popovers, dropdowns, tooltips, buttons, etc). Never build custom modals, dropdowns, or action menus with `position: absolute` + a manual click-outside `useEffect` — those get clipped by ancestor stacking contexts and lack keyboard / focus / animation behavior. Use `<DropdownMenu>` for action menus (Rename / Delete / "⋯"), `<Popover>` for transient panels, `<Dialog>` / `<AlertDialog>` for modals/confirms.
+
+**Always use Tabler Icons** (`@tabler/icons-react`) for all icons. Never use other icon libraries.
+
+**Never use browser dialogs** (`window.confirm`, `window.alert`, `window.prompt`) — use shadcn AlertDialog instead.
+
 For code editing and development guidance, read `DEVELOPING.md`.

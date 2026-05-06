@@ -40,6 +40,7 @@ export interface AppWebviewHandle {
   stopFindInPage(
     action?: "clearSelection" | "keepSelection" | "activateSelection",
   ): void;
+  getUrl(): string | undefined;
   goBack(): void;
   goForward(): void;
 }
@@ -102,6 +103,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         stopFindInPage(action = "clearSelection") {
           webviewRef.current?.stopFindInPage(action);
         },
+        getUrl() {
+          const wv = webviewRef.current;
+          if (!wv || app.placeholder) return undefined;
+          const currentUrl = wv.getURL();
+          if (currentUrl && currentUrl !== "about:blank") return currentUrl;
+          return wv.src || url;
+        },
         goBack() {
           const wv = webviewRef.current;
           if (wv?.canGoBack()) wv.goBack();
@@ -111,7 +119,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           if (wv?.canGoForward()) wv.goForward();
         },
       }),
-      [],
+      [app.placeholder, url],
     );
 
     function reportActiveWebview() {

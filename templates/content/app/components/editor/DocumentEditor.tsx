@@ -282,7 +282,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
           ref={scrollContainerRef}
           className="flex-1 min-h-0 overflow-auto flex flex-col"
         >
-          <div className="shrink-0 w-full max-w-3xl mx-auto px-4 pt-14 pb-2 sm:px-8 md:px-16 md:pt-16 group/title">
+          <div className="shrink-0 w-full max-w-3xl mx-auto px-4 pt-14 pb-8 sm:px-8 md:px-16 md:pt-16 group/title">
             <div className="mb-1">
               <EmojiPicker
                 icon={document.icon}

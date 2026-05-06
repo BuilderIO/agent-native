@@ -28,7 +28,8 @@
   "dependencies": {
     "@agent-native/shared-app-config": "workspace:*",
     "@tabler/icons-react": "^3.40.0",
-    "electron-updater": "^6.8.3"
+    "electron-updater": "^6.8.3",
+    "sonner": "^2.0.7"
   },
   "devDependencies": {
     "@types/node": "^24.2.1",

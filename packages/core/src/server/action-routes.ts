@@ -117,6 +117,8 @@ export function mountActionRoutes(
           return handleOptionsRequest(event);
         }
 
+        setResponseHeader(event, "Cache-Control", "no-store");
+
         // Allow the declared method
         if (effectiveMethod !== method) {
           setResponseStatus(event, 405);

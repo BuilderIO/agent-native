@@ -1,5 +1,22 @@
-import { describe, it, expect } from "vitest";
-import { isBuildAppOrAgentRequest } from "./builder-frame.js";
+// @vitest-environment happy-dom
+import { beforeEach, describe, expect, it } from "vitest";
+import { isBuildAppOrAgentRequest, isInBuilderFrame } from "./builder-frame.js";
+
+describe("isInBuilderFrame", () => {
+  beforeEach(() => {
+    window.history.replaceState({}, "", "/");
+  });
+
+  it("does not treat a plain top-level page as Builder", () => {
+    expect(isInBuilderFrame()).toBe(false);
+  });
+
+  it("treats Builder preview params as Builder in top-level webviews", () => {
+    window.history.replaceState({}, "", "/?builder.preview=interact");
+
+    expect(isInBuilderFrame()).toBe(true);
+  });
+});
 
 describe("isBuildAppOrAgentRequest", () => {
   const positives = [

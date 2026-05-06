@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { Toaster, toast } from "sonner";
 import {
   APP_REGISTRY,
   DEFAULT_APPS,
@@ -230,6 +231,29 @@ export default function App() {
     }));
   }, [activeSidebarAppId, enabledApps]);
 
+  const handleCopyCurrentUrl = useCallback(async () => {
+    const currentUrl = webviewRefs.current
+      .get(activeTabIdRef.current)
+      ?.getUrl();
+    if (!currentUrl) return;
+
+    try {
+      if (window.electronAPI?.clipboard?.writeText) {
+        const copied = await window.electronAPI.clipboard.writeText(currentUrl);
+        if (!copied) return;
+      } else {
+        await navigator.clipboard.writeText(currentUrl);
+      }
+      toast("URL copied", {
+        id: "url-copied",
+        duration: 1600,
+      });
+    } catch {
+      // Clipboard permissions vary in browser-only dev mode; the Electron
+      // bridge is used in the packaged app.
+    }
+  }, []);
+
   const handleShortcut = useCallback(
     (key: string, shiftKey: boolean, altKey: boolean = false) => {
       const k = key.toLowerCase();
@@ -253,6 +277,11 @@ export default function App() {
           findInputRef.current?.focus();
           findInputRef.current?.select();
         }, 0);
+        return;
+      }
+
+      if (k === "l") {
+        void handleCopyCurrentUrl();
         return;
       }
 
@@ -292,7 +321,7 @@ export default function App() {
         }
       }
     },
-    [handleNewTab, handleReopenTab, appDefs],
+    [handleCopyCurrentUrl, handleNewTab, handleReopenTab, appDefs],
   );
 
   useEffect(() => {
@@ -486,6 +515,19 @@ export default function App() {
       )}
 
       <UpdatePrompt />
+      <Toaster
+        className="shell-snackbar-toaster"
+        theme="dark"
+        position="bottom-center"
+        offset={20}
+        visibleToasts={1}
+        toastOptions={{
+          classNames: {
+            toast: "shell-snackbar",
+            title: "shell-snackbar-title",
+          },
+        }}
+      />
     </div>
   );
 }

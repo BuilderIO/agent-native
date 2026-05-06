@@ -21,7 +21,6 @@
  *   <AgentPanel className="h-screen" />
  */
 
-import ReactDOM from "react-dom";
 import React, {
   useState,
   useEffect,
@@ -40,6 +39,13 @@ import {
   TooltipTrigger,
   normalizeTooltipText,
 } from "./components/ui/tooltip.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "./components/ui/dropdown-menu.js";
 import {
   IconMessageChatbot,
   IconSparkles,
@@ -585,7 +591,6 @@ function AgentPanelInner({
 
   const [tabMenuOpen, setTabMenuOpen] = useState<string | null>(null);
   const [cliPickerOpen, setCliPickerOpen] = useState(false);
-  const cliPickerBtnRef = useRef<HTMLButtonElement>(null);
 
   // Ref callback: scroll the active tab into view in the overflow container.
   // Uses getBoundingClientRect for reliable positioning regardless of offsetParent.
@@ -775,16 +780,14 @@ function AgentPanelInner({
                             </button>
                           </IconTooltip>
                         )}
-                        <div className="relative">
-                          <IconTooltip content="Tab options">
+                        <DropdownMenu
+                          open={tabMenuOpen === "__chat_global"}
+                          onOpenChange={(open) =>
+                            setTabMenuOpen(open ? "__chat_global" : null)
+                          }
+                        >
+                          <DropdownMenuTrigger asChild>
                             <button
-                              onClick={() =>
-                                setTabMenuOpen(
-                                  tabMenuOpen === "__chat_global"
-                                    ? null
-                                    : "__chat_global",
-                                )
-                              }
                               className={cn(
                                 "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
                                 tabMenuOpen === "__chat_global" &&
@@ -794,51 +797,33 @@ function AgentPanelInner({
                             >
                               <IconDotsVertical size={14} />
                             </button>
-                          </IconTooltip>
-                          {tabMenuOpen === "__chat_global" && (
-                            <>
-                              <div
-                                className="fixed inset-0 z-40"
-                                onClick={() => setTabMenuOpen(null)}
-                              />
-                              <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-md border border-border bg-popover py-1 shadow-lg">
-                                <button
-                                  className="flex w-full items-center justify-between px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                                  onClick={() => {
-                                    closeTab(activeTabId);
-                                    setTabMenuOpen(null);
-                                  }}
-                                >
-                                  Close Tab
-                                  <kbd className="text-[10px] text-muted-foreground">
-                                    {closeTabHint}
-                                  </kbd>
-                                </button>
-                                <button
-                                  className="flex w-full items-center px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                                  onClick={() => {
-                                    closeOtherTabs(activeTabId);
-                                    setTabMenuOpen(null);
-                                  }}
-                                >
-                                  Close Other Tabs
-                                </button>
-                                <button
-                                  className="flex w-full items-center justify-between px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                                  onClick={() => {
-                                    closeAllTabs();
-                                    setTabMenuOpen(null);
-                                  }}
-                                >
-                                  Close All Tabs
-                                  <kbd className="text-[10px] text-muted-foreground">
-                                    {closeAllTabsHint}
-                                  </kbd>
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="end"
+                            sideOffset={4}
+                            className="w-44"
+                          >
+                            <DropdownMenuItem
+                              onSelect={() => closeTab(activeTabId)}
+                            >
+                              Close Tab
+                              <DropdownMenuShortcut>
+                                {closeTabHint}
+                              </DropdownMenuShortcut>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => closeOtherTabs(activeTabId)}
+                            >
+                              Close Other Tabs
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => closeAllTabs()}>
+                              Close All Tabs
+                              <DropdownMenuShortcut>
+                                {closeAllTabsHint}
+                              </DropdownMenuShortcut>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </>
                     )}
                     {mode === "cli" && (
@@ -853,11 +838,12 @@ function AgentPanelInner({
                           </button>
                         </IconTooltip>
                         {availableClis.length > 0 && (
-                          <div className="relative">
-                            <IconTooltip content={`CLI: ${selectedLabel}`}>
+                          <DropdownMenu
+                            open={cliPickerOpen}
+                            onOpenChange={setCliPickerOpen}
+                          >
+                            <DropdownMenuTrigger asChild>
                               <button
-                                ref={cliPickerBtnRef}
-                                onClick={() => setCliPickerOpen(!cliPickerOpen)}
                                 aria-label={`Select CLI, currently ${selectedLabel}`}
                                 className={cn(
                                   "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
@@ -866,73 +852,41 @@ function AgentPanelInner({
                               >
                                 <IconSettings size={14} />
                               </button>
-                            </IconTooltip>
-                            {cliPickerOpen &&
-                              ReactDOM.createPortal(
-                                <>
-                                  <div
-                                    className="fixed inset-0 z-[9980]"
-                                    onClick={() => setCliPickerOpen(false)}
-                                  />
-                                  <div
-                                    className="fixed z-[9990] w-48 rounded-md border border-border bg-popover py-1 shadow-lg"
-                                    style={(() => {
-                                      const r =
-                                        cliPickerBtnRef.current?.getBoundingClientRect();
-                                      if (!r) return { top: 0, right: 0 };
-                                      return {
-                                        top: r.bottom + 4,
-                                        right: window.innerWidth - r.right,
-                                      };
-                                    })()}
-                                  >
-                                    {availableClis.map((cli) => (
-                                      <button
-                                        key={cli.command}
-                                        className={cn(
-                                          "flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent",
-                                          cli.command === selectedCli
-                                            ? "text-foreground font-medium"
-                                            : "text-muted-foreground",
-                                        )}
-                                        onClick={() => {
-                                          selectCli(cli.command);
-                                          setCliPickerOpen(false);
-                                        }}
-                                      >
-                                        {cli.command === selectedCli && (
-                                          <IconCheck
-                                            size={12}
-                                            className="shrink-0"
-                                          />
-                                        )}
-                                        <span
-                                          className={
-                                            cli.command !== selectedCli
-                                              ? "ml-5"
-                                              : ""
-                                          }
-                                        >
-                                          {cli.label}
-                                        </span>
-                                      </button>
-                                    ))}
-                                  </div>
-                                </>,
-                                document.body,
-                              )}
-                          </div>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                              align="end"
+                              sideOffset={4}
+                              className="w-48"
+                            >
+                              {availableClis.map((cli) => (
+                                <DropdownMenuItem
+                                  key={cli.command}
+                                  onSelect={() => selectCli(cli.command)}
+                                  className={cn(
+                                    cli.command === selectedCli
+                                      ? "font-medium"
+                                      : "text-muted-foreground",
+                                  )}
+                                >
+                                  {cli.command === selectedCli ? (
+                                    <IconCheck size={12} className="shrink-0" />
+                                  ) : (
+                                    <span className="w-3" />
+                                  )}
+                                  {cli.label}
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         )}
-                        <div className="relative">
-                          <IconTooltip content="Tab options">
+                        <DropdownMenu
+                          open={tabMenuOpen === "__cli_global"}
+                          onOpenChange={(open) =>
+                            setTabMenuOpen(open ? "__cli_global" : null)
+                          }
+                        >
+                          <DropdownMenuTrigger asChild>
                             <button
-                              onClick={() =>
-                                setTabMenuOpen(
-                                  tabMenuOpen === "__cli_global"
-                                    ? null
-                                    : "__cli_global",
-                                )
-                              }
                               className={cn(
                                 "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
                                 tabMenuOpen === "__cli_global" &&
@@ -942,51 +896,35 @@ function AgentPanelInner({
                             >
                               <IconDotsVertical size={14} />
                             </button>
-                          </IconTooltip>
-                          {tabMenuOpen === "__cli_global" && (
-                            <>
-                              <div
-                                className="fixed inset-0 z-40"
-                                onClick={() => setTabMenuOpen(null)}
-                              />
-                              <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-md border border-border bg-popover py-1 shadow-lg">
-                                <button
-                                  className="flex w-full items-center justify-between px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                                  onClick={() => {
-                                    closeCliTab(activeCliTab);
-                                    setTabMenuOpen(null);
-                                  }}
-                                >
-                                  Close Tab
-                                  <kbd className="text-[10px] text-muted-foreground">
-                                    {closeTabHint}
-                                  </kbd>
-                                </button>
-                                <button
-                                  className="flex w-full items-center px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                                  onClick={() => {
-                                    closeOtherCliTabs(activeCliTab);
-                                    setTabMenuOpen(null);
-                                  }}
-                                >
-                                  Close Other Tabs
-                                </button>
-                                <button
-                                  className="flex w-full items-center justify-between px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                                  onClick={() => {
-                                    closeAllCliTabs();
-                                    setTabMenuOpen(null);
-                                  }}
-                                >
-                                  Close All Tabs
-                                  <kbd className="text-[10px] text-muted-foreground">
-                                    {closeAllTabsHint}
-                                  </kbd>
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="end"
+                            sideOffset={4}
+                            className="w-44"
+                          >
+                            <DropdownMenuItem
+                              onSelect={() => closeCliTab(activeCliTab)}
+                            >
+                              Close Tab
+                              <DropdownMenuShortcut>
+                                {closeTabHint}
+                              </DropdownMenuShortcut>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => closeOtherCliTabs(activeCliTab)}
+                            >
+                              Close Other Tabs
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => closeAllCliTabs()}
+                            >
+                              Close All Tabs
+                              <DropdownMenuShortcut>
+                                {closeAllTabsHint}
+                              </DropdownMenuShortcut>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </>
                     )}
                   </div>

@@ -1,4 +1,12 @@
-import { forwardRef, useEffect, useState, type ReactNode } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   IconLock,
   IconBuilding,
@@ -7,8 +15,12 @@ import {
   IconCheck,
   IconChevronDown,
 } from "@tabler/icons-react";
-import * as Popover from "@radix-ui/react-popover";
 import * as Select from "@radix-ui/react-select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
 import { useActionQuery, useActionMutation } from "../use-action.js";
 import { cn } from "../utils.js";
 import { agentNativePath } from "../api-path.js";
@@ -101,14 +113,74 @@ const ROLE_OPTIONS: Array<{ value: Role; label: string; description: string }> =
  */
 export function ShareButton(props: ShareButtonProps) {
   const [open, setOpen] = useState(false);
+  const [pendingVisibility, setPendingVisibility] = useState<Visibility | null>(
+    null,
+  );
+  const visibilityRequestId = useRef(0);
+  const queryClient = useQueryClient();
+  const shareQueryParams = useMemo(
+    () => ({
+      resourceType: props.resourceType,
+      resourceId: props.resourceId,
+    }),
+    [props.resourceType, props.resourceId],
+  );
+  const shareQueryKey = useMemo(
+    () => ["action", "list-resource-shares", shareQueryParams] as const,
+    [shareQueryParams],
+  );
+  const setVisibility = useActionMutation("set-resource-visibility");
+  const sharesQuery = useActionQuery<SharesResponse>(
+    "list-resource-shares",
+    shareQueryParams,
+  );
   const handleOpenChange = (v: boolean) => {
     setOpen(v);
     props.onOpenChange?.(v);
+    if (v && pendingVisibility === null) sharesQuery.refetch();
   };
-  const sharesQuery = useActionQuery<SharesResponse>("list-resource-shares", {
-    resourceType: props.resourceType,
-    resourceId: props.resourceId,
-  });
+
+  const updateCachedVisibility = (visibility: Visibility) => {
+    queryClient.setQueryData<SharesResponse>(shareQueryKey, (prev) =>
+      prev ? { ...prev, visibility } : prev,
+    );
+  };
+
+  const handleVisibilityChange = (next: Visibility) => {
+    const requestId = ++visibilityRequestId.current;
+    const previous = queryClient.getQueryData<SharesResponse>(shareQueryKey);
+    setPendingVisibility(next);
+    updateCachedVisibility(next);
+    setVisibility.mutate(
+      {
+        resourceType: props.resourceType,
+        resourceId: props.resourceId,
+        visibility: next,
+      } as any,
+      {
+        onSuccess: (result: any) => {
+          if (requestId !== visibilityRequestId.current) return;
+          updateCachedVisibility(
+            (result?.visibility as Visibility | undefined) ?? next,
+          );
+          sharesQuery.refetch().finally(() => {
+            if (requestId === visibilityRequestId.current) {
+              setPendingVisibility(null);
+            }
+          });
+        },
+        onError: () => {
+          if (requestId !== visibilityRequestId.current) return;
+          setPendingVisibility(null);
+          if (previous) {
+            queryClient.setQueryData(shareQueryKey, previous);
+          } else {
+            queryClient.invalidateQueries({ queryKey: shareQueryKey });
+          }
+        },
+      },
+    );
+  };
 
   // The trigger always says "Share" — the icon reflects the resource's
   // current visibility (lock / building / globe), matching Google Docs.
@@ -117,16 +189,17 @@ export function ShareButton(props: ShareButtonProps) {
   const loaded = sharesQuery.data !== undefined;
   const serverVisibility =
     (sharesQuery.data?.visibility as Visibility | null) ?? "private";
+  const currentVisibility = pendingVisibility ?? serverVisibility;
   const TriggerIcon =
-    serverVisibility === "public"
+    currentVisibility === "public"
       ? IconWorld
-      : serverVisibility === "org"
+      : currentVisibility === "org"
         ? IconBuilding
         : IconLock;
 
   return (
-    <Popover.Root open={open} onOpenChange={handleOpenChange}>
-      <Popover.Trigger asChild>
+    <Popover open={open} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>
         <button type="button" className={BUTTON_OUTLINE_SM}>
           {loaded ? (
             <TriggerIcon size={16} strokeWidth={1.75} />
@@ -138,22 +211,22 @@ export function ShareButton(props: ShareButtonProps) {
           )}
           <span>Share</span>
         </button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          align="end"
-          sideOffset={6}
-          className="z-[2000] w-[min(460px,92vw)] rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-lg outline-none"
-          onOpenAutoFocus={(e) => e.preventDefault()}
-        >
-          <SharePanel
-            {...props}
-            sharesQuery={sharesQuery}
-            onClose={() => handleOpenChange(false)}
-          />
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={6}
+        className="z-[2000] w-[min(460px,92vw)] rounded-lg p-4 shadow-lg"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
+        <SharePanel
+          {...props}
+          sharesQuery={sharesQuery}
+          visibilityOverride={pendingVisibility}
+          onVisibilityChange={handleVisibilityChange}
+          onClose={() => handleOpenChange(false)}
+        />
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -191,13 +264,21 @@ function useOrgMembers(): OrgMember[] {
 function SharePanel(
   props: ShareButtonProps & {
     sharesQuery: ReturnType<typeof useActionQuery<SharesResponse>>;
+    visibilityOverride: Visibility | null;
+    onVisibilityChange: (visibility: Visibility) => void;
     onClose: () => void;
   },
 ) {
-  const { resourceType, resourceId, resourceTitle, sharesQuery, onClose } =
-    props;
+  const {
+    resourceType,
+    resourceId,
+    resourceTitle,
+    sharesQuery,
+    visibilityOverride,
+    onVisibilityChange,
+    onClose,
+  } = props;
 
-  const setVisibility = useActionMutation("set-resource-visibility");
   const share = useActionMutation("share-resource");
   const unshare = useActionMutation("unshare-resource");
 
@@ -207,8 +288,6 @@ function SharePanel(
   const datalistId = `share-autocomplete-${resourceType}-${resourceId}`;
 
   // Optimistic overlays so clicks feel instant.
-  const [visibilityOverride, setVisibilityOverride] =
-    useState<Visibility | null>(null);
   const [pendingAdds, setPendingAdds] = useState<Share[]>([]);
   const [pendingRemoves, setPendingRemoves] = useState<Set<string>>(new Set());
   const [roleOverrides, setRoleOverrides] = useState<Record<string, Role>>({});
@@ -234,8 +313,8 @@ function SharePanel(
 
   const data = sharesQuery.data;
   const isLoading = data === undefined;
-  const serverVisibility = (data?.visibility as Visibility | null) ?? "private";
-  const visibility: Visibility = visibilityOverride ?? serverVisibility;
+  const visibility: Visibility =
+    visibilityOverride ?? (data?.visibility as Visibility | null) ?? "private";
   const canManage = data?.role === "owner" || data?.role === "admin";
   const meta = VIS_META[visibility];
 
@@ -249,16 +328,7 @@ function SharePanel(
 
   const handleVisibility = (next: Visibility) => {
     if (next === visibility) return;
-    setVisibilityOverride(next);
-    setVisibility.mutate(
-      { resourceType, resourceId, visibility: next } as any,
-      {
-        onSuccess: () => {
-          sharesQuery.refetch().then(() => setVisibilityOverride(null));
-        },
-        onError: () => setVisibilityOverride(null),
-      },
-    );
+    onVisibilityChange(next);
   };
 
   const handleAdd = () => {

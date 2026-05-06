@@ -1,4 +1,3 @@
-import { createPortal } from "react-dom";
 import React, {
   useState,
   useRef,
@@ -49,6 +48,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./components/ui/tooltip.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./components/ui/dropdown-menu.js";
 import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { agentNativePath } from "./api-path.js";
@@ -1144,13 +1149,9 @@ function MessageActionsMenu({
   onRevert?: () => void;
 } = {}) {
   const [open, setOpen] = useState(false);
-  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(
-    null,
-  );
   const [copied, setCopied] = useState<string | null>(null);
   const messageRuntime = useMessageRuntime();
   const actionsCtx = React.useContext(MessageActionsContext);
-  const buttonRef = useRef<HTMLButtonElement>(null);
 
   const handleCopyMessage = useCallback(() => {
     const m = messageRuntime.getState();
@@ -1203,84 +1204,59 @@ function MessageActionsMenu({
     onRevert?.();
   }, [onRevert]);
 
-  const handleToggle = useCallback(() => {
-    if (!open && buttonRef.current) {
-      const rect = buttonRef.current.getBoundingClientRect();
-      setMenuPos({ top: rect.bottom + 4, left: rect.left });
-    }
-    setOpen((v) => !v);
-  }, [open]);
-
   return (
-    <div className="relative">
-      <button
-        ref={buttonRef}
-        onClick={handleToggle}
-        className={cn(
-          "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground",
-          open && "bg-accent text-foreground",
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <button
+          className={cn(
+            "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground",
+            open && "bg-accent text-foreground",
+          )}
+        >
+          <IconDots className="h-3.5 w-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" sideOffset={4} className="w-44">
+        {actionsCtx?.onForkChat && (
+          <DropdownMenuItem onSelect={handleForkChat}>
+            <IconGitFork className="h-3.5 w-3.5" />
+            Fork Chat
+          </DropdownMenuItem>
         )}
-      >
-        <IconDots className="h-3.5 w-3.5" />
-      </button>
-      {open &&
-        menuPos &&
-        createPortal(
-          <>
-            <div
-              className="fixed inset-0"
-              style={{ zIndex: 9998 }}
-              onClick={() => setOpen(false)}
-            />
-            <div
-              className="fixed w-44 rounded-md border border-border bg-popover py-1 shadow-lg"
-              style={{ top: menuPos.top, left: menuPos.left, zIndex: 9999 }}
-            >
-              {actionsCtx?.onForkChat && (
-                <button
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                  onClick={handleForkChat}
-                >
-                  <IconGitFork className="h-3.5 w-3.5" />
-                  Fork Chat
-                </button>
-              )}
-              <button
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                onClick={handleCopyMessage}
-              >
-                {copied === "message" ? (
-                  <IconCheck className="h-3.5 w-3.5" />
-                ) : (
-                  <IconCopy className="h-3.5 w-3.5" />
-                )}
-                {copied === "message" ? "Copied!" : "Copy Message"}
-              </button>
-              <button
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                onClick={handleCopyRequestId}
-              >
-                {copied === "id" ? (
-                  <IconCheck className="h-3.5 w-3.5" />
-                ) : (
-                  <IconId className="h-3.5 w-3.5" />
-                )}
-                {copied === "id" ? "Copied!" : "Copy Request ID"}
-              </button>
-              {showRevert && (
-                <button
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                  onClick={handleRevert}
-                >
-                  <IconArrowBackUp className="h-3.5 w-3.5" />
-                  Revert to here
-                </button>
-              )}
-            </div>
-          </>,
-          document.body,
+        <DropdownMenuItem
+          onSelect={(e) => {
+            e.preventDefault();
+            handleCopyMessage();
+          }}
+        >
+          {copied === "message" ? (
+            <IconCheck className="h-3.5 w-3.5" />
+          ) : (
+            <IconCopy className="h-3.5 w-3.5" />
+          )}
+          {copied === "message" ? "Copied!" : "Copy Message"}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={(e) => {
+            e.preventDefault();
+            handleCopyRequestId();
+          }}
+        >
+          {copied === "id" ? (
+            <IconCheck className="h-3.5 w-3.5" />
+          ) : (
+            <IconId className="h-3.5 w-3.5" />
+          )}
+          {copied === "id" ? "Copied!" : "Copy Request ID"}
+        </DropdownMenuItem>
+        {showRevert && (
+          <DropdownMenuItem onSelect={handleRevert}>
+            <IconArrowBackUp className="h-3.5 w-3.5" />
+            Revert to here
+          </DropdownMenuItem>
         )}
-    </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
