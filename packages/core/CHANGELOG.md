@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.12.5
+
+### Patch Changes
+
+- 2e99cca: Fix workspace scaffolding for the Design template and clarify local Dispatch setup.
+- 2e99cca: Shorten the composer model selector reasoning effort label.
+- 2e99cca: Send Builder gateway owner headers from the Builder agent engine and keep Builder auth failures out of the app-login flow.
+- 2e99cca: Register the `images` template with `hidden:true` in the CLI catalog. The template directory exists in-flight but is intentionally not surfaced in public template lists yet.
+
 ## 0.12.4
 
 ### Patch Changes
