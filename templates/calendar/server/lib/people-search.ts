@@ -252,27 +252,25 @@ export async function searchPeopleForUser(
     );
   }
 
-  if (scope !== "directory") {
-    await Promise.all(
-      clients.map(async (client) => {
-        try {
-          const [connections, otherContacts] = await Promise.all([
-            listConnectionPages(client.accessToken, "connections"),
-            listConnectionPages(client.accessToken, "otherContacts"),
-          ]);
+  await Promise.all(
+    clients.map(async (client) => {
+      try {
+        const [connections, otherContacts] = await Promise.all([
+          listConnectionPages(client.accessToken, "connections"),
+          listConnectionPages(client.accessToken, "otherContacts"),
+        ]);
 
-          for (const person of extractPeople(connections, "contact")) {
-            mergePerson(people, person, mergeOptions);
-          }
-          for (const person of extractPeople(otherContacts, "otherContact")) {
-            mergePerson(people, person, mergeOptions);
-          }
-        } catch (error) {
-          if (permissionLimited(error)) contactsLimited = true;
+        for (const person of extractPeople(connections, "contact")) {
+          mergePerson(people, person, mergeOptions);
         }
-      }),
-    );
-  }
+        for (const person of extractPeople(otherContacts, "otherContact")) {
+          mergePerson(people, person, mergeOptions);
+        }
+      } catch (error) {
+        if (permissionLimited(error)) contactsLimited = true;
+      }
+    }),
+  );
 
   const results = Array.from(people.values())
     .sort((a, b) => {

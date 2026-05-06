@@ -446,17 +446,6 @@ export function EventDetailPopover({
     [event.attendees, saveField],
   );
 
-  const handleRemoveAttendee = useCallback(
-    (emailToRemove: string) => {
-      const existing = event.attendees || [];
-      const newAttendees = existing.filter(
-        (a) => a.email.toLowerCase() !== emailToRemove.toLowerCase(),
-      );
-      saveField({ attendees: newAttendees });
-    },
-    [event.attendees, saveField],
-  );
-
   const handleSaveMeetingLink = useCallback(() => {
     const url = editMeetingLink.trim();
     if (url) {

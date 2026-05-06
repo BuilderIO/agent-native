@@ -47,7 +47,7 @@ import {
  * rather than trying to modify extension storage, which is fragile
  * across tiptap-markdown versions.
  */
-const EmptyLineParagraph = Extension.create({
+export const EmptyLineParagraph = Extension.create({
   name: "emptyLineParagraph",
   addStorage() {
     return {

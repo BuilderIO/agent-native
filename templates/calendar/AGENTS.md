@@ -174,7 +174,7 @@ The `--to` bound is exclusive, so use tomorrow's date for today's events.
 
 For relationship-frequency questions like "how often do I meet with Mattel?", use `search-events --query <name>` first. It searches a broad one-year past/future window across titles, people, organizers, locations, and descriptions so recurring series outside the visible range are not missed.
 
-When scheduling with a named person and the email is not obvious from context, run `search-people --q "<name>"` before `create-event` or `update-event`. The default scope searches both Google Contacts and the Google Workspace directory; use `--scope directory` when you only want same-company directory results.
+When scheduling with a named person and the email is not obvious from context, run `search-people --q "<name>"` before `create-event` or `update-event`. The default scope searches both Google Contacts and the Google Workspace directory; use `--scope directory` when you only want same-company people.
 
 ## Common Tasks
 

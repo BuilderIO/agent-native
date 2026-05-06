@@ -418,7 +418,7 @@ export const AttendeeAutocomplete = forwardRef<
         align="start"
         sideOffset={6}
         onOpenAutoFocus={(event) => event.preventDefault()}
-        className="w-[var(--radix-popover-trigger-width)] min-w-72 overflow-hidden p-1"
+        className="w-80 max-w-[calc(100vw-2rem)] overflow-hidden p-1"
       >
         <div className="max-h-64 overflow-y-auto">
           {searching && visibleResults.length === 0 && (

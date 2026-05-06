@@ -15,6 +15,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { createPortal } from "react-dom";
 
 interface ComposeBubbleToolbarProps {
   editor: Editor;
@@ -27,12 +28,17 @@ interface ComposeBubbleToolbarProps {
   }) => void;
 }
 
+const VIEWPORT_MARGIN = 8;
+const TOOLBAR_GAP = 8;
+
 /**
  * Custom bubble toolbar that avoids tiptap v3's BubbleMenu component.
  * The @tiptap/react/menus BubbleMenu has an internal useEditorState that
  * triggers infinite useSyncExternalStore re-render loops. This component
  * listens to editor events directly and positions itself via the DOM
- * selection API, avoiding the problematic subscription pattern.
+ * selection API, avoiding the problematic subscription pattern. It renders in
+ * a portal so selections on the first compose line are not clipped by the
+ * scrollable compose body.
  */
 export function ComposeBubbleToolbar({
   editor,
@@ -71,25 +77,33 @@ export function ComposeBubbleToolbar({
       return;
     }
 
-    // Position above the selection
-    const editorEl = editor.view.dom.closest(
-      ".compose-editor-wrapper",
-    ) as HTMLElement | null;
-    if (!editorEl) return;
-
     const domSelection = window.getSelection();
     if (!domSelection || domSelection.rangeCount === 0) return;
     const range = domSelection.getRangeAt(0);
     const rect = range.getBoundingClientRect();
-    const parentRect = editorEl.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) {
+      setVisible(false);
+      return;
+    }
+
+    const toolbarWidth = toolbarRef.current?.offsetWidth ?? 220;
+    const toolbarHeight = toolbarRef.current?.offsetHeight ?? 40;
+    const centeredLeft = rect.left + rect.width / 2 - toolbarWidth / 2;
+    const maxLeft = window.innerWidth - toolbarWidth - VIEWPORT_MARGIN;
+    const topAbove = rect.top - toolbarHeight - TOOLBAR_GAP;
+    const topBelow = rect.bottom + TOOLBAR_GAP;
+
+    const top =
+      topAbove >= VIEWPORT_MARGIN
+        ? topAbove
+        : Math.min(
+            topBelow,
+            window.innerHeight - toolbarHeight - VIEWPORT_MARGIN,
+          );
 
     setPosition({
-      top: rect.top - parentRect.top - 40,
-      left:
-        rect.left -
-        parentRect.left +
-        rect.width / 2 -
-        (toolbarRef.current?.offsetWidth ?? 200) / 2,
+      top: Math.max(VIEWPORT_MARGIN, top),
+      left: Math.max(VIEWPORT_MARGIN, Math.min(centeredLeft, maxLeft)),
     });
 
     setActiveMarks({
@@ -115,12 +129,22 @@ export function ComposeBubbleToolbar({
     editor.on("selectionUpdate", updateToolbar);
     editor.on("focus", updateToolbar);
     editor.on("blur", handleBlur);
+    window.addEventListener("resize", updateToolbar);
+    window.addEventListener("scroll", updateToolbar, true);
     return () => {
       editor.off("selectionUpdate", updateToolbar);
       editor.off("focus", updateToolbar);
       editor.off("blur", handleBlur);
+      window.removeEventListener("resize", updateToolbar);
+      window.removeEventListener("scroll", updateToolbar, true);
     };
   }, [editor, updateToolbar]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const id = window.requestAnimationFrame(updateToolbar);
+    return () => window.cancelAnimationFrame(id);
+  }, [isGenerating, showAiInput, showLinkInput, updateToolbar, visible]);
 
   const handleSetLink = () => {
     if (linkUrl.trim()) {
@@ -202,15 +226,15 @@ export function ComposeBubbleToolbar({
     },
   ];
 
-  return (
+  const toolbar = (
     <div
       ref={toolbarRef}
       className="bubble-toolbar"
       style={{
-        position: "absolute",
+        position: "fixed",
         top: position.top,
-        left: Math.max(0, position.left),
-        zIndex: 50,
+        left: position.left,
+        zIndex: 70,
       }}
       onMouseDown={(e) => e.preventDefault()}
     >
@@ -340,4 +364,6 @@ export function ComposeBubbleToolbar({
       )}
     </div>
   );
+
+  return createPortal(toolbar, document.body);
 }

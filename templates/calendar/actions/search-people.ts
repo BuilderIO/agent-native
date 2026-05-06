@@ -12,7 +12,7 @@ export default defineAction({
       .enum(["all", "directory"])
       .optional()
       .describe(
-        "Search scope. Use 'all' for Google contacts plus Workspace directory, or 'directory' for same-company directory results only.",
+        "Search scope. Use 'all' for Google contacts plus Workspace directory, or 'directory' for same-company people only.",
       ),
   }),
   http: { method: "GET" },
