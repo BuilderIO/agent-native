@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.11.2
+
+### Patch Changes
+
+- 8975a96: Allow Builder connect popups to complete from local embedded settings panels by accepting a short-lived signed connect token.
+- 8975a96: Polish agent chat menus, icons, and message timestamps.
+- 8975a96: Add share-link support to the share button and allow templates to expose read-only anonymous chat and Builder-connect surfaces.
+
 ## 0.11.1
 
 ### Patch Changes
