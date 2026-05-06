@@ -7,6 +7,7 @@ import {
 } from "@tabler/icons-react";
 import { appBasePath, appPath } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function meta() {
   return [
@@ -108,12 +109,7 @@ function primaryDownloadButton(
     );
   }
   if (manifest === null && !manifestError) {
-    return (
-      <Button size="lg" className="h-12 gap-2 px-6 text-base" disabled>
-        <Icon className="h-5 w-5" />
-        Loading…
-      </Button>
-    );
+    return <Skeleton className="h-12 w-[252px] rounded-md" />;
   }
   return (
     <Button
@@ -150,7 +146,7 @@ function secondaryDownloadButton(
     );
   }
   if (manifest === null && !manifestError) {
-    return null;
+    return <Skeleton className="h-7 w-[208px] rounded-md" />;
   }
   return (
     <Button asChild variant="ghost" className={className}>
