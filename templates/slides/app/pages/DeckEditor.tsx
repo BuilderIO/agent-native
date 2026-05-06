@@ -120,7 +120,9 @@ export default function DeckEditor() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const deck = getDeck(id || "");
-  const { designSystem } = useDeckDesignSystem(deck?.designSystemId);
+  const { designSystem, designSystemTitle } = useDeckDesignSystem(
+    deck?.designSystemId,
+  );
 
   // Poll for question flow from agent (show-questions application state)
   const { data: questionFlowData } = useQuery<{
@@ -164,9 +166,9 @@ export default function DeckEditor() {
         "Answers:",
         formatted,
         "",
-        "Now generate the slides based on these preferences. Use add-slide with --deckId=" +
+        "Now generate the slides based on these preferences. Start a manage-progress run, add the first slide as soon as it is ready, then continue in small batches so the editor visibly fills in. Use add-slide with --deckId=" +
           id +
-          " to add slides one at a time in parallel.",
+          " to add slides one at a time. Use positions when batching so slide order stays stable.",
       ].join("\n");
 
       sendToAgentChat({
@@ -191,7 +193,7 @@ export default function DeckEditor() {
     sendToAgentChat({
       message:
         "Skip the questions — just go ahead and create the slides with your best judgment.",
-      context: `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults and generate slides using add-slide with --deckId=${id}.`,
+      context: `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults. Start a manage-progress run, add the first slide as soon as it is ready, then continue in small batches using add-slide with --deckId=${id}. Use positions when batching so slide order stays stable.`,
       submit: true,
     });
 
@@ -600,6 +602,7 @@ export default function DeckEditor() {
           }
         }}
         aspectRatio={deck.aspectRatio}
+        designSystemTitle={designSystemTitle}
         onSetAspectRatio={(ratio: AspectRatio) => {
           const previous = deck.aspectRatio;
           // Optimistic UI: update local cache immediately so canvas resizes.
@@ -656,7 +659,20 @@ export default function DeckEditor() {
           </>
         )}
 
-        {isNewDeckGenerating && <GeneratingOverlay />}
+        {isNewDeckGenerating && deck.slides.length === 0 && (
+          <GeneratingOverlay />
+        )}
+
+        {isNewDeckGenerating && deck.slides.length > 0 && (
+          <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-lg border border-border bg-popover/95 px-3 py-2 text-sm text-popover-foreground shadow-lg backdrop-blur">
+            <span className="font-medium">
+              Building deck
+            </span>
+            <span className="ml-2 text-muted-foreground">
+              {deck.slides.length} slide{deck.slides.length === 1 ? "" : "s"} added
+            </span>
+          </div>
+        )}
 
         {showQuestionFlow && !isNewDeckGenerating && (
           <QuestionFlow
@@ -667,7 +683,9 @@ export default function DeckEditor() {
           />
         )}
 
-        {!isNewDeckGenerating && !showQuestionFlow && currentSlide && (
+        {!(isNewDeckGenerating && deck.slides.length === 0) &&
+          !showQuestionFlow &&
+          currentSlide && (
           <SlideEditor
             slide={currentSlide}
             onUpdateSlide={(updates) =>

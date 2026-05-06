@@ -34,14 +34,26 @@ export function useDeckDesignSystem(designSystemId?: string | null) {
   });
 
   if (!designSystemId || !data?.data) {
-    return { designSystem: DEFAULT_DESIGN_SYSTEM, isLoading: false };
+    return {
+      designSystem: DEFAULT_DESIGN_SYSTEM,
+      designSystemTitle: null,
+      isLoading: false,
+    };
   }
 
   try {
     const parsed = JSON.parse(data.data) as DesignSystemData;
-    return { designSystem: parsed, isLoading };
+    return {
+      designSystem: parsed,
+      designSystemTitle: data.title ?? null,
+      isLoading,
+    };
   } catch {
-    return { designSystem: DEFAULT_DESIGN_SYSTEM, isLoading };
+    return {
+      designSystem: DEFAULT_DESIGN_SYSTEM,
+      designSystemTitle: data.title ?? null,
+      isLoading,
+    };
   }
 }
 

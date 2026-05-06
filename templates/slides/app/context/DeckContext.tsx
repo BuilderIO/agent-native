@@ -80,7 +80,10 @@ export interface HistoryEntry {
 interface DeckContextType {
   decks: Deck[];
   loading: boolean;
-  createDeck: (title?: string, options?: { noDefaultSlides?: boolean }) => Deck;
+  createDeck: (
+    title?: string,
+    options?: { noDefaultSlides?: boolean; designSystemId?: string | null },
+  ) => Deck;
   /**
    * Optimistically duplicate a deck. Inserts a copy into local state with the
    * supplied `newId` immediately so the UI can navigate without awaiting the
@@ -517,12 +520,16 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   }, [undo, redo]);
 
   const createDeck = useCallback(
-    (title?: string, options?: { noDefaultSlides?: boolean }): Deck => {
+    (
+      title?: string,
+      options?: { noDefaultSlides?: boolean; designSystemId?: string | null },
+    ): Deck => {
       const newDeck: Deck = {
         id: nanoid(10),
         title: title || "Untitled Deck",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        designSystemId: options?.designSystemId ?? undefined,
         slides: options?.noDefaultSlides
           ? []
           : [
