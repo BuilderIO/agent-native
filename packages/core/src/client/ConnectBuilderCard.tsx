@@ -144,7 +144,7 @@ export function ConnectBuilderCard({
   const canSend = configured && builderEnabled && hasPrompt;
   // Branch creation is gated by a server-side project id, which may come
   // from deployment config or org-scoped secrets.
-  const showWaitlist = configured && !builderEnabled && hasPrompt;
+  const showWaitlist = !builderEnabled && hasPrompt;
 
   // Title + subtitle depend on which mode we're in. We compute them up front
   // so the render tree below stays flat.
