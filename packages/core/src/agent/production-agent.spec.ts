@@ -6,8 +6,13 @@ import {
   isPlanModeToolCallAllowed,
   runAgentLoop,
   type ActionEntry,
+  type AgentLoopFinalResponseGuardContext,
 } from "./production-agent.js";
 import { AgentActionStopError } from "../action.js";
+import {
+  getRequestRunContext,
+  runWithRequestContext,
+} from "../server/request-context.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 
 function actionEntry(opts: {
@@ -339,6 +344,83 @@ describe("runAgentLoop", () => {
     });
 
     expect(maxActive).toBe(2);
+  });
+
+  it("exposes completed tool results on the active request run context", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "query-1",
+                name: "query-data",
+                input: {},
+              },
+              {
+                type: "tool-call" as const,
+                id: "save-1",
+                name: "save-analysis",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    let saveSawQueryResult = false;
+
+    await runWithRequestContext({ userEmail: "a@example.com", run: {} }, () =>
+      runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "query-data": {
+            ...actionEntry({ readOnly: true }),
+            run: async () => ({ rows: [{ count: 3 }] }),
+          },
+          "save-analysis": {
+            ...actionEntry({ readOnly: false }),
+            run: async () => {
+              saveSawQueryResult =
+                getRequestRunContext()?.toolResults?.some(
+                  (result) => result.name === "query-data",
+                ) === true;
+              return "saved";
+            },
+          },
+        },
+        send: () => {},
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(saveSawQueryResult).toBe(true);
   });
 
   it("keeps reads ordered around parallel-safe mutating batches", async () => {
@@ -680,6 +762,152 @@ describe("runAgentLoop", () => {
         },
       ],
     });
+  });
+
+  it("lets a final-response guard force one corrective retry before finishing", async () => {
+    let streamCalls = 0;
+    const seenMessages: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenMessages.push(structuredClone(opts.messages));
+        if (streamCalls === 1) {
+          yield { type: "text-delta", text: "Looks up and to the right." };
+          yield {
+            type: "assistant-content",
+            parts: [
+              { type: "text" as const, text: "Looks up and to the right." },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        if (streamCalls === 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "query-1",
+                name: "query-data",
+                input: { sql: "select count(*)" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "text-delta", text: "The real count is 3." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "The real count is 3." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+    const guard = vi.fn((ctx: AgentLoopFinalResponseGuardContext) => {
+      const hasQuery = ctx.toolResults.some((r) => r.name === "query-data");
+      return hasQuery
+        ? null
+        : "This answer needs a real data-source query before it can be final.";
+    });
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "query-data": {
+          ...actionEntry({ readOnly: true }),
+          run: async () => ({ rows: [{ count: 3 }] }),
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      finalResponseGuard: guard,
+    });
+
+    expect(streamCalls).toBe(3);
+    expect(guard).toHaveBeenCalledTimes(2);
+    expect(events).toContainEqual({ type: "clear" });
+    expect(events).toContainEqual({
+      type: "tool_start",
+      tool: "query-data",
+      input: { sql: "select count(*)" },
+    });
+    expect(events).toContainEqual({
+      type: "text",
+      text: "The real count is 3.",
+    });
+    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(JSON.stringify(seenMessages[1])).toContain(
+      "This answer needs a real data-source query",
+    );
+  });
+
+  it("uses the final-response guard fallback after one failed corrective retry", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        const text = streamCalls === 1 ? "fake answer" : "still fake";
+        yield { type: "text-delta", text };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      finalResponseGuard: () => ({
+        retryMessage: "Query a real source before answering.",
+        fallbackMessage: "I stopped because no real data-source query ran.",
+      }),
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(events.filter((event) => event.type === "clear")).toHaveLength(2);
+    expect(events).toContainEqual({
+      type: "text",
+      text: "I stopped because no real data-source query ran.",
+    });
+    expect(events.at(-1)).toEqual({ type: "done" });
   });
 
   it("does not retry Builder gateway timeouts inside one serverless run", async () => {

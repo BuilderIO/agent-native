@@ -139,6 +139,8 @@ save-analysis
   --resultData '{"deals": [...], "metrics": {...}}'
 ```
 
+`resultData` is required. Fill it with structured evidence copied or summarized from the real data-source action results you used: raw rows, row samples, aggregate metrics, match decisions, and explicit provider errors for any gaps. If you cannot query a source, do not save a guessed analysis; report the unavailable/error result instead.
+
 **Critical: Write good instructions.** The `instructions` field is what gets sent to the agent on re-run. Be specific:
 - Which actions to call with which parameters
 - What filters to apply

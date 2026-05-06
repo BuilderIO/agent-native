@@ -1,6 +1,7 @@
 import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
+  type AgentLoopFinalResponseGuardContext,
 } from "@agent-native/core/server";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { getOrgContext } from "@agent-native/core/org";
@@ -8,9 +9,63 @@ import {
   listScopedSettingRecords,
   resolveSettingsScope,
 } from "../lib/scoped-settings";
+import {
+  hasDataQueryAttempt,
+  REAL_DATA_REQUIRED_MARKER,
+} from "../lib/real-data-actions";
 
 const SQL_DASHBOARD_PREFIX = "sql-dashboard-";
 const DATA_DICT_PREFIX = "data-dict-";
+
+function latestUserText(
+  messages: AgentLoopFinalResponseGuardContext["messages"],
+): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message?.role !== "user" || !Array.isArray(message.content)) continue;
+    const text = message.content
+      .filter((part: any) => part?.type === "text")
+      .map((part: any) => String(part.text ?? ""))
+      .join("\n");
+    if (text.trim()) return text;
+  }
+  return "";
+}
+
+function looksLikeAnalyticsDataRequest(text: string): boolean {
+  const lower = text.toLowerCase();
+  if (lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase())) return true;
+  if (
+    /\b(open|navigate|go to|rename|delete|share|favorite|unfavorite)\b/.test(
+      lower,
+    )
+  ) {
+    return false;
+  }
+  if (
+    /\b(fix|bug|layout|style|component|route|code|source code|integration|connect|configure|settings)\b/.test(
+      lower,
+    )
+  ) {
+    return false;
+  }
+  return /\b(analy[sz]e|analysis|dashboard|panel|metric|metrics|count|total|trend|breakdown|conversion|funnel|revenue|traffic|pageviews?|signups?|events?|users?|sessions?|retention|churn|pipeline|deals?)\b/.test(
+    lower,
+  );
+}
+
+function realDataFinalGuard(context: AgentLoopFinalResponseGuardContext) {
+  const userText = latestUserText(context.messages ?? []);
+  if (!looksLikeAnalyticsDataRequest(userText)) return null;
+  if (hasDataQueryAttempt(context.toolResults)) return null;
+
+  return {
+    retryMessage:
+      "This analytics request requires real data before the answer can be final. Run at least one data-source query action now (for example `query-agent-native-analytics`, `bigquery`, `ga4-report`, `hubspot-deals`, `sentry`, or the relevant provider action). `data-source-status`, `list-data-dictionary`, `update-dashboard`, `save-analysis`, and `generate-chart` do not count as real data queries. If no source can answer, call the most relevant source action and report its exact unavailable/error result instead of inventing data.",
+    fallbackMessage:
+      "I stopped before finalizing because this analytics request requires a real data-source query, and no data-source query action ran. I won't invent analytics results.",
+  };
+}
 
 /**
  * Render the data-dictionary entries available to this request as a
@@ -54,6 +109,7 @@ function renderDataDictionary(entries: Array<Record<string, unknown>>): string {
 
 export default createAgentChatPlugin({
   actions: loadActionsFromStaticRegistry(actionsRegistry),
+  finalResponseGuard: realDataFinalGuard,
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
     return ctx.orgId;

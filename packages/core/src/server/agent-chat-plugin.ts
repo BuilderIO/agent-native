@@ -1402,6 +1402,12 @@ export interface AgentChatPluginOptions {
     owner: string,
   ) => string | null | Promise<string | null>;
   /**
+   * Optional final-answer guard. Templates can use this to require a
+   * corrective retry before accepting a text-only final answer, e.g. forcing
+   * real data-source tool calls for analytics requests.
+   */
+  finalResponseGuard?: import("../agent/production-agent.js").AgentLoopFinalResponseGuard;
+  /**
    * Use ONLY the template's `systemPrompt` and the actions list — skip the
    * framework prompt wrapper, resource loading (AGENTS.md/LEARNINGS.md/
    * memory), the SQL schema block, and the workspace files/skills/agents
@@ -3550,6 +3556,7 @@ export function createAgentChatPlugin(
         model: options?.model ?? DEFAULT_MODEL,
         apiKey: options?.apiKey,
         runSoftTimeoutMs: options?.runSoftTimeoutMs,
+        finalResponseGuard: options?.finalResponseGuard,
         skipFilesContext: leanPrompt,
         onEngineResolved: (engine, model) => {
           const runCtx = ensureRequestRunContext();
@@ -3589,6 +3596,7 @@ export function createAgentChatPlugin(
               model: options?.model ?? DEFAULT_MODEL,
               apiKey: options?.apiKey,
               runSoftTimeoutMs: options?.runSoftTimeoutMs,
+              finalResponseGuard: options?.finalResponseGuard,
               skipFilesContext: true,
               onEngineResolved: (engine, model) => {
                 const runCtx = ensureRequestRunContext();
@@ -3683,6 +3691,7 @@ export function createAgentChatPlugin(
           model: options?.model,
           apiKey: options?.apiKey,
           runSoftTimeoutMs: options?.runSoftTimeoutMs,
+          finalResponseGuard: options?.finalResponseGuard,
           skipFilesContext: leanPrompt,
           onEngineResolved: (engine, model) => {
             const runCtx = ensureRequestRunContext();

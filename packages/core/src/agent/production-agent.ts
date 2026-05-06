@@ -40,6 +40,7 @@ import {
 import type { ActiveRun } from "./run-manager.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
+  getRequestRunContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -469,6 +470,12 @@ export interface ProductionAgentOptions {
   /** Resolve the owner email from the H3 event (for usage tracking) */
   resolveOwnerEmail?: (event: any) => string | Promise<string>;
   /**
+   * Optional final-answer guard. If it returns a message after a text-only
+   * assistant turn, the loop clears that draft once and asks the model to
+   * continue with the returned corrective instruction before allowing a final.
+   */
+  finalResponseGuard?: AgentLoopFinalResponseGuard;
+  /**
    * Skip auto-injecting the workspace files/skills/agents inventory on the
    * first message of a conversation. Useful for minimal/voice apps where
    * the ~2KB inventory of unrelated resources is noise, not signal.
@@ -715,6 +722,51 @@ export interface AgentLoopUsage {
   model: string;
 }
 
+export interface AgentLoopToolCallSummary {
+  name: string;
+  input: unknown;
+}
+
+export interface AgentLoopToolResultSummary {
+  name: string;
+  content: string;
+  isError: boolean;
+}
+
+export interface AgentLoopFinalResponseGuardContext {
+  messages: EngineMessage[];
+  assistantContent: EngineContentPart[];
+  text: string;
+  toolCalls: AgentLoopToolCallSummary[];
+  toolResults: AgentLoopToolResultSummary[];
+  retryCount: number;
+}
+
+export type AgentLoopFinalResponseGuardResult =
+  | string
+  | {
+      retryMessage: string;
+      fallbackMessage?: string;
+    };
+
+export type AgentLoopFinalResponseGuard = (
+  context: AgentLoopFinalResponseGuardContext,
+) =>
+  | AgentLoopFinalResponseGuardResult
+  | null
+  | undefined
+  | Promise<AgentLoopFinalResponseGuardResult | null | undefined>;
+
+function collectTextParts(parts: EngineContentPart[]): string {
+  return parts
+    .filter(
+      (part): part is import("./engine/types.js").EngineTextPart =>
+        part.type === "text",
+    )
+    .map((part) => part.text)
+    .join("");
+}
+
 export const AGENT_INTERNAL_CONTINUE_PROMPT =
   "Continue from where you left off and finish the user's original request. Do not repeat completed work, do not mention internal reconnects, time limits, or step limits, and continue as if this is the same uninterrupted run.";
 
@@ -830,6 +882,7 @@ export async function runAgentLoop(opts: {
   providerOptions?: any;
   executionMode?: AgentExecutionMode;
   maxIterations?: number;
+  finalResponseGuard?: AgentLoopFinalResponseGuard;
 }): Promise<AgentLoopUsage> {
   const {
     engine,
@@ -854,6 +907,14 @@ export async function runAgentLoop(opts: {
     opts.maxIterations,
     getDefaultMaxIterations(),
   );
+  const toolCallHistory: AgentLoopToolCallSummary[] = [];
+  const toolResultHistory: AgentLoopToolResultSummary[] = [];
+  const runCtx = getRequestRunContext();
+  if (runCtx) {
+    runCtx.toolCalls = toolCallHistory;
+    runCtx.toolResults = toolResultHistory;
+  }
+  let finalGuardRetries = 0;
   let iterations = 0;
   while (true) {
     if (signal.aborted) break;
@@ -984,7 +1045,35 @@ export async function runAgentLoop(opts: {
         p.type === "tool-call",
     );
 
-    if (toolCallParts.length === 0) break;
+    if (toolCallParts.length === 0) {
+      const guard = opts.finalResponseGuard
+        ? await opts.finalResponseGuard({
+            messages,
+            assistantContent: assistantContentForHistory,
+            text: collectTextParts(assistantContentForHistory),
+            toolCalls: [...toolCallHistory],
+            toolResults: [...toolResultHistory],
+            retryCount: finalGuardRetries,
+          })
+        : null;
+      if (guard) {
+        const retryMessage =
+          typeof guard === "string" ? guard : guard.retryMessage;
+        const fallbackMessage =
+          typeof guard === "string" ? guard : guard.fallbackMessage;
+        send({ type: "clear" });
+        if (finalGuardRetries < 1) {
+          finalGuardRetries += 1;
+          messages.push({
+            role: "user",
+            content: [{ type: "text", text: retryMessage }],
+          });
+          continue;
+        }
+        send({ type: "text", text: fallbackMessage ?? retryMessage });
+      }
+      break;
+    }
 
     let requestedActionStop: { message: string; errorCode?: string } | null =
       null;
@@ -992,6 +1081,17 @@ export async function runAgentLoop(opts: {
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
+      toolCallHistory.push({
+        name: toolCall.name,
+        input: normalizeToolCallInputForHistory(toolCall.input),
+      });
+      const recordToolResult = (content: string, isError: boolean) => {
+        toolResultHistory.push({
+          name: toolCall.name,
+          content,
+          isError,
+        });
+      };
       const actionEntry = actions[toolCall.name];
       if (!actionEntry) {
         const result = `Error: Unknown tool "${toolCall.name}"`;
@@ -1001,6 +1101,7 @@ export async function runAgentLoop(opts: {
           input: toolCall.input as Record<string, string>,
         });
         send({ type: "tool_done", tool: toolCall.name, result });
+        recordToolResult(result, true);
         return {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
@@ -1024,6 +1125,7 @@ export async function runAgentLoop(opts: {
           toolCallSchemaError.error,
         );
         send({ type: "tool_done", tool: toolCall.name, result });
+        recordToolResult(result, true);
         return {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
@@ -1039,6 +1141,7 @@ export async function runAgentLoop(opts: {
       ) {
         const result = planModeBlockedMessage(toolCall.name);
         send({ type: "tool_done", tool: toolCall.name, result });
+        recordToolResult(result, true);
         return {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
@@ -1108,6 +1211,7 @@ export async function runAgentLoop(opts: {
       }
 
       send({ type: "tool_done", tool: toolCall.name, result });
+      recordToolResult(result, isError);
       return {
         type: "tool-result" as const,
         toolCallId: toolCall.id,
@@ -1894,6 +1998,7 @@ export function createProductionAgentHandler(
           providerOptions: options.providerOptions,
           executionMode: requestMode,
           maxIterations: loopSettings.maxIterations,
+          finalResponseGuard: options.finalResponseGuard,
         };
 
         let loopUsage: AgentLoopUsage;

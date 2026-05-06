@@ -37,6 +37,11 @@ export {
   type AgentChatReference,
   type MentionProvider,
   type MentionProviderItem,
+  type AgentLoopFinalResponseGuard,
+  type AgentLoopFinalResponseGuardContext,
+  type AgentLoopFinalResponseGuardResult,
+  type AgentLoopToolCallSummary,
+  type AgentLoopToolResultSummary,
 } from "../agent/index.js";
 export { createDevScriptRegistry } from "../scripts/dev/index.js";
 
@@ -132,9 +137,11 @@ export {
   getRequestUserEmail,
   getRequestOrgId,
   getRequestTimezone,
+  getRequestRunContext,
   getCredentialContext,
   isIntegrationCallerRequest,
   type RequestContext,
+  type RequestRunContext,
 } from "./request-context.js";
 export { formatDateInTimezone, todayInTimezone } from "./date-utils.js";
 

@@ -43,6 +43,10 @@ export interface RequestRunContext {
   engine?: import("../agent/engine/types.js").AgentEngine;
   /** Model name for this run (set by onEngineResolved). */
   model?: string;
+  /** Tool calls made so far in the current agent loop. */
+  toolCalls?: Array<{ name: string; input: unknown }>;
+  /** Tool results returned so far in the current agent loop. */
+  toolResults?: Array<{ name: string; content: string; isError: boolean }>;
 }
 
 export interface RequestContext {
