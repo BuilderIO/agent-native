@@ -15,6 +15,8 @@ type CreateEventInput = Omit<
   _tempId?: string;
   addGoogleMeet?: boolean;
   addZoom?: boolean;
+  workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
+  workingLocationLabel?: string;
 };
 
 type UpdateEventInput = Partial<CalendarEvent> & {
@@ -133,8 +135,13 @@ export function useCreateEvent() {
         start: newData.start,
         end: newData.end,
         allDay: newData.allDay ?? false,
-        description: newData.description,
-        location: newData.location,
+        description: newData.description || "",
+        location: newData.location || "",
+        eventType: newData.eventType,
+        transparency: newData.transparency,
+        visibility: newData.visibility,
+        reminders: newData.reminders,
+        remindersUseDefault: newData.remindersUseDefault,
         source: "local",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),

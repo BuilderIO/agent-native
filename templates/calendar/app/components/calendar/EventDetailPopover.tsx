@@ -26,6 +26,13 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -159,6 +166,38 @@ function formatReminderText(minutes: number): string {
   }
   const d = Math.floor(minutes / 1440);
   return `${d}d before`;
+}
+
+type AvailabilityValue = "opaque" | "transparent";
+type VisibilityValue = "default" | "public" | "private";
+type ReminderValue =
+  | "default"
+  | "none"
+  | "0"
+  | "10"
+  | "30"
+  | "60"
+  | "1440"
+  | "custom";
+
+function getReminderValue(event: CalendarEvent): ReminderValue {
+  if (event.remindersUseDefault !== false) return "default";
+  if (!event.reminders || event.reminders.length === 0) return "none";
+  if (event.reminders.length > 1) return "custom";
+  const minutes = String(event.reminders[0].minutes);
+  return ["0", "10", "30", "60", "1440"].includes(minutes)
+    ? (minutes as ReminderValue)
+    : "custom";
+}
+
+function getReminderUpdate(value: ReminderValue): Partial<CalendarEvent> {
+  if (value === "default") return { remindersUseDefault: true };
+  if (value === "none") return { remindersUseDefault: false, reminders: [] };
+  if (value === "custom") return {};
+  return {
+    remindersUseDefault: false,
+    reminders: [{ method: "popup", minutes: Number(value) }],
+  };
 }
 
 function formatRecurrence(recurrence?: string[]): string | null {
@@ -317,6 +356,13 @@ export function EventDetailPopover({
   }, [editingField]);
 
   const meetingLink = extractMeetingLink(event);
+  const availabilityValue: AvailabilityValue =
+    event.transparency === "transparent" ? "transparent" : "opaque";
+  const visibilityValue: VisibilityValue =
+    event.visibility === "public" || event.visibility === "private"
+      ? event.visibility
+      : "default";
+  const reminderValue = getReminderValue(event);
 
   // Save a field update
   const saveField = useCallback(
@@ -329,6 +375,28 @@ export function EventDetailPopover({
       });
     },
     [event.id, event.accountEmail, updateEvent],
+  );
+
+  const handleAvailabilityChange = useCallback(
+    (value: AvailabilityValue) => {
+      saveField({ transparency: value });
+    },
+    [saveField],
+  );
+
+  const handleVisibilityChange = useCallback(
+    (value: VisibilityValue) => {
+      saveField({ visibility: value });
+    },
+    [saveField],
+  );
+
+  const handleReminderChange = useCallback(
+    (value: ReminderValue) => {
+      const updates = getReminderUpdate(value);
+      if (Object.keys(updates).length > 0) saveField(updates);
+    },
+    [saveField],
   );
 
   const handleAddGoogleMeet = useCallback(() => {
@@ -1112,35 +1180,83 @@ export function EventDetailPopover({
               </>
             )}
 
-            {/* Status / Visibility */}
-            {(event.status || event.visibility) && (
+            {/* Availability, visibility, and alerts */}
+            {!isOverlay ? (
+              <>
+                <div className="mx-4 my-2 border-t border-border/50" />
+                <div className="px-4 py-1.5">
+                  <div className="grid grid-cols-3 gap-2">
+                    <Select
+                      value={availabilityValue}
+                      onValueChange={(value) =>
+                        handleAvailabilityChange(value as AvailabilityValue)
+                      }
+                      disabled={updateEvent.isPending}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="opaque">Busy</SelectItem>
+                        <SelectItem value="transparent">Free</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={visibilityValue}
+                      onValueChange={(value) =>
+                        handleVisibilityChange(value as VisibilityValue)
+                      }
+                      disabled={updateEvent.isPending}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">Default</SelectItem>
+                        <SelectItem value="public">Public</SelectItem>
+                        <SelectItem value="private">Private</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={reminderValue}
+                      onValueChange={(value) =>
+                        handleReminderChange(value as ReminderValue)
+                      }
+                      disabled={updateEvent.isPending}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">Default alert</SelectItem>
+                        <SelectItem value="none">No alert</SelectItem>
+                        <SelectItem value="0">At start</SelectItem>
+                        <SelectItem value="10">10 min</SelectItem>
+                        <SelectItem value="30">30 min</SelectItem>
+                        <SelectItem value="60">1 hour</SelectItem>
+                        <SelectItem value="1440">1 day</SelectItem>
+                        <SelectItem value="custom" disabled>
+                          Custom alert
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </>
+            ) : (event.status || event.visibility) ? (
               <>
                 <div className="mx-4 my-2 border-t border-border/50" />
                 <div className="flex items-center gap-3 px-4 py-1.5 text-sm text-muted-foreground">
                   <div className="h-4 w-4 shrink-0" />
-                  <div className="flex items-center gap-2">
-                    {event.status && event.status !== "cancelled" && (
-                      <span>
-                        {event.status === "confirmed" ? "Busy" : "Free"}
-                      </span>
-                    )}
-                    {event.status &&
-                      event.status !== "cancelled" &&
-                      event.visibility &&
-                      event.visibility !== "default" && (
-                        <span className="text-muted-foreground/40">
-                          &middot;
-                        </span>
-                      )}
-                    {event.visibility && event.visibility !== "default" && (
-                      <span className="capitalize">
-                        {event.visibility} visibility
-                      </span>
-                    )}
-                  </div>
+                  <span>
+                    {event.transparency === "transparent" ? "Free" : "Busy"}
+                    {event.visibility && event.visibility !== "default"
+                      ? ` · ${event.visibility} visibility`
+                      : ""}
+                  </span>
                 </div>
               </>
-            )}
+            ) : null}
 
             {/* Overlay person badge */}
             {event.overlayEmail && (

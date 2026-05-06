@@ -99,6 +99,102 @@ function mapConferenceData(data: any): CalendarEvent["conferenceData"] {
   };
 }
 
+const LIST_EVENT_TYPES = [
+  "default",
+  "focusTime",
+  "outOfOffice",
+  "workingLocation",
+];
+
+function mapReminders(event: any): Pick<
+  CalendarEvent,
+  "reminders" | "remindersUseDefault"
+> {
+  return {
+    remindersUseDefault: event.reminders?.useDefault ?? true,
+    reminders: event.reminders?.overrides?.map((r: any) => ({
+      method: r.method,
+      minutes: r.minutes,
+    })),
+  };
+}
+
+function buildDateRange(event: CalendarEvent | Partial<CalendarEvent>) {
+  return {
+    start: event.allDay
+      ? { date: event.start?.split("T")[0] }
+      : { dateTime: event.start },
+    end: event.allDay
+      ? { date: event.end?.split("T")[0] }
+      : { dateTime: event.end },
+  };
+}
+
+function applyEventOptions(body: any, event: CalendarEvent): void {
+  if (event.eventType && event.eventType !== "default") {
+    body.eventType = event.eventType;
+  }
+  if (event.transparency !== undefined) body.transparency = event.transparency;
+  if (event.visibility !== undefined) body.visibility = event.visibility;
+  if (event.status !== undefined) body.status = event.status;
+  if (event.remindersUseDefault !== undefined) {
+    body.reminders = event.remindersUseDefault
+      ? { useDefault: true }
+      : { useDefault: false, overrides: event.reminders ?? [] };
+  } else if (event.reminders !== undefined) {
+    body.reminders = { useDefault: false, overrides: event.reminders };
+  }
+
+  if (event.eventType === "outOfOffice") {
+    body.outOfOfficeProperties = event.outOfOfficeProperties ?? {
+      autoDeclineMode: "declineNone",
+    };
+    body.transparency = "opaque";
+  }
+  if (event.eventType === "focusTime") {
+    body.focusTimeProperties = event.focusTimeProperties ?? {
+      autoDeclineMode: "declineNone",
+      chatStatus: "doNotDisturb",
+    };
+    body.transparency = "opaque";
+  }
+  if (event.eventType === "workingLocation") {
+    body.workingLocationProperties = event.workingLocationProperties ?? {
+      type: "customLocation",
+      customLocation: {
+        label: event.location || event.title || "Working location",
+      },
+    };
+    body.visibility = "public";
+    body.transparency = "transparent";
+  }
+}
+
+function applyEventPatchOptions(
+  body: any,
+  event: Partial<CalendarEvent>,
+): void {
+  if (event.transparency !== undefined) body.transparency = event.transparency;
+  if (event.visibility !== undefined) body.visibility = event.visibility;
+  if (event.status !== undefined) body.status = event.status;
+  if (event.remindersUseDefault !== undefined) {
+    body.reminders = event.remindersUseDefault
+      ? { useDefault: true }
+      : { useDefault: false, overrides: event.reminders ?? [] };
+  } else if (event.reminders !== undefined) {
+    body.reminders = { useDefault: false, overrides: event.reminders };
+  }
+  if (event.outOfOfficeProperties !== undefined) {
+    body.outOfOfficeProperties = event.outOfOfficeProperties;
+  }
+  if (event.focusTimeProperties !== undefined) {
+    body.focusTimeProperties = event.focusTimeProperties;
+  }
+  if (event.workingLocationProperties !== undefined) {
+    body.workingLocationProperties = event.workingLocationProperties;
+  }
+}
+
 function isPermanentRefreshError(message: string): boolean {
   const m = message.toLowerCase();
   return PERMANENT_REFRESH_ERRORS.some((code) => m.includes(code));
@@ -399,6 +495,7 @@ export async function listEvents(
           timeMax,
           singleEvents: true,
           orderBy: "startTime",
+          eventTypes: LIST_EVENT_TYPES,
         });
 
         const events = response.items || [];
@@ -421,6 +518,7 @@ export async function listEvents(
             accountEmail: email,
             responseStatus: selfAttendee?.responseStatus,
             transparency: event.transparency || undefined,
+            eventType: event.eventType || "default",
             attendees: event.attendees?.map((a: any) => ({
               email: a.email,
               displayName: a.displayName || undefined,
@@ -429,10 +527,7 @@ export async function listEvents(
               organizer: a.organizer || undefined,
               self: a.self || undefined,
             })),
-            reminders: event.reminders?.overrides?.map((r: any) => ({
-              method: r.method,
-              minutes: r.minutes,
-            })),
+            ...mapReminders(event),
             recurrence: event.recurrence || undefined,
             recurringEventId: event.recurringEventId || undefined,
             hangoutLink: event.hangoutLink || undefined,
@@ -466,6 +561,10 @@ export async function listEvents(
             })),
             visibility: event.visibility || undefined,
             status: event.status || undefined,
+            outOfOfficeProperties: event.outOfOfficeProperties || undefined,
+            focusTimeProperties: event.focusTimeProperties || undefined,
+            workingLocationProperties:
+              event.workingLocationProperties || undefined,
             organizer: event.organizer
               ? {
                   email: event.organizer.email,
@@ -516,6 +615,7 @@ export async function listOverlayEvents(
           timeMax,
           singleEvents: true,
           orderBy: "startTime",
+          eventTypes: LIST_EVENT_TYPES,
         });
 
         const events = response.items || [];
@@ -530,6 +630,7 @@ export async function listOverlayEvents(
           source: "google" as const,
           googleEventId: event.id || undefined,
           htmlLink: event.htmlLink || undefined,
+          eventType: event.eventType || "default",
           accountEmail: undefined,
           overlayEmail,
           createdAt: event.created || new Date().toISOString(),
@@ -581,6 +682,7 @@ export async function getEvent(
     accountEmail,
     responseStatus: selfAttendee?.responseStatus || undefined,
     transparency: event.transparency || undefined,
+    eventType: event.eventType || "default",
     attendees: event.attendees?.map((a: any) => ({
       email: a.email,
       displayName: a.displayName || undefined,
@@ -589,10 +691,7 @@ export async function getEvent(
       organizer: a.organizer || undefined,
       self: a.self || undefined,
     })),
-    reminders: event.reminders?.overrides?.map((r: any) => ({
-      method: r.method,
-      minutes: r.minutes,
-    })),
+    ...mapReminders(event),
     recurrence: event.recurrence || undefined,
     recurringEventId: event.recurringEventId || undefined,
     hangoutLink: event.hangoutLink || undefined,
@@ -606,6 +705,9 @@ export async function getEvent(
     })),
     visibility: event.visibility || undefined,
     status: event.status || undefined,
+    outOfOfficeProperties: event.outOfOfficeProperties || undefined,
+    focusTimeProperties: event.focusTimeProperties || undefined,
+    workingLocationProperties: event.workingLocationProperties || undefined,
     organizer: event.organizer
       ? {
           email: event.organizer.email,
@@ -632,18 +734,20 @@ export async function createEvent(
 }> {
   const client = await getClient(event.accountEmail);
   if (!client) return {};
+  if (
+    (event.eventType === "outOfOffice" || event.eventType === "focusTime") &&
+    event.allDay
+  ) {
+    throw new Error("Out of office and focus time events must be timed.");
+  }
 
   const body: any = {
     summary: event.title,
     description: event.description,
     location: event.location,
-    start: event.allDay
-      ? { date: event.start.split("T")[0] }
-      : { dateTime: event.start },
-    end: event.allDay
-      ? { date: event.end.split("T")[0] }
-      : { dateTime: event.end },
+    ...buildDateRange(event),
   };
+  applyEventOptions(body, event);
 
   if (event.attendees && event.attendees.length > 0) {
     body.attendees = event.attendees.map((a) => ({
@@ -717,9 +821,7 @@ export async function updateEvent(
   if (event.recurrence !== undefined) {
     requestBody.recurrence = event.recurrence;
   }
-  if (event.transparency !== undefined) {
-    requestBody.transparency = event.transparency;
-  }
+  applyEventPatchOptions(requestBody, event);
   if (options?.addGoogleMeet) {
     requestBody.conferenceData = createGoogleMeetRequest();
   }

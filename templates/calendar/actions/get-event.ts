@@ -54,6 +54,8 @@ export default defineAction({
           htmlLink: evt.htmlLink || undefined,
           accountEmail: acctEmail,
           responseStatus: selfAttendee?.responseStatus || undefined,
+          transparency: evt.transparency || undefined,
+          eventType: evt.eventType || "default",
           attendees: evt.attendees?.map((a: any) => ({
             email: a.email,
             displayName: a.displayName || undefined,
@@ -62,6 +64,7 @@ export default defineAction({
             organizer: a.organizer || undefined,
             self: a.self || undefined,
           })),
+          remindersUseDefault: evt.reminders?.useDefault ?? true,
           reminders: evt.reminders?.overrides?.map((r: any) => ({
             method: r.method,
             minutes: r.minutes,
@@ -97,6 +100,9 @@ export default defineAction({
           })),
           visibility: evt.visibility || undefined,
           status: evt.status || undefined,
+          outOfOfficeProperties: evt.outOfOfficeProperties || undefined,
+          focusTimeProperties: evt.focusTimeProperties || undefined,
+          workingLocationProperties: evt.workingLocationProperties || undefined,
           organizer: evt.organizer
             ? {
                 email: evt.organizer.email,

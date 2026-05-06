@@ -28,12 +28,24 @@ import {
 } from "@/components/calendar/AttendeeAutocomplete";
 import {
   IconBrandZoom,
+  IconChevronDown,
   IconPlus,
+  IconSettings2,
   IconVideo,
   IconUsers,
 } from "@tabler/icons-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 type VideoProvider = "none" | "google_meet" | "zoom";
+type EventType = "default" | "outOfOffice" | "focusTime" | "workingLocation";
+type Availability = "opaque" | "transparent";
+type Visibility = "default" | "public" | "private" | "confidential";
+type ReminderOption = "default" | "none" | "0" | "10" | "30" | "60" | "1440";
+type WorkingLocationType = "homeOffice" | "officeLocation" | "customLocation";
 
 function uniqueAttendees(attendees: AttendeeRecipient[]) {
   const byEmail = new Map<string, AttendeeRecipient>();
@@ -76,8 +88,16 @@ export function CreateEventPopover({
   const [endTime, setEndTime] = useState(defaultEnd || "10:00");
   const [location, setLocation] = useState("");
   const [allDay, setAllDay] = useState(false);
+  const [eventType, setEventType] = useState<EventType>("default");
+  const [availability, setAvailability] = useState<Availability>("opaque");
+  const [visibility, setVisibility] = useState<Visibility>("default");
+  const [reminder, setReminder] = useState<ReminderOption>("default");
+  const [workingLocationType, setWorkingLocationType] =
+    useState<WorkingLocationType>("customLocation");
   const [videoProvider, setVideoProvider] = useState<VideoProvider>("none");
   const [attendees, setAttendees] = useState<AttendeeRecipient[]>([]);
+  const timedOnlyStatus =
+    eventType === "outOfOffice" || eventType === "focusTime";
 
   const createEvent = useCreateEvent();
   const delEvent = useDeleteEvent();
@@ -96,10 +116,23 @@ export function CreateEventPopover({
       setEndTime(defaultEnd || "10:00");
       setLocation("");
       setAllDay(false);
+      setEventType("default");
+      setAvailability("opaque");
+      setVisibility("default");
+      setReminder("default");
+      setWorkingLocationType("customLocation");
       setVideoProvider("none");
       setAttendees([]);
     }
   }, [open, defaultDate, defaultStart, defaultEnd]);
+
+  useEffect(() => {
+    if (timedOnlyStatus && allDay) setAllDay(false);
+    if (eventType === "workingLocation") {
+      setAvailability("transparent");
+      setVisibility("public");
+    }
+  }, [allDay, eventType, timedOnlyStatus]);
 
   function addAttendee(attendee: AttendeeRecipient) {
     setAttendees((prev) => uniqueAttendees([...prev, attendee]));
@@ -133,11 +166,14 @@ export function CreateEventPopover({
       return;
     }
 
-    const startISO = allDay
+    const effectiveAllDay = allDay && !timedOnlyStatus;
+    const allDayEnd = new Date(`${date}T00:00:00`);
+    allDayEnd.setDate(allDayEnd.getDate() + 1);
+    const startISO = effectiveAllDay
       ? new Date(`${date}T00:00:00`).toISOString()
       : new Date(`${date}T${startTime}:00`).toISOString();
-    const endISO = allDay
-      ? new Date(`${date}T23:59:59`).toISOString()
+    const endISO = effectiveAllDay
+      ? allDayEnd.toISOString()
       : new Date(`${date}T${endTime}:00`).toISOString();
 
     // Pick up any unsubmitted typed email so users do not lose the final entry.
@@ -147,6 +183,24 @@ export function CreateEventPopover({
       ...attendees,
       ...trailingAttendees,
     ]);
+    const reminderPatch =
+      reminder === "default"
+        ? {}
+        : reminder === "none"
+          ? { remindersUseDefault: false, reminders: [] }
+          : {
+              remindersUseDefault: false,
+              reminders: [{ method: "popup" as const, minutes: Number(reminder) }],
+            };
+    const statusPatch =
+      eventType === "default"
+        ? {}
+        : {
+            eventType,
+            workingLocationType,
+            workingLocationLabel:
+              workingLocationType === "customLocation" ? location : undefined,
+          };
 
     createEvent.mutate(
       {
@@ -155,7 +209,16 @@ export function CreateEventPopover({
         start: startISO,
         end: endISO,
         location,
-        allDay,
+        allDay: effectiveAllDay,
+        transparency:
+          eventType === "workingLocation"
+            ? "transparent"
+            : eventType === "default"
+              ? availability
+              : "opaque",
+        visibility: eventType === "workingLocation" ? "public" : visibility,
+        ...reminderPatch,
+        ...statusPatch,
         addGoogleMeet: videoProvider === "google_meet",
         addZoom: videoProvider === "zoom",
         attendees:
@@ -229,6 +292,54 @@ export function CreateEventPopover({
           </div>
 
           <div className="space-y-1.5">
+            <Label htmlFor="event-type" className="text-xs">
+              Type
+            </Label>
+            <Select
+              value={eventType}
+              onValueChange={(value) => setEventType(value as EventType)}
+            >
+              <SelectTrigger id="event-type" className="h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Event</SelectItem>
+                <SelectItem value="outOfOffice">Out of office</SelectItem>
+                <SelectItem value="focusTime">Focus time</SelectItem>
+                <SelectItem value="workingLocation">
+                  Working location
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {eventType === "workingLocation" && (
+            <div className="space-y-1.5">
+              <Label htmlFor="working-location-type" className="text-xs">
+                Working from
+              </Label>
+              <Select
+                value={workingLocationType}
+                onValueChange={(value) =>
+                  setWorkingLocationType(value as WorkingLocationType)
+                }
+              >
+                <SelectTrigger
+                  id="working-location-type"
+                  className="h-8 text-sm"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="homeOffice">Home</SelectItem>
+                  <SelectItem value="officeLocation">Office</SelectItem>
+                  <SelectItem value="customLocation">Custom</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          <div className="space-y-1.5">
             <Label htmlFor="event-description" className="text-xs">
               Description
             </Label>
@@ -256,7 +367,12 @@ export function CreateEventPopover({
           </div>
 
           <div className="flex items-center gap-2">
-            <Switch id="all-day" checked={allDay} onCheckedChange={setAllDay} />
+            <Switch
+              id="all-day"
+              checked={allDay && !timedOnlyStatus}
+              onCheckedChange={setAllDay}
+              disabled={timedOnlyStatus}
+            />
             <Label htmlFor="all-day" className="text-xs">
               All day
             </Label>
@@ -389,6 +505,108 @@ export function CreateEventPopover({
               </div>
             )}
           </div>
+
+          <Collapsible>
+            <CollapsibleTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 w-full justify-between px-0 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground"
+              >
+                <span className="flex items-center gap-1.5">
+                  <IconSettings2 className="h-3.5 w-3.5" />
+                  Event options
+                </span>
+                <IconChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="event-availability" className="text-xs">
+                    Show as
+                  </Label>
+                  <Select
+                    value={
+                      eventType === "workingLocation"
+                        ? "transparent"
+                        : eventType === "default"
+                          ? availability
+                          : "opaque"
+                    }
+                    onValueChange={(value) =>
+                      setAvailability(value as Availability)
+                    }
+                    disabled={eventType !== "default"}
+                  >
+                    <SelectTrigger
+                      id="event-availability"
+                      className="h-8 text-sm"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="opaque">Busy</SelectItem>
+                      <SelectItem value="transparent">Free</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="event-visibility" className="text-xs">
+                    Visibility
+                  </Label>
+                  <Select
+                    value={
+                      eventType === "workingLocation" ? "public" : visibility
+                    }
+                    onValueChange={(value) =>
+                      setVisibility(value as Visibility)
+                    }
+                    disabled={eventType === "workingLocation"}
+                  >
+                    <SelectTrigger
+                      id="event-visibility"
+                      className="h-8 text-sm"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">Default</SelectItem>
+                      <SelectItem value="public">Public</SelectItem>
+                      <SelectItem value="private">Private</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="event-reminder" className="text-xs">
+                  Alert
+                </Label>
+                <Select
+                  value={reminder}
+                  onValueChange={(value) =>
+                    setReminder(value as ReminderOption)
+                  }
+                >
+                  <SelectTrigger id="event-reminder" className="h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">Calendar default</SelectItem>
+                    <SelectItem value="none">No alert</SelectItem>
+                    <SelectItem value="0">At start time</SelectItem>
+                    <SelectItem value="10">10 minutes before</SelectItem>
+                    <SelectItem value="30">30 minutes before</SelectItem>
+                    <SelectItem value="60">1 hour before</SelectItem>
+                    <SelectItem value="1440">1 day before</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
 
           <div className="flex items-center justify-between pt-1">
             <p className="text-[10px] text-muted-foreground/60">

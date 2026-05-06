@@ -5,7 +5,18 @@ import { z } from "zod";
 import type { CalendarEvent } from "../shared/api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
-import { cliBoolean } from "./event-action-helpers.js";
+import {
+  availabilityInput,
+  buildReminderOverrides,
+  buildStatusEventFields,
+  cliBoolean,
+  eventTypeInput,
+  reminderMethodInput,
+  reminderMinutesInput,
+  remindersInput,
+  visibilityInput,
+  workingLocationTypeInput,
+} from "./event-action-helpers.js";
 
 // Accept attendees as either an array of {email, displayName?} objects (when
 // invoked via JSON) or a comma/whitespace-separated string of emails (when
@@ -46,6 +57,38 @@ export default defineAction({
     description: z.string().optional().describe("Event description"),
     location: z.string().optional().describe("Event location"),
     allDay: cliBoolean.optional().describe("Whether the event is all-day"),
+    eventType: eventTypeInput.describe(
+      "Native Google Calendar event type. Use outOfOffice for OOO, focusTime for focus blocks, and workingLocation for working location. Task and appointment schedules are not Google Calendar event types.",
+    ),
+    transparency: availabilityInput.describe(
+      "Google Calendar availability: opaque blocks time (Busy), transparent does not block time (Free).",
+    ),
+    visibility: visibilityInput.describe(
+      "Google Calendar visibility: default, public, private, or confidential.",
+    ),
+    remindersUseDefault: cliBoolean
+      .optional()
+      .describe(
+        "Whether to use calendar default reminders. Set false with no reminders to create an event with no reminders.",
+      ),
+    reminders: remindersInput.describe(
+      "Custom reminder overrides, max 5, such as [{method:'popup', minutes:10}].",
+    ),
+    reminderMinutes: reminderMinutesInput.describe(
+      "Convenience field for a single reminder in minutes before the event.",
+    ),
+    reminderMethod: reminderMethodInput.describe(
+      "Reminder method for reminderMinutes. Defaults to popup.",
+    ),
+    workingLocationType: workingLocationTypeInput.describe(
+      "For eventType=workingLocation: homeOffice, officeLocation, or customLocation.",
+    ),
+    workingLocationLabel: z
+      .string()
+      .optional()
+      .describe(
+        "For eventType=workingLocation: label shown in Google Calendar.",
+      ),
     addGoogleMeet: cliBoolean
       .optional()
       .describe("Generate and attach a Google Meet link to the event"),
@@ -75,6 +118,12 @@ export default defineAction({
     if (args.addGoogleMeet && args.addZoom) {
       throw new Error("Choose either Google Meet or Zoom, not both.");
     }
+    if (
+      (args.eventType === "outOfOffice" || args.eventType === "focusTime") &&
+      args.allDay === true
+    ) {
+      throw new Error("Out of office and focus time events must be timed.");
+    }
 
     if (!(await googleCalendar.isConnected(email))) {
       throw new Error(
@@ -94,6 +143,19 @@ export default defineAction({
     }
 
     const attendees = normalizeAttendees(args.attendees);
+    const reminderFields = buildReminderOverrides({
+      reminders: args.reminders,
+      reminderMinutes: args.reminderMinutes,
+      reminderMethod: args.reminderMethod,
+      useDefaultReminders: args.remindersUseDefault,
+    });
+    const statusEventFields = buildStatusEventFields({
+      eventType: args.eventType,
+      title: args.title,
+      location: args.location,
+      workingLocationType: args.workingLocationType,
+      workingLocationLabel: args.workingLocationLabel,
+    });
 
     const calEvent: CalendarEvent = {
       id: "",
@@ -105,7 +167,12 @@ export default defineAction({
       allDay: args.allDay ?? false,
       source: "google",
       accountEmail: acctEmail,
+      eventType: args.eventType ?? "default",
+      transparency: args.transparency,
+      visibility: args.visibility,
       attendees,
+      ...reminderFields,
+      ...statusEventFields,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };

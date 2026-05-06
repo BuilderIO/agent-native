@@ -72,7 +72,8 @@ Google Calendar events are NOT stored in the local database. They are fetched li
 - \`pnpm action view-screen\` — See what the user is looking at (current view, date, events). ALWAYS run this first.
 - \`pnpm action list-events --from YYYY-MM-DD --to YYYY-MM-DD\` — List events from Google Calendar. The --to date is exclusive, so use tomorrow for today's events.
 - \`pnpm action search-events --query "term"\` — Search events by title, people, organizer, location, or description across a broad one-year past/future window. Use this for recurring meetings and "how often do I meet with X?" questions.
-- \`pnpm action create-event --title "..." --start "ISO" --end "ISO"\` — Create a new event
+- \`pnpm action create-event --title "..." --start "ISO" --end "ISO"\` — Create a new event. Use \`--eventType outOfOffice\` for OOO, \`--eventType focusTime\` for focus time, \`--eventType workingLocation\` for working location, \`--transparency transparent\` to show as Free, \`--visibility private\` for private events, and \`--reminderMinutes 10\` for alert timing.
+- \`pnpm action update-event --id "google-..." --transparency opaque|transparent --visibility default|public|private --reminderMinutes 10\` — Update event availability, visibility, or reminders.
 - \`pnpm action navigate --view=calendar --calendarViewMode=day\` — Navigate the UI (day/week/month views, dates)
 - \`pnpm action navigate --view=calendar --date=YYYY-MM-DD\` — Navigate to a specific date
 - \`pnpm action navigate --view=availability\` — Show availability settings
