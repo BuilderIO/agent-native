@@ -62,7 +62,9 @@ export function ComposeBubbleToolbar({
   const toolbarRef = useRef<HTMLDivElement>(null);
 
   const updateToolbar = useCallback(() => {
-    if (!editor.isFocused) {
+    const toolbarHasFocus =
+      toolbarRef.current?.contains(document.activeElement) ?? false;
+    if (!editor.isFocused && !toolbarHasFocus) {
       setVisible(false);
       return;
     }
@@ -77,10 +79,50 @@ export function ComposeBubbleToolbar({
       return;
     }
 
+    let rect: {
+      top: number;
+      bottom: number;
+      left: number;
+      right: number;
+      width: number;
+      height: number;
+    } | null = null;
     const domSelection = window.getSelection();
-    if (!domSelection || domSelection.rangeCount === 0) return;
-    const range = domSelection.getRangeAt(0);
-    const rect = range.getBoundingClientRect();
+    if (editor.isFocused && domSelection && domSelection.rangeCount > 0) {
+      const range = domSelection.getRangeAt(0);
+      const ancestor = range.commonAncestorContainer;
+      const ancestorEl =
+        ancestor.nodeType === Node.ELEMENT_NODE
+          ? (ancestor as Element)
+          : ancestor.parentElement;
+      if (ancestorEl && editor.view.dom.contains(ancestorEl)) {
+        const rangeRect = range.getBoundingClientRect();
+        if (rangeRect.width !== 0 || rangeRect.height !== 0) {
+          rect = rangeRect;
+        }
+      }
+    }
+    if (!rect) {
+      try {
+        const start = editor.view.coordsAtPos(from);
+        const end = editor.view.coordsAtPos(to);
+        const left = Math.min(start.left, end.left);
+        const right = Math.max(start.right, end.right, start.left, end.left);
+        const top = Math.min(start.top, end.top);
+        const bottom = Math.max(start.bottom, end.bottom);
+        rect = {
+          top,
+          bottom,
+          left,
+          right,
+          width: Math.max(1, right - left),
+          height: Math.max(1, bottom - top),
+        };
+      } catch {
+        rect = null;
+      }
+    }
+    if (!rect) return;
     if (rect.width === 0 && rect.height === 0) {
       setVisible(false);
       return;
