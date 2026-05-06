@@ -446,6 +446,87 @@ function createSyntheticAudioStream(): {
   }
 }
 
+interface RecordingStartCue {
+  play(): void;
+  cleanup(): void;
+}
+
+const noopRecordingStartCue: RecordingStartCue = {
+  play() {},
+  cleanup() {},
+};
+
+function createRecordingStartCue(): RecordingStartCue {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return noopRecordingStartCue;
+
+    const ctx = new AudioCtx();
+    let played = false;
+    let closed = false;
+    let cleanupTimer: ReturnType<typeof window.setTimeout> | null =
+      null;
+
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      if (cleanupTimer) {
+        window.clearTimeout(cleanupTimer);
+        cleanupTimer = null;
+      }
+      ctx.close().catch(() => {});
+    };
+
+    const play = () => {
+      if (played || closed) return;
+      played = true;
+
+      const startedAt = ctx.currentTime + 0.005;
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(880, startedAt);
+      oscillator.frequency.exponentialRampToValueAtTime(660, startedAt + 0.14);
+
+      gain.gain.setValueAtTime(0.0001, startedAt);
+      gain.gain.exponentialRampToValueAtTime(0.07, startedAt + 0.018);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + 0.18);
+
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+
+      oscillator.addEventListener("ended", close, { once: true });
+      oscillator.start(startedAt);
+      oscillator.stop(startedAt + 0.2);
+    };
+
+    const cue: RecordingStartCue = {
+      play() {
+        if (ctx.state === "running") {
+          play();
+          return;
+        }
+        ctx
+          .resume()
+          .then(play)
+          .catch((err) => {
+            console.warn("[clips-recorder] start cue unavailable:", err);
+            close();
+          });
+      },
+      cleanup: close,
+    };
+
+    ctx.resume().catch(() => {});
+    cleanupTimer = window.setTimeout(() => cue.cleanup(), 5 * 60_000);
+    return cue;
+  } catch (err) {
+    console.warn("[clips-recorder] start cue unavailable:", err);
+    return noopRecordingStartCue;
+  }
+}
+
 export async function startNativeRecording(
   params: StartParams,
 ): Promise<RecorderHandle> {
@@ -469,6 +550,7 @@ async function startNativeRecordingInner(
   const wantsScreen = params.mode !== "camera";
   const wantsCamera = params.mode !== "screen" && params.cameraOn;
   const wantsAudio = params.micOn;
+  const recordingStartCue = createRecordingStartCue();
   console.log("[clips-recorder] startNativeRecording", {
     serverUrl: params.serverUrl,
     mode: params.mode,
@@ -832,6 +914,7 @@ async function startNativeRecordingInner(
   stateUnlistens = toolbarUnlistens;
 
   recorder.start(2_000);
+  recordingStartCue.play();
   // The toolbar is already open (the popover's bubble-session effect
   // spawns it alongside the bubble in its pre-record, disabled state).
   // Now that MediaRecorder is actually ticking, flip the toolbar's
