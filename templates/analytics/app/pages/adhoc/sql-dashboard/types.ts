@@ -66,6 +66,8 @@ export interface SqlPanelConfig {
   pivot?: PivotConfig;
   /** Stack bar/area series on top of each other instead of side-by-side / overlapping. */
   stacked?: boolean;
+  /** Show the chart legend. Defaults to true for chart renderers. */
+  legend?: boolean;
   sortable?: boolean;
   columns?: TableColumnConfig[];
   limit?: number;

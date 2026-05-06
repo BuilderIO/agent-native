@@ -15,6 +15,7 @@ import {
   Cell,
   Line,
   LineChart,
+  Legend,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -70,17 +71,19 @@ const CHART_TOOLTIP_WRAPPER_STYLE: CSSProperties = {
   pointerEvents: "none",
 };
 
-const CHART_TOOLTIP_CONTENT_STYLE: CSSProperties = {
-  backgroundColor: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
-  borderRadius: "8px",
-  color: "hsl(var(--foreground))",
+const CHART_LEGEND_WRAPPER_STYLE: CSSProperties = {
+  fontSize: 11,
+  paddingTop: 8,
 };
 
 const CHART_TOOLTIP_PROPS = {
   allowEscapeViewBox: { x: true, y: true },
-  contentStyle: CHART_TOOLTIP_CONTENT_STYLE,
   wrapperStyle: CHART_TOOLTIP_WRAPPER_STYLE,
+} as const;
+
+const CHART_LEGEND_PROPS = {
+  iconSize: 8,
+  wrapperStyle: CHART_LEGEND_WRAPPER_STYLE,
 } as const;
 
 function formatYValue(
@@ -115,6 +118,75 @@ function formatXLabel(value: string): string {
     }
   } catch {}
   return String(value);
+}
+
+function shouldShowLegend(panel: SqlPanel, seriesCount: number): boolean {
+  return panel.config?.legend !== false && seriesCount > 0;
+}
+
+function ChartTooltip({
+  active,
+  payload,
+  label,
+  labelFormatter,
+  valueFormatter,
+}: {
+  active?: boolean;
+  payload?: Array<{
+    color?: string;
+    dataKey?: string | number;
+    name?: string | number;
+    value?: unknown;
+  }>;
+  label?: unknown;
+  labelFormatter?: (value: string) => string;
+  valueFormatter?: (value: number) => string;
+}) {
+  const items =
+    payload?.filter((item) => item.value != null && item.value !== "") ?? [];
+  if (!active || items.length === 0) return null;
+
+  const labelText =
+    label == null
+      ? ""
+      : labelFormatter
+        ? labelFormatter(String(label))
+        : String(label);
+
+  return (
+    <div className="min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg">
+      {labelText && (
+        <div className="mb-1.5 truncate font-medium text-foreground">
+          {labelText}
+        </div>
+      )}
+      <div className="space-y-1">
+        {items.map((item) => {
+          const raw = item.value;
+          const numeric = typeof raw === "number" ? raw : Number(raw);
+          const value =
+            Number.isFinite(numeric) && valueFormatter
+              ? valueFormatter(numeric)
+              : String(raw ?? "");
+          const name = String(item.name ?? item.dataKey ?? "");
+          return (
+            <div key={name} className="flex items-center gap-2">
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: item.color ?? "currentColor" }}
+              />
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                {name}
+              </span>
+              <span className="font-medium tabular-nums text-foreground">
+                {value}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function detectKeys(
@@ -265,7 +337,13 @@ export function SqlChart({
 
   if (chartType === "pie") {
     return (
-      <PieRenderer rows={rows} xKey={xKey} yKey={yKeys[0]} colors={colors} />
+      <PieRenderer
+        rows={rows}
+        xKey={xKey}
+        yKey={yKeys[0]}
+        colors={colors}
+        panel={panel}
+      />
     );
   }
 
@@ -278,6 +356,7 @@ export function SqlChart({
         colors={colors}
         yFormatter={yFormatter}
         stacked={panel.config?.stacked === true}
+        panel={panel}
       />
     );
   }
@@ -303,6 +382,7 @@ export function SqlChart({
       yFormatter={yFormatter}
       chartType={chartType}
       stacked={panel.config?.stacked === true}
+      panel={panel}
     />
   );
 }
@@ -640,11 +720,13 @@ function PieRenderer({
   xKey,
   yKey,
   colors,
+  panel,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
   yKey: string;
   colors: string[];
+  panel: SqlPanel;
 }) {
   return (
     <div className="h-[250px] w-full overflow-visible">
@@ -666,7 +748,17 @@ function PieRenderer({
               <Cell key={i} fill={colors[i % colors.length]} />
             ))}
           </Pie>
-          <Tooltip {...CHART_TOOLTIP_PROPS} />
+          <Tooltip
+            {...CHART_TOOLTIP_PROPS}
+            content={
+              <ChartTooltip
+                valueFormatter={(v) => formatYValue(v, panel.config?.yFormatter)}
+              />
+            }
+          />
+          {shouldShowLegend(panel, rows.length) && (
+            <Legend {...CHART_LEGEND_PROPS} />
+          )}
         </PieChart>
       </ResponsiveContainer>
     </div>
@@ -680,6 +772,7 @@ function BarRenderer({
   colors,
   yFormatter,
   stacked,
+  panel,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
@@ -687,6 +780,7 @@ function BarRenderer({
   colors: string[];
   yFormatter?: "number" | "currency" | "percent";
   stacked?: boolean;
+  panel: SqlPanel;
 }) {
   return (
     <div className="h-[250px] w-full overflow-visible">
@@ -715,9 +809,17 @@ function BarRenderer({
           <Tooltip
             {...CHART_TOOLTIP_PROPS}
             labelFormatter={formatXLabel}
-            formatter={(v: number) => formatYValue(v, yFormatter)}
+            content={
+              <ChartTooltip
+                labelFormatter={formatXLabel}
+                valueFormatter={(v) => formatYValue(v, yFormatter)}
+              />
+            }
             itemSorter={(item) => -(Number(item.value) || 0)}
           />
+          {shouldShowLegend(panel, yKeys.length) && (
+            <Legend {...CHART_LEGEND_PROPS} />
+          )}
           {yKeys.map((key, i) => (
             <Bar
               key={key}
@@ -743,6 +845,7 @@ function TimeSeriesRenderer({
   yFormatter,
   chartType,
   stacked,
+  panel,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
@@ -751,6 +854,7 @@ function TimeSeriesRenderer({
   yFormatter?: "number" | "currency" | "percent";
   chartType: "line" | "area";
   stacked?: boolean;
+  panel: SqlPanel;
 }) {
   if (chartType === "line") {
     return (
@@ -780,9 +884,17 @@ function TimeSeriesRenderer({
             <Tooltip
               {...CHART_TOOLTIP_PROPS}
               labelFormatter={formatXLabel}
-              formatter={(v: number) => formatYValue(v, yFormatter)}
+              content={
+                <ChartTooltip
+                  labelFormatter={formatXLabel}
+                  valueFormatter={(v) => formatYValue(v, yFormatter)}
+                />
+              }
               itemSorter={(item) => -(Number(item.value) || 0)}
             />
+            {shouldShowLegend(panel, yKeys.length) && (
+              <Legend {...CHART_LEGEND_PROPS} />
+            )}
             {yKeys.map((key, i) => (
               <Line
                 key={key}
@@ -856,9 +968,17 @@ function TimeSeriesRenderer({
           <Tooltip
             {...CHART_TOOLTIP_PROPS}
             labelFormatter={formatXLabel}
-            formatter={(v: number) => formatYValue(v, yFormatter)}
+            content={
+              <ChartTooltip
+                labelFormatter={formatXLabel}
+                valueFormatter={(v) => formatYValue(v, yFormatter)}
+              />
+            }
             itemSorter={(item) => -(Number(item.value) || 0)}
           />
+          {shouldShowLegend(panel, yKeys.length) && (
+            <Legend {...CHART_LEGEND_PROPS} />
+          )}
           {yKeys.map((key, i) => (
             <Area
               key={key}

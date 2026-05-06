@@ -15,11 +15,13 @@ import {
 } from "@/components/ui/tooltip";
 import {
   IconAlertTriangle,
+  IconAlignLeft,
   IconCheck,
   IconCopy,
   IconLoader2,
   IconRotate,
 } from "@tabler/icons-react";
+import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
 import type { DataSourceType, SqlPanel } from "./types";
 
 const SOURCE_LABELS: Record<DataSourceType, string> = {
@@ -64,6 +66,7 @@ export function ViewSqlPopover({
   const dirty = draft !== panel.sql;
   const hasResolvedDifference =
     resolvedSql !== undefined && resolvedSql !== panel.sql;
+  const canFormat = canFormatPanelSql(panel.source);
   const isMac =
     typeof navigator !== "undefined" &&
     /Mac|iPhone|iPad/.test(navigator.userAgent);
@@ -96,6 +99,16 @@ export function ViewSqlPopover({
   const handleReset = () => {
     setDraft(panel.sql);
     setError(null);
+  };
+
+  const handleFormat = () => {
+    if (!canFormat) return;
+    try {
+      setDraft(formatPanelSql(draft, panel.source));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to format SQL");
+    }
   };
 
   return (
@@ -136,6 +149,23 @@ export function ViewSqlPopover({
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Discard changes</TooltipContent>
+              </Tooltip>
+            )}
+            {canFormat && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleFormat}
+                    disabled={saving || !draft.trim()}
+                    className="h-7 px-2 text-xs"
+                  >
+                    <IconAlignLeft className="h-3.5 w-3.5 mr-1" />
+                    Format
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Format SQL</TooltipContent>
               </Tooltip>
             )}
             <Tooltip>

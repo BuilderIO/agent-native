@@ -82,4 +82,53 @@ describe("extensions/store", () => {
 
     await expect(ensureExtensionsTables()).resolves.toBeUndefined();
   });
+
+  it("creates new extensions as private even inside an organization", async () => {
+    const insertedRows: unknown[] = [];
+    const db = {
+      insert: vi.fn(() => ({
+        values: vi.fn(async (row: unknown) => {
+          insertedRows.push(row);
+        }),
+      })),
+    };
+    const client = {
+      execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
+    };
+
+    vi.doMock("../db/client.js", () => ({
+      getDbExec: () => client,
+      getDialect: () => "sqlite",
+      isPostgres: () => false,
+      retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+    }));
+    vi.doMock("../db/create-get-db.js", () => ({
+      createGetDb: () => () => db,
+    }));
+    vi.doMock("../sharing/registry.js", () => ({
+      registerShareableResource: vi.fn(),
+    }));
+
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { createExtension } = await import("./store.js");
+
+    const extension = await runWithRequestContext(
+      { userEmail: "owner@example.com", orgId: "org-123" },
+      () =>
+        createExtension({
+          name: "Foobar",
+          content: "<div>Foobar</div>",
+        }),
+    );
+
+    expect(extension).toMatchObject({
+      name: "Foobar",
+      ownerEmail: "owner@example.com",
+      orgId: "org-123",
+      visibility: "private",
+    });
+    expect(insertedRows).toHaveLength(1);
+    expect(insertedRows[0]).toMatchObject({ visibility: "private" });
+  });
 });

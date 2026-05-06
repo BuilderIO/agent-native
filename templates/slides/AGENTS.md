@@ -275,6 +275,8 @@ If a metric or source would make the slide stronger but is not available, use qu
 | `logo-lookup`      | `--domain acme.com`                                                                  | Get company logo URL       |
 | `image-gen-status` |                                                                                      | Check configured providers |
 
+For image-generation prompts, create actual image assets with `generate-image`; do not substitute HTML/CSS placeholders, icon-only compositions, inline SVGs, or text-only mockups. Do not render visible text inside generated images unless the user explicitly asks for exact text. Style phrases like "make it look like Builder.io" are not brand-system setup requests; use a concise style interpretation and avoid browsing/searching/analyzing brand assets unless the user explicitly asks to set up, save, import, extract, or apply a design system.
+
 ### Design Systems
 
 | Action                      | Args                                                              | Purpose                            |

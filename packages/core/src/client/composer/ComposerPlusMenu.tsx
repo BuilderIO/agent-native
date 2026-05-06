@@ -360,7 +360,9 @@ function ComposerPlusMenuFull({
               </label>
               <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
                 Point at any Streamable HTTP MCP server. Its tools become
-                available to the agent.
+                available to the agent. Use Personal for private or staging
+                servers; use Organization only for vetted servers the whole
+                org should share.
               </p>
               <div className="space-y-2">
                 <div className="flex gap-1 rounded-md border border-border p-0.5">
@@ -413,7 +415,7 @@ function ComposerPlusMenuFull({
                     clearMcpFeedback();
                   }}
                   className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                  placeholder="Server name (e.g. zapier)"
+                  placeholder="Server name (e.g. zapier-staging)"
                 />
                 <input
                   value={mcpUrl}

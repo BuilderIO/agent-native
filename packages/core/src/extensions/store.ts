@@ -245,12 +245,7 @@ export async function createExtension(
     updatedAt: now,
     ownerEmail: userEmail,
     orgId: orgId ?? null,
-    // Default to org-visibility when the user has an active organization so
-    // teammates see the extension in their sidebar — matching how analytics
-    // dashboards/analyses are scoped (`templates/analytics/server/lib/
-    // dashboards-store.ts:356`). Solo users (no org) get the private
-    // default. Owners can still flip back to private via update-extension.
-    visibility: orgId ? "org" : "private",
+    visibility: "private",
   };
   await db.insert(extensions).values(row);
   return row;

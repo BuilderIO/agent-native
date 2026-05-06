@@ -108,8 +108,7 @@ const ThumbsFeedbackLazy = React.lazy(() =>
 );
 
 class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
-  public accept =
-    "application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,.pdf,.pptx";
+  public accept = "application/pdf,.pdf";
 
   public async add(state: { file: File }): Promise<PendingAttachment> {
     return {
@@ -147,9 +146,6 @@ class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
 function inferDocumentContentType(file: File): string {
   if (file.type) return file.type;
   if (file.name.toLowerCase().endsWith(".pdf")) return "application/pdf";
-  if (file.name.toLowerCase().endsWith(".pptx")) {
-    return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-  }
   return "application/octet-stream";
 }
 

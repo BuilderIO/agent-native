@@ -10,7 +10,7 @@
  * - `u:<email>:dashboard-{id}`     → kind='explorer', owner=email,  visibility='private'
  * - `u:<email>:sql-dashboard-{id}` → kind='sql',      owner=email,  visibility='private'
  * - `o:<orgId>:sql-dashboard-{id}` → kind='sql',      owner=caller, visibility='org'
- * - `adhoc-analysis-{id}`          → owner=caller,   visibility='org' (if org ctx)
+ * - `adhoc-analysis-{id}`          → owner=caller,   legacy visibility from its source key
  */
 import { and, eq } from "drizzle-orm";
 import {
@@ -18,6 +18,7 @@ import {
   assertAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
+import { recordChange } from "@agent-native/core/server";
 import {
   getAllSettings,
   getOrgSetting,
@@ -146,6 +147,7 @@ async function migrateDashboardFromSettings(
     .select()
     .from(schema.dashboards)
     .where(eq(schema.dashboards.id, id));
+  recordChange({ source: "dashboards", type: "change", key: id });
   return rowToDashboard(row);
 }
 
@@ -289,9 +291,9 @@ export async function listDashboards(
 }
 
 /**
- * Upsert a dashboard. On create, caller becomes owner and visibility
- * defaults to `private` (single-user) or `org` (when org context is set).
- * On update, `assertAccess` requires `editor`.
+ * Upsert a dashboard. On create, caller becomes owner and visibility defaults
+ * to `private`; users explicitly promote useful dashboards to org/public via
+ * sharing. On update, `assertAccess` requires `editor`.
  */
 export async function upsertDashboard(
   id: string,
@@ -325,8 +327,7 @@ export async function upsertDashboard(
       config: JSON.stringify(config),
       ownerEmail: ctx.email,
       orgId: ctx.orgId,
-      // Default to org-wide when the user is in an org, private otherwise.
-      visibility: ctx.orgId ? "org" : "private",
+      visibility: "private",
     });
   }
   const [row] = await db
@@ -352,6 +353,7 @@ export async function removeDashboard(
   await db
     .delete(schema.dashboardShares)
     .where(eq(schema.dashboardShares.resourceId, id));
+  recordChange({ source: "dashboards", type: "delete", key: id });
   // Best-effort legacy cleanup.
   try {
     if (ctx.orgId) await deleteOrgSetting(ctx.orgId, `${SQL_PREFIX}${id}`);
@@ -584,7 +586,7 @@ export async function upsertAnalysis(
       author: ctx.email,
       ownerEmail: ctx.email,
       orgId: ctx.orgId,
-      visibility: ctx.orgId ? "org" : "private",
+      visibility: "private",
     });
   }
   const [row] = await db

@@ -174,7 +174,7 @@ Collector endpoints:
 
 ### Sharing
 
-Dashboards and analyses are **private by default**. The framework's sharing primitive is wired up:
+Dashboards and analyses are **private by default**, even when the user is working inside an active org. Create in the user's personal space first; when the user asks to publish or share, use `set-resource-visibility --visibility org` (org-wide read access) or explicit `share-resource` grants. The framework's sharing primitive is wired up:
 
 | Action                    | Args                                                                                                                                         | Purpose                                |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
@@ -189,7 +189,7 @@ Read (`/api/sql-dashboards/:id`, `/api/analyses/:id`) admits rows the current us
 
 ## Organizations & Team
 
-This template supports multi-org deployments using the framework-provided org module. The schema (`organizations`, `org_members`, `org_invitations`) lives in `@agent-native/core/org` — there is no template-side schema file. Users sign in with Google, create or get invited to an org, and all SQL dashboards are scoped to whichever org is currently active.
+This template supports multi-org deployments using the framework-provided org module. The schema (`organizations`, `org_members`, `org_invitations`) lives in `@agent-native/core/org` — there is no template-side schema file. Users sign in with Google, create or get invited to an org, and dashboards remember the org context they were created in while staying private until explicitly shared.
 
 The org plugin auto-mounts by default — the template does not need a `server/plugins/org.ts` file. Routes are served under `/_agent-native/org/*`:
 
@@ -379,7 +379,7 @@ title: Weekly signups
 ```
 ````
 
-The `SqlPanel` shape is the same one used by `update-dashboard` (see `app/pages/adhoc/sql-dashboard/types.ts`). Required fields: `id`, `title`, `sql`, `source` (`"bigquery" | "ga4" | "amplitude" | "first-party"`), `chartType` (`"line" | "area" | "bar" | "metric" | "table" | "pie"`), `width` (`1` or `2`). Optional `config` for axis keys, formatting, pivots.
+The `SqlPanel` shape is the same one used by `update-dashboard` (see `app/pages/adhoc/sql-dashboard/types.ts`). Required fields: `id`, `title`, `sql`, `source` (`"bigquery" | "ga4" | "amplitude" | "first-party"`), `chartType` (`"line" | "area" | "bar" | "metric" | "table" | "pie"`), `width` (`1` or `2`). Optional `config` for axis keys, formatting, pivots, color palettes, stacking, and `legend`. Chart legends render automatically; set `config.legend=false` only when the user asks to hide them.
 
 Keep the JSON compact — URLs are capped around 4KB. If the SQL is long, persist it as a saved dashboard panel instead and link to that dashboard.
 

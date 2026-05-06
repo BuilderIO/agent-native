@@ -68,6 +68,15 @@ export default function ImageGenPanel({
     contextParts.push(
       "Generate 3 image variations using our image generation action (`pnpm action generate-image`).",
     );
+    contextParts.push(
+      "The deliverables must be actual generated image assets from the action. Do not create placeholder HTML/CSS, oversized icon compositions, inline SVGs, or text-only mockups.",
+    );
+    contextParts.push(
+      "Do not render visible words, labels, spec text, prompt text, or UI copy inside the image unless the user's image prompt explicitly asks for exact text.",
+    );
+    contextParts.push(
+      "Do not browse, search, or inspect brand assets for style phrases like \"Builder.io\" unless the user explicitly asks to set up, import, save, or apply a brand/design system.",
+    );
 
     if (prompt.trim()) {
       contextParts.push(`Image prompt: "${prompt}"`);
@@ -94,7 +103,7 @@ export default function ImageGenPanel({
     }
 
     contextParts.push(
-      "\nGenerate 3 variations, show them to the user, and let them pick their favorite. Then insert the chosen image into the slide content in the right place.",
+      "\nGenerate 3 variations, show the image URLs/previews to the user, and let them pick their favorite. Then insert the chosen generated image into the slide content in the right place.",
     );
 
     const label = prompt.trim()

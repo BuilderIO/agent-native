@@ -150,6 +150,29 @@ function isOverloadError(e: any): boolean {
   );
 }
 
+const NON_RENDERABLE_CONTEXT_LIMIT = 700;
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&[a-z]+;/gi, " ")
+    .replace(/&#x[0-9a-f]+;/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cappedContext(label: string, value?: string): string {
+  if (!value) return "";
+  const text = stripHtml(value);
+  if (!text) return "";
+  const capped =
+    text.length > NON_RENDERABLE_CONTEXT_LIMIT
+      ? `${text.slice(0, NON_RENDERABLE_CONTEXT_LIMIT)}...`
+      : text;
+  return `\n\n${label} (topic/style context only; do not render these words): ${capped}`;
+}
+
 function buildStylePrompt(
   prompt: string,
   refCount: number,
@@ -163,12 +186,14 @@ CRITICAL STYLE RULES (extract these from the references):
 - **Same composition style**: Match the spacing, alignment, element sizing, and visual hierarchy from the references.
 - **Same visual effects**: Match the exact border styles, shadow depths, corner radii, and transparency levels.
 - **NO GLOW**: Do NOT add glow effects, bloom, neon, light halos, or luminous auras. Keep all lighting flat and subtle. No glowing edges, no light emanating from elements, no soft light blooms.
-- **Same typography treatment**: If text appears, match the exact font weights, sizes, colors, and treatments.
+- **No visible text by default**: Do NOT render words, letters, UI labels, captions, specs, prompt text, or slide copy unless the user's prompt explicitly asks for exact text in the image.
 - **Same level of detail**: Don't add more detail or complexity than the references show. Match their level of abstraction.
 
 OUTPUT FORMAT: Generate ONLY the illustration/graphic itself — NOT a slide mockup. Do NOT include any slide frame, presentation border, title text overlay, or slide layout. Just the raw image asset that will be placed INTO a slide.
 
 STYLE MATCH IS THE #1 PRIORITY. If depicting the subject conflicts with matching the style, ALWAYS choose style over subject accuracy.
 
-Subject to depict: ${prompt}${context?.slideContent ? `\n\n**Current slide content (primary context):**\n${context.slideContent}` : ""}${context?.deckText ? `\n\n**Full deck text (secondary context for overall theme/topic):**\n${context.deckText}` : ""}`;
+Subject to depict: ${prompt}
+
+The following context is non-renderable background for topic/style only. Do not copy or display any of this text, HTML, labels, specs, or prompt wording inside the image.${cappedContext("Current slide", context?.slideContent)}${cappedContext("Deck", context?.deckText)}`;
 }

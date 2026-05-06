@@ -62,6 +62,29 @@ function truncateSourceForContext(prompt: string): {
   };
 }
 
+function describeUploadedFilesForAgent(
+  files: UploadedFile[],
+  deckId: string,
+): string {
+  if (files.length === 0) return "";
+  const fileList = files
+    .map(
+      (f) =>
+        `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`,
+    )
+    .join("\n");
+  return [
+    "",
+    `The user uploaded ${files.length} file(s). These paths are real uploaded files; process them with import actions before using their contents:`,
+    fileList,
+    "",
+    "File handling rules:",
+    `- PPTX files: call \`import-pptx --filePath "<path>" --deckId ${deckId}\` when the user wants the deck/slides imported, or to extract slide source from a presentation.`,
+    `- PDF, DOCX, and text-like files: call \`import-file --filePath "<path>" --format auto --deckId ${deckId}\` and use the returned content as source material.`,
+    "- Image files: treat them as visual/reference assets only; do not claim to have processed a PPTX/PDF/DOCX unless the relevant import action succeeds.",
+  ].join("\n");
+}
+
 /** Small presence avatar circle with hover card showing name + email */
 function PresenceAvatarTip({
   user,
@@ -317,10 +340,7 @@ function AddSlidePopover({
         .filter(Boolean)
         .join("\n\n");
       const sourceForContext = truncateSourceForContext(description);
-      const fileContext =
-        uploaded.length > 0
-          ? `\n\nThe user uploaded ${uploaded.length} file(s) for context:\n${uploaded.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
-          : "";
+      const fileContext = describeUploadedFilesForAgent(uploaded, deckId);
       const context = [
         `Add a new slide to deck "${deckTitle}" (id: ${deckId}).`,
         `Insert after slide ${activeSlideIndex + 1} of ${slideCount} (active slide id: ${activeSlideId}).`,

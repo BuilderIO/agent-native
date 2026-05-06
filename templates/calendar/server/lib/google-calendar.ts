@@ -22,6 +22,7 @@ const SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
   "https://www.googleapis.com/auth/directory.readonly",
   "https://www.googleapis.com/auth/contacts.readonly",
   "https://www.googleapis.com/auth/contacts.other.readonly",
@@ -33,6 +34,11 @@ interface GoogleTokens {
   expiry_date?: number;
   token_type?: string;
   scope?: string;
+  photoUrl?: string;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function getOAuth2Credentials() {
@@ -188,15 +194,41 @@ export async function exchangeCode(
   const userInfo = await oauth2GetUserInfo(tokens.access_token);
   const email = userInfo.email;
   if (!email) throw new Error("Google returned no email address");
+  const photoUrl = optionalString(userInfo.picture);
 
   await saveOAuthTokens(
     "google",
     email,
-    tokens as Record<string, unknown>,
+    { ...tokens, ...(photoUrl ? { photoUrl } : {}) } as Record<string, unknown>,
     owner ?? email,
   );
 
   return email;
+}
+
+async function resolveAccountPhotoUrl(
+  accessToken: string,
+  cachedPhotoUrl?: string,
+): Promise<string | undefined> {
+  if (cachedPhotoUrl) return cachedPhotoUrl;
+
+  try {
+    const userInfo = await oauth2GetUserInfo(accessToken);
+    const picture = optionalString(userInfo.picture);
+    if (picture) return picture;
+  } catch {
+    // Fall back to People API below; some older tokens only carry product scopes.
+  }
+
+  try {
+    const profile = await peopleGetProfile(accessToken, "photos");
+    const photo =
+      profile.photos?.find((p: any) => p?.url && !p.default)?.url ??
+      profile.photos?.[0]?.url;
+    return optionalString(photo);
+  } catch {
+    return undefined;
+  }
 }
 
 export async function getClient(
@@ -306,11 +338,14 @@ export async function getAuthStatus(
   }> = [];
   for (const account of oauthAccounts) {
     const tokens = account.tokens as unknown as GoogleTokens;
-    let photoUrl: string | undefined;
+    let photoUrl = optionalString(tokens.photoUrl);
     try {
-      const accessToken = await getValidAccessToken(account.accountId, tokens);
-      const profile = await peopleGetProfile(accessToken, "photos");
-      photoUrl = profile.photos?.[0]?.url ?? undefined;
+      const accessToken = await getValidAccessToken(
+        account.accountId,
+        tokens,
+        forEmail,
+      );
+      photoUrl = await resolveAccountPhotoUrl(accessToken, photoUrl);
     } catch {}
     result.push({
       email: account.accountId,

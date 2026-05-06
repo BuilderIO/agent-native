@@ -211,18 +211,30 @@ function buildOpenAIPrompt(
 Subject: ${prompt}`;
   }
 
+  const nonRenderable: string[] = [];
   if (context?.slideContent) {
-    fullPrompt += `\n\nSlide content for context: ${stripHtml(context.slideContent)}`;
+    nonRenderable.push(
+      `Slide topic/style context: ${truncateContext(stripHtml(context.slideContent))}`,
+    );
   }
   if (context?.deckText) {
-    fullPrompt += `\n\nDeck topic: ${stripHtml(context.deckText).substring(0, 500)}`;
+    nonRenderable.push(
+      `Deck topic/style context: ${truncateContext(stripHtml(context.deckText))}`,
+    );
+  }
+  if (nonRenderable.length > 0) {
+    fullPrompt += `\n\nNon-renderable background context. Use only to understand topic and mood; do not copy or display any of these words, HTML, labels, specs, or prompt text in the image:\n${nonRenderable.join("\n")}`;
   }
 
   // Ensure output is just the image, not a slide mockup
   fullPrompt +=
-    "\n\nIMPORTANT: Generate ONLY the illustration/graphic — NOT a slide mockup. No presentation borders, no title overlays.";
+    "\n\nIMPORTANT: Generate ONLY the illustration/graphic — NOT a slide mockup. No presentation borders, no title overlays. Do not render visible words, letters, UI labels, captions, specs, or prompt text unless the user's prompt explicitly asks for exact text.";
 
   return fullPrompt;
+}
+
+function truncateContext(text: string): string {
+  return text.length > 700 ? `${text.slice(0, 700)}...` : text;
 }
 
 function stripHtml(html: string): string {

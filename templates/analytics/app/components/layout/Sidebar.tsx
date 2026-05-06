@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useLocation } from "react-router";
+import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { toast } from "sonner";
@@ -617,12 +618,21 @@ async function fetchSidebarAnalyses(): Promise<{ id: string; name: string }[]> {
     }));
 }
 
+function persistThemePreference(theme: "light" | "dark") {
+  fetch(appApiPath("/api/theme"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ theme }),
+  }).catch(() => {});
+}
+
 // --- Sidebar ---
 
 export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const location = useLocation();
   const { logout } = useAuth();
   const queryClient = useQueryClient();
+  const { resolvedTheme, setTheme } = useTheme();
 
   const [dashOpen, setDashOpen] = useState(true);
   const [dashShowAll, setDashShowAll] = useState(false);
@@ -630,22 +640,24 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const [analysesShowAll, setAnalysesShowAll] = useState(false);
   const popularity = usePopularity();
 
-  const [light, setLight] = useState(() =>
-    typeof document !== "undefined"
-      ? document.documentElement.classList.contains("light")
-      : false,
-  );
+  const light = resolvedTheme === "light";
 
   useEffect(() => {
+    if (
+      typeof window !== "undefined" &&
+      window.localStorage.getItem("theme")
+    ) {
+      return;
+    }
     fetch(appApiPath("/api/theme"))
       .then((r) => r.json())
       .then((d) => {
-        const isLight = d.theme === "light";
-        setLight(isLight);
-        document.documentElement.classList.toggle("light", isLight);
+        if (d.theme === "light" || d.theme === "dark") {
+          setTheme(d.theme);
+        }
       })
       .catch(() => {});
-  }, []);
+  }, [setTheme]);
   const [logoutOpen, setLogoutOpen] = useState(false);
   const { mutateAsync: renameDashboard } =
     useActionMutation("rename-dashboard");
@@ -1306,14 +1318,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <TooltipTrigger asChild>
                 <button
                   onClick={() => {
-                    const next = !light;
-                    setLight(next);
-                    document.documentElement.classList.toggle("light", next);
-                    fetch(appApiPath("/api/theme"), {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ theme: next ? "light" : "dark" }),
-                    }).catch(() => {});
+                    const next = light ? "dark" : "light";
+                    setTheme(next);
+                    persistThemePreference(next);
                   }}
                   className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
                 >

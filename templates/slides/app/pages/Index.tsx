@@ -11,7 +11,11 @@ import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@/components/layout/HeaderActions";
-import { agentNativePath, useSession } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  appBasePath,
+  useSession,
+} from "@agent-native/core/client";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   AlertDialog,
@@ -48,6 +52,44 @@ function truncateSourceForContext(prompt: string): {
     text: prompt.slice(0, MAX_SOURCE_CONTEXT_CHARS),
     truncated: true,
   };
+}
+
+function describeUploadedFilesForAgent(
+  files: UploadedFile[],
+  deckId: string,
+): string {
+  if (files.length === 0) return "";
+  const fileList = files
+    .map(
+      (f) =>
+        `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`,
+    )
+    .join("\n");
+  return [
+    "",
+    `The user uploaded ${files.length} file(s). These paths are real uploaded files; process them with import actions before using their contents:`,
+    fileList,
+    "",
+    "File handling rules:",
+    `- PPTX files: call \`import-pptx --filePath "<path>" --deckId ${deckId}\` before adding or editing slides.`,
+    `- PDF, DOCX, and text-like files: call \`import-file --filePath "<path>" --format auto --deckId ${deckId}\` and use the returned content as source material.`,
+    "- Image files: treat them as visual/reference assets only; do not claim to have processed a PPTX/PDF/DOCX unless the relevant import action succeeds.",
+  ].join("\n");
+}
+
+async function waitForDeckServerRow(deckId: string): Promise<boolean> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${appBasePath()}/api/decks/${deckId}`);
+      if (res.ok) return true;
+      if (res.status !== 404) return false;
+    } catch {
+      // keep polling until the optimistic create either lands or times out
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return false;
 }
 
 export default function Index() {
@@ -109,7 +151,7 @@ export default function Index() {
     navigate(`/deck/${deck.id}`);
   };
 
-  const handleCreateDeckWithPrompt = (
+  const handleCreateDeckWithPrompt = async (
     prompt: string,
     files: UploadedFile[],
   ) => {
@@ -132,6 +174,8 @@ export default function Index() {
       deck = createDeck(undefined, { noDefaultSlides: true });
     });
     if (!deck) return;
+    setShowNewDeckPrompt(false);
+    navigate(`/deck/${deck.id}?generating=1`);
 
     const trimmedPrompt = prompt.trim();
     const sourceForContext = truncateSourceForContext(trimmedPrompt);
@@ -139,10 +183,7 @@ export default function Index() {
     const googleDocUrls = hasImportedGoogleDocContext
       ? []
       : extractGoogleDocUrls(trimmedPrompt);
-    const fileContext =
-      files.length > 0
-        ? `\n\nThe user uploaded ${files.length} file(s) for context:\n${files.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
-        : "";
+    const fileContext = describeUploadedFilesForAgent(files, deck.id);
     const googleDocContext =
       googleDocUrls.length > 0
         ? [
@@ -173,12 +214,11 @@ export default function Index() {
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, resource-read, or search-files.",
     ].join("\n");
 
+    await waitForDeckServerRow(deck.id);
     agentSubmit(
       `Create deck: ${summarizePromptForChat(trimmedPrompt)}`,
       context,
     );
-    setShowNewDeckPrompt(false);
-    navigate(`/deck/${deck.id}?generating=1`);
   };
 
   const handleConfirmDelete = () => {
