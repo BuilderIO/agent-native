@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { useSendToAgentChat } from "@agent-native/core/client";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,7 +25,12 @@ import {
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { IconAlertTriangle, IconLoader2 } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconAlignLeft,
+  IconLoader2,
+} from "@tabler/icons-react";
+import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
 import type { ChartType, DataSourceType, SqlPanel } from "./types";
 
 const CHART_TYPES: { value: ChartType; label: string }[] = [
@@ -169,6 +175,7 @@ function PanelEditorContent({
   const isEdit = !!panel;
   const canSave = form.title.trim().length > 0 && form.sql.trim().length > 0;
   const canGenerate = prompt.trim().length > 0 && !isGenerating;
+  const canFormat = canFormatPanelSql(form.source);
 
   const handleSubmit = async () => {
     if (!canSave || saving) return;
@@ -202,7 +209,8 @@ function PanelEditorContent({
         `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'), width (1 half | 2 full), config? }. ` +
         `For amplitude panels, sql is a JSON descriptor: {"event":"event name","groupBy":"property","days":30}. ` +
         `For first-party panels, sql is read-only SQL over analytics_events only; use source 'first-party' and do not call db-query for this datasource. ` +
-        `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), description, columns, pivot, limit }. ` +
+        `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), description, columns, pivot, limit, color, colors, stacked, legend }. ` +
+        `Chart legends render automatically; set config.legend=false only when the user explicitly asks to hide the legend. ` +
         `Consult the data dictionary first via \`list-data-dictionary --search <topic>\`, then use AGENTS.md, .agents/skills, and connected data-source instructions before writing SQL. ` +
         `Every BigQuery panel is dry-run validated on save — if columns/tables are wrong the save returns a 400 with the BQ error and you must fix the SQL and retry. ` +
         `After the panel saves, call \`refresh-screen\` so the UI picks up the change.`,
@@ -210,6 +218,19 @@ function PanelEditorContent({
     });
     setPrompt("");
     onOpenChange(false);
+  };
+
+  const handleFormatSql = () => {
+    if (!canFormat) return;
+    try {
+      setForm((f) => ({ ...f, sql: formatPanelSql(f.sql, f.source) }));
+      setError(null);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to format SQL";
+      setError(message);
+      toast.error(message);
+    }
   };
 
   const manualForm = (
@@ -290,7 +311,22 @@ function PanelEditorContent({
       </div>
 
       <div className="grid gap-1.5">
-        <Label htmlFor="panel-sql">SQL</Label>
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor="panel-sql">SQL</Label>
+          {canFormat && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={handleFormatSql}
+              disabled={!form.sql.trim()}
+              className="h-7 px-2 text-xs"
+            >
+              <IconAlignLeft className="h-3.5 w-3.5 mr-1" />
+              Format
+            </Button>
+          )}
+        </div>
         <Textarea
           id="panel-sql"
           value={form.sql}

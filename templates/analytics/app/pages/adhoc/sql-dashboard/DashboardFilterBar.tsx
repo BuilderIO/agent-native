@@ -17,7 +17,11 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { IconFilterOff, IconDeviceFloppy } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconFilterOff,
+  IconDeviceFloppy,
+} from "@tabler/icons-react";
 import type { DashboardFilter } from "./types";
 
 export const FILTER_PARAM_PREFIX = "f_";
@@ -120,6 +124,23 @@ export function DashboardFilterBar({
   const [searchParams, setSearchParams] = useSearchParams();
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [viewName, setViewName] = useState("");
+  const { uniqueFilters, duplicateFilterIds } = useMemo(() => {
+    const seen = new Set<string>();
+    const duplicates = new Set<string>();
+    const unique: DashboardFilter[] = [];
+    for (const filter of filters) {
+      if (seen.has(filter.id)) {
+        duplicates.add(filter.id);
+        continue;
+      }
+      seen.add(filter.id);
+      unique.push(filter);
+    }
+    return {
+      uniqueFilters: unique,
+      duplicateFilterIds: Array.from(duplicates),
+    };
+  }, [filters]);
 
   const getParam = useCallback(
     (key: string) => searchParams.get(FILTER_PARAM_PREFIX + key) ?? "",
@@ -158,19 +179,19 @@ export function DashboardFilterBar({
 
   const handleSaveView = useCallback(() => {
     if (!viewName.trim() || !onSaveView) return;
-    const currentFilters = extractFilterParams(filters, searchParams);
+    const currentFilters = extractFilterParams(uniqueFilters, searchParams);
     onSaveView(viewName.trim(), currentFilters);
     setViewName("");
     setSaveDialogOpen(false);
-  }, [viewName, onSaveView, filters, searchParams]);
+  }, [viewName, onSaveView, uniqueFilters, searchParams]);
 
   // Compute the live vars dict (URL value or default) for every filter.
   const vars = useMemo(
-    () => resolveFilterVars(filters, getParam),
-    [filters, getParam],
+    () => resolveFilterVars(uniqueFilters, getParam),
+    [uniqueFilters, getParam],
   );
 
-  const filtersActive = hasActiveFilters(filters, searchParams);
+  const filtersActive = hasActiveFilters(uniqueFilters, searchParams);
 
   return (
     <>
@@ -209,8 +230,16 @@ export function DashboardFilterBar({
             )}
           </div>
         </div>
+        {duplicateFilterIds.length > 0 && (
+          <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-300">
+            <IconAlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <span>
+              Skipped duplicate filter ids: {duplicateFilterIds.join(", ")}
+            </span>
+          </div>
+        )}
         <div className="flex flex-wrap gap-3 items-end">
-          {filters.map((f) => (
+          {uniqueFilters.map((f) => (
             <FilterControl
               key={f.id}
               filter={f}

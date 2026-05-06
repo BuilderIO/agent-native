@@ -111,8 +111,11 @@ function ToggleView({ node, updateAttributes, editor, getPos }: NodeViewProps) {
   const open = !!node.attrs.open;
   const setOpen = (value: boolean) => updateAttributes({ open: value });
   const summary = (node.attrs.summary || "") as string;
+  const isEditable = editor.isEditable;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!isEditable) return;
+
     if (e.key === "Enter") {
       e.preventDefault();
       const pos = getPos();
@@ -174,16 +177,22 @@ function ToggleView({ node, updateAttributes, editor, getPos }: NodeViewProps) {
             <IconChevronRight size={18} stroke={2} />
           )}
         </span>
-        <input
-          value={summary}
-          onChange={(event) =>
-            updateAttributes({ summary: event.currentTarget.value })
-          }
-          onKeyDown={handleKeyDown}
-          onClick={(e) => e.stopPropagation()}
-          placeholder="Toggle"
-          className="notion-toggle__summary"
-        />
+        {isEditable ? (
+          <input
+            value={summary}
+            onChange={(event) =>
+              updateAttributes({ summary: event.currentTarget.value })
+            }
+            onKeyDown={handleKeyDown}
+            onClick={(e) => e.stopPropagation()}
+            placeholder="Toggle"
+            className="notion-toggle__summary"
+          />
+        ) : (
+          <span className="notion-toggle__summary" contentEditable={false}>
+            {summary || "Toggle"}
+          </span>
+        )}
       </div>
       <div
         className={`notion-toggle__body ${open ? "" : "notion-toggle__body--collapsed"}`}

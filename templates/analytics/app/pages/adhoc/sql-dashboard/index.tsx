@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useParams, useNavigate } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -134,6 +134,17 @@ export default function SqlDashboardPage() {
   const [editingDescription, setEditingDescription] = useState(false);
   const [descriptionInput, setDescriptionInput] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const viewedDashboardIdRef = useRef<string | null>(null);
+
+  const dashboardQuery = useQuery({
+    queryKey: ["data", "sql-dashboard", dashboardId],
+    enabled: !!dashboardId,
+    queryFn: async () => {
+      if (!dashboardId) return null;
+      return fetchDashboard(dashboardId);
+    },
+    staleTime: 2_000,
+  });
 
   // Panel edit dialog state
   const [editorOpen, setEditorOpen] = useState(false);
@@ -229,17 +240,25 @@ export default function SqlDashboardPage() {
   const appliedSaved = useRef(false);
 
   useEffect(() => {
-    if (!dashboardId) return;
-    fetchDashboard(dashboardId).then((d) => {
-      if (d) {
-        setDashboard(d);
-        incrementItemView("dashboard", dashboardId);
-      } else {
-        setDashboard({ name: "Untitled Dashboard", panels: [] });
-      }
-      setLoaded(true);
-    });
+    appliedSaved.current = false;
+    setLoaded(false);
+    setDashboard(null);
+    if (!dashboardId) setLoaded(true);
   }, [dashboardId]);
+
+  useEffect(() => {
+    if (!dashboardId || !dashboardQuery.isSuccess) return;
+    const next = dashboardQuery.data ?? {
+      name: "Untitled Dashboard",
+      panels: [],
+    };
+    setDashboard(next);
+    setLoaded(true);
+    if (dashboardQuery.data && viewedDashboardIdRef.current !== dashboardId) {
+      viewedDashboardIdRef.current = dashboardId;
+      incrementItemView("dashboard", dashboardId);
+    }
+  }, [dashboardId, dashboardQuery.data, dashboardQuery.isSuccess]);
 
   // Apply saved filters on initial load if no filter URL params are present
   useEffect(() => {
@@ -346,6 +365,9 @@ export default function SqlDashboardPage() {
           queryClient.invalidateQueries({
             queryKey: ["sql-dashboards-palette"],
           });
+          queryClient.invalidateQueries({
+            queryKey: ["data", "sql-dashboard", dashboardId],
+          });
         })
         .catch((err) => {
           toast.error(
@@ -370,6 +392,9 @@ export default function SqlDashboardPage() {
       pushToCollab(updated);
       queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
       queryClient.invalidateQueries({ queryKey: ["sql-dashboards-palette"] });
+      queryClient.invalidateQueries({
+        queryKey: ["data", "sql-dashboard", dashboardId],
+      });
     },
     [dashboardId, queryClient, pushToCollab],
   );
@@ -535,6 +560,9 @@ export default function SqlDashboardPage() {
     });
     queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
     queryClient.invalidateQueries({ queryKey: ["sql-dashboards-palette"] });
+    queryClient.invalidateQueries({
+      queryKey: ["data", "sql-dashboard", dashboardId],
+    });
     navigate("/");
   }, [dashboardId, queryClient, navigate]);
 

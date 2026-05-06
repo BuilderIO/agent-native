@@ -19,6 +19,7 @@ import {
   IconBrandZoom,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Popover,
   PopoverTrigger,
@@ -33,6 +34,10 @@ import {
 import type { CalendarEvent } from "@shared/api";
 import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
 import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
+import {
+  AttendeeAutocomplete,
+  type AttendeeRecipient,
+} from "@/components/calendar/AttendeeAutocomplete";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import { useUpdateEvent } from "@/hooks/use-events";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
@@ -69,6 +74,10 @@ function extractMeetingLink(event: CalendarEvent): {
   pin?: string;
   passcode?: string;
 } | null {
+  if (event.meetingLink) {
+    return { url: event.meetingLink, type: getMeetingType(event.meetingLink) };
+  }
+
   // Check conferenceData first
   if (event.conferenceData?.entryPoints) {
     const videoEntry = event.conferenceData.entryPoints.find(
@@ -116,6 +125,30 @@ function getMeetingLabel(type: "zoom" | "meet" | "teams" | "link"): string {
     default:
       return "Join Meeting";
   }
+}
+
+function getMeetingType(url: string): "zoom" | "meet" | "teams" | "link" {
+  if (url.includes("zoom.us")) return "zoom";
+  if (url.includes("meet.google.com")) return "meet";
+  if (url.includes("teams.microsoft.com")) return "teams";
+  return "link";
+}
+
+function MeetingLinkSkeleton({ provider }: { provider: "meet" | "zoom" }) {
+  return (
+    <div
+      role="status"
+      aria-label={`Adding ${provider === "zoom" ? "Zoom" : "Google Meet"} link`}
+      className="relative flex w-full items-center justify-center rounded-xl bg-[#4965E0] px-4 py-2"
+    >
+      <Skeleton className="mr-2 h-5 w-5 rounded-full bg-white/25" />
+      <Skeleton className="h-4 w-24 bg-white/30" />
+      <span className="absolute right-4 hidden items-center gap-1 sm:flex">
+        <Skeleton className="h-4 w-4 rounded bg-white/20" />
+        <Skeleton className="h-5 w-5 rounded bg-white/20" />
+      </span>
+    </div>
+  );
 }
 
 function formatReminderText(minutes: number): string {
@@ -233,14 +266,15 @@ export function EventDetailPopover({
   const [editEndTime, setEditEndTime] = useState(() =>
     toTimeInputValue(event.end),
   );
-  const [editAttendeeEmail, setEditAttendeeEmail] = useState("");
   const [editMeetingLink, setEditMeetingLink] = useState("");
+  const [pendingVideoProvider, setPendingVideoProvider] = useState<
+    "meet" | "zoom" | null
+  >(null);
 
   const updateEvent = useUpdateEvent();
   const zoomStatus = useZoomStatus();
   const connectZoom = useConnectZoom();
   const locationRef = useRef<HTMLInputElement>(null);
-  const attendeeRef = useRef<HTMLInputElement>(null);
   const meetingLinkRef = useRef<HTMLInputElement>(null);
 
   // Sync editing state when event changes
@@ -258,9 +292,13 @@ export function EventDetailPopover({
       setOpen(true);
       setIsEditingTitle(true);
       isNewEventRef.current = true;
-      setEditingTitle(event.title === "(No title)" ? "" : event.title);
+      setEditingTitle((current) => {
+        const hasDraft = current.trim().length > 0 && current !== "(No title)";
+        if (hasDraft && current !== event.title) return current;
+        return event.title === "(No title)" ? "" : event.title;
+      });
     }
-  }, [defaultOpen]);
+  }, [defaultOpen, event.title]);
 
   // Focus title input when editing starts
   useEffect(() => {
@@ -274,7 +312,6 @@ export function EventDetailPopover({
     if (!editingField) return;
     requestAnimationFrame(() => {
       if (editingField === "location") locationRef.current?.focus();
-      else if (editingField === "attendees") attendeeRef.current?.focus();
       else if (editingField === "meetingLink") meetingLinkRef.current?.focus();
     });
   }, [editingField]);
@@ -296,6 +333,7 @@ export function EventDetailPopover({
 
   const handleAddGoogleMeet = useCallback(() => {
     if (!event.id || updateEvent.isPending) return;
+    setPendingVideoProvider("meet");
     updateEvent.mutate(
       {
         id: event.id,
@@ -305,6 +343,7 @@ export function EventDetailPopover({
       {
         onSuccess: () => toast("Google Meet added"),
         onError: () => toast.error("Failed to add Google Meet"),
+        onSettled: () => setPendingVideoProvider(null),
       },
     );
   }, [event.id, event.accountEmail, updateEvent]);
@@ -313,6 +352,7 @@ export function EventDetailPopover({
     if (!event.id || updateEvent.isPending || connectZoom.isPending) return;
 
     if (zoomStatus.data?.connected) {
+      setPendingVideoProvider("zoom");
       updateEvent.mutate(
         {
           id: event.id,
@@ -325,6 +365,7 @@ export function EventDetailPopover({
             toast.error(
               error instanceof Error ? error.message : "Failed to add Zoom",
             ),
+          onSettled: () => setPendingVideoProvider(null),
         },
       );
       return;
@@ -384,27 +425,22 @@ export function EventDetailPopover({
     saveField,
   ]);
 
-  const handleAddAttendee = useCallback(() => {
-    const email = editAttendeeEmail.trim().toLowerCase();
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+  const handleAddAttendee = useCallback(
+    (attendee: AttendeeRecipient) => {
+      const email = attendee.email.trim().toLowerCase();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
 
-    const existing = event.attendees || [];
-    if (existing.some((a) => a.email.toLowerCase() === email)) {
-      setEditAttendeeEmail("");
-      return;
-    }
-
-    const newAttendees = [...existing, { email }];
-    saveField({ attendees: newAttendees });
-    setEditAttendeeEmail("");
-  }, [editAttendeeEmail, event.attendees, saveField]);
-
-  const handleRemoveAttendee = useCallback(
-    (emailToRemove: string) => {
       const existing = event.attendees || [];
-      const newAttendees = existing.filter(
-        (a) => a.email.toLowerCase() !== emailToRemove.toLowerCase(),
-      );
+      if (existing.some((a) => a.email.toLowerCase() === email)) return;
+
+      const newAttendees = [
+        ...existing,
+        {
+          email,
+          displayName: attendee.displayName,
+          photoUrl: attendee.photoUrl,
+        },
+      ];
       saveField({ attendees: newAttendees });
     },
     [event.attendees, saveField],
@@ -488,6 +524,7 @@ export function EventDetailPopover({
           const trimmed = editingTitle.trim();
           if (trimmed && trimmed !== "(No title)") {
             onTitleSave?.(event.id, trimmed);
+            isNewEventRef.current = false;
           } else if (isNewEventRef.current && onDismissNew) {
             onDismissNew(event.id);
           }
@@ -544,7 +581,10 @@ export function EventDetailPopover({
         onInteractOutside={(e) => {
           // Don't close if clicking inside an Apollo popover (portaled to body)
           const target = e.target as HTMLElement;
-          if (target.closest("[data-apollo-popover]")) {
+          if (
+            target.closest("[data-apollo-popover]") ||
+            target.closest("[data-attendee-autocomplete]")
+          ) {
             e.preventDefault();
             return;
           }
@@ -631,6 +671,7 @@ export function EventDetailPopover({
                       trimmed !== event.title
                     ) {
                       onTitleSave?.(event.id, trimmed);
+                      isNewEventRef.current = false;
                     }
                     setIsEditingTitle(false);
                   }}
@@ -785,35 +826,17 @@ export function EventDetailPopover({
               <div className="px-4 py-1">
                 <div className="flex items-center gap-3">
                   <IconPlus className="h-4 w-4 shrink-0 text-muted-foreground/40" />
-                  <input
-                    ref={attendeeRef}
-                    value={editAttendeeEmail}
-                    onChange={(e) => setEditAttendeeEmail(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleAddAttendee();
-                      }
-                      if (e.key === "Escape") {
-                        e.preventDefault();
-                        setEditAttendeeEmail("");
-                        (e.target as HTMLInputElement).blur();
-                      }
-                      e.stopPropagation();
-                    }}
+                  <AttendeeAutocomplete
+                    selectedEmails={(event.attendees || []).map(
+                      (attendee) => attendee.email,
+                    )}
+                    onAdd={handleAddAttendee}
                     placeholder="Add guests"
-                    className="flex-1 bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0"
+                    variant="inline"
+                    showChips={false}
+                    showAddButton
+                    inputClassName="text-foreground placeholder:text-muted-foreground/40"
                   />
-                  {editAttendeeEmail.trim() && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 text-xs shrink-0"
-                      onClick={handleAddAttendee}
-                    >
-                      Add
-                    </Button>
-                  )}
                 </div>
               </div>
             )}
@@ -892,42 +915,46 @@ export function EventDetailPopover({
                   </div>
                 ) : (
                   <div className="px-4 py-1.5">
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
-                        disabled={updateEvent.isPending}
-                        onClick={handleAddGoogleMeet}
-                      >
-                        <IconVideo className="h-3.5 w-3.5" />
-                        Meet
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
-                        disabled={
-                          updateEvent.isPending || connectZoom.isPending
-                        }
-                        onClick={handleAddZoom}
-                      >
-                        <IconBrandZoom className="h-3.5 w-3.5" />
-                        Zoom
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs text-muted-foreground"
-                        onClick={() => setEditingField("meetingLink")}
-                      >
-                        <IconPlus className="h-3.5 w-3.5" />
-                        Paste link
-                      </Button>
-                    </div>
+                    {pendingVideoProvider ? (
+                      <MeetingLinkSkeleton provider={pendingVideoProvider} />
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
+                          disabled={updateEvent.isPending}
+                          onClick={handleAddGoogleMeet}
+                        >
+                          <IconVideo className="h-3.5 w-3.5" />
+                          Meet
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
+                          disabled={
+                            updateEvent.isPending || connectZoom.isPending
+                          }
+                          onClick={handleAddZoom}
+                        >
+                          <IconBrandZoom className="h-3.5 w-3.5" />
+                          Zoom
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs text-muted-foreground"
+                          onClick={() => setEditingField("meetingLink")}
+                        >
+                          <IconPlus className="h-3.5 w-3.5" />
+                          Paste link
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 )}
               </>

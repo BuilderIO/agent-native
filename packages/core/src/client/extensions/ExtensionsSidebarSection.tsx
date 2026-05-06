@@ -46,6 +46,7 @@ interface Extension {
 }
 
 const FAVORITES_KEY = "extensions-favorites";
+const COLLAPSED_EXTENSION_COUNT = 3;
 
 function getFavorites(): Set<string> {
   try {
@@ -82,6 +83,7 @@ export function ExtensionsSidebarSection() {
   );
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [showAllExtensions, setShowAllExtensions] = useState(false);
 
   const { data: extensions, isLoading } = useQuery<Extension[]>({
     queryKey: ["extensions"],
@@ -200,6 +202,38 @@ export function ExtensionsSidebarSection() {
       : defaultSorted;
   }, [extensions, favoriteIds, toolOrderState]);
 
+  const activeExtensionId = useMemo(
+    () =>
+      sortedTools.find(
+        (extension) =>
+          location.pathname === `/extensions/${extension.id}` ||
+          location.pathname === `/extensions/${extension.id}/edit`,
+      )?.id ?? null,
+    [location.pathname, sortedTools],
+  );
+
+  const visibleTools = useMemo(() => {
+    if (showAllExtensions || sortedTools.length <= COLLAPSED_EXTENSION_COUNT) {
+      return sortedTools;
+    }
+
+    const defaultVisible = sortedTools.slice(0, COLLAPSED_EXTENSION_COUNT);
+    if (!activeExtensionId) return defaultVisible;
+
+    const activeTool = sortedTools.find(
+      (extension) => extension.id === activeExtensionId,
+    );
+    if (!activeTool || defaultVisible.some((tool) => tool.id === activeTool.id))
+      return defaultVisible;
+
+    return [
+      ...defaultVisible.slice(0, COLLAPSED_EXTENSION_COUNT - 1),
+      activeTool,
+    ];
+  }, [activeExtensionId, showAllExtensions, sortedTools]);
+
+  const hasMoreExtensions = sortedTools.length > COLLAPSED_EXTENSION_COUNT;
+
   const reorderTool = useCallback(
     (activeId: string, overId: string) => {
       if (activeId === overId) return;
@@ -291,7 +325,7 @@ export function ExtensionsSidebarSection() {
           </div>
         ) : sortedTools.length === 0 ? null : (
           <div className="min-w-0 space-y-0.5 px-1">
-            {sortedTools.map((extension) => {
+            {visibleTools.map((extension) => {
               const isActive =
                 location.pathname === `/extensions/${extension.id}` ||
                 location.pathname === `/extensions/${extension.id}/edit`;
@@ -451,6 +485,16 @@ export function ExtensionsSidebarSection() {
                 </div>
               );
             })}
+            {hasMoreExtensions && (
+              <button
+                type="button"
+                aria-expanded={showAllExtensions}
+                onClick={() => setShowAllExtensions((current) => !current)}
+                className="ml-5 mt-1 inline-flex h-5 items-center rounded px-1.5 text-[11px] font-medium text-muted-foreground/60 transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+              >
+                {showAllExtensions ? "show less" : "show more"}
+              </button>
+            )}
           </div>
         )}
       </div>

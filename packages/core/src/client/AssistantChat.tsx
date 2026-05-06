@@ -108,8 +108,7 @@ const ThumbsFeedbackLazy = React.lazy(() =>
 );
 
 class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
-  public accept =
-    "application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,.pdf,.pptx";
+  public accept = "application/pdf,.pdf";
 
   public async add(state: { file: File }): Promise<PendingAttachment> {
     return {
@@ -147,9 +146,6 @@ class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
 function inferDocumentContentType(file: File): string {
   if (file.type) return file.type;
   if (file.name.toLowerCase().endsWith(".pdf")) return "application/pdf";
-  if (file.name.toLowerCase().endsWith(".pptx")) {
-    return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-  }
   return "application/octet-stream";
 }
 
@@ -2938,14 +2934,38 @@ const AssistantChatInner = forwardRef<
     setTimeout(scrollToBottom, 80);
   }, [scrollToBottom]);
 
+  const scrollToBottomWhileLayoutSettles = useCallback(() => {
+    scrollToBottomAfterPaint();
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+
+    let stopped = false;
+    const observer = new ResizeObserver(() => {
+      if (!stopped) scrollToBottom();
+    });
+    observer.observe(el);
+    const timeout = window.setTimeout(() => {
+      stopped = true;
+      observer.disconnect();
+      scrollToBottom();
+    }, 1600);
+
+    return () => {
+      stopped = true;
+      window.clearTimeout(timeout);
+      observer.disconnect();
+    };
+  }, [scrollToBottom, scrollToBottomAfterPaint]);
+
   // Scroll to bottom when a restored thread finishes loading
   const wasRestoringRef = useRef(isRestoring);
   useEffect(() => {
-    if (wasRestoringRef.current && !isRestoring) {
-      scrollToBottomAfterPaint();
-    }
+    const wasRestoring = wasRestoringRef.current;
     wasRestoringRef.current = isRestoring;
-  }, [isRestoring, scrollToBottomAfterPaint]);
+    if (wasRestoring && !isRestoring) {
+      return scrollToBottomWhileLayoutSettles();
+    }
+  }, [isRestoring, scrollToBottomWhileLayoutSettles]);
 
   // Auto-scroll on new messages or queued messages (only if near bottom)
   useEffect(() => {

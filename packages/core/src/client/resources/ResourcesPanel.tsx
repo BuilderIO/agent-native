@@ -788,7 +788,9 @@ The result should be a reusable agent profile, not a one-off task response.`,
               </label>
               <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
                 Point at any Streamable HTTP MCP server (Zapier, Cloudflare,
-                internal tools). Its tools become available to the agent.{" "}
+                internal tools). Its tools become available to the agent. Use
+                Personal for private or staging servers; use Organization only
+                for vetted servers the whole org should share.{" "}
                 <a
                   href="https://agent-native.com/docs/mcp-clients#remote-via-ui"
                   target="_blank"
@@ -849,7 +851,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
                     clearMcpFeedback();
                   }}
                   className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                  placeholder="Server name (e.g. zapier)"
+                  placeholder="Server name (e.g. zapier-staging)"
                 />
                 <input
                   value={mcpUrl}

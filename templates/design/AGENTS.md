@@ -764,6 +764,8 @@ When using design system assets in generated content:
 
 When a user wants to set up brand identity:
 
+Only run this flow when the user explicitly asks to set up, save, import, extract, or apply a brand/design system, or when they provide a URL/assets specifically for brand analysis. A style direction like "make it look like builder.io" is not brand-system setup; proceed directly with the requested design using a concise style interpretation instead of browsing for assets.
+
 1. **Activate browser** (if Builder connected): `activate-browser` then navigate to the website with chrome-devtools tools to extract real rendered styles
 2. **Gather data**: `analyze-brand-assets --websiteUrl "https://example.com" --companyName "Acme"` for metadata
 3. **Deep extraction via browser**: Use `evaluate_script` to run `getComputedStyle()` on key elements, extract CSS custom properties from `:root`, capture font families, color palette, and spacing. Take a screenshot for visual reference.

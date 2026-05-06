@@ -4,7 +4,10 @@ import { renderHook, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { createElement } from "react";
-import { useSidebarCollapsed } from "./use-sidebar-collapsed";
+import {
+  SIDEBAR_COLLAPSED_STORAGE_KEY,
+  useSidebarCollapsed,
+} from "./use-sidebar-collapsed";
 
 const URL = "/_agent-native/application-state/sidebarCollapsed";
 
@@ -64,6 +67,7 @@ describe("useSidebarCollapsed", () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    window.localStorage.clear();
   });
 
   it("defaults to collapsed=false when the key is missing (404)", async () => {
@@ -98,6 +102,39 @@ describe("useSidebarCollapsed", () => {
     await waitFor(() => expect(result.current.collapsed).toBe(true));
   });
 
+  it("uses the browser mirror before the first application-state read completes", async () => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, "true");
+
+    let releaseFetch: (() => void) | null = null;
+    const fetchStarted = new Promise<void>((resolve) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          () =>
+            new Promise<Response>((responseResolve) => {
+              resolve();
+              releaseFetch = () => {
+                responseResolve(
+                  new Response(JSON.stringify({ collapsed: true }), {
+                    status: 200,
+                  }),
+                );
+              };
+            }),
+        ),
+      );
+    });
+
+    const { result } = renderHook(() => useSidebarCollapsed(), {
+      wrapper: makeWrapper(),
+    });
+
+    expect(result.current.collapsed).toBe(true);
+    await fetchStarted;
+    releaseFetch!();
+    await waitFor(() => expect(result.current.collapsed).toBe(true));
+  });
+
   it("setCollapsed(true) updates state optimistically and PUTs the new value", async () => {
     const stub = stubFetch({ ok: true, body: "" });
     const { result } = renderHook(() => useSidebarCollapsed(), {
@@ -115,6 +152,9 @@ describe("useSidebarCollapsed", () => {
       url: URL,
       body: JSON.stringify({ collapsed: true }),
     });
+    expect(window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe(
+      "true",
+    );
   });
 
   it("does not let an in-flight poll overwrite the optimistic update", async () => {

@@ -77,6 +77,14 @@ async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
     .map((d: any) => ({ id: d.id, name: d.name }));
 }
 
+function persistThemePreference(theme: "light" | "dark") {
+  fetch(appApiPath("/api/theme"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ theme }),
+  }).catch(() => {});
+}
+
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
@@ -180,7 +188,11 @@ export function CommandPalette() {
 
         <CommandGroup heading="Appearance">
           <CommandItem
-            onSelect={() => setTheme(isDark ? "light" : "dark")}
+            onSelect={() => {
+              const nextTheme = isDark ? "light" : "dark";
+              setTheme(nextTheme);
+              persistThemePreference(nextTheme);
+            }}
             keywords={["theme", "dark", "light", "mode"]}
           >
             {isDark ? (

@@ -15,6 +15,7 @@ import {
   Cell,
   Line,
   LineChart,
+  Legend,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -70,17 +71,19 @@ const CHART_TOOLTIP_WRAPPER_STYLE: CSSProperties = {
   pointerEvents: "none",
 };
 
-const CHART_TOOLTIP_CONTENT_STYLE: CSSProperties = {
-  backgroundColor: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
-  borderRadius: "8px",
-  color: "hsl(var(--foreground))",
+const CHART_LEGEND_WRAPPER_STYLE: CSSProperties = {
+  fontSize: 11,
+  paddingTop: 8,
 };
 
 const CHART_TOOLTIP_PROPS = {
   allowEscapeViewBox: { x: true, y: true },
-  contentStyle: CHART_TOOLTIP_CONTENT_STYLE,
   wrapperStyle: CHART_TOOLTIP_WRAPPER_STYLE,
+} as const;
+
+const CHART_LEGEND_PROPS = {
+  iconSize: 8,
+  wrapperStyle: CHART_LEGEND_WRAPPER_STYLE,
 } as const;
 
 function formatYValue(
@@ -117,25 +120,88 @@ function formatXLabel(value: string): string {
   return String(value);
 }
 
+function shouldShowLegend(panel: SqlPanel, seriesCount: number): boolean {
+  return panel.config?.legend !== false && seriesCount > 0;
+}
+
+function ChartTooltip({
+  active,
+  payload,
+  label,
+  labelFormatter,
+  valueFormatter,
+}: {
+  active?: boolean;
+  payload?: Array<{
+    color?: string;
+    dataKey?: string | number;
+    name?: string | number;
+    value?: unknown;
+  }>;
+  label?: unknown;
+  labelFormatter?: (value: string) => string;
+  valueFormatter?: (value: number) => string;
+}) {
+  const items =
+    payload?.filter((item) => item.value != null && item.value !== "") ?? [];
+  if (!active || items.length === 0) return null;
+
+  const labelText =
+    label == null
+      ? ""
+      : labelFormatter
+        ? labelFormatter(String(label))
+        : String(label);
+
+  return (
+    <div className="min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg">
+      {labelText && (
+        <div className="mb-1.5 truncate font-medium text-foreground">
+          {labelText}
+        </div>
+      )}
+      <div className="space-y-1">
+        {items.map((item) => {
+          const raw = item.value;
+          const numeric = typeof raw === "number" ? raw : Number(raw);
+          const value =
+            Number.isFinite(numeric) && valueFormatter
+              ? valueFormatter(numeric)
+              : String(raw ?? "");
+          const name = String(item.name ?? item.dataKey ?? "");
+          return (
+            <div key={name} className="flex items-center gap-2">
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: item.color ?? "currentColor" }}
+              />
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                {name}
+              </span>
+              <span className="font-medium tabular-nums text-foreground">
+                {value}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function detectKeys(
   rows: Record<string, unknown>[],
   config?: SqlPanel["config"],
   forcedYKeys?: string[],
 ): { xKey: string; yKeys: string[] } {
-  if (config?.xKey && (config?.yKey || config?.yKeys?.length)) {
-    return {
-      xKey: config.xKey,
-      yKeys: config.yKeys ?? (config.yKey ? [config.yKey] : []),
-    };
-  }
-
   if (rows.length === 0) return { xKey: "", yKeys: [] };
 
   const cols = Object.keys(rows[0]);
+  const colSet = new Set(cols);
   const sample = rows[0] as Record<string, unknown>;
 
   // Find the x-axis: prefer a date-like or string column
-  let xKey = config?.xKey || "";
+  let xKey = config?.xKey && colSet.has(config.xKey) ? config.xKey : "";
   if (!xKey) {
     xKey =
       cols.find((c) => {
@@ -152,11 +218,13 @@ function detectKeys(
 
   // Pivoted data: caller already knows the series keys
   if (forcedYKeys && forcedYKeys.length) {
-    return { xKey, yKeys: forcedYKeys };
+    return { xKey, yKeys: forcedYKeys.filter((key) => colSet.has(key)) };
   }
 
   // Y keys: all numeric columns that aren't the x-axis
-  const yKeys = config?.yKeys ?? (config?.yKey ? [config.yKey] : []);
+  const yKeys = (config?.yKeys ?? (config?.yKey ? [config.yKey] : [])).filter(
+    (key) => colSet.has(key),
+  );
   if (yKeys.length === 0) {
     for (const c of cols) {
       if (c === xKey) continue;
@@ -168,6 +236,36 @@ function detectKeys(
   }
 
   return { xKey, yKeys };
+}
+
+function configuredKeysMissingFromRows(
+  rows: Record<string, unknown>[],
+  panel: SqlPanel,
+): string[] {
+  if (rows.length === 0) return [];
+  const rowKeys = new Set(Object.keys(rows[0]));
+  const missing = new Set<string>();
+  const config = panel.config;
+  if (config?.xKey && !rowKeys.has(config.xKey)) missing.add(config.xKey);
+  if (config?.yKey && !rowKeys.has(config.yKey)) missing.add(config.yKey);
+  for (const key of config?.yKeys ?? []) {
+    if (!rowKeys.has(key)) missing.add(key);
+  }
+  for (const col of config?.columns ?? []) {
+    if (!rowKeys.has(col.key)) missing.add(col.key);
+    if (col.linkKey && !rowKeys.has(col.linkKey)) missing.add(col.linkKey);
+  }
+  return Array.from(missing);
+}
+
+function ConfigWarning({ keys }: { keys: string[] }) {
+  if (keys.length === 0) return null;
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+      <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <span>Ignored missing result columns: {keys.join(", ")}</span>
+    </div>
+  );
 }
 
 interface SqlChartProps {
@@ -248,29 +346,45 @@ export function SqlChart({
       : (panel.chartType as string) === "stacked-area"
         ? "area"
         : panel.chartType;
+  const missingConfigKeys = configuredKeysMissingFromRows(rows, panel);
+  const withConfigWarning = (node: ReactNode) =>
+    missingConfigKeys.length > 0 ? (
+      <div className="space-y-2">
+        <ConfigWarning keys={missingConfigKeys} />
+        {node}
+      </div>
+    ) : (
+      node
+    );
 
   if (chartType === "metric") {
-    return <MetricRenderer rows={rows} panel={panel} />;
+    return withConfigWarning(<MetricRenderer rows={rows} panel={panel} />);
   }
 
   if (chartType === "table") {
-    return (
+    return withConfigWarning(
       <TableRenderer
         rows={rows}
         panel={panel}
         onExportCsvChange={onExportCsvChange}
-      />
+      />,
     );
   }
 
   if (chartType === "pie") {
-    return (
-      <PieRenderer rows={rows} xKey={xKey} yKey={yKeys[0]} colors={colors} />
+    return withConfigWarning(
+      <PieRenderer
+        rows={rows}
+        xKey={xKey}
+        yKey={yKeys[0]}
+        colors={colors}
+        panel={panel}
+      />,
     );
   }
 
   if (chartType === "bar") {
-    return (
+    return withConfigWarning(
       <BarRenderer
         rows={rows}
         xKey={xKey}
@@ -278,23 +392,24 @@ export function SqlChart({
         colors={colors}
         yFormatter={yFormatter}
         stacked={panel.config?.stacked === true}
-      />
+        panel={panel}
+      />,
     );
   }
 
   if (chartType === "heatmap") {
-    return <HeatmapRenderer rows={rows} panel={panel} />;
+    return withConfigWarning(<HeatmapRenderer rows={rows} panel={panel} />);
   }
 
   if (chartType === "callout") {
-    return <CalloutRenderer rows={rows} />;
+    return withConfigWarning(<CalloutRenderer rows={rows} />);
   }
 
   if (chartType !== "line" && chartType !== "area") {
-    return <TableRenderer rows={rows} panel={panel} />;
+    return withConfigWarning(<TableRenderer rows={rows} panel={panel} />);
   }
 
-  return (
+  return withConfigWarning(
     <TimeSeriesRenderer
       rows={rows}
       xKey={xKey}
@@ -303,7 +418,8 @@ export function SqlChart({
       yFormatter={yFormatter}
       chartType={chartType}
       stacked={panel.config?.stacked === true}
-    />
+      panel={panel}
+    />,
   );
 }
 
@@ -417,8 +533,12 @@ function TableRenderer({
 
   // Resolve column list: explicit config wins, otherwise infer from first row
   const columns = useMemo<TableColumnConfig[]>(() => {
+    const rowKeys = new Set(Object.keys(rows[0] ?? {}));
     if (config?.columns?.length) {
-      return config.columns.filter((c) => !c.hidden);
+      const configured = config.columns.filter(
+        (c) => !c.hidden && rowKeys.has(c.key),
+      );
+      if (configured.length > 0) return configured;
     }
     return Object.keys(rows[0]).map((key) => ({ key }));
   }, [config?.columns, rows]);
@@ -640,11 +760,13 @@ function PieRenderer({
   xKey,
   yKey,
   colors,
+  panel,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
   yKey: string;
   colors: string[];
+  panel: SqlPanel;
 }) {
   return (
     <div className="h-[250px] w-full overflow-visible">
@@ -666,7 +788,19 @@ function PieRenderer({
               <Cell key={i} fill={colors[i % colors.length]} />
             ))}
           </Pie>
-          <Tooltip {...CHART_TOOLTIP_PROPS} />
+          <Tooltip
+            {...CHART_TOOLTIP_PROPS}
+            content={
+              <ChartTooltip
+                valueFormatter={(v) =>
+                  formatYValue(v, panel.config?.yFormatter)
+                }
+              />
+            }
+          />
+          {shouldShowLegend(panel, rows.length) && (
+            <Legend {...CHART_LEGEND_PROPS} />
+          )}
         </PieChart>
       </ResponsiveContainer>
     </div>
@@ -680,6 +814,7 @@ function BarRenderer({
   colors,
   yFormatter,
   stacked,
+  panel,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
@@ -687,6 +822,7 @@ function BarRenderer({
   colors: string[];
   yFormatter?: "number" | "currency" | "percent";
   stacked?: boolean;
+  panel: SqlPanel;
 }) {
   return (
     <div className="h-[250px] w-full overflow-visible">
@@ -715,9 +851,17 @@ function BarRenderer({
           <Tooltip
             {...CHART_TOOLTIP_PROPS}
             labelFormatter={formatXLabel}
-            formatter={(v: number) => formatYValue(v, yFormatter)}
+            content={
+              <ChartTooltip
+                labelFormatter={formatXLabel}
+                valueFormatter={(v) => formatYValue(v, yFormatter)}
+              />
+            }
             itemSorter={(item) => -(Number(item.value) || 0)}
           />
+          {shouldShowLegend(panel, yKeys.length) && (
+            <Legend {...CHART_LEGEND_PROPS} />
+          )}
           {yKeys.map((key, i) => (
             <Bar
               key={key}
@@ -743,6 +887,7 @@ function TimeSeriesRenderer({
   yFormatter,
   chartType,
   stacked,
+  panel,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
@@ -751,6 +896,7 @@ function TimeSeriesRenderer({
   yFormatter?: "number" | "currency" | "percent";
   chartType: "line" | "area";
   stacked?: boolean;
+  panel: SqlPanel;
 }) {
   if (chartType === "line") {
     return (
@@ -780,9 +926,17 @@ function TimeSeriesRenderer({
             <Tooltip
               {...CHART_TOOLTIP_PROPS}
               labelFormatter={formatXLabel}
-              formatter={(v: number) => formatYValue(v, yFormatter)}
+              content={
+                <ChartTooltip
+                  labelFormatter={formatXLabel}
+                  valueFormatter={(v) => formatYValue(v, yFormatter)}
+                />
+              }
               itemSorter={(item) => -(Number(item.value) || 0)}
             />
+            {shouldShowLegend(panel, yKeys.length) && (
+              <Legend {...CHART_LEGEND_PROPS} />
+            )}
             {yKeys.map((key, i) => (
               <Line
                 key={key}
@@ -856,9 +1010,17 @@ function TimeSeriesRenderer({
           <Tooltip
             {...CHART_TOOLTIP_PROPS}
             labelFormatter={formatXLabel}
-            formatter={(v: number) => formatYValue(v, yFormatter)}
+            content={
+              <ChartTooltip
+                labelFormatter={formatXLabel}
+                valueFormatter={(v) => formatYValue(v, yFormatter)}
+              />
+            }
             itemSorter={(item) => -(Number(item.value) || 0)}
           />
+          {shouldShowLegend(panel, yKeys.length) && (
+            <Legend {...CHART_LEGEND_PROPS} />
+          )}
           {yKeys.map((key, i) => (
             <Area
               key={key}

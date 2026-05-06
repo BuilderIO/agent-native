@@ -79,9 +79,16 @@ export function McpServerDetail({ server }: McpServerDetailProps) {
 
         <dl className="space-y-3">
           <Field label="Scope">
-            <span className="text-[12px] text-foreground">
-              {server.scope === "user" ? "Personal" : "Organization"}
-            </span>
+            <div className="space-y-0.5">
+              <span className="text-[12px] text-foreground">
+                {server.scope === "user" ? "Personal" : "Organization"}
+              </span>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {server.scope === "user"
+                  ? "Only available to you. Best for private or staging connections."
+                  : "Shared with the active organization. Best for vetted team connections."}
+              </p>
+            </div>
           </Field>
 
           <Field label="URL">

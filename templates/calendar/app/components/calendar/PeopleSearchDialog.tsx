@@ -62,9 +62,9 @@ export function PeopleSearchDialog({
   const search = useCallback(async (q: string) => {
     setSearching(true);
     try {
-      const url = q
-        ? `/_agent-native/actions/search-people?q=${encodeURIComponent(q)}`
-        : `/_agent-native/actions/search-people`;
+      const params = new URLSearchParams({ scope: "directory" });
+      if (q) params.set("q", q);
+      const url = `/_agent-native/actions/search-people?${params}`;
       const res = await fetch(agentNativePath(url));
       if (res.ok) {
         const data: SearchResponse = await res.json();
