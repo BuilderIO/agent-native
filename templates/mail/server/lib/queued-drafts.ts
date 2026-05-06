@@ -3,6 +3,7 @@ import { nanoid } from "nanoid";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getDbExec } from "@agent-native/core/db";
 import { notify } from "@agent-native/core/notifications";
+import { getUserSetting } from "@agent-native/core/settings";
 import {
   getAppProductionUrl,
   getRequestOrgId,
@@ -10,6 +11,7 @@ import {
   withConfiguredAppBasePath,
 } from "@agent-native/core/server";
 import { getDb, schema } from "../db/index.js";
+import { appendSignatureToBody } from "../../shared/signature.js";
 
 export type QueuedDraftStatus = "queued" | "in_review" | "sent" | "dismissed";
 
@@ -412,13 +414,18 @@ export async function openQueuedDraftInComposer(
   }
 
   const composeId = draft.composeId || `queued-${nanoid(10)}`;
+  const ownerSettings = await getUserSetting(draft.ownerEmail, "mail-settings");
+  const signature =
+    typeof (ownerSettings as any)?.signature === "string"
+      ? (ownerSettings as any).signature
+      : undefined;
   await writeAppState(`compose-${composeId}`, {
     id: composeId,
     to: draft.to,
     cc: draft.cc,
     bcc: draft.bcc,
     subject: draft.subject,
-    body: draft.body,
+    body: appendSignatureToBody(draft.body, signature),
     mode: "compose",
     accountEmail: draft.accountEmail || undefined,
     queuedDraftId: draft.id,
