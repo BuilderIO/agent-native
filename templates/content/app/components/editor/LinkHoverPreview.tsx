@@ -9,9 +9,13 @@ import {
 
 interface LinkHoverPreviewProps {
   editor: Editor;
+  editable?: boolean;
 }
 
-export function LinkHoverPreview({ editor }: LinkHoverPreviewProps) {
+export function LinkHoverPreview({
+  editor,
+  editable = true,
+}: LinkHoverPreviewProps) {
   const [hoveredLink, setHoveredLink] = useState<{
     url: string;
     rect: DOMRect;
@@ -147,17 +151,19 @@ export function LinkHoverPreview({ editor }: LinkHoverPreviewProps) {
           </TooltipTrigger>
           <TooltipContent>Open link</TooltipContent>
         </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={handleRemoveLink}
-              className="text-muted-foreground hover:text-destructive p-1 rounded hover:bg-destructive/10"
-            >
-              <IconUnlink className="h-3.5 w-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Remove link</TooltipContent>
-        </Tooltip>
+        {editable ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={handleRemoveLink}
+                className="text-muted-foreground hover:text-destructive p-1 rounded hover:bg-destructive/10"
+              >
+                <IconUnlink className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Remove link</TooltipContent>
+          </Tooltip>
+        ) : null}
       </div>
     </div>
   );

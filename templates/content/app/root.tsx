@@ -145,9 +145,15 @@ export default function Root() {
   if (location.pathname.startsWith("/p/")) {
     return (
       <QueryClientProvider client={queryClient}>
-        <PublicAgentShell>
-          <Outlet />
-        </PublicAgentShell>
+        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner position="bottom-left" />
+            <PublicAgentShell>
+              <Outlet />
+            </PublicAgentShell>
+          </TooltipProvider>
+        </ThemeProvider>
       </QueryClientProvider>
     );
   }

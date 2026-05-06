@@ -527,6 +527,8 @@ export function VisualEditor({
         class: "notion-editor",
       },
     },
+    editable,
+    immediatelyRender: false,
     onUpdate: ({ editor }) => {
       if (isSettingContent.current) return;
       lastTypedAtRef.current = Date.now();
@@ -633,10 +635,12 @@ export function VisualEditor({
 
   return (
     <div className="visual-editor-wrapper">
-      <BubbleToolbar editor={editor} onComment={onComment} />
-      <SlashCommandMenu editor={editor} documentId={documentId} />
-      <LinkHoverPreview editor={editor} />
-      <TableHoverControls editor={editor} />
+      {editable ? <BubbleToolbar editor={editor} onComment={onComment} /> : null}
+      {editable ? (
+        <SlashCommandMenu editor={editor} documentId={documentId} />
+      ) : null}
+      <LinkHoverPreview editor={editor} editable={editable} />
+      {editable ? <TableHoverControls editor={editor} /> : null}
       <EditorContent editor={editor} />
     </div>
   );

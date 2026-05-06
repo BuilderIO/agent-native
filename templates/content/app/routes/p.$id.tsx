@@ -1,14 +1,22 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import { redirect, useLoaderData } from "react-router";
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../../server/db";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { IconMessageCircle } from "@tabler/icons-react";
 import { agentNativePath } from "@agent-native/core/client";
+import { getRequestUserEmail } from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
+import { VisualEditor } from "@/components/editor/VisualEditor";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const id = params.id;
   if (!id) throw new Response("Not found", { status: 404 });
+
+  if (getRequestUserEmail()) {
+    const access = await resolveAccess("document", id);
+    if (access) throw redirect(`/page/${id}`);
+  }
 
   const [doc] = await getDb()
     .select({
@@ -112,6 +120,20 @@ function PublicDocumentContextSync({
   return null;
 }
 
+function ReadOnlyMarkdownContent({ content }: { content: string }) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
+
+  if (!mounted) {
+    return <div className="notion-editor">{renderMarkdownBlocks(content)}</div>;
+  }
+
+  return (
+    <VisualEditor content={content} onChange={() => {}} editable={false} />
+  );
+}
+
 export default function PublicDocumentPage() {
   const { document } = useLoaderData<typeof loader>();
 
@@ -136,7 +158,7 @@ export default function PublicDocumentPage() {
           {document.title}
         </h1>
         <div className="mt-8 border-t border-border pt-4">
-          {renderMarkdownBlocks(document.content)}
+          <ReadOnlyMarkdownContent content={document.content} />
         </div>
       </article>
     </main>

@@ -1,3 +1,5 @@
+export type DocumentAccessRole = "owner" | "viewer" | "editor" | "admin";
+
 export interface Document {
   id: string;
   parentId: string | null;
@@ -7,6 +9,9 @@ export interface Document {
   position: number;
   isFavorite: boolean;
   visibility?: "private" | "org" | "public";
+  accessRole?: DocumentAccessRole;
+  canEdit?: boolean;
+  canManage?: boolean;
   createdAt: string;
   updatedAt: string;
 }
