@@ -115,6 +115,14 @@ The user may have **multiple Google accounts connected** (e.g. personal and work
 - To see which accounts are connected, check the `accountEmail` field on returned emails
 - When the user says "search my work email" or "check my personal inbox", use `--account` to scope to the right account
 
+### Unread Counts
+
+For unread-count questions, use action counts instead of eyeballing the visible UI. `list-emails` and `search-emails` return one row per thread after grouping. In compact output, `isRead: false` / `hasUnread: true` means the thread has at least one unread message even if the latest message is read.
+
+- For "how many unread emails do I have?", run `pnpm action list-emails --view=unread --includeCounts=true --compact`.
+- For "how many unread are visible in my inbox / first page?", run `pnpm action list-emails --view=inbox --limit=50 --includeCounts=true --compact` and use `unreadInPage` or count rows with `hasUnread: true`.
+- When available, `totalEstimate` is Gmail's estimate for the full query; `unreadInPage` is the exact count in the returned page.
+
 To check the current state:
 
 - Use `readAppState("navigation")` to see what view/thread/search/label the user is looking at
@@ -186,6 +194,9 @@ Queued drafts are durable SQL rows in `queued_email_drafts`. Use them when someo
   body: string;             // full plain-text body
   date: string;             // ISO timestamp
   isRead: boolean;
+  hasUnread?: boolean;      // thread-level: at least one unread message
+  unreadCount?: number;     // unread messages in this returned thread
+  messageCount?: number;    // messages represented by this returned thread
   isStarred: boolean;
   isDraft?: boolean;
   isSent?: boolean;
@@ -369,14 +380,14 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 
 ### Reading & Searching
 
-| Action          | Args                                                                        | Purpose                                       |
-| --------------- | --------------------------------------------------------------------------- | --------------------------------------------- |
-| `view-screen`   | `[--full]`                                                                  | See what the user is looking at right now     |
-| `view-composer` | `[--id=<draft-id>]`                                                         | See all open compose drafts                   |
-| `list-emails`   | `--view <inbox\|unread\|starred\|sent\|...> --q <term> [--account <email>]` | List and search emails (uses Gmail via API)   |
-| `search-emails` | `--q <term> [--view <name>] [--account <email>]`                            | Search emails across all views (requires --q) |
-| `get-email`     | `--id <email-id>`                                                           | Get a single email by ID                      |
-| `get-thread`    | `--id <thread-id> [--compact]`                                              | Get all messages in a thread                  |
+| Action          | Args                                                                                               | Purpose                                       |
+| --------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `view-screen`   | `[--full]`                                                                                         | See what the user is looking at right now     |
+| `view-composer` | `[--id=<draft-id>]`                                                                                | See all open compose drafts                   |
+| `list-emails`   | `--view <inbox\|unread\|starred\|sent\|...> --q <term> [--account <email>] [--includeCounts=true]` | List and search emails (uses Gmail via API)   |
+| `search-emails` | `--q <term> [--view <name>] [--account <email>] [--includeCounts=true]`                            | Search emails across all views (requires --q) |
+| `get-email`     | `--id <email-id>`                                                                                  | Get a single email by ID                      |
+| `get-thread`    | `--id <thread-id> [--compact]`                                                                     | Get all messages in a thread                  |
 
 ### Actions
 
@@ -421,6 +432,8 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 | "What's on my screen?"              | `pnpm action view-screen`                                                                                                                       |
 | "Summarize my inbox"                | `pnpm action view-screen` (emails are already in the response)                                                                                  |
 | "Summarize my unread emails"        | `pnpm action list-emails --view=unread --compact`                                                                                               |
+| "How many unread emails do I have?" | `pnpm action list-emails --view=unread --includeCounts=true --compact`                                                                          |
+| "How many unread are on this page?" | `pnpm action list-emails --view=inbox --limit=50 --includeCounts=true --compact`                                                                |
 | "What emails do I have from Alice?" | `pnpm action search-emails --q=alice --compact`                                                                                                 |
 | "Archive this email"                | `pnpm action view-screen` to get ID, then `pnpm action archive-email --id=<id>`                                                                 |
 | "Archive emails from netlify[bot]"  | `pnpm action view-screen`, find matching IDs, then `pnpm action archive-email --id=id1,id2,id3`                                                 |

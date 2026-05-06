@@ -68,6 +68,7 @@ interface DocumentToolbarProps {
   agentActive?: boolean;
   isSaving?: boolean;
   currentUserEmail?: string;
+  canEdit?: boolean;
 }
 
 export function DocumentToolbar({
@@ -78,6 +79,7 @@ export function DocumentToolbar({
   agentActive,
   isSaving,
   currentUserEmail,
+  canEdit = true,
 }: DocumentToolbarProps) {
   const queryClient = useQueryClient();
   const [autoSync, setAutoSync] = useLocalStorage(
@@ -286,9 +288,11 @@ export function DocumentToolbar({
         documentId={documentId}
         open={historyOpen}
         onOpenChange={setHistoryOpen}
+        canRestore={canEdit}
       />
 
-      <Popover open={open} onOpenChange={setOpen}>
+      {canEdit ? (
+        <Popover open={open} onOpenChange={setOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
             <PopoverTrigger asChild>
@@ -581,7 +585,8 @@ export function DocumentToolbar({
             </div>
           )}
         </PopoverContent>
-      </Popover>
+        </Popover>
+      ) : null}
 
       <NotificationsBell />
       <AgentToggleButton />

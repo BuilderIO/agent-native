@@ -79,6 +79,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const shouldFocusTitleRef = useRef(false);
+  const canEdit = document.canEdit ?? true;
 
   // Current user info for cursor labels
   const { session } = useSession();
@@ -210,18 +211,20 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
 
   const handleTitleChange = useCallback(
     (newTitle: string) => {
+      if (!canEdit) return;
       setLocalTitle(newTitle);
       debouncedSave(newTitle, localContentRef.current);
     },
-    [debouncedSave],
+    [canEdit, debouncedSave],
   );
 
   const handleContentChange = useCallback(
     (newContent: string) => {
+      if (!canEdit) return;
       setLocalContent(newContent);
       debouncedSave(localTitleRef.current, newContent);
     },
-    [debouncedSave],
+    [canEdit, debouncedSave],
   );
 
   // Comments state — pending comment from text selection
@@ -231,7 +234,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   } | null>(null);
   const { data: threads } = useComments(documentId);
   const hasComments =
-    (threads?.some((t) => !t.resolved) ?? false) || !!pendingComment;
+    canEdit && ((threads?.some((t) => !t.resolved) ?? false) || !!pendingComment);
   const isMobile = useIsMobile();
 
   const handleComment = useCallback((quotedText: string, offsetTop: number) => {
@@ -240,7 +243,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
 
   // Auto-focus title on new empty documents once collab finishes loading
   useEffect(() => {
-    if (!collabLoading && shouldFocusTitleRef.current) {
+    if (canEdit && !collabLoading && shouldFocusTitleRef.current) {
       shouldFocusTitleRef.current = false;
       requestAnimationFrame(() => titleInputRef.current?.focus());
     }
@@ -274,9 +277,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
           agentActive={agentActive}
           isSaving={isSaving}
           currentUserEmail={session?.email}
+          canEdit={canEdit}
         />
 
-        <NotionConflictBanner documentId={documentId} />
+        <NotionConflictBanner documentId={documentId} canEdit={canEdit} />
 
         <div
           ref={scrollContainerRef}
@@ -284,12 +288,18 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         >
           <div className="shrink-0 w-full max-w-3xl mx-auto px-4 pt-14 pb-8 sm:px-8 md:px-16 md:pt-16 group/title">
             <div className="mb-1">
-              <EmojiPicker
-                icon={document.icon}
-                onSelect={(emoji) => {
-                  updateDocument.mutate({ id: documentId, icon: emoji });
-                }}
-              />
+              {canEdit ? (
+                <EmojiPicker
+                  icon={document.icon}
+                  onSelect={(emoji) => {
+                    updateDocument.mutate({ id: documentId, icon: emoji });
+                  }}
+                />
+              ) : document.icon ? (
+                <div className="p-1 -ml-1 text-5xl leading-none">
+                  {document.icon}
+                </div>
+              ) : null}
             </div>
             <input
               ref={titleInputRef}
@@ -305,6 +315,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                 }
               }}
               placeholder="Title"
+              readOnly={!canEdit}
               className="w-full text-3xl font-bold bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/40 md:text-4xl"
             />
           </div>
@@ -325,16 +336,16 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               documentId={documentId}
               content={document.content}
               onChange={handleContentChange}
-              ydoc={ydoc}
+              ydoc={canEdit ? ydoc : null}
               user={currentUser}
-              editable
-              onComment={handleComment}
+              editable={canEdit}
+              onComment={canEdit ? handleComment : undefined}
             />
           </div>
         </div>
       </div>
 
-      {isMobile ? (
+      {isMobile && canEdit ? (
         <Sheet
           open={hasComments}
           onOpenChange={(open) => {

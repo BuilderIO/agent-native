@@ -46,7 +46,12 @@ function toCompact(emails: any[]): any[] {
 function latestPerThread(emails: any[]): any[] {
   const byThread = new Map<
     string,
-    { latest: any; hasUnread: boolean; unreadCount: number; messageCount: number }
+    {
+      latest: any;
+      hasUnread: boolean;
+      unreadCount: number;
+      messageCount: number;
+    }
   >();
   for (const email of emails) {
     const key = `${email.accountEmail ?? ""}:${email.threadId || email.id}`;
@@ -66,8 +71,7 @@ function latestPerThread(emails: any[]): any[] {
       existing.unreadCount += 1;
     }
     if (
-      new Date(email.date).getTime() >
-      new Date(existing.latest.date).getTime()
+      new Date(email.date).getTime() > new Date(existing.latest.date).getTime()
     ) {
       existing.latest = email;
     }

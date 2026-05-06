@@ -127,7 +127,9 @@ export default function RecordingPage() {
     toast.error(err?.message ?? "AI request failed");
   const regenerateTitle = useActionMutation("regenerate-title" as any, {
     onSuccess: (result: any) =>
-      toast.success(result?.updated ? "Title updated" : "Title generation queued"),
+      toast.success(
+        result?.updated ? "Title updated" : "Title generation queued",
+      ),
     onError: handleAiError,
   });
   const regenerateSummary = useActionMutation("regenerate-summary" as any, {

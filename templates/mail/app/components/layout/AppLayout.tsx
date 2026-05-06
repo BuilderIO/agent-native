@@ -340,6 +340,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const hasPinnedFilters = pinnedLabels.some(
       (id) => !collapsibleViews.some((v) => v.id === id),
     );
+    counts["__inboxTotal"] = threadRows.filter(
+      ({ hasUnread }) => hasUnread,
+    ).length;
     counts["inbox"] = threadRows.filter(
       ({ latest, hasUnread }) =>
         hasUnread &&
@@ -802,6 +805,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     if (label?.unreadCount !== undefined) return label.unreadCount;
     return 0;
   };
+  const inboxSidebarUnreadCount =
+    labelCounts["__inboxTotal"] ?? labelCounts["inbox"] ?? 0;
 
   const accountFilterValue = useMemo(
     () => ({ activeAccounts, allAccounts: accounts }),
@@ -811,754 +816,741 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   return (
     <AccountFilterContext.Provider value={accountFilterValue}>
       <div className="relative flex flex-1 flex-col overflow-hidden bg-background">
-            {/* Top nav bar */}
-            <header className="relative z-20 flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2 inbox-zero-header">
-              {/* Hamburger menu */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => setSidebarOpen(!sidebarOpen)}
-                    className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
-                    aria-label="Toggle menu"
-                  >
-                    <IconMenu2 className="h-4 w-4" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Menu</TooltipContent>
-              </Tooltip>
+        {/* Top nav bar */}
+        <header className="relative z-20 flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2 inbox-zero-header">
+          {/* Hamburger menu */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+                aria-label="Toggle menu"
+              >
+                <IconMenu2 className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Menu</TooltipContent>
+          </Tooltip>
 
-              {/* Primary tabs stay mounted during search so navigation does not jump. */}
-              <>
-                {tabsLoading ? (
-                  <nav className="flex items-center gap-2 overflow-x-auto hide-scrollbar">
-                    {[1, 2, 3].map((i) => (
-                      <span
-                        key={i}
-                        className="h-4 rounded bg-muted animate-pulse"
-                        style={{ width: `${48 + i * 12}px` }}
-                      />
-                    ))}
-                  </nav>
-                ) : (
-                  <nav className="flex min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar">
-                    {topBarTabs.map((tab, idx) => {
-                      const visibleIndex = visibleTabs.findIndex(
-                        (item) => item.id === tab.id,
-                      );
-                      const tabIndex = visibleIndex >= 0 ? visibleIndex : idx;
-                      const count = getTotalCount(tab.id);
-                      const isDragging = dragPinnedId === tab.pinnedId;
-                      const canDrag =
-                        !!tab.pinnedId && tab.pinnedId !== "important";
-                      const showLeft =
-                        dropIndicator?.tabIndex === tabIndex &&
-                        dropIndicator.side === "left";
-                      const showRight =
-                        dropIndicator?.tabIndex === tabIndex &&
-                        dropIndicator.side === "right";
-                      return (
-                        <div
-                          key={tab.pinnedId || tab.id}
-                          className="relative flex items-center"
-                          onDragOver={(e) => handleTabDragOver(e, tabIndex)}
-                          onDrop={handleTabDrop}
-                        >
-                          {showLeft && (
-                            <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
-                          )}
-                          <Link
-                            to={tab.href}
-                            draggable={canDrag}
-                            onDragStart={(e) =>
-                              canDrag &&
-                              tab.pinnedId &&
-                              handleTabDragStart(e, tab.pinnedId)
-                            }
-                            onDragEnd={handleTabDragEnd}
-                            className={cn(
-                              "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px] select-none",
-                              tab.isActive
-                                ? "text-foreground font-semibold"
-                                : "text-muted-foreground font-medium hover:text-foreground/80",
-                              isDragging && "opacity-40",
-                              canDrag && "cursor-grab",
-                            )}
-                          >
-                            {tab.color && (
-                              <span
-                                className="h-1.5 w-1.5 rounded-full shrink-0"
-                                style={{ backgroundColor: tab.color }}
-                              />
-                            )}
-                            {tab.label}
-                            {count > 0 && (
-                              <span
-                                className={cn(
-                                  "text-[11px] tabular-nums",
-                                  tab.isActive
-                                    ? "text-foreground/60"
-                                    : "text-muted-foreground/70",
-                                )}
-                              >
-                                {count}
-                              </span>
-                            )}
-                          </Link>
-                          {showRight && (
-                            <div className="absolute right-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
-                          )}
-                        </div>
-                      );
-                    })}
-
-                    {/* If navigated to an unpinned view (e.g. via keyboard shortcut), show it */}
-                    {currentInHidden && (
-                      <span className="flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
-                        {collapsibleViews.find((v) => v.id === view)?.label}
-                      </span>
-                    )}
-                  </nav>
-                )}
-
-                {/* Tab settings cog */}
-                <div className={cn("relative", tabsLoading && "invisible")}>
-                  <Popover
-                    open={tabSettingsOpen}
-                    onOpenChange={(open) => {
-                      setTabSettingsOpen(open);
-                      if (!open) setLabelSearch("");
-                    }}
-                  >
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <PopoverTrigger asChild>
-                          <button
-                            className={cn(
-                              "flex h-6 w-6 items-center justify-center rounded transition-colors",
-                              tabSettingsOpen
-                                ? "text-foreground bg-accent/50"
-                                : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
-                            )}
-                            aria-label="Configure tabs"
-                          >
-                            <IconSettings className="h-3.5 w-3.5" />
-                          </button>
-                        </PopoverTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent>Configure tabs</TooltipContent>
-                    </Tooltip>
-                    <PopoverContent
-                      align="start"
-                      className="w-60 max-w-[calc(100vw-2rem)] p-0"
+          {/* Primary tabs stay mounted during search so navigation does not jump. */}
+          <>
+            {tabsLoading ? (
+              <nav className="flex items-center gap-2 overflow-x-auto hide-scrollbar">
+                {[1, 2, 3].map((i) => (
+                  <span
+                    key={i}
+                    className="h-4 rounded bg-muted animate-pulse"
+                    style={{ width: `${48 + i * 12}px` }}
+                  />
+                ))}
+              </nav>
+            ) : (
+              <nav className="flex min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar">
+                {topBarTabs.map((tab, idx) => {
+                  const visibleIndex = visibleTabs.findIndex(
+                    (item) => item.id === tab.id,
+                  );
+                  const tabIndex = visibleIndex >= 0 ? visibleIndex : idx;
+                  const count = getTotalCount(tab.id);
+                  const isDragging = dragPinnedId === tab.pinnedId;
+                  const canDrag =
+                    !!tab.pinnedId && tab.pinnedId !== "important";
+                  const showLeft =
+                    dropIndicator?.tabIndex === tabIndex &&
+                    dropIndicator.side === "left";
+                  const showRight =
+                    dropIndicator?.tabIndex === tabIndex &&
+                    dropIndicator.side === "right";
+                  return (
+                    <div
+                      key={tab.pinnedId || tab.id}
+                      className="relative flex items-center"
+                      onDragOver={(e) => handleTabDragOver(e, tabIndex)}
+                      onDrop={handleTabDrop}
                     >
-                      <TabSettingsPopover
-                        systemViews={collapsibleViews}
-                        userLabels={userLabels}
-                        pinnedLabels={pinnedLabels}
-                        labelAliases={labelAliases}
-                        search={labelSearch}
-                        onSearchChange={setLabelSearch}
-                        onToggle={togglePinned}
-                        onRename={(id, alias) => {
-                          const next = { ...labelAliases };
-                          if (alias) next[id] = alias;
-                          else delete next[id];
-                          updateSettings.mutate({ labelAliases: next });
-                        }}
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-              </>
+                      {showLeft && (
+                        <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
+                      )}
+                      <Link
+                        to={tab.href}
+                        draggable={canDrag}
+                        onDragStart={(e) =>
+                          canDrag &&
+                          tab.pinnedId &&
+                          handleTabDragStart(e, tab.pinnedId)
+                        }
+                        onDragEnd={handleTabDragEnd}
+                        className={cn(
+                          "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px] select-none",
+                          tab.isActive
+                            ? "text-foreground font-semibold"
+                            : "text-muted-foreground font-medium hover:text-foreground/80",
+                          isDragging && "opacity-40",
+                          canDrag && "cursor-grab",
+                        )}
+                      >
+                        {tab.color && (
+                          <span
+                            className="h-1.5 w-1.5 rounded-full shrink-0"
+                            style={{ backgroundColor: tab.color }}
+                          />
+                        )}
+                        {tab.label}
+                        {count > 0 && (
+                          <span
+                            className={cn(
+                              "text-[11px] tabular-nums",
+                              tab.isActive
+                                ? "text-foreground/60"
+                                : "text-muted-foreground/70",
+                            )}
+                          >
+                            {count}
+                          </span>
+                        )}
+                      </Link>
+                      {showRight && (
+                        <div className="absolute right-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
+                      )}
+                    </div>
+                  );
+                })}
 
-              <div className="flex-1" />
+                {/* If navigated to an unpinned view (e.g. via keyboard shortcut), show it */}
+                {currentInHidden && (
+                  <span className="flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
+                    {collapsibleViews.find((v) => v.id === view)?.label}
+                  </span>
+                )}
+              </nav>
+            )}
 
-              {/* Search — stays visible while a search is active so the
-                  user always knows what they searched */}
-              {searchFocused || activeSearchQuery ? (
-                <SearchBar
-                  initialQuery={activeSearchQuery ?? ""}
-                  autoFocus={searchFocused && !activeSearchQuery}
-                  hasActiveSearch={!!activeSearchQuery}
-                  onClose={() => {
-                    setSearchFocused(false);
-                    setSearchQuery("");
-                    if (activeSearchQuery) {
-                      navigate(restorePreSearchPath());
-                    }
-                  }}
-                />
-              ) : (
+            {/* Tab settings cog */}
+            <div className={cn("relative", tabsLoading && "invisible")}>
+              <Popover
+                open={tabSettingsOpen}
+                onOpenChange={(open) => {
+                  setTabSettingsOpen(open);
+                  if (!open) setLabelSearch("");
+                }}
+              >
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <button
-                      onClick={() => setSearchFocused(true)}
-                      className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-                      aria-label="Search"
-                    >
-                      <IconSearch className="h-4 w-4" />
-                    </button>
+                    <PopoverTrigger asChild>
+                      <button
+                        className={cn(
+                          "flex h-6 w-6 items-center justify-center rounded transition-colors",
+                          tabSettingsOpen
+                            ? "text-foreground bg-accent/50"
+                            : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
+                        )}
+                        aria-label="Configure tabs"
+                      >
+                        <IconSettings className="h-3.5 w-3.5" />
+                      </button>
+                    </PopoverTrigger>
                   </TooltipTrigger>
-                  <TooltipContent>Search (/)</TooltipContent>
+                  <TooltipContent>Configure tabs</TooltipContent>
                 </Tooltip>
-              )}
+                <PopoverContent
+                  align="start"
+                  className="w-60 max-w-[calc(100vw-2rem)] p-0"
+                >
+                  <TabSettingsPopover
+                    systemViews={collapsibleViews}
+                    userLabels={userLabels}
+                    pinnedLabels={pinnedLabels}
+                    labelAliases={labelAliases}
+                    search={labelSearch}
+                    onSearchChange={setLabelSearch}
+                    onToggle={togglePinned}
+                    onRename={(id, alias) => {
+                      const next = { ...labelAliases };
+                      if (alias) next[id] = alias;
+                      else delete next[id];
+                      updateSettings.mutate({ labelAliases: next });
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+          </>
 
-              {/* Hidden input for keyboard shortcut target */}
-              {!searchFocused && !activeSearchQuery && (
-                <input
-                  id="mail-search"
-                  className="sr-only"
-                  tabIndex={-1}
-                  onFocus={() => setSearchFocused(true)}
-                />
-              )}
+          <div className="flex-1" />
 
-              {/* Manual refresh — auto-poll backs off on error, but users
+          {/* Search — stays visible while a search is active so the
+                  user always knows what they searched */}
+          {searchFocused || activeSearchQuery ? (
+            <SearchBar
+              initialQuery={activeSearchQuery ?? ""}
+              autoFocus={searchFocused && !activeSearchQuery}
+              hasActiveSearch={!!activeSearchQuery}
+              onClose={() => {
+                setSearchFocused(false);
+                setSearchQuery("");
+                if (activeSearchQuery) {
+                  navigate(restorePreSearchPath());
+                }
+              }}
+            />
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setSearchFocused(true)}
+                  className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                  aria-label="Search"
+                >
+                  <IconSearch className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Search (/)</TooltipContent>
+            </Tooltip>
+          )}
+
+          {/* Hidden input for keyboard shortcut target */}
+          {!searchFocused && !activeSearchQuery && (
+            <input
+              id="mail-search"
+              className="sr-only"
+              tabIndex={-1}
+              onFocus={() => setSearchFocused(true)}
+            />
+          )}
+
+          {/* Manual refresh — auto-poll backs off on error, but users
                   still want a button to force a fresh fetch on demand. The
                   spin animation only fires on user click, never on background
                   poll-driven fetches. */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => {
-                      if (inboxIsFetching) return;
-                      setIsManuallyRefreshing(true);
-                      qc.invalidateQueries({ queryKey: ["emails"] });
-                      qc.invalidateQueries({ queryKey: ["labels"] });
-                      window.setTimeout(
-                        () => setIsManuallyRefreshing(false),
-                        800,
-                      );
-                    }}
-                    disabled={inboxIsFetching}
-                    className={cn(
-                      "flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-muted-foreground",
-                    )}
-                    aria-label="Refresh inbox"
-                  >
-                    <IconRefresh
-                      className={cn(
-                        "h-4 w-4",
-                        isManuallyRefreshing && "animate-spin",
-                      )}
-                    />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Refresh inbox</TooltipContent>
-              </Tooltip>
-
-              <NotificationsBell />
-
-              {/* Compose — prominent outline button */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    onClick={handleCompose}
-                    variant="outline"
-                    size="sm"
-                    className="h-9 sm:h-7 px-3 text-[13px]"
-                    aria-label="Compose email"
-                  >
-                    <span>Compose</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Compose (C)</TooltipContent>
-              </Tooltip>
-
-              {/* Account avatars — overlapping stack like Figma */}
-              {hasAccounts && (
-                <Popover
-                  open={accountPopoverOpen}
-                  onOpenChange={setAccountPopoverOpen}
-                >
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <PopoverTrigger asChild>
-                        <button className="flex items-center hover:opacity-90 transition-opacity ml-1">
-                          <div
-                            className="flex items-center"
-                            style={{
-                              marginRight: accounts.length > 1 ? 0 : undefined,
-                            }}
-                          >
-                            {accounts.map((account, i) => {
-                              const isActive =
-                                activeAccounts.size === 0 ||
-                                activeAccounts.has(account.email);
-                              return (
-                                <div
-                                  key={account.email}
-                                  className={cn(
-                                    "relative rounded-full ring-2 ring-card transition-opacity",
-                                    !isActive && "opacity-30",
-                                  )}
-                                  style={{
-                                    marginLeft: i === 0 ? 0 : -8,
-                                    zIndex: accounts.length - i,
-                                  }}
-                                >
-                                  {account.photoUrl ? (
-                                    <img
-                                      src={account.photoUrl}
-                                      alt=""
-                                      className="h-7 w-7 rounded-full object-cover"
-                                      referrerPolicy="no-referrer"
-                                    />
-                                  ) : (
-                                    <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center text-[11px] font-semibold text-primary">
-                                      {account.email[0]?.toUpperCase()}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </button>
-                      </PopoverTrigger>
-                    </TooltipTrigger>
-                    <TooltipContent>Accounts</TooltipContent>
-                  </Tooltip>
-                  <PopoverContent
-                    align="end"
-                    className="w-72 max-w-[calc(100vw-2rem)] p-0"
-                  >
-                    <AccountPopover
-                      accounts={accounts}
-                      activeAccounts={activeAccounts}
-                      onToggleAccount={(email) => {
-                        setActiveAccounts((prev) => {
-                          const next = new Set(prev);
-                          if (next.size === 0) {
-                            // Switching from "all" → deselect this one (keep others)
-                            for (const a of accounts) {
-                              if (a.email !== email) next.add(a.email);
-                            }
-                          } else if (next.has(email)) {
-                            next.delete(email);
-                            // If nothing left, reset to "all"
-                            if (next.size === 0) return new Set();
-                          } else {
-                            next.add(email);
-                            // If all are now checked, reset to "all" (empty set)
-                            if (next.size === accounts.length) return new Set();
-                          }
-                          return next;
-                        });
-                      }}
-                      onRemoveAccount={(email) => {
-                        setActiveAccounts((prev) => {
-                          const next = new Set(prev);
-                          next.delete(email);
-                          return next;
-                        });
-                      }}
-                    />
-                  </PopoverContent>
-                </Popover>
-              )}
-
-              <AgentToggleButton />
-            </header>
-
-            {/* Sidebar overlay / pinned rail */}
-            {showSidebar && (
-              <>
-                {(!sidebarPinned || isMobile) && (
-                  <div
-                    className="fixed inset-0 z-30 bg-black/20"
-                    onClick={() => setSidebarOpen(false)}
-                  />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => {
+                  if (inboxIsFetching) return;
+                  setIsManuallyRefreshing(true);
+                  qc.invalidateQueries({ queryKey: ["emails"] });
+                  qc.invalidateQueries({ queryKey: ["labels"] });
+                  window.setTimeout(() => setIsManuallyRefreshing(false), 800);
+                }}
+                disabled={inboxIsFetching}
+                className={cn(
+                  "flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-muted-foreground",
                 )}
-                <div
+                aria-label="Refresh inbox"
+              >
+                <IconRefresh
                   className={cn(
-                    "w-64 bg-background/85 backdrop-blur-2xl border-r border-border/30 shadow-2xl overflow-y-auto",
-                    sidebarPinned && !isMobile
-                      ? "absolute left-0 top-11 bottom-0 z-10"
-                      : "fixed left-0 top-0 bottom-0 z-40",
+                    "h-4 w-4",
+                    isManuallyRefreshing && "animate-spin",
                   )}
-                >
-                  <div className="flex items-center justify-between border-b border-border/20 px-4 py-3">
-                    <span className="text-[13px] font-medium text-foreground">
-                      Mail
-                    </span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSidebarPinned((value) => !value);
-                            setSidebarOpen(true);
-                          }}
-                          className={cn(
-                            "flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                            sidebarPinned && "text-foreground bg-accent/50",
-                          )}
-                          aria-label={
-                            sidebarPinned ? "Unpin sidebar" : "Pin sidebar"
-                          }
-                        >
-                          {sidebarPinned ? (
-                            <IconPinnedFilled className="h-4 w-4" />
-                          ) : (
-                            <IconPin className="h-4 w-4" />
-                          )}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {sidebarPinned ? "Unpin sidebar" : "Pin sidebar"}
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                  {/* Accounts */}
-                  {hasAccounts && (
-                    <div className="px-4 pt-5 pb-4 border-b border-border/20">
-                      <div className="space-y-2">
-                        {accounts.map((account) => {
+                />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Refresh inbox</TooltipContent>
+          </Tooltip>
+
+          <NotificationsBell />
+
+          {/* Compose — prominent outline button */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={handleCompose}
+                variant="outline"
+                size="sm"
+                className="h-9 sm:h-7 px-3 text-[13px]"
+                aria-label="Compose email"
+              >
+                <span>Compose</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Compose (C)</TooltipContent>
+          </Tooltip>
+
+          {/* Account avatars — overlapping stack like Figma */}
+          {hasAccounts && (
+            <Popover
+              open={accountPopoverOpen}
+              onOpenChange={setAccountPopoverOpen}
+            >
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <PopoverTrigger asChild>
+                    <button className="flex items-center hover:opacity-90 transition-opacity ml-1">
+                      <div
+                        className="flex items-center"
+                        style={{
+                          marginRight: accounts.length > 1 ? 0 : undefined,
+                        }}
+                      >
+                        {accounts.map((account, i) => {
                           const isActive =
                             activeAccounts.size === 0 ||
                             activeAccounts.has(account.email);
                           return (
-                            <button
+                            <div
                               key={account.email}
-                              onClick={() => {
-                                setActiveAccounts((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.size === 0) {
-                                    for (const a of accounts) {
-                                      if (a.email !== account.email)
-                                        next.add(a.email);
-                                    }
-                                  } else if (next.has(account.email)) {
-                                    next.delete(account.email);
-                                    if (next.size === 0) return new Set();
-                                  } else {
-                                    next.add(account.email);
-                                    if (next.size === accounts.length)
-                                      return new Set();
-                                  }
-                                  return next;
-                                });
-                              }}
                               className={cn(
-                                "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-all",
-                                isActive ? "opacity-100" : "opacity-30",
+                                "relative rounded-full ring-2 ring-card transition-opacity",
+                                !isActive && "opacity-30",
                               )}
+                              style={{
+                                marginLeft: i === 0 ? 0 : -8,
+                                zIndex: accounts.length - i,
+                              }}
                             >
                               {account.photoUrl ? (
                                 <img
                                   src={account.photoUrl}
                                   alt=""
-                                  className="h-8 w-8 rounded-full object-cover shrink-0"
+                                  className="h-7 w-7 rounded-full object-cover"
                                   referrerPolicy="no-referrer"
                                 />
                               ) : (
-                                <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-[12px] font-semibold text-primary shrink-0">
+                                <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center text-[11px] font-semibold text-primary">
                                   {account.email[0]?.toUpperCase()}
                                 </div>
                               )}
-                              <span className="text-[13px] text-foreground truncate">
-                                {account.email}
-                              </span>
-                            </button>
+                            </div>
                           );
                         })}
                       </div>
-                    </div>
-                  )}
+                    </button>
+                  </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent>Accounts</TooltipContent>
+              </Tooltip>
+              <PopoverContent
+                align="end"
+                className="w-72 max-w-[calc(100vw-2rem)] p-0"
+              >
+                <AccountPopover
+                  accounts={accounts}
+                  activeAccounts={activeAccounts}
+                  onToggleAccount={(email) => {
+                    setActiveAccounts((prev) => {
+                      const next = new Set(prev);
+                      if (next.size === 0) {
+                        // Switching from "all" → deselect this one (keep others)
+                        for (const a of accounts) {
+                          if (a.email !== email) next.add(a.email);
+                        }
+                      } else if (next.has(email)) {
+                        next.delete(email);
+                        // If nothing left, reset to "all"
+                        if (next.size === 0) return new Set();
+                      } else {
+                        next.add(email);
+                        // If all are now checked, reset to "all" (empty set)
+                        if (next.size === accounts.length) return new Set();
+                      }
+                      return next;
+                    });
+                  }}
+                  onRemoveAccount={(email) => {
+                    setActiveAccounts((prev) => {
+                      const next = new Set(prev);
+                      next.delete(email);
+                      return next;
+                    });
+                  }}
+                />
+              </PopoverContent>
+            </Popover>
+          )}
 
-                  <div className="p-4">
-                    <div className="space-y-0.5">
-                      {[
-                        { id: "inbox", label: "Inbox", href: "/inbox" },
-                        { id: "starred", label: "Starred", href: "/starred" },
-                        { id: "snoozed", label: "Snoozed", href: "/snoozed" },
-                        { id: "sent", label: "Sent", href: "/sent" },
-                        {
-                          id: "draft-queue",
-                          label: "Draft queue",
-                          href: "/draft-queue",
-                        },
-                        {
-                          id: "scheduled",
-                          label: "Scheduled",
-                          href: "/scheduled",
-                        },
-                        { id: "drafts", label: "Drafts", href: "/drafts" },
-                        { id: "archive", label: "Archive", href: "/archive" },
-                        { id: "trash", label: "Trash", href: "/trash" },
-                      ].map((item) => (
-                        <Link
-                          key={item.id}
-                          to={item.href}
-                          onClick={closeSidebar}
+          <AgentToggleButton />
+        </header>
+
+        {/* Sidebar overlay / pinned rail */}
+        {showSidebar && (
+          <>
+            {(!sidebarPinned || isMobile) && (
+              <div
+                className="fixed inset-0 z-30 bg-black/20"
+                onClick={() => setSidebarOpen(false)}
+              />
+            )}
+            <div
+              className={cn(
+                "w-64 bg-background/85 backdrop-blur-2xl border-r border-border/30 shadow-2xl overflow-y-auto",
+                sidebarPinned && !isMobile
+                  ? "absolute left-0 top-11 bottom-0 z-10"
+                  : "fixed left-0 top-0 bottom-0 z-40",
+              )}
+            >
+              <div className="flex items-center justify-between border-b border-border/20 px-4 py-3">
+                <span className="text-[13px] font-medium text-foreground">
+                  Mail
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSidebarPinned((value) => !value);
+                        setSidebarOpen(true);
+                      }}
+                      className={cn(
+                        "flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                        sidebarPinned && "text-foreground bg-accent/50",
+                      )}
+                      aria-label={
+                        sidebarPinned ? "Unpin sidebar" : "Pin sidebar"
+                      }
+                    >
+                      {sidebarPinned ? (
+                        <IconPinnedFilled className="h-4 w-4" />
+                      ) : (
+                        <IconPin className="h-4 w-4" />
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {sidebarPinned ? "Unpin sidebar" : "Pin sidebar"}
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              {/* Accounts */}
+              {hasAccounts && (
+                <div className="px-4 pt-5 pb-4 border-b border-border/20">
+                  <div className="space-y-2">
+                    {accounts.map((account) => {
+                      const isActive =
+                        activeAccounts.size === 0 ||
+                        activeAccounts.has(account.email);
+                      return (
+                        <button
+                          key={account.email}
+                          onClick={() => {
+                            setActiveAccounts((prev) => {
+                              const next = new Set(prev);
+                              if (next.size === 0) {
+                                for (const a of accounts) {
+                                  if (a.email !== account.email)
+                                    next.add(a.email);
+                                }
+                              } else if (next.has(account.email)) {
+                                next.delete(account.email);
+                                if (next.size === 0) return new Set();
+                              } else {
+                                next.add(account.email);
+                                if (next.size === accounts.length)
+                                  return new Set();
+                              }
+                              return next;
+                            });
+                          }}
                           className={cn(
-                            "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
-                            view === item.id
-                              ? "bg-accent/60 text-foreground font-medium"
-                              : "text-foreground/70 hover:bg-accent/30",
+                            "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-all",
+                            isActive ? "opacity-100" : "opacity-30",
                           )}
                         >
-                          <span>{item.label}</span>
-                          {item.id === "draft-queue" &&
-                            queuedDrafts.count > 0 && (
-                              <span className="text-[12px] text-amber-300 tabular-nums">
-                                {queuedDrafts.count}
-                              </span>
-                            )}
-                          {item.id === "inbox" && labelCounts["inbox"] > 0 && (
-                            <span className="text-[12px] text-muted-foreground/50 tabular-nums">
-                              {labelCounts["inbox"]}
-                            </span>
+                          {account.photoUrl ? (
+                            <img
+                              src={account.photoUrl}
+                              alt=""
+                              className="h-8 w-8 rounded-full object-cover shrink-0"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-[12px] font-semibold text-primary shrink-0">
+                              {account.email[0]?.toUpperCase()}
+                            </div>
                           )}
-                        </Link>
-                      ))}
-                    </div>
-
-                    {/* Pinned labels */}
-                    {pinnedLabels.filter(
-                      (l) => !collapsibleViews.some((v) => v.id === l),
-                    ).length > 0 && (
-                      <>
-                        <h2 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mt-5 mb-3">
-                          Labels
-                        </h2>
-                        <div className="space-y-0.5">
-                          {visibleTabs
-                            .filter(
-                              (t) => t.id !== "inbox" && t.type === "label",
-                            )
-                            .map((tab) => {
-                              const count = getTotalCount(tab.id);
-                              const depth = labelDepth(
-                                tab.fullLabel ?? tab.label,
-                              );
-                              return (
-                                <Link
-                                  key={tab.id}
-                                  to={tab.href}
-                                  onClick={closeSidebar}
-                                  className={cn(
-                                    "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
-                                    tab.isActive
-                                      ? "bg-accent/60 text-foreground font-medium"
-                                      : "text-foreground/70 hover:bg-accent/30",
-                                  )}
-                                >
-                                  <span
-                                    className="flex min-w-0 items-center gap-2"
-                                    style={{ paddingLeft: depth * 12 }}
-                                  >
-                                    {tab.color && (
-                                      <span
-                                        className="h-2 w-2 rounded-full shrink-0"
-                                        style={{ backgroundColor: tab.color }}
-                                      />
-                                    )}
-                                    <span
-                                      className="truncate"
-                                      title={tab.fullLabel}
-                                    >
-                                      {shortLabelName(
-                                        tab.fullLabel ?? tab.label,
-                                      )}
-                                    </span>
-                                  </span>
-                                  {count > 0 && (
-                                    <span className="text-[12px] text-muted-foreground/50 tabular-nums">
-                                      {count}
-                                    </span>
-                                  )}
-                                </Link>
-                              );
-                            })}
-                        </div>
-                      </>
-                    )}
-
-                    {/* Tools section */}
-                    <div className="mt-3 pt-1 border-t border-border/20">
-                      <ExtensionsSidebarSection />
-                    </div>
-
-                    {/* Settings / Appearance / Feedback / Account */}
-                    <div className="mt-3 border-t border-border/20 pt-3">
-                      <div className="flex items-center gap-1 px-1">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Link
-                              to="/settings"
-                              onClick={closeSidebar}
-                              aria-label="Settings"
-                              className={cn(
-                                "flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
-                                location.pathname === "/settings" &&
-                                  "bg-accent/60 text-foreground",
-                              )}
-                            >
-                              <IconSettings className="h-4 w-4" />
-                            </Link>
-                          </TooltipTrigger>
-                          <TooltipContent>Settings</TooltipContent>
-                        </Tooltip>
-                        <ThemeToggle />
-                        <FeedbackButton
-                          variant="icon"
-                          side="right"
-                          className="h-7 w-7"
-                        />
-                      </div>
-                      <div className="mt-3 px-1">
-                        <OrgSwitcher />
-                      </div>
-                    </div>
+                          <span className="text-[13px] text-foreground truncate">
+                            {account.email}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
-              </>
-            )}
+              )}
 
-            <InvitationBanner />
+              <div className="p-4">
+                <div className="space-y-0.5">
+                  {[
+                    { id: "inbox", label: "Inbox", href: "/inbox" },
+                    { id: "starred", label: "Starred", href: "/starred" },
+                    { id: "snoozed", label: "Snoozed", href: "/snoozed" },
+                    { id: "sent", label: "Sent", href: "/sent" },
+                    {
+                      id: "draft-queue",
+                      label: "Draft queue",
+                      href: "/draft-queue",
+                    },
+                    {
+                      id: "scheduled",
+                      label: "Scheduled",
+                      href: "/scheduled",
+                    },
+                    { id: "drafts", label: "Drafts", href: "/drafts" },
+                    { id: "archive", label: "Archive", href: "/archive" },
+                    { id: "trash", label: "Trash", href: "/trash" },
+                  ].map((item) => (
+                    <Link
+                      key={item.id}
+                      to={item.href}
+                      onClick={closeSidebar}
+                      className={cn(
+                        "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
+                        view === item.id
+                          ? "bg-accent/60 text-foreground font-medium"
+                          : "text-foreground/70 hover:bg-accent/30",
+                      )}
+                    >
+                      <span>{item.label}</span>
+                      {item.id === "draft-queue" && queuedDrafts.count > 0 && (
+                        <span className="text-[12px] text-amber-300 tabular-nums">
+                          {queuedDrafts.count}
+                        </span>
+                      )}
+                      {item.id === "inbox" && inboxSidebarUnreadCount > 0 && (
+                        <span className="text-[12px] text-muted-foreground/50 tabular-nums">
+                          {inboxSidebarUnreadCount}
+                        </span>
+                      )}
+                    </Link>
+                  ))}
+                </div>
 
-            {/* Show full-page takeover when no accounts connected (except on settings page) */}
-            {!googleStatus.isLoading &&
-            !googleStatus.isError &&
-            !hasAccounts &&
-            !hasLocalMailboxData &&
-            view !== "settings" &&
-            view !== "draft-queue" ? (
-              <GoogleConnectBanner variant="hero" />
-            ) : (
-              <main
-                className={cn(
-                  "flex flex-1 overflow-hidden",
-                  sidebarPinned && !isMobile && "pl-64",
+                {/* Pinned labels */}
+                {pinnedLabels.filter(
+                  (l) => !collapsibleViews.some((v) => v.id === l),
+                ).length > 0 && (
+                  <>
+                    <h2 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mt-5 mb-3">
+                      Labels
+                    </h2>
+                    <div className="space-y-0.5">
+                      {visibleTabs
+                        .filter((t) => t.id !== "inbox" && t.type === "label")
+                        .map((tab) => {
+                          const count = getTotalCount(tab.id);
+                          const depth = labelDepth(tab.fullLabel ?? tab.label);
+                          return (
+                            <Link
+                              key={tab.id}
+                              to={tab.href}
+                              onClick={closeSidebar}
+                              className={cn(
+                                "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
+                                tab.isActive
+                                  ? "bg-accent/60 text-foreground font-medium"
+                                  : "text-foreground/70 hover:bg-accent/30",
+                              )}
+                            >
+                              <span
+                                className="flex min-w-0 items-center gap-2"
+                                style={{ paddingLeft: depth * 12 }}
+                              >
+                                {tab.color && (
+                                  <span
+                                    className="h-2 w-2 rounded-full shrink-0"
+                                    style={{ backgroundColor: tab.color }}
+                                  />
+                                )}
+                                <span
+                                  className="truncate"
+                                  title={tab.fullLabel}
+                                >
+                                  {shortLabelName(tab.fullLabel ?? tab.label)}
+                                </span>
+                              </span>
+                              {count > 0 && (
+                                <span className="text-[12px] text-muted-foreground/50 tabular-nums">
+                                  {count}
+                                </span>
+                              )}
+                            </Link>
+                          );
+                        })}
+                    </div>
+                  </>
                 )}
-              >
-                {children}
-              </main>
+
+                {/* Tools section */}
+                <div className="mt-3 pt-1 border-t border-border/20">
+                  <ExtensionsSidebarSection />
+                </div>
+
+                {/* Settings / Appearance / Feedback / Account */}
+                <div className="mt-3 border-t border-border/20 pt-3">
+                  <div className="flex items-center gap-1 px-1">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Link
+                          to="/settings"
+                          onClick={closeSidebar}
+                          aria-label="Settings"
+                          className={cn(
+                            "flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
+                            location.pathname === "/settings" &&
+                              "bg-accent/60 text-foreground",
+                          )}
+                        >
+                          <IconSettings className="h-4 w-4" />
+                        </Link>
+                      </TooltipTrigger>
+                      <TooltipContent>Settings</TooltipContent>
+                    </Tooltip>
+                    <ThemeToggle />
+                    <FeedbackButton
+                      variant="icon"
+                      side="right"
+                      className="h-7 w-7"
+                    />
+                  </div>
+                  <div className="mt-3 px-1">
+                    <OrgSwitcher />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        <InvitationBanner />
+
+        {/* Show full-page takeover when no accounts connected (except on settings page) */}
+        {!googleStatus.isLoading &&
+        !googleStatus.isError &&
+        !hasAccounts &&
+        !hasLocalMailboxData &&
+        view !== "settings" &&
+        view !== "draft-queue" ? (
+          <GoogleConnectBanner variant="hero" />
+        ) : (
+          <main
+            className={cn(
+              "flex flex-1 overflow-hidden",
+              sidebarPinned && !isMobile && "pl-64",
             )}
+          >
+            {children}
+          </main>
+        )}
       </div>
 
-        {(() => {
-          // Filter out inline drafts (rendered in thread view, not the popout composer)
-          const popoutDrafts = compose.drafts.filter((d) => !d.inline);
-          if (popoutDrafts.length === 0) return null;
-          const popoutActiveId =
-            compose.activeId &&
-            popoutDrafts.some((d) => d.id === compose.activeId)
-              ? compose.activeId
-              : popoutDrafts[popoutDrafts.length - 1].id;
-          const popoutActiveDraft =
-            popoutDrafts.find((d) => d.id === popoutActiveId) ?? null;
-          return (
-            <ComposeModal
-              drafts={popoutDrafts}
-              activeId={popoutActiveId}
-              activeDraft={popoutActiveDraft}
-              onSetActiveId={compose.setActiveId}
-              onUpdate={compose.update}
-              onClose={(id) => {
-                const draft = popoutDrafts.find((d) => d.id === id);
-                const hasContent = !!(
-                  draft?.to?.trim() ||
-                  draft?.subject?.trim() ||
-                  draft?.body?.trim()
-                );
-                const snapshot = draft ? { ...draft } : null;
-                compose.close(id);
-                if (hasContent && snapshot) {
-                  toast("Draft saved.", {
-                    action: {
-                      label: "REOPEN",
-                      onClick: () => {
-                        const { id: _id, ...reopenData } = snapshot;
-                        compose.open(reopenData);
-                      },
+      {(() => {
+        // Filter out inline drafts (rendered in thread view, not the popout composer)
+        const popoutDrafts = compose.drafts.filter((d) => !d.inline);
+        if (popoutDrafts.length === 0) return null;
+        const popoutActiveId =
+          compose.activeId &&
+          popoutDrafts.some((d) => d.id === compose.activeId)
+            ? compose.activeId
+            : popoutDrafts[popoutDrafts.length - 1].id;
+        const popoutActiveDraft =
+          popoutDrafts.find((d) => d.id === popoutActiveId) ?? null;
+        return (
+          <ComposeModal
+            drafts={popoutDrafts}
+            activeId={popoutActiveId}
+            activeDraft={popoutActiveDraft}
+            onSetActiveId={compose.setActiveId}
+            onUpdate={compose.update}
+            onClose={(id) => {
+              const draft = popoutDrafts.find((d) => d.id === id);
+              const hasContent = !!(
+                draft?.to?.trim() ||
+                draft?.subject?.trim() ||
+                draft?.body?.trim()
+              );
+              const snapshot = draft ? { ...draft } : null;
+              compose.close(id);
+              if (hasContent && snapshot) {
+                toast("Draft saved.", {
+                  action: {
+                    label: "REOPEN",
+                    onClick: () => {
+                      const { id: _id, ...reopenData } = snapshot;
+                      compose.open(reopenData);
                     },
-                    cancel: {
-                      label: "DELETE DRAFT",
-                      onClick: () => {
-                        if (snapshot.savedDraftId) {
+                  },
+                  cancel: {
+                    label: "DELETE DRAFT",
+                    onClick: () => {
+                      if (snapshot.savedDraftId) {
+                        fetch(
+                          appApiPath(`/api/emails/${snapshot.savedDraftId}`),
+                          {
+                            method: "DELETE",
+                          },
+                        );
+                      }
+                    },
+                  },
+                });
+              }
+            }}
+            onCloseAll={() => {
+              const draftsWithContent = popoutDrafts.filter(
+                (d) => !!(d.to?.trim() || d.subject?.trim() || d.body?.trim()),
+              );
+              const snapshots = draftsWithContent.map((d) => ({ ...d }));
+              const ids = popoutDrafts.map((d) => d.id);
+              ids.forEach((id) => compose.close(id));
+              if (snapshots.length > 0) {
+                toast(`${snapshots.length} draft(s) saved.`, {
+                  action: {
+                    label: "REOPEN",
+                    onClick: () => {
+                      for (const snap of snapshots) {
+                        const { id: _id, ...reopenData } = snap;
+                        compose.open(reopenData);
+                      }
+                    },
+                  },
+                  cancel: {
+                    label: "DELETE DRAFTS",
+                    onClick: () => {
+                      for (const snap of snapshots) {
+                        if (snap.savedDraftId) {
                           fetch(
-                            appApiPath(`/api/emails/${snapshot.savedDraftId}`),
+                            appApiPath(`/api/emails/${snap.savedDraftId}`),
                             {
                               method: "DELETE",
                             },
                           );
                         }
-                      },
+                      }
                     },
-                  });
-                }
-              }}
-              onCloseAll={() => {
-                const draftsWithContent = popoutDrafts.filter(
-                  (d) =>
-                    !!(d.to?.trim() || d.subject?.trim() || d.body?.trim()),
-                );
-                const snapshots = draftsWithContent.map((d) => ({ ...d }));
-                const ids = popoutDrafts.map((d) => d.id);
-                ids.forEach((id) => compose.close(id));
-                if (snapshots.length > 0) {
-                  toast(`${snapshots.length} draft(s) saved.`, {
-                    action: {
-                      label: "REOPEN",
-                      onClick: () => {
-                        for (const snap of snapshots) {
-                          const { id: _id, ...reopenData } = snap;
-                          compose.open(reopenData);
-                        }
-                      },
-                    },
-                    cancel: {
-                      label: "DELETE DRAFTS",
-                      onClick: () => {
-                        for (const snap of snapshots) {
-                          if (snap.savedDraftId) {
-                            fetch(
-                              appApiPath(`/api/emails/${snap.savedDraftId}`),
-                              {
-                                method: "DELETE",
-                              },
-                            );
-                          }
-                        }
-                      },
-                    },
-                  });
-                }
-              }}
-              onDiscard={compose.discard}
-              onNewDraft={handleCompose}
-              onFlush={compose.flush}
-              onReopen={compose.open}
-            />
-          );
-        })()}
-        <CommandPalette
-          open={paletteOpen}
-          onOpenChange={setPaletteOpen}
-          onCompose={handleCompose}
-          onSnooze={targetEmail ? handleSnooze : undefined}
-          onSpam={handleSpam}
-          onBlockSender={handleBlockSender}
-          onMuteThread={handleMuteThread}
-          hasEmail={!!targetEmail}
-        />
-        <SnoozeModal
-          open={snoozeOpen}
-          emailId={snoozeOverride?.id ?? targetEmail?.id ?? null}
-          accountEmail={
-            snoozeOverride?.accountEmail ?? targetEmail?.accountEmail
-          }
-          onClose={() => {
-            setSnoozeOpen(false);
-            setSnoozeOverride(null);
-          }}
-          onSnoozed={() => {
-            setSnoozeOpen(false);
-            setSnoozeOverride(null);
-          }}
-        />
+                  },
+                });
+              }
+            }}
+            onDiscard={compose.discard}
+            onNewDraft={handleCompose}
+            onFlush={compose.flush}
+            onReopen={compose.open}
+          />
+        );
+      })()}
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        onCompose={handleCompose}
+        onSnooze={targetEmail ? handleSnooze : undefined}
+        onSpam={handleSpam}
+        onBlockSender={handleBlockSender}
+        onMuteThread={handleMuteThread}
+        hasEmail={!!targetEmail}
+      />
+      <SnoozeModal
+        open={snoozeOpen}
+        emailId={snoozeOverride?.id ?? targetEmail?.id ?? null}
+        accountEmail={snoozeOverride?.accountEmail ?? targetEmail?.accountEmail}
+        onClose={() => {
+          setSnoozeOpen(false);
+          setSnoozeOverride(null);
+        }}
+        onSnoozed={() => {
+          setSnoozeOpen(false);
+          setSnoozeOverride(null);
+        }}
+      />
     </AccountFilterContext.Provider>
   );
 }
@@ -1566,9 +1558,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 // ─── Standard Layout (settings, team, tools, draft-queue) ────────────────────
 
 /**
- * Slim chrome used on secondary pages. Renders the AgentSidebar with a clean
- * h-12 header (title + AgentToggleButton + NotificationsBell) instead of the
- * inbox-specific top bar (tabs, search, account stack, compose pen, etc.).
+ * Slim chrome used on secondary pages. Renders a clean h-12 header (title +
+ * AgentToggleButton + NotificationsBell) instead of the inbox-specific top bar
+ * (tabs, search, account stack, compose pen, etc.).
  *
  * Pages can hoist a custom title or right-side actions via
  * `useSetPageTitle` / `useSetHeaderActions` from `./HeaderActions`.
@@ -1598,127 +1590,126 @@ function StandardLayout({ children }: AppLayoutProps) {
 
   return (
     <div className="relative flex flex-1 flex-col overflow-hidden bg-background">
-          {!pageOwnsToolbar && (
-            <header className="relative z-20 flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-3">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => setSidebarOpen(!sidebarOpen)}
-                    className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 cursor-pointer"
-                    aria-label="Toggle menu"
-                  >
-                    <IconMenu2 className="h-4 w-4" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Menu</TooltipContent>
-              </Tooltip>
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                {headerTitle ?? (
-                  <h1 className="text-lg font-semibold tracking-tight truncate">
-                    {fallbackTitle}
-                  </h1>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {headerActions}
-                <NotificationsBell />
-                <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
-              </div>
-            </header>
-          )}
+      {!pageOwnsToolbar && (
+        <header className="relative z-20 flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-3">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 cursor-pointer"
+                aria-label="Toggle menu"
+              >
+                <IconMenu2 className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Menu</TooltipContent>
+          </Tooltip>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            {headerTitle ?? (
+              <h1 className="text-lg font-semibold tracking-tight truncate">
+                {fallbackTitle}
+              </h1>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {headerActions}
+            <NotificationsBell />
+            <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
+          </div>
+        </header>
+      )}
 
-          {sidebarOpen && (
-            <>
-              <div
-                className="fixed inset-0 z-30 bg-black/20"
-                onClick={() => setSidebarOpen(false)}
-              />
-              <div className="fixed left-0 top-0 bottom-0 z-40 w-64 bg-background/70 backdrop-blur-2xl border-r border-border/30 shadow-2xl overflow-y-auto">
-                <div className="p-4">
-                  <div className="space-y-0.5">
-                    {[
-                      { id: "inbox", label: "Inbox", href: "/inbox" },
-                      { id: "starred", label: "Starred", href: "/starred" },
-                      { id: "snoozed", label: "Snoozed", href: "/snoozed" },
-                      { id: "sent", label: "Sent", href: "/sent" },
-                      {
-                        id: "draft-queue",
-                        label: "Draft queue",
-                        href: "/draft-queue",
-                      },
-                      {
-                        id: "scheduled",
-                        label: "Scheduled",
-                        href: "/scheduled",
-                      },
-                      { id: "drafts", label: "Drafts", href: "/drafts" },
-                      { id: "archive", label: "Archive", href: "/archive" },
-                      { id: "trash", label: "Trash", href: "/trash" },
-                    ].map((item) => (
+      {sidebarOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-30 bg-black/20"
+            onClick={() => setSidebarOpen(false)}
+          />
+          <div className="fixed left-0 top-0 bottom-0 z-40 w-64 bg-background/70 backdrop-blur-2xl border-r border-border/30 shadow-2xl overflow-y-auto">
+            <div className="p-4">
+              <div className="space-y-0.5">
+                {[
+                  { id: "inbox", label: "Inbox", href: "/inbox" },
+                  { id: "starred", label: "Starred", href: "/starred" },
+                  { id: "snoozed", label: "Snoozed", href: "/snoozed" },
+                  { id: "sent", label: "Sent", href: "/sent" },
+                  {
+                    id: "draft-queue",
+                    label: "Draft queue",
+                    href: "/draft-queue",
+                  },
+                  {
+                    id: "scheduled",
+                    label: "Scheduled",
+                    href: "/scheduled",
+                  },
+                  { id: "drafts", label: "Drafts", href: "/drafts" },
+                  { id: "archive", label: "Archive", href: "/archive" },
+                  { id: "trash", label: "Trash", href: "/trash" },
+                ].map((item) => (
+                  <Link
+                    key={item.id}
+                    to={item.href}
+                    onClick={() => setSidebarOpen(false)}
+                    className={cn(
+                      "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
+                      view === item.id
+                        ? "bg-accent/60 text-foreground font-medium"
+                        : "text-foreground/70 hover:bg-accent/30",
+                    )}
+                  >
+                    <span>{item.label}</span>
+                    {item.id === "draft-queue" && queuedDrafts.count > 0 && (
+                      <span className="text-[12px] text-amber-300 tabular-nums">
+                        {queuedDrafts.count}
+                      </span>
+                    )}
+                  </Link>
+                ))}
+              </div>
+
+              <div className="mt-3 pt-1 border-t border-border/20">
+                <ExtensionsSidebarSection />
+              </div>
+
+              <div className="mt-3 border-t border-border/20 pt-3">
+                <div className="flex items-center gap-1 px-1">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
                       <Link
-                        key={item.id}
-                        to={item.href}
+                        to="/settings"
                         onClick={() => setSidebarOpen(false)}
+                        aria-label="Settings"
                         className={cn(
-                          "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
-                          view === item.id
-                            ? "bg-accent/60 text-foreground font-medium"
-                            : "text-foreground/70 hover:bg-accent/30",
+                          "flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
+                          location.pathname === "/settings" &&
+                            "bg-accent/60 text-foreground",
                         )}
                       >
-                        <span>{item.label}</span>
-                        {item.id === "draft-queue" &&
-                          queuedDrafts.count > 0 && (
-                            <span className="text-[12px] text-amber-300 tabular-nums">
-                              {queuedDrafts.count}
-                            </span>
-                          )}
+                        <IconSettings className="h-4 w-4" />
                       </Link>
-                    ))}
-                  </div>
-
-                  <div className="mt-3 pt-1 border-t border-border/20">
-                    <ExtensionsSidebarSection />
-                  </div>
-
-                  <div className="mt-3 border-t border-border/20 pt-3">
-                    <div className="flex items-center gap-1 px-1">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Link
-                            to="/settings"
-                            onClick={() => setSidebarOpen(false)}
-                            aria-label="Settings"
-                            className={cn(
-                              "flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
-                              location.pathname === "/settings" &&
-                                "bg-accent/60 text-foreground",
-                            )}
-                          >
-                            <IconSettings className="h-4 w-4" />
-                          </Link>
-                        </TooltipTrigger>
-                        <TooltipContent>Settings</TooltipContent>
-                      </Tooltip>
-                      <ThemeToggle />
-                      <FeedbackButton
-                        variant="icon"
-                        side="right"
-                        className="h-7 w-7"
-                      />
-                    </div>
-                    <div className="mt-3 px-1">
-                      <OrgSwitcher />
-                    </div>
-                  </div>
+                    </TooltipTrigger>
+                    <TooltipContent>Settings</TooltipContent>
+                  </Tooltip>
+                  <ThemeToggle />
+                  <FeedbackButton
+                    variant="icon"
+                    side="right"
+                    className="h-7 w-7"
+                  />
+                </div>
+                <div className="mt-3 px-1">
+                  <OrgSwitcher />
                 </div>
               </div>
-            </>
-          )}
+            </div>
+          </div>
+        </>
+      )}
 
-          <InvitationBanner />
+      <InvitationBanner />
 
-          <main className="flex flex-1 overflow-hidden">{children}</main>
+      <main className="flex flex-1 overflow-hidden">{children}</main>
     </div>
   );
 }
