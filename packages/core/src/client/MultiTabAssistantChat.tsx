@@ -31,7 +31,13 @@ interface EngineModelGroup {
 
 // ─── Skeleton Loader ─────────────────────────────────────────────────────────
 
-function ChatSkeleton({ headerOnly = false }: { headerOnly?: boolean }) {
+function ChatSkeleton({
+  header,
+  headerOnly = false,
+}: {
+  header?: React.ReactNode;
+  headerOnly?: boolean;
+}) {
   return (
     <div
       className={cn(
@@ -39,13 +45,15 @@ function ChatSkeleton({ headerOnly = false }: { headerOnly?: boolean }) {
         headerOnly ? "shrink-0" : "flex-1 h-full",
       )}
     >
-      <div className="flex items-center px-1 py-1 border-b border-border shrink-0 gap-0.5">
-        <div className="h-[22px] w-20 rounded-md bg-muted animate-pulse" />
-        <div className="ml-auto flex gap-0.5">
-          <div className="h-[22px] w-[22px] rounded-md bg-muted animate-pulse" />
-          <div className="h-[22px] w-[22px] rounded-md bg-muted animate-pulse" />
+      {header ?? (
+        <div className="flex items-center px-1 py-1 border-b border-border shrink-0 gap-0.5">
+          <div className="h-[22px] w-20 rounded-md bg-muted animate-pulse" />
+          <div className="ml-auto flex gap-0.5">
+            <div className="h-[22px] w-[22px] rounded-md bg-muted animate-pulse" />
+            <div className="h-[22px] w-[22px] rounded-md bg-muted animate-pulse" />
+          </div>
         </div>
-      </div>
+      )}
       {!headerOnly && (
         <div className="flex-1 flex flex-col gap-3 p-4">
           <div className="flex justify-center py-8">
@@ -1181,7 +1189,12 @@ export function MultiTabAssistantChat({
   };
 
   if (isLoading) {
-    return <ChatSkeleton headerOnly={contentHidden} />;
+    return (
+      <ChatSkeleton
+        header={renderHeader?.(headerProps)}
+        headerOnly={contentHidden}
+      />
+    );
   }
 
   return (
