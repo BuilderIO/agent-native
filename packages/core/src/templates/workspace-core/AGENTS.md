@@ -20,10 +20,18 @@ agent should know.
 
 ## Adding Apps
 
-New app requests from Dispatch should create a separate workspace app under
-`apps/<app-name>`, mounted at `/<app-name>`. Do not implement a new app by
-adding a route, page, component, or file to `apps/starter` or another existing
-app unless the user explicitly asks to modify that existing app.
+When a user asks from Dispatch chat or by tagging `@agent-native` in Slack to
+create, build, make, scaffold, or generate an "agent", classify the ask first.
+Simple Dispatch-native behavior such as a reminder, digest, monitor, routing
+rule, saved instruction, or recurring workflow can stay in Dispatch as a
+recurring job/resource/destination. Robust unique products or teammates that
+need their own UI, data model, actions, integrations, or domain workflow should
+become a separate workspace app under `apps/<app-name>`, mounted at
+`/<app-name>`.
+
+Do not implement a new app by adding a route, page, component, or file to
+`apps/starter` or another existing app unless the user explicitly asks to modify
+that existing app.
 
 In local development, run
 `pnpm exec agent-native create <app-name> --template=<template>` from the

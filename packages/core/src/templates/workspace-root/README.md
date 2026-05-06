@@ -75,6 +75,9 @@ auth, org switching, skills, and instructions come from the shared package.
 If the request starts from Dispatch in production, Dispatch sends it to Builder
 branch creation; that branch should still add a new `apps/<app-id>` workspace
 app rather than adding files to `apps/starter`.
+For requests phrased as creating an "agent", classify the scope first: simple
+recurring Dispatch behavior can stay in Dispatch, while a robust app-like
+teammate should become a real workspace app listed with the rest of the apps.
 
 ## Editing shared behavior
 

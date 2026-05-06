@@ -5,7 +5,7 @@ import { startWorkspaceAppCreation } from "../server/lib/app-creation-store.js";
 
 export default defineAction({
   description:
-    "Start creating a new workspace app from Dispatch. In local dev this returns a code-agent prompt; in production it creates a Builder branch when a Builder project is configured. The result must be a separate workspace app under apps/<app-id>, not a new route or file in apps/starter.",
+    "Start creating a new workspace app from Dispatch when the request truly needs its own app. In local dev this returns a code-agent prompt; in production it creates a Builder branch when a Builder project is configured. The result must be a separate workspace app under apps/<app-id>, not a new route or file in apps/starter.",
   schema: z.object({
     prompt: z.string().min(1).describe("The user's app creation request"),
     appId: z

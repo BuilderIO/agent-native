@@ -16,9 +16,16 @@ in `apps/<app>/AGENTS.md`; shared cross-app behavior belongs in
 
 ## New Workspace Apps
 
-- When a user asks from Dispatch to create, build, make, scaffold, or generate
-  a new app or agent, treat it as a request for a separate workspace app under
-  `apps/<app-id>`, mounted at `/<app-id>`.
+- When a user asks from Dispatch chat or by tagging `@agent-native` in Slack to
+  create, build, make, scaffold, or generate an "agent", classify the ask
+  first. Simple Dispatch-native behavior such as a reminder, digest, monitor,
+  routing rule, saved instruction, or recurring workflow can stay in Dispatch
+  as a recurring job/resource/destination. Robust unique products or teammates
+  that need their own UI, data model, actions, integrations, or domain workflow
+  should become a separate workspace app under `apps/<app-id>`, mounted at
+  `/<app-id>`.
+- When a user explicitly asks for a new app or workspace app, create the
+  separate workspace app.
 - Do not satisfy a new-app request by adding a route, page, component, or file
   to `apps/starter` or another existing app unless the user explicitly asks to
   modify that existing app.
