@@ -9,9 +9,9 @@ import { agentNativePath } from "./api-path.js";
 export interface ConnectBuilderCardProps {
   configured: boolean;
   /**
-   * True when ENABLE_BUILDER / BUILDER_BRANCH_PROJECT_ID is set on the
-   * deploy. When false, the card shows a "coming soon" waitlist CTA instead
-   * of a Send button — the /builder/run endpoint would 403 anyway.
+   * True when the server has a Builder branch project configured for this
+   * request. When false, the card shows a waitlist CTA instead of a Send
+   * button — the /builder/run endpoint would 403 anyway.
    */
   builderEnabled?: boolean;
   connectUrl: string;

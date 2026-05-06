@@ -48,7 +48,8 @@ a ... extension" (or the older phrasings "make a tool" / "create a tool"):**
 Extensions have full access to app data via helpers injected into the iframe:
 
 - `appAction(name, params)` — call any app action
-- `appFetch(path, options)` — call any app endpoint
+- `appFetch(path, options)` — call allowed framework endpoints under
+  `/_agent-native/*`
 - `dbQuery(sql, args)` — read from SQL
 - `dbExec(sql, args)` — write to SQL
 - `extensionFetch(url, options)` — call external APIs via proxy. Legacy
@@ -202,21 +203,19 @@ auto-mounted at `/_agent-native/actions/:name`.
 </div>
 ```
 
-### `appFetch(path, options)` — Call any app endpoint
+### `appFetch(path, options)` — Call allowed framework endpoints
 
-General-purpose fetch to any app endpoint (e.g. `/api/emails`,
-`/_agent-native/application-state/navigation`). Automatically adds
-credentials and JSON content type.
+General-purpose fetch to allowed framework endpoints (for example,
+`/_agent-native/application-state/navigation`). Automatically adds credentials
+and JSON content type. Template `/api/*` routes are intentionally blocked by
+the extension bridge; use `appAction(name, params)` for app data instead.
 
 ```javascript
 // Read application state
 const nav = await appFetch('/_agent-native/application-state/navigation');
 
-// Call a custom API route
-const data = await appFetch('/api/custom-endpoint', {
-  method: 'POST',
-  body: JSON.stringify({ key: 'value' }),
-});
+// Call a framework route
+const nav = await appFetch('/_agent-native/application-state/navigation');
 ```
 
 ### `dbQuery(sql)` — Read from the app's database
@@ -259,7 +258,7 @@ await dbExec("UPDATE notes SET title = 'Updated Title' WHERE id = 'abc'");
 | Helper | Use for | Example |
 |--------|---------|---------|
 | `appAction(name, params)` | Call app actions (CRUD, queries) | `appAction('list-emails', { view: 'inbox' })` |
-| `appFetch(path, options)` | Call any app endpoint | `appFetch('/api/settings')` |
+| `appFetch(path, options)` | Call allowed framework endpoints | `appFetch('/_agent-native/application-state/navigation')` |
 | `dbQuery(sql)` | Read from the app's SQL database | `dbQuery('SELECT * FROM notes LIMIT 10')` |
 | `dbExec(sql)` | Write to the app's SQL database | `dbExec("INSERT INTO notes ...")` |
 | `extensionFetch(url, options)` | Call external APIs via proxy (alias `toolFetch`) | `extensionFetch('https://api.github.com/user', { headers: { 'Authorization': 'Bearer ${keys.GITHUB_TOKEN}' } })` |
@@ -572,7 +571,7 @@ Persistent notes using localStorage -- no API key needed:
 - **Keep extensions focused.** One extension, one job. A "GitHub PR Dashboard" should show PRs, not also manage issues.
 - **Handle loading and error states.** Always show a loading indicator during fetch and handle failures gracefully.
 - **All functions referenced in Alpine expressions must be defined in `x-data`.** If you use `@click="add()"`, there must be an `add()` method in the component's `x-data` object. Undefined references cause runtime errors.
-- **Use the right fetch helper.** `appAction()` for app actions, `appFetch()` for app endpoints, `extensionFetch()` for external APIs. Never use raw `fetch()` -- secrets won't be injected and CORS will block external APIs.
+- **Use the right fetch helper.** `appAction()` for app actions and app data, `appFetch()` for allowed framework `/_agent-native/*` endpoints, and `extensionFetch()` for external APIs. Never call template `/api/*` routes from an extension and never use raw `fetch()` -- secrets won't be injected and CORS will block external APIs.
 - **Single quotes around `${keys.*}`** to prevent browser-side template literal evaluation.
 - **Prefer patches over full rewrites** when editing existing extensions. Smaller diffs are less error-prone.
 

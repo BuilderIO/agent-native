@@ -21,7 +21,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "create-extension": {
       tool: {
         description:
-          "Create a sandboxed Alpine.js mini-app extension. Use this when the user asks to create, build, or make an extension/widget/dashboard/calculator. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), and extensionData. Prefer appAction()/appFetch() for app data; parse JSON string action results before aggregating; use dbQuery()/dbExec() only for known existing SQL tables.",
+          "Create a sandboxed Alpine.js mini-app extension. Use this when the user asks to create, build, or make an extension/widget/dashboard/calculator. Call this action exactly once per requested extension. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), and extensionData. Prefer appAction(name, params) for app data and actions, including read actions mounted as GET; do not call template /api/* routes from appFetch because the extension bridge only allows framework /_agent-native/* paths. Parse JSON string action results before aggregating; use dbQuery()/dbExec() only for known existing SQL tables.",
         parameters: {
           type: "object",
           properties: {

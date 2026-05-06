@@ -15,6 +15,8 @@ export interface BuilderStatus {
   connectUrl: string;
   appHost: string;
   apiHost: string;
+  branchProjectIdConfigured?: boolean;
+  branchProjectId?: string;
   publicKeyConfigured: boolean;
   privateKeyConfigured: boolean;
   userId?: string;
@@ -110,9 +112,9 @@ export interface BuilderConnectFlow {
    */
   envManaged: boolean;
   /**
-   * True when ENABLE_BUILDER (or a BUILDER_BRANCH_PROJECT_ID) is set on the
-   * deploy, gating Builder cloud branch creation. When false, the card
-   * surfaces a "coming soon" waitlist CTA instead of a Send button.
+   * True when the server has a Builder branch project configured for this
+   * request. When false, the card surfaces a waitlist CTA instead of a Send
+   * button.
    */
   builderEnabled: boolean;
   orgName: string | null;

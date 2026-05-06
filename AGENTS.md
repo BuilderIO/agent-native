@@ -158,7 +158,7 @@ Extensions are 100% self-contained. They have FULL access to app data, external 
 | `appAction(name, params)`                        | Call any app action        | `appAction('list-emails', { view: 'inbox' })`     |
 | `dbQuery(sql, args)`                             | Read from SQL              | `dbQuery('SELECT * FROM tools')`                  |
 | `dbExec(sql, args)`                              | Write to SQL               | `dbExec('INSERT INTO ...')`                       |
-| `appFetch(path, options)`                        | Call any app endpoint      | `appFetch('/api/settings')`                       |
+| `appFetch(path, options)`                        | Call allowed framework endpoints under `/_agent-native/*` | `appFetch('/_agent-native/application-state/navigation')` |
 | `extensionFetch(url, options)`                   | External API via proxy     | `extensionFetch('https://api.github.com/...')`    |
 
 > Legacy aliases `toolFetch` and `toolData` are still exposed inside the iframe for backward compatibility with existing extension HTML — prefer the `extension*` names in new code.

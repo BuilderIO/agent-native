@@ -50,6 +50,15 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("if (event.source !== window.parent) return;");
   });
 
+  it("lets appAction retry read actions with the mounted GET method", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
+
+    expect(html).toContain("function _methodHintFromActionResponse(res)");
+    expect(html).toContain("res.status !== 405");
+    expect(html).toContain("retryMethod === 'GET'");
+    expect(html).toContain("_appendActionQuery(path, params)");
+  });
+
   it("serializes authenticated extension binding metadata", () => {
     const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1", {
       authorEmail: "owner+qa@example.test",

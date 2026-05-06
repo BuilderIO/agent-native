@@ -20,7 +20,7 @@ import {
   setResponseStatus,
 } from "h3";
 import { asc, eq } from "drizzle-orm";
-import { signShortLivedToken } from "@agent-native/core/server";
+import { getSession, signShortLivedToken } from "@agent-native/core/server";
 import { getDb, schema } from "../../db/index.js";
 import { parseSpaceIds } from "../../lib/recordings.js";
 
@@ -53,7 +53,12 @@ export default defineEventHandler(async (event) => {
     return { error: "Not found" };
   }
 
-  if (rec.visibility !== "public") {
+  const session = await getSession(event).catch(() => null);
+  const viewerIsOwner = Boolean(
+    session?.email && session.email === rec.ownerEmail,
+  );
+
+  if (rec.visibility !== "public" && !viewerIsOwner) {
     setResponseStatus(event, 404);
     return { error: "Not found" };
   }
@@ -68,7 +73,7 @@ export default defineEventHandler(async (event) => {
   }
 
   // Password check
-  if (rec.password) {
+  if (rec.password && !viewerIsOwner) {
     if (!password || password !== rec.password) {
       setResponseStatus(event, 401);
       return { error: "Password required", passwordRequired: true };
@@ -171,6 +176,7 @@ export default defineEventHandler(async (event) => {
       thumbnailUrl: rec.thumbnailUrl,
       animatedThumbnailUrl: rec.animatedThumbnailUrl,
       durationMs: rec.durationMs,
+      editsJson: rec.editsJson,
       videoUrl: resolvedVideoUrl,
       videoFormat: rec.videoFormat,
       width: rec.width,
@@ -232,5 +238,12 @@ export default defineEventHandler(async (event) => {
       color: c.color,
       placement: c.placement,
     })),
+    viewer: session?.email
+      ? {
+          canEdit: viewerIsOwner,
+          isOwner: viewerIsOwner,
+          role: viewerIsOwner ? "owner" : "viewer",
+        }
+      : null,
   };
 });

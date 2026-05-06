@@ -311,13 +311,59 @@ export function buildExtensionHtml(
 	      });
 	    }
 
+	    function _appendActionQuery(path, params) {
+	      var search = new URLSearchParams();
+	      params = params || {};
+	      Object.keys(params).forEach(function(key) {
+	        var value = params[key];
+	        if (value === undefined || value === null) return;
+	        if (Array.isArray(value)) {
+	          value.forEach(function(item) {
+	            if (item !== undefined && item !== null) {
+	              search.append(key, String(item));
+	            }
+	          });
+	          return;
+	        }
+	        search.set(key, String(value));
+	      });
+	      var qs = search.toString();
+	      return qs ? path + '?' + qs : path;
+	    }
+
+	    function _methodHintFromActionResponse(res) {
+	      if (!res || res.status !== 405) return null;
+	      var body = res.body || {};
+	      var message = typeof body === 'string' ? body : body.error;
+	      if (!message) return null;
+	      var match = String(message).match(/Use (GET|POST|PUT|PATCH|DELETE|HEAD)\\.?/i);
+	      return match ? match[1].toUpperCase() : null;
+	    }
+
 	    async function appAction(name, params) {
 	      params = params || {};
-	      var res = await hostRequest('/_agent-native/actions/' + encodeURIComponent(name), {
+	      var path = '/_agent-native/actions/' + encodeURIComponent(name);
+	      var res = await hostRequest(path, {
 	        method: 'POST',
 	        headers: { 'Content-Type': 'application/json' },
 	        body: JSON.stringify(params),
 	      });
+
+	      var retryMethod = _methodHintFromActionResponse(res);
+	      if (!res.ok && retryMethod && retryMethod !== 'POST') {
+	        var retryPath = path;
+	        var retryOptions = {
+	          method: retryMethod,
+	          headers: { 'Content-Type': 'application/json' },
+	        };
+	        if (retryMethod === 'GET' || retryMethod === 'HEAD') {
+	          retryPath = _appendActionQuery(path, params);
+	        } else {
+	          retryOptions.body = JSON.stringify(params);
+	        }
+	        res = await hostRequest(retryPath, retryOptions);
+	      }
+
 	      if (!res.ok) {
 	        var err = res.body || { error: res.statusText };
 	        throw new Error(err.error || 'Action failed: ' + res.status);

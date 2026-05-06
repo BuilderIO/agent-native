@@ -6,6 +6,7 @@ import {
   getBuilderBranchProjectId,
   getRequestContext,
   isIntegrationCallerRequest,
+  resolveBuilderBranchProjectId,
   resolveBuilderCredentials,
   runBuilderAgent,
 } from "@agent-native/core/server";
@@ -596,6 +597,7 @@ export async function listWorkspaceApps(
 
 export async function getAppCreationSettings(): Promise<AppCreationSettings> {
   const envBuilderProjectId = getEnvBuilderProjectId();
+  const resolvedBuilderProjectId = await resolveBuilderBranchProjectId();
   const raw = await readSettingsRecord();
   const savedBuilderProjectId =
     typeof raw?.builderProjectId === "string" && raw.builderProjectId.trim()
@@ -605,7 +607,9 @@ export async function getAppCreationSettings(): Promise<AppCreationSettings> {
   const enableBuilder =
     process.env.ENABLE_BUILDER === "true" || process.env.ENABLE_BUILDER === "1";
   const effectiveBuilderProjectId =
-    builderProjectId || (enableBuilder ? getBuilderBranchProjectId() : null);
+    builderProjectId ||
+    resolvedBuilderProjectId ||
+    (enableBuilder ? getBuilderBranchProjectId() : null);
 
   return {
     builderProjectId: effectiveBuilderProjectId,

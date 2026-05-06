@@ -831,11 +831,10 @@ export function createCoreRoutesPlugin(
     );
 
     // Branch-creation waitlist signup. Used by ConnectBuilderCard when the
-    // deploy hasn't been opted into Builder branch creation (no
-    // ENABLE_BUILDER / BUILDER_BRANCH_PROJECT_ID) — instead of the raw 403
-    // from /builder/run, the card surfaces a "coming soon" CTA that POSTs
-    // here. Recorded as a tracking event so PostHog/Mixpanel/etc. capture
-    // demand without us standing up new storage.
+    // current request has no Builder branch project configured — instead of
+    // the raw 403 from /builder/run, the card surfaces a waitlist CTA that
+    // POSTs here. Recorded as a tracking event so PostHog/Mixpanel/etc.
+    // capture demand without us standing up new storage.
     getH3App(nitroApp).use(
       `${P}/builder/branch-waitlist`,
       defineEventHandler(async (event: H3Event) => {
