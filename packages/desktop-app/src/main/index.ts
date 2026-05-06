@@ -47,33 +47,148 @@ if (IS_DEV) {
 
 let pendingDeepLink: string | null = null;
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
-const pendingOAuthStates = new Map<string, number>();
+
+interface OAuthInjectionTarget {
+  appId?: string | null;
+  origin?: string | null;
+  session?: Electron.Session;
+}
+
+interface PendingOAuthState extends OAuthInjectionTarget {
+  expiresAt: number;
+}
+
+const pendingOAuthStates = new Map<string, PendingOAuthState>();
 
 function prunePendingOAuthStates(now = Date.now()) {
-  for (const [state, expiresAt] of pendingOAuthStates) {
-    if (expiresAt <= now) pendingOAuthStates.delete(state);
+  for (const [state, pending] of pendingOAuthStates) {
+    if (pending.expiresAt <= now) pendingOAuthStates.delete(state);
   }
 }
 
-function rememberOAuthState(url: string) {
+function extractAppFromOAuthState(state: string | null): string | undefined {
+  if (!state) return undefined;
+  try {
+    const dotIdx = state.lastIndexOf(".");
+    if (dotIdx === -1) return undefined;
+    const data = state.slice(0, dotIdx);
+    const parsed = JSON.parse(Buffer.from(data, "base64url").toString());
+    return typeof parsed.app === "string" ? parsed.app : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getCookieNameForApp(id: string | null | undefined): string {
+  const slug = (id ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return slug ? `an_session_${slug}` : "an_session";
+}
+
+function getAppOrigin(appConfig: AppConfig): string | null {
+  const isProdMode = appConfig.mode !== "dev";
+  const rawUrl = isProdMode
+    ? appConfig.url
+    : appConfig.devUrl || `http://localhost:${appConfig.devPort}`;
+  if (!rawUrl) return null;
+  try {
+    return new URL(rawUrl).origin;
+  } catch {
+    return null;
+  }
+}
+
+function loadAppsForAuthContext(): AppConfig[] {
+  try {
+    return AppStore.loadApps();
+  } catch (err) {
+    console.error("[main] failed to load apps for auth context:", err);
+    return [];
+  }
+}
+
+function findAppForSourceUrl(sourceUrl: string | undefined): AppConfig | null {
+  if (!sourceUrl) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(sourceUrl);
+  } catch {
+    return null;
+  }
+
+  const frameAppId = parsed.searchParams.get("app");
+  const apps = loadAppsForAuthContext();
+  if (frameAppId) {
+    const match = apps.find((appConfig) => appConfig.id === frameAppId);
+    if (match) return match;
+  }
+
+  return (
+    apps.find((appConfig) => getAppOrigin(appConfig) === parsed.origin) ?? null
+  );
+}
+
+function getInjectionTargetForAppId(
+  appId: string | null | undefined,
+): OAuthInjectionTarget | null {
+  if (!appId) return null;
+  const appConfig = loadAppsForAuthContext().find((app) => app.id === appId);
+  if (!appConfig) return null;
+  return {
+    appId: appConfig.id,
+    origin: getAppOrigin(appConfig),
+    session: session.fromPartition(`persist:app-${appConfig.id}`),
+  };
+}
+
+function getOAuthInjectionTarget(
+  sourceSession: Electron.Session | undefined,
+  sourceUrl: string | undefined,
+): OAuthInjectionTarget {
+  const appConfig = findAppForSourceUrl(sourceUrl);
+  let origin: string | null = null;
+  if (sourceUrl) {
+    try {
+      origin = new URL(sourceUrl).origin;
+    } catch {
+      origin = null;
+    }
+  }
+  return {
+    appId: appConfig?.id ?? null,
+    origin: appConfig ? getAppOrigin(appConfig) : origin,
+    session: sourceSession,
+  };
+}
+
+function rememberOAuthState(url: string, target?: OAuthInjectionTarget) {
   try {
     const state = new URL(url).searchParams.get("state");
     if (!state) return;
     prunePendingOAuthStates();
-    pendingOAuthStates.set(state, Date.now() + PENDING_OAUTH_STATE_TTL_MS);
+    const existing = pendingOAuthStates.get(state);
+    pendingOAuthStates.set(state, {
+      ...existing,
+      ...target,
+      appId:
+        target?.appId ?? existing?.appId ?? extractAppFromOAuthState(state),
+      expiresAt: Date.now() + PENDING_OAUTH_STATE_TTL_MS,
+    });
   } catch {
     // Malformed URL — ignore
   }
 }
 
-function consumeOAuthState(state: string | null): boolean {
-  if (!state) return false;
+function consumeOAuthState(state: string | null): OAuthInjectionTarget | null {
+  if (!state) return null;
   const now = Date.now();
   prunePendingOAuthStates(now);
-  const expiresAt = pendingOAuthStates.get(state);
-  if (!expiresAt || expiresAt <= now) return false;
+  const pending = pendingOAuthStates.get(state);
+  if (!pending || pending.expiresAt <= now) return null;
   pendingOAuthStates.delete(state);
-  return true;
+  return pending;
 }
 
 async function handleDeepLink(url: string) {
@@ -82,13 +197,21 @@ async function handleDeepLink(url: string) {
     if (parsed.host === "oauth-complete") {
       const token = parsed.searchParams.get("token");
       if (token) {
-        if (!consumeOAuthState(parsed.searchParams.get("state"))) {
+        const state = parsed.searchParams.get("state");
+        const pendingTarget = consumeOAuthState(state);
+        if (!pendingTarget) {
           console.warn(
             "[main] rejected oauth-complete deep link without matching OAuth state",
           );
           return;
         }
-        await injectSessionAndReload(token);
+        const stateTarget = getInjectionTargetForAppId(
+          extractAppFromOAuthState(state),
+        );
+        await injectSessionAndReload(token, {
+          ...stateTarget,
+          ...pendingTarget,
+        });
       } else {
         reloadAllWebviews();
       }
@@ -98,75 +221,36 @@ async function handleDeepLink(url: string) {
   }
 }
 
-async function injectSessionAndReload(token: string) {
-  // Each webview runs in its own persisted partition (persist:app-<id>), so
-  // cookies must be written to every known app partition — not just the
-  // active webviews and not session.defaultSession. Otherwise apps that
-  // haven't been opened yet (e.g. Calendar when only Mail is visible at
-  // login) won't pick up the session cookie.
-  const frameOrigin = `http://localhost:${FRAME_PORT}`;
-  let apps: AppConfig[] = [];
-  try {
-    apps = AppStore.loadApps();
-  } catch (err) {
-    console.error("[main] failed to load apps for session injection:", err);
-  }
-  // Per-app cookie name. The framework derives session cookies from APP_NAME
-  // (e.g. an_session_mail, an_session_calendar) so apps don't share one cookie
-  // slot on localhost — browsers scope cookies by host, not host+port. Mirror
-  // that here so each partition gets the right cookie.
-  const cookieNameForApp = (id: string) => {
-    const slug = id
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "");
-    return slug ? `an_session_${slug}` : "an_session";
-  };
+async function injectSessionAndReload(
+  token: string,
+  target: OAuthInjectionTarget,
+) {
+  // Production apps have separate auth databases. A token minted by Mail does
+  // not resolve in Calendar, so the desktop handoff must only update the app
+  // that initiated OAuth. The app-specific cookie name still matters on
+  // localhost because cookies are scoped by host, not host+port.
   const targets: {
     session: Electron.Session;
     origin: string;
     cookieName: string;
   }[] = [];
-  for (const appConfig of apps) {
-    const sess = session.fromPartition(`persist:app-${appConfig.id}`);
-    // Dev-mode apps load through the frame (localhost:3334); prod-mode apps
-    // load their production URL directly. Set the cookie on whichever origin
-    // the app actually talks to. Dev-mode always gets the frame origin;
-    // prod-mode gets the configured URL if available.
-    const isProdMode = appConfig.mode !== "dev";
-    let origin = frameOrigin;
-    if (isProdMode && appConfig.url) {
-      try {
-        origin = new URL(appConfig.url).origin;
-      } catch (err) {
-        console.error(
-          `[main] invalid production URL for ${appConfig.id} (${appConfig.url}); falling back to frame origin:`,
-          err,
-        );
-      }
+
+  const targetFromAppId = getInjectionTargetForAppId(target.appId);
+  const sess = target.session ?? targetFromAppId?.session;
+  const origin = target.origin ?? targetFromAppId?.origin;
+  if (sess && origin) {
+    const primaryCookieName = getCookieNameForApp(target.appId);
+    targets.push({ session: sess, origin, cookieName: primaryCookieName });
+    // Older deployed apps may still look for the unsuffixed legacy cookie.
+    if (primaryCookieName !== "an_session") {
+      targets.push({ session: sess, origin, cookieName: "an_session" });
     }
-    targets.push({
-      session: sess,
-      origin,
-      cookieName: cookieNameForApp(appConfig.id),
-    });
+  } else {
+    console.warn("[main] OAuth handoff had no resolvable target; reloading");
+    reloadAllWebviews();
+    return;
   }
-  // Also cover any currently-live webview origins not matched above
-  // (e.g. production URLs). For unknown origins we don't know which app they
-  // belong to, so set the legacy cookie name as a fallback.
-  const seen = new Set<string>(
-    targets.map((t) => `${t.origin}|${t.cookieName}`),
-  );
-  for (const wc of webContents.getAllWebContents()) {
-    if (wc.getType() !== "webview") continue;
-    try {
-      const origin = new URL(wc.getURL()).origin;
-      const key = `${origin}|an_session`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      targets.push({ session: wc.session, origin, cookieName: "an_session" });
-    } catch {}
-  }
+
   for (const { session: sess, origin, cookieName } of targets) {
     try {
       await sess.cookies.set({
@@ -184,11 +268,42 @@ async function injectSessionAndReload(token: string) {
       );
     }
   }
-  reloadAllWebviews();
+  reloadWebviewsForTarget({ ...targetFromAppId, ...target });
   const win = BrowserWindow.getAllWindows()[0];
   if (win) {
     if (win.isMinimized()) win.restore();
     win.focus();
+  }
+}
+
+function reloadWebviewsForTarget(target: OAuthInjectionTarget) {
+  const targetSession = target.session;
+  const targetAppId = target.appId;
+  const targetOrigin = target.origin;
+  let reloaded = false;
+
+  for (const wc of webContents.getAllWebContents()) {
+    if (wc.getType() !== "webview") continue;
+    if (targetSession && wc.session === targetSession) {
+      wc.reload();
+      reloaded = true;
+      continue;
+    }
+    try {
+      const url = new URL(wc.getURL());
+      const appId = url.searchParams.get("app");
+      if (
+        (targetAppId && appId === targetAppId) ||
+        (targetOrigin && url.origin === targetOrigin)
+      ) {
+        wc.reload();
+        reloaded = true;
+      }
+    } catch {}
+  }
+
+  if (!reloaded) {
+    console.warn("[main] OAuth handoff target had no live webview to reload");
   }
 }
 
@@ -838,11 +953,12 @@ function shouldRememberOAuthStateFromNavigation(
 function rememberOAuthStateFromNavigation(
   provider: OAuthProvider,
   url: string,
+  target?: OAuthInjectionTarget,
 ) {
   try {
     const parsed = new URL(url);
     if (shouldRememberOAuthStateFromNavigation(provider, parsed)) {
-      rememberOAuthState(url);
+      rememberOAuthState(url, target);
     }
   } catch {
     // Malformed URL — ignore
@@ -853,8 +969,10 @@ function openOAuthWindow(
   url: string,
   sourceSession: Electron.Session | undefined,
   provider: OAuthProvider,
+  sourceUrl?: string,
 ) {
-  rememberOAuthStateFromNavigation(provider, url);
+  const injectionTarget = getOAuthInjectionTarget(sourceSession, sourceUrl);
+  rememberOAuthStateFromNavigation(provider, url, injectionTarget);
   const mainWin = BrowserWindow.getAllWindows()[0];
 
   // Critical: the popup MUST share the source webview's session so the
@@ -899,7 +1017,7 @@ function openOAuthWindow(
   const onNavigate = (_event: Electron.Event, navUrl: string) => {
     try {
       const parsed = new URL(navUrl);
-      rememberOAuthStateFromNavigation(provider, navUrl);
+      rememberOAuthStateFromNavigation(provider, navUrl, injectionTarget);
       // Detect the OAuth callback (works for both /api/google/callback and
       // /_agent-native/google/callback).
       if (parsed.pathname.includes(provider.callbackPathFragment)) {
@@ -956,7 +1074,12 @@ function openOAuthFromWebviewNavigation(
       sourceUrl: sourceContents.getURL(),
     });
     if (!provider) return false;
-    openOAuthWindow(url, sourceContents.session, provider);
+    openOAuthWindow(
+      url,
+      sourceContents.session,
+      provider,
+      sourceContents.getURL(),
+    );
     return true;
   } catch {
     return false;
@@ -997,7 +1120,7 @@ app.on("web-contents-created", (_event, contents) => {
           }
           const provider = matchOAuthProvider(url, { sourceUrl: wc.getURL() });
           if (provider) {
-            openOAuthWindow(url, wc.session, provider);
+            openOAuthWindow(url, wc.session, provider, wc.getURL());
           } else {
             shell.openExternal(url).catch(() => {});
           }
@@ -1022,7 +1145,7 @@ app.on("web-contents-created", (_event, contents) => {
         sourceUrl: contents.getURL(),
       });
       if (provider) {
-        openOAuthWindow(url, contents.session, provider);
+        openOAuthWindow(url, contents.session, provider, contents.getURL());
       } else {
         shell.openExternal(url).catch(() => {});
       }
