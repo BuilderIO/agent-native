@@ -52,6 +52,7 @@ import { loadSchemaPromptBlock } from "./schema-prompt.js";
 import {
   buildAssistantMessage,
   extractThreadMeta,
+  upsertAssistantMessage,
 } from "../agent/thread-data-builder.js";
 import {
   defineEventHandler,
@@ -3174,44 +3175,7 @@ export function createAgentChatPlugin(
             }
             if (!Array.isArray(repo.messages)) repo.messages = [];
 
-            const lastMsg = repo.messages[repo.messages.length - 1];
-            // Check both wrapped ({ message: { role } }) and unwrapped ({ role }) formats
-            const lastRole = lastMsg?.message?.role ?? lastMsg?.role;
-            const lastContent = lastMsg?.message?.content ?? lastMsg?.content;
-            const lastContentIsEmpty = Array.isArray(lastContent)
-              ? lastContent.length === 0
-              : lastContent == null || lastContent === "";
-            if (lastRole === "assistant" && !lastContentIsEmpty) {
-              // Frontend already saved the assistant response — just bump timestamp
-              await updateThreadData(
-                threadId,
-                thread.threadData,
-                thread.title,
-                thread.preview,
-                thread.messageCount,
-              );
-              return;
-            }
-            if (lastRole === "assistant" && lastContentIsEmpty) {
-              // The frontend wrote an empty assistant placeholder before the stream
-              // had any content (common when the user reloads mid-run, and the 5s
-              // periodic save raced with the first text chunk). Replace it with
-              // the server's reconstructed message so the turn isn't lost.
-              repo.messages.pop();
-            }
-
-            // Determine if repo uses wrapped format ({ message, parentId }) or flat format
-            const isWrapped = lastMsg && "message" in lastMsg;
-            if (isWrapped) {
-              const parentId =
-                repo.messages.length > 0
-                  ? (repo.messages[repo.messages.length - 1].message?.id ??
-                    null)
-                  : null;
-              repo.messages.push({ message: assistantMsg, parentId });
-            } else {
-              repo.messages.push(assistantMsg);
-            }
+            repo = upsertAssistantMessage(repo, assistantMsg);
 
             // Store debug metadata so we can inspect what the LLM actually
             // received (system prompt, model, engine) when diagnosing issues.

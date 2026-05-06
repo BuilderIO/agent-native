@@ -14,6 +14,8 @@ interface BuildAssistantMessageOptions {
   suppressInternalContinuation?: boolean;
 }
 
+type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
+
 function isInternalContinuationError(event: {
   error: string;
   errorCode?: string;
@@ -188,6 +190,113 @@ export function buildAssistantMessage(
       : { type: "complete" as const, reason: "stop" as const },
     metadata,
   };
+}
+
+function getStoredMessage(entry: any): any {
+  return entry?.message ?? entry;
+}
+
+function getMessageRunId(message: any): string | undefined {
+  const meta = message?.metadata;
+  const direct = meta?.runId;
+  const custom = meta?.custom?.runId;
+  const errorRun = meta?.custom?.runError?.runId ?? meta?.runError?.runId;
+  if (typeof direct === "string") return direct;
+  if (typeof custom === "string") return custom;
+  if (typeof errorRun === "string") return errorRun;
+  return undefined;
+}
+
+function messageContentIsEmpty(content: unknown): boolean {
+  if (Array.isArray(content)) return content.length === 0;
+  return content == null || content === "";
+}
+
+function messageText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+    .map((part: any) => part.text)
+    .join("");
+}
+
+function isTerminalAssistantStatus(status: unknown): boolean {
+  const type = (status as { type?: unknown } | undefined)?.type;
+  return type === "complete" || type === "incomplete";
+}
+
+function shouldReplaceLastAssistant(
+  lastMessage: any,
+  assistantMsg: AssistantMessage,
+): boolean {
+  const lastContent = lastMessage?.content;
+  if (messageContentIsEmpty(lastContent)) return true;
+
+  const lastRunId = getMessageRunId(lastMessage);
+  const nextRunId = getMessageRunId(assistantMsg);
+  if (lastRunId && nextRunId && lastRunId === nextRunId) return true;
+
+  const lastStatus = lastMessage?.status;
+  if (lastStatus && !isTerminalAssistantStatus(lastStatus)) return true;
+
+  try {
+    if (JSON.stringify(lastContent) === JSON.stringify(assistantMsg.content)) {
+      return true;
+    }
+  } catch {
+    // Fall through to the text-prefix check.
+  }
+
+  const lastText = messageText(lastContent).trim();
+  const nextText = messageText(assistantMsg.content).trim();
+  return Boolean(lastText && nextText && nextText.startsWith(lastText));
+}
+
+/**
+ * Merge the server-reconstructed assistant message into persisted
+ * assistant-ui thread data.
+ *
+ * The browser periodically saves thread data while a run is still streaming.
+ * That can leave the last assistant message non-empty but partial/pending.
+ * Completion must replace that same-run partial message instead of treating
+ * any assistant content as proof that the frontend already saved the final
+ * turn.
+ */
+export function upsertAssistantMessage(
+  repo: any,
+  assistantMsg: AssistantMessage,
+): any {
+  const nextRepo = repo && typeof repo === "object" ? repo : {};
+  if (!Array.isArray(nextRepo.messages)) nextRepo.messages = [];
+
+  const lastIndex = nextRepo.messages.length - 1;
+  const lastEntry = lastIndex >= 0 ? nextRepo.messages[lastIndex] : undefined;
+  const lastMsg = getStoredMessage(lastEntry);
+  const lastRole = lastMsg?.role;
+  const isWrapped = Boolean(lastEntry && "message" in lastEntry);
+
+  if (
+    lastRole === "assistant" &&
+    shouldReplaceLastAssistant(lastMsg, assistantMsg)
+  ) {
+    nextRepo.messages[lastIndex] = isWrapped
+      ? { ...lastEntry, message: assistantMsg }
+      : assistantMsg;
+    return nextRepo;
+  }
+
+  if (isWrapped) {
+    const parentId =
+      nextRepo.messages.length > 0
+        ? (getStoredMessage(nextRepo.messages[nextRepo.messages.length - 1])
+            ?.id ?? null)
+        : null;
+    nextRepo.messages.push({ message: assistantMsg, parentId });
+  } else {
+    nextRepo.messages.push(assistantMsg);
+  }
+  return nextRepo;
 }
 
 /**
