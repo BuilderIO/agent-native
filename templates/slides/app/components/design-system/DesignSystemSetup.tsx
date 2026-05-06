@@ -311,6 +311,10 @@ export function DesignSystemSetup({
 
     openAgentSidebar();
     sendToAgentChat({ message: parts.join("\n"), submit: true });
+    toast({
+      title: "Design system generation started",
+      description: "You can keep working while the agent processes the sources.",
+    });
     onComplete();
   }, [
     editingId,
