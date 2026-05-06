@@ -109,7 +109,7 @@ function HomeChatPanel() {
 
   return (
     <section className="px-2 py-6 sm:py-10">
-      <div className="mx-auto w-full max-w-2xl space-y-5">
+      <div className="mx-auto w-full max-w-2xl space-y-8">
         <h1 className="text-center text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
           What should we do next?
         </h1>
