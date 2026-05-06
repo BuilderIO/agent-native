@@ -13,6 +13,7 @@ interface NavigationState {
   date?: string;
   eventId?: string;
   bookingLinkId?: string;
+  extensionId?: string;
 }
 
 export function useNavigationState() {
@@ -39,6 +40,10 @@ export function useNavigationState() {
       state.view = "bookings";
     } else if (path.startsWith("/settings")) {
       state.view = "settings";
+    } else if (path.startsWith("/extensions")) {
+      state.view = "extensions";
+      const match = path.match(/\/extensions\/([^/?#]+)/);
+      if (match?.[1] && match[1] !== "new") state.extensionId = match[1];
     }
 
     // Include the current calendar view mode
@@ -101,6 +106,10 @@ export function useNavigationState() {
       path = "/bookings";
     } else if (cmd.view === "settings") {
       path = "/settings";
+    } else if (cmd.view === "extensions") {
+      path = cmd.extensionId
+        ? `/extensions/${encodeURIComponent(cmd.extensionId)}`
+        : "/extensions";
     } else {
       path = "/";
     }

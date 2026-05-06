@@ -223,7 +223,11 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
 
         if (!result) result = await getExtension(id);
         if (!result) return `Error: extension not found: ${id}`;
-        return { ok: true, extension: result };
+        const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
+        return {
+          ok: true,
+          extension: await summarizeExtension(result, hiddenIds, false),
+        };
       },
     },
 

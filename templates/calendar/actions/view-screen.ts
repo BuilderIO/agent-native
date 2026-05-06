@@ -99,6 +99,9 @@ export default defineAction({
       } catch {
         screen.zoom = { connected: false, configured: false, accounts: [] };
       }
+    } else if (nav?.view === "extensions") {
+      screen.page = "extensions";
+      if (nav?.extensionId) screen.extensionId = nav.extensionId;
     }
 
     if (Object.keys(screen).length === 0) {

@@ -257,6 +257,40 @@ interface TiptapComposerProps {
   interceptBuildRequestsForBuilder?: boolean;
 }
 
+export function createTiptapComposerExtensions(
+  getPlaceholder: () => string | undefined,
+) {
+  return [
+    StarterKit.configure({
+      heading: false,
+      horizontalRule: false,
+      bulletList: false,
+      orderedList: false,
+      listItem: false,
+      listKeymap: false,
+      blockquote: false,
+      codeBlock: false,
+      strike: false,
+      italic: false,
+      bold: false,
+      code: false,
+      dropcursor: false,
+      gapcursor: false,
+      link: false,
+      trailingNode: false,
+      underline: false,
+    }),
+    Placeholder.configure({
+      placeholder: getPlaceholder,
+      emptyEditorClass: "is-editor-empty",
+      showOnlyCurrent: false,
+    }),
+    FileReference,
+    SkillReference,
+    MentionReference,
+  ];
+}
+
 function ModeSelector({
   mode,
   onChange,
@@ -761,29 +795,7 @@ export function TiptapComposer({
   }, [placeholder, composerMode]);
 
   const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: false,
-        horizontalRule: false,
-        bulletList: false,
-        orderedList: false,
-        listItem: false,
-        blockquote: false,
-        codeBlock: false,
-        strike: false,
-        italic: false,
-        bold: false,
-        code: false,
-      }),
-      Placeholder.configure({
-        placeholder: () => placeholderRef.current,
-        emptyEditorClass: "is-editor-empty",
-        showOnlyCurrent: false,
-      }),
-      FileReference,
-      SkillReference,
-      MentionReference,
-    ],
+    extensions: createTiptapComposerExtensions(() => placeholderRef.current),
     editable: !disabled,
     onCreate: ({ editor: ed }) => {
       // Restore draft on mount

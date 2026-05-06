@@ -23,23 +23,39 @@ describe("buildGmailEmailSearchQuery", () => {
     );
   });
 
-  it("keeps label tabs independent from inbox/archive views", () => {
+  it("scopes inbox label tabs to inbox results", () => {
     expect(
       buildGmailEmailSearchQuery({
         view: "inbox",
         label: "customer success",
         q: "renewal",
       }),
-    ).toBe("renewal label:customer-success");
+    ).toBe("in:inbox -in:sent label:customer-success renewal");
+  });
+
+  it("keeps all-mail label searches unscoped", () => {
+    expect(
+      buildGmailEmailSearchQuery({
+        view: "all",
+        label: "customer success",
+        q: "renewal",
+      }),
+    ).toBe("label:customer-success renewal");
   });
 
   it("translates app category labels to Gmail search operators", () => {
     expect(
       buildGmailEmailSearchQuery({ view: "inbox", label: "updates" }),
-    ).toBe("category:updates");
+    ).toBe("in:inbox -in:sent category:updates");
     expect(
       buildGmailEmailSearchQuery({ view: "inbox", label: "personal" }),
-    ).toBe("category:primary");
+    ).toBe("in:inbox -in:sent category:primary");
+  });
+
+  it("keeps note-to-self scoped to inbox without dropping sent-to-self mail", () => {
+    expect(
+      buildGmailEmailSearchQuery({ view: "inbox", label: "note-to-self" }),
+    ).toBe("in:inbox from:me");
   });
 });
 

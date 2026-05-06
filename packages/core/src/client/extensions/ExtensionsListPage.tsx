@@ -81,7 +81,7 @@ export function ExtensionsListPage() {
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: { view: "extensions" } }),
+      body: JSON.stringify({ view: "extensions" }),
     }).catch(() => {});
   }, []);
 

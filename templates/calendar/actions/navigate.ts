@@ -10,7 +10,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "View to navigate to (calendar, availability, booking-links, bookings, settings)",
+        "View to navigate to (calendar, availability, booking-links, bookings, settings, extensions)",
       ),
     calendarViewMode: z
       .enum(["day", "week", "month"])
@@ -23,17 +23,28 @@ export default defineAction({
       .optional()
       .describe("Date to jump to on the calendar (YYYY-MM-DD)"),
     eventId: z.string().optional().describe("Event ID to open"),
+    extensionId: z.string().optional().describe("Extension ID to open"),
   }),
   http: false,
   run: async (args) => {
-    if (!args.view && !args.date && !args.eventId && !args.calendarViewMode) {
-      return "Error: At least view, date, calendarViewMode, or eventId is required.";
+    if (
+      !args.view &&
+      !args.date &&
+      !args.eventId &&
+      !args.calendarViewMode &&
+      !args.extensionId
+    ) {
+      return "Error: At least view, date, calendarViewMode, eventId, or extensionId is required.";
     }
     const nav: Record<string, string> = {};
     if (args.view) nav.view = args.view;
     if (args.calendarViewMode) nav.calendarViewMode = args.calendarViewMode;
     if (args.date) nav.date = args.date;
     if (args.eventId) nav.eventId = args.eventId;
+    if (args.extensionId) {
+      nav.view = args.view ?? "extensions";
+      nav.extensionId = args.extensionId;
+    }
     await writeAppState("navigate", nav);
 
     const parts: string[] = [];
@@ -41,6 +52,7 @@ export default defineAction({
     if (args.calendarViewMode) parts.push(`mode:${args.calendarViewMode}`);
     if (args.date) parts.push(`date:${args.date}`);
     if (args.eventId) parts.push(`event:${args.eventId}`);
+    if (args.extensionId) parts.push(`extension:${args.extensionId}`);
     return `Navigating to ${parts.join(" ")}`;
   },
 });
