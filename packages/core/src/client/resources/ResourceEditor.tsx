@@ -851,6 +851,7 @@ function VisualMarkdownEditor({
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
         codeBlock: {},
+        link: false,
         dropcursor: { color: "hsl(var(--ring))", width: 2 },
       }),
       Placeholder.configure({

@@ -172,7 +172,10 @@ export function SlideInlineEditor({
   const editor = useEditor({
     extensions: [
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      StarterKit.configure(ydoc ? ({ history: false } as any) : {}),
+      StarterKit.configure({
+        link: false,
+        ...(ydoc ? ({ history: false } as any) : {}),
+      }),
       Placeholder.configure({
         placeholder: "Start typing… or press / for commands",
       }),
