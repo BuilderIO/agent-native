@@ -2,8 +2,10 @@ import {
   IconAlertCircle,
   IconArchive,
   IconClock,
+  IconFolder,
   IconInbox,
   IconMail,
+  IconMailOpened,
   IconSend,
   IconStar,
   IconTrash,
@@ -23,6 +25,8 @@ import {
   useUnarchiveEmail,
   useTrashEmail,
   useUntrashEmail,
+  useLabels,
+  useMoveEmail,
   unsuppressThread,
 } from "@/hooks/use-emails";
 import {
@@ -34,6 +38,12 @@ import { ensureThread, warmThreads } from "@/lib/thread-cache";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { Spinner } from "@/components/ui/spinner";
 import type { EmailMessage } from "@shared/types";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 type EmailsPage = { emails: EmailMessage[]; nextPageToken?: string };
 type InfiniteEmails = InfiniteData<EmailsPage, string | undefined>;
@@ -358,9 +368,18 @@ export function EmailList({
   const unarchiveEmail = useUnarchiveEmail();
   const trashEmail = useTrashEmail();
   const untrashEmail = useUntrashEmail();
+  const { data: labels = [] } = useLabels();
+  const moveEmail = useMoveEmail();
   const cancelScheduledJob = useDeleteScheduledJob();
   const sendScheduledJobNow = useSendScheduledJobNow();
   const queryClient = useQueryClient();
+  const movableLabels = useMemo(
+    () =>
+      labels.filter(
+        (label) => label.type === "user" && label.id !== labelParam,
+      ),
+    [labels, labelParam],
+  );
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -683,25 +702,31 @@ export function EmailList({
     const keys = getActionThreadKeys();
     if (keys.length === 0) return;
     for (const t of resolveTargets(keys)) {
-      markRead.mutate({
-        id: t.latestMessage.id,
-        isRead: !t.latestMessage.isRead,
-        accountEmail: t.latestMessage.accountEmail,
-      });
+      if (t.hasUnread) {
+        markThreadRead.mutate(t.latestMessage.threadId || t.latestMessage.id);
+      } else {
+        markRead.mutate({
+          id: t.latestMessage.id,
+          isRead: false,
+          accountEmail: t.latestMessage.accountEmail,
+        });
+      }
     }
     setSelectedIds(new Set());
-  }, [markRead, getActionThreadKeys, resolveTargets, setSelectedIds]);
+  }, [
+    markRead,
+    markThreadRead,
+    getActionThreadKeys,
+    resolveTargets,
+    setSelectedIds,
+  ]);
 
   const markFocusedRead = useCallback(() => {
     for (const t of resolveTargets(getActionThreadKeys())) {
-      markRead.mutate({
-        id: t.latestMessage.id,
-        isRead: true,
-        accountEmail: t.latestMessage.accountEmail,
-      });
+      markThreadRead.mutate(t.latestMessage.threadId || t.latestMessage.id);
     }
     setSelectedIds(new Set());
-  }, [markRead, getActionThreadKeys, resolveTargets, setSelectedIds]);
+  }, [markThreadRead, getActionThreadKeys, resolveTargets, setSelectedIds]);
 
   const markFocusedUnread = useCallback(() => {
     for (const t of resolveTargets(getActionThreadKeys())) {
@@ -713,6 +738,34 @@ export function EmailList({
     }
     setSelectedIds(new Set());
   }, [markRead, getActionThreadKeys, resolveTargets, setSelectedIds]);
+
+  const moveFocusedToLabel = useCallback(
+    (labelId: string, labelName: string) => {
+      const keys = getActionThreadKeys();
+      if (keys.length === 0) return;
+      const targets = resolveTargets(keys);
+      for (const t of targets) {
+        moveEmail.mutate({
+          id: t.latestMessage.id,
+          label: labelId,
+          removeLabel: labelParam || undefined,
+        });
+      }
+      setSelectedIds(new Set());
+      toast(
+        targets.length > 1
+          ? `Moved ${targets.length} conversations to ${labelName}.`
+          : `Moved to ${labelName}.`,
+      );
+    },
+    [
+      getActionThreadKeys,
+      resolveTargets,
+      moveEmail,
+      labelParam,
+      setSelectedIds,
+    ],
+  );
 
   const starFocused = useCallback(() => {
     const keys = getActionThreadKeys();
@@ -870,6 +923,23 @@ export function EmailList({
     e.stopPropagation();
     const email = thread.latestMessage;
     toggleStar.mutate({ id: email.id, isStarred: !email.isStarred });
+  };
+
+  const handleToggleReadThread = (
+    e: React.MouseEvent,
+    thread: ThreadSummary,
+  ) => {
+    e.stopPropagation();
+    const email = thread.latestMessage;
+    if (thread.hasUnread) {
+      markThreadRead.mutate(email.threadId || email.id);
+    } else {
+      markRead.mutate({
+        id: email.id,
+        isRead: false,
+        accountEmail: email.accountEmail,
+      });
+    }
   };
 
   const handleToggleMultiSelect = (
@@ -1142,6 +1212,46 @@ export function EmailList({
             </button>
             <button
               type="button"
+              onClick={markFocusedRead}
+              className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <IconMailOpened className="h-3.5 w-3.5" />
+              Mark read
+            </button>
+            <button
+              type="button"
+              onClick={markFocusedUnread}
+              className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <IconMail className="h-3.5 w-3.5" />
+              Mark unread
+            </button>
+            {movableLabels.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    <IconFolder className="h-3.5 w-3.5" />
+                    Move to
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="max-h-72 w-56">
+                  {movableLabels.map((label) => (
+                    <DropdownMenuItem
+                      key={label.id}
+                      onClick={() => moveFocusedToLabel(label.id, label.name)}
+                      className="text-xs"
+                    >
+                      {label.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            <button
+              type="button"
               onClick={trashFocused}
               className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
             >
@@ -1165,6 +1275,7 @@ export function EmailList({
             onSelect={() => handleSelect(thread)}
             onToggleMultiSelect={(e) => handleToggleMultiSelect(e, thread)}
             onStar={(e) => handleStar(e, thread)}
+            onToggleRead={(e) => handleToggleReadThread(e, thread)}
             onArchive={
               view !== "archive" &&
               view !== "trash" &&
