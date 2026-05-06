@@ -55,15 +55,15 @@ console.log(`  ${authGrants[0].n} table-level grants remaining for authenticated
 
 console.log("\n=== Re-audit: default privileges for future tables ===");
 const defaults = await sql`
-  SELECT defacltype, pg_get_userbyid(defaclrole) AS owner_role,
+  SELECT defaclobjtype, pg_get_userbyid(defaclrole) AS owner_role,
          array_to_string(defaclacl, '; ') AS acl
   FROM pg_default_acl da
   JOIN pg_namespace ns ON ns.oid = da.defaclnamespace
   WHERE ns.nspname = 'public'
-  ORDER BY defacltype;
+  ORDER BY defaclobjtype;
 `;
 for (const d of defaults) {
-  const t = { r: "tables", S: "sequences", f: "functions" }[d.defacltype] ?? d.defacltype;
+  const t = { r: "tables", S: "sequences", f: "functions" }[d.defaclobjtype] ?? d.defaclobjtype;
   console.log(`  ${t.padEnd(11)} owner=${d.owner_role}  acl=${d.acl || "(no anon/authenticated grants)"}`);
 }
 

@@ -70,16 +70,19 @@ export function useConnectZoom() {
       const redirectUri = `${getCallbackOrigin()}${agentNativePath(
         "/_agent-native/zoom/callback",
       )}`;
+      const authPath = agentNativePath(
+        `/_agent-native/zoom/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&redirect=1`,
+      );
       const popup = window.open(
-        agentNativePath(
-          `/_agent-native/zoom/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&redirect=1`,
-        ),
+        authPath,
         "_blank",
         "noopener,noreferrer",
       );
       if (!popup) {
-        throw new Error("Your browser blocked the Zoom connection popup.");
+        window.location.assign(authPath);
+        return { opened: "same-tab" as const };
       }
+      return { opened: "popup" as const };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["zoom-status"] });
