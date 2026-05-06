@@ -411,7 +411,7 @@ export interface ClientConfigOptions {
   /** Additional fs.deny patterns */
   fsDeny?: string[];
   /** Additional Vite optimizeDeps configuration */
-  optimizeDeps?: { include?: string[]; exclude?: string[] };
+  optimizeDeps?: NonNullable<UserConfig["optimizeDeps"]>;
   /**
    * Whether to auto-inject the Tailwind v4 Vite plugin (`@tailwindcss/vite`).
    * Defaults to true — set to `false` if a template wants to manage Tailwind
@@ -464,9 +464,10 @@ export interface ClientConfigOptions {
  * synchronously, so the listener is registered before ANY module fetch
  * begins.
  *
- * Catches two failure modes (both window-level, no HMR needed):
+ * Catches three failure modes (all before React needs to mount):
  *   1. <script type="module"> / <link> 504 — window "error" event, capture phase
  *   2. Dynamic import 504 — "unhandledrejection" with "dynamically imported module"
+ *   3. Child module 504 — resource timing when browser exposes the HTTP status
  */
 function autoReloadOnOptimizeDep(): Plugin {
   return {
@@ -560,6 +561,19 @@ function autoReloadOnOptimizeDep(): Plugin {
     reloadTimer = setTimeout(function() { window.location.reload(); }, 300);
   }
 
+  function looksLikeViteFailureMessage(message) {
+    if (!message) return false;
+    return message.indexOf("Failed to fetch dynamically imported module") !== -1
+        || message.indexOf("error loading dynamically imported module") !== -1
+        || message.indexOf("Importing a module script failed") !== -1
+        || message.indexOf("Outdated Optimize Dep") !== -1
+        || message.indexOf("Optimize Deps Processing Error") !== -1
+        || (message.indexOf("504") !== -1 && (
+          message.indexOf(".vite/deps") !== -1 ||
+          message.indexOf("/node_modules/.vite/deps/") !== -1
+        ));
+  }
+
   function looksLikeViteDep(url) {
     if (!url) return false;
     // Only treat same-origin URLs as Vite deps — don't reload the page
@@ -580,7 +594,13 @@ function autoReloadOnOptimizeDep(): Plugin {
   //    so we use capture phase to catch resource load errors.
   window.addEventListener("error", function(e) {
     var t = e.target;
-    if (!t || t === window) return;
+    if (!t || t === window) {
+      var message = String(e.message || "");
+      if (looksLikeViteFailureMessage(message)) {
+        scheduleReload("window error");
+      }
+      return;
+    }
     var tag = t.tagName;
     if (tag !== "SCRIPT" && tag !== "LINK") return;
     var url = t.src || t.href || "";
@@ -590,23 +610,110 @@ function autoReloadOnOptimizeDep(): Plugin {
     }
   }, true);
 
+  // Vite's documented hook for failed dynamic-import preloads. This mostly
+  // targets production chunk skew, but it also fires for some dev optimizer
+  // races, so wire it into the same guarded reload path.
+  window.addEventListener("vite:preloadError", function(e) {
+    var payload = e && e.payload;
+    var msg = String((payload && (payload.message || payload)) || "");
+    if (!msg || looksLikeViteFailureMessage(msg)) {
+      if (e.preventDefault) e.preventDefault();
+      scheduleReload("preload error");
+    }
+  });
+
   // 2) Dynamic import failures (React Router code splitting, lazy components)
   window.addEventListener("unhandledrejection", function(e) {
     var msg = String((e.reason && (e.reason.message || e.reason)) || "");
-    if (
-      msg.indexOf("Failed to fetch dynamically imported module") !== -1 ||
-      msg.indexOf("error loading dynamically imported module") !== -1 ||
-      msg.indexOf("Importing a module script failed") !== -1 ||
-      msg.indexOf("Outdated Optimize Dep") !== -1 ||
-      (msg.indexOf("504") !== -1 && msg.indexOf(".vite/deps") !== -1)
-    ) {
+    if (looksLikeViteFailureMessage(msg)) {
       scheduleReload("dynamic import");
     }
   });
+
+  // Static module-graph fetch failures for child imports don't always surface
+  // as element errors or rejections. Chrome exposes the HTTP status via
+  // Resource Timing; when available, use it as a final safety net.
+  var seenResources = {};
+  function checkResourceEntry(entry) {
+    var url = entry && entry.name;
+    if (!url || seenResources[url]) return;
+    seenResources[url] = true;
+    if (!looksLikeViteDep(url)) return;
+    if (entry.responseStatus === 504) {
+      var name = url.split("/").pop();
+      scheduleReload("resource 504: " + name);
+    }
+  }
+  function checkExistingResources() {
+    try {
+      var entries = performance.getEntriesByType("resource") || [];
+      for (var i = 0; i < entries.length; i++) checkResourceEntry(entries[i]);
+    } catch (e) {}
+  }
+  if (window.PerformanceObserver) {
+    try {
+      var observer = new PerformanceObserver(function(list) {
+        var entries = list.getEntries();
+        for (var i = 0; i < entries.length; i++) checkResourceEntry(entries[i]);
+      });
+      observer.observe({ type: "resource", buffered: true });
+    } catch (e) {
+      setTimeout(checkExistingResources, 0);
+    }
+  } else {
+    setTimeout(checkExistingResources, 0);
+  }
 })();`,
           injectTo: "head-prepend",
         },
       ];
+    },
+  };
+}
+
+/**
+ * Vite handles outdated optimized-dep requests inside its own transform
+ * middleware and ends the HTTP response with `504 Outdated Optimize Dep`.
+ * Browser module loaders do not consistently surface those child-module
+ * failures to userland JavaScript, so also nudge the Vite HMR client from the
+ * server side. This turns the confusing blank-screen state into the same
+ * full-page reload Vite would have requested once optimization settled.
+ */
+function fullReloadOnOptimizeDep504(): Plugin {
+  return {
+    name: "agent-native-full-reload-optimize-dep-504",
+    apply: "serve",
+    configureServer(server) {
+      let lastReloadAt = 0;
+      server.middlewares.use((req, res, next) => {
+        const originalEnd = res.end;
+        (res as unknown as { end: (...args: unknown[]) => unknown }).end = (
+          ...endArgs: unknown[]
+        ) => {
+          const statusMessage = String(res.statusMessage || "");
+          if (
+            res.statusCode === 504 &&
+            statusMessage === "Outdated Optimize Dep"
+          ) {
+            const now = Date.now();
+            if (now - lastReloadAt > 500) {
+              lastReloadAt = now;
+              server.ws.send({ type: "full-reload" });
+              server.config.logger.info(
+                `[agent-native] Vite optimized deps changed while loading ${
+                  req.url ?? "a module"
+                }; reloading the page.`,
+                { timestamp: true },
+              );
+            }
+          }
+          return (originalEnd as (...args: unknown[]) => unknown).apply(
+            res,
+            endArgs,
+          );
+        };
+        next();
+      });
     },
   };
 }
@@ -1067,6 +1174,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       actionTypesPlugin(),
       agentsBundlePlugin(),
       autoReloadOnOptimizeDep(),
+      fullReloadOnOptimizeDep504(),
       baseRedirectGuard(),
       portExposer(),
       silenceConnectionResets(),
