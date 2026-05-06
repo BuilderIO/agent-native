@@ -121,8 +121,7 @@ export const templates = [
     name: "Images",
     slug: "images",
     replaces: "Replaces or augments Midjourney, DALL-E, Adobe Firefly",
-    cliCommand:
-      "npx @agent-native/core create my-images-app --template images",
+    cliCommand: "npx @agent-native/core create my-images-app --template images",
     demoUrl: "https://images.agent-native.com",
     description:
       "Brand-consistent AI image generation. Curate libraries of reference images, palette, and brand assets; the agent grounds every generation in your style. Slides, design, and other apps call it via A2A to fill in real artwork.",

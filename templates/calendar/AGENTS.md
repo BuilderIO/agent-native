@@ -66,6 +66,7 @@ Ephemeral UI state is stored in the SQL `application_state` table. The UI syncs 
 | `navigation`     | Current view, date, selected event | UI -> Agent (read-only)    |
 | `navigate`       | Navigate command (one-shot)        | Agent -> UI (auto-deleted) |
 | `refresh-signal` | Trigger UI to refetch data         | Agent -> UI                |
+| `calendar-view-preferences` | Local visual display preferences (hide weekends, color mode, single color) | UI <-> Agent |
 
 ### Navigation state (read what the user sees)
 
@@ -130,6 +131,17 @@ cd templates/calendar && pnpm action <name> [args]
 | `rsvp-event`           | `--id`, `--status accepted\|declined\|tentative`, optional `--scope single\|all\|thisAndFollowing`, `--accountEmail`                             | RSVP to a meeting invitation                                        |
 | `delete-event`         | `--id`, optional `--scope single\|all\|thisAndFollowing`, `--removeOnly`, `--accountEmail`                                                       | Delete/remove an event                                              |
 | `sync-google-calendar` | `--from`, `--to`                                                                                                                                 | Pull Google Calendar events                                         |
+| `update-calendar-visual-preferences` | `--colorMode multi\|single`, `--singleColor "#5B9BD5"`, `--hideWeekends true\|false`                                                           | Update local app display preferences without modifying Google Calendar |
+
+### Local UI Visual Preferences
+
+The app can color-code meetings locally without changing Google Calendar. Use `update-calendar-visual-preferences` for UI-only requests such as:
+
+- "Color meetings by type / internal vs external / 1:1 vs group"
+- "Make all my Google events blue"
+- "Hide weekends"
+
+Do **not** try to pass `colorId` or color fields to `update-event` for these requests. Google Calendar API limits apply to event mutations, but local app-layer visual changes are supported by `calendar-view-preferences` and `app/lib/event-colors.ts`.
 
 ### Availability & Booking
 

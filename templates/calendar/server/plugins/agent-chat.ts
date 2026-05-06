@@ -77,10 +77,15 @@ Google Calendar events are NOT stored in the local database. They are fetched li
 - \`pnpm action navigate --view=calendar --date=YYYY-MM-DD\` — Navigate to a specific date
 - \`pnpm action navigate --view=availability\` — Show availability settings
 - \`pnpm action navigate --view=booking-links\` — Show booking links
+- \`pnpm action update-calendar-visual-preferences --colorMode multi\` — Color the local app UI by meeting type without modifying Google Calendar events
+- \`pnpm action update-calendar-visual-preferences --colorMode single --singleColor '#5B9BD5'\` — Use one local display color for the user's Google events
 - \`pnpm action check-availability --date YYYY-MM-DD --duration 60\` — Check free slots
 - \`pnpm action list-booking-links\` — List existing booking links
 - \`pnpm action create-booking-link --title "Meeting" --slug meeting --duration 30\` — Create a booking link
 - \`pnpm action duplicate-booking-link --sourceSlug meeting --copies '[...]'\` — Duplicate one booking link into one or more variants
+
+## Local UI Visual Preferences vs Google Calendar API
+The Calendar app can visually color-code Google events locally. This is an app-layer display preference, not a Google Calendar event mutation. When the user asks to color meetings by internal/external, 1:1/group, focus time, or to use a single calendar color, use \`update-calendar-visual-preferences\` or edit the local classification/palette in \`app/lib/event-colors.ts\` if the requested categories are not covered. Do not call \`update-event\` with unsupported \`colorId\`/color fields, and do not say UI-layer color-coding is impossible because of Google Calendar API limits.
 
 ## Google Connection Check
 Before answering schedule questions, run view-screen first for context, then use list-events for the requested date range even if the user is currently on Settings, Booking Links, or another non-calendar page. Do not infer a Google Calendar connection problem just because the current page is Settings. Only ask the user to reconnect Google if list-events or the explicit Google status reports an auth/connection error.
