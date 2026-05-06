@@ -840,11 +840,12 @@ function AgentPanelInner({
                           </button>
                         </IconTooltip>
                         {availableClis.length > 0 && (
-                          <div className="relative">
-                            <IconTooltip content={`CLI: ${selectedLabel}`}>
+                          <DropdownMenu
+                            open={cliPickerOpen}
+                            onOpenChange={setCliPickerOpen}
+                          >
+                            <DropdownMenuTrigger asChild>
                               <button
-                                ref={cliPickerBtnRef}
-                                onClick={() => setCliPickerOpen(!cliPickerOpen)}
                                 aria-label={`Select CLI, currently ${selectedLabel}`}
                                 className={cn(
                                   "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
@@ -853,62 +854,32 @@ function AgentPanelInner({
                               >
                                 <IconSettings size={14} />
                               </button>
-                            </IconTooltip>
-                            {cliPickerOpen &&
-                              ReactDOM.createPortal(
-                                <>
-                                  <div
-                                    className="fixed inset-0 z-[9980]"
-                                    onClick={() => setCliPickerOpen(false)}
-                                  />
-                                  <div
-                                    className="fixed z-[9990] w-48 rounded-md border border-border bg-popover py-1 shadow-lg"
-                                    style={(() => {
-                                      const r =
-                                        cliPickerBtnRef.current?.getBoundingClientRect();
-                                      if (!r) return { top: 0, right: 0 };
-                                      return {
-                                        top: r.bottom + 4,
-                                        right: window.innerWidth - r.right,
-                                      };
-                                    })()}
-                                  >
-                                    {availableClis.map((cli) => (
-                                      <button
-                                        key={cli.command}
-                                        className={cn(
-                                          "flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent",
-                                          cli.command === selectedCli
-                                            ? "text-foreground font-medium"
-                                            : "text-muted-foreground",
-                                        )}
-                                        onClick={() => {
-                                          selectCli(cli.command);
-                                          setCliPickerOpen(false);
-                                        }}
-                                      >
-                                        {cli.command === selectedCli && (
-                                          <IconCheck
-                                            size={12}
-                                            className="shrink-0"
-                                          />
-                                        )}
-                                        <span
-                                          className={
-                                            cli.command !== selectedCli
-                                              ? "ml-5"
-                                              : ""
-                                          }
-                                        >
-                                          {cli.label}
-                                        </span>
-                                      </button>
-                                    ))}
-                                  </div>
-                                </>,
-                                document.body,
-                              )}
-                          </div>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                              align="end"
+                              sideOffset={4}
+                              className="w-48"
+                            >
+                              {availableClis.map((cli) => (
+                                <DropdownMenuItem
+                                  key={cli.command}
+                                  onSelect={() => selectCli(cli.command)}
+                                  className={cn(
+                                    cli.command === selectedCli
+                                      ? "font-medium"
+                                      : "text-muted-foreground",
+                                  )}
+                                >
+                                  {cli.command === selectedCli ? (
+                                    <IconCheck size={12} className="shrink-0" />
+                                  ) : (
+                                    <span className="w-3" />
+                                  )}
+                                  {cli.label}
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         )}
                         <DropdownMenu
                           open={tabMenuOpen === "__cli_global"}
@@ -954,8 +925,6 @@ function AgentPanelInner({
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                          )}
-                        </div>
                       </>
                     )}
                   </div>
