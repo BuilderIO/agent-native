@@ -203,6 +203,8 @@ const COST_TABLE: Array<[RegExp, number, RegExp?]> = [
   [/\/gmail\/v1\/users\/[^/]+\/history/, 2, /^GET$/i],
   // Gmail — labels (list + create share the same endpoint; same cost)
   [/\/gmail\/v1\/users\/[^/]+\/labels(?:\/|$|\?)/, 5],
+  // Gmail — settings filters
+  [/\/gmail\/v1\/users\/[^/]+\/settings\/filters(?:\/|$|\?)/, 5],
   // Gmail — profile
   [/\/gmail\/v1\/users\/[^/]+\/profile/, 1, /^GET$/i],
   // Gmail — single thread get (before list pattern so it wins)
@@ -488,6 +490,68 @@ export function gmailCreateLabel(
       messageListVisibility: opts?.messageListVisibility ?? "show",
     }),
   });
+}
+
+export type GmailFilterCriteria = {
+  from?: string;
+  to?: string;
+  subject?: string;
+  query?: string;
+  negatedQuery?: string;
+  hasAttachment?: boolean;
+  excludeChats?: boolean;
+  size?: number;
+  sizeComparison?: "smaller" | "larger" | "unspecified";
+};
+
+export type GmailFilterAction = {
+  addLabelIds?: string[];
+  removeLabelIds?: string[];
+  forward?: string;
+};
+
+export type GmailFilter = {
+  id?: string;
+  criteria?: GmailFilterCriteria;
+  action?: GmailFilterAction;
+};
+
+export function gmailListFilters(
+  accessToken: string,
+): Promise<{ filter?: GmailFilter[] }> {
+  return googleFetch(`${GMAIL_BASE}/settings/filters`, accessToken);
+}
+
+export function gmailGetFilter(
+  accessToken: string,
+  id: string,
+): Promise<GmailFilter> {
+  return googleFetch(
+    `${GMAIL_BASE}/settings/filters/${encodeURIComponent(id)}`,
+    accessToken,
+  );
+}
+
+export function gmailCreateFilter(
+  accessToken: string,
+  filter: Pick<GmailFilter, "criteria" | "action">,
+): Promise<GmailFilter> {
+  return googleFetch(`${GMAIL_BASE}/settings/filters`, accessToken, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(filter),
+  });
+}
+
+export function gmailDeleteFilter(
+  accessToken: string,
+  id: string,
+): Promise<null> {
+  return googleFetch(
+    `${GMAIL_BASE}/settings/filters/${encodeURIComponent(id)}`,
+    accessToken,
+    { method: "DELETE" },
+  );
 }
 
 export function gmailListHistory(
