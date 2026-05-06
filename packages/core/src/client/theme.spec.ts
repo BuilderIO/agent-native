@@ -23,6 +23,7 @@ function runThemeScript(script: string) {
 
 describe("getThemeInitScript", () => {
   beforeEach(() => {
+    vi.unstubAllEnvs();
     window.localStorage.clear();
     document.documentElement.classList.remove("light", "dark");
     document.documentElement.removeAttribute("data-theme");
@@ -88,5 +89,17 @@ describe("getThemeInitScript", () => {
 
     expect(document.documentElement.classList.contains("dark")).toBe(true);
     expect(window.localStorage.getItem("theme")).toBe(null);
+  });
+
+  it("inlines Vite dev recovery outside production", () => {
+    vi.stubEnv("NODE_ENV", "development");
+
+    expect(getThemeInitScript()).toContain("__an_optimize_reload");
+  });
+
+  it("omits Vite dev recovery in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+
+    expect(getThemeInitScript()).not.toContain("__an_optimize_reload");
   });
 });
