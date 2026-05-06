@@ -1,12 +1,14 @@
 import {
   IconAlertCircle,
   IconArchive,
+  IconChevronDown,
   IconClock,
   IconFolder,
   IconInbox,
   IconMail,
   IconMailOpened,
   IconSend,
+  IconSquare,
   IconStar,
   IconTrash,
   IconX,
@@ -399,6 +401,46 @@ export function EmailList({
   focusedIdRef.current = focusedId;
   const selectedIdsRef = useRef(selectedIds);
   selectedIdsRef.current = selectedIds;
+
+  const selectThreads = useCallback(
+    (predicate: (thread: ThreadSummary) => boolean) => {
+      const keys = threads
+        .filter(predicate)
+        .map(
+          (thread) => thread.latestMessage.threadId || thread.latestMessage.id,
+        );
+      setSelectedIds(new Set(keys));
+      if (keys.length > 0) {
+        const first = threads.find(
+          (thread) =>
+            (thread.latestMessage.threadId || thread.latestMessage.id) ===
+            keys[0],
+        );
+        if (first) setFocusedId(first.latestMessage.id);
+      }
+    },
+    [setFocusedId, setSelectedIds, threads],
+  );
+
+  const selectAllThreads = useCallback(() => {
+    selectThreads(() => true);
+  }, [selectThreads]);
+
+  const selectReadThreads = useCallback(() => {
+    selectThreads((thread) => !thread.hasUnread);
+  }, [selectThreads]);
+
+  const selectUnreadThreads = useCallback(() => {
+    selectThreads((thread) => thread.hasUnread);
+  }, [selectThreads]);
+
+  const selectStarredThreads = useCallback(() => {
+    selectThreads((thread) => thread.hasStarred);
+  }, [selectThreads]);
+
+  const selectUnstarredThreads = useCallback(() => {
+    selectThreads((thread) => !thread.hasStarred);
+  }, [selectThreads]);
 
   const moveFocus = useCallback(
     (delta: number) => {
@@ -798,17 +840,6 @@ export function EmailList({
     [setSelectedIds],
   );
 
-  const selectAllThreads = useCallback(() => {
-    if (threads.length === 0) return;
-    setSelectedIds(
-      new Set(
-        threads.map(
-          (thread) => thread.latestMessage.threadId || thread.latestMessage.id,
-        ),
-      ),
-    );
-  }, [threads, setSelectedIds]);
-
   // Keyboard navigation — Gmail / Superhuman standard shortcuts
   useKeyboardShortcuts([
     { key: "a", meta: true, handler: selectAllThreads },
@@ -1197,9 +1228,44 @@ export function EmailList({
     return <EmptyMailboxState view={labelParam ? "label" : view} />;
   }
 
+  const selectionPresetMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <IconSquare className="h-3.5 w-3.5" />
+          Select
+          <IconChevronDown className="h-3 w-3" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-44">
+        <DropdownMenuItem onClick={selectAllThreads} className="text-xs">
+          All
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={clearSelection} className="text-xs">
+          None
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={selectReadThreads} className="text-xs">
+          Read
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={selectUnreadThreads} className="text-xs">
+          Unread
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={selectStarredThreads} className="text-xs">
+          Starred
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={selectUnstarredThreads} className="text-xs">
+          Unstarred
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
-      {selectedIds.size > 0 && (
+      {selectedIds.size > 0 ? (
         <div className="flex h-10 shrink-0 items-center justify-between border-b border-border/40 bg-muted/40 px-3">
           <div className="flex items-center gap-2">
             <button
@@ -1212,6 +1278,7 @@ export function EmailList({
             <span className="text-xs font-medium text-muted-foreground">
               {selectedIds.size} selected
             </span>
+            {selectionPresetMenu}
           </div>
           <div className="flex items-center gap-1">
             <button
@@ -1271,6 +1338,13 @@ export function EmailList({
               Move to Trash
             </button>
           </div>
+        </div>
+      ) : (
+        <div className="flex h-9 shrink-0 items-center justify-between border-b border-border/30 bg-background/70 px-3">
+          {selectionPresetMenu}
+          <span className="text-xs text-muted-foreground/70">
+            {threads.length} conversation{threads.length === 1 ? "" : "s"}
+          </span>
         </div>
       )}
       <div className="flex-1 overflow-y-auto">

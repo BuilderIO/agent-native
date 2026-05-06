@@ -58,6 +58,7 @@ import {
   IconDots,
   IconArrowsMaximize,
   IconArrowsMinimize,
+  IconTrash,
 } from "@tabler/icons-react";
 import {
   InlineReplyComposer,
@@ -1126,6 +1127,19 @@ export function EmailThread({
                   </TooltipTrigger>
                   <TooltipContent>Archive (E)</TooltipContent>
                 </Tooltip>
+                {view !== "trash" && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={handleTrash}
+                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                      >
+                        <IconTrash className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Move to Trash (D)</TooltipContent>
+                  </Tooltip>
+                )}
                 <button
                   onClick={() => goToSibling(-1)}
                   className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
