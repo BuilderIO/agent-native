@@ -249,7 +249,7 @@ Follow the create-skill pattern to build this. Before writing:
 
 1. **Determine the skill name** — derive a hyphen-case name from the description (e.g. "code review" → "code-review")
 2. **Determine the skill type** — Pattern (architectural rule), Workflow (step-by-step), or Generator (scaffolding)
-3. **Write the skill** as a ${scope} resource at path "skills/<name>.md" using resource-write
+3. **Write the skill** as a ${scope} resource at path "skills/<name>/SKILL.md" using resource-write
 
 The skill file MUST have YAML frontmatter with name and description (under 40 words), then markdown with:
 - Clear rule/purpose statement
@@ -983,11 +983,11 @@ This file customizes how the AI agent behaves in this app. Edit it to add your o
 
 ## Skills
 
-Create skill files under \`skills/\` to give the agent specialized knowledge. Reference them here:
+Create skill files under \`skills/<name>/SKILL.md\` to give the agent specialized knowledge. Reference them here:
 
 | Skill | Path | Description |
 |-------|------|-------------|
-| *(use the skill button to create one)* | | |
+| *(use the skill button to create one)* | \`skills/example/SKILL.md\` | |
 `;
 
 // BuilderBrowserCard moved to settings/BrowserSection.tsx
@@ -1005,6 +1005,9 @@ export function ResourcesPanel() {
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(
     null,
   );
+  const [toolbarDeleteConfirmId, setToolbarDeleteConfirmId] = useState<
+    string | null
+  >(null);
   const [dragOver, setDragOver] = useState(false);
   const [editorView, setEditorView] = useState<"visual" | "code">(() => {
     try {
@@ -1013,6 +1016,10 @@ export function ResourcesPanel() {
     } catch {}
     return "visual";
   });
+
+  useEffect(() => {
+    setToolbarDeleteConfirmId(null);
+  }, [selectedResourceId]);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
     "idle",
   );
@@ -1340,18 +1347,36 @@ export function ResourcesPanel() {
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
-                    onClick={() => {
-                      if (selectedResourceId) handleDelete(selectedResourceId);
-                    }}
-                    aria-label="Delete resource"
-                    className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-accent/50"
-                  >
-                    <IconTrash className="h-3.5 w-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Delete resource</TooltipContent>
-              </Tooltip>
+	                  <button
+	                    onClick={() => {
+	                      if (!selectedResourceId) return;
+	                      if (toolbarDeleteConfirmId === selectedResourceId) {
+	                        handleDelete(selectedResourceId);
+	                        setToolbarDeleteConfirmId(null);
+	                      } else {
+	                        setToolbarDeleteConfirmId(selectedResourceId);
+	                      }
+	                    }}
+	                    aria-label={
+	                      toolbarDeleteConfirmId === selectedResourceId
+	                        ? "Confirm delete resource"
+	                        : "Delete resource"
+	                    }
+	                    className={cn(
+	                      "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-accent/50",
+	                      toolbarDeleteConfirmId === selectedResourceId &&
+	                        "bg-destructive/10 text-destructive",
+	                    )}
+	                  >
+	                    <IconTrash className="h-3.5 w-3.5" />
+	                  </button>
+	                </TooltipTrigger>
+	                <TooltipContent>
+	                  {toolbarDeleteConfirmId === selectedResourceId
+	                    ? "Click again to delete"
+	                    : "Delete resource"}
+	                </TooltipContent>
+	              </Tooltip>
             </TooltipProvider>
           </div>
         </div>

@@ -207,6 +207,7 @@ function TreeNodeRow({
   const isExpanded = expanded.has(node.path);
   const isSelected = node.resource?.id === selectedId;
   const isDeleting = !!node.resource && node.resource.id === deletingId;
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   return (
     <div>
@@ -227,6 +228,7 @@ function TreeNodeRow({
             onSelect(node.resource);
           }
         }}
+        onMouseLeave={() => setConfirmingDelete(false)}
       >
         {isFolder ? (
           isExpanded ? (
@@ -248,7 +250,12 @@ function TreeNodeRow({
         {node.jobMeta && <JobStatusDot meta={node.jobMeta} />}
         {node.mcpServerMeta && <McpStatusDot server={node.mcpServerMeta} />}
         {!readOnly && (
-          <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 group-hover/row:opacity-100">
+          <div
+            className={cn(
+              "ml-auto flex shrink-0 items-center gap-0.5 opacity-0 group-hover/row:opacity-100",
+              confirmingDelete && "opacity-100",
+            )}
+          >
             <TooltipProvider delayDuration={200}>
               {isFolder && (
                 <Tooltip>
@@ -283,19 +290,32 @@ function TreeNodeRow({
                 ) : (
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDelete(node.resource!.id);
-                        }}
-                        aria-label="Delete"
-                        className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-accent/50"
-                      >
-                        <IconTrash className="h-3 w-3" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>Delete</TooltipContent>
-                  </Tooltip>
+	                      <button
+	                        onClick={(e) => {
+	                          e.stopPropagation();
+	                          if (confirmingDelete) {
+	                            onDelete(node.resource!.id);
+	                            setConfirmingDelete(false);
+	                          } else {
+	                            setConfirmingDelete(true);
+	                          }
+	                        }}
+	                        aria-label={
+	                          confirmingDelete ? "Confirm delete" : "Delete"
+	                        }
+                        className={cn(
+                          "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-accent/50",
+                          confirmingDelete &&
+                            "bg-destructive/10 text-destructive",
+                        )}
+	                      >
+	                        <IconTrash className="h-3 w-3" />
+	                      </button>
+	                    </TooltipTrigger>
+	                    <TooltipContent>
+	                      {confirmingDelete ? "Click again to delete" : "Delete"}
+	                    </TooltipContent>
+	                  </Tooltip>
                 ))}
             </TooltipProvider>
           </div>
