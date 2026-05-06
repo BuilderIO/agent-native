@@ -205,8 +205,18 @@ export interface RouteErrorContext {
   method?: string;
   /** Caller's `User-Agent` header. */
   userAgent?: string;
-  /** Free-form extra tags to add to the event. */
+  /** Free-form extra tags to add to the event (low-cardinality). */
   tags?: Record<string, string | undefined>;
+  /**
+   * High-cardinality / structured payload — not searchable but visible in
+   * the Sentry event detail (recording IDs, byte counts, compression
+   * metadata, response body tails, etc.).
+   */
+  extra?: Record<string, unknown>;
+  /**
+   * Grouped contexts shown as separate cards in the Sentry event UI.
+   */
+  contexts?: Record<string, Record<string, unknown>>;
 }
 
 /**
@@ -230,6 +240,16 @@ export function captureRouteError(
       if (context.tags) {
         for (const [k, v] of Object.entries(context.tags)) {
           if (typeof v === "string") scope.setTag(k, v);
+        }
+      }
+      if (context.extra) {
+        for (const [k, v] of Object.entries(context.extra)) {
+          if (v !== undefined) scope.setExtra(k, v);
+        }
+      }
+      if (context.contexts) {
+        for (const [k, v] of Object.entries(context.contexts)) {
+          scope.setContext(k, v);
         }
       }
       return Sentry.captureException(error);
