@@ -57,13 +57,35 @@ Why the gate: `git stash push` exits 0 even when there are no local changes ("No
 
 ## After creation
 
-- Report the new branch name and working tree status
-- If stash pop had merge conflicts, resolve them (prefer `--theirs` for `pnpm-lock.yaml`)
-- If stash pop brought back `.claude/worktrees` files, unstage them with `git reset HEAD .claude/worktrees`
+- Report the new branch name and working tree status.
+- **If stash pop had merge conflicts** that you can confidently resolve (e.g. `--theirs` for `pnpm-lock.yaml`), resolve them and proceed. **If you can't resolve them confidently, abort the new branch instead of leaving the work stranded:**
+  ```bash
+  git checkout --merge .         # back out the conflicted pop (stash stays in list)
+  git checkout -                  # back to the source branch
+  git branch -D <new-branch>      # remove the freshly-created branch
+  git stash list | head -3        # show the stash so the user can act on it
+  ```
+  Then surface to the user: "Stash pop conflicted on `<files>`; the new branch was rolled back and `<stash-name>` is preserved. Want me to retry, drop the stash, or stay on the source branch?" **Never silently leave a half-built branch + an orphaned stash** — that's how concurrent-agent work disappears.
+- If stash pop brought back `.claude/worktrees` files, unstage them with `git reset HEAD .claude/worktrees`.
 - If a pop accidentally happened and brought in unrelated files (because the gate was bypassed), do NOT silently resolve conflicts. The stashed content stays in the stash list, so discard the popped working-tree changes (`git rm` deleted-by-us files, `git checkout --ours` for both-modified files) and surface this to the user.
+
+## Post-flight check
+
+After every `/new-branch` invocation, list any pre-existing stashes and surface them to the user. Orphaned `new-branch-from-*` / `WIP on *` / `babysit-tick*-concurrent-work-*` stashes are how we've lost real work in the past — they pile up unnoticed.
+
+```bash
+git stash list
+```
+
+If the list shows stashes that aren't yours-from-this-run, name them in your response:
+
+> Heads-up — there are 3 pre-existing stashes (`stash@{1}: WIP on updates-238`, `stash@{2}: On changes-3: new-branch-1777654416`, `stash@{3}: babysit-tick4-concurrent-work...`). These may contain unrecovered work. Want me to inspect them?
+
+This is the only reliable way to catch the leak — git won't warn you on its own.
 
 ## Important
 
-- **Speed matters** — other agents run concurrently, so minimize time spent on main
-- **Never force-push or reset** — other agents' work may be in-flight
-- **Don't push the new branch** until there are actual changes to ship
+- **Speed matters** — other agents run concurrently, so minimize time spent on main.
+- **Never force-push or reset** — other agents' work may be in-flight.
+- **Don't push the new branch** until there are actual changes to ship.
+- **Treat orphaned stashes as bugs.** If you see a `new-branch-from-*` stash older than this session, surface it. Don't drop it without the user's confirmation — it may be the only copy of someone's work.
