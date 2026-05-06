@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
@@ -260,6 +267,104 @@ function formatAgo(iso: string): string {
   } catch {
     return "";
   }
+}
+
+function measurePopoverHeight(el: HTMLElement): number {
+  const rect = el.getBoundingClientRect();
+  const style = window.getComputedStyle(el);
+  const borderY =
+    Number.parseFloat(style.borderTopWidth || "0") +
+    Number.parseFloat(style.borderBottomWidth || "0");
+
+  const candidates = [rect.height, el.scrollHeight + borderY];
+
+  // ResizeObserver on `.app` alone misses scroll-only and absolutely
+  // positioned growth. Measure descendant bounds so menus, banners, and
+  // settings sections can grow the native window even when `.app` is capped
+  // by the current viewport height.
+  let lowestBottom = rect.bottom;
+  for (const child of Array.from(el.querySelectorAll<HTMLElement>("*"))) {
+    const childStyle = window.getComputedStyle(child);
+    if (childStyle.display === "none") continue;
+    const childRect = child.getBoundingClientRect();
+    if (childRect.width === 0 && childRect.height === 0) continue;
+    lowestBottom = Math.max(lowestBottom, childRect.bottom);
+  }
+  candidates.push(lowestBottom - rect.top);
+
+  return Math.ceil(Math.max(...candidates));
+}
+
+function usePopoverAutoSize(
+  ref: RefObject<HTMLElement | null>,
+  options: { disabled: boolean; width: number },
+): void {
+  const { disabled, width } = options;
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || disabled) return;
+
+    let animationFrame = 0;
+    let settleTimer = 0;
+    let lastHeight = 0;
+    let lastWidth = 0;
+
+    const push = () => {
+      animationFrame = 0;
+      const height = measurePopoverHeight(el);
+      if (
+        height > 0 &&
+        (Math.abs(height - lastHeight) >= 2 || Math.abs(width - lastWidth) >= 1)
+      ) {
+        lastHeight = height;
+        lastWidth = width;
+        invoke("resize_popover", { height, width }).catch(() => {});
+      }
+    };
+
+    const schedule = () => {
+      if (!animationFrame) {
+        animationFrame = window.requestAnimationFrame(push);
+      }
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(push, 80);
+    };
+
+    const resizeObserver = new ResizeObserver(schedule);
+    const observeTree = () => {
+      resizeObserver.disconnect();
+      resizeObserver.observe(el);
+      for (const child of Array.from(el.querySelectorAll<HTMLElement>("*"))) {
+        resizeObserver.observe(child);
+      }
+    };
+
+    const mutationObserver = new MutationObserver(() => {
+      observeTree();
+      schedule();
+    });
+
+    observeTree();
+    mutationObserver.observe(el, {
+      attributes: true,
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+    schedule();
+
+    if (document.fonts) {
+      document.fonts.ready.then(schedule).catch(() => {});
+    }
+
+    return () => {
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      window.clearTimeout(settleTimer);
+      mutationObserver.disconnect();
+      resizeObserver.disconnect();
+    };
+  }, [disabled, ref, width]);
 }
 
 export function App() {
@@ -983,35 +1088,13 @@ export function App() {
   // ---- auto-size popover to content --------------------------------------
   // The Tauri window is fixed-size via tauri.conf.json, but our content
   // height varies (more rows when a camera is on, Recent list toggle, etc.).
-  // A ResizeObserver on the app shell tells Rust what the current
-  // content height is and we call `resize_popover` to match.
+  // A descendant-aware observer tells Rust what the current content height is
+  // and we call `resize_popover` to match.
   const appRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const el = appRef.current;
-    if (!el) return;
-    let last = 0;
-    const push = () => {
-      const rect = el.getBoundingClientRect();
-      const settingsContent =
-        showSettings && el.firstElementChild instanceof HTMLElement
-          ? el.firstElementChild.scrollHeight + 2
-          : 0;
-      const h = Math.ceil(
-        Math.max(rect.height, el.scrollHeight, settingsContent),
-      );
-      if (h && Math.abs(h - last) >= 2) {
-        last = h;
-        invoke("resize_popover", {
-          height: h,
-          width: showSettings ? 440 : 360,
-        }).catch(() => {});
-      }
-    };
-    push();
-    const ro = new ResizeObserver(push);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [showSettings]);
+  usePopoverAutoSize(appRef, {
+    disabled: !popoverVisible || isRecording || recordingFlowActive,
+    width: showSettings ? 440 : 360,
+  });
 
   // ---- recent list --------------------------------------------------------
 

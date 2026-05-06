@@ -41,7 +41,7 @@ import {
   normalizeTooltipText,
 } from "./components/ui/tooltip.js";
 import {
-  IconMessage,
+  IconMessageChatbot,
   IconTerminal2,
   IconSettings,
   IconLayoutSidebarRightCollapse,
@@ -469,7 +469,7 @@ function AgentPanelInner({
                 )}
                 style={AGENT_PANEL_CONTROL_STYLE}
               >
-                <IconMessage size={14} />
+                <IconMessageChatbot size={14} />
                 Chat
               </button>
             </TooltipTrigger>
@@ -1967,7 +1967,7 @@ export function AgentToggleButton({ className }: { className?: string }) {
               className,
             )}
           >
-            <IconMessage size={16} />
+            <IconMessageChatbot size={16} />
           </button>
         </TooltipTrigger>
         <TooltipContent>Toggle agent</TooltipContent>

@@ -3,7 +3,6 @@ import { useState, useCallback, useMemo, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router";
 import {
-  IconTool,
   IconPlus,
   IconStar,
   IconStarFilled,
@@ -224,7 +223,7 @@ export function ExtensionsSidebarSection() {
     const trimmed = text.trim();
     if (!trimmed) return;
     sendToAgentChat({
-      message: `Create a extension: ${trimmed}`,
+      message: `Create an extension: ${trimmed}`,
       submit: true,
       openSidebar: true,
       newTab: true,
@@ -242,7 +241,6 @@ export function ExtensionsSidebarSection() {
           )}
         >
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            <IconTool className="h-3.5 w-3.5 shrink-0" />
             Extensions
             <a
               href="https://agent-native.com/docs/extensions"

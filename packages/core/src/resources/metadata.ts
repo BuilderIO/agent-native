@@ -139,6 +139,16 @@ export function isSkillPath(path: string): boolean {
   return path.startsWith("skills/") && path.endsWith(".md");
 }
 
+export function getSkillNameFromPath(path: string): string {
+  const relative = path
+    .replace(/^\.agents\/skills\//, "")
+    .replace(/^skills\//, "");
+  if (relative.endsWith("/SKILL.md")) {
+    return relative.replace(/\/SKILL\.md$/, "").split("/").pop() || relative;
+  }
+  return relative.split("/").pop()?.replace(/\.md$/, "") || path;
+}
+
 export function isJobPath(path: string): boolean {
   return path.startsWith("jobs/") && path.endsWith(".md");
 }
@@ -183,8 +193,7 @@ export function parseSkillMetadata(
   return {
     name:
       getFrontmatterValue(frontmatter, "name") ||
-      path.split("/").pop()?.replace(/\.md$/, "") ||
-      path,
+      getSkillNameFromPath(path),
     description: getFrontmatterValue(frontmatter, "description"),
   };
 }

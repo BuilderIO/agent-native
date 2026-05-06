@@ -15,8 +15,9 @@ use crate::state::{
     DictationActive, LastTranscript, RecordingActive, TrayAnchor, VoiceWakePopover,
 };
 use crate::util::{
-    build_overlay_url, hide_voice_wake_popover, mark_popover_shown, primary_monitor_physical_size,
-    set_capture_excluded, set_capture_included, set_dictation_active,
+    build_overlay_url, hide_voice_wake_popover, is_recording_active, mark_popover_shown,
+    primary_monitor_physical_size, set_capture_excluded, set_capture_included,
+    set_dictation_active,
 };
 
 /// Native overlay windows for the recording experience. These render the same
@@ -497,6 +498,9 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
         .and_then(|state| state.0.lock().ok().map(|g| *g))
         .unwrap_or(false);
     if voice_woken {
+        return Ok(());
+    }
+    if is_recording_active(&app) {
         return Ok(());
     }
     if let Some(w) = app.get_webview_window("popover") {
