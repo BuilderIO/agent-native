@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.11.1
+
+### Patch Changes
+
+- 2d52595: Detect Builder preview webviews from builder preview URL markers so code prompts route to Builder chat.
+- 2d52595: Use the shadcn popover animation for the framework share control and keep visibility changes fresh after reopening.
+
 ## 0.11.0
 
 ### Minor Changes
