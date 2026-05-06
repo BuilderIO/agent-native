@@ -2825,24 +2825,37 @@ const AssistantChatInner = forwardRef<
     }
   }, []);
 
+  const scrollToBottomAfterPaint = useCallback(() => {
+    scrollToBottom();
+    requestAnimationFrame(() => {
+      scrollToBottom();
+      requestAnimationFrame(scrollToBottom);
+    });
+    setTimeout(scrollToBottom, 80);
+  }, [scrollToBottom]);
+
   // Scroll to bottom when a restored thread finishes loading
   const wasRestoringRef = useRef(isRestoring);
   useEffect(() => {
     if (wasRestoringRef.current && !isRestoring) {
-      requestAnimationFrame(() => {
-        scrollToBottom();
-      });
+      scrollToBottomAfterPaint();
     }
     wasRestoringRef.current = isRestoring;
-  }, [isRestoring, scrollToBottom]);
+  }, [isRestoring, scrollToBottomAfterPaint]);
 
   // Auto-scroll on new messages or queued messages (only if near bottom)
   useEffect(() => {
     const el = scrollRef.current;
     if (el && isNearBottomRef.current) {
-      el.scrollTop = el.scrollHeight;
+      scrollToBottomAfterPaint();
     }
-  }, [messages, queuedMessages]);
+  }, [messages, queuedMessages, scrollToBottomAfterPaint]);
+
+  useEffect(() => {
+    if (!isRunning && isNearBottomRef.current) {
+      scrollToBottomAfterPaint();
+    }
+  }, [isRunning, scrollToBottomAfterPaint]);
 
   // Continuous auto-scroll while streaming (only if near bottom)
   useEffect(() => {

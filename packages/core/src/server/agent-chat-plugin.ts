@@ -2188,7 +2188,9 @@ function parseSkillFrontmatter(content: string): {
     name: getFrontmatterValue(frontmatter, "name"),
     description: getFrontmatterValue(frontmatter, "description"),
     userInvocable:
-      userInvocable === undefined ? undefined : userInvocable === "true",
+      userInvocable === undefined
+        ? undefined
+        : userInvocable.toLowerCase() === "true",
   };
 }
 

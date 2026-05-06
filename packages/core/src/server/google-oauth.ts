@@ -38,6 +38,14 @@ function htmlResponse(html: string, status = 200): Response {
   });
 }
 
+/** Shared markup for OAuth success "close this tab" pages. Renders a green
+ *  check icon above the message, with tight spacing between the headline and
+ *  the secondary line. Used by every template that goes through the shared
+ *  Google OAuth flow. */
+function oauthSuccessCloseTabHtml(headline: string, footnote: string): string {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:14px" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2l4 -4"/></svg><p style="font-size:16px;margin:0 0 4px 0">${headline}</p><p style="font-size:13px;color:#888;margin:0">${footnote}</p></body></html>`;
+}
+
 /**
  * HTML escape — minimal but covers the cases that matter when interpolating
  * user-controlled values into our OAuth callback HTML. Mirrors the helper in
@@ -596,7 +604,10 @@ export function oauthCallbackResponse(
     const safeAppName = escapeHtml(resolveOAuthAppName(opts.appName));
     const msg = safeEmail ? `Connected ${safeEmail}!` : "Connected!";
     return htmlResponse(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to ${safeAppName}.</p></body></html>`,
+      oauthSuccessCloseTabHtml(
+        msg,
+        `You can close this tab and return to ${safeAppName}.`,
+      ),
     );
   }
 
@@ -614,7 +625,10 @@ export function oauthCallbackResponse(
     const safeAppName = escapeHtml(resolveOAuthAppName(opts.appName));
     const msg = safeEmail ? `Signed in as ${safeEmail}!` : "Signed in!";
     return htmlResponse(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to ${safeAppName}.</p></body></html>`,
+      oauthSuccessCloseTabHtml(
+        msg,
+        `You can close this tab and return to ${safeAppName}.`,
+      ),
     );
   }
 
@@ -728,6 +742,9 @@ function desktopSuccessPage(
     );
   }
   return htmlResponse(
-    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Agent Native.</p></body></html>`,
+    oauthSuccessCloseTabHtml(
+      msg,
+      "You can close this tab and return to Agent Native.",
+    ),
   );
 }

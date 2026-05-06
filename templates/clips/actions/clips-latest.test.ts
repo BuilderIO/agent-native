@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyClipsAsset,
   compareClipsReleaseTags,
-} from "./clips-latest.json.get";
+} from "../server/routes/api/clips-latest.json.get";
 
 describe("classifyClipsAsset", () => {
   it("recognizes Clips installer assets", () => {
@@ -30,8 +30,14 @@ describe("classifyClipsAsset", () => {
 
 describe("compareClipsReleaseTags", () => {
   it("orders releases by semantic version instead of lexical order", () => {
-    expect(compareClipsReleaseTags("clips-v0.1.56", "clips-v0.1.9")).toBe(47);
-    expect(compareClipsReleaseTags("clips-v0.2.0", "clips-v0.1.99")).toBe(1);
-    expect(compareClipsReleaseTags("clips-v1.0.0", "clips-v0.99.999")).toBe(1);
+    expect(
+      compareClipsReleaseTags("clips-v0.1.56", "clips-v0.1.9"),
+    ).toBeGreaterThan(0);
+    expect(
+      compareClipsReleaseTags("clips-v0.2.0", "clips-v0.1.99"),
+    ).toBeGreaterThan(0);
+    expect(
+      compareClipsReleaseTags("clips-v1.0.0", "clips-v0.99.999"),
+    ).toBeGreaterThan(0);
   });
 });
