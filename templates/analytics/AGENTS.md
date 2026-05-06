@@ -41,6 +41,10 @@ If a provider action returns an error:
 - **Query/API error** (unknown table, unknown column, syntax, permission) — show the actual error and offer to fix the query or use another configured source.
 - **Quota / network blip** — say so and offer to retry.
 
+After a provider error, stop using that provider for the current turn. Do not keep retrying, reformulating, or continuing into follow-up analysis unless the user explicitly asks you to.
+
+For ordinary ad-hoc data questions, answer the explicit question after the first relevant successful query. Do not turn a "what to look into next" section into more tool calls unless the user asked for a deeper investigation.
+
 Never claim that a provider is connected until a status check or successful action result proves it. Never fabricate numbers to cover for an unavailable provider or failed query.
 
 **Core philosophy:** The agent and UI have full parity. Everything the user can see, the agent can see via `view-screen`. Everything the user can do, the agent can do via actions. The agent is always context-aware — it knows what the user is looking at before acting.
