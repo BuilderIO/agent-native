@@ -137,8 +137,17 @@ export default function Index() {
 
   useEffect(() => {
     if (!showNewDeckPrompt || selectedDesignSystemId) return;
-    setSelectedDesignSystemId(defaultSystem?.id ?? "");
-  }, [defaultSystem?.id, selectedDesignSystemId, showNewDeckPrompt]);
+    if (defaultSystem?.id) {
+      setSelectedDesignSystemId(defaultSystem.id);
+    } else if (designSystems.length > 0) {
+      setSelectedDesignSystemId("none");
+    }
+  }, [
+    defaultSystem?.id,
+    designSystems.length,
+    selectedDesignSystemId,
+    showNewDeckPrompt,
+  ]);
 
   // Restore a prompt that was held back when the user wasn't signed in:
   // we wrote the text to sessionStorage before redirecting to sign-in,

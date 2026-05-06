@@ -241,11 +241,15 @@ export const updateDeck = defineEventHandler(async (event) => {
           new ForbiddenError("Sign in to create a deck"),
         );
       }
+      if (nextDesignSystemId) {
+        await assertAccess("design-system", nextDesignSystemId, "viewer");
+      }
       try {
         await db.insert(schema.decks).values({
           id,
           title,
           data: JSON.stringify(deck),
+          designSystemId: nextDesignSystemId,
           ownerEmail: email,
           orgId: orgId ?? null,
           createdAt: now,

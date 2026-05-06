@@ -29,7 +29,14 @@ export function AgentWorkIndicator() {
         </div>
         <button
           type="button"
-          onClick={openAgentSidebar}
+          onClick={() => {
+            openAgentSidebar();
+            window.dispatchEvent(
+              new CustomEvent("agent-panel:set-mode", {
+                detail: { mode: "chat" },
+              }),
+            );
+          }}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <IconMessageCircle className="h-3.5 w-3.5" />
