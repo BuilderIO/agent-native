@@ -37,7 +37,9 @@ Ephemeral UI state is stored in the SQL `application_state` table, accessed via 
 
 The `/new-app` route lets the user prompt a new workspace app and choose which Dispatch vault keys it should receive. When loaded inside Builder, code prompts are delegated to Builder chat; in local dev, they go to the agent-native code agent. In production, app creation is only enabled when Builder branching is explicitly configured.
 
-When creating a new app from this flow, keep apps under `apps/<app-id>`, mount them at `/<app-id>`, use the shared workspace database/hosting model, and namespace any new domain tables so apps do not collide.
+When the user asks to create, build, make, scaffold, or generate a new app from this flow, create a separate workspace app. Keep it under `apps/<app-id>`, mount it at `/<app-id>`, use the shared workspace database/hosting model, and namespace any new domain tables so apps do not collide.
+
+Do not satisfy a new-app request by adding a route, page, component, or file inside this starter app. Only edit `apps/starter` when the user explicitly asks to change the starter app itself.
 
 ## Agent Operations
 

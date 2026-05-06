@@ -73,6 +73,7 @@ function buildAppCreationPrompt(input: {
 
   return [
     `Create a new agent-native app in this workspace.`,
+    `This is a new workspace app request, not a feature request for the current app.`,
     ``,
     `Suggested app name: ${input.appId} (you may adjust the slug if it conflicts)`,
     `User prompt: ${input.prompt.trim()}`,
@@ -80,6 +81,7 @@ function buildAppCreationPrompt(input: {
     ``,
     `Pick a starter template that fits the user's prompt — analytics, calendar, content, design, dispatch, forms, mail, slides, videos, clips, or starter when none of the others fit.`,
     `Use the workspace app layout: create it under apps/${input.appId}, mount it at /${input.appId}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
+    `Do not satisfy this by adding a route, page, component, or file inside apps/starter or another existing app unless the user explicitly asks to modify that existing app.`,
     keyList
       ? `After the app exists, grant the selected Dispatch vault keys to appId "${input.appId}" and sync them once the app server is available. Treat these as requested grants, not active grants before creation succeeds.`
       : `Do not grant any Dispatch vault keys unless the user asks later.`,

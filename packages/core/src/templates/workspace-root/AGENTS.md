@@ -14,6 +14,19 @@ in `apps/<app>/AGENTS.md`; shared cross-app behavior belongs in
 - Never copy live credentials, personal email addresses, customer data, or
   company-specific placeholder values into source files.
 
+## New Workspace Apps
+
+- When a user asks from Dispatch to create, build, make, scaffold, or generate
+  a new app or agent, treat it as a request for a separate workspace app under
+  `apps/<app-id>`, mounted at `/<app-id>`.
+- Do not satisfy a new-app request by adding a route, page, component, or file
+  to `apps/starter` or another existing app unless the user explicitly asks to
+  modify that existing app.
+- In local development, scaffold the app from the workspace root with
+  `pnpm exec agent-native create <app-id> --template=<template>`. In production
+  Dispatch posts the request to Builder branch creation; the Builder branch
+  should still create the separate workspace app, not patch starter.
+
 ## Workspace Identity
 
 Use the workspace root `.env` for shared identity and cross-app trust settings:

@@ -20,6 +20,14 @@ agent should know.
 
 ## Adding Apps
 
-Run `pnpm exec agent-native create <app-name> --template=starter` from the
-workspace root. The workspace dev gateway (`pnpm dev`) detects new
-`apps/<app-name>` directories automatically.
+New app requests from Dispatch should create a separate workspace app under
+`apps/<app-name>`, mounted at `/<app-name>`. Do not implement a new app by
+adding a route, page, component, or file to `apps/starter` or another existing
+app unless the user explicitly asks to modify that existing app.
+
+In local development, run
+`pnpm exec agent-native create <app-name> --template=<template>` from the
+workspace root. In production, Dispatch posts new-app requests to Builder
+branch creation; Builder should still scaffold the separate workspace app. The
+workspace dev gateway (`pnpm dev`) detects new `apps/<app-name>` directories
+automatically.

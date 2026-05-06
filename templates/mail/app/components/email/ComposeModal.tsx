@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import type { CSSProperties } from "react";
 import {
   IconX,
   IconMinus,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
   IconBold,
   IconItalic,
   IconLink,
@@ -33,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useSendEmail, useAddOptimisticReply } from "@/hooks/use-emails";
+import { useSettings } from "@/hooks/use-emails";
 import { useAliases } from "@/hooks/use-aliases";
 import { useUpdateQueuedDraft } from "@/hooks/use-draft-queue";
 import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
@@ -150,6 +154,7 @@ export function ComposeModal({
 }: ComposeModalProps) {
   const isMobile = useIsMobile();
   const [minimized, setMinimized] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
   const [showCcBcc, setShowCcBcc] = useState(false);
@@ -186,6 +191,7 @@ export function ComposeModal({
   const updateQueuedDraft = useUpdateQueuedDraft();
   const scheduleEmail = useScheduleEmail();
   const { data: aliases = [] } = useAliases();
+  const { data: settings } = useSettings();
   const { allAccounts } = useAccountFilter();
   const editorRef = useRef<ComposeEditorHandle>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -389,6 +395,11 @@ export function ComposeModal({
       activeDraft.to && `To: ${activeDraft.to}`,
       activeDraft.cc && `Cc: ${activeDraft.cc}`,
       activeDraft.subject && `Subject: ${activeDraft.subject}`,
+      settings?.writingStyle?.trim() &&
+        `User writing style:\n${settings.writingStyle.trim()}`,
+      settings?.signature?.trim()
+        ? `Configured signature:\n${settings.signature.trim()}`
+        : "Configured signature: (none)",
       activeDraft.body && `Current draft:\n${activeDraft.body}`,
     ]
       .filter(Boolean)
@@ -396,7 +407,7 @@ export function ComposeModal({
 
     sendToAgent({
       message: generatePrompt.trim(),
-      context: `The user is composing an email. The current draft is saved in application-state/compose-${activeId}.json.\n\nIMPORTANT: Update this EXISTING file (compose-${activeId}.json) — do NOT create a new compose file. Read it first, then write back to the same file with your changes.\n\n${context || "(empty draft)"}`,
+      context: `The user is composing an email. The current draft is saved in application-state/compose-${activeId}.json.\n\nIMPORTANT: Update this EXISTING file (compose-${activeId}.json) — do NOT create a new compose file. Read it first, then write back to the same file with your changes.\n\nDrafting rules:\n- Use the configured signature exactly when one is present, and do not duplicate it if it is already in the draft.\n- If no configured signature is present, do not invent or derive a sign-off from the user's name or email address.\n- Use Markdown only. Keep the copy natural, specific, and free of generic AI email filler unless the user asks for a formal template.\n\n${context || "(empty draft)"}`,
       submit: true,
     });
 
@@ -443,14 +454,23 @@ export function ComposeModal({
           : "New message"
     : "New message";
 
+  const composeStyle = {
+    right: isMobile ? 0 : sidebarRight,
+    "--compose-right": `${isMobile ? 0 : sidebarRight}px`,
+  } as CSSProperties & Record<"--compose-right", string>;
+
   return (
     <div
       ref={composeRef}
       className={cn(
-        "compose-window fixed bottom-0 z-50 flex w-full sm:w-[540px] flex-col sm:rounded-t-xl bg-card",
-        minimized ? "h-11 rounded-t-xl" : "h-[100dvh] sm:h-[520px]",
+        "compose-window fixed z-50 flex w-full flex-col bg-card transition-[width,height,top,bottom] duration-150 sm:rounded-t-xl",
+        minimized
+          ? "bottom-0 h-11 rounded-t-xl sm:w-[540px]"
+          : isExpanded && !isMobile
+            ? "top-4 bottom-4 h-auto sm:w-[min(960px,calc(100vw-var(--compose-right)-1rem))] sm:rounded-xl"
+            : "bottom-0 h-[100dvh] sm:h-[520px] sm:w-[540px]",
       )}
-      style={{ right: isMobile ? 0 : sidebarRight }}
+      style={composeStyle}
       onKeyDown={handleKeyDown}
     >
       {/* Title bar with inline tabs */}
@@ -521,14 +541,53 @@ export function ComposeModal({
 
         {/* Right side: minimize & close */}
         <div className="flex items-center gap-1 shrink-0 ml-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setMinimized(!minimized)}
-          >
-            <IconMinus className="h-3.5 w-3.5" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                aria-label={minimized ? "Restore compose" : "Minimize compose"}
+                onClick={() => {
+                  setIsExpanded(false);
+                  setMinimized(!minimized);
+                }}
+              >
+                <IconMinus className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {minimized ? "Restore" : "Minimize"}
+            </TooltipContent>
+          </Tooltip>
+          {!minimized && !isMobile && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  aria-label={
+                    isExpanded ? "Restore compose size" : "Expand compose"
+                  }
+                  aria-pressed={isExpanded}
+                  onClick={() => {
+                    setMinimized(false);
+                    setIsExpanded((value) => !value);
+                  }}
+                >
+                  {isExpanded ? (
+                    <IconArrowsMinimize className="h-3.5 w-3.5" />
+                  ) : (
+                    <IconArrowsMaximize className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isExpanded ? "Restore size" : "Expand"}
+              </TooltipContent>
+            </Tooltip>
+          )}
           <Button
             variant="ghost"
             size="icon"

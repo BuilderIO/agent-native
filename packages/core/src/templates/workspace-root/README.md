@@ -72,6 +72,9 @@ pnpm exec agent-native create crm --template=starter
 The CLI detects the workspace root and scaffolds a minimal app that already
 depends on `@{{APP_NAME}}/shared`. Edit only the routes you care about;
 auth, org switching, skills, and instructions come from the shared package.
+If the request starts from Dispatch in production, Dispatch sends it to Builder
+branch creation; that branch should still add a new `apps/<app-id>` workspace
+app rather than adding files to `apps/starter`.
 
 ## Editing shared behavior
 
