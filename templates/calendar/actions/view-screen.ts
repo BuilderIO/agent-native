@@ -3,6 +3,10 @@ import { readAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 import { extractVideoLink } from "./event-action-helpers.js";
+import {
+  CALENDAR_VIEW_PREFERENCES_KEY,
+  normalizeCalendarViewPreferences,
+} from "../shared/calendar-view-preferences.js";
 
 async function fetchEventsForRange(from: string, to: string): Promise<any[]> {
   try {
@@ -25,9 +29,13 @@ export default defineAction({
   http: false,
   run: async () => {
     const navigation = await readAppState("navigation");
+    const visualPreferences = normalizeCalendarViewPreferences(
+      (await readAppState(CALENDAR_VIEW_PREFERENCES_KEY)) as any,
+    );
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
+    screen.visualPreferences = visualPreferences;
 
     const nav = navigation as any;
 
