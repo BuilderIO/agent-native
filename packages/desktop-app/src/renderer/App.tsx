@@ -112,8 +112,10 @@ export default function App() {
     });
     setActiveSidebarAppId((prev) => {
       if (prev && enabledApps.find((a) => a.id === prev)) return prev;
-      const def =
-        enabledApps.find((a) => !("placeholder" in a)) ?? enabledApps[0];
+      // Pick from `appDefs` (AppDefinition) so the placeholder check works —
+      // `enabledApps` is AppConfig[] and has no `placeholder` field, so the
+      // old `"placeholder" in a` check was a no-op.
+      const def = appDefs.find((a) => !a.placeholder) ?? appDefs[0];
       return def?.id ?? "";
     });
   }, [enabledAppIdsKey]);
