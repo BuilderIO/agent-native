@@ -652,33 +652,10 @@ async function buildCloudflarePages() {
     // Pages' loader scans chunks for `"node:*"` literals and fails with
     // 'No such module "node:fs"' whether or not the string is reached
     // at runtime. Scoping to known builtins avoids touching user data.
-    const builtinsPattern = [
-      "fs",
-      "fs/promises",
-      "path",
-      "os",
-      "crypto",
-      "http",
-      "https",
-      "stream",
-      "stream/web",
-      "url",
-      "util",
-      "events",
-      "buffer",
-      "querystring",
-      "zlib",
-      "net",
-      "tls",
-      "assert",
-      "timers",
-      "child_process",
-      "module",
-      "async_hooks",
-      "process",
-      "worker_threads",
-      "sqlite",
-    ].join("|");
+    // Sorted longest-first so `fs/promises` matches before `fs`.
+    const builtinsPattern = [...NODE_BUILTINS]
+      .sort((a, b) => b.length - a.length)
+      .join("|");
     const builtinRe = new RegExp(`(["'])node:(${builtinsPattern})\\1`, "g");
     code = code.replace(
       builtinRe,
