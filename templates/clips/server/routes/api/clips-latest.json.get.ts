@@ -15,6 +15,12 @@ import { defineEventHandler, setResponseHeaders, createError } from "h3";
  * releases until it finds the most recent published `clips-v*` release,
  * and returns its asset list plus metadata.
  *
+ * The `clips-latest` pointer release is still the release-channel hint:
+ * when it has a signed updater manifest, we resolve that manifest's
+ * version back to the matching `clips-v*` release before scanning. That
+ * keeps the manual download page and the in-app updater pointed at the
+ * same build by default.
+ *
  * ## Rate-limit hardening
  *
  * GitHub's unauthenticated REST API caps at 60 requests/hour/IP, so a
@@ -32,6 +38,8 @@ import { defineEventHandler, setResponseHeaders, createError } from "h3";
 
 const RELEASES_URL_BASE =
   "https://api.github.com/repos/BuilderIO/agent-native/releases";
+const UPDATER_MANIFEST_URL =
+  "https://github.com/BuilderIO/agent-native/releases/download/clips-latest/clips-latest.json";
 const PER_PAGE = 100;
 // Up to 10 pages = 1000 releases. If clips-v* hasn't shown up by then,
 // something else is wrong and the 404 is correct.
@@ -52,6 +60,10 @@ interface GhRelease {
   prerelease: boolean;
   assets: GhAsset[];
   body?: string;
+}
+
+interface UpdaterManifest {
+  version: string;
 }
 
 export interface DownloadManifest {
@@ -82,7 +94,7 @@ export interface DownloadManifest {
   }[];
 }
 
-function classifyAsset(
+export function classifyClipsAsset(
   name: string,
 ): DownloadManifest["assets"][number]["kind"] {
   const n = name.toLowerCase();
@@ -108,6 +120,42 @@ function classifyAsset(
   if (n.endsWith(".deb")) return "linux-deb";
   if (n.endsWith(".rpm")) return "linux-rpm";
   return "unknown";
+}
+
+function parseClipsVersion(tagName: string): number[] | null {
+  const match = /^clips-v(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(tagName);
+  if (!match) return null;
+  return match.slice(1, 4).map((part) => Number(part));
+}
+
+export function compareClipsReleaseTags(a: string, b: string): number {
+  const av = parseClipsVersion(a);
+  const bv = parseClipsVersion(b);
+  if (av && !bv) return 1;
+  if (!av && bv) return -1;
+  if (!av || !bv) return a.localeCompare(b);
+  for (let i = 0; i < Math.max(av.length, bv.length); i++) {
+    const diff = (av[i] ?? 0) - (bv[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+function isBetterRelease(candidate: GhRelease, current: GhRelease | null) {
+  if (!current) return true;
+  const versionOrder = compareClipsReleaseTags(
+    candidate.tag_name,
+    current.tag_name,
+  );
+  if (versionOrder !== 0) return versionOrder > 0;
+  return (
+    new Date(candidate.published_at).getTime() >
+    new Date(current.published_at).getTime()
+  );
+}
+
+function hasInstallerAssets(release: GhRelease) {
+  return release.assets.some((asset) => classifyClipsAsset(asset.name) !== "unknown");
 }
 
 let cache: { data: DownloadManifest; ts: number } | null = null;
@@ -142,26 +190,82 @@ async function fetchPage(page: number): Promise<GhRelease[]> {
   return (await res.json()) as GhRelease[];
 }
 
+async function fetchReleaseByTag(tagName: string): Promise<GhRelease | null> {
+  const url = `${RELEASES_URL_BASE}/tags/${encodeURIComponent(tagName)}`;
+  const res = await fetch(url, {
+    headers: {
+      accept: "application/vnd.github+json",
+      "user-agent": "clips-download-page",
+    },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new UpstreamError(
+      res.status,
+      `Upstream release fetch failed (${res.status})`,
+    );
+  }
+  return (await res.json()) as GhRelease;
+}
+
+function isUpdaterManifestLike(value: unknown): value is UpdaterManifest {
+  if (!value || typeof value !== "object") return false;
+  const obj = value as Record<string, unknown>;
+  return typeof obj.version === "string" && obj.version.length > 0;
+}
+
+async function fetchUpdaterManifest(): Promise<UpdaterManifest> {
+  const res = await fetch(UPDATER_MANIFEST_URL, {
+    headers: {
+      accept: "application/json",
+      "user-agent": "clips-download-page",
+    },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) {
+    throw new UpstreamError(
+      res.status,
+      `Upstream updater manifest fetch failed (${res.status})`,
+    );
+  }
+  const json = (await res.json()) as unknown;
+  if (!isUpdaterManifestLike(json)) {
+    throw new Error("Invalid Clips updater manifest");
+  }
+  return json;
+}
+
+async function findUpdaterPinnedRelease(): Promise<GhRelease | null> {
+  try {
+    const manifest = await fetchUpdaterManifest();
+    const version = manifest.version.replace(/^clips-v/, "");
+    const release = await fetchReleaseByTag(`clips-v${version}`);
+    if (!release) return null;
+    if (release.draft || release.prerelease) return null;
+    if (!release.tag_name.startsWith("clips-v")) return null;
+    if (!hasInstallerAssets(release)) return null;
+    return release;
+  } catch {
+    return null;
+  }
+}
+
 async function findLatestClipsRelease(): Promise<GhRelease | null> {
-  // Walk every page (up to MAX_PAGES) and track the release with the
-  // highest `published_at`. We do NOT early-exit on first match: while
-  // GitHub typically returns releases in created_at-descending order,
-  // that's an unstated sort key and it can diverge from published_at
-  // (e.g. a draft published later than a created-later draft). Scanning
-  // all pages bounds our worst-case GitHub calls to MAX_PAGES while
-  // eliminating the ordering assumption entirely.
-  let best: GhRelease | null = null;
+  // Start with the updater's stable pointer so fresh manual installs and
+  // auto-updates agree about the channel's current version. Then scan the
+  // versioned releases as a fallback/guard and prefer the highest semver
+  // tag; a republished older tag must not beat a newer build just because
+  // it has a later `published_at`.
+  let best: GhRelease | null = await findUpdaterPinnedRelease();
   for (let page = 1; page <= MAX_PAGES; page++) {
     const batch = await fetchPage(page);
     if (batch.length === 0) break;
     for (const r of batch) {
       if (r.draft || r.prerelease) continue;
       if (!r.tag_name.startsWith("clips-v")) continue;
-      if (
-        !best ||
-        new Date(r.published_at).getTime() >
-          new Date(best.published_at).getTime()
-      ) {
+      if (!hasInstallerAssets(r)) continue;
+      if (isBetterRelease(r, best)) {
         best = r;
       }
     }
@@ -187,7 +291,7 @@ async function buildManifest(): Promise<DownloadManifest> {
       name: a.name,
       url: a.browser_download_url,
       size: a.size,
-      kind: classifyAsset(a.name),
+      kind: classifyClipsAsset(a.name),
     })),
   };
 }

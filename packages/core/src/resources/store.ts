@@ -141,11 +141,11 @@ This file customizes how the AI agent behaves in this app. Edit it to add your o
 
 ## Skills
 
-You can create skill files to give the agent specialized knowledge for specific tasks. Create resources under \`skills/\` (e.g., \`skills/data-analysis.md\`, \`skills/code-review.md\`) and reference them here:
+You can create skill files to give the agent specialized knowledge for specific tasks. Create resources under \`skills/<name>/SKILL.md\` (e.g., \`skills/data-analysis/SKILL.md\`, \`skills/code-review/SKILL.md\`) and reference them here:
 
 | Skill | Path | Description |
 |-------|------|-------------|
-| *(add your skills here)* | \`skills/example.md\` | What this skill teaches the agent |
+| *(add your skills here)* | \`skills/example/SKILL.md\` | What this skill teaches the agent |
 
 The agent will read the relevant skill file when performing that type of task.
 
@@ -181,6 +181,44 @@ Add people you frequently interact with so the agent can resolve names like "ema
 
 ## Context
 `;
+
+async function migrateDefaultResourcePath({
+  client,
+  owner,
+  fromPath,
+  toPath,
+  defaultContent,
+}: {
+  client: DbExec;
+  owner: string;
+  fromPath: string;
+  toPath: string;
+  defaultContent: string;
+}): Promise<void> {
+  try {
+    const existing = await client.execute({
+      sql: `SELECT id, content FROM resources WHERE owner = ? AND path = ?`,
+      args: [owner, fromPath],
+    });
+    const row = existing.rows?.[0] as
+      | { id: string; content: string }
+      | undefined;
+    if (!row || row.content !== defaultContent) return;
+
+    const destination = await client.execute({
+      sql: `SELECT id FROM resources WHERE owner = ? AND path = ?`,
+      args: [owner, toPath],
+    });
+    if ((destination.rows?.length ?? 0) > 0) return;
+
+    await client.execute({
+      sql: `UPDATE resources SET path = ?, updated_at = ? WHERE id = ?`,
+      args: [toPath, Date.now(), row.id],
+    });
+  } catch {
+    // Best-effort compatibility migration; seeding below still works if it fails.
+  }
+}
 
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
@@ -249,7 +287,15 @@ async function _doEnsureTable(): Promise<void> {
     ],
   });
 
-  // skills/learn-shared.md — shared skill for updating shared LEARNINGS.md
+  await migrateDefaultResourcePath({
+    client,
+    owner: SHARED_OWNER,
+    fromPath: "skills/learn-shared.md",
+    toPath: "skills/learn-shared/SKILL.md",
+    defaultContent: DEFAULT_SKILL_LEARN_SHARED_MD,
+  });
+
+  // skills/learn-shared/SKILL.md — shared skill for updating shared LEARNINGS.md
   const learnSharedSize = Buffer.byteLength(
     DEFAULT_SKILL_LEARN_SHARED_MD,
     "utf8",
@@ -258,7 +304,7 @@ async function _doEnsureTable(): Promise<void> {
     sql: seedSql,
     args: [
       crypto.randomUUID(),
-      "skills/learn-shared.md",
+      "skills/learn-shared/SKILL.md",
       SHARED_OWNER,
       DEFAULT_SKILL_LEARN_SHARED_MD,
       "text/markdown",
@@ -406,13 +452,21 @@ export async function ensurePersonalDefaults(owner: string): Promise<void> {
     ],
   });
 
-  // skills/learn.md — personal skill for updating memory
+  await migrateDefaultResourcePath({
+    client,
+    owner,
+    fromPath: "skills/learn.md",
+    toPath: "skills/learn/SKILL.md",
+    defaultContent: DEFAULT_SKILL_LEARN_MD,
+  });
+
+  // skills/learn/SKILL.md — personal skill for updating memory
   const learnSize = Buffer.byteLength(DEFAULT_SKILL_LEARN_MD, "utf8");
   await client.execute({
     sql: seedSql,
     args: [
       crypto.randomUUID(),
-      "skills/learn.md",
+      "skills/learn/SKILL.md",
       owner,
       DEFAULT_SKILL_LEARN_MD,
       "text/markdown",
