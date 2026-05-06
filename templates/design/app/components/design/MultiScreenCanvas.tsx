@@ -32,6 +32,7 @@ interface MultiScreenCanvasProps {
  */
 const SCREEN_WIDTH = 320;
 const SCREEN_HEIGHT = 640;
+const SCREEN_CARD_HEIGHT = SCREEN_HEIGHT + 26;
 const SCREEN_GAP = 56;
 const SURFACE_PADDING = 240;
 
@@ -44,57 +45,75 @@ export function MultiScreenCanvas({
   const surfaceRef = useRef<HTMLDivElement>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragging = useRef<{ x: number; y: number } | null>(null);
+  const dragCleanup = useRef<(() => void) | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
   // Center the lineup on first mount so the user sees screens, not whitespace.
   useEffect(() => {
     if (!surfaceRef.current || screens.length === 0) return;
     const rect = surfaceRef.current.getBoundingClientRect();
-    const totalWidth =
-      Math.min(screens.length, 3) * SCREEN_WIDTH +
-      (Math.min(screens.length, 3) - 1) * SCREEN_GAP;
+    const columns = Math.min(screens.length, 3);
+    const rows = Math.ceil(screens.length / columns);
+    const scale = zoom / 100;
+    const totalWidth = columns * SCREEN_WIDTH + (columns - 1) * SCREEN_GAP;
+    const totalHeight = rows * SCREEN_CARD_HEIGHT + (rows - 1) * SCREEN_GAP;
+    const visualLeft = Math.max(24, (rect.width - totalWidth * scale) / 2);
+    const visualTop = Math.max(24, (rect.height - totalHeight * scale) / 2);
     setPan({
-      x: Math.max(0, (rect.width - totalWidth) / 2 - SURFACE_PADDING),
-      y: SURFACE_PADDING / 2,
+      x: visualLeft - SURFACE_PADDING * scale,
+      y: visualTop - SURFACE_PADDING * scale,
     });
     // Only on mount or when screen count changes, not on every pan update.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screens.length]);
+  }, [screens.length, zoom]);
+
+  useEffect(() => {
+    return () => {
+      dragCleanup.current?.();
+    };
+  }, []);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      // Middle mouse, or left mouse on the surface background (not on a screen)
+      // Middle mouse, or left mouse anywhere that is not a screen card.
       const target = e.target as HTMLElement;
-      const onBackground = target === e.currentTarget;
-      if (e.button !== 1 && !(e.button === 0 && onBackground)) return;
+      const onScreen = !!target.closest("[data-screen-card]");
+      if (e.button !== 1 && !(e.button === 0 && !onScreen)) return;
       e.preventDefault();
-      dragging.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+      e.stopPropagation();
+      const dragOrigin = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+      dragging.current = dragOrigin;
       setIsDragging(true);
+
+      const handleMouseMove = (ev: MouseEvent) => {
+        if (!dragging.current) return;
+        setPan({
+          x: ev.clientX - dragOrigin.x,
+          y: ev.clientY - dragOrigin.y,
+        });
+      };
+
+      const handleMouseUp = () => {
+        dragging.current = null;
+        setIsDragging(false);
+        window.removeEventListener("mousemove", handleMouseMove);
+        window.removeEventListener("mouseup", handleMouseUp);
+        dragCleanup.current = null;
+      };
+
+      dragCleanup.current?.();
+      dragCleanup.current = handleMouseUp;
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
     },
     [pan],
   );
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!dragging.current) return;
-    setPan({
-      x: e.clientX - dragging.current.x,
-      y: e.clientY - dragging.current.y,
-    });
-  }, []);
-
-  const handleMouseUp = useCallback(() => {
-    dragging.current = null;
-    setIsDragging(false);
-  }, []);
 
   return (
     <div
       ref={surfaceRef}
       className="relative h-full w-full overflow-hidden"
       onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
       style={{ cursor: isDragging ? "grabbing" : "grab" }}
     >
       {/* Dot grid extends past the surface so panning never shows page bg. */}
@@ -163,6 +182,7 @@ function Screen({
       <Tooltip>
         <TooltipTrigger asChild>
           <button
+            data-screen-card
             type="button"
             onClick={(e) => {
               e.stopPropagation();

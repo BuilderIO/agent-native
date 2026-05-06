@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { IconMessage, IconSend, IconX } from "@tabler/icons-react";
 import { agentChat } from "@agent-native/core";
 import { Button } from "@/components/ui/button";
@@ -69,11 +69,13 @@ export function CanvasCommentPins({
   const [pins, setPins] = useState<CanvasPin[]>([]);
   const [activePinId, setActivePinId] = useState<string | null>(null);
   const containerRef = useRef<HTMLElement | null>(null);
+  const [canvasEl, setCanvasEl] = useState<HTMLElement | null>(null);
 
   // Reset pins when the context (slide) changes — they're scoped to one view.
   useEffect(() => {
     setPins([]);
     setActivePinId(null);
+    setCanvasEl(null);
   }, [contextId]);
 
   // Find the canvas container the pins overlay
@@ -81,38 +83,37 @@ export function CanvasCommentPins({
     if (!active) return;
     const findCanvas = () => {
       const el = document.querySelector(canvasSelector) as HTMLElement | null;
-      if (el) containerRef.current = el;
+      if (el) {
+        containerRef.current = el;
+        setCanvasEl(el);
+      }
     };
     findCanvas();
     const t = setTimeout(findCanvas, 50);
     return () => clearTimeout(t);
   }, [active, canvasSelector, contextId]);
 
-  // Click handler — drops a pin where the user clicks the canvas
-  useEffect(() => {
-    if (!active) return;
-    const onClick = (e: MouseEvent) => {
+  const dropPinAt = useCallback(
+    (clientX: number, clientY: number, target?: HTMLElement | null) => {
       const canvas = containerRef.current;
       if (!canvas) return;
-      const target = e.target as HTMLElement;
-
-      // Ignore clicks on UI chrome (the pin popovers themselves)
-      if (target.closest("[data-pin-popover]")) return;
-      if (!canvas.contains(target)) return;
 
       const rect = canvas.getBoundingClientRect();
-      const xPct = ((e.clientX - rect.left) / rect.width) * 100;
-      const yPct = ((e.clientY - rect.top) / rect.height) * 100;
+      const xPct = ((clientX - rect.left) / rect.width) * 100;
+      const yPct = ((clientY - rect.top) / rect.height) * 100;
+      if (xPct < 0 || xPct > 100 || yPct < 0 || yPct > 100) return;
 
-      // Build a best-effort selector for the target element (data-builder-id
-      // is stamped by SlideEditor for slides, similar markers exist in design)
+      // Build a best-effort selector for parent-DOM canvases. For iframe
+      // canvases the transparent overlay captures the click, so target details
+      // are intentionally omitted but the precise position is preserved.
       let targetSelector: string | undefined;
       const builderId = target
-        .closest("[data-builder-id]")
+        ?.closest("[data-builder-id]")
         ?.getAttribute("data-builder-id");
       if (builderId) targetSelector = `[data-builder-id="${builderId}"]`;
 
-      const targetText = target.textContent?.trim().slice(0, 80) || undefined;
+      const targetText =
+        target?.textContent?.trim().slice(0, 80) || undefined;
 
       const newPin: CanvasPin = {
         id: crypto.randomUUID(),
@@ -124,13 +125,32 @@ export function CanvasCommentPins({
       };
       setPins((prev) => [...prev, newPin]);
       setActivePinId(newPin.id);
+    },
+    [],
+  );
+
+  // Click handler — drops a pin where the user clicks a non-iframe canvas.
+  // Iframe canvases cannot bubble clicks to the parent, so the rendered
+  // transparent overlay below handles those reliably.
+  useEffect(() => {
+    if (!active) return;
+    const onClick = (e: MouseEvent) => {
+      const canvas = containerRef.current;
+      if (!canvas) return;
+      const target = e.target as HTMLElement;
+
+      // Ignore clicks on UI chrome (the pin popovers themselves)
+      if (target.closest("[data-pin-popover]")) return;
+      if (target.closest("[data-pin-click-overlay]")) return;
+      if (!canvas.contains(target)) return;
+      dropPinAt(e.clientX, e.clientY, target);
       e.stopPropagation();
       e.preventDefault();
     };
     window.addEventListener("click", onClick, { capture: true });
     return () =>
       window.removeEventListener("click", onClick, { capture: true });
-  }, [active]);
+  }, [active, dropPinAt]);
 
   // Escape closes pin mode
   useEffect(() => {
@@ -182,12 +202,36 @@ export function CanvasCommentPins({
   if (!active && pins.length === 0) return null;
 
   // Render pins as portaled overlays positioned on top of the canvas
-  const canvas = containerRef.current;
+  const canvas = containerRef.current ?? canvasEl;
   if (!canvas) return null;
   const rect = canvas.getBoundingClientRect();
 
   return (
     <>
+      {/* Parent-side click plane. This is what makes iframe canvases commentable:
+          clicks inside an iframe never bubble to the parent document. */}
+      {active && (
+        <div
+          data-pin-click-overlay
+          className="fixed z-[54] cursor-crosshair"
+          style={{
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height,
+          }}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropPinAt(e.clientX, e.clientY);
+          }}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+        />
+      )}
+
       {/* Cursor hint banner — only when pin mode is active */}
       {active && (
         <div
