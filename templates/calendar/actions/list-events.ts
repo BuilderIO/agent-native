@@ -12,6 +12,10 @@ export default defineAction({
   schema: z.object({
     from: z.string().optional().describe("Start date (ISO string)"),
     to: z.string().optional().describe("End date (ISO string)"),
+    query: z
+      .string()
+      .optional()
+      .describe("Case-insensitive title/attendee/organizer search term"),
     overlayEmails: z
       .string()
       .optional()
@@ -77,6 +81,26 @@ export default defineAction({
     );
 
     let events = [...googleEvents, ...icalEvents];
+    if (args.query) {
+      const query = args.query.toLowerCase();
+      events = events.filter((event) => {
+        const haystack = [
+          event.title,
+          event.description,
+          event.location,
+          event.organizer?.email,
+          event.organizer?.displayName,
+          ...(event.attendees ?? []).flatMap((attendee) => [
+            attendee.email,
+            attendee.displayName,
+          ]),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(query);
+      });
+    }
     const fromDate = new Date(from);
     events = events.filter((e) => new Date(e.end) >= fromDate);
     const toDate = new Date(to);

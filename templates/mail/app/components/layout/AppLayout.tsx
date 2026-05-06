@@ -1559,7 +1559,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             setSnoozeOverride(null);
           }}
         />
-      </div>
     </AccountFilterContext.Provider>
   );
 }
@@ -1575,7 +1574,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
  * `useSetPageTitle` / `useSetHeaderActions` from `./HeaderActions`.
  */
 function StandardLayout({ children }: AppLayoutProps) {
-  const isMobile = useIsMobile();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const headerTitle = useHeaderTitle();
@@ -1599,18 +1597,7 @@ function StandardLayout({ children }: AppLayoutProps) {
   })();
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      <AgentSidebar
-        position="right"
-        defaultOpen={!isMobile}
-        emptyStateText="Ask me anything about your emails"
-        suggestions={[
-          "What's in my inbox?",
-          "Summarize my unread emails",
-          "Show me the database schema",
-        ]}
-      >
-        <div className="relative flex flex-1 flex-col overflow-hidden">
+    <div className="relative flex flex-1 flex-col overflow-hidden bg-background">
           {!pageOwnsToolbar && (
             <header className="relative z-20 flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-3">
               <Tooltip>
@@ -1732,8 +1719,6 @@ function StandardLayout({ children }: AppLayoutProps) {
           <InvitationBanner />
 
           <main className="flex flex-1 overflow-hidden">{children}</main>
-        </div>
-      </AgentSidebar>
     </div>
   );
 }

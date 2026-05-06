@@ -879,6 +879,121 @@ async function ensureClipsOrgSettings(
   return created;
 }
 
+async function ensureBuilderOrgSecrets(
+  db: Db,
+  orgId: string,
+  shouldWrite: boolean,
+  opts: {
+    app: string;
+    secrets: BuilderOrgSecrets;
+    encryptionMaterial?: string;
+  },
+): Promise<Pick<
+  EnsureResult,
+  | "builderSecretsProvided"
+  | "builderSecretsSynced"
+  | "builderSecretsTableMissing"
+  | "builderSecretsMissing"
+>> {
+  const existingKeys = new Set<string>();
+  let tableMissing = false;
+  try {
+    const placeholders = BUILDER_ORG_SECRET_KEYS.map(() => "?").join(", ");
+    const existing = await db.execute(
+      `SELECT key
+       FROM app_secrets
+       WHERE scope = 'org'
+         AND scope_id = ?
+         AND key IN (${placeholders})`,
+      [orgId, ...BUILDER_ORG_SECRET_KEYS],
+    );
+    for (const row of existing.rows) {
+      if (row.key) existingKeys.add(String(row.key));
+    }
+  } catch {
+    tableMissing = true;
+  }
+
+  const missing = BUILDER_ORG_SECRET_KEYS.filter(
+    (key) => !existingKeys.has(key),
+  );
+
+  if (shouldWrite) {
+    if (!opts.encryptionMaterial) {
+      throw new Error(
+        `${opts.app}: cannot seed Builder org secrets without SECRETS_ENCRYPTION_KEY or BETTER_AUTH_SECRET`,
+      );
+    }
+    await ensureAppSecretsTable(db);
+    for (const key of BUILDER_ORG_SECRET_KEYS) {
+      await upsertEncryptedAppSecret(db, {
+        scope: "org",
+        scopeId: orgId,
+        key,
+        value: opts.secrets.values[key],
+        encryptionMaterial: opts.encryptionMaterial,
+      });
+    }
+  }
+
+  return {
+    builderSecretsProvided: true,
+    builderSecretsSynced: shouldWrite,
+    builderSecretsTableMissing: tableMissing,
+    builderSecretsMissing: missing,
+  };
+}
+
+async function upsertEncryptedAppSecret(
+  db: Db,
+  args: {
+    scope: "org";
+    scopeId: string;
+    key: string;
+    value: string;
+    encryptionMaterial: string;
+  },
+): Promise<void> {
+  const now = Date.now();
+  const encrypted = encryptSecretValue(args.value, args.encryptionMaterial);
+  const existing = await db.execute(
+    `SELECT id
+     FROM app_secrets
+     WHERE scope = ? AND scope_id = ? AND key = ?
+     LIMIT 1`,
+    [args.scope, args.scopeId, args.key],
+  );
+  const id = existing.rows[0]?.id ? String(existing.rows[0].id) : randomId();
+  if (existing.rows[0]) {
+    await db.execute(
+      `UPDATE app_secrets
+       SET encrypted_value = ?,
+           description = NULL,
+           url_allowlist = NULL,
+           updated_at = ?
+       WHERE id = ?`,
+      [encrypted, now, id],
+    );
+    return;
+  }
+
+  await db.execute(
+    `INSERT INTO app_secrets
+       (id, scope, scope_id, key, encrypted_value, description, url_allowlist, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+    [id, args.scope, args.scopeId, args.key, encrypted, now, now],
+  );
+}
+
+function encryptSecretValue(value: string, material: string): string {
+  const key = crypto.createHash("sha256").update(material).digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const ct = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `v1:${iv.toString("hex")}:${ct.toString("hex")}:${tag.toString("hex")}`;
+}
+
 async function availableOrgId(db: Db): Promise<string> {
   const candidates = [
     ORG_ID_BASE,
@@ -954,6 +1069,15 @@ function printResult(result: EnsureResult, didWrite: boolean): void {
           : "better-auth member present",
     result.clipsSettingsCreated ? "clips settings seeded" : null,
     result.activeOrgSet ? "active org set" : null,
+    result.builderSecretsProvided
+      ? result.builderSecretsSynced
+        ? "builder branch secrets synced"
+        : result.builderSecretsTableMissing
+          ? "builder branch secrets table missing"
+          : result.builderSecretsMissing?.length
+            ? `builder branch secrets missing ${result.builderSecretsMissing.length}`
+            : "builder branch secrets present"
+      : null,
   ].filter(Boolean);
 
   console.log(

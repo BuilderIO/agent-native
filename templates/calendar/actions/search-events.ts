@@ -4,22 +4,23 @@ import { z } from "zod";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 
 export default defineAction({
-  description: "Search calendar events by title",
+  description:
+    "Search calendar events by title, attendees, organizer, location, or description. Defaults to a broad one-year lookback and one-year lookahead so recurring meetings and relationship-frequency questions are not missed.",
   schema: z.object({
     query: z
       .string()
       .optional()
       .describe(
-        "Search term (case-insensitive substring match on title, required)",
+        "Search term (case-insensitive substring match, required)",
       ),
     from: z
       .string()
       .optional()
-      .describe("Start date filter (ISO date, default: 7 days ago)"),
+      .describe("Start date filter (ISO date, default: 1 year ago)"),
     to: z
       .string()
       .optional()
-      .describe("End date filter (ISO date, default: 30 days forward)"),
+      .describe("End date filter (ISO date, default: 1 year forward)"),
   }),
   http: false,
   run: async (args) => {
@@ -30,8 +31,10 @@ export default defineAction({
     if (!query) throw new Error("query is required");
 
     const now = new Date();
-    const defaultFrom = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const defaultTo = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const defaultFrom = new Date(now);
+    defaultFrom.setFullYear(defaultFrom.getFullYear() - 1);
+    const defaultTo = new Date(now);
+    defaultTo.setFullYear(defaultTo.getFullYear() + 1);
 
     const from = args.from
       ? new Date(args.from).toISOString()
@@ -56,9 +59,23 @@ export default defineAction({
     }
 
     const queryLower = query.toLowerCase();
-    const matches = events.filter((e) =>
-      e.title.toLowerCase().includes(queryLower),
-    );
+    const matches = events.filter((e) => {
+      const haystack = [
+        e.title,
+        e.description,
+        e.location,
+        e.organizer?.email,
+        e.organizer?.displayName,
+        ...(e.attendees ?? []).flatMap((attendee) => [
+          attendee.email,
+          attendee.displayName,
+        ]),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(queryLower);
+    });
 
     if (matches.length === 0) {
       return `No events matching "${query}" found.`;

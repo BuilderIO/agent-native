@@ -65,16 +65,16 @@ function isDefaultTitle(title: string | null | undefined): boolean {
   return trimmed === DEFAULT_RECORDING_TITLE;
 }
 
-interface WhisperSegment {
+interface SpeechToTextSegment {
   start: number; // seconds
   end: number; // seconds
   text: string;
 }
 
-interface WhisperResponse {
+interface SpeechToTextResponse {
   text: string;
   language?: string;
-  segments?: WhisperSegment[];
+  segments?: SpeechToTextSegment[];
 }
 
 type TranscriptionProvider = {
@@ -182,7 +182,8 @@ async function resolveKey(
 async function pickProvider(
   userEmail: string | null,
 ): Promise<TranscriptionProvider | null> {
-  // Prefer Groq — same Whisper model family, ~10x faster, OpenAI-compatible.
+  // Prefer Groq when Builder/native are unavailable — it is the faster
+  // OpenAI-compatible speech-to-text fallback.
   const groqKey = await resolveKey("GROQ_API_KEY", userEmail);
   if (groqKey) {
     return {
@@ -460,10 +461,8 @@ export default defineAction({
         console.log(
           `[clips] No cloud provider configured but native transcript exists for ${args.recordingId} — keeping it`,
         );
-        // Still queue a title-generation delegation — the native transcript is
-        // good enough for the agent to produce a real title even without
-        // Whisper. This covers recordings where no cloud transcript API key is
-        // configured.
+        // Still queue title generation — the native transcript is good enough
+        // to produce a real title even without a cloud speech-to-text key.
         const [recForTitle] = await db
           .select({ title: schema.recordings.title })
           .from(schema.recordings)
@@ -620,7 +619,7 @@ export default defineAction({
             : `${provider.name} transcription error ${res.status}: ${text.slice(0, 300)}`,
         );
       }
-      const data = (await res.json()) as WhisperResponse;
+      const data = (await res.json()) as SpeechToTextResponse;
 
       const segments = (data.segments ?? []).map((s) => ({
         startMs: Math.max(0, Math.round(s.start * 1000)),
