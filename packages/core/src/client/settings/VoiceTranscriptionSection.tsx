@@ -817,6 +817,19 @@ interface VersionStatusPayload {
   reason?: string;
 }
 
+// Hides the `@tauri-apps/api/core` specifier from Vite's static import-analysis
+// (Vite 8 ignores `/* @vite-ignore */` on string literals and tries to resolve
+// the path, which fails because the dep only exists inside the desktop shell's
+// node_modules). Using a variable makes the import opaque to the bundler; it
+// only resolves at runtime, gated by `__TAURI_INTERNALS__`.
+type TauriCore = {
+  invoke: (cmd: string, args?: unknown) => Promise<unknown>;
+};
+function loadTauriCore(): Promise<TauriCore> {
+  const mod = "@tauri-apps/api/core";
+  return import(/* @vite-ignore */ mod) as Promise<TauriCore>;
+}
+
 function SystemAudioStatus() {
   const [state, setState] = useState<SystemAudioState | null>(null);
 
@@ -827,17 +840,7 @@ function SystemAudioStatus() {
       .__TAURI_INTERNALS__;
     if (!tauri) return; // Web users: render nothing.
     setState({ kind: "loading" });
-    // Dynamic import keeps `@tauri-apps/api` out of the web bundle's static
-    // graph; it is only resolved inside the desktop shell where the dep is
-    // present at build time.
-    // Cast to suppress missing types — `@tauri-apps/api` is a desktop-shell
-    // dep, not a static dep of `packages/core`. Resolves at runtime only when
-    // we're inside Tauri (gated by the `__TAURI_INTERNALS__` check above).
-    (
-      import(/* @vite-ignore */ "@tauri-apps/api/core" as string) as Promise<{
-        invoke: (cmd: string, args?: unknown) => Promise<unknown>;
-      }>
-    )
+    loadTauriCore()
       .then(async ({ invoke }) => {
         try {
           const status = (await invoke("system_audio_version_status")) as
@@ -906,14 +909,7 @@ function SystemAudioStatus() {
     const tauri = (window as unknown as { __TAURI_INTERNALS__?: unknown })
       .__TAURI_INTERNALS__;
     if (!tauri) return;
-    // Cast to suppress missing types — `@tauri-apps/api` is a desktop-shell
-    // dep, not a static dep of `packages/core`. Resolves at runtime only when
-    // we're inside Tauri (gated by the `__TAURI_INTERNALS__` check above).
-    (
-      import(/* @vite-ignore */ "@tauri-apps/api/core" as string) as Promise<{
-        invoke: (cmd: string, args?: unknown) => Promise<unknown>;
-      }>
-    )
+    loadTauriCore()
       .then(({ invoke }) => invoke("system_audio_open_privacy_settings"))
       .catch(() => {
         // Older desktop builds without this command — no-op.
