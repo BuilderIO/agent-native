@@ -24,6 +24,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useUpdateEvent, useDeleteEvent } from "@/hooks/use-events";
+import { getEventDisplayColor } from "@/lib/event-colors";
+import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { toast } from "sonner";
 import type { CalendarEvent } from "@shared/api";
 
@@ -32,11 +34,6 @@ interface EventDialogProps {
   open: boolean;
   onClose: () => void;
   onDelete?: (eventId: string) => void;
-}
-
-function getEventColor(event: CalendarEvent) {
-  if (event.color) return event.color;
-  return event.source === "google" ? "#5085C0" : null;
 }
 
 export function EventDialog({
@@ -54,6 +51,7 @@ export function EventDialog({
 
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
+  const { prefs } = useViewPreferences();
 
   useEffect(() => {
     if (event) {
@@ -112,7 +110,7 @@ export function EventDialog({
   if (!event) return null;
 
   const isGoogle = event.source === "google";
-  const color = getEventColor(event);
+  const color = getEventDisplayColor(event, prefs);
 
   function handleSave() {
     if (!event) return;

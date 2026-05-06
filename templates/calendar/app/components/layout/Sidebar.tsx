@@ -55,6 +55,11 @@ import {
 } from "@agent-native/core/client";
 import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
 import {
+  CALENDAR_COLORS,
+  type CalendarColorMode,
+} from "@/lib/calendar-view-preferences";
+import { useViewPreferences } from "@/hooks/use-view-preferences";
+import {
   useOverlayPeople,
   useRemoveOverlayPerson,
   useUpdateOverlayPersonColor,
@@ -326,19 +331,6 @@ function GoogleConnectSidebarButton() {
   );
 }
 
-const CALENDAR_COLORS = [
-  "#5B9BD5", // blue
-  "#7C9C6B", // sage
-  "#B07CC6", // purple
-  "#D4A053", // amber
-  "#CD6B6B", // coral
-  "#4ECDC4", // teal
-  "#8B8FA3", // slate
-];
-
-const COLOR_MODE_KEY = "calendar-color-mode";
-const CALENDAR_COLOR_KEY = "calendar-single-color";
-
 /** A conic-gradient dot indicating "multiple colors" (by-type mode) */
 function MultiColorDot({ className }: { className?: string }) {
   const colors = Object.values(EVENT_CATEGORY_COLORS).filter((_, i) => i < 4);
@@ -394,24 +386,12 @@ function GoogleAccountsSection({
   accounts: Array<{ email: string }>;
 }) {
   const { toggleHiddenCalendar, isHiddenCalendar } = useCalendarContext();
+  const {
+    prefs: { colorMode, singleColor },
+    update: updateViewPreferences,
+  } = useViewPreferences();
   const [wantAddAccount, setWantAddAccount] = useState(false);
   const addAccountUrl = useGoogleAddAccountUrl(wantAddAccount);
-  const [colorMode, setColorMode] = useState<"multi" | "single">(() => {
-    try {
-      return (
-        (localStorage.getItem(COLOR_MODE_KEY) as "multi" | "single") || "multi"
-      );
-    } catch {
-      return "multi";
-    }
-  });
-  const [singleColor, setSingleColor] = useState(() => {
-    try {
-      return localStorage.getItem(CALENDAR_COLOR_KEY) || CALENDAR_COLORS[0];
-    } catch {
-      return CALENDAR_COLORS[0];
-    }
-  });
 
   useEffect(() => {
     if (!wantAddAccount || !addAccountUrl.data?.url) return;
@@ -420,19 +400,11 @@ function GoogleAccountsSection({
   }, [wantAddAccount, addAccountUrl.data]);
 
   function handlePickColor(color: string) {
-    setSingleColor(color);
-    setColorMode("single");
-    try {
-      localStorage.setItem(CALENDAR_COLOR_KEY, color);
-      localStorage.setItem(COLOR_MODE_KEY, "single");
-    } catch {}
+    updateViewPreferences({ colorMode: "single", singleColor: color });
   }
 
-  function handleSetMulti() {
-    setColorMode("multi");
-    try {
-      localStorage.setItem(COLOR_MODE_KEY, "multi");
-    } catch {}
+  function handleSetColorMode(mode: CalendarColorMode) {
+    updateViewPreferences({ colorMode: mode });
   }
 
   return (
@@ -508,7 +480,7 @@ function GoogleAccountsSection({
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      onClick={handleSetMulti}
+                      onClick={() => handleSetColorMode("multi")}
                       className="relative flex h-5 w-5 items-center justify-center rounded-full"
                     >
                       <MultiColorDot className="h-5 w-5" />
