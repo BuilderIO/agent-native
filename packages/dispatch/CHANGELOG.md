@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.2.6
+
+### Patch Changes
+
+- 2e99cca: Fix workspace scaffolding for the Design template and clarify local Dispatch setup.
+
 ## 0.2.5
 
 ### Patch Changes
