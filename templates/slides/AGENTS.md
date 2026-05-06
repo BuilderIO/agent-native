@@ -282,8 +282,6 @@ For image-generation prompts, create actual image assets with `generate-image`; 
 
 When `IMAGES_A2A_URL` is configured, `generate-image` delegates to the Images app over A2A before falling back to the direct Gemini/OpenAI provider path. Use this path for brand/library-based slide imagery; keep the returned `assetId`, `runId`, `previewUrl`, `downloadUrl`, and `embedPath` with the slide so follow-up feedback can call the Images agent's `refine-image` flow by asset ID. See `.agents/skills/image-generation-via-a2a/SKILL.md`.
 
-**A2A delegation to the Images app:** when `IMAGES_A2A_URL` is configured (i.e. the workspace has the agent-native Images app mounted), `generate-image` delegates to it automatically so generations are grounded in the user's brand library. Slides falls through to the direct-Gemini path when A2A is not configured. See the `image-generation-via-a2a` skill for the contract, multi-slide parallel patterns, and iteration via `refine-image`.
-
 ### Design Systems
 
 | Action                      | Args                                                              | Purpose                            |
