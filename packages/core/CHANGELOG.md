@@ -1,5 +1,18 @@
 # @agent-native/core
 
+## 0.12.0
+
+### Minor Changes
+
+- 14f7b63: Add agent-callable extension list, hide, unhide, and delete actions so chat can manage visible extensions without raw SQL.
+
+### Patch Changes
+
+- 14f7b63: Tighten generic chat document uploads and make restored chat threads settle at the bottom after refresh.
+- 14f7b63: Collapse the extension sidebar list to three items by default.
+- 14f7b63: Clarify personal versus organization MCP server scope guidance in the connection UI.
+- 14f7b63: Create extensions with private visibility even when the creator belongs to an organization.
+
 ## 0.11.4
 
 ### Patch Changes
