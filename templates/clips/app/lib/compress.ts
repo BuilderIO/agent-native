@@ -284,12 +284,16 @@ export async function compressBlobIfTooLarge(
   ffmpeg.on("progress", handleProgress);
 
   // Internal AbortController owns the 5-minute hard cap; if the caller
-  // passed in their own signal we forward its abort too.
+  // passed in their own signal we forward its abort too. We track whether
+  // the timeout has fired separately from the external signal so the catch
+  // path below can tell timeout vs external-cancel vs ffmpeg-crash apart
+  // and throw a clearly-named error each caller can branch on.
   const internalAbort = new AbortController();
-  const timeoutId = setTimeout(
-    () => internalAbort.abort(new Error("Compression timed out after 5 min")),
-    COMPRESSION_TIMEOUT_MS,
-  );
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    internalAbort.abort(new Error("Compression timed out after 5 minutes"));
+  }, COMPRESSION_TIMEOUT_MS);
   let externalAbortHandler: (() => void) | null = null;
   if (opts.signal) {
     if (opts.signal.aborted) {
@@ -363,12 +367,17 @@ export async function compressBlobIfTooLarge(
     } catch {
       // ignore
     }
-    // External cancellation (e.g. user clicked Cancel) — propagate so the
-    // caller bails out instead of falling back to uploading the original
-    // (un-compressed) blob behind the user's back. Internal timeouts and
-    // genuine ffmpeg failures still fall through to the safe-upload
-    // fallback below, with `onError` capturing the diagnostic context.
-    if (opts.signal?.aborted) {
+    // Any abort — internal 5-minute timeout OR external cancel — leaves
+    // the ffmpeg.wasm worker in an undefined state per ffmpeg.wasm docs:
+    // once an exec/writeFile is aborted, subsequent operations on the same
+    // instance silently misbehave (corrupt outputs, stuck progress, etc.)
+    // until the tab reloads. So treat both as requiring `terminate()` +
+    // `resetFfmpegInstance()` — checking only `opts.signal?.aborted` would
+    // skip cleanup on the timeout path and poison the shared instance for
+    // every subsequent compress / export op in this tab.
+    const externallyAborted = opts.signal?.aborted ?? false;
+    const anyAborted = internalAbort.signal.aborted || externallyAborted;
+    if (anyAborted) {
       // Terminate the wasm worker — once an exec/writeFile is aborted the
       // instance state is undefined per ffmpeg.wasm docs, so the next call
       // must re-load. resetFfmpegInstance() drops the cached promise.
@@ -378,14 +387,31 @@ export async function compressBlobIfTooLarge(
         // ignore — terminate is best effort.
       }
       resetFfmpegInstance();
-      throw err instanceof Error
-        ? err
-        : new Error(
-            typeof opts.signal.reason === "string"
-              ? opts.signal.reason
-              : "Compression aborted",
-          );
+      // Throw with a name the caller can branch on so the UI can
+      // distinguish "user cancelled" from "compression timed out" from
+      // "ffmpeg crashed" without string-matching error messages.
+      //  - External cancel: AbortError, "Compression cancelled"
+      //  - Internal timeout: TimeoutError, "Compression timed out…"
+      //  - Ffmpeg crash that happened during/after an unrelated abort:
+      //    re-throw original (rare — would mean the worker died on its
+      //    own and an abort fired in the same tick).
+      if (externallyAborted) {
+        const cancelErr = new Error("Compression cancelled");
+        cancelErr.name = "AbortError";
+        throw cancelErr;
+      }
+      if (timedOut) {
+        const timeoutErr = new Error("Compression timed out after 5 minutes");
+        timeoutErr.name = "TimeoutError";
+        throw timeoutErr;
+      }
+      // Internal abort fired but neither timeout nor external — should be
+      // unreachable in practice; surface the original.
+      throw err instanceof Error ? err : new Error(message);
     }
+    // Genuine ffmpeg failure (encoder error, OOM, unsupported source, …):
+    // capture diagnostics for Sentry and fall through to the safe-upload
+    // fallback so the user's recording still has a chance.
     opts.onError?.({
       message,
       stderrTail,

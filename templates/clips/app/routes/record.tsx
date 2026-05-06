@@ -681,6 +681,21 @@ export default function RecordRoute() {
       }, 50);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed";
+      // Distinguish user-initiated cancel from real failure. When the user
+      // clicks Cancel mid-compression, engine.cancel() aborts the in-flight
+      // compression pass; the still-pending engine.stop() above then throws
+      // an AbortError. The recording was intentionally discarded — surfacing
+      // it as "Upload failed" is misleading (and was the original bug). So
+      // skip the error toast on the cancel path; doCancel() owns the UI
+      // teardown. Anything else (real upload failures, compression timeouts
+      // — which now throw with name === "TimeoutError" — network errors)
+      // keeps the existing error toast.
+      const isCancel =
+        err instanceof Error &&
+        (err.name === "AbortError" || /cancel/i.test(err.message));
+      if (isCancel) {
+        return;
+      }
       fetch(pending.abortUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
