@@ -125,6 +125,7 @@ export default defineAction({
       calEvent.id = `google-${result.id}`;
       calEvent.googleEventId = result.id;
     }
+    if (result.htmlLink) calEvent.htmlLink = result.htmlLink;
     if (result.meetLink) calEvent.hangoutLink = result.meetLink;
     if (result.conferenceData) calEvent.conferenceData = result.conferenceData;
     if (zoomMeetingLink) calEvent.meetingLink = zoomMeetingLink;

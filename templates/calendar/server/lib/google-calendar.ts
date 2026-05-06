@@ -417,6 +417,7 @@ export async function listEvents(
             allDay: !event.start?.dateTime,
             source: "google" as const,
             googleEventId: event.id || undefined,
+            htmlLink: event.htmlLink || undefined,
             accountEmail: email,
             responseStatus: selfAttendee?.responseStatus,
             attendees: event.attendees?.map((a: any) => ({
@@ -527,6 +528,7 @@ export async function listOverlayEvents(
           allDay: !event.start?.dateTime,
           source: "google" as const,
           googleEventId: event.id || undefined,
+          htmlLink: event.htmlLink || undefined,
           accountEmail: undefined,
           overlayEmail,
           createdAt: event.created || new Date().toISOString(),
@@ -574,6 +576,7 @@ export async function getEvent(
     allDay: !event.start?.dateTime,
     source: "google",
     googleEventId: event.id || undefined,
+    htmlLink: event.htmlLink || undefined,
     accountEmail,
     responseStatus: selfAttendee?.responseStatus || undefined,
     attendees: event.attendees?.map((a: any) => ({
@@ -621,6 +624,7 @@ export async function createEvent(
   },
 ): Promise<{
   id?: string;
+  htmlLink?: string;
   meetLink?: string;
   conferenceData?: CalendarEvent["conferenceData"];
 }> {
@@ -664,6 +668,7 @@ export async function createEvent(
 
   return {
     id: response.id || undefined,
+    htmlLink: response.htmlLink || undefined,
     meetLink: response.hangoutLink || undefined,
     conferenceData: mapConferenceData(response.conferenceData),
   };
@@ -674,6 +679,7 @@ export async function updateEvent(
   event: Partial<CalendarEvent>,
   options?: { sendUpdates?: "all" | "none"; addGoogleMeet?: boolean },
 ): Promise<{
+  htmlLink?: string;
   meetLink?: string;
   conferenceData?: CalendarEvent["conferenceData"];
 }> {
@@ -725,6 +731,7 @@ export async function updateEvent(
   );
 
   return {
+    htmlLink: response?.htmlLink || undefined,
     meetLink: response?.hangoutLink || undefined,
     conferenceData: mapConferenceData(response?.conferenceData),
   };

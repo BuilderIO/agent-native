@@ -8,6 +8,8 @@ export interface CalendarEvent {
   allDay: boolean;
   source: "local" | "google" | "ical";
   googleEventId?: string;
+  /** Absolute Google Calendar web URL for Google events */
+  htmlLink?: string;
   accountEmail?: string;
   /** Set when this event belongs to an overlaid person's calendar */
   overlayEmail?: string;

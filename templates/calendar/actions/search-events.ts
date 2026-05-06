@@ -88,6 +88,7 @@ export default defineAction({
       location: e.location || undefined,
       accountEmail: e.accountEmail || undefined,
       googleEventId: e.googleEventId || undefined,
+      htmlLink: e.htmlLink || undefined,
       attendees: e.attendees || [],
       conferenceData: e.conferenceData || undefined,
       hangoutLink: e.hangoutLink || undefined,
