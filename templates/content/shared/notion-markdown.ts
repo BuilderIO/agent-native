@@ -624,10 +624,7 @@ function convertNfmBlocks(text: string): string {
         /^\d+\.\s/.test(content) ||
         /^\[[ x]]\s/i.test(content)
       ) {
-        if (
-          quoteListBaseIndent !== null &&
-          depth >= quoteListBaseIndent
-        ) {
+        if (quoteListBaseIndent !== null && depth >= quoteListBaseIndent) {
           const listDepth = depth - quoteListBaseIndent;
           result.push(
             `${"> ".repeat(quoteListBaseIndent)}${"    ".repeat(listDepth)}${content}`,

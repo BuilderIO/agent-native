@@ -77,12 +77,7 @@ export const EmptyLineParagraph = Node.create({
             return;
           }
 
-          defaultMarkdownSerializer.nodes.paragraph(
-            state,
-            node,
-            parent,
-            index,
-          );
+          defaultMarkdownSerializer.nodes.paragraph(state, node, parent, index);
         },
         parse: {
           updateDOM(element: HTMLElement) {

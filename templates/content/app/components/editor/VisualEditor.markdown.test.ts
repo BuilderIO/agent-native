@@ -32,9 +32,7 @@ function createMarkdownEditor(content: string) {
 
 describe("VisualEditor markdown round-tripping", () => {
   it("preserves intentional empty paragraphs through the real TipTap serializer", () => {
-    const editor = createMarkdownEditor(
-      "A\n<empty-block/>\n<empty-block/>\nB",
-    );
+    const editor = createMarkdownEditor("A\n<empty-block/>\n<empty-block/>\nB");
 
     try {
       const markdown = (editor.storage as any).markdown.getMarkdown();

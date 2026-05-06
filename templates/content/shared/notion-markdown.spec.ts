@@ -96,9 +96,7 @@ describe("parseNfmForEditor", () => {
       );
 
       expect(result).toContain("> - [notion doc](https://example.com)");
-      expect(result).toContain(
-        "> - access: amplitude, fullstory, sigma, jira",
-      );
+      expect(result).toContain("> - access: amplitude, fullstory, sigma, jira");
       expect(result).not.toMatch(/^ {4,}- /m);
     });
 

@@ -15,7 +15,10 @@ import {
   resolveNotionMarkdownResponse,
   type NotionPageMarkdown,
 } from "./notion";
-import { normalizeNfmForStorage } from "../../shared/notion-markdown";
+import {
+  normalizeNfmForStorage,
+  parseNfmForEditor,
+} from "../../shared/notion-markdown";
 
 describe("normalizeNfmForStorage", () => {
   it("upgrades legacy toggle marker syntax into details blocks", () => {
@@ -117,5 +120,39 @@ describe("resolveNotionMarkdownResponse", () => {
     expect(result.warnings).toContain(
       "One Notion block is still preserved as <unknown /> because it is unsupported or inaccessible.",
     );
+  });
+
+  it("hydrates indented list subtrees without creating code-block indentation", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          object: "page_markdown",
+          id: "child-block",
+          markdown: "- notion doc\n- access: amplitude, fullstory, sigma, jira",
+          truncated: false,
+          unknown_block_ids: [],
+        } satisfies NotionPageMarkdown),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    const result = await resolveNotionMarkdownResponse("token", {
+      object: "page_markdown",
+      id: "page-id",
+      markdown: 'michael onboarding\n\t<unknown id="child-block"/>',
+      truncated: false,
+      unknown_block_ids: ["child-block"],
+    });
+    const editorMarkdown = parseNfmForEditor(result.markdown);
+
+    expect(result.markdown).toContain("\t- notion doc");
+    expect(editorMarkdown).toContain("> - notion doc");
+    expect(editorMarkdown).toContain(
+      "> - access: amplitude, fullstory, sigma, jira",
+    );
+    expect(editorMarkdown).not.toMatch(/^ {4,}- /m);
   });
 });
