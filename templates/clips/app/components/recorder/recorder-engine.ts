@@ -172,6 +172,12 @@ export class RecorderEngine {
    * completion against a recording the user already discarded.
    */
   private compressionAbort: AbortController | null = null;
+  /**
+   * Aborts in-flight chunk uploads (queueChunk + the non-compression finalize
+   * sentinel) when cancel() runs, so a Cancel during upload doesn't let the
+   * fetch quietly complete and the recording finalise server-side.
+   */
+  private uploadAbort: AbortController | null = null;
 
   private state: RecorderState = "idle";
 
@@ -436,6 +442,7 @@ export class RecorderEngine {
     this.uploadFailure = null;
     this.localChunks = [];
     this.totalRecordedBytes = 0;
+    this.uploadAbort = new AbortController();
 
     this.recorder.addEventListener("dataavailable", (event) => {
       const blob = event.data;
@@ -629,6 +636,7 @@ export class RecorderEngine {
             height: dimensions.height,
             hasAudio,
             hasCamera,
+            signal: this.uploadAbort?.signal,
           },
         );
       }
@@ -897,6 +905,13 @@ export class RecorderEngine {
       this.compressionAbort.abort(cancelErr);
       this.compressionAbort = null;
     }
+    // Abort streaming-chunk uploads + the non-compression finalize sentinel.
+    if (this.uploadAbort) {
+      const cancelErr = new Error("Recording cancelled");
+      cancelErr.name = "AbortError";
+      this.uploadAbort.abort(cancelErr);
+      this.uploadAbort = null;
+    }
     this.cleanupTracks();
     this.chunkIndex = 0;
     this.uploadFailure = null;
@@ -962,10 +977,12 @@ export class RecorderEngine {
   private queueChunk(blob: Blob, index: number, isFinal: boolean): void {
     this.chunkQueue = this.chunkQueue.then(async () => {
       if (this.uploadFailure) return;
+      if (this.uploadAbort?.signal.aborted) return;
       try {
         await this.uploadChunk(blob, index, {
           isFinal,
           mimeType: this.mimeType,
+          signal: this.uploadAbort?.signal,
         });
         this.opts.onChunk?.({
           index,
@@ -974,6 +991,8 @@ export class RecorderEngine {
         });
       } catch (err) {
         const failure = err instanceof Error ? err : new Error(String(err));
+        // User-initiated cancel — cancel() already runs the abortUrl path.
+        if (failure.name === "AbortError") return;
         await this.markUploadFailed(failure);
         this.emitError(failure);
       }
@@ -984,6 +1003,7 @@ export class RecorderEngine {
     if (!this.uploadFailure) {
       this.uploadFailure = err;
     }
+    if (!this.opts.abortUrl) return;
     try {
       await fetch(this.opts.abortUrl, {
         method: "POST",

@@ -223,6 +223,11 @@ export function CameraVisualizer({
         video.srcObject = stream;
         await video.play().catch(() => {});
       }
+      // Re-check after play()'s await so a newer startTest can't be clobbered.
+      if (runIdRef.current !== runId) {
+        stopCurrent();
+        return;
+      }
       setStatus("live");
       onStatusChange?.("live", { error: null });
     } catch (err) {
