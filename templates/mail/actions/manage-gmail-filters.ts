@@ -51,17 +51,29 @@ const schema = z.object({
   account: z
     .string()
     .optional()
-    .describe("Connected Gmail account email. Required for create when multiple accounts are connected."),
-  id: z.string().optional().describe("Gmail filter ID for get, replace, or delete"),
+    .describe(
+      "Connected Gmail account email. Required for create when multiple accounts are connected.",
+    ),
+  id: z
+    .string()
+    .optional()
+    .describe("Gmail filter ID for get, replace, or delete"),
   from: z.string().optional().describe("Match sender"),
   to: z.string().optional().describe("Match recipient"),
   subject: z.string().optional().describe("Match subject text"),
   query: z
     .string()
     .optional()
-    .describe("Gmail advanced search query, such as from:alerts@example.com older_than:7d"),
-  negatedQuery: z.string().optional().describe("Gmail search query that must not match"),
-  hasAttachment: optionalBoolean.describe("Only match messages with attachments"),
+    .describe(
+      "Gmail advanced search query, such as from:alerts@example.com older_than:7d",
+    ),
+  negatedQuery: z
+    .string()
+    .optional()
+    .describe("Gmail search query that must not match"),
+  hasAttachment: optionalBoolean.describe(
+    "Only match messages with attachments",
+  ),
   excludeChats: optionalBoolean.describe("Exclude chat messages"),
   size: z.coerce
     .number()
@@ -80,18 +92,26 @@ const schema = z.object({
   replaceCriteria: optionalBoolean.describe(
     "For replace, rebuild criteria from provided fields instead of merging into the existing criteria",
   ),
-  archive: optionalBoolean.describe("Remove INBOX so matching messages skip the inbox"),
+  archive: optionalBoolean.describe(
+    "Remove INBOX so matching messages skip the inbox",
+  ),
   markRead: optionalBoolean.describe("Remove UNREAD from matching messages"),
   neverSpam: optionalBoolean.describe("Remove SPAM from matching messages"),
-  neverImportant: optionalBoolean.describe("Remove IMPORTANT from matching messages"),
+  neverImportant: optionalBoolean.describe(
+    "Remove IMPORTANT from matching messages",
+  ),
   important: optionalBoolean.describe("Add IMPORTANT to matching messages"),
   starred: optionalBoolean.describe("Add STARRED to matching messages"),
   trash: optionalBoolean.describe("Add TRASH to matching messages"),
   label: z
     .string()
     .optional()
-    .describe("Label name or ID to apply. One user label is allowed per Gmail filter."),
-  createLabel: optionalBoolean.describe("Create the label if it does not exist"),
+    .describe(
+      "Label name or ID to apply. One user label is allowed per Gmail filter.",
+    ),
+  createLabel: optionalBoolean.describe(
+    "Create the label if it does not exist",
+  ),
   addLabelIds: z
     .string()
     .optional()
@@ -219,7 +239,9 @@ function addLabel(action: GmailFilterAction, labelId: string): void {
 }
 
 function removeAddedLabel(action: GmailFilterAction, labelId: string): void {
-  action.addLabelIds = (action.addLabelIds ?? []).filter((id) => id !== labelId);
+  action.addLabelIds = (action.addLabelIds ?? []).filter(
+    (id) => id !== labelId,
+  );
 }
 
 function removeLabel(action: GmailFilterAction, labelId: string): void {
@@ -252,12 +274,18 @@ function applyAddFlag(
   if (value === false) removeAddedLabel(action, labelId);
 }
 
-function labelDisplayName(labelId: string, labels: Map<string, GmailLabelInfo>) {
+function labelDisplayName(
+  labelId: string,
+  labels: Map<string, GmailLabelInfo>,
+) {
   return labels.get(labelId)?.name ?? SYSTEM_LABEL_NAMES[labelId] ?? labelId;
 }
 
 function labelType(labelId: string, labels: Map<string, GmailLabelInfo>) {
-  return labels.get(labelId)?.type ?? (SYSTEM_LABEL_NAMES[labelId] ? "system" : undefined);
+  return (
+    labels.get(labelId)?.type ??
+    (SYSTEM_LABEL_NAMES[labelId] ? "system" : undefined)
+  );
 }
 
 function summarizeCriteria(criteria: GmailFilterCriteria = {}): string {
@@ -301,14 +329,19 @@ function summarizeAction(
   return parts.join(", ") || "No action";
 }
 
-function buildCriteria(args: Args, existing?: GmailFilterCriteria): GmailFilterCriteria {
+function buildCriteria(
+  args: Args,
+  existing?: GmailFilterCriteria,
+): GmailFilterCriteria {
   if (args.criteriaJson) {
     return cleanCriteria(
       parseJson(args.criteriaJson, "criteriaJson", criteriaSchema),
     );
   }
 
-  const next: GmailFilterCriteria = { ...(!args.replaceCriteria && existing ? existing : {}) };
+  const next: GmailFilterCriteria = {
+    ...(!args.replaceCriteria && existing ? existing : {}),
+  };
   for (const key of CRITERIA_KEYS) {
     const value = args[key];
     if (value === undefined) continue;
@@ -385,9 +418,13 @@ async function buildAction(
   }
 
   const next: GmailFilterAction = {
-    addLabelIds: [...(!args.replaceAction && existing ? existing.addLabelIds ?? [] : [])],
+    addLabelIds: [
+      ...(!args.replaceAction && existing ? (existing.addLabelIds ?? []) : []),
+    ],
     removeLabelIds: [
-      ...(!args.replaceAction && existing ? existing.removeLabelIds ?? [] : []),
+      ...(!args.replaceAction && existing
+        ? (existing.removeLabelIds ?? [])
+        : []),
     ],
     forward: !args.replaceAction ? existing?.forward : undefined,
   };
@@ -506,7 +543,8 @@ async function findFilterTarget(
     if (found) matches.push({ account: candidate, filter: found });
   }
 
-  if (matches.length === 0) throw new Error(`Gmail filter ${id} was not found.`);
+  if (matches.length === 0)
+    throw new Error(`Gmail filter ${id} was not found.`);
   if (matches.length > 1) {
     throw new Error(
       `Filter ID ${id} exists in multiple accounts. Pass account=<email>. Matches: ${matches.map((m) => m.account.email).join(", ")}`,
@@ -630,10 +668,14 @@ export default defineAction({
       );
 
       if (isEmptyObject(criteria)) {
-        throw new Error("The replacement filter must have at least one criterion.");
+        throw new Error(
+          "The replacement filter must have at least one criterion.",
+        );
       }
       if (isEmptyObject(action)) {
-        throw new Error("The replacement filter must have at least one action.");
+        throw new Error(
+          "The replacement filter must have at least one action.",
+        );
       }
 
       const created = await gmailCreateFilter(target.account.accessToken, {

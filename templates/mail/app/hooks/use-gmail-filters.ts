@@ -55,7 +55,9 @@ async function runManageGmailFilters<T>(
   );
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new Error(body?.error || body?.message || `Request failed (${res.status})`);
+    throw new Error(
+      body?.error || body?.message || `Request failed (${res.status})`,
+    );
   }
   return res.json();
 }
@@ -76,7 +78,8 @@ export function useCreateGmailFilter() {
         ...input,
         operation: "create",
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["gmail-filters"] }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["gmail-filters"] }),
   });
 }
 
@@ -88,7 +91,8 @@ export function useReplaceGmailFilter() {
         ...input,
         operation: "replace",
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["gmail-filters"] }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["gmail-filters"] }),
   });
 }
 
@@ -100,6 +104,7 @@ export function useDeleteGmailFilter() {
         ...input,
         operation: "delete",
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["gmail-filters"] }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["gmail-filters"] }),
   });
 }

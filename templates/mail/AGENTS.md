@@ -152,6 +152,17 @@ All data is stored in SQL via Drizzle ORM (SQLite, Postgres, Turso, etc. via `DA
 
 Google OAuth tokens are stored via `@agent-native/core/oauth-tokens` (provider: "google").
 
+### Gmail Filters
+
+Native Gmail filters are managed directly through the Gmail API with `pnpm action manage-gmail-filters`. Use them instead of AI automations when the requested rule is simple and deterministic: sender, recipient, subject, Gmail search query, attachment/size criteria, and actions like archive, mark read, apply one label, star, trash, important, never spam/important, or forward to a verified address.
+
+- `manage-gmail-filters --operation=create --from=alerts@example.com --archive=true` creates a server-side Gmail rule that skips the inbox for matching future mail.
+- `manage-gmail-filters --operation=list` lists filters across connected accounts.
+- `manage-gmail-filters --operation=replace --id=<filter-id> ...` edits by creating a replacement filter and deleting the old one because Gmail does not expose an update/patch endpoint for filters.
+- Use `manage-automations` only when the condition requires AI reasoning, such as "newsletters", "angry customer", "sales lead", or anything that cannot be expressed as a Gmail search/filter rule.
+
+Gmail filters apply to individual messages, not whole threads. The required OAuth scope is `https://www.googleapis.com/auth/gmail.settings.basic`; older connected accounts may need to reconnect before filter operations work.
+
 ### Email tracking
 
 Sent emails get open + link-click tracking injected automatically. Stats appear under each sent message in the thread view.
@@ -394,17 +405,18 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 
 ### Actions
 
-| Action                     | Args                                                   | Purpose                                       |
-| -------------------------- | ------------------------------------------------------ | --------------------------------------------- |
-| `archive-email`            | `--id <id>[,id2,id3]`                                  | Archive one or more emails                    |
-| `trash-email`              | `--id <id>[,id2,id3]`                                  | Trash one or more emails                      |
-| `mark-read`                | `--id <id>[,id2,id3] [--unread]`                       | Mark emails as read (or unread with --unread) |
-| `move-email`               | `--id <id>[,id2,id3] --label <name> [--removeLabel]`   | Move emails to a label/folder                 |
-| `star-email`               | `--id <id>[,id2,id3]`                                  | Toggle star on emails                         |
-| `send-email`               | `--to <email> --subject <s> --body <b> [--cc] [--bcc]` | Send an email                                 |
-| `cancel-scheduled-email`   | `--id <scheduled-job-id>`                              | Cancel a scheduled email                      |
-| `send-scheduled-email-now` | `--id <scheduled-job-id>`                              | Send a scheduled email immediately            |
-| `get-tracking`             | `--id <message-id>`                                    | Open + link-click stats for a sent email      |
+| Action                     | Args                                                                                                                                              | Purpose                                       |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `archive-email`            | `--id <id>[,id2,id3]`                                                                                                                             | Archive one or more emails                    |
+| `trash-email`              | `--id <id>[,id2,id3]`                                                                                                                             | Trash one or more emails                      |
+| `mark-read`                | `--id <id>[,id2,id3] [--unread]`                                                                                                                  | Mark emails as read (or unread with --unread) |
+| `move-email`               | `--id <id>[,id2,id3] --label <name> [--removeLabel]`                                                                                              | Move emails to a label/folder                 |
+| `star-email`               | `--id <id>[,id2,id3]`                                                                                                                             | Toggle star on emails                         |
+| `manage-gmail-filters`     | `--operation=list\|create\|replace\|delete [--account] [--id] [--from] [--to] [--subject] [--query] [--archive=true] [--markRead=true] [--label]` | Manage native Gmail filters directly          |
+| `send-email`               | `--to <email> --subject <s> --body <b> [--cc] [--bcc]`                                                                                            | Send an email                                 |
+| `cancel-scheduled-email`   | `--id <scheduled-job-id>`                                                                                                                         | Cancel a scheduled email                      |
+| `send-scheduled-email-now` | `--id <scheduled-job-id>`                                                                                                                         | Send a scheduled email immediately            |
+| `get-tracking`             | `--id <message-id>`                                                                                                                               | Open + link-click stats for a sent email      |
 
 ### Drafts & Navigation
 
@@ -441,6 +453,8 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 | "What emails do I have from Alice?" | `pnpm action search-emails --q=alice --compact`                                                                                                 |
 | "Archive this email"                | `pnpm action view-screen` to get ID, then `pnpm action archive-email --id=<id>`                                                                 |
 | "Archive emails from netlify[bot]"  | `pnpm action view-screen`, find matching IDs, then `pnpm action archive-email --id=id1,id2,id3`                                                 |
+| "Always archive emails from X"      | `pnpm action manage-gmail-filters --operation=create --from=x@example.com --archive=true`                                                       |
+| "Edit that Gmail filter"            | `pnpm action manage-gmail-filters --operation=list`, then `pnpm action manage-gmail-filters --operation=replace --id=<id> ...`                  |
 | "Mark this as unread"               | `pnpm action mark-read --id=<id> --unread`                                                                                                      |
 | "Star this email"                   | `pnpm action star-email --id=<id>`                                                                                                              |
 | "Trash this email"                  | `pnpm action trash-email --id=<id>`                                                                                                             |

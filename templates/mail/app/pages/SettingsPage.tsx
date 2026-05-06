@@ -17,6 +17,7 @@ import {
   IconClock,
   IconPlayerPlay,
   IconSignature,
+  IconFilter,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { GmailFiltersSection } from "@/components/settings/GmailFiltersSection";
 
 // ─── Alias Edit Row ───────────────────────────────────────────────────────────
 
@@ -1309,6 +1311,7 @@ function SlackIntakeSection() {
 type SettingsSection =
   | "drafting"
   | "automations"
+  | "gmail-filters"
   | "aliases"
   | "tracking"
   | "slack"
@@ -1321,6 +1324,7 @@ const navItems: {
 }[] = [
   { id: "drafting", label: "Drafting", icon: IconSignature },
   { id: "automations", label: "Automations", icon: IconBolt },
+  { id: "gmail-filters", label: "Gmail Filters", icon: IconFilter },
   { id: "aliases", label: "Aliases", icon: IconUsers },
   { id: "tracking", label: "Tracking", icon: IconChartBar },
   { id: "slack", label: "Slack", icon: IconBolt },
@@ -1389,6 +1393,7 @@ export function SettingsPage() {
       <div className="flex flex-1 overflow-hidden bg-background">
         {activeSection === "drafting" && <DraftingSection />}
         {activeSection === "automations" && <AutomationsSection />}
+        {activeSection === "gmail-filters" && <GmailFiltersSection />}
         {activeSection === "aliases" && <AliasesSection />}
         {activeSection === "tracking" && <TrackingSection />}
         {activeSection === "slack" && <SlackIntakeSection />}
