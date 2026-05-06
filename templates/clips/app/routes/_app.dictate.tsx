@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import {
   IconArrowsExchange,
@@ -7,6 +8,7 @@ import {
   IconCommand,
   IconCopy,
   IconDeviceDesktop,
+  IconDownload,
   IconKeyboard,
   IconLoader2,
   IconMicrophone2,
@@ -31,6 +33,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 
 export function meta() {
   return [{ title: "Dictate · Clips" }];

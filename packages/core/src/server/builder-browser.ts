@@ -293,6 +293,152 @@ export function resolveSafePreviewUrl(
   return getOrigin(event);
 }
 
+/**
+ * Inline theme-detection script that runs before the body paints. Reads the
+ * app's stored theme preference (same `localStorage.theme` key used by the
+ * client-side theme manager) and falls back to `prefers-color-scheme`. This
+ * way the popup matches whatever theme the user already picked in the app
+ * — light, dark, or auto — instead of always rendering in OS-default mode.
+ */
+const BUILDER_CALLBACK_THEME_SCRIPT = `<script>
+(function () {
+  try {
+    var stored = window.localStorage && window.localStorage.getItem("theme");
+    var resolved;
+    if (stored === "light" || stored === "dark") {
+      resolved = stored;
+    } else {
+      var mq = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
+      resolved = mq && mq.matches ? "dark" : "light";
+    }
+    document.documentElement.classList.add(resolved);
+    document.documentElement.style.colorScheme = resolved;
+  } catch (e) {}
+})();
+</script>`;
+
+/**
+ * Brand-aligned CSS for the Builder connect callback / error pages.
+ *
+ * Uses the same neutral-zinc palette and Inter font as the rest of the
+ * framework's templates (see `templates/*\/app/global.css`). Tokens map to
+ * the same HSL values the templates set on `:root` / `.dark`, so the popup
+ * reads as part of the same app — not a stranded marketing page.
+ */
+const BUILDER_CALLBACK_BASE_CSS = `
+  :root {
+    --bg: hsl(0 0% 100%);
+    --fg: hsl(220 10% 10%);
+    --muted-fg: hsl(220 5% 45%);
+    --card: hsl(0 0% 100%);
+    --border: hsl(220 10% 90%);
+    --primary: hsl(220 10% 15%);
+    --primary-fg: hsl(0 0% 100%);
+    --primary-hover: hsl(220 10% 25%);
+    --success-bg: hsl(143 50% 96%);
+    --success-fg: hsl(143 60% 32%);
+    --error-fg: hsl(0 75% 45%);
+    --error-bg: hsl(0 80% 97%);
+    --error-border: hsl(0 80% 92%);
+  }
+  :root.dark {
+    --bg: hsl(220 6% 6%);
+    --fg: hsl(0 0% 92%);
+    --muted-fg: hsl(220 4% 60%);
+    --card: hsl(220 5% 8%);
+    --border: hsl(220 4% 14%);
+    --primary: hsl(0 0% 92%);
+    --primary-fg: hsl(220 6% 6%);
+    --primary-hover: hsl(0 0% 75%);
+    --success-bg: hsl(143 30% 12%);
+    --success-fg: hsl(143 50% 70%);
+    --error-fg: hsl(0 80% 75%);
+    --error-bg: hsl(0 35% 12%);
+    --error-border: hsl(0 30% 20%);
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    padding: 24px;
+  }
+  .card {
+    width: min(420px, 100%);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px 28px;
+    background: var(--card);
+    text-align: center;
+  }
+  .icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    margin-bottom: 16px;
+  }
+  .icon svg { width: 22px; height: 22px; display: block; }
+  .icon-success { background: var(--success-bg); color: var(--success-fg); }
+  .icon-error { background: var(--error-bg); color: var(--error-fg); }
+  h1 {
+    margin: 0 0 6px;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--fg);
+  }
+  p {
+    margin: 0 0 4px;
+    color: var(--fg);
+    font-size: 14px;
+  }
+  p.muted { color: var(--muted-fg); }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 36px;
+    padding: 0 16px;
+    margin-top: 20px;
+    background: var(--primary);
+    color: var(--primary-fg);
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+  }
+  .btn:hover { background: var(--primary-hover); }
+  pre.error-detail {
+    margin: 16px 0 0;
+    padding: 10px 12px;
+    background: var(--error-bg);
+    border: 1px solid var(--error-border);
+    border-radius: 8px;
+    color: var(--error-fg);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    text-align: left;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+`;
+
 export function createBuilderBrowserCallbackPage(previewUrl: string): string {
   const escapedUrl = JSON.stringify(previewUrl);
   return `<!doctype html>
@@ -300,38 +446,22 @@ export function createBuilderBrowserCallbackPage(previewUrl: string): string {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-    <title>Builder Connected</title>
-    <style>
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background:
-          radial-gradient(circle at top, rgba(20, 184, 166, 0.18), transparent 38%),
-          linear-gradient(180deg, #f7fafc 0%, #eef2f7 100%);
-        color: #0f172a;
-        font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
-      }
-      .card {
-        width: min(460px, calc(100vw - 32px));
-        border: 1px solid rgba(15, 23, 42, 0.08);
-        border-radius: 18px;
-        padding: 28px;
-        background: rgba(255, 255, 255, 0.92);
-        box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
-      }
-      h1 { margin: 0 0 8px; font-size: 22px; }
-      p { margin: 0 0 12px; color: #475569; }
-      a { color: #0f766e; font-weight: 600; }
-    </style>
+    <title>Builder connected</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    ${BUILDER_CALLBACK_THEME_SCRIPT}
+    <style>${BUILDER_CALLBACK_BASE_CSS}</style>
   </head>
   <body>
-    <main class="card">
+    <main class="card" role="status" aria-live="polite">
+      <span class="icon icon-success" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      </span>
       <h1>Builder connected</h1>
-      <p>Browser access is now available to your agent-native app.</p>
-      <p>You can close this tab and return to the workspace.</p>
-      <p><a href=${escapedUrl} target="_blank" rel="noopener noreferrer">Open the workspace</a></p>
+      <p>Browser access is now available to your app.</p>
+      <p class="muted">You can close this tab and return to the workspace.</p>
+      <a class="btn" href=${escapedUrl}>Open the workspace</a>
     </main>
     <script>
       // If we're a popup opened by the app, close ourselves and let the

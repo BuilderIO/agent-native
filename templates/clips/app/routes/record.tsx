@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
-import { IconArrowLeft, IconVideo } from "@tabler/icons-react";
+import { Link, useNavigate } from "react-router";
+import { IconAppWindow, IconArrowLeft, IconVideo } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { agentNativePath, appBasePath } from "@agent-native/core/client";
 import { RequireActiveOrg } from "@agent-native/core/client/org";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
+import { useDesktopPromo } from "@/hooks/use-desktop-promo";
+import {
+  fetchVideoStorageStatus,
+  useVideoStorageStatus,
+  VIDEO_STORAGE_STATUS_KEY,
+  type VideoStorageStatus,
+} from "@/hooks/use-video-storage-status";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
 // and cannot be bundled for the browser).
@@ -126,43 +135,23 @@ interface PendingRecording {
   abortUrl: string;
 }
 
-interface VideoStorageStatus {
-  configured: boolean;
-  activeProvider?: { id: string; name: string } | null;
-  builderConfigured?: boolean;
-}
-
-async function fetchVideoStorageStatus(): Promise<VideoStorageStatus> {
-  let uploadStatus: VideoStorageStatus | null = null;
-  try {
-    const r = await fetch(agentNativePath("/_agent-native/file-upload/status"));
-    uploadStatus = r.ok ? ((await r.json()) as VideoStorageStatus) : null;
-    if (uploadStatus?.configured) return uploadStatus;
-  } catch {
-    // Fall through to the Builder status check.
-  }
-
-  try {
-    const r = await fetch(agentNativePath("/_agent-native/builder/status"));
-    const builderStatus = r.ok
-      ? ((await r.json()) as { configured?: boolean })
-      : null;
-    if (builderStatus?.configured) {
-      return {
-        configured: true,
-        activeProvider: { id: "builder", name: "Builder.io" },
-        builderConfigured: true,
-      };
-    }
-  } catch {
-    // Treat an unreachable status route as not configured.
-  }
-
-  return {
-    configured: false,
-    activeProvider: uploadStatus?.activeProvider ?? null,
-    builderConfigured: uploadStatus?.builderConfigured ?? false,
-  };
+function PreRecordPanelSkeleton() {
+  return (
+    <div className="mx-auto flex w-full max-w-md flex-col gap-5 rounded-2xl border border-border bg-card p-6 shadow-lg">
+      <div className="space-y-2">
+        <Skeleton className="h-5 w-40" />
+        <Skeleton className="h-3 w-56" />
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <Skeleton className="h-[78px] rounded-xl" />
+        <Skeleton className="h-[78px] rounded-xl" />
+        <Skeleton className="h-[78px] rounded-xl" />
+      </div>
+      <Skeleton className="h-9 w-full rounded-md" />
+      <Skeleton className="h-9 w-full rounded-md" />
+      <Skeleton className="ml-auto h-9 w-32 rounded-md" />
+    </div>
+  );
 }
 
 export default function RecordRoute() {
@@ -185,24 +174,26 @@ export default function RecordRoute() {
     null,
   );
 
-  const [storageConfigured, setStorageConfigured] = useState<boolean | null>(
-    null,
+  const queryClient = useQueryClient();
+  const { isDesktopApp } = useDesktopPromo();
+  const storageQuery = useVideoStorageStatus();
+  const storageConfigured: boolean | null = storageQuery.isLoading
+    ? null
+    : !!storageQuery.data?.configured;
+  const markStorageConfigured = useCallback(
+    (status?: VideoStorageStatus) => {
+      queryClient.setQueryData<VideoStorageStatus>(
+        VIDEO_STORAGE_STATUS_KEY,
+        (prev) =>
+          status ?? {
+            configured: true,
+            activeProvider: prev?.activeProvider ?? null,
+            builderConfigured: prev?.builderConfigured ?? false,
+          },
+      );
+    },
+    [queryClient],
   );
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchVideoStorageStatus()
-      .then((s) => {
-        if (cancelled) return;
-        setStorageConfigured(!!s?.configured);
-      })
-      .catch(() => {
-        if (!cancelled) setStorageConfigured(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const liveTranscription = useLiveTranscription();
 
@@ -293,7 +284,7 @@ export default function RecordRoute() {
 
       try {
         const status = await fetchVideoStorageStatus();
-        setStorageConfigured(status.configured);
+        markStorageConfigured(status);
         if (!status.configured) {
           throw new Error(
             "No video storage configured. Open Settings to connect Builder.io or S3-compatible storage.",
@@ -1000,12 +991,22 @@ export default function RecordRoute() {
                 Clips recorder
               </span>
             </div>
-            {storageConfigured === null ? null : storageConfigured ? (
+            {storageConfigured === null ? (
+              <PreRecordPanelSkeleton />
+            ) : storageConfigured ? (
               <PreRecordPanel onStart={startFlow} onUpload={uploadFile} />
             ) : (
-              <StorageSetupCard
-                onConfigured={() => setStorageConfigured(true)}
-              />
+              <StorageSetupCard onConfigured={() => markStorageConfigured()} />
+            )}
+            {!isDesktopApp && (
+              <Link
+                to="/download"
+                className="mt-6 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <IconAppWindow className="h-3.5 w-3.5" />
+                Get the Clips desktop app for global shortcuts and menu-bar
+                recording
+              </Link>
             )}
           </div>
         </RequireActiveOrg>
@@ -1128,7 +1129,7 @@ export default function RecordRoute() {
               </div>
               <StorageSetupCard
                 onConfigured={() => {
-                  setStorageConfigured(true);
+                  markStorageConfigured();
                   setError(null);
                   setUiState("idle");
                 }}

@@ -2101,6 +2101,9 @@ const AssistantChatInner = forwardRef<
   const isRuntimeRunning = thread.isRunning;
   const messages = thread.messages;
   const [missingApiKey, setMissingApiKey] = useState(false);
+  // Increments each time the user clicks the (disabled) composer while no LLM
+  // is connected — `BuilderSetupCard` watches this to replay a one-shot bounce.
+  const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
   } | null>(null);
