@@ -862,9 +862,7 @@ graph TD
             Edit history
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={() => setTheme(isDark ? "light" : "dark")}
-          >
+          <DropdownMenuItem onClick={() => setTheme(isDark ? "light" : "dark")}>
             {isDark ? (
               <IconSun className="w-4 h-4 mr-2" />
             ) : (
