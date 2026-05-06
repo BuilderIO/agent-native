@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting, readSetting } from "@agent-native/core/settings";
 import type { AvailabilityConfig } from "../shared/api.js";
+import { eventBlocksAvailability } from "../server/lib/calendar-availability.js";
 
 interface AvailabilitySchedule {
   timezone: string;
@@ -139,7 +140,7 @@ export default defineAction({
           dayEnd,
           ownerEmail,
         );
-        for (const event of events) {
+        for (const event of events.filter(eventBlocksAvailability)) {
           dayEvents.push({
             title: event.title,
             start: event.start,
