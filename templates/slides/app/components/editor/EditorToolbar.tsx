@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router";
+import { useTheme } from "next-themes";
 import {
   IconArrowLeft,
   IconPlayerPlay,
@@ -21,6 +22,10 @@ import {
   IconPencilPlus,
   IconPin,
   IconWand,
+  IconUpload,
+  IconSun,
+  IconMoon,
+  IconDots,
 } from "@tabler/icons-react";
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
 import { useSaveState } from "@/context/DeckContext";
@@ -31,8 +36,7 @@ import {
   DEFAULT_ASPECT_RATIO,
 } from "@/lib/aspect-ratios";
 import { ExportMenu } from "./ExportMenu";
-import { ImportButton } from "./ImportButton";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { agentNativePath, appBasePath } from "@agent-native/core/client";
 
 import {
   AgentToggleButton,
@@ -46,6 +50,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 interface EditorToolbarProps {
   deck: Deck;
   deckId: string;
@@ -234,6 +245,11 @@ export default function EditorToolbar({
   const layoutRef = useRef<HTMLButtonElement>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
   const toolsRef = useRef<HTMLButtonElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { setTheme, resolvedTheme } = useTheme();
+  const [themeMounted, setThemeMounted] = useState(false);
+  useEffect(() => setThemeMounted(true), []);
+  const isDark = themeMounted ? resolvedTheme === "dark" : false;
   // The four secondary tools share an "active when something is on" indicator
   // so the dot on the consolidated button reflects any of them.
   const anyToolActive = Boolean(
@@ -243,6 +259,31 @@ export default function EditorToolbar({
   const closeAll = () => {
     setLayoutOpen(false);
     setToolsOpen(false);
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const uploadRes = await fetch(`${appBasePath()}/api/uploads`, {
+        method: "POST",
+        body: formData,
+      });
+      const uploadData = await uploadRes.json();
+      await fetch(agentNativePath("/_agent-native/actions/import-file"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filePath: uploadData.path || uploadData.url,
+          deckId,
+        }),
+      });
+    } catch (err) {
+      console.error("Import failed:", err);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   return (

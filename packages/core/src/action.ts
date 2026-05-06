@@ -32,9 +32,9 @@ export function isAgentActionStopError(
     err instanceof AgentActionStopError ||
     Boolean(
       err &&
-        typeof err === "object" &&
-        "agentNativeStop" in err &&
-        (err as { agentNativeStop?: unknown }).agentNativeStop === true,
+      typeof err === "object" &&
+      "agentNativeStop" in err &&
+      (err as { agentNativeStop?: unknown }).agentNativeStop === true,
     )
   );
 }

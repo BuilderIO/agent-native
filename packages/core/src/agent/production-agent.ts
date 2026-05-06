@@ -986,9 +986,8 @@ export async function runAgentLoop(opts: {
 
     if (toolCallParts.length === 0) break;
 
-    let requestedActionStop:
-      | { message: string; errorCode?: string }
-      | null = null;
+    let requestedActionStop: { message: string; errorCode?: string } | null =
+      null;
 
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
@@ -1072,7 +1071,8 @@ export async function runAgentLoop(opts: {
         result = resultStr;
       } catch (err: any) {
         if (isAgentActionStopError(err)) {
-          const message = err.message || `Stopped after ${toolCall.name} failed.`;
+          const message =
+            err.message || `Stopped after ${toolCall.name} failed.`;
           result = err.toolResult || message;
           requestedActionStop ??= {
             message,

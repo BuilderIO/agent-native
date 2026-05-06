@@ -77,7 +77,10 @@ export default defineAction({
           "BigQuery isn't connected for this workspace yet. Open Settings -> Data sources and add BIGQUERY_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON (a service-account JSON key).",
         );
       }
-      if (/BigQuery (API|poll) error/i.test(msg) || /BigQuery query timed out/i.test(msg)) {
+      if (
+        /BigQuery (API|poll) error/i.test(msg) ||
+        /BigQuery query timed out/i.test(msg)
+      ) {
         stopForBigQueryFailure("bigquery_query_failed", msg);
       }
       throw err;
