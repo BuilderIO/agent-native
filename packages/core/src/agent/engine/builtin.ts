@@ -39,8 +39,8 @@ export function registerBuiltinEngines(): void {
   _registered = true;
 
   // ── Builder.io managed gateway ─────────────────────────────────────────────
-  // Registered first so detectEngineFromEnv picks it when BUILDER_PRIVATE_KEY
-  // is set — Builder is the managed path we want everyone on long-term.
+  // Registered first so detectEngineFromEnv picks it when both Builder keys
+  // are set — Builder is the managed path we want everyone on long-term.
   // Users who prefer BYO keys can opt out via AGENT_ENGINE_PREFER_BYO_KEY=true,
   // which drops Builder to the fallback slot in detectEngineFromEnv.
   registerAgentEngine({
@@ -51,7 +51,7 @@ export function registerBuiltinEngines(): void {
     capabilities: BUILDER_CAPABILITIES,
     defaultModel: BUILDER_DEFAULT_MODEL,
     supportedModels: BUILDER_SUPPORTED_MODELS,
-    requiredEnvVars: ["BUILDER_PRIVATE_KEY"],
+    requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
     create: (config) => createBuilderEngine(config),
   });
 

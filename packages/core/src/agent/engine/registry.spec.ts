@@ -363,17 +363,21 @@ describe("AgentEngine registry", () => {
       expect(await detectEngineFromUserSecrets()).toBeNull();
     });
 
-    it("picks the Builder engine when the user has BUILDER_PRIVATE_KEY in app_secrets", async () => {
+    it("picks the Builder engine when the user has Builder keys in app_secrets", async () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestUserEmail: () => "brent@example.com",
         getRequestOrgId: () => undefined,
       }));
       vi.doMock("../../secrets/storage.js", () => ({
-        readAppSecret: vi.fn(async ({ key }: { key: string }) =>
-          key === "BUILDER_PRIVATE_KEY"
-            ? { key, value: "p-key-from-app-secrets" }
-            : null,
-        ),
+        readAppSecret: vi.fn(async ({ key }: { key: string }) => {
+          if (key === "BUILDER_PRIVATE_KEY") {
+            return { key, value: "p-key-from-app-secrets" };
+          }
+          if (key === "BUILDER_PUBLIC_KEY") {
+            return { key, value: "space-from-app-secrets" };
+          }
+          return null;
+        }),
       }));
 
       const { registerAgentEngine, detectEngineFromUserSecrets } =
@@ -386,7 +390,7 @@ describe("AgentEngine registry", () => {
         capabilities: {} as any,
         defaultModel: "m",
         supportedModels: [],
-        requiredEnvVars: ["BUILDER_PRIVATE_KEY"],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
         create: vi.fn() as any,
       });
       registerAgentEngine({
@@ -411,8 +415,14 @@ describe("AgentEngine registry", () => {
       }));
       const readAppSecret = vi.fn(
         async ({ key, scope }: { key: string; scope: "user" | "org" }) =>
-          key === "BUILDER_PRIVATE_KEY" && scope === "org"
-            ? { key, value: "p-key-from-org-secrets" }
+          key.startsWith("BUILDER_") && scope === "org"
+            ? {
+                key,
+                value:
+                  key === "BUILDER_PRIVATE_KEY"
+                    ? "p-key-from-org-secrets"
+                    : "space-from-org-secrets",
+              }
             : null,
       );
       vi.doMock("../../secrets/storage.js", () => ({ readAppSecret }));
@@ -427,7 +437,7 @@ describe("AgentEngine registry", () => {
         capabilities: {} as any,
         defaultModel: "m",
         supportedModels: [],
-        requiredEnvVars: ["BUILDER_PRIVATE_KEY"],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
         create: vi.fn() as any,
       });
       registerAgentEngine({
@@ -453,6 +463,16 @@ describe("AgentEngine registry", () => {
         scope: "org",
         scopeId: "builder_org",
       });
+      expect(readAppSecret).toHaveBeenCalledWith({
+        key: "BUILDER_PUBLIC_KEY",
+        scope: "user",
+        scopeId: "member@example.com",
+      });
+      expect(readAppSecret).toHaveBeenCalledWith({
+        key: "BUILDER_PUBLIC_KEY",
+        scope: "org",
+        scopeId: "builder_org",
+      });
     });
 
     it("resolveEngine routes to Builder when the user has Builder creds in app_secrets and no env-level keys", async () => {
@@ -461,11 +481,15 @@ describe("AgentEngine registry", () => {
         getRequestOrgId: () => undefined,
       }));
       vi.doMock("../../secrets/storage.js", () => ({
-        readAppSecret: vi.fn(async ({ key }: { key: string }) =>
-          key === "BUILDER_PRIVATE_KEY"
-            ? { key, value: "p-key-from-app-secrets" }
-            : null,
-        ),
+        readAppSecret: vi.fn(async ({ key }: { key: string }) => {
+          if (key === "BUILDER_PRIVATE_KEY") {
+            return { key, value: "p-key-from-app-secrets" };
+          }
+          if (key === "BUILDER_PUBLIC_KEY") {
+            return { key, value: "space-from-app-secrets" };
+          }
+          return null;
+        }),
       }));
 
       const { registerAgentEngine, resolveEngine } =
@@ -483,7 +507,7 @@ describe("AgentEngine registry", () => {
         capabilities: {} as any,
         defaultModel: "m",
         supportedModels: [],
-        requiredEnvVars: ["BUILDER_PRIVATE_KEY"],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
         create: builderCreate,
       });
       registerAgentEngine({
