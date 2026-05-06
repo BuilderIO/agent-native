@@ -90,6 +90,7 @@ async function actionFetch<T>(
   const init: RequestInit = {
     method,
     headers,
+    cache: "no-store",
   };
 
   if (method === "GET" && params && Object.keys(params).length > 0) {

@@ -57,6 +57,7 @@ Interpret creatively and make unexpected choices that feel genuinely designed fo
 
 In the agent-native framework context:
 - Agent-native apps use React 18, Vite, TailwindCSS, and shadcn/ui
+- **Always use shadcn primitives for menus, popovers, dialogs, tooltips, sheets, and tabs.** Check `app/components/ui/` first; if the primitive is missing, run `npx shadcn@latest add <name>`. Never roll your own with `position: absolute` + a click-outside `useEffect` — it gets clipped by ancestor stacking contexts and lacks keyboard / focus / animation behavior. Specifically: `<DropdownMenu>` for action menus (Rename / Delete / "⋯"), `<Popover>` for transient panels, `<Dialog>` for modals, `<AlertDialog>` for confirms (never `window.confirm`), `<Sheet>` for side drawers, `<HoverCard>` for hover detail.
 - Custom styles go in component CSS or Tailwind classes — never inline styles
 - For complex visual effects, use a `<style>` tag in the component or a dedicated CSS file
 - Fonts can be loaded from Google Fonts via `@import` in a CSS file or `<link>` in `index.html`
