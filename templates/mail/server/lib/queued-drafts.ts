@@ -2,6 +2,7 @@ import { and, desc, eq, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getDbExec } from "@agent-native/core/db";
+import { notify } from "@agent-native/core/notifications";
 import {
   getAppProductionUrl,
   getRequestOrgId,
@@ -206,6 +207,30 @@ export async function createQueuedDraft(input: {
   };
 
   await getDb().insert(schema.queuedEmailDrafts).values(row);
+
+  // Best-effort notify the owner so they see a bell badge and can click
+  // through to review the draft. Self-queued drafts skip the notification.
+  if (ownerEmail !== ctx.userEmail) {
+    try {
+      const requesterLabel = input.requesterName?.trim() || ctx.userEmail;
+      await notify(
+        {
+          severity: "info",
+          title: "Email draft ready for review",
+          body: `${requesterLabel} queued a draft to ${row.toRecipients}: ${row.subject}`,
+          metadata: {
+            queuedDraftId: row.id,
+            requesterEmail: ctx.userEmail,
+            link: `/draft-queue/${encodeURIComponent(row.id)}`,
+          },
+        },
+        { owner: ownerEmail },
+      );
+    } catch (err) {
+      console.error("[queued-drafts] notify owner failed:", err);
+    }
+  }
+
   return serializeQueuedDraft(row);
 }
 

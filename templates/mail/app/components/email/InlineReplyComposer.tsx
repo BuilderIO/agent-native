@@ -92,6 +92,7 @@ export const InlineReplyComposer = forwardRef<
   const { data: aliases = [] } = useAliases();
   const editorRef = useRef<ComposeEditorHandle>(null);
   const composerRef = useRef<HTMLDivElement>(null);
+  const sendingRef = useRef(false);
 
   useImperativeHandle(ref, () => ({
     focusEditor: () => {
@@ -150,10 +151,12 @@ export const InlineReplyComposer = forwardRef<
   const hasQuote = quotedContent.length > 0;
 
   const handleSend = async () => {
+    if (sendingRef.current) return;
     if (!draft.to.trim()) {
       toast.error("Please add at least one recipient");
       return;
     }
+    sendingRef.current = true;
 
     const draftSnapshot = { ...draft };
     const { savedDraftId } = draft;
@@ -183,6 +186,7 @@ export const InlineReplyComposer = forwardRef<
     const handleUndo = () => {
       if (cancelled) return;
       cancelled = true;
+      sendingRef.current = false;
       clearTimeout(sendTimer);
       clearTimeout(transitionTimer);
       toast.dismiss(toastId);
@@ -216,6 +220,7 @@ export const InlineReplyComposer = forwardRef<
           subject: draftSnapshot.subject,
           body: draftSnapshot.body,
           replyToId: draftSnapshot.replyToId,
+          replyToThreadId: draftSnapshot.replyToThreadId,
           accountEmail: draftSnapshot.accountEmail,
           attachments: draftSnapshot.attachments,
         },
@@ -224,6 +229,9 @@ export const InlineReplyComposer = forwardRef<
             toast.error("Failed to send email");
             const { id: _id, ...reopenData } = draftSnapshot;
             onReopen(reopenData);
+          },
+          onSettled: () => {
+            sendingRef.current = false;
           },
         },
       );
@@ -234,6 +242,7 @@ export const InlineReplyComposer = forwardRef<
     if (!composerRef.current?.contains(e.target as Node)) return;
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
+      e.stopPropagation();
       handleSend();
     }
     if (e.key === "Escape") {

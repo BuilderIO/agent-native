@@ -284,6 +284,7 @@ export function ComposeModal({
           subject: draftSnapshot.subject,
           body: draftSnapshot.body,
           replyToId: draftSnapshot.replyToId,
+          replyToThreadId: draftSnapshot.replyToThreadId,
           accountEmail: draftSnapshot.accountEmail,
           attachments: draftSnapshot.attachments,
         },
