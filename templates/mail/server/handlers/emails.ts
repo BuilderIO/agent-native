@@ -362,6 +362,28 @@ function recomputeUnreadCounts(
   });
 }
 
+function hasNormalizedLabel(email: EmailMessage, labelId: string): boolean {
+  return email.labelIds.some((label) => label.toLowerCase() === labelId);
+}
+
+function filterInboxScopedMessages(
+  emails: EmailMessage[],
+  view: string,
+  label?: string,
+): EmailMessage[] {
+  if (view !== "inbox" && view !== "unread") return emails;
+
+  const allowSentToSelf = label?.toLowerCase() === "note-to-self";
+  return emails.filter(
+    (message) =>
+      hasNormalizedLabel(message, "inbox") &&
+      !message.isDraft &&
+      !message.isTrashed &&
+      (allowSentToSelf || !message.isSent) &&
+      (view !== "unread" || !message.isRead),
+  );
+}
+
 // ─── Email list ───────────────────────────────────────────────────────────────
 
 export const listEmails = defineEventHandler(async (event: H3Event) => {
@@ -433,6 +455,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       let emails = messages.map((m) =>
         gmailToEmailMessage(m, undefined, labelMap),
       );
+      emails = filterInboxScopedMessages(emails, view, label);
       emails.sort(
         (a: any, b: any) =>
           new Date(b.date).getTime() - new Date(a.date).getTime(),

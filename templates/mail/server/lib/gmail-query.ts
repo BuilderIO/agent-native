@@ -32,6 +32,16 @@ export function gmailAppLabelSearchClause(label: string): string {
   return gmailLabelSearchClause(label);
 }
 
+function viewSearchClauseForLabelTab(view: string, label: string): string {
+  if (view === "all") return "";
+  if (view === "inbox" && label.toLowerCase() === "note-to-self") {
+    // Self-sent notes can carry both INBOX and SENT. Keep them in this inbox
+    // tab while still excluding sent-only/archive-only results.
+    return "in:inbox";
+  }
+  return VIEW_QUERIES[view] ?? `label:${view}`;
+}
+
 export function buildGmailEmailSearchQuery({
   view = "inbox",
   q,
@@ -45,7 +55,8 @@ export function buildGmailEmailSearchQuery({
 
   if (label) {
     const labelClause = gmailAppLabelSearchClause(label);
-    return [trimmedQuery, labelClause].filter(Boolean).join(" ");
+    const viewClause = viewSearchClauseForLabelTab(view, label);
+    return [viewClause, labelClause, trimmedQuery].filter(Boolean).join(" ");
   }
 
   const viewQuery = VIEW_QUERIES[view] ?? `label:${view}`;
