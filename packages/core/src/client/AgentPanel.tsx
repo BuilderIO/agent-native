@@ -41,6 +41,13 @@ import {
   normalizeTooltipText,
 } from "./components/ui/tooltip.js";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "./components/ui/dropdown-menu.js";
+import {
   IconMessageChatbot,
   IconSparkles,
   IconTerminal2,
@@ -777,67 +784,51 @@ function AgentPanelInner({
                         )}
                         <div className="relative">
                           <IconTooltip content="Tab options">
-                            <button
-                              onClick={() =>
-                                setTabMenuOpen(
-                                  tabMenuOpen === "__chat_global"
-                                    ? null
-                                    : "__chat_global",
-                                )
+                            <DropdownMenu
+                              open={tabMenuOpen === "__chat_global"}
+                              onOpenChange={(open) =>
+                                setTabMenuOpen(open ? "__chat_global" : null)
                               }
-                              className={cn(
-                                "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                                tabMenuOpen === "__chat_global" &&
-                                  "bg-accent text-foreground",
-                              )}
-                              aria-label="Chat tab options"
                             >
-                              <IconDotsVertical size={14} />
-                            </button>
-                          </IconTooltip>
-                          {tabMenuOpen === "__chat_global" && (
-                            <>
-                              <div
-                                className="fixed inset-0 z-40"
-                                onClick={() => setTabMenuOpen(null)}
-                              />
-                              <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-md border border-border bg-popover py-1 shadow-lg">
+                              <DropdownMenuTrigger asChild>
                                 <button
-                                  className="flex w-full items-center justify-between px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                                  onClick={() => {
-                                    closeTab(activeTabId);
-                                    setTabMenuOpen(null);
-                                  }}
+                                  className={cn(
+                                    "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                                    tabMenuOpen === "__chat_global" &&
+                                      "bg-accent text-foreground",
+                                  )}
+                                  aria-label="Chat tab options"
+                                >
+                                  <IconDotsVertical size={14} />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent
+                                align="end"
+                                sideOffset={4}
+                                className="w-44"
+                              >
+                                <DropdownMenuItem
+                                  onSelect={() => closeTab(activeTabId)}
                                 >
                                   Close Tab
-                                  <kbd className="text-[10px] text-muted-foreground">
+                                  <DropdownMenuShortcut>
                                     {closeTabHint}
-                                  </kbd>
-                                </button>
-                                <button
-                                  className="flex w-full items-center px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                                  onClick={() => {
-                                    closeOtherTabs(activeTabId);
-                                    setTabMenuOpen(null);
-                                  }}
+                                  </DropdownMenuShortcut>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onSelect={() => closeOtherTabs(activeTabId)}
                                 >
                                   Close Other Tabs
-                                </button>
-                                <button
-                                  className="flex w-full items-center justify-between px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                                  onClick={() => {
-                                    closeAllTabs();
-                                    setTabMenuOpen(null);
-                                  }}
-                                >
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => closeAllTabs()}>
                                   Close All Tabs
-                                  <kbd className="text-[10px] text-muted-foreground">
+                                  <DropdownMenuShortcut>
                                     {closeAllTabsHint}
-                                  </kbd>
-                                </button>
-                              </div>
-                            </>
-                          )}
+                                  </DropdownMenuShortcut>
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </IconTooltip>
                         </div>
                       </>
                     )}

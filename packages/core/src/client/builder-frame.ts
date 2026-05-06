@@ -52,8 +52,10 @@ function hasBuilderPreviewParams(): boolean {
   return (
     params.has("builder.space") ||
     params.has("builder.preview") ||
+    params.has("builder.frameEditing") ||
     params.has("builder.user.permissions") ||
-    params.has("builder.user.role.name")
+    params.has("builder.user.role.name") ||
+    params.has("__builder_editing__")
   );
 }
 
@@ -87,8 +89,13 @@ export function getBuilderParentOrigin(): string | null {
 }
 
 export function isInBuilderFrame(): boolean {
-  if (typeof window === "undefined" || window.parent === window) return false;
-  return getBuilderParentOrigin() !== null;
+  if (typeof window === "undefined") return false;
+  if (getBuilderParentOrigin() !== null) return true;
+
+  // Electron webviews run the preview as a top-level page, so there is no
+  // parent frame to inspect. Builder still marks those URLs with builder.*
+  // preview params, and sendToBuilderChat will use the console relay.
+  return hasBuilderPreviewParams();
 }
 
 export function isTrustedBuilderMessage(event: MessageEvent): boolean {
