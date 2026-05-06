@@ -1,5 +1,5 @@
 import { agentNativePath } from "../api-path.js";
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router";
 import {
@@ -20,6 +20,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu.js";
 import {
   applyToolsOrder,
   getToolsOrder,
@@ -180,14 +186,6 @@ export function ExtensionsSidebarSection() {
     },
     [renameValue, queryClient],
   );
-
-  // Close menu on click outside
-  useEffect(() => {
-    if (!menuOpenId) return;
-    const handler = () => setMenuOpenId(null);
-    document.addEventListener("click", handler);
-    return () => document.removeEventListener("click", handler);
-  }, [menuOpenId]);
 
   const sortedTools = useMemo(() => {
     if (!extensions) return [];
@@ -414,46 +412,41 @@ export function ExtensionsSidebarSection() {
                       )}
                     </button>
 
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setMenuOpenId(
-                            menuOpenId === extension.id ? null : extension.id,
-                          );
-                        }}
-                        className="pointer-events-auto cursor-pointer rounded p-0.5 text-muted-foreground/40 transition-colors hover:text-foreground"
-                        aria-label="Extension actions"
-                      >
-                        <IconDots className="h-3 w-3" />
-                      </button>
-
-                      {menuOpenId === extension.id && (
-                        <div
-                          className="absolute right-0 top-full z-50 mt-1 min-w-[120px] rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
-                          onClick={(e) => e.stopPropagation()}
+                    <DropdownMenu
+                      open={menuOpenId === extension.id}
+                      onOpenChange={(open) =>
+                        setMenuOpenId(open ? extension.id : null)
+                      }
+                    >
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="pointer-events-auto cursor-pointer rounded p-0.5 text-muted-foreground/40 transition-colors hover:text-foreground"
+                          aria-label="Extension actions"
                         >
-                          <button
-                            type="button"
-                            onClick={() => startRename(extension)}
-                            className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
-                          >
-                            <IconPencil className="h-3.5 w-3.5" />
-                            Rename
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(extension.id)}
-                            className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-destructive hover:bg-accent"
-                          >
-                            <IconTrash className="h-3.5 w-3.5" />
-                            Delete
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                          <IconDots className="h-3 w-3" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="end"
+                        sideOffset={4}
+                        className="min-w-[140px]"
+                      >
+                        <DropdownMenuItem
+                          onSelect={() => startRename(extension)}
+                        >
+                          <IconPencil className="h-3.5 w-3.5" />
+                          Rename
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={() => handleDelete(extension.id)}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          <IconTrash className="h-3.5 w-3.5" />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
               );
