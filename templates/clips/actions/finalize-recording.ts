@@ -127,6 +127,34 @@ export default defineAction({
         ? "mp4"
         : "webm";
 
+      // The recorder stashes compression metadata at
+      // `recording-compression-{id}` when its browser-side ffmpeg.wasm
+      // pass ran to bring the assembled blob under Builder.io's 100 MB
+      // upload cap. Stored under its own sub-key (rather than nested
+      // inside `recording-upload-{id}`) because the recorder client
+      // overwrites the upload key on every chunk POST — co-locating the
+      // compression context would mean it gets clobbered before this
+      // action runs. Surface it into the Sentry payload on any upload
+      // failure so we can tell at a glance whether the user hit the limit
+      // on the original blob or on the compressed one.
+      const compressionRaw = await readAppState(`recording-compression-${id}`);
+      const compressionMeta: {
+        originalBytes?: number;
+        compressedBytes?: number;
+        ratio?: number;
+        elapsedMs?: number;
+        outputMimeType?: string;
+      } | null =
+        compressionRaw && typeof compressionRaw === "object"
+          ? (compressionRaw as {
+              originalBytes?: number;
+              compressedBytes?: number;
+              ratio?: number;
+              elapsedMs?: number;
+              outputMimeType?: string;
+            })
+          : null;
+
       // Flip to 'processing' while we assemble.
       await db
         .update(schema.recordings)
@@ -209,12 +237,39 @@ export default defineAction({
         }
       }
 
-      const upload = await uploadFile({
-        data: uploadData,
-        filename: `${id}.${videoFormat}`,
-        mimeType,
-        ownerEmail,
-      });
+      let upload: Awaited<ReturnType<typeof uploadFile>>;
+      try {
+        upload = await uploadFile({
+          data: uploadData,
+          filename: `${id}.${videoFormat}`,
+          mimeType,
+          ownerEmail,
+        });
+      } catch (err) {
+        // Log structured context so a "Builder.io upload failed (500)" can be
+        // diagnosed without round-tripping with the user. Especially important
+        // alongside the new browser-side compression — we want to know whether
+        // the user hit Builder.io's 100 MB cap on the original recording or
+        // on the compressed result.
+        // (The PR adding `captureRouteError` here lives in a sibling branch;
+        // when it merges, this console.error is replaced with the Sentry
+        // capture call — see PR description.)
+        console.error("[finalize] upload failed", {
+          recordingId: id,
+          dataBytes: uploadData.byteLength,
+          mimeType,
+          videoFormat,
+          ownerEmail,
+          originalBytes: compressionMeta?.originalBytes ?? assembled.byteLength,
+          compressedBytes: compressionMeta?.compressedBytes,
+          compressionRatio: compressionMeta?.ratio,
+          compressionElapsedMs: compressionMeta?.elapsedMs,
+          compressionOutputMimeType: compressionMeta?.outputMimeType,
+          compressionRan: !!compressionMeta,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
 
       if (!upload?.url) {
         throw new Error(
@@ -366,6 +421,17 @@ export default defineAction({
           id,
           purged,
           attempted: chunkKeysToPurge.length,
+        });
+      }
+      // Drop the compression sub-key written by reset-chunks. Best effort;
+      // it's small (<200 bytes) so a leaked one is harmless, but tidying
+      // up keeps `application_state` clean across many recordings.
+      try {
+        await deleteAppState(`recording-compression-${id}`);
+      } catch (err) {
+        console.warn("[finalize] compression key delete failed", {
+          id,
+          err: err instanceof Error ? err.message : String(err),
         });
       }
     }
