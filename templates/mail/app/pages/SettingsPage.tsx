@@ -16,6 +16,7 @@ import {
   IconCircleX,
   IconClock,
   IconPlayerPlay,
+  IconSignature,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -1016,6 +1017,107 @@ function AutomationsSection() {
 
 // ─── Tracking Section ────────────────────────────────────────────────────────
 
+function DraftingSection() {
+  const { data: settings, isLoading } = useSettings();
+  const updateSettings = useUpdateSettings();
+  const [signature, setSignature] = useState("");
+  const [writingStyle, setWritingStyle] = useState("");
+
+  useEffect(() => {
+    if (!settings) return;
+    setSignature(settings.signature ?? "");
+    setWritingStyle(settings.writingStyle ?? "");
+  }, [settings?.signature, settings?.writingStyle]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const savedSignature = settings?.signature ?? "";
+  const savedWritingStyle = settings?.writingStyle ?? "";
+  const isDirty =
+    signature !== savedSignature || writingStyle !== savedWritingStyle;
+
+  const handleSave = () => {
+    updateSettings.mutate({
+      signature: signature.trim(),
+      writingStyle: writingStyle.trim(),
+    });
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto p-4 sm:p-8">
+      <div className="mb-6">
+        <h2 className="text-[16px] font-semibold text-foreground">Drafting</h2>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">
+          Preferences used when composing and generating email drafts.
+        </p>
+      </div>
+
+      <div className="max-w-2xl space-y-4">
+        {isLoading ? (
+          <>
+            <Skeleton className="h-36 w-full" />
+            <Skeleton className="h-32 w-full" />
+          </>
+        ) : (
+          <>
+            <div className="rounded-lg border border-border/20 bg-card/50 p-4">
+              <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                Signature
+              </label>
+              <Textarea
+                value={signature}
+                onChange={(event) => setSignature(event.target.value)}
+                placeholder={"Best,\nSteve"}
+                rows={5}
+                className="resize-none px-3 py-2 text-[13px] placeholder:text-muted-foreground/40"
+              />
+              <p className="mt-2 text-[12px] text-muted-foreground">
+                Added to new drafts before quoted reply history.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-border/20 bg-card/50 p-4">
+              <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                Writing style
+              </label>
+              <Textarea
+                value={writingStyle}
+                onChange={(event) => setWritingStyle(event.target.value)}
+                placeholder="Short, specific, warm. Avoid formal filler."
+                rows={4}
+                className="resize-none px-3 py-2 text-[13px] placeholder:text-muted-foreground/40"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={handleSave}
+                disabled={!isDirty || updateSettings.isPending}
+              >
+                {updateSettings.isPending && (
+                  <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                )}
+                Save drafting settings
+              </Button>
+              {isDirty && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSignature(savedSignature);
+                    setWritingStyle(savedWritingStyle);
+                  }}
+                >
+                  Reset
+                </Button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TrackingRow({
   title,
   description,
@@ -1204,6 +1306,7 @@ function SlackIntakeSection() {
 // ─── Settings Page ────────────────────────────────────────────────────────────
 
 type SettingsSection =
+  | "drafting"
   | "automations"
   | "aliases"
   | "tracking"
@@ -1215,6 +1318,7 @@ const navItems: {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
 }[] = [
+  { id: "drafting", label: "Drafting", icon: IconSignature },
   { id: "automations", label: "Automations", icon: IconBolt },
   { id: "aliases", label: "Aliases", icon: IconUsers },
   { id: "tracking", label: "Tracking", icon: IconChartBar },
@@ -1224,7 +1328,7 @@ const navItems: {
 
 export function SettingsPage() {
   const [activeSection, setActiveSection] =
-    useState<SettingsSection>("automations");
+    useState<SettingsSection>("drafting");
 
   return (
     <div className="flex flex-1 flex-col sm:flex-row overflow-hidden">
@@ -1261,6 +1365,7 @@ export function SettingsPage() {
 
       {/* Right content panel */}
       <div className="flex flex-1 overflow-hidden bg-background">
+        {activeSection === "drafting" && <DraftingSection />}
         {activeSection === "automations" && <AutomationsSection />}
         {activeSection === "aliases" && <AliasesSection />}
         {activeSection === "tracking" && <TrackingSection />}
