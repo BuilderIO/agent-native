@@ -1,5 +1,12 @@
 # @agent-native/dispatch
 
+## 0.2.5
+
+### Patch Changes
+
+- 24781d0: Clarify Dispatch new-app instructions so Builder branches scaffold separate workspace apps instead of editing starter.
+- 24781d0: Internal app-creation-store tweaks for spawned dispatch apps.
+
 ## 0.2.4
 
 ### Patch Changes

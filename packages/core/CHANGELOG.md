@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.11.4
+
+### Patch Changes
+
+- 24781d0: Clarify Dispatch new-app instructions so Builder branches scaffold separate workspace apps instead of editing starter.
+- 24781d0: Add a template hook for retrying guarded final agent answers before they are shown.
+- 24781d0: Match the agent sidebar loading header height to the loaded panel header.
+
 ## 0.11.3
 
 ### Patch Changes
