@@ -201,11 +201,12 @@ describe("scoping", () => {
       expect(ctx.active).toBe(true);
       expect(ctx.orgId).toBe("org-123");
 
-      // notes has both owner_email AND org_id — both should appear
+      // notes has both owner_email AND org_id — the user owns rows in the
+      // current org plus legacy/personal rows with no org.
       const notesView = ctx.setup.find((s) => s.includes('"notes"'));
       expect(notesView).toContain('"owner_email" = ');
       expect(notesView).toContain('"org_id" = ');
-      expect(notesView).toContain("AND");
+      expect(notesView).toContain('OR "org_id" IS NULL');
 
       // org_only_table has only org_id
       const orgOnlyView = ctx.setup.find((s) => s.includes('"org_only_table"'));
@@ -251,6 +252,37 @@ describe("scoping", () => {
       const notesView = ctx.setup.find((s) => s.includes('"notes"'));
       expect(notesView).toContain('"owner_email"');
       expect(notesView).not.toContain("org_id");
+    });
+
+    it("keeps owner legacy rows visible when org scoping is active", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AGENT_USER_EMAIL", "legacy-owner@test.com");
+      vi.stubEnv("AGENT_ORG_ID", "org-current");
+      const { buildScopingSqlite } = await import("./scoping.js");
+
+      const mockClient = {
+        execute: vi.fn().mockImplementation((sql: string) => {
+          if (sql.includes("sqlite_master")) {
+            return { rows: [{ name: "decks" }] };
+          }
+          return {
+            rows: [
+              { name: "id" },
+              { name: "owner_email" },
+              { name: "org_id" },
+              { name: "title" },
+            ],
+          };
+        }),
+      };
+
+      const ctx = await buildScopingSqlite(mockClient);
+      const decksView = ctx.setup.find((s) => s.includes('"decks"'));
+
+      expect(decksView).toContain(`"owner_email" = 'legacy-owner@test.com'`);
+      expect(decksView).toContain(
+        `("org_id" = 'org-current' OR "org_id" IS NULL)`,
+      );
     });
 
     it("scopes tool_data to private user rows plus matching org rows", async () => {
@@ -426,6 +458,29 @@ describe("scoping", () => {
       expect(tasksView).toContain('"owner_email"');
 
       expect(ctx.ownerEmailTables.has("tasks")).toBe(true);
+    });
+
+    it("keeps owner legacy rows visible in postgres when org scoping is active", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AGENT_USER_EMAIL", "legacy-pg@test.com");
+      vi.stubEnv("AGENT_ORG_ID", "org-pg");
+      const { buildScopingPostgres } = await import("./scoping.js");
+
+      const mockPgSql: any = async function (): Promise<any[]> {
+        return [
+          { table_name: "decks", column_name: "id" },
+          { table_name: "decks", column_name: "owner_email" },
+          { table_name: "decks", column_name: "org_id" },
+          { table_name: "decks", column_name: "title" },
+        ];
+      };
+
+      const ctx = await buildScopingPostgres(mockPgSql);
+      const decksView = ctx.setup.find((s) => s.includes('"decks"'));
+
+      expect(decksView).toContain(`"owner_email" = 'legacy-pg@test.com'`);
+      expect(decksView).toContain(`("org_id" = 'org-pg' OR "org_id" IS NULL)`);
+      expect(decksView).toContain("WITH LOCAL CHECK OPTION");
     });
   });
 });
