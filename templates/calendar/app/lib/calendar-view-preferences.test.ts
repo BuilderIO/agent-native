@@ -13,6 +13,7 @@ const googleEvent: CalendarEvent = {
   location: "",
   start: "2026-05-06T15:00:00.000Z",
   end: "2026-05-06T15:30:00.000Z",
+  allDay: false,
   source: "google",
   accountEmail: "steve@builder.io",
   attendees: [

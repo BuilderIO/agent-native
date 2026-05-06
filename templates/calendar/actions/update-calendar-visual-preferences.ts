@@ -43,7 +43,10 @@ export default defineAction({
       ...(colorMode ? { colorMode } : {}),
     });
 
-    await writeAppState(CALENDAR_VIEW_PREFERENCES_KEY, next);
+    await writeAppState(
+      CALENDAR_VIEW_PREFERENCES_KEY,
+      next as unknown as Record<string, unknown>,
+    );
 
     return {
       success: true,
