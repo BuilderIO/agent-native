@@ -84,6 +84,7 @@ import {
   resolveOAuthRedirectUri,
   isAllowedOAuthRedirectUri,
 } from "./google-oauth.js";
+import { captureAuthError } from "./sentry.js";
 
 /**
  * Get the configured session max age. Desktop SSO broker writes from
@@ -394,6 +395,27 @@ function authLoginResponse(
 ): { ok: true; token?: string; email?: string } {
   if (!shouldExposeSessionTokenInBody(event)) return { ok: true };
   return email ? { ok: true, token, email } : { ok: true, token };
+}
+
+/**
+ * Bad-credential / already-registered errors are normal user behavior, not
+ * bugs we want to investigate. Filtering them out keeps Sentry signal
+ * actionable — a real anomaly (DB error, Better Auth init crash, missing
+ * table) shows up clearly because it doesn't match any of these patterns.
+ */
+const EXPECTED_AUTH_FAILURE_PATTERNS: RegExp[] = [
+  /invalid\s+(email|password|credentials)/i,
+  /password.*incorrect/i,
+  /user\s+(not\s+found|already\s+exists)/i,
+  /email\s+already/i,
+  /already\s+(exists|registered|in\s+use)/i,
+  /not\s+verified/i,
+];
+
+function isExpectedAuthFailure(error: unknown): boolean {
+  const msg = (error as { message?: unknown })?.message;
+  if (typeof msg !== "string") return false;
+  return EXPECTED_AUTH_FAILURE_PATTERNS.some((re) => re.test(msg));
 }
 
 // ---------------------------------------------------------------------------
@@ -1731,6 +1753,9 @@ async function mountBetterAuthRoutes(
             "Email not verified. Check your inbox for a verification link.",
         };
       } catch (e: any) {
+        if (!isExpectedAuthFailure(e)) {
+          captureAuthError(e, { route: "login", email });
+        }
         setResponseStatus(event, 401);
         return { error: e?.message || "Invalid email or password" };
       }
@@ -1769,6 +1794,9 @@ async function mountBetterAuthRoutes(
         });
         return { ok: true };
       } catch (e: any) {
+        if (!isExpectedAuthFailure(e)) {
+          captureAuthError(e, { route: "signup", email });
+        }
         setResponseStatus(event, 409);
         return { error: e?.message || "Registration failed" };
       }
@@ -2028,6 +2056,9 @@ function mountAuthFallbackRoutes(app: H3App): void {
             "Email not verified. Check your inbox for a verification link.",
         };
       } catch (e: any) {
+        if (!isExpectedAuthFailure(e)) {
+          captureAuthError(e, { route: "login", email });
+        }
         setResponseStatus(event, 401);
         return { error: e?.message || "Invalid email or password" };
       }
