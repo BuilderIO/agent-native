@@ -104,7 +104,13 @@ export async function ensureExtensionsTables(): Promise<void> {
       );
     })();
   }
-  return _initPromise;
+
+  try {
+    await _initPromise;
+  } catch (err) {
+    _initPromise = undefined;
+    throw err;
+  }
 }
 
 async function migrateMisnamedExtensionsTable(

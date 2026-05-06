@@ -435,15 +435,15 @@ function StepRow({ step }: { step: ChecklistStep }) {
     <div
       className={`flex items-start gap-4 rounded-xl border px-5 py-4 ${done ? "border-border/50 bg-muted/20" : "bg-card"}`}
     >
-      {/* Number / check circle */}
+      {/* Status marker */}
       <div className="flex-none pt-0.5">
         {done ? (
           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
             <IconCheck size={16} strokeWidth={2.5} />
           </div>
         ) : (
-          <div className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-muted-foreground/30 text-sm font-semibold text-muted-foreground">
-            {step.number}
+          <div className="flex h-7 w-7 items-center justify-center rounded-full border border-muted-foreground/30 text-muted-foreground">
+            <IconListCheck size={15} />
           </div>
         )}
       </div>

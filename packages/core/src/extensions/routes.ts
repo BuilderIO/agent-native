@@ -64,9 +64,10 @@ export function createExtensionsHandler() {
     const orgId = orgCtx?.orgId ?? undefined;
 
     try {
-      return await runWithRequestContext({ userEmail, orgId }, () =>
-        dispatch(event, method, parts, userEmail),
-      );
+      return await runWithRequestContext({ userEmail, orgId }, async () => {
+        await ensureExtensionsTables();
+        return dispatch(event, method, parts, userEmail);
+      });
     } catch (err) {
       if (err instanceof ForbiddenError) {
         setResponseStatus(event, 403);

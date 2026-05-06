@@ -533,7 +533,7 @@ function ModelSelector({
           <span>{friendlyModelName(model)}</span>
           {effortOptions.length > 0 && (
             <span className="text-muted-foreground/70">
-              · Reasoning {reasoningEffortLabel(effort)}
+              · {reasoningEffortLabel(effort)}
             </span>
           )}
           <IconChevronDown className="h-3 w-3 opacity-60" />

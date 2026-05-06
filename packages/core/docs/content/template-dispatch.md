@@ -71,6 +71,23 @@ pnpm dlx @agent-native/core create my-platform
 
 Dispatch is usually scaffolded into a workspace alongside the apps it coordinates. For a workspace, Dispatch's shared auth, database, and brand are inherited from the workspace core — see [Multi-App Workspace](/docs/multi-app-workspace).
 
+## First local run {#first-local-run}
+
+From the workspace root:
+
+```bash
+pnpm install
+pnpm dev
+```
+
+Open the Dispatch URL printed by the dev server. Local development uses the same Better Auth sign-in flow as production. Create a local account with email + password; email verification is skipped in development, and the password is stored only in your local app database. There is no supported auth bypass in the default scaffold, because the agent, workspace resources, vault, and sharing model all rely on a real user session.
+
+You can click through the Dispatch UI after signing in. To use the chat composer or run agent tasks, connect an LLM provider first:
+
+1. Open **Settings**.
+2. In **LLM**, either connect Builder.io or add your own provider key such as `ANTHROPIC_API_KEY`.
+3. Return to **Overview** and try the composer.
+
 ## Customize it {#customize}
 
 Dispatch is a full template like any other — see [Templates](/docs/cloneable-saas). Ask the agent to "add a new integration for Datadog" or "route Slack DMs from channel X to the issues agent" and it'll edit the routing config, add the webhook handler, and wire it up.
