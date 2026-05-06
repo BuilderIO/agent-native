@@ -258,11 +258,11 @@ See the full Scripts section below for all available scripts and arguments.
 
 Ephemeral UI state is stored in the SQL `application_state` table, accessed via `readAppState(key)` and `writeAppState(key, value)` from `@agent-native/core/application-state`. Scripts use these functions instead of filesystem reads/writes. The UI syncs its state here so you can always see what the user is looking at.
 
-| State Key      | Purpose                                            | Direction                                    |
-| -------------- | -------------------------------------------------- | -------------------------------------------- |
+| State Key      | Purpose                                                              | Direction                                    |
+| -------------- | -------------------------------------------------------------------- | -------------------------------------------- |
 | `navigation`   | Current view, thread, search, label, focused email, selected threads | UI -> Agent (read-only for agent)            |
-| `navigate`     | Navigate the user to a view/thread                 | Agent -> UI (one-shot command, auto-deleted) |
-| `compose-{id}` | Email draft (one entry per draft tab)              | Bidirectional                                |
+| `navigate`     | Navigate the user to a view/thread                                   | Agent -> UI (one-shot command, auto-deleted) |
+| `compose-{id}` | Email draft (one entry per draft tab)                                | Bidirectional                                |
 
 When the user is on the draft queue, navigation state is:
 

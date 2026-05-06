@@ -95,8 +95,7 @@ function ThreadListSidebar({
     setSelectedIds(
       new Set(
         threads.map(
-          (thread) =>
-            thread.latestMessage.threadId || thread.latestMessage.id,
+          (thread) => thread.latestMessage.threadId || thread.latestMessage.id,
         ),
       ),
     );
@@ -197,7 +196,10 @@ export function InboxPage() {
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const selectedThreadIds = useMemo(() => Array.from(selectedIds), [selectedIds]);
+  const selectedThreadIds = useMemo(
+    () => Array.from(selectedIds),
+    [selectedIds],
+  );
   const [isMaximized, setIsMaximized] = useState(false);
   const compose = useComposeState();
   const navState = useNavigationState();

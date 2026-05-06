@@ -272,7 +272,11 @@ export default defineAction({
     } else if (nav?.view) {
       const emails = await fetchEmailList(nav.view, nav.search, nav.label);
       const selectedThreadIds = Array.isArray(nav.selectedThreadIds)
-        ? new Set(nav.selectedThreadIds.filter((id: unknown) => typeof id === "string"))
+        ? new Set(
+            nav.selectedThreadIds.filter(
+              (id: unknown): id is string => typeof id === "string",
+            ),
+          )
         : new Set<string>();
       const compact = emails.slice(0, 50).map((e: any) => ({
         id: e.id,

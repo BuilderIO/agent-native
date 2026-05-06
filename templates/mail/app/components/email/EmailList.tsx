@@ -803,8 +803,7 @@ export function EmailList({
     setSelectedIds(
       new Set(
         threads.map(
-          (thread) =>
-            thread.latestMessage.threadId || thread.latestMessage.id,
+          (thread) => thread.latestMessage.threadId || thread.latestMessage.id,
         ),
       ),
     );
