@@ -13,7 +13,7 @@ import {
 
 export default defineAction({
   description:
-    "Update a Google Calendar event. Supports title, description, location, time, and recurrence rules such as RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR.",
+    "Update a Google Calendar event. Supports title, description, location, time, and recurrence rules such as RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR. For local UI color-coding, use update-calendar-visual-preferences instead; this action does not accept Google colorId values.",
   schema: z.object({
     id: z
       .string()
