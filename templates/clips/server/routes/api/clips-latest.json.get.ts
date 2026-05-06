@@ -155,7 +155,9 @@ function isBetterRelease(candidate: GhRelease, current: GhRelease | null) {
 }
 
 function hasInstallerAssets(release: GhRelease) {
-  return release.assets.some((asset) => classifyClipsAsset(asset.name) !== "unknown");
+  return release.assets.some(
+    (asset) => classifyClipsAsset(asset.name) !== "unknown",
+  );
 }
 
 let cache: { data: DownloadManifest; ts: number } | null = null;
