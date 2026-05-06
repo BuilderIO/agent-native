@@ -39,6 +39,7 @@ import {
 } from "@/hooks/use-library";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
+import { usePrefetchVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import { FolderTree, type FolderNode } from "./folder-tree";
 import { SearchBar } from "./search-bar";
 import { OrganizationSwitcher } from "./organization-switcher";
@@ -82,6 +83,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   }>();
 
   const { shouldShowPromo, shouldShowSidebarLink, dismiss } = useDesktopPromo();
+  usePrefetchVideoStorageStatus();
   const { session } = useSession();
   const currentUserEmail = session?.email ?? null;
 
@@ -246,10 +248,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               </nav>
 
               {shouldShowSidebarLink && (
-                <div className="mt-3 px-2">
+                <div className="mt-1 px-2">
                   <NavLink
                     to="/download"
-                    className="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+                    className="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-foreground hover:bg-accent/60"
                   >
                     <IconAppWindow className="h-4 w-4" />
                     Get desktop app

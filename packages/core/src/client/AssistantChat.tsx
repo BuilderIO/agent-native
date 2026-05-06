@@ -1519,13 +1519,35 @@ function BuilderConnectCta({
 
 // ─── Builder Setup Card ─────────────────────────────────────────────────────
 
-function BuilderSetupCard({ onConnected }: { onConnected?: () => void }) {
+function BuilderSetupCard({
+  onConnected,
+  bouncePulse,
+}: {
+  onConnected?: () => void;
+  bouncePulse?: number;
+}) {
   const openSettings = useCallback(() => {
     window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
   }, []);
 
+  const cardRef = useRef<HTMLDivElement>(null);
+  // Replay the bounce keyframe each time bouncePulse increments. Toggling the
+  // class off-then-on (with a forced reflow) restarts the animation even when
+  // the value changes back-to-back.
+  useEffect(() => {
+    if (!bouncePulse) return;
+    const el = cardRef.current;
+    if (!el) return;
+    el.classList.remove("animate-bounce-once");
+    void el.offsetWidth;
+    el.classList.add("animate-bounce-once");
+  }, [bouncePulse]);
+
   return (
-    <div className="mx-4 my-6 rounded-lg border border-border bg-card p-5">
+    <div
+      ref={cardRef}
+      className="mx-4 my-6 rounded-lg border border-border bg-card p-5"
+    >
       <div className="flex items-center gap-3 mb-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
           <IconMessage className="h-4.5 w-4.5 text-muted-foreground" />
@@ -2101,6 +2123,9 @@ const AssistantChatInner = forwardRef<
   const isRuntimeRunning = thread.isRunning;
   const messages = thread.messages;
   const [missingApiKey, setMissingApiKey] = useState(false);
+  // Increments each time the user clicks the (disabled) composer while no LLM
+  // is connected — `BuilderSetupCard` watches this to replay a one-shot bounce.
+  const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
   } | null>(null);
@@ -2978,7 +3003,10 @@ const AssistantChatInner = forwardRef<
                 </div>
               ) : missingApiKey && messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full px-2">
-                  <BuilderSetupCard onConnected={handleBuilderConnected} />
+                  <BuilderSetupCard
+                    onConnected={handleBuilderConnected}
+                    bouncePulse={missingKeyBouncePulse}
+                  />
                 </div>
               ) : isRestoring ? (
                 <div className="flex flex-col gap-3 p-4">
@@ -3027,7 +3055,10 @@ const AssistantChatInner = forwardRef<
                     }}
                   />
                   {missingApiKey && (
-                    <BuilderSetupCard onConnected={handleBuilderConnected} />
+                    <BuilderSetupCard
+                      onConnected={handleBuilderConnected}
+                      bouncePulse={missingKeyBouncePulse}
+                    />
                   )}
                   {visibleLoopLimit && !showRunningInUI && (
                     <LoopLimitContinueCard
@@ -3141,7 +3172,17 @@ const AssistantChatInner = forwardRef<
             {composerSlot}
             <SelectionAttachedPill />
             {/* Input area */}
-            <div className="agent-composer-area shrink-0 px-3 py-2">
+            <div
+              className={cn(
+                "agent-composer-area shrink-0 px-3 py-2",
+                missingApiKey && "cursor-pointer opacity-70",
+              )}
+              onClick={
+                missingApiKey
+                  ? () => setMissingKeyBouncePulse((p) => p + 1)
+                  : undefined
+              }
+            >
               <ComposerPrimitive.Root
                 className={cn(
                   "flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring",

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import {
   IconArrowsExchange,
@@ -7,6 +8,7 @@ import {
   IconCommand,
   IconCopy,
   IconDeviceDesktop,
+  IconDownload,
   IconKeyboard,
   IconLoader2,
   IconMicrophone2,
@@ -31,6 +33,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 
 export function meta() {
   return [{ title: "Dictate · Clips" }];
@@ -580,7 +583,7 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
   );
 }
 
-function EmptyState() {
+function EmptyState({ isDesktopApp }: { isDesktopApp: boolean }) {
   return (
     <div className="rounded-xl border border-dashed border-border bg-gradient-to-br from-accent/30 via-transparent to-transparent px-6 py-16 text-center">
       <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-foreground text-background">
@@ -589,22 +592,64 @@ function EmptyState() {
       <p className="mt-4 text-base font-medium text-foreground">
         Start your first dictation
       </p>
-      <p className="mt-1 text-xs text-muted-foreground max-w-sm mx-auto leading-relaxed">
-        Start browser dictation here, or use the desktop app for global
-        shortcuts. Your history will live here.
-      </p>
-      <div className="mt-5 flex items-center justify-center gap-3 text-xs text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5">
-          <IconMicrophone2 className="h-3.5 w-3.5" />
-          <span>browser</span>
-        </span>
-        <span className="text-muted-foreground/40">or</span>
-        <span className="inline-flex items-center gap-1.5">
-          <Kbd>⌘</Kbd>
+      {isDesktopApp ? (
+        <>
+          <p className="mt-1 text-xs text-muted-foreground max-w-sm mx-auto leading-relaxed">
+            Hold <Kbd>Fn</Kbd> anywhere on your Mac, or press <Kbd>⌘</Kbd>
+            <Kbd>⇧</Kbd>
+            <Kbd>Space</Kbd>. Your history will live here.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="mt-1 text-xs text-muted-foreground max-w-sm mx-auto leading-relaxed">
+            Dictation runs through the desktop app for global shortcuts that
+            work in any app — Slack, your editor, anywhere.
+          </p>
+          <div className="mt-5 flex items-center justify-center">
+            <Button asChild size="sm" className="gap-1.5">
+              <Link to="/download">
+                <IconDownload className="h-3.5 w-3.5" />
+                Download Clips desktop app
+              </Link>
+            </Button>
+          </div>
+          <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+            <Kbd>Fn</Kbd>
+            <span className="text-muted-foreground/60">hold to dictate</span>
+            <span className="text-muted-foreground/40">·</span>
+            <Kbd>⌘</Kbd>
+            <Kbd>⇧</Kbd>
+            <Kbd>Space</Kbd>
+            <span className="text-muted-foreground/60">toggle</span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function DownloadDesktopAppCard() {
+  return (
+    <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-accent/20 px-4 py-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <IconDeviceDesktop className="h-4 w-4 text-foreground" />
+          Dictate from anywhere with the desktop app
+        </div>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          Hold <Kbd>Fn</Kbd> or press <Kbd>⌘</Kbd>
           <Kbd>⇧</Kbd>
-          <Kbd>Space</Kbd>
-        </span>
+          <Kbd>Space</Kbd> in any app. Browser dictation is unreliable — the
+          desktop app is the way to use this.
+        </p>
       </div>
+      <Button asChild size="sm" className="gap-1.5">
+        <Link to="/download">
+          <IconDownload className="h-3.5 w-3.5" />
+          Download
+        </Link>
+      </Button>
     </div>
   );
 }
@@ -614,6 +659,7 @@ export default function DictateRoute() {
     { dictations: Dictation[] } | Dictation[] | undefined
   >("list-dictations", {}, { retry: false });
 
+  const { isDesktopApp } = useDesktopPromo();
   const [filter, setFilter] = useState<SourceFilter>("all");
   const [listening, setListening] = useState(false);
   const [draftText, setDraftText] = useState("");
@@ -767,6 +813,7 @@ export default function DictateRoute() {
   );
 
   useEffect(() => {
+    if (!isDesktopApp) return;
     function onKeyDown(event: KeyboardEvent) {
       if (isEditableTarget(event.target)) return;
       if (
@@ -781,7 +828,7 @@ export default function DictateRoute() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [listening, startBrowserDictation, stopBrowserDictation]);
+  }, [isDesktopApp, listening, startBrowserDictation, stopBrowserDictation]);
 
   useEffect(() => {
     return () => {
@@ -845,22 +892,28 @@ export default function DictateRoute() {
       <div className="p-6 max-w-5xl mx-auto w-full">
         <div className="mb-6">
           <p className="text-sm text-muted-foreground">
-            Voice-to-text dictation with AI cleanup. Use browser capture here or
-            the desktop app for global shortcuts.
+            {isDesktopApp
+              ? "Voice-to-text dictation with AI cleanup. Use the global shortcut from any app."
+              : "Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut."}
           </p>
         </div>
 
-        <HowToCard defaultOpen={isEmpty} />
-
-        <WebDictationPanel
-          supported={speechSupported}
-          listening={listening}
-          saving={createDictation.isPending}
-          draftText={draftText}
-          interimText={interimText}
-          onStart={() => startBrowserDictation("manual")}
-          onStop={stopBrowserDictation}
-        />
+        {isDesktopApp ? (
+          <>
+            <HowToCard defaultOpen={isEmpty} />
+            <WebDictationPanel
+              supported={speechSupported}
+              listening={listening}
+              saving={createDictation.isPending}
+              draftText={draftText}
+              interimText={interimText}
+              onStart={() => startBrowserDictation("manual")}
+              onStop={stopBrowserDictation}
+            />
+          </>
+        ) : (
+          <DownloadDesktopAppCard />
+        )}
 
         {isLoading ? (
           <div className="space-y-2">
@@ -873,7 +926,7 @@ export default function DictateRoute() {
             Couldn't load dictations.
           </div>
         ) : isEmpty ? (
-          <EmptyState />
+          <EmptyState isDesktopApp={isDesktopApp} />
         ) : (
           <>
             <FilterTabs value={filter} onChange={setFilter} counts={counts} />
