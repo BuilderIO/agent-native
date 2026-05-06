@@ -33,11 +33,7 @@ export default defineEventHandler(async (event: H3Event) => {
     format?: string;
   };
   const token =
-    typeof q.token === "string"
-      ? q.token
-      : typeof q.t === "string"
-        ? q.t
-        : "";
+    typeof q.token === "string" ? q.token : typeof q.t === "string" ? q.t : "";
 
   const verified = verifyShortLivedToken(token, id);
   if (!verified.ok) {

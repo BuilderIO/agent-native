@@ -74,7 +74,9 @@ export default defineAction({
       clipboardText: prompt,
       format: handoffFormat,
       fileCount: files.length,
-      expiresAt: new Date(Date.now() + HANDOFF_TTL_SECONDS * 1000).toISOString(),
+      expiresAt: new Date(
+        Date.now() + HANDOFF_TTL_SECONDS * 1000,
+      ).toISOString(),
     };
   },
 });

@@ -53,9 +53,7 @@ export function normalizeHandoffOrigin(origin?: string | null): string | null {
   }
 }
 
-export function normalizeHandoffFormat(
-  format?: string | null,
-): HandoffFormat {
+export function normalizeHandoffFormat(format?: string | null): HandoffFormat {
   return format === "json" ? "json" : "markdown";
 }
 
@@ -147,8 +145,10 @@ function languageForFile(filename: string, fileType: string): string {
 }
 
 function fenceFor(content: string): string {
-  const matches = content.match(/`{3,}/g) ?? [];
-  const longest = matches.reduce((max, value) => Math.max(max, value.length), 2);
+  let longest = 2;
+  for (const match of content.matchAll(/`{3,}/g)) {
+    longest = Math.max(longest, match[0].length);
+  }
   return "`".repeat(longest + 1);
 }
 
