@@ -236,18 +236,6 @@ export const TEMPLATES: TemplateMeta[] = [
     core: true,
   },
   {
-    name: "images",
-    label: "Images",
-    hint: "Brand-consistent AI image generation — libraries of references plus style brief",
-    icon: "Photo",
-    color: "#0EA5E9",
-    colorRgb: "14 165 233",
-    devPort: 8100,
-    prodUrl: "https://images.agent-native.com",
-    defaultMode: "prod",
-    core: true,
-  },
-  {
     name: "starter",
     label: "Starter",
     hint: "Minimal scaffold with the agent chat and core architecture wired up",
