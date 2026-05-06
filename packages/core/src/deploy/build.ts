@@ -807,9 +807,7 @@ function generateRequireShim(): string {
   // `sqlite` is excluded because it's Node 22+ only and Workers'
   // nodejs_compat doesn't expose it yet — importing it makes the whole
   // bundle fail to load.
-  const shimmed = NODE_BUILTINS.filter(
-    (name) => name !== "sqlite",
-  );
+  const shimmed = NODE_BUILTINS.filter((name) => name !== "sqlite");
 
   // Bare module names — CF Pages Functions runs under nodejs_compat v1,
   // which rejects "node:fs" and only accepts "fs". The post-build pass in

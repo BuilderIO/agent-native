@@ -436,10 +436,10 @@ export function ComposeModal({
     ? activeDraft.queuedDraftId
       ? "Queued draft"
       : activeDraft.mode === "reply"
-      ? "Reply"
-      : activeDraft.mode === "forward"
-        ? "Forward"
-        : "New message"
+        ? "Reply"
+        : activeDraft.mode === "forward"
+          ? "Forward"
+          : "New message"
     : "New message";
 
   return (
@@ -470,10 +470,10 @@ export function ComposeModal({
                 (draft.queuedDraftId
                   ? "Queued draft"
                   : draft.mode === "reply"
-                  ? "Reply"
-                  : draft.mode === "forward"
-                    ? "Forward"
-                    : "New message");
+                    ? "Reply"
+                    : draft.mode === "forward"
+                      ? "Forward"
+                      : "New message");
               return (
                 <button
                   key={draft.id}

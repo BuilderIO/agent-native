@@ -1589,7 +1589,9 @@ function AccountSectionInner({
             {isLoading ? "Loading..." : displayName}
           </p>
           {email && (
-            <p className="truncate text-[11px] text-muted-foreground">{email}</p>
+            <p className="truncate text-[11px] text-muted-foreground">
+              {email}
+            </p>
           )}
           {status === "saved" && (
             <p className="mt-1 text-[11px] text-green-600 dark:text-green-400">
@@ -1707,16 +1709,16 @@ export function SettingsPanel({
             />
           )}
         </div>
-	      )}
-	
-	      {/* Account */}
-	      <AccountSectionInner
-	        open={openSection === "account"}
-	        onToggle={() => toggle("account")}
-	      />
+      )}
 
-	      {/* LLM */}
-	      <LLMSectionInner
+      {/* Account */}
+      <AccountSectionInner
+        open={openSection === "account"}
+        onToggle={() => toggle("account")}
+      />
+
+      {/* LLM */}
+      <LLMSectionInner
         builderFlow={builderFlow}
         builderLoading={builderLoading}
         connectUrl={connectUrl}

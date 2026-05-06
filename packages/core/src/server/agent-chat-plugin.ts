@@ -3848,11 +3848,11 @@ export function createAgentChatPlugin(
                 }
 
                 try {
-	                  const content = _fs.readFileSync(skillFilePath, "utf-8");
-	                  const fm = parseSkillFrontmatter(content);
-	                  if (fm.userInvocable === false) continue;
-	                  const skillName = fm.name || entry.name.replace(/\.md$/, "");
-	                  if (!seenNames.has(skillName)) {
+                  const content = _fs.readFileSync(skillFilePath, "utf-8");
+                  const fm = parseSkillFrontmatter(content);
+                  if (fm.userInvocable === false) continue;
+                  const skillName = fm.name || entry.name.replace(/\.md$/, "");
+                  if (!seenNames.has(skillName)) {
                     seenNames.add(skillName);
                     skills.push({
                       name: skillName,
@@ -3870,46 +3870,46 @@ export function createAgentChatPlugin(
             }
           }
 
-	          // Query accessible resources with skills/ prefix. Personal skills
-	          // need to show alongside shared skills so slash/menu invocation can
-	          // find both `learn` and `learn-shared`.
-	          try {
-	            const skillsOwner = await getOwnerFromEvent(event).catch(
-	              () => undefined,
-	            );
-	            if (skillsOwner) await ensurePersonalDefaults(skillsOwner);
-	            const resourceSkills = skillsOwner
-	              ? await resourceListAccessible(skillsOwner, "skills/")
-	              : await resourceList(SHARED_OWNER, "skills/");
-	            resourceSkills.sort((a, b) => {
-	              const ownerOrder =
-	                (a.owner === skillsOwner ? 0 : 1) -
-	                (b.owner === skillsOwner ? 0 : 1);
-	              if (ownerOrder !== 0) return ownerOrder;
-	              const pathOrder =
-	                (a.path.endsWith("/SKILL.md") ? 0 : 1) -
-	                (b.path.endsWith("/SKILL.md") ? 0 : 1);
-	              if (pathOrder !== 0) return pathOrder;
-	              return a.path.localeCompare(b.path);
-	            });
-	            for (const r of resourceSkills) {
-	              // Try to get content to parse frontmatter
-	              let skillName = getSkillNameFromPath(r.path);
-	              let description: string | undefined;
-	              let userInvocable: boolean | undefined;
-	              try {
-	                const full = await resourceGet(r.id);
-	                if (full) {
-	                  const fm = parseSkillFrontmatter(full.content);
-	                  if (fm.name) skillName = fm.name;
-	                  description = fm.description;
-	                  userInvocable = fm.userInvocable;
-	                }
-	              } catch {
-	                // Could not read resource content — use path-based name
-	              }
-	              if (userInvocable === false) continue;
-	              if (!seenNames.has(skillName)) {
+          // Query accessible resources with skills/ prefix. Personal skills
+          // need to show alongside shared skills so slash/menu invocation can
+          // find both `learn` and `learn-shared`.
+          try {
+            const skillsOwner = await getOwnerFromEvent(event).catch(
+              () => undefined,
+            );
+            if (skillsOwner) await ensurePersonalDefaults(skillsOwner);
+            const resourceSkills = skillsOwner
+              ? await resourceListAccessible(skillsOwner, "skills/")
+              : await resourceList(SHARED_OWNER, "skills/");
+            resourceSkills.sort((a, b) => {
+              const ownerOrder =
+                (a.owner === skillsOwner ? 0 : 1) -
+                (b.owner === skillsOwner ? 0 : 1);
+              if (ownerOrder !== 0) return ownerOrder;
+              const pathOrder =
+                (a.path.endsWith("/SKILL.md") ? 0 : 1) -
+                (b.path.endsWith("/SKILL.md") ? 0 : 1);
+              if (pathOrder !== 0) return pathOrder;
+              return a.path.localeCompare(b.path);
+            });
+            for (const r of resourceSkills) {
+              // Try to get content to parse frontmatter
+              let skillName = getSkillNameFromPath(r.path);
+              let description: string | undefined;
+              let userInvocable: boolean | undefined;
+              try {
+                const full = await resourceGet(r.id);
+                if (full) {
+                  const fm = parseSkillFrontmatter(full.content);
+                  if (fm.name) skillName = fm.name;
+                  description = fm.description;
+                  userInvocable = fm.userInvocable;
+                }
+              } catch {
+                // Could not read resource content — use path-based name
+              }
+              if (userInvocable === false) continue;
+              if (!seenNames.has(skillName)) {
                 seenNames.add(skillName);
                 skills.push({
                   name: skillName,

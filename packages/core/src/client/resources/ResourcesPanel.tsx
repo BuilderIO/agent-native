@@ -1347,36 +1347,36 @@ export function ResourcesPanel() {
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
-	                  <button
-	                    onClick={() => {
-	                      if (!selectedResourceId) return;
-	                      if (toolbarDeleteConfirmId === selectedResourceId) {
-	                        handleDelete(selectedResourceId);
-	                        setToolbarDeleteConfirmId(null);
-	                      } else {
-	                        setToolbarDeleteConfirmId(selectedResourceId);
-	                      }
-	                    }}
-	                    aria-label={
-	                      toolbarDeleteConfirmId === selectedResourceId
-	                        ? "Confirm delete resource"
-	                        : "Delete resource"
-	                    }
-	                    className={cn(
-	                      "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-accent/50",
-	                      toolbarDeleteConfirmId === selectedResourceId &&
-	                        "bg-destructive/10 text-destructive",
-	                    )}
-	                  >
-	                    <IconTrash className="h-3.5 w-3.5" />
-	                  </button>
-	                </TooltipTrigger>
-	                <TooltipContent>
-	                  {toolbarDeleteConfirmId === selectedResourceId
-	                    ? "Click again to delete"
-	                    : "Delete resource"}
-	                </TooltipContent>
-	              </Tooltip>
+                  <button
+                    onClick={() => {
+                      if (!selectedResourceId) return;
+                      if (toolbarDeleteConfirmId === selectedResourceId) {
+                        handleDelete(selectedResourceId);
+                        setToolbarDeleteConfirmId(null);
+                      } else {
+                        setToolbarDeleteConfirmId(selectedResourceId);
+                      }
+                    }}
+                    aria-label={
+                      toolbarDeleteConfirmId === selectedResourceId
+                        ? "Confirm delete resource"
+                        : "Delete resource"
+                    }
+                    className={cn(
+                      "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-accent/50",
+                      toolbarDeleteConfirmId === selectedResourceId &&
+                        "bg-destructive/10 text-destructive",
+                    )}
+                  >
+                    <IconTrash className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {toolbarDeleteConfirmId === selectedResourceId
+                    ? "Click again to delete"
+                    : "Delete resource"}
+                </TooltipContent>
+              </Tooltip>
             </TooltipProvider>
           </div>
         </div>

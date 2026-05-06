@@ -153,7 +153,8 @@ const EMPTY_VIEW_COPY: Record<
 > = {
   snoozed: {
     title: "No snoozed emails",
-    subtitle: "Snoozed conversations will reappear here until their return time.",
+    subtitle:
+      "Snoozed conversations will reappear here until their return time.",
     icon: IconClock,
   },
   scheduled: {
@@ -481,94 +482,101 @@ export function EmailList({
     setSelectedIds,
   ]);
 
-  const archiveThreadKeys = useCallback((threadKeys: string[]) => {
-    if (threadKeys.length === 0) return;
-    const actionKeySet = new Set(threadKeys);
+  const archiveThreadKeys = useCallback(
+    (threadKeys: string[]) => {
+      if (threadKeys.length === 0) return;
+      const actionKeySet = new Set(threadKeys);
 
-    // Resolve each thread key to its latestMessage + accountEmail up front.
-    const targets = threadKeys
-      .map((key) =>
-        threads.find(
-          (t) => (t.latestMessage.threadId || t.latestMessage.id) === key,
-        ),
-      )
-      .filter((t): t is ThreadSummary => !!t);
-    const emailIds = targets.map((t) => t.latestMessage.id);
+      // Resolve each thread key to its latestMessage + accountEmail up front.
+      const targets = threadKeys
+        .map((key) =>
+          threads.find(
+            (t) => (t.latestMessage.threadId || t.latestMessage.id) === key,
+          ),
+        )
+        .filter((t): t is ThreadSummary => !!t);
+      const emailIds = targets.map((t) => t.latestMessage.id);
 
-    // Move focus to the next non-selected thread (or previous if at end)
-    const lastIdx = threads.findIndex(
-      (t) =>
-        (t.latestMessage.threadId || t.latestMessage.id) ===
-        threadKeys[threadKeys.length - 1],
-    );
-    const remaining = threads.filter(
-      (t) => !actionKeySet.has(t.latestMessage.threadId || t.latestMessage.id),
-    );
-    if (remaining.length > 0) {
-      const nextIdx = Math.min(lastIdx, remaining.length - 1);
-      const nextThread = remaining[nextIdx];
-      setFocusedId(nextThread.latestMessage.id);
-      // Warm the thread that's about to take focus so repeated `e` stays
-      // instant down the list.
-      const nextTid =
-        nextThread.latestMessage.threadId || nextThread.latestMessage.id;
-      void ensureThread(nextTid);
-    } else {
-      setFocusedId(null);
-    }
-
-    // Snapshot removed thread emails so undo can restore them
-    const snapshots: EmailMessage[] = [];
-    for (const key of threadKeys) {
-      snapshots.push(...emails.filter((e) => (e.threadId || e.id) === key));
-    }
-    for (const id of emailIds) onArchived?.(id);
-
-    const undo = () => {
-      for (const key of threadKeys) unsuppressThread(key);
-      queryClient.setQueriesData<InfiniteEmails>(
-        { queryKey: ["emails"] },
-        (old) => {
-          if (!old) return old;
-          // Re-insert snapshots into the first page
-          const firstPage = old.pages[0];
-          const restored = [...(firstPage?.emails ?? []), ...snapshots].sort(
-            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-          );
-          return {
-            ...old,
-            pages: [{ ...firstPage, emails: restored }, ...old.pages.slice(1)],
-          };
-        },
+      // Move focus to the next non-selected thread (or previous if at end)
+      const lastIdx = threads.findIndex(
+        (t) =>
+          (t.latestMessage.threadId || t.latestMessage.id) ===
+          threadKeys[threadKeys.length - 1],
       );
-      for (const id of emailIds) unarchiveEmail.mutate(id);
-    };
-    setUndoAction(undo);
-    toast(
-      threadKeys.length > 1
-        ? `Archived ${threadKeys.length} conversations.`
-        : "Archived.",
-      { action: { label: "UNDO", onClick: undo } },
-    );
-    for (const t of targets) {
-      archiveEmail.mutate({
-        id: t.latestMessage.id,
-        accountEmail: t.latestMessage.accountEmail,
-        removeLabel: labelParam || undefined,
-      });
-    }
-    setSelectedIds(new Set());
-  }, [
-    threads,
-    emails,
-    archiveEmail,
-    unarchiveEmail,
-    onArchived,
-    labelParam,
-    setFocusedId,
-    setSelectedIds,
-    queryClient,
-  ]);
+      const remaining = threads.filter(
+        (t) =>
+          !actionKeySet.has(t.latestMessage.threadId || t.latestMessage.id),
+      );
+      if (remaining.length > 0) {
+        const nextIdx = Math.min(lastIdx, remaining.length - 1);
+        const nextThread = remaining[nextIdx];
+        setFocusedId(nextThread.latestMessage.id);
+        // Warm the thread that's about to take focus so repeated `e` stays
+        // instant down the list.
+        const nextTid =
+          nextThread.latestMessage.threadId || nextThread.latestMessage.id;
+        void ensureThread(nextTid);
+      } else {
+        setFocusedId(null);
+      }
+
+      // Snapshot removed thread emails so undo can restore them
+      const snapshots: EmailMessage[] = [];
+      for (const key of threadKeys) {
+        snapshots.push(...emails.filter((e) => (e.threadId || e.id) === key));
+      }
+      for (const id of emailIds) onArchived?.(id);
+
+      const undo = () => {
+        for (const key of threadKeys) unsuppressThread(key);
+        queryClient.setQueriesData<InfiniteEmails>(
+          { queryKey: ["emails"] },
+          (old) => {
+            if (!old) return old;
+            // Re-insert snapshots into the first page
+            const firstPage = old.pages[0];
+            const restored = [...(firstPage?.emails ?? []), ...snapshots].sort(
+              (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+            );
+            return {
+              ...old,
+              pages: [
+                { ...firstPage, emails: restored },
+                ...old.pages.slice(1),
+              ],
+            };
+          },
+        );
+        for (const id of emailIds) unarchiveEmail.mutate(id);
+      };
+      setUndoAction(undo);
+      toast(
+        threadKeys.length > 1
+          ? `Archived ${threadKeys.length} conversations.`
+          : "Archived.",
+        { action: { label: "UNDO", onClick: undo } },
+      );
+      for (const t of targets) {
+        archiveEmail.mutate({
+          id: t.latestMessage.id,
+          accountEmail: t.latestMessage.accountEmail,
+          removeLabel: labelParam || undefined,
+        });
+      }
+      setSelectedIds(new Set());
+    },
+    [
+      threads,
+      emails,
+      archiveEmail,
+      unarchiveEmail,
+      onArchived,
+      labelParam,
+      setFocusedId,
+      setSelectedIds,
+      queryClient,
+    ],
+  );
 
   const archiveFocused = useCallback(() => {
     archiveThreadKeys(getActionThreadKeys());
@@ -888,7 +896,9 @@ export function EmailList({
 
   const handleArchiveThread = (e: React.MouseEvent, thread: ThreadSummary) => {
     e.stopPropagation();
-    archiveThreadKeys([thread.latestMessage.threadId || thread.latestMessage.id]);
+    archiveThreadKeys([
+      thread.latestMessage.threadId || thread.latestMessage.id,
+    ]);
   };
 
   const getScheduledJobId = (email: EmailMessage): string | null =>

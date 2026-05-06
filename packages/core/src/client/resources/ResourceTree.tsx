@@ -290,32 +290,32 @@ function TreeNodeRow({
                 ) : (
                   <Tooltip>
                     <TooltipTrigger asChild>
-	                      <button
-	                        onClick={(e) => {
-	                          e.stopPropagation();
-	                          if (confirmingDelete) {
-	                            onDelete(node.resource!.id);
-	                            setConfirmingDelete(false);
-	                          } else {
-	                            setConfirmingDelete(true);
-	                          }
-	                        }}
-	                        aria-label={
-	                          confirmingDelete ? "Confirm delete" : "Delete"
-	                        }
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirmingDelete) {
+                            onDelete(node.resource!.id);
+                            setConfirmingDelete(false);
+                          } else {
+                            setConfirmingDelete(true);
+                          }
+                        }}
+                        aria-label={
+                          confirmingDelete ? "Confirm delete" : "Delete"
+                        }
                         className={cn(
                           "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-accent/50",
                           confirmingDelete &&
                             "bg-destructive/10 text-destructive",
                         )}
-	                      >
-	                        <IconTrash className="h-3 w-3" />
-	                      </button>
-	                    </TooltipTrigger>
-	                    <TooltipContent>
-	                      {confirmingDelete ? "Click again to delete" : "Delete"}
-	                    </TooltipContent>
-	                  </Tooltip>
+                      >
+                        <IconTrash className="h-3 w-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {confirmingDelete ? "Click again to delete" : "Delete"}
+                    </TooltipContent>
+                  </Tooltip>
                 ))}
             </TooltipProvider>
           </div>

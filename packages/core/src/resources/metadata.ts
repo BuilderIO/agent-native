@@ -144,7 +144,12 @@ export function getSkillNameFromPath(path: string): string {
     .replace(/^\.agents\/skills\//, "")
     .replace(/^skills\//, "");
   if (relative.endsWith("/SKILL.md")) {
-    return relative.replace(/\/SKILL\.md$/, "").split("/").pop() || relative;
+    return (
+      relative
+        .replace(/\/SKILL\.md$/, "")
+        .split("/")
+        .pop() || relative
+    );
   }
   return relative.split("/").pop()?.replace(/\.md$/, "") || path;
 }
@@ -192,8 +197,7 @@ export function parseSkillMetadata(
   const frontmatter = parseFrontmatter(content);
   return {
     name:
-      getFrontmatterValue(frontmatter, "name") ||
-      getSkillNameFromPath(path),
+      getFrontmatterValue(frontmatter, "name") || getSkillNameFromPath(path),
     description: getFrontmatterValue(frontmatter, "description"),
   };
 }
