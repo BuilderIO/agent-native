@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   IconBrowser,
   IconCamera,
@@ -8,6 +8,7 @@ import {
   IconUpload,
   IconVideo,
 } from "@tabler/icons-react";
+import { agentNativePath } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -21,6 +22,12 @@ import {
   type DisplaySurface,
   type RecordingMode,
 } from "./recorder-engine";
+import type { CameraBubbleSize } from "./camera-bubble";
+import { CameraVisualizer, type CameraTestStatus } from "./camera-visualizer";
+import {
+  MicrophoneVisualizer,
+  type MicrophoneTestStatus,
+} from "./microphone-visualizer";
 
 export interface PreRecordPanelProps {
   onStart: (opts: {
@@ -33,6 +40,31 @@ export interface PreRecordPanelProps {
   onUpload?: (file: File) => void;
   onCancel?: () => void;
   busy?: boolean;
+  cameraSize?: CameraBubbleSize;
+  onCameraSizeChange?: (size: CameraBubbleSize) => void;
+}
+
+type MicTestState = {
+  status: MicrophoneTestStatus;
+  error: string | null;
+  hasSignal: boolean;
+};
+
+type CameraTestState = {
+  status: CameraTestStatus;
+  error: string | null;
+  hasPreview: boolean;
+};
+
+async function writeRecordingSetupState(value: unknown): Promise<void> {
+  await fetch(
+    agentNativePath("/_agent-native/application-state/recording-setup"),
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(value),
+    },
+  );
 }
 
 const MODE_OPTIONS: Array<{
@@ -92,6 +124,8 @@ export function PreRecordPanel({
   onUpload,
   onCancel,
   busy,
+  cameraSize = "md",
+  onCameraSizeChange,
 }: PreRecordPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<RecordingMode>("screen+camera");
@@ -102,6 +136,16 @@ export function PreRecordPanel({
   const [micId, setMicId] = useState<string>("default");
   const [cameraId, setCameraId] = useState<string>("default");
   const [enumError, setEnumError] = useState<string | null>(null);
+  const [micTest, setMicTest] = useState<MicTestState>({
+    status: "idle",
+    error: null,
+    hasSignal: false,
+  });
+  const [cameraTest, setCameraTest] = useState<CameraTestState>({
+    status: "idle",
+    error: null,
+    hasPreview: false,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -135,6 +179,105 @@ export function PreRecordPanel({
 
   const needsCamera = mode === "camera" || mode === "screen+camera";
   const needsScreen = mode === "screen" || mode === "screen+camera";
+
+  const selectedMicLabel = useMemo(() => {
+    if (micId === NO_MIC_DEVICE_ID) return "No microphone";
+    if (micId === "default") return "Default microphone";
+    return (
+      mics.find((mic) => mic.deviceId === micId)?.label ||
+      `Mic ${micId.slice(0, 4)}`
+    );
+  }, [micId, mics]);
+
+  const selectedCameraLabel = useMemo(() => {
+    if (!needsCamera) return null;
+    if (cameraId === "default") return "Default camera";
+    return (
+      cameras.find((camera) => camera.deviceId === cameraId)?.label ||
+      `Camera ${cameraId.slice(0, 4)}`
+    );
+  }, [cameraId, cameras, needsCamera]);
+
+  const handleMicStatusChange = useCallback(
+    (status: MicrophoneTestStatus, detail?: { error?: string | null }) => {
+      setMicTest({
+        status,
+        error: detail?.error ?? null,
+        hasSignal: false,
+      });
+    },
+    [],
+  );
+
+  const handleMicSignalChange = useCallback((hasSignal: boolean) => {
+    setMicTest((prev) => ({ ...prev, hasSignal }));
+  }, []);
+
+  const handleCameraStatusChange = useCallback(
+    (status: CameraTestStatus, detail?: { error?: string | null }) => {
+      setCameraTest({
+        status,
+        error: detail?.error ?? null,
+        hasPreview: false,
+      });
+    },
+    [],
+  );
+
+  const handleCameraPreviewChange = useCallback((hasPreview: boolean) => {
+    setCameraTest((prev) => ({ ...prev, hasPreview }));
+  }, []);
+
+  useEffect(() => {
+    if (needsCamera) return;
+    setCameraTest({ status: "idle", error: null, hasPreview: false });
+  }, [needsCamera]);
+
+  useEffect(() => {
+    void writeRecordingSetupState({
+      view: "record",
+      mode,
+      microphone: {
+        enabled: micId !== NO_MIC_DEVICE_ID,
+        selected:
+          micId === NO_MIC_DEVICE_ID
+            ? "none"
+            : micId === "default"
+              ? "default"
+              : "specific",
+        label: selectedMicLabel,
+        testStatus: micTest.status,
+        testHasSignal: micTest.hasSignal,
+        testError: micTest.error,
+      },
+      camera: {
+        enabled: needsCamera,
+        selected: needsCamera
+          ? cameraId === "default"
+            ? "default"
+            : "specific"
+          : "none",
+        label: selectedCameraLabel,
+        testStatus: cameraTest.status,
+        testHasPreview: cameraTest.hasPreview,
+        testError: cameraTest.error,
+      },
+      updatedAt: new Date().toISOString(),
+    }).catch(() => {});
+  }, [
+    cameraId,
+    cameraTest.error,
+    cameraTest.hasPreview,
+    cameraTest.status,
+    micId,
+    micTest.error,
+    micTest.hasSignal,
+    micTest.status,
+    mode,
+    needsCamera,
+    selectedCameraLabel,
+    selectedMicLabel,
+  ]);
 
   const startDisabled = useMemo(() => {
     if (busy) return true;
@@ -239,23 +382,45 @@ export function PreRecordPanel({
           </Select>
         </div>
 
+        <MicrophoneVisualizer
+          className="ml-7"
+          deviceId={micId === "default" ? null : micId}
+          disabled={busy || micId === NO_MIC_DEVICE_ID}
+          selectedLabel={selectedMicLabel}
+          onStatusChange={handleMicStatusChange}
+          onSignalChange={handleMicSignalChange}
+        />
+
         {needsCamera && (
-          <div className="flex items-center gap-3">
-            <IconCamera className="h-4 w-4 text-muted-foreground" />
-            <Select value={cameraId} onValueChange={setCameraId}>
-              <SelectTrigger className="flex-1">
-                <SelectValue placeholder="Default camera" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="default">Default camera</SelectItem>
-                {cameras.map((c) => (
-                  <SelectItem key={c.deviceId} value={c.deviceId}>
-                    {c.label || `Camera ${c.deviceId.slice(0, 4)}`}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <>
+            <div className="flex items-center gap-3">
+              <IconCamera className="h-4 w-4 text-muted-foreground" />
+              <Select value={cameraId} onValueChange={setCameraId}>
+                <SelectTrigger className="flex-1">
+                  <SelectValue placeholder="Default camera" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">Default camera</SelectItem>
+                  {cameras.map((c) => (
+                    <SelectItem key={c.deviceId} value={c.deviceId}>
+                      {c.label || `Camera ${c.deviceId.slice(0, 4)}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <CameraVisualizer
+              className="ml-7"
+              deviceId={cameraId === "default" ? null : cameraId}
+              disabled={busy}
+              selectedLabel={selectedCameraLabel}
+              size={cameraSize}
+              onSizeChange={onCameraSizeChange}
+              onStatusChange={handleCameraStatusChange}
+              onPreviewChange={handleCameraPreviewChange}
+            />
+          </>
         )}
 
         {enumError && (

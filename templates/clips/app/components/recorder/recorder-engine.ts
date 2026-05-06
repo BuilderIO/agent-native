@@ -172,6 +172,12 @@ export class RecorderEngine {
    * completion against a recording the user already discarded.
    */
   private compressionAbort: AbortController | null = null;
+  /**
+   * Aborts in-flight chunk uploads (queueChunk + the non-compression finalize
+   * sentinel) when cancel() runs, so a Cancel during upload doesn't let the
+   * fetch quietly complete and the recording finalise server-side.
+   */
+  private uploadAbort: AbortController | null = null;
 
   private state: RecorderState = "idle";
 
@@ -223,45 +229,96 @@ export class RecorderEngine {
   async acquire(): Promise<RecorderStartResult> {
     this.transition("pickingSources");
 
+    const wantsDisplay =
+      this.opts.mode === "screen" || this.opts.mode === "screen+camera";
+    const wantsCamera =
+      this.opts.mode === "camera" || this.opts.mode === "screen+camera";
+    const wantsMic = this.opts.micDeviceId !== NO_MIC_DEVICE_ID;
+
     try {
-      if (this.opts.mode === "screen" || this.opts.mode === "screen+camera") {
-        const displaySurface = this.opts.displaySurface ?? "window";
-        const displayOptions: ExtendedDisplayMediaOptions = {
-          video: { frameRate: { ideal: 30 }, displaySurface },
-          audio: true,
-          preferCurrentTab: displaySurface === "browser",
-          selfBrowserSurface:
-            displaySurface === "browser" ? "include" : "exclude",
-          surfaceSwitching: "include",
-          systemAudio: "include",
-        };
-        this.displayStream =
-          await navigator.mediaDevices.getDisplayMedia(displayOptions);
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error(
+          "Your browser doesn't support camera or microphone capture. Try a recent Brave, Chrome, Edge, Safari, or Firefox.",
+        );
+      }
+      if (wantsDisplay && !navigator.mediaDevices.getDisplayMedia) {
+        throw new Error(
+          "Your browser doesn't support screen capture. Try a recent Brave, Chrome, Edge, Safari, or Firefox.",
+        );
       }
 
-      if (this.opts.mode === "camera" || this.opts.mode === "screen+camera") {
-        this.cameraStream = await navigator.mediaDevices.getUserMedia({
-          video: this.opts.cameraDeviceId
-            ? { deviceId: { exact: this.opts.cameraDeviceId } }
-            : true,
-          audio: false,
-        });
-      }
-
-      if (this.opts.micDeviceId !== NO_MIC_DEVICE_ID) {
-        // Mic is separate so user can pick explicitly; combined with system audio later.
-        try {
-          this.micStream = await navigator.mediaDevices.getUserMedia({
+      // Start every browser media request synchronously before the first
+      // `await`. Brave (and stricter Chromium/WebKit builds) require
+      // getDisplayMedia to be directly anchored to the user's click. If we
+      // await a network request or another media prompt first, the browser can
+      // reject without showing any permission picker.
+      const displaySurface = this.opts.displaySurface ?? "window";
+      const displayOptions: ExtendedDisplayMediaOptions = {
+        video: { frameRate: { ideal: 30 }, displaySurface },
+        audio: true,
+        preferCurrentTab: displaySurface === "browser",
+        selfBrowserSurface:
+          displaySurface === "browser" ? "include" : "exclude",
+        surfaceSwitching: "include",
+        systemAudio: "include",
+      };
+      const displayPromise = wantsDisplay
+        ? navigator.mediaDevices.getDisplayMedia(displayOptions)
+        : Promise.resolve<MediaStream | null>(null);
+      const cameraPromise = wantsCamera
+        ? navigator.mediaDevices.getUserMedia({
+            video: this.opts.cameraDeviceId
+              ? { deviceId: { exact: this.opts.cameraDeviceId } }
+              : true,
+            audio: false,
+          })
+        : Promise.resolve<MediaStream | null>(null);
+      const micPromise = wantsMic
+        ? navigator.mediaDevices.getUserMedia({
             audio: this.opts.micDeviceId
               ? { deviceId: { exact: this.opts.micDeviceId } }
               : true,
             video: false,
-          });
-        } catch {
-          // Mic is optional — if denied we still record without it.
-          this.micStream = null;
+          })
+        : Promise.resolve<MediaStream | null>(null);
+
+      const [displayResult, cameraResult, micResult] = await Promise.allSettled(
+        [displayPromise, cameraPromise, micPromise],
+      );
+      const settledStreams = [displayResult, cameraResult, micResult]
+        .filter(
+          (result): result is PromiseFulfilledResult<MediaStream> =>
+            result.status === "fulfilled" && result.value !== null,
+        )
+        .map((result) => result.value);
+
+      const requiredFailure =
+        (wantsDisplay && displayResult.status === "rejected"
+          ? displayResult.reason
+          : null) ??
+        (wantsCamera && cameraResult.status === "rejected"
+          ? cameraResult.reason
+          : null);
+      if (requiredFailure) {
+        for (const stream of settledStreams) {
+          for (const track of stream.getTracks()) {
+            try {
+              track.stop();
+            } catch {
+              // ignore
+            }
+          }
         }
+        throw requiredFailure;
       }
+
+      this.displayStream =
+        displayResult.status === "fulfilled" ? displayResult.value : null;
+      this.cameraStream =
+        cameraResult.status === "fulfilled" ? cameraResult.value : null;
+      // Mic is optional — if denied we still record without it.
+      this.micStream =
+        micResult.status === "fulfilled" ? micResult.value : null;
 
       // If the display stream's video track ends (user hit "Stop sharing" in
       // browser chrome) we want to end the recording gracefully.
@@ -301,6 +358,21 @@ export class RecorderEngine {
       this.transition("error", { reason: String(err) });
       throw this.friendlyError(err);
     }
+  }
+
+  /**
+   * Attach the server-created upload target after media has been acquired.
+   * Acquisition intentionally happens first so permission prompts remain
+   * anchored to the user's click in Brave/Chromium.
+   */
+  setUploadTarget(target: {
+    recordingId: string;
+    uploadUrl: string;
+    abortUrl: string;
+  }): void {
+    this.opts.recordingId = target.recordingId;
+    this.opts.uploadUrl = target.uploadUrl;
+    this.opts.abortUrl = target.abortUrl;
   }
 
   // -------------------------------------------------------------------------
@@ -370,6 +442,7 @@ export class RecorderEngine {
     this.uploadFailure = null;
     this.localChunks = [];
     this.totalRecordedBytes = 0;
+    this.uploadAbort = new AbortController();
 
     this.recorder.addEventListener("dataavailable", (event) => {
       const blob = event.data;
@@ -563,6 +636,7 @@ export class RecorderEngine {
             height: dimensions.height,
             hasAudio,
             hasCamera,
+            signal: this.uploadAbort?.signal,
           },
         );
       }
@@ -831,6 +905,13 @@ export class RecorderEngine {
       this.compressionAbort.abort(cancelErr);
       this.compressionAbort = null;
     }
+    // Abort streaming-chunk uploads + the non-compression finalize sentinel.
+    if (this.uploadAbort) {
+      const cancelErr = new Error("Recording cancelled");
+      cancelErr.name = "AbortError";
+      this.uploadAbort.abort(cancelErr);
+      this.uploadAbort = null;
+    }
     this.cleanupTracks();
     this.chunkIndex = 0;
     this.uploadFailure = null;
@@ -841,10 +922,12 @@ export class RecorderEngine {
     this.totalRecordedBytes = 0;
     this.transition("idle");
 
-    try {
-      await fetch(this.opts.abortUrl, { method: "POST" });
-    } catch {
-      // ignore — best effort
+    if (this.opts.abortUrl) {
+      try {
+        await fetch(this.opts.abortUrl, { method: "POST" });
+      } catch {
+        // ignore — best effort
+      }
     }
   }
 
@@ -894,10 +977,12 @@ export class RecorderEngine {
   private queueChunk(blob: Blob, index: number, isFinal: boolean): void {
     this.chunkQueue = this.chunkQueue.then(async () => {
       if (this.uploadFailure) return;
+      if (this.uploadAbort?.signal.aborted) return;
       try {
         await this.uploadChunk(blob, index, {
           isFinal,
           mimeType: this.mimeType,
+          signal: this.uploadAbort?.signal,
         });
         this.opts.onChunk?.({
           index,
@@ -906,6 +991,8 @@ export class RecorderEngine {
         });
       } catch (err) {
         const failure = err instanceof Error ? err : new Error(String(err));
+        // User-initiated cancel — cancel() already runs the abortUrl path.
+        if (failure.name === "AbortError") return;
         await this.markUploadFailed(failure);
         this.emitError(failure);
       }
@@ -916,6 +1003,7 @@ export class RecorderEngine {
     if (!this.uploadFailure) {
       this.uploadFailure = err;
     }
+    if (!this.opts.abortUrl) return;
     try {
       await fetch(this.opts.abortUrl, {
         method: "POST",
@@ -1087,7 +1175,7 @@ export class RecorderEngine {
       err instanceof Error ? err.message : String(err || "Unknown error");
     if (/Permission denied|NotAllowedError|denied/i.test(message)) {
       return new Error(
-        "Screen, camera, or microphone access was blocked. In Chrome, open Site settings for this app and allow Camera and Microphone. On macOS, also check System Settings > Privacy & Security for Screen Recording, Camera, and Microphone, then quit and reopen Chrome.",
+        "Screen, camera, or microphone access was blocked. In Brave/Chrome, open Site settings for this app and allow Camera and Microphone. On macOS, also check System Settings > Privacy & Security for Screen Recording, Camera, and Microphone, then quit and reopen the browser.",
       );
     }
     if (/NotFoundError|no device/i.test(message)) {
