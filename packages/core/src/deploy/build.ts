@@ -792,38 +792,24 @@ export function getNodeBuiltinNames(): string[] {
  * Injected via esbuild --inject so CJS deps work on Workers runtime.
  */
 function generateRequireShim(): string {
-  // Only shim the commonly-used builtins to keep it small. `tty`, `readline`,
-  // `process`, and friends are added because terminal-detection helpers
-  // (chalk, picocolors, supports-color, debug, etc.) call require("tty") at
-  // module-init time — without a shim, the bundled worker throws
-  // "Cannot require: tty" before any code runs.
-  const shimmed = [
-    "fs",
-    "path",
-    "os",
-    "crypto",
-    "http",
-    "https",
-    "stream",
-    "url",
-    "util",
-    "events",
-    "buffer",
-    "querystring",
-    "zlib",
-    "net",
-    "tls",
-    "assert",
-    "timers",
-    "child_process",
-    "module",
-    "tty",
-    "readline",
-    "process",
-    "console",
-    "perf_hooks",
-    "string_decoder",
-  ];
+  // Shim the full set of node builtins so any CJS `require("X")` from a
+  // transitive dep resolves to the imported ESM module. Anything less is
+  // whack-a-mole: terminal helpers pull in `tty`, transformer libs pull in
+  // `worker_threads`, etc. — every miss fails deploy with a generic
+  // "Cannot require: <name>" thrown by this shim itself.
+  //
+  // Some builtins exist only as runtime polyfills under nodejs_compat
+  // (some are no-op stubs). That's fine — the `import` returns whatever
+  // the runtime provides; failures only surface when callers actually USE
+  // the unsupported APIs at request time, which is the same as if the
+  // shim wasn't there.
+  //
+  // `sqlite` is excluded because it's Node 22+ only and Workers'
+  // nodejs_compat doesn't expose it yet — importing it makes the whole
+  // bundle fail to load.
+  const shimmed = NODE_BUILTINS.filter(
+    (name) => name !== "sqlite",
+  );
 
   // Bare module names — CF Pages Functions runs under nodejs_compat v1,
   // which rejects "node:fs" and only accepts "fs". The post-build pass in
