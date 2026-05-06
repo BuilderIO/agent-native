@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.12.4
+
+### Patch Changes
+
+- e2bce24: Keep the prompt composer TipTap schema minimal to avoid ProseMirror recursion in deployed pages.
+- e2bce24: Keep existing extension edits on the update-extension path instead of routing them to Builder code changes.
+- e2bce24: Recover dev pages when Vite serves outdated optimized dependency 504 responses.
+
 ## 0.12.3
 
 ### Patch Changes
