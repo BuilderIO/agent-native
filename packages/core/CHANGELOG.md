@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.12.1
+
+### Patch Changes
+
+- 47b8486: Avoid duplicate TipTap link extensions when editors provide custom link behavior.
+
 ## 0.12.0
 
 ### Minor Changes
