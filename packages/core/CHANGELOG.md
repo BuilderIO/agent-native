@@ -1,5 +1,24 @@
 # @agent-native/core
 
+## 0.11.0
+
+### Minor Changes
+
+- b4bdd34: Workspace settings reachable from the org switcher in every template, plus admin-vs-member roles, bulk invite (typed list, paste-many, CSV upload) with per-row role selection, and stricter auto-join domain validation (must match the admin's own email domain; free email providers like gmail.com are blocked).
+  - `OrgSwitcher` exposes a "Workspace settings" link (configurable via `settingsPath`, default `/team`).
+  - `useInviteMember` accepts `{ email, role }`; new `useBulkInviteMembers` and `useChangeMemberRole` hooks.
+  - New `PUT /_agent-native/org/members/:email/role` endpoint; only owners can promote/demote admins.
+  - `org_invitations` gains a `role` column so invites land at the assigned role on accept.
+  - `OrgPendingInvitation` type now includes `role`.
+  - New `isFreeEmailProvider` export with a curated blocklist used by `setDomainHandler`.
+
+### Patch Changes
+
+- b4bdd34: Replace custom overflow menu in extensions sidebar with shadcn DropdownMenu (Radix-portaled). Fixes the menu being clipped by the sidebar's stacking context and adds the standard fade/zoom animations.
+- b4bdd34: Sign connected-agent A2A mention calls with the current request identity in production.
+- b4bdd34: Fix Cloudflare Pages deploy failure with `Cannot require: tty`. Terminal-detection helpers in transitive deps (chalk, picocolors, supports-color, debug, etc.) call `require("tty")` at module init; the bundled-worker require shim now covers `tty`, `readline`, `process`, `console`, `perf_hooks`, and `string_decoder` so those CJS calls resolve to the matching ESM imports instead of throwing at deploy time.
+- b4bdd34: Allow actions to stop an agent turn after deterministic provider failures instead of feeding the error back into automatic retries.
+
 ## 0.10.0
 
 ### Minor Changes
