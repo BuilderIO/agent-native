@@ -170,6 +170,38 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(fs.existsSync(path.join(schedDir, "package.json"))).toBe(true);
   });
 
+  it("scaffolds the pinpoint package when design is included", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["starter", "design"]);
+    const pinpointDir = path.join(wsDir, "packages", "pinpoint");
+    expect(fs.existsSync(pinpointDir)).toBe(true);
+    expect(fs.existsSync(path.join(pinpointDir, "package.json"))).toBe(true);
+  });
+
+  it("backs first-party workspace deps with scaffolded packages", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["calendar", "design"]);
+
+    for (const appName of ["calendar", "design"]) {
+      const pkg = readPkg(path.join(wsDir, "apps", appName));
+      for (const [depName, version] of Object.entries(allDeps(pkg))) {
+        if (
+          typeof version !== "string" ||
+          !version.startsWith("workspace:") ||
+          !depName.startsWith("@agent-native/")
+        ) {
+          continue;
+        }
+
+        const packageDir = depName.split("/")[1];
+        expect(
+          fs.existsSync(
+            path.join(wsDir, "packages", packageDir, "package.json"),
+          ),
+          `${appName} dependency ${depName} must be scaffolded under packages/${packageDir}`,
+        ).toBe(true);
+      }
+    }
+  });
+
   it("converts @agent-native/core workspace:* in scaffolded packages", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["calendar"]);
     const schedPkg = readPkg(path.join(wsDir, "packages", "scheduling"));

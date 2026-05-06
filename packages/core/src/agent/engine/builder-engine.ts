@@ -128,9 +128,10 @@ class BuilderEngine implements AgentEngine {
   readonly capabilities = BUILDER_CAPABILITIES;
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
-    const [authHeader, spaceId] = await Promise.all([
+    const [authHeader, spaceId, builderUserId] = await Promise.all([
       resolveBuilderAuthHeader(),
       resolveBuilderCredential("BUILDER_PUBLIC_KEY"),
+      resolveBuilderCredential("BUILDER_USER_ID"),
     ]);
     if (!authHeader || !spaceId) {
       yield {
@@ -193,6 +194,8 @@ class BuilderEngine implements AgentEngine {
           headers: {
             "Content-Type": "application/json",
             Authorization: authHeader,
+            "x-builder-api-key": spaceId,
+            ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
           },
           body: JSON.stringify(body),
           signal: gatewayAbort.signal,
@@ -297,10 +300,21 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
     yield {
       type: "stop",
       reason: "error",
-      error:
-        message ||
-        "Builder authentication failed. Reconnect Builder via Settings → LLM.",
-      errorCode: "unauthorized",
+      error: "Builder authentication failed. Reconnect Builder via Settings.",
+      errorCode: "builder_auth_error",
+    };
+    return;
+  }
+  if (
+    status === 403 &&
+    (message.toLowerCase().includes("unauthorized") ||
+      message.toLowerCase().includes("private key"))
+  ) {
+    yield {
+      type: "stop",
+      reason: "error",
+      error: "Builder authentication failed. Reconnect Builder via Settings.",
+      errorCode: "builder_auth_error",
     };
     return;
   }

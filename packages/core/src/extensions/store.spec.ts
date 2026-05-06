@@ -83,6 +83,50 @@ describe("extensions/store", () => {
     await expect(ensureExtensionsTables()).resolves.toBeUndefined();
   });
 
+  it("retries table initialization after a transient setup failure", async () => {
+    let failCreateToolsOnce = true;
+    const statements: string[] = [];
+    const client = {
+      execute: vi.fn(
+        async (input: string | { sql: string; args: unknown[] }) => {
+          const sql = typeof input === "string" ? input : input.sql;
+          statements.push(sql);
+          if (
+            failCreateToolsOnce &&
+            /CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+tools/i.test(sql)
+          ) {
+            failCreateToolsOnce = false;
+            throw new Error("SQLITE_BUSY: database is locked");
+          }
+          return { rows: [], rowsAffected: 0 };
+        },
+      ),
+    };
+
+    vi.doMock("../db/client.js", () => ({
+      getDbExec: () => client,
+      getDialect: () => "sqlite",
+      isPostgres: () => false,
+      retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+    }));
+    vi.doMock("../db/create-get-db.js", () => ({
+      createGetDb: () => () => ({}),
+    }));
+    vi.doMock("../sharing/registry.js", () => ({
+      registerShareableResource: vi.fn(),
+    }));
+
+    const { ensureExtensionsTables } = await import("./store.js");
+
+    await expect(ensureExtensionsTables()).rejects.toThrow("SQLITE_BUSY");
+    await expect(ensureExtensionsTables()).resolves.toBeUndefined();
+    expect(
+      statements.filter((sql) =>
+        /CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+tools/i.test(sql),
+      ),
+    ).toHaveLength(2);
+  });
+
   it("creates new extensions as private even inside an organization", async () => {
     const insertedRows: unknown[] = [];
     const db = {

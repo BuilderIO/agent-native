@@ -71,7 +71,9 @@ const allowed = new Set(
 );
 // Starter is a CLI-only scaffold. It may have a developer docs page, but it
 // must not appear in public marketing/catalog template surfaces.
-const CLI_ONLY_TEMPLATE_DOCS = new Set(["starter"]);
+// Images is in flight (hidden:true): off the homepage and sidebar, but the
+// docs page is allowed to live in the repo while the template is polished.
+const CLI_ONLY_TEMPLATE_DOCS = new Set(["starter", "images"]);
 // Tolerate the legacy "video" alias for "videos" — multiple surfaces
 // link to /templates/video and that alias is documented in
 // `getTemplate()` in templates.ts. Whitelist it here so the guard

@@ -30,6 +30,32 @@ The `create` command defaults to a workspace monorepo. It shows a multi-select p
 
 Open the URL the dev server prints. Workspace apps use app-specific ports, often `http://localhost:8080` or another 808x port; standalone apps usually use `http://localhost:3000`.
 
+## Creating vs adding apps {#creating-vs-adding-apps}
+
+Run `create` from the folder where you want a brand-new workspace:
+
+```bash
+cd ~/projects
+npx @agent-native/core create my-platform
+```
+
+After a workspace exists, run app commands from the workspace root:
+
+```bash
+cd my-platform
+npx @agent-native/core add-app
+pnpm install
+pnpm dev
+```
+
+If your terminal is inside `apps/content` or another app folder, the CLI still detects the workspace and adds the new app as a sibling under `apps/`. Afterward, go back to the workspace root before running `pnpm install` or `pnpm dev`.
+
+To make a second app from the same template, give it a new app name:
+
+```bash
+npx @agent-native/core add-app design-lab --template design
+```
+
 ## What just happened? {#what-just-happened}
 
 You now have a real, full-featured app running on your machine. Open it in the browser and try it:

@@ -9,6 +9,7 @@ import type { EngineStreamOptions } from "./types.js";
 const credentialState = vi.hoisted(() => ({
   builderPrivateKey: "bpk-test" as string | null,
   builderPublicKey: "space-test" as string | null,
+  builderUserId: "builder-user-123" as string | null,
   builderOrgName: null as string | null,
 }));
 
@@ -22,6 +23,7 @@ vi.mock("../../server/credential-provider.js", async (importOriginal) => {
       if (key === "BUILDER_PRIVATE_KEY")
         return credentialState.builderPrivateKey;
       if (key === "BUILDER_PUBLIC_KEY") return credentialState.builderPublicKey;
+      if (key === "BUILDER_USER_ID") return credentialState.builderUserId;
       if (key === "BUILDER_ORG_NAME") return credentialState.builderOrgName;
       return null;
     }),
@@ -73,9 +75,11 @@ describe("createBuilderEngine", () => {
   beforeEach(() => {
     credentialState.builderPrivateKey = "bpk-test";
     credentialState.builderPublicKey = "space-test";
+    credentialState.builderUserId = "builder-user-123";
     credentialState.builderOrgName = null;
     vi.stubEnv("BUILDER_PRIVATE_KEY", "bpk-test");
     vi.stubEnv("BUILDER_PUBLIC_KEY", "space-test");
+    vi.stubEnv("BUILDER_USER_ID", "builder-user-123");
     vi.stubEnv("BUILDER_GATEWAY_BASE_URL", "https://test.example/gateway/v1");
   });
 
@@ -140,7 +144,7 @@ describe("createBuilderEngine", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("POSTs to the gateway /messages endpoint with bearer auth and space id", async () => {
+  it("POSTs to the gateway /messages endpoint with bearer auth and owner headers", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(
       jsonlResponse([
         { type: "text-delta", text: "Hi!" },
@@ -161,6 +165,8 @@ describe("createBuilderEngine", () => {
     expect(init.method).toBe("POST");
     expect(init.headers.Authorization).toBe("Bearer bpk-test");
     expect(init.headers["Content-Type"]).toBe("application/json");
+    expect(init.headers["x-builder-api-key"]).toBe("space-test");
+    expect(init.headers["x-builder-user-id"]).toBe("builder-user-123");
 
     const body = JSON.parse(init.body);
     expect(body.model).toBe("claude-sonnet-4-6");
@@ -336,7 +342,7 @@ describe("createBuilderEngine", () => {
     );
   });
 
-  it("maps 401 unauthorized to stop-error with errorCode unauthorized", async () => {
+  it("maps 401 unauthorized to Builder auth stop-error", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -352,7 +358,8 @@ describe("createBuilderEngine", () => {
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
-    expect(stop?.errorCode).toBe("unauthorized");
+    expect(stop?.errorCode).toBe("builder_auth_error");
+    expect(stop?.error).toContain("Builder authentication failed");
   });
 
   it("surfaces a non-JSON 4xx body (e.g. proxy HTML) in the error message", async () => {
