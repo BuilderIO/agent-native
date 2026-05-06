@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import {
   IconBuilding,
@@ -7,6 +8,7 @@ import {
   IconLogout,
   IconPlus,
   IconSelector,
+  IconSettings,
   IconUser,
   IconUserPlus,
 } from "@tabler/icons-react";
@@ -26,6 +28,12 @@ export interface OrgSwitcherProps {
   hideWhenSingle?: boolean;
   /** Keep the switcher's button height reserved while org state is loading. */
   reserveSpace?: boolean;
+  /**
+   * Where the "Workspace settings" item navigates to. Defaults to `/team`,
+   * which every framework template mounts via the shared `TeamPage`.
+   * Templates that mount the settings page elsewhere can override.
+   */
+  settingsPath?: string;
 }
 
 function personalLabelFromEmail(email: string | null | undefined): string {
@@ -61,6 +69,7 @@ export function OrgSwitcher({
   className,
   hideWhenSingle,
   reserveSpace,
+  settingsPath = "/team",
 }: OrgSwitcherProps) {
   const { data: org, isLoading } = useOrg();
   const switchOrg = useSwitchOrg();
@@ -68,6 +77,7 @@ export function OrgSwitcher({
   const inviteMember = useInviteMember();
   const acceptInvitation = useAcceptInvitation();
   const joinByDomain = useJoinByDomain();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<Mode>("list");
   const [newName, setNewName] = useState("");
@@ -285,6 +295,19 @@ export function OrgSwitcher({
               )}
 
               <div className="my-1 h-px bg-border" />
+              {inOrg && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    navigate(settingsPath);
+                  }}
+                  className={`${ITEM_CLASS} cursor-pointer`}
+                >
+                  <IconSettings className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 text-left">Workspace settings</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setMode("create")}
