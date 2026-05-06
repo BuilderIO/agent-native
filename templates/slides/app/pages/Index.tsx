@@ -7,6 +7,7 @@ import DeckCard from "@/components/deck/DeckCard";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { useDesignSystems } from "@/hooks/use-design-systems";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -29,6 +30,13 @@ import {
 } from "@/components/ui/alert-dialog";
 
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const MAX_SOURCE_CONTEXT_CHARS = 60_000;
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
@@ -94,10 +102,12 @@ async function waitForDeckServerRow(deckId: string): Promise<boolean> {
 
 export default function Index() {
   const { decks, createDeck, deleteDeck, updateDeck, loading } = useDecks();
+  const { designSystems, defaultSystem } = useDesignSystems();
   const { session } = useSession();
   const navigate = useNavigate();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(false);
+  const [selectedDesignSystemId, setSelectedDesignSystemId] = useState("");
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [duplicating, setDuplicating] = useState<string | null>(null);
   const duplicatingRef = useRef<string | null>(null);
@@ -107,10 +117,24 @@ export default function Index() {
   // Keep anchorRef.current in sync so PromptPopover can read it
   anchorRef.current = anchorElRef.current;
 
-  const openNewDeck = useCallback((e: React.MouseEvent<HTMLElement>) => {
-    anchorElRef.current = e.currentTarget;
-    setShowNewDeckPrompt(true);
+  const openNewDeck = useCallback(
+    (e: React.MouseEvent<HTMLElement>) => {
+      anchorElRef.current = e.currentTarget;
+      setSelectedDesignSystemId(defaultSystem?.id ?? "none");
+      setShowNewDeckPrompt(true);
+    },
+    [defaultSystem?.id],
+  );
+
+  const setNewDeckPromptOpen = useCallback((open: boolean) => {
+    setShowNewDeckPrompt(open);
+    if (!open) setSelectedDesignSystemId("");
   }, []);
+
+  useEffect(() => {
+    if (!showNewDeckPrompt || selectedDesignSystemId) return;
+    setSelectedDesignSystemId(defaultSystem?.id ?? "none");
+  }, [defaultSystem?.id, selectedDesignSystemId, showNewDeckPrompt]);
 
   // Restore a prompt that was held back when the user wasn't signed in:
   // we wrote the text to sessionStorage before redirecting to sign-in,
@@ -139,13 +163,20 @@ export default function Index() {
       );
       sessionStorage.removeItem(PENDING_PROMPT_KEY);
     } catch {}
+    setSelectedDesignSystemId(defaultSystem?.id ?? "none");
     setShowNewDeckPrompt(true);
-  }, [session]);
+  }, [defaultSystem?.id, session]);
 
   const handleCreateDeckBlank = () => {
+    const selectedDesignSystem =
+      selectedDesignSystemId && selectedDesignSystemId !== "none"
+        ? designSystems.find((ds) => ds.id === selectedDesignSystemId)
+        : undefined;
     let deck: ReturnType<typeof createDeck> | undefined;
     flushSync(() => {
-      deck = createDeck();
+      deck = createDeck(undefined, {
+        designSystemId: selectedDesignSystem?.id ?? null,
+      });
     });
     if (!deck) return;
     navigate(`/deck/${deck.id}`);
@@ -164,7 +195,7 @@ export default function Index() {
       try {
         sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
       } catch {}
-      setShowNewDeckPrompt(false);
+      setNewDeckPromptOpen(false);
       setShowSignInDialog(true);
       return;
     }

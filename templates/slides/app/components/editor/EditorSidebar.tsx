@@ -351,7 +351,13 @@ function AddSlidePopover({
           : "",
         fileContext,
         "",
-        "Create the slide content and insert it at the correct position using the app's slide data structure.",
+        "Create the slide content and insert it at the correct position using `add-slide` with --deckId=" +
+          deckId +
+          ".",
+        "If the user asked for multiple slides, call `add-slide` once per slide. Use positions starting at " +
+          (activeSlideIndex + 1) +
+          " so the new slides land after the active slide in order.",
+        "For larger requests, use visible batches: add at most 4 slides in one model turn, then continue with the next batch after the tool results. Start the first batch immediately; do not wait to design the entire sequence before adding slide 1.",
       ].join("\n");
 
       agentSubmit(

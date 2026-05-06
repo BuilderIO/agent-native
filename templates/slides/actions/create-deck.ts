@@ -39,8 +39,10 @@ const SlidesSchema = z.preprocess(
 
 export default defineAction({
   description:
-    "Create a new deck with slides, or replace all slides in an existing deck. " +
-    "Pass deckId to populate an existing deck (e.g. one the user already has open). " +
+    "Create an empty deck, or atomically replace all slides in an existing deck. " +
+    "For AI-generated decks, create the deck with slides: [] and then use add-slide so progress appears live. " +
+    "Use non-empty slides here only for imports or intentional bulk replacement. " +
+    "Pass deckId to replace an existing deck. " +
     "Returns the deck id, title, and slide count.",
   schema: z.object({
     title: z.string().describe("Deck title"),

@@ -237,6 +237,7 @@ If a metric or source would make the slide stronger but is not available, use qu
 1. If a deck is already open (check `<current-screen>` for `deckId`), skip to step 3.
 2. Otherwise, create an empty deck: `create-deck --title "X" --slides '[]'`, then `navigate --deckId=<returned-id>`.
 3. Call `add-slide --deckId=<id> --content="<html>"` once per slide. **Fire multiple `add-slide` calls in parallel in the same turn** — they run concurrently and the user sees each slide appear live.
+4. For requests above 6 slides, work in visible batches of at most 4 `add-slide` calls per model turn. Add the first batch immediately, then continue with the next batch after tool results until the requested slide count is reached. Do not spend a long turn designing the whole deck before slide 1 lands.
 
 **Why add-slide is preferred over create-deck with all slides:**
 
