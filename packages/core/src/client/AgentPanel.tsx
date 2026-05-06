@@ -70,6 +70,10 @@ import { useLocation, useNavigate } from "react-router";
 import { cn } from "./utils.js";
 import { agentNativePath } from "./api-path.js";
 import { getFrameOrigin, isTrustedFrameMessage } from "./frame.js";
+import {
+  getInitialAgentSidebarOpen,
+  SIDEBAR_OPEN_KEY,
+} from "./agent-sidebar-state.js";
 
 // Lazy-load AgentTerminal to avoid bundling xterm.js when not needed
 const AgentTerminal = lazy(() =>
@@ -1245,7 +1249,6 @@ function AgentPanelInner({
 // ─── Resize handle ──────────────────────────────────────────────────────────
 
 const SIDEBAR_STORAGE_KEY = "agent-native-sidebar-width";
-const SIDEBAR_OPEN_KEY = "agent-native-sidebar-open";
 const SIDEBAR_FULLSCREEN_KEY = "agent-native-sidebar-fullscreen";
 const SIDEBAR_MIN = 280;
 const SIDEBAR_MAX = 700;
@@ -1584,21 +1587,9 @@ export function AgentSidebar({
   animateMobile = false,
 }: AgentSidebarProps) {
   const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
-  const [open, setOpen] = useState(() => {
-    // On mobile viewports the sidebar would cover most of the screen, so
-    // always start closed regardless of any persisted desktop preference.
-    if (
-      typeof window !== "undefined" &&
-      window.matchMedia("(max-width: 767px)").matches
-    ) {
-      return false;
-    }
-    try {
-      const saved = localStorage.getItem(SIDEBAR_OPEN_KEY);
-      if (saved !== null) return saved === "true";
-    } catch {}
-    return defaultOpen;
-  });
+  const [open, setOpen] = useState(() =>
+    getInitialAgentSidebarOpen(defaultOpen),
+  );
   const [presentationMode, setPresentationMode] = useState(false);
   const [width, setWidth] = useState(initialWidth);
   const [fullscreen, setFullscreen] = useState(() => {

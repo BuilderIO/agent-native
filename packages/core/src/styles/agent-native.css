@@ -80,6 +80,7 @@
 
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
+  --animate-bounce-once: bounce-once 0.55s cubic-bezier(0.34, 1.56, 0.64, 1);
 
   @keyframes accordion-down {
     from {
@@ -95,6 +96,20 @@
     }
     to {
       height: 0;
+    }
+  }
+  @keyframes bounce-once {
+    0% {
+      transform: translateY(0);
+    }
+    35% {
+      transform: translateY(-8px);
+    }
+    65% {
+      transform: translateY(-2px);
+    }
+    100% {
+      transform: translateY(0);
     }
   }
 }

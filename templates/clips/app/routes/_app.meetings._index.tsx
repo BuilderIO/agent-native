@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useSearchParams } from "react-router";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 import {
+  IconAppWindow,
   IconCalendar,
   IconCalendarOff,
   IconCalendarPlus,
@@ -11,7 +13,8 @@ import {
   IconSearch,
   IconX,
 } from "@tabler/icons-react";
-import { useActionQuery } from "@agent-native/core/client";
+import { agentNativePath, useActionQuery } from "@agent-native/core/client";
+import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -103,7 +106,11 @@ function ConnectCalendarEmptyState({
   const handleConnect = () => {
     setError(null);
     setPending(true);
-    fetch("/_agent-native/actions/connect-calendar?provider=google")
+    fetch(
+      agentNativePath(
+        "/_agent-native/actions/connect-calendar?provider=google",
+      ),
+    )
       .then(async (r) => {
         const text = await r.text();
         let data: {
@@ -120,15 +127,31 @@ function ConnectCalendarEmptyState({
         const url = data.result?.url ?? data.url;
         if (!url) throw new Error("No OAuth URL returned");
         const popupUrl = new URL(url, window.location.origin).toString();
-        window.open(
+        // Open without `noopener` so we can poll `popup.closed`. The OAuth
+        // callback page calls `window.close()` on success — once it does,
+        // we trigger the parent to refetch accounts and run sync-calendars.
+        const popup = window.open(
           popupUrl,
-          "_blank",
-          "noopener,noreferrer,width=600,height=700",
+          "clips-calendar-oauth",
+          "width=600,height=700",
         );
-        onConnected?.();
+        if (!popup) {
+          throw new Error(
+            "Popup blocked — please allow popups for this site and try again.",
+          );
+        }
+        const interval = window.setInterval(() => {
+          if (popup.closed) {
+            window.clearInterval(interval);
+            setPending(false);
+            onConnected?.();
+          }
+        }, 500);
       })
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setPending(false));
+      .catch((e: Error) => {
+        setError(e.message);
+        setPending(false);
+      });
   };
 
   return (
@@ -194,10 +217,12 @@ function MeetingsHeader({
   onAddManual,
   query,
   onQueryChange,
+  showDesktopCta,
 }: {
   onAddManual: () => void;
   query: string;
   onQueryChange: (next: string) => void;
+  showDesktopCta: boolean;
 }) {
   return (
     <>
@@ -221,6 +246,15 @@ function MeetingsHeader({
         <p className="text-sm text-muted-foreground">
           Upcoming and past meetings with live transcripts and AI notes.
         </p>
+        {showDesktopCta && (
+          <NavLink
+            to="/download"
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground w-fit"
+          >
+            <IconAppWindow className="h-3.5 w-3.5" />
+            Get the Clips desktop app to record meetings
+          </NavLink>
+        )}
         <div className="relative max-w-sm">
           <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input
@@ -275,6 +309,9 @@ export default function MeetingsIndexRoute() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
+  const queryClient = useQueryClient();
+  const { shouldShowSidebarLink: showDesktopCta } = useDesktopPromo();
+
   const accounts = useActionQuery<{ accounts: CalendarAccount[] } | undefined>(
     "list-calendar-accounts",
     {},
@@ -283,6 +320,45 @@ export default function MeetingsIndexRoute() {
   const meetingsQuery = useActionQuery<
     { meetings: Meeting[] } | Meeting[] | undefined
   >("list-meetings", { view: "all" }, { retry: false });
+
+  // After the OAuth popup closes, refetch accounts, kick off a sync, and
+  // refetch meetings so the page updates without requiring a manual refresh.
+  const handleCalendarConnected = useCallback(async () => {
+    queryClient.invalidateQueries({
+      queryKey: ["action", "list-calendar-accounts"],
+    });
+    try {
+      const r = await fetch(
+        agentNativePath("/_agent-native/actions/sync-calendars"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      );
+      if (!r.ok) {
+        const text = await r.text().catch(() => "");
+        let parsed: { error?: string } = {};
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          /* ignore */
+        }
+        throw new Error(parsed.error || `Sync failed (${r.status})`);
+      }
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't sync your calendar",
+      );
+    } finally {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-meetings"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-calendar-accounts"],
+      });
+    }
+  }, [queryClient]);
 
   const meetings: Meeting[] = useMemo(() => {
     const data = meetingsQuery.data;
@@ -410,8 +486,9 @@ export default function MeetingsIndexRoute() {
           onAddManual={handleAddManual}
           query={query}
           onQueryChange={setQuery}
+          showDesktopCta={showDesktopCta}
         />
-        <ConnectCalendarEmptyState />
+        <ConnectCalendarEmptyState onConnected={handleCalendarConnected} />
       </div>
     );
   }
@@ -424,6 +501,7 @@ export default function MeetingsIndexRoute() {
         onAddManual={handleAddManual}
         query={query}
         onQueryChange={setQuery}
+        showDesktopCta={showDesktopCta}
       />
 
       {meetings.length === 0 ? (
