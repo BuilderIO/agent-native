@@ -782,54 +782,50 @@ function AgentPanelInner({
                             </button>
                           </IconTooltip>
                         )}
-                        <div className="relative">
-                          <IconTooltip content="Tab options">
-                            <DropdownMenu
-                              open={tabMenuOpen === "__chat_global"}
-                              onOpenChange={(open) =>
-                                setTabMenuOpen(open ? "__chat_global" : null)
-                              }
+                        <DropdownMenu
+                          open={tabMenuOpen === "__chat_global"}
+                          onOpenChange={(open) =>
+                            setTabMenuOpen(open ? "__chat_global" : null)
+                          }
+                        >
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              className={cn(
+                                "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                                tabMenuOpen === "__chat_global" &&
+                                  "bg-accent text-foreground",
+                              )}
+                              aria-label="Chat tab options"
                             >
-                              <DropdownMenuTrigger asChild>
-                                <button
-                                  className={cn(
-                                    "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                                    tabMenuOpen === "__chat_global" &&
-                                      "bg-accent text-foreground",
-                                  )}
-                                  aria-label="Chat tab options"
-                                >
-                                  <IconDotsVertical size={14} />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent
-                                align="end"
-                                sideOffset={4}
-                                className="w-44"
-                              >
-                                <DropdownMenuItem
-                                  onSelect={() => closeTab(activeTabId)}
-                                >
-                                  Close Tab
-                                  <DropdownMenuShortcut>
-                                    {closeTabHint}
-                                  </DropdownMenuShortcut>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onSelect={() => closeOtherTabs(activeTabId)}
-                                >
-                                  Close Other Tabs
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => closeAllTabs()}>
-                                  Close All Tabs
-                                  <DropdownMenuShortcut>
-                                    {closeAllTabsHint}
-                                  </DropdownMenuShortcut>
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </IconTooltip>
-                        </div>
+                              <IconDotsVertical size={14} />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="end"
+                            sideOffset={4}
+                            className="w-44"
+                          >
+                            <DropdownMenuItem
+                              onSelect={() => closeTab(activeTabId)}
+                            >
+                              Close Tab
+                              <DropdownMenuShortcut>
+                                {closeTabHint}
+                              </DropdownMenuShortcut>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => closeOtherTabs(activeTabId)}
+                            >
+                              Close Other Tabs
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => closeAllTabs()}>
+                              Close All Tabs
+                              <DropdownMenuShortcut>
+                                {closeAllTabsHint}
+                              </DropdownMenuShortcut>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </>
                     )}
                     {mode === "cli" && (
@@ -914,16 +910,14 @@ function AgentPanelInner({
                               )}
                           </div>
                         )}
-                        <div className="relative">
-                          <IconTooltip content="Tab options">
+                        <DropdownMenu
+                          open={tabMenuOpen === "__cli_global"}
+                          onOpenChange={(open) =>
+                            setTabMenuOpen(open ? "__cli_global" : null)
+                          }
+                        >
+                          <DropdownMenuTrigger asChild>
                             <button
-                              onClick={() =>
-                                setTabMenuOpen(
-                                  tabMenuOpen === "__cli_global"
-                                    ? null
-                                    : "__cli_global",
-                                )
-                              }
                               className={cn(
                                 "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
                                 tabMenuOpen === "__cli_global" &&
@@ -933,49 +927,33 @@ function AgentPanelInner({
                             >
                               <IconDotsVertical size={14} />
                             </button>
-                          </IconTooltip>
-                          {tabMenuOpen === "__cli_global" && (
-                            <>
-                              <div
-                                className="fixed inset-0 z-40"
-                                onClick={() => setTabMenuOpen(null)}
-                              />
-                              <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-md border border-border bg-popover py-1 shadow-lg">
-                                <button
-                                  className="flex w-full items-center justify-between px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                                  onClick={() => {
-                                    closeCliTab(activeCliTab);
-                                    setTabMenuOpen(null);
-                                  }}
-                                >
-                                  Close Tab
-                                  <kbd className="text-[10px] text-muted-foreground">
-                                    {closeTabHint}
-                                  </kbd>
-                                </button>
-                                <button
-                                  className="flex w-full items-center px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                                  onClick={() => {
-                                    closeOtherCliTabs(activeCliTab);
-                                    setTabMenuOpen(null);
-                                  }}
-                                >
-                                  Close Other Tabs
-                                </button>
-                                <button
-                                  className="flex w-full items-center justify-between px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                                  onClick={() => {
-                                    closeAllCliTabs();
-                                    setTabMenuOpen(null);
-                                  }}
-                                >
-                                  Close All Tabs
-                                  <kbd className="text-[10px] text-muted-foreground">
-                                    {closeAllTabsHint}
-                                  </kbd>
-                                </button>
-                              </div>
-                            </>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="end"
+                            sideOffset={4}
+                            className="w-44"
+                          >
+                            <DropdownMenuItem
+                              onSelect={() => closeCliTab(activeCliTab)}
+                            >
+                              Close Tab
+                              <DropdownMenuShortcut>
+                                {closeTabHint}
+                              </DropdownMenuShortcut>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => closeOtherCliTabs(activeCliTab)}
+                            >
+                              Close Other Tabs
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => closeAllCliTabs()}>
+                              Close All Tabs
+                              <DropdownMenuShortcut>
+                                {closeAllTabsHint}
+                              </DropdownMenuShortcut>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                           )}
                         </div>
                       </>
