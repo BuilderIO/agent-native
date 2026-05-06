@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { isDefaultTitle } from "@/hooks/use-auto-title";
+import { isDefaultTitle, useAutoTitleBridge } from "@/hooks/use-auto-title";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,6 +60,8 @@ export function HydrateFallback() {
 type SidePanel = "transcript" | "comments" | "insights" | "agent" | "settings";
 
 export default function RecordingPage() {
+  useAutoTitleBridge();
+
   const { recordingId } = useParams<{ recordingId: string }>();
   const navigate = useNavigate();
   const { session } = useSession();

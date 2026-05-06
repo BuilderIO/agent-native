@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   IconTrash,
   IconLock,
@@ -10,7 +11,11 @@ import {
   IconMail,
   IconCode,
 } from "@tabler/icons-react";
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
+import {
+  appPath,
+  useActionQuery,
+  useActionMutation,
+} from "@agent-native/core/client";
 import {
   Popover,
   PopoverTrigger,
@@ -74,6 +79,15 @@ const ROLE_OPTIONS: Array<{ value: Role; label: string }> = [
   { value: "editor", label: "Editor" },
   { value: "admin", label: "Admin" },
 ];
+
+function absoluteAppUrl(path: string): string {
+  if (typeof window === "undefined") return "";
+  return new URL(appPath(path), window.location.origin).toString();
+}
+
+function copyToClipboard(value: string): void {
+  navigator.clipboard.writeText(value).catch(() => {});
+}
 
 export interface ShareRecordingPopoverProps {
   recordingId: string;
@@ -251,24 +265,21 @@ function LinkTab({
   videoUrl?: string | null;
   animatedThumbnailUrl?: string | null;
 }) {
-  const setVisibility = useActionMutation("set-resource-visibility");
+  const { setRecordingVisibility, isPending } = useRecordingVisibilityMutation(
+    recordingId,
+    sharesQuery,
+  );
   const data = sharesQuery.data;
   const visibility: Visibility =
     (data?.visibility as Visibility | null) ?? "private";
+  const isPublic = visibility === "public";
   const canManage =
     data?.role === "owner" || data?.role === "admin" || !data?.role;
   const meta = VIS_META[visibility];
 
   const handleVisibility = (next: string) => {
     if (next === visibility) return;
-    setVisibility.mutate(
-      {
-        resourceType: "recording",
-        resourceId: recordingId,
-        visibility: next,
-      },
-      { onSuccess: () => sharesQuery.refetch() },
-    );
+    setRecordingVisibility(next as Visibility);
   };
 
   return (
@@ -286,7 +297,7 @@ function LinkTab({
             <Select
               value={visibility}
               onValueChange={handleVisibility}
-              disabled={!canManage}
+              disabled={!canManage || isPending}
             >
               <SelectTrigger className="h-8 border-0 -ml-2 bg-transparent px-2 shadow-none focus:ring-0 [&>span]:text-left">
                 <SelectValue />
@@ -306,7 +317,32 @@ function LinkTab({
         </div>
       </div>
 
-      <CopyField label="Share link" value={shareUrl} />
+      <CopyField
+        label="Share link"
+        value={shareUrl}
+        disabled={isPending || (!isPublic && canManage)}
+      />
+
+      {!isPublic && canManage ? (
+        <div className="rounded-md border border-border bg-muted/40 px-3 py-2.5">
+          <p className="text-xs text-muted-foreground">
+            This link will only work for people who already have access.
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            className="mt-2 h-7"
+            onClick={() =>
+              setRecordingVisibility("public", {
+                onSuccess: () => copyToClipboard(shareUrl),
+              })
+            }
+            disabled={isPending}
+          >
+            {isPending ? "Making public…" : "Make public and copy"}
+          </Button>
+        </div>
+      ) : null}
 
       {videoUrl || animatedThumbnailUrl ? (
         <div className="flex flex-wrap gap-2">
@@ -486,25 +522,19 @@ function ClipsEmbedConfigurator({
   const isPublic = visibility === "public";
   const canManage =
     data?.role === "owner" || data?.role === "admin" || !data?.role;
-  const setVisibility = useActionMutation("set-resource-visibility");
-  const makePublic = () =>
-    setVisibility.mutate(
-      {
-        resourceType: "recording",
-        resourceId: recordingId,
-        visibility: "public",
-      },
-      { onSuccess: () => sharesQuery.refetch() },
-    );
+  const { setRecordingVisibility, isPending } = useRecordingVisibilityMutation(
+    recordingId,
+    sharesQuery,
+  );
+  const makePublic = () => setRecordingVisibility("public");
 
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
   const src = useMemo(() => {
     const params: string[] = [];
     if (autoplay) params.push("autoplay=1");
     if (startMs > 0) params.push(`t=${Math.round(startMs / 1000)}`);
     const qs = params.length ? `?${params.join("&")}` : "";
-    return `${origin}/embed/${recordingId}${qs}`;
-  }, [origin, recordingId, autoplay, startMs]);
+    return absoluteAppUrl(`/embed/${recordingId}${qs}`);
+  }, [recordingId, autoplay, startMs]);
 
   const code =
     mode === "responsive"
@@ -529,9 +559,9 @@ function ClipsEmbedConfigurator({
               size="sm"
               className="mt-2 h-7"
               onClick={makePublic}
-              disabled={setVisibility.isPending}
+              disabled={isPending}
             >
-              {setVisibility.isPending ? "Making public…" : "Make public"}
+              {isPending ? "Making public…" : "Make public"}
             </Button>
           ) : (
             <p className="mt-1 text-muted-foreground">
@@ -612,10 +642,19 @@ function ClipsEmbedConfigurator({
 // Primitives
 // ---------------------------------------------------------------------------
 
-function CopyField({ label, value }: { label: string; value: string }) {
+function CopyField({
+  label,
+  value,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  disabled?: boolean;
+}) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
-    navigator.clipboard.writeText(value).catch(() => {});
+    if (disabled) return;
+    copyToClipboard(value);
     setCopied(true);
     setTimeout(() => setCopied(false), 1400);
   };
@@ -636,6 +675,7 @@ function CopyField({ label, value }: { label: string; value: string }) {
           size="icon"
           onClick={copy}
           aria-label="Copy"
+          disabled={disabled}
           className="h-9 w-9"
         >
           {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
@@ -643,6 +683,54 @@ function CopyField({ label, value }: { label: string; value: string }) {
       </div>
     </div>
   );
+}
+
+function useRecordingVisibilityMutation(
+  recordingId: string,
+  sharesQuery: ReturnType<typeof useActionQuery<SharesResponse>>,
+) {
+  const queryClient = useQueryClient();
+  const setVisibility = useActionMutation("set-resource-visibility");
+  const shareQueryKey = useMemo(
+    () =>
+      [
+        "action",
+        "list-resource-shares",
+        { resourceType: "recording", resourceId: recordingId },
+      ] as const,
+    [recordingId],
+  );
+
+  const setRecordingVisibility = (
+    next: Visibility,
+    options?: { onSuccess?: () => void },
+  ) => {
+    const previous = queryClient.getQueryData<SharesResponse>(shareQueryKey);
+    queryClient.setQueryData<SharesResponse>(shareQueryKey, (current) =>
+      current ? { ...current, visibility: next } : current,
+    );
+    setVisibility.mutate(
+      {
+        resourceType: "recording",
+        resourceId: recordingId,
+        visibility: next,
+      } as any,
+      {
+        onSuccess: () => {
+          void sharesQuery.refetch().finally(() => options?.onSuccess?.());
+        },
+        onError: () => {
+          if (previous) {
+            queryClient.setQueryData(shareQueryKey, previous);
+          } else {
+            queryClient.invalidateQueries({ queryKey: shareQueryKey });
+          }
+        },
+      },
+    );
+  };
+
+  return { setRecordingVisibility, isPending: setVisibility.isPending };
 }
 
 function Avatar({ label, org }: { label: string; org?: boolean }) {

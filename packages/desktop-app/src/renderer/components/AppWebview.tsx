@@ -351,7 +351,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               wv.setAttribute("allowpopups", "");
               wv.setAttribute(
                 "webpreferences",
-                "contextIsolation=true,nodeIntegration=false,sandbox=true",
+                "contextIsolation=true,nodeIntegration=false,sandbox=true,backgroundThrottling=false",
               );
               wv.setAttribute("partition", `persist:app-${app.id}`);
               wv.setAttribute("src", url);

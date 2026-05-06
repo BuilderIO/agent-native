@@ -368,10 +368,18 @@ function sqliteScopePredicate(
   }
 
   const clauses: string[] = [];
-  if (scoping.userEmail && scoping.ownerEmailTables.has(tableName)) {
-    clauses.push(`owner_email = '${escapeSqlString(scoping.userEmail)}'`);
-  }
-  if (scoping.orgId && scoping.orgIdTables.has(tableName)) {
+  const hasOwner = scoping.ownerEmailTables.has(tableName);
+  const hasOrg = scoping.orgIdTables.has(tableName);
+  if (scoping.userEmail && hasOwner) {
+    const ownerClause = `owner_email = '${escapeSqlString(scoping.userEmail)}'`;
+    if (scoping.orgId && hasOrg) {
+      clauses.push(
+        `${ownerClause} AND (org_id = '${escapeSqlString(scoping.orgId)}' OR org_id IS NULL)`,
+      );
+    } else {
+      clauses.push(ownerClause);
+    }
+  } else if (scoping.orgId && hasOrg) {
     clauses.push(`org_id = '${escapeSqlString(scoping.orgId)}'`);
   }
   return clauses.length > 0 ? clauses.join(" AND ") : null;

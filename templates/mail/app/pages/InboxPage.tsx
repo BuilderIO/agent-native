@@ -312,6 +312,25 @@ export function InboxPage() {
       );
       return filtered.filter((e) => qualifiedThreadIds.has(e.threadId || e.id));
     }
+    if (!searchQuery && view === "inbox" && pinnedUserLabels.length > 0) {
+      // "Other" is the inbox remainder: messages that do not belong to one of
+      // the pinned triage labels.
+      const pinnedShortNames = pinnedUserLabels.map((l) =>
+        l.includes("/")
+          ? l
+              .slice(l.lastIndexOf("/") + 1)
+              .replace(/_/g, " ")
+              .toLowerCase()
+          : l.toLowerCase(),
+      );
+      return filtered.filter(
+        (e) =>
+          !e.labelIds.some(
+            (lid) =>
+              pinnedUserLabels.includes(lid) || pinnedShortNames.includes(lid),
+          ),
+      );
+    }
     return filtered;
   }, [
     rawEmails,

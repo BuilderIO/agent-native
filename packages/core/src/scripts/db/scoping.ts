@@ -8,7 +8,8 @@
  *   - Template tables use an `owner_email` column for user scoping.
  *   - Template tables use an `org_id` column for org scoping.
  *   - Core tables have their own scoping patterns (key prefix, session_id, etc.).
- *   - When both columns are present, both WHERE clauses are applied (AND).
+ *   - When both columns are present, owner_email is always required; org_id
+ *     narrows to the current org while preserving legacy/personal NULL rows.
  *
  * Temp views take precedence over real tables in both SQLite and Postgres,
  * so the user's SQL runs unmodified against the filtered views.
@@ -175,23 +176,27 @@ function buildScopedTables(
       continue;
     }
 
-    // Build WHERE clauses for owner_email and org_id
-    const clauses: string[] = [];
     const hasOwner = columns.includes(OWNER_COLUMN);
     const hasOrg = columns.includes(ORG_COLUMN);
 
     if (hasOwner) {
-      clauses.push(`"${OWNER_COLUMN}" = '${safeEmail}'`);
-    }
-    if (hasOrg && safeOrgId) {
-      clauses.push(`"${ORG_COLUMN}" = '${safeOrgId}'`);
-    }
-
-    if (clauses.length > 0) {
+      const orgClause =
+        hasOrg && safeOrgId
+          ? ` AND ("${ORG_COLUMN}" = '${safeOrgId}' OR "${ORG_COLUMN}" IS NULL)`
+          : "";
       const realTable = `${qualifiedPrefix}"${table}"`;
       scoped.push({
         name: table,
-        viewSql: `${isPostgres ? "CREATE OR REPLACE TEMPORARY" : "CREATE TEMPORARY"} VIEW "${table}" AS SELECT * FROM ${realTable} WHERE ${clauses.join(" AND ")}${checkOption}`,
+        viewSql: `${isPostgres ? "CREATE OR REPLACE TEMPORARY" : "CREATE TEMPORARY"} VIEW "${table}" AS SELECT * FROM ${realTable} WHERE "${OWNER_COLUMN}" = '${safeEmail}'${orgClause}${checkOption}`,
+      });
+      continue;
+    }
+
+    if (hasOrg && safeOrgId) {
+      const realTable = `${qualifiedPrefix}"${table}"`;
+      scoped.push({
+        name: table,
+        viewSql: `${isPostgres ? "CREATE OR REPLACE TEMPORARY" : "CREATE TEMPORARY"} VIEW "${table}" AS SELECT * FROM ${realTable} WHERE "${ORG_COLUMN}" = '${safeOrgId}'${checkOption}`,
       });
     }
   }

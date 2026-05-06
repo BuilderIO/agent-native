@@ -248,7 +248,7 @@ describe("db scripts parameterized SQL", () => {
     ]);
 
     expect(execute).toHaveBeenCalledWith({
-      sql: `UPDATE main."notes" SET title = ? WHERE owner_email = 'script+qa-alice@example.com' AND org_id = 'org-qa-1' AND (id = ?)`,
+      sql: `UPDATE main."notes" SET title = ? WHERE owner_email = 'script+qa-alice@example.com' AND (org_id = 'org-qa-1' OR org_id IS NULL) AND (id = ?)`,
       args: ["Scoped title", "note-qa-1"],
     });
   });
