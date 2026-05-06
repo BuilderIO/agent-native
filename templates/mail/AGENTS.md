@@ -385,6 +385,7 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 | `archive-email`            | `--id <id>[,id2,id3]`                                  | Archive one or more emails                    |
 | `trash-email`              | `--id <id>[,id2,id3]`                                  | Trash one or more emails                      |
 | `mark-read`                | `--id <id>[,id2,id3] [--unread]`                       | Mark emails as read (or unread with --unread) |
+| `move-email`               | `--id <id>[,id2,id3] --label <name> [--removeLabel]`   | Move emails to a label/folder                 |
 | `star-email`               | `--id <id>[,id2,id3]`                                  | Toggle star on emails                         |
 | `send-email`               | `--to <email> --subject <s> --body <b> [--cc] [--bcc]` | Send an email                                 |
 | `cancel-scheduled-email`   | `--id <scheduled-job-id>`                              | Cancel a scheduled email                      |

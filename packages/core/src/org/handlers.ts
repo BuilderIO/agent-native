@@ -597,10 +597,7 @@ export const changeMemberRoleHandler = defineEventHandler(
     // Admins are scoped to managing members. If they could promote
     // members to admin, they could grant near-owner powers without owner
     // approval. Restrict admin/admin role transitions to the owner.
-    if (
-      ctx.role === "admin" &&
-      (currentRole === "admin" || role === "admin")
-    ) {
+    if (ctx.role === "admin" && (currentRole === "admin" || role === "admin")) {
       throw createError({
         statusCode: 403,
         message: "Only the organization owner can manage admins",

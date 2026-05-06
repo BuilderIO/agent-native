@@ -649,9 +649,7 @@ function BulkInviteForm({
       const remaining = prev.filter((d) =>
         failedEmails.has(d.email.trim().toLowerCase()),
       );
-      return remaining.length > 0
-        ? remaining
-        : [{ email: "", role: "member" }];
+      return remaining.length > 0 ? remaining : [{ email: "", role: "member" }];
     });
 
     // Auto-close on full success.
@@ -888,9 +886,9 @@ function DomainSettingsSection({
       </div>
       <p className="text-[11px] text-muted-foreground">
         Anyone who signs up with an email at this domain will join your
-        organization automatically. You can only set your own email domain
-        ({ownDomain || "—"}); free email providers like gmail.com or
-        outlook.com aren&apos;t allowed.
+        organization automatically. You can only set your own email domain (
+        {ownDomain || "—"}); free email providers like gmail.com or outlook.com
+        aren&apos;t allowed.
       </p>
       {!editing ? (
         <div className="flex items-center gap-2">
