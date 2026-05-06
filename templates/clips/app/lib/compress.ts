@@ -28,7 +28,11 @@
  * user-facing error rather than the opaque 500.
  */
 
-import { loadFfmpeg, removeFfmpegLogListener } from "./ffmpeg-export";
+import {
+  loadFfmpeg,
+  removeFfmpegLogListener,
+  resetFfmpegInstance,
+} from "./ffmpeg-export";
 
 /** Start compressing at 80 MB. Below this, the upload fits and we don't pay
  * for ffmpeg.wasm load + transcode. */
@@ -352,11 +356,6 @@ export async function compressBlobIfTooLarge(
     const elapsedMs = Math.round(performance.now() - startedAt);
     const message =
       err instanceof Error ? err.message : String(err ?? "unknown error");
-    opts.onError?.({
-      message,
-      stderrTail,
-      elapsedMs,
-    });
     // Best-effort cleanup so a failed run doesn't leak input data inside
     // the wasm FS for the lifetime of the tab.
     try {
@@ -364,6 +363,34 @@ export async function compressBlobIfTooLarge(
     } catch {
       // ignore
     }
+    // External cancellation (e.g. user clicked Cancel) — propagate so the
+    // caller bails out instead of falling back to uploading the original
+    // (un-compressed) blob behind the user's back. Internal timeouts and
+    // genuine ffmpeg failures still fall through to the safe-upload
+    // fallback below, with `onError` capturing the diagnostic context.
+    if (opts.signal?.aborted) {
+      // Terminate the wasm worker — once an exec/writeFile is aborted the
+      // instance state is undefined per ffmpeg.wasm docs, so the next call
+      // must re-load. resetFfmpegInstance() drops the cached promise.
+      try {
+        ffmpeg.terminate();
+      } catch {
+        // ignore — terminate is best effort.
+      }
+      resetFfmpegInstance();
+      throw err instanceof Error
+        ? err
+        : new Error(
+            typeof opts.signal.reason === "string"
+              ? opts.signal.reason
+              : "Compression aborted",
+          );
+    }
+    opts.onError?.({
+      message,
+      stderrTail,
+      elapsedMs,
+    });
     return {
       blob: input,
       compressed: false,

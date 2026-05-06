@@ -128,11 +128,16 @@ export default defineAction({
         : "webm";
 
       // The recorder stashes compression metadata at
-      // `recording-upload-{id}.compression` when its browser-side
-      // ffmpeg.wasm pass ran to bring the assembled blob under Builder.io's
-      // 100 MB upload cap. Surface it into the Sentry payload on any
-      // upload failure so we can tell at a glance whether the user hit
-      // the limit on the original blob or on the compressed one.
+      // `recording-compression-{id}` when its browser-side ffmpeg.wasm
+      // pass ran to bring the assembled blob under Builder.io's 100 MB
+      // upload cap. Stored under its own sub-key (rather than nested
+      // inside `recording-upload-{id}`) because the recorder client
+      // overwrites the upload key on every chunk POST — co-locating the
+      // compression context would mean it gets clobbered before this
+      // action runs. Surface it into the Sentry payload on any upload
+      // failure so we can tell at a glance whether the user hit the limit
+      // on the original blob or on the compressed one.
+      const compressionRaw = await readAppState(`recording-compression-${id}`);
       const compressionMeta: {
         originalBytes?: number;
         compressedBytes?: number;
@@ -140,11 +145,8 @@ export default defineAction({
         elapsedMs?: number;
         outputMimeType?: string;
       } | null =
-        uploadState &&
-        typeof uploadState === "object" &&
-        uploadState.compression &&
-        typeof uploadState.compression === "object"
-          ? (uploadState.compression as {
+        compressionRaw && typeof compressionRaw === "object"
+          ? (compressionRaw as {
               originalBytes?: number;
               compressedBytes?: number;
               ratio?: number;
@@ -419,6 +421,17 @@ export default defineAction({
           id,
           purged,
           attempted: chunkKeysToPurge.length,
+        });
+      }
+      // Drop the compression sub-key written by reset-chunks. Best effort;
+      // it's small (<200 bytes) so a leaked one is harmless, but tidying
+      // up keeps `application_state` clean across many recordings.
+      try {
+        await deleteAppState(`recording-compression-${id}`);
+      } catch (err) {
+        console.warn("[finalize] compression key delete failed", {
+          id,
+          err: err instanceof Error ? err.message : String(err),
         });
       }
     }

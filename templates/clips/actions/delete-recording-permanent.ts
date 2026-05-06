@@ -67,6 +67,7 @@ export default defineAction({
     // Clean up any lingering application state for this recording.
     await deleteAppStateByPrefix(`recording-chunks-${args.id}-`);
     await deleteAppState(`recording-upload-${args.id}`);
+    await deleteAppState(`recording-compression-${args.id}`);
     await deleteAppState(`recording-blob-${args.id}`);
     await deleteAppState(`agent-task-recording-${args.id}`);
 

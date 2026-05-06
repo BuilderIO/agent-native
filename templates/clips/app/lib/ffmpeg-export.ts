@@ -110,7 +110,11 @@ export async function loadFfmpeg(onLog?: (msg: string) => void): Promise<any> {
     });
   }
 
-  if (onLog) {
+  if (onLog && !ffmpegLogListeners.includes(onLog)) {
+    // De-dup so callers that re-enter `loadFfmpeg` with the same listener
+    // reference (e.g. a stable function from the recorder engine that
+    // outlives a single export run) don't end up registered N times — that
+    // would emit each ffmpeg log line N times to the same handler.
     ffmpegLogListeners.push(onLog);
   }
 
@@ -123,6 +127,18 @@ export async function loadFfmpeg(onLog?: (msg: string) => void): Promise<any> {
  */
 export function removeFfmpegLogListener(listener: (msg: string) => void): void {
   ffmpegLogListeners = ffmpegLogListeners.filter((l) => l !== listener);
+}
+
+/**
+ * Drop the cached ffmpeg.wasm instance so the next `loadFfmpeg` call boots a
+ * fresh worker. Call this after `ffmpeg.terminate()` — per ffmpeg.wasm docs
+ * the instance state is undefined once an in-flight operation is aborted, so
+ * future callers must reinitialize. Also clears any registered log listeners
+ * so they don't leak across the boundary.
+ */
+export function resetFfmpegInstance(): void {
+  ffmpegInstancePromise = null;
+  ffmpegLogListeners = [];
 }
 
 /**
@@ -146,9 +162,12 @@ export async function exportMp4(
       : (editsJsonRaw ?? parseEdits("{}"));
 
   onProgress?.({ progress: 0, stage: "loading-ffmpeg" });
-  const ffmpeg = await loadFfmpeg((msg) => {
+  // Stable reference so we can remove it in `finally` — without this the
+  // listener piles up across exports and ffmpeg log lines fan out N×.
+  const onLog = (msg: string) => {
     onProgress?.({ progress: -1, stage: "encoding", message: msg });
-  });
+  };
+  const ffmpeg = await loadFfmpeg(onLog);
 
   // Hook ffmpeg progress events — they fire per frame written.
   const handleProgress = ({ progress }: { progress: number }) => {
@@ -262,6 +281,7 @@ export async function exportMp4(
     };
   } finally {
     ffmpeg.off("progress", handleProgress);
+    removeFfmpegLogListener(onLog);
   }
 }
 

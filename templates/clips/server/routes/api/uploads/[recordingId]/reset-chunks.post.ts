@@ -6,12 +6,20 @@
  * `abort.post.ts` does.
  *
  * Optionally accepts compression metadata in the body — surfaced into
- * `recording-upload-{id}` so:
+ * `recording-compression-{id}` (a separate sub-key from
+ * `recording-upload-{id}`) so:
  *   1. `finalize-recording` can include it in `captureRouteError` extras
  *      (so Sentry tells us originalBytes / compressedBytes / ratio if the
  *      Builder.io upload still fails after compression).
  *   2. The library card can show "Compressed from XXX MB" if we want to
  *      surface that in the UI later.
+ *
+ * The dedicated sub-key is important: the recorder's own `onChunk`
+ * callback overwrites `recording-upload-{id}` whole-cloth on every chunk
+ * upload (it's the simplest way to drive the progress poller), so storing
+ * compression metadata there would have it clobbered the moment the
+ * post-compression re-upload starts. The separate key is read-only from
+ * the compression path's perspective.
  *
  * Route: POST /api/uploads/:recordingId/reset-chunks
  */
@@ -28,7 +36,6 @@ import { getDb, schema } from "../../../../db/index.js";
 import { getEventOwnerEmail } from "../../../../lib/recordings.js";
 import { runWithRequestContext } from "@agent-native/core/server";
 import {
-  readAppState,
   writeAppState,
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
@@ -101,24 +108,29 @@ export default defineEventHandler(async (event: H3Event) => {
       `recording-chunks-${recordingId}-`,
     );
 
-    // Reset the per-recording upload progress and stash the compression
-    // metadata next to it so `finalize-recording` (and the UI poller) can
-    // see it.
+    // Reset the per-recording upload progress so the UI poller sees the
+    // re-upload restart from 0 and doesn't briefly show "100% then
+    // re-running" on the post-compression chunked upload pass.
     const now = new Date().toISOString();
-    const previousState =
-      ((await readAppState(`recording-upload-${recordingId}`)) as Record<
-        string,
-        unknown
-      > | null) ?? {};
     await writeAppState(`recording-upload-${recordingId}`, {
-      ...previousState,
       recordingId,
       status: "uploading",
       progress: 0,
       chunksReceived: 0,
-      compression: compression ?? previousState.compression ?? null,
       updatedAt: now,
     });
+
+    // Stash compression metadata under its own key. We don't merge it into
+    // `recording-upload-{id}` because the recorder client overwrites that
+    // key on every chunk upload — any compression context written there
+    // would be clobbered before `finalize-recording` could read it.
+    if (compression) {
+      await writeAppState(`recording-compression-${recordingId}`, {
+        recordingId,
+        ...compression,
+        recordedAt: now,
+      });
+    }
 
     await db
       .update(schema.recordings)
