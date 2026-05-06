@@ -433,7 +433,9 @@ export function ComposeModal({
   };
 
   const title = activeDraft
-    ? activeDraft.mode === "reply"
+    ? activeDraft.queuedDraftId
+      ? "Queued draft"
+      : activeDraft.mode === "reply"
       ? "Reply"
       : activeDraft.mode === "forward"
         ? "Forward"
@@ -465,7 +467,9 @@ export function ComposeModal({
               const isActive = draft.id === activeId;
               const label =
                 draft.subject?.trim() ||
-                (draft.mode === "reply"
+                (draft.queuedDraftId
+                  ? "Queued draft"
+                  : draft.mode === "reply"
                   ? "Reply"
                   : draft.mode === "forward"
                     ? "Forward"

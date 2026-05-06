@@ -217,7 +217,7 @@ export function MobileActionBar({
             <div className="px-4 pb-6">
               <DrawerClose asChild>
                 <button className="w-full rounded-lg bg-accent py-2.5 text-sm font-medium">
-                  Done
+                  Close
                 </button>
               </DrawerClose>
             </div>

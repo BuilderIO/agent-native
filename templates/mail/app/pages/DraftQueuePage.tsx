@@ -663,8 +663,8 @@ export function DraftQueuePage() {
           </h1>
           <p className="text-[12px] text-muted-foreground">
             {scope === "review"
-              ? `${queue.count} active draft${queue.count === 1 ? "" : "s"} for review`
-              : `${queue.count} active request${queue.count === 1 ? "" : "s"} from you`}
+              ? `${queue.count} draft${queue.count === 1 ? "" : "s"} awaiting approval before sending`
+              : `${queue.count} draft request${queue.count === 1 ? "" : "s"} you created`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -678,7 +678,7 @@ export function DraftQueuePage() {
               )}
               onClick={() => setScope("review")}
             >
-              To review
+              Awaiting approval
             </button>
             <button
               className={cn(
@@ -689,12 +689,12 @@ export function DraftQueuePage() {
               )}
               onClick={() => setScope("requested")}
             >
-              Requested
+              Requested by me
             </button>
           </div>
           <Button size="sm" onClick={() => setDialogOpen(true)}>
             <IconPlus className="h-3.5 w-3.5" />
-            New request
+            New draft request
           </Button>
         </div>
       </div>
