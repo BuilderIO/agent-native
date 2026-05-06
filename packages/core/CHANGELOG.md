@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.11.3
+
+### Patch Changes
+
+- 81d5b68: Use the Tabler message-dots icon for the agent sidebar toggle.
+- 81d5b68: Keep agent DB tools scoped to owner rows when org context is active and rows have no org id.
+- 81d5b68: Suppress automatic stale route-chunk reloads inside the Agent Native desktop app.
+- 81d5b68: Harden the public-viewer anonymous-owner resolver: validate Referer origin, require the exact Builder callback path, and discard expired status connect URLs in the embedded settings panel.
+
 ## 0.11.2
 
 ### Patch Changes
