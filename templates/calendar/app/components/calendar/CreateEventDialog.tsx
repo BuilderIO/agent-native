@@ -107,7 +107,9 @@ export function CreateEventPopover({
 
   function removeAttendee(email: string) {
     setAttendees((prev) =>
-      prev.filter((attendee) => attendee.email.toLowerCase() !== email.toLowerCase()),
+      prev.filter(
+        (attendee) => attendee.email.toLowerCase() !== email.toLowerCase(),
+      ),
     );
   }
 

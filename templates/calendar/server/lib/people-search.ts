@@ -215,7 +215,9 @@ export async function searchPeopleForUser(
   const sessionDomain = getDomain(currentEmail);
   if (sessionDomain) orgDomains.add(sessionDomain);
 
-  const clientEmails = new Set(clients.map((client) => client.email.toLowerCase()));
+  const clientEmails = new Set(
+    clients.map((client) => client.email.toLowerCase()),
+  );
   const people = new Map<string, PersonResult>();
   let directoryLimited = false;
   let contactsLimited = false;
@@ -232,10 +234,14 @@ export async function searchPeopleForUser(
     await Promise.all(
       clients.map(async (client) => {
         try {
-          const data = await peopleSearchDirectoryPeople(client.accessToken, query, {
-            pageSize: 20,
-            readMask: "names,emailAddresses,photos",
-          });
+          const data = await peopleSearchDirectoryPeople(
+            client.accessToken,
+            query,
+            {
+              pageSize: 20,
+              readMask: "names,emailAddresses,photos",
+            },
+          );
           for (const person of extractPeople(data.people ?? [], "directory")) {
             mergePerson(people, person, mergeOptions);
           }

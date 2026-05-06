@@ -145,30 +145,6 @@ export function useCreateEvent() {
       );
       return { previous };
     },
-    onSuccess: (updated) => {
-      const eventPatch = updated as
-        | (Partial<CalendarEvent> & {
-            id?: string;
-            success?: boolean;
-            updated?: string[];
-            message?: string;
-          })
-        | undefined;
-      if (!eventPatch?.id) return;
-      const {
-        success: _success,
-        updated: _updated,
-        message: _message,
-        ...data
-      } = eventPatch;
-      queryClient.setQueriesData<CalendarEvent[]>(
-        { queryKey: ["action", "list-events"] },
-        (old) =>
-          old?.map((event) =>
-            event.id === eventPatch.id ? { ...event, ...data } : event,
-          ),
-      );
-    },
     onError: (_err, _newData, context) => {
       if (context?.previous) {
         for (const [key, data] of context.previous) {
@@ -211,6 +187,30 @@ export function useUpdateEvent() {
           ),
       );
       return { previous };
+    },
+    onSuccess: (updated) => {
+      const eventPatch = updated as
+        | (Partial<CalendarEvent> & {
+            id?: string;
+            success?: boolean;
+            updated?: string[];
+            message?: string;
+          })
+        | undefined;
+      if (!eventPatch?.id) return;
+      const {
+        success: _success,
+        updated: _updated,
+        message: _message,
+        ...data
+      } = eventPatch;
+      queryClient.setQueriesData<CalendarEvent[]>(
+        { queryKey: ["action", "list-events"] },
+        (old) =>
+          old?.map((event) =>
+            event.id === eventPatch.id ? { ...event, ...data } : event,
+          ),
+      );
     },
     onError: (_err, _newData, context) => {
       if (context?.previous) {

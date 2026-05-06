@@ -51,21 +51,22 @@ describe("parseNfmForEditor", () => {
       expect(result).toContain("> > > deep");
     });
 
-    it("does NOT convert list items to blockquotes", () => {
+    it("converts indented list items without a list parent to blockquote lists", () => {
       const result = parseNfmForEditor("\t- list item");
-      expect(result).toContain("- list item");
-      expect(result).not.toContain("> - list item");
+      expect(result).toContain("> - list item");
+      expect(result).not.toContain("    - list item");
     });
 
-    it("does NOT convert numbered list items to blockquotes", () => {
+    it("converts indented numbered list items without a list parent to blockquote lists", () => {
       const result = parseNfmForEditor("\t1. numbered");
-      expect(result).toContain("1. numbered");
-      expect(result).not.toContain("> 1. numbered");
+      expect(result).toContain("> 1. numbered");
+      expect(result).not.toContain("    1. numbered");
     });
 
-    it("does NOT convert task items to blockquotes", () => {
+    it("converts indented task items without a list parent to blockquote lists", () => {
       const result = parseNfmForEditor("\t- [ ] task");
-      expect(result).toContain("- [ ] task");
+      expect(result).toContain("> - [ ] task");
+      expect(result).not.toContain("    - [ ] task");
     });
   });
 
@@ -83,6 +84,39 @@ describe("parseNfmForEditor", () => {
     it("handles double-nested list items", () => {
       const result = parseNfmForEditor("- a\n\t- b\n\t\t- c");
       expect(result).toContain("        - c");
+    });
+
+    it("does not turn a Notion list under a paragraph into an indented code block", () => {
+      const result = parseNfmForEditor(
+        [
+          "michael onboarding",
+          "\t- [notion doc](https://example.com)",
+          "\t- access: amplitude, fullstory, sigma, jira",
+        ].join("\n"),
+      );
+
+      expect(result).toContain("> - [notion doc](https://example.com)");
+      expect(result).toContain(
+        "> - access: amplitude, fullstory, sigma, jira",
+      );
+      expect(result).not.toMatch(/^ {4,}- /m);
+    });
+
+    it("keeps nested bullets under a real list parent as CommonMark list nesting", () => {
+      const result = parseNfmForEditor("- parent\n\t- child\n\t- child 2");
+      expect(result).toContain("- parent\n    - child\n    - child 2");
+      expect(result).not.toContain("> - child");
+    });
+
+    it("round-trips indented list blocks stably without four-space code indentation", () => {
+      const nfm = "michael onboarding\n\t- notion doc\n\t- access";
+      const editorMd = parseNfmForEditor(nfm);
+      const stored = serializeEditorToNfm(editorMd);
+      const editorMd2 = parseNfmForEditor(stored);
+
+      expect(editorMd2).toContain("> - notion doc");
+      expect(editorMd2).toContain("> - access");
+      expect(editorMd2).not.toMatch(/^ {4,}- /m);
     });
   });
 

@@ -213,7 +213,9 @@ export const AttendeeAutocomplete = forwardRef<
 
   const commitActiveOrManual = useCallback(() => {
     if (visibleResults.length > 0) {
-      addPerson(visibleResults[Math.min(activeIndex, visibleResults.length - 1)]);
+      addPerson(
+        visibleResults[Math.min(activeIndex, visibleResults.length - 1)],
+      );
       return [];
     }
     return commitManualInput();
@@ -271,6 +273,8 @@ export const AttendeeAutocomplete = forwardRef<
   }, [visibleResults.length]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    event.stopPropagation();
+
     if (event.key === "ArrowDown" && shouldShowPopover) {
       event.preventDefault();
       setActiveIndex((index) =>
@@ -384,7 +388,9 @@ export const AttendeeAutocomplete = forwardRef<
                 if (canAddManual) commitManualInput();
               }}
               onKeyDown={handleKeyDown}
-              placeholder={attendees.length === 0 ? placeholder : "Add another guest"}
+              placeholder={
+                attendees.length === 0 ? placeholder : "Add another guest"
+              }
               className={cn(
                 "min-w-[120px] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60",
                 inputClassName,
@@ -430,7 +436,9 @@ export const AttendeeAutocomplete = forwardRef<
                 type="button"
                 className={cn(
                   "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors",
-                  active ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
+                  active
+                    ? "bg-accent text-accent-foreground"
+                    : "hover:bg-accent/50",
                 )}
                 onMouseEnter={() => setActiveIndex(index)}
                 onMouseDown={(event) => {
@@ -446,7 +454,9 @@ export const AttendeeAutocomplete = forwardRef<
                   />
                 ) : (
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground">
-                    {initialsFor(person) || <IconUserCircle className="h-4 w-4" />}
+                    {initialsFor(person) || (
+                      <IconUserCircle className="h-4 w-4" />
+                    )}
                   </span>
                 )}
                 <span className="min-w-0 flex-1">
@@ -475,7 +485,9 @@ export const AttendeeAutocomplete = forwardRef<
               }}
             >
               <IconUserCircle className="h-4 w-4 text-muted-foreground" />
-              <span className="truncate">Invite {parseEmails(inputValue)[0]}</span>
+              <span className="truncate">
+                Invite {parseEmails(inputValue)[0]}
+              </span>
             </button>
           )}
 

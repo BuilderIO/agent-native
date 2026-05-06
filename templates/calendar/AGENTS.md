@@ -118,17 +118,18 @@ cd templates/calendar && pnpm action <name> [args]
 
 ### Events
 
-| Action                 | Args                                                                                                                                             | Purpose                                             |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
-| `list-events`          | `--from`, `--to`, `--query`, `--json`                                                                                                            | Query Google Calendar events                        |
-| `search-events`        | `--query` (required), `--from`, `--to`                                                                                                           | Search events broadly, including recurring meetings |
-| `get-event`            | `--id` (required), `--calendarId` (default: primary)                                                                                             | Fetch a single event by id                          |
-| `create-event`         | `--title`, `--start`, `--end`, `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`                     | Create event on Google Calendar                     |
-| `update-event`         | `--id`, optional `--title`, `--start`, `--end`, `--recurrence`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`, `--accountEmail` | Update an event or recurrence                       |
-| `get-zoom-status`      | none                                                                                                                                             | Check Zoom OAuth configuration and connection       |
-| `rsvp-event`           | `--id`, `--status accepted\|declined\|tentative`, optional `--scope single\|all\|thisAndFollowing`, `--accountEmail`                             | RSVP to a meeting invitation                        |
-| `delete-event`         | `--id`, optional `--scope single\|all\|thisAndFollowing`, `--removeOnly`, `--accountEmail`                                                       | Delete/remove an event                              |
-| `sync-google-calendar` | `--from`, `--to`                                                                                                                                 | Pull Google Calendar events                         |
+| Action                 | Args                                                                                                                                             | Purpose                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| `list-events`          | `--from`, `--to`, `--query`, `--json`                                                                                                            | Query Google Calendar events                                        |
+| `search-events`        | `--query` (required), `--from`, `--to`                                                                                                           | Search events broadly, including recurring meetings                 |
+| `get-event`            | `--id` (required), `--calendarId` (default: primary)                                                                                             | Fetch a single event by id                                          |
+| `create-event`         | `--title`, `--start`, `--end`, `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`                     | Create event on Google Calendar                                     |
+| `update-event`         | `--id`, optional `--title`, `--start`, `--end`, `--recurrence`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`, `--accountEmail` | Update an event or recurrence                                       |
+| `search-people`        | `--q`, optional `--scope all\|directory`                                                                                                         | Resolve attendee names from Google Contacts and Workspace Directory |
+| `get-zoom-status`      | none                                                                                                                                             | Check Zoom OAuth configuration and connection                       |
+| `rsvp-event`           | `--id`, `--status accepted\|declined\|tentative`, optional `--scope single\|all\|thisAndFollowing`, `--accountEmail`                             | RSVP to a meeting invitation                                        |
+| `delete-event`         | `--id`, optional `--scope single\|all\|thisAndFollowing`, `--removeOnly`, `--accountEmail`                                                       | Delete/remove an event                                              |
+| `sync-google-calendar` | `--from`, `--to`                                                                                                                                 | Pull Google Calendar events                                         |
 
 ### Availability & Booking
 
@@ -172,6 +173,8 @@ The `--to` bound is exclusive, so use tomorrow's date for today's events.
 **For "today" / "this week" / relative dates, anchor on `currentDateInTimezone` from the runtime context — not on `navigation.date`.** The user may be looking at a different week than the actual current week. Computing "today" from the calendar's displayed date will be wrong any time the user has scrolled.
 
 For relationship-frequency questions like "how often do I meet with Mattel?", use `search-events --query <name>` first. It searches a broad one-year past/future window across titles, people, organizers, locations, and descriptions so recurring series outside the visible range are not missed.
+
+When scheduling with a named person and the email is not obvious from context, run `search-people --q "<name>"` before `create-event` or `update-event`. The default scope searches both Google Contacts and the Google Workspace directory; use `--scope directory` when you only want same-company directory results.
 
 ## Common Tasks
 

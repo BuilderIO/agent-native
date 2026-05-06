@@ -134,11 +134,7 @@ function getMeetingType(url: string): "zoom" | "meet" | "teams" | "link" {
   return "link";
 }
 
-function MeetingLinkSkeleton({
-  provider,
-}: {
-  provider: "meet" | "zoom";
-}) {
+function MeetingLinkSkeleton({ provider }: { provider: "meet" | "zoom" }) {
   return (
     <div
       role="status"
@@ -429,23 +425,26 @@ export function EventDetailPopover({
     saveField,
   ]);
 
-  const handleAddAttendee = useCallback((attendee: AttendeeRecipient) => {
-    const email = attendee.email.trim().toLowerCase();
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+  const handleAddAttendee = useCallback(
+    (attendee: AttendeeRecipient) => {
+      const email = attendee.email.trim().toLowerCase();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
 
-    const existing = event.attendees || [];
-    if (existing.some((a) => a.email.toLowerCase() === email)) return;
+      const existing = event.attendees || [];
+      if (existing.some((a) => a.email.toLowerCase() === email)) return;
 
-    const newAttendees = [
-      ...existing,
-      {
-        email,
-        displayName: attendee.displayName,
-        photoUrl: attendee.photoUrl,
-      },
-    ];
-    saveField({ attendees: newAttendees });
-  }, [event.attendees, saveField]);
+      const newAttendees = [
+        ...existing,
+        {
+          email,
+          displayName: attendee.displayName,
+          photoUrl: attendee.photoUrl,
+        },
+      ];
+      saveField({ attendees: newAttendees });
+    },
+    [event.attendees, saveField],
+  );
 
   const handleRemoveAttendee = useCallback(
     (emailToRemove: string) => {

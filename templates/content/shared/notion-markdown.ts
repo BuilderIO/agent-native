@@ -257,7 +257,7 @@ export function parseNfmForEditor(markdown: string): string {
  *
  * The conversion runs in three passes:
  *   Pass 1 – Convert `<details>` inner content from NFM to HTML.
- *   Pass 2 – Rewrite `<empty-block/>` → blank lines, tabs → list items.
+ *   Pass 2 – Rewrite `<empty-block/>` → blank lines, tabs → editor-safe indentation.
  *   Pass 3 – Insert blank lines between consecutive plain-text paragraphs.
  */
 function convertNfmToEditorMarkdown(nfm: string): string {
@@ -524,6 +524,27 @@ function convertNfmBlocks(text: string): string {
   const result: string[] = [];
   let inCodeFence = false;
   let htmlDepth = 0;
+  let standardListIndents: number[] = [];
+  let quoteListBaseIndent: number | null = null;
+
+  const resetListState = () => {
+    standardListIndents = [];
+    quoteListBaseIndent = null;
+  };
+
+  const noteStandardListItem = (indent: number) => {
+    while (
+      standardListIndents.length &&
+      standardListIndents[standardListIndents.length - 1] >= indent
+    ) {
+      standardListIndents.pop();
+    }
+    standardListIndents.push(indent);
+    quoteListBaseIndent = null;
+  };
+
+  const hasStandardListAncestor = (indent: number) =>
+    standardListIndents.some((listIndent) => listIndent < indent);
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -531,6 +552,7 @@ function convertNfmBlocks(text: string): string {
     if (CODE_FENCE_RE.test(trimmed) && htmlDepth === 0) {
       inCodeFence = !inCodeFence;
       result.push(line);
+      resetListState();
       continue;
     }
     if (inCodeFence) {
@@ -545,11 +567,13 @@ function convertNfmBlocks(text: string): string {
     ) {
       htmlDepth++;
       result.push(line);
+      resetListState();
       continue;
     }
     if (/^<\/(details|callout|columns|column)>/.test(trimmed)) {
       htmlDepth = Math.max(0, htmlDepth - 1);
       result.push(line);
+      resetListState();
       continue;
     }
     if (htmlDepth > 0) {
@@ -568,6 +592,7 @@ function convertNfmBlocks(text: string): string {
       }
       result.push("&nbsp;");
       result.push("");
+      resetListState();
       continue;
     }
 
@@ -583,19 +608,40 @@ function convertNfmBlocks(text: string): string {
       }
 
       // Already a list/task item → re-indent with spaces
-      // Use 4 spaces per level so numbered list nesting works in CommonMark
+      // Use 4 spaces per level only when there is a real list parent.
+      // A Notion list can be nested under a paragraph; CommonMark cannot
+      // represent that as `    - item` without turning it into a code block,
+      // so use blockquote nesting for those visual-indentation cases.
       if (
         /^[-*+]\s/.test(content) ||
         /^\d+\.\s/.test(content) ||
         /^\[[ x]]\s/i.test(content)
       ) {
-        result.push("    ".repeat(depth) + content);
+        if (
+          quoteListBaseIndent !== null &&
+          depth >= quoteListBaseIndent
+        ) {
+          const listDepth = depth - quoteListBaseIndent;
+          result.push(
+            `${"> ".repeat(quoteListBaseIndent)}${"    ".repeat(listDepth)}${content}`,
+          );
+        } else if (hasStandardListAncestor(depth)) {
+          result.push("    ".repeat(depth) + content);
+          noteStandardListItem(depth);
+        } else {
+          if (result.length > 0 && result[result.length - 1].trim() !== "") {
+            result.push("");
+          }
+          quoteListBaseIndent = depth;
+          result.push(`${"> ".repeat(depth)}${content}`);
+        }
         continue;
       }
 
       // HTML tag → keep as space-indented HTML
       if (/^</.test(content)) {
         result.push("  ".repeat(depth) + content);
+        resetListState();
         continue;
       }
 
@@ -605,9 +651,19 @@ function convertNfmBlocks(text: string): string {
         result.push("");
       }
       result.push("> ".repeat(depth) + content);
+      resetListState();
       continue;
     }
 
+    if (
+      /^[-*+]\s/.test(trimmed) ||
+      /^\d+\.\s/.test(trimmed) ||
+      /^\[[ x]]\s/i.test(trimmed)
+    ) {
+      noteStandardListItem(0);
+    } else if (trimmed) {
+      resetListState();
+    }
     result.push(line);
   }
 

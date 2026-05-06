@@ -5,7 +5,10 @@ import {
   type H3Event,
 } from "h3";
 import { getSession } from "@agent-native/core/server";
-import { searchPeopleForUser, type PeopleSearchScope } from "../lib/people-search.js";
+import {
+  searchPeopleForUser,
+  type PeopleSearchScope,
+} from "../lib/people-search.js";
 
 async function uEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);
