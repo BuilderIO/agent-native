@@ -360,6 +360,9 @@ importers:
       electron-updater:
         specifier: ^6.8.3
         version: 6.8.3
+      sonner:
+        specifier: ^2.0.7
+        version: 2.0.7(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
     devDependencies:
       '@types/node':
         specifier: ^24.2.1
