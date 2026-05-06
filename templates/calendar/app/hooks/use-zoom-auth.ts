@@ -73,11 +73,7 @@ export function useConnectZoom() {
       const authPath = agentNativePath(
         `/_agent-native/zoom/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&redirect=1`,
       );
-      const popup = window.open(
-        authPath,
-        "_blank",
-        "noopener,noreferrer",
-      );
+      const popup = window.open(authPath, "_blank", "noopener,noreferrer");
       if (!popup) {
         window.location.assign(authPath);
         return { opened: "same-tab" as const };

@@ -61,12 +61,12 @@ Calendar events come directly from the Google Calendar API. They are **not** sto
 
 Ephemeral UI state is stored in the SQL `application_state` table. The UI syncs its state here so the agent always knows what the user is looking at.
 
-| State Key        | Purpose                            | Direction                  |
-| ---------------- | ---------------------------------- | -------------------------- |
-| `navigation`     | Current view, date, selected event | UI -> Agent (read-only)    |
-| `navigate`       | Navigate command (one-shot)        | Agent -> UI (auto-deleted) |
-| `refresh-signal` | Trigger UI to refetch data         | Agent -> UI                |
-| `calendar-view-preferences` | Local visual display preferences (hide weekends, color mode, single color) | UI <-> Agent |
+| State Key                   | Purpose                                                                    | Direction                  |
+| --------------------------- | -------------------------------------------------------------------------- | -------------------------- |
+| `navigation`                | Current view, date, selected event                                         | UI -> Agent (read-only)    |
+| `navigate`                  | Navigate command (one-shot)                                                | Agent -> UI (auto-deleted) |
+| `refresh-signal`            | Trigger UI to refetch data                                                 | Agent -> UI                |
+| `calendar-view-preferences` | Local visual display preferences (hide weekends, color mode, single color) | UI <-> Agent               |
 
 ### Navigation state (read what the user sees)
 
@@ -119,19 +119,19 @@ cd templates/calendar && pnpm action <name> [args]
 
 ### Events
 
-| Action                 | Args                                                                                                                                             | Purpose                                                             |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| `list-events`          | `--from`, `--to`, `--query`, `--json`                                                                                                            | Query Google Calendar events                                        |
-| `search-events`        | `--query` (required), `--from`, `--to`                                                                                                           | Search events broadly, including recurring meetings                 |
-| `get-event`            | `--id` (required), `--calendarId` (default: primary)                                                                                             | Fetch a single event by id                                          |
-| `create-event`         | `--title`, `--start`, `--end`, `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`                     | Create event on Google Calendar                                     |
-| `update-event`         | `--id`, optional `--title`, `--start`, `--end`, `--recurrence`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`, `--accountEmail` | Update an event or recurrence                                       |
-| `search-people`        | `--q`, optional `--scope all\|directory`                                                                                                         | Resolve attendee names from Google Contacts and Workspace Directory |
-| `get-zoom-status`      | none                                                                                                                                             | Check Zoom OAuth configuration and connection                       |
-| `rsvp-event`           | `--id`, `--status accepted\|declined\|tentative`, optional `--scope single\|all\|thisAndFollowing`, `--accountEmail`                             | RSVP to a meeting invitation                                        |
-| `delete-event`         | `--id`, optional `--scope single\|all\|thisAndFollowing`, `--removeOnly`, `--accountEmail`                                                       | Delete/remove an event                                              |
-| `sync-google-calendar` | `--from`, `--to`                                                                                                                                 | Pull Google Calendar events                                         |
-| `update-calendar-visual-preferences` | `--colorMode multi\|single`, `--singleColor "#5B9BD5"`, `--hideWeekends true\|false`                                                           | Update local app display preferences without modifying Google Calendar |
+| Action                               | Args                                                                                                                                             | Purpose                                                                |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| `list-events`                        | `--from`, `--to`, `--query`, `--json`                                                                                                            | Query Google Calendar events                                           |
+| `search-events`                      | `--query` (required), `--from`, `--to`                                                                                                           | Search events broadly, including recurring meetings                    |
+| `get-event`                          | `--id` (required), `--calendarId` (default: primary)                                                                                             | Fetch a single event by id                                             |
+| `create-event`                       | `--title`, `--start`, `--end`, `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`                     | Create event on Google Calendar                                        |
+| `update-event`                       | `--id`, optional `--title`, `--start`, `--end`, `--recurrence`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`, `--accountEmail` | Update an event or recurrence                                          |
+| `search-people`                      | `--q`, optional `--scope all\|directory`                                                                                                         | Resolve attendee names from Google Contacts and Workspace Directory    |
+| `get-zoom-status`                    | none                                                                                                                                             | Check Zoom OAuth configuration and connection                          |
+| `rsvp-event`                         | `--id`, `--status accepted\|declined\|tentative`, optional `--scope single\|all\|thisAndFollowing`, `--accountEmail`                             | RSVP to a meeting invitation                                           |
+| `delete-event`                       | `--id`, optional `--scope single\|all\|thisAndFollowing`, `--removeOnly`, `--accountEmail`                                                       | Delete/remove an event                                                 |
+| `sync-google-calendar`               | `--from`, `--to`                                                                                                                                 | Pull Google Calendar events                                            |
+| `update-calendar-visual-preferences` | `--colorMode multi\|single`, `--singleColor "#5B9BD5"`, `--hideWeekends true\|false`                                                             | Update local app display preferences without modifying Google Calendar |
 
 ### Local UI Visual Preferences
 

@@ -47,7 +47,11 @@ describe("calendar view preferences", () => {
     expect(getEventDisplayColor(googleEvent, preferences)).toBe("#CD6B6B");
     expect(
       getEventDisplayColor(
-        { ...googleEvent, overlayEmail: "teammate@example.com", color: "#4ECDC4" },
+        {
+          ...googleEvent,
+          overlayEmail: "teammate@example.com",
+          color: "#4ECDC4",
+        },
         preferences,
       ),
     ).toBe("#4ECDC4");

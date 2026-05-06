@@ -35,9 +35,7 @@ export function isValidCalendarColorMode(
 }
 
 export function isValidCalendarColor(value: unknown): value is string {
-  return (
-    typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value.trim())
-  );
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value.trim());
 }
 
 export function normalizeCalendarViewPreferences(

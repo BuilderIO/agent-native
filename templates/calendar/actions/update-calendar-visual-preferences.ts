@@ -35,7 +35,8 @@ export default defineAction({
     const current = normalizeCalendarViewPreferences(
       (await readAppState(CALENDAR_VIEW_PREFERENCES_KEY)) as any,
     );
-    const colorMode = args.colorMode ?? (args.singleColor ? "single" : undefined);
+    const colorMode =
+      args.colorMode ?? (args.singleColor ? "single" : undefined);
     const next = normalizeCalendarViewPreferences({
       ...current,
       ...args,
@@ -47,8 +48,7 @@ export default defineAction({
     return {
       success: true,
       preferences: next,
-      note:
-        "Updated local Calendar UI display preferences only; Google Calendar events were not modified.",
+      note: "Updated local Calendar UI display preferences only; Google Calendar events were not modified.",
     };
   },
 });
