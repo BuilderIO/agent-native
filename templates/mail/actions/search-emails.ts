@@ -29,30 +29,61 @@ function toCompact(emails: any[]): any[] {
   return emails.map((e) => ({
     id: e.id,
     threadId: e.threadId,
-    from: e.from.name ? `${e.from.name} <${e.from.email}>` : e.from.email,
+    from: e.from?.name
+      ? `${e.from.name} <${e.from.email}>`
+      : (e.from?.email ?? e.from),
     subject: e.subject,
     snippet: e.snippet,
     date: e.date,
     isRead: e.isRead,
+    hasUnread: e.hasUnread ?? !e.isRead,
+    unreadCount: e.unreadCount,
+    messageCount: e.messageCount,
     accountEmail: e.accountEmail,
   }));
 }
 
 function latestPerThread(emails: any[]): any[] {
-  const byThread = new Map<string, any>();
+  const byThread = new Map<
+    string,
+    { latest: any; hasUnread: boolean; unreadCount: number; messageCount: number }
+  >();
   for (const email of emails) {
     const key = `${email.accountEmail ?? ""}:${email.threadId || email.id}`;
     const existing = byThread.get(key);
+    if (!existing) {
+      byThread.set(key, {
+        latest: email,
+        hasUnread: !email.isRead,
+        unreadCount: email.isRead ? 0 : 1,
+        messageCount: 1,
+      });
+      continue;
+    }
+    existing.messageCount += 1;
+    if (!email.isRead) {
+      existing.hasUnread = true;
+      existing.unreadCount += 1;
+    }
     if (
-      !existing ||
-      new Date(email.date).getTime() > new Date(existing.date).getTime()
+      new Date(email.date).getTime() >
+      new Date(existing.latest.date).getTime()
     ) {
-      byThread.set(key, email);
+      existing.latest = email;
     }
   }
-  return Array.from(byThread.values()).sort(
-    (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-  );
+  return Array.from(byThread.values())
+    .map(({ latest, hasUnread, unreadCount, messageCount }) => ({
+      ...latest,
+      isRead: !hasUnread,
+      hasUnread,
+      unreadCount,
+      messageCount,
+    }))
+    .sort(
+      (a: any, b: any) =>
+        new Date(b.date).getTime() - new Date(a.date).getTime(),
+    );
 }
 
 export default defineAction({
@@ -84,6 +115,9 @@ export default defineAction({
       .describe(
         "Filter to a specific account email address. By default searches all connected accounts.",
       ),
+    includeCounts: cliBoolean
+      .optional()
+      .describe("Set to true to include thread/page unread counts"),
     compact: cliBoolean.optional().describe("Set to true for compact output"),
   }),
   http: { method: "GET" },
@@ -91,6 +125,7 @@ export default defineAction({
     if (!args.q) return "Error: --q is required";
     const view = args.view ?? "all";
     const limit = args.limit ?? 25;
+    const includeCounts = args.includeCounts === true;
     const compact = args.compact !== false;
     const accountFilter = args.account?.toLowerCase();
     const ownerEmail = getRequestUserEmail();
@@ -147,10 +182,23 @@ export default defineAction({
         .sort(
           (a: any, b: any) =>
             new Date(b.date).getTime() - new Date(a.date).getTime(),
-        )
-        .slice(0, limit);
+        );
 
-      return JSON.stringify(compact ? toCompact(emails) : emails, null, 2);
+      emails = latestPerThread(emails).slice(0, limit);
+
+      const payload = compact ? toCompact(emails) : emails;
+      if (includeCounts) {
+        return JSON.stringify(
+          {
+            emails: payload,
+            threadCount: emails.length,
+            unreadInPage: emails.filter((e: any) => e.hasUnread).length,
+          },
+          null,
+          2,
+        );
+      }
+      return JSON.stringify(payload, null, 2);
     }
 
     const clients = await getClients(ownerEmail);
@@ -169,7 +217,7 @@ export default defineAction({
       }),
     );
 
-    const { messages, errors } = await listGmailMessages(
+    const { messages, errors, resultSizeEstimate } = await listGmailMessages(
       gmailQuery,
       limit,
       ownerEmail,
@@ -195,6 +243,21 @@ export default defineAction({
 
     emails = latestPerThread(emails).slice(0, limit);
 
-    return JSON.stringify(compact ? toCompact(emails) : emails, null, 2);
+    const payload = compact ? toCompact(emails) : emails;
+    if (includeCounts) {
+      return JSON.stringify(
+        {
+          emails: payload,
+          threadCount: emails.length,
+          unreadInPage: emails.filter((e: any) => e.hasUnread).length,
+          ...(resultSizeEstimate !== undefined && {
+            totalEstimate: resultSizeEstimate,
+          }),
+        },
+        null,
+        2,
+      );
+    }
+    return JSON.stringify(payload, null, 2);
   },
 });

@@ -10,10 +10,12 @@ import { toast } from "sonner";
 
 interface NotionConflictBannerProps {
   documentId: string;
+  canEdit?: boolean;
 }
 
 export function NotionConflictBanner({
   documentId,
+  canEdit = true,
 }: NotionConflictBannerProps) {
   // Share autoSync state (and React Query cache) with DocumentToolbar.
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
@@ -21,7 +23,7 @@ export function NotionConflictBanner({
   const resolveConflict = useResolveDocumentSyncConflict(documentId);
   const [direction, setDirection] = useState<"pull" | "push" | null>(null);
 
-  if (!syncStatus?.hasConflict) return null;
+  if (!canEdit || !syncStatus?.hasConflict) return null;
 
   const handleResolve = async (dir: "pull" | "push") => {
     setDirection(dir);
