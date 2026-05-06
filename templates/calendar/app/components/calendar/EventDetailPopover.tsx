@@ -16,6 +16,7 @@ import {
   IconExternalLink,
   IconAlignLeft,
   IconPlus,
+  IconBrandZoom,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,6 +35,7 @@ import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
 import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import { useUpdateEvent } from "@/hooks/use-events";
+import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
 import { toast } from "sonner";
 import {
   RenderedDescription,
@@ -235,6 +237,8 @@ export function EventDetailPopover({
   const [editMeetingLink, setEditMeetingLink] = useState("");
 
   const updateEvent = useUpdateEvent();
+  const zoomStatus = useZoomStatus();
+  const connectZoom = useConnectZoom();
   const locationRef = useRef<HTMLInputElement>(null);
   const attendeeRef = useRef<HTMLInputElement>(null);
   const meetingLinkRef = useRef<HTMLInputElement>(null);
@@ -304,6 +308,48 @@ export function EventDetailPopover({
       },
     );
   }, [event.id, event.accountEmail, updateEvent]);
+
+  const handleAddZoom = useCallback(() => {
+    if (!event.id || updateEvent.isPending || connectZoom.isPending) return;
+
+    if (zoomStatus.data?.connected) {
+      updateEvent.mutate(
+        {
+          id: event.id,
+          accountEmail: event.accountEmail,
+          addZoom: true,
+        },
+        {
+          onSuccess: () => toast("Zoom added"),
+          onError: (error) =>
+            toast.error(
+              error instanceof Error ? error.message : "Failed to add Zoom",
+            ),
+        },
+      );
+      return;
+    }
+
+    if (zoomStatus.data?.configured === false) {
+      toast.error("Zoom is not configured for this deployment.");
+      return;
+    }
+
+    connectZoom.mutate(undefined, {
+      onSuccess: () => toast("Zoom connection opened"),
+      onError: (error) =>
+        toast.error(
+          error instanceof Error ? error.message : "Could not connect Zoom",
+        ),
+    });
+  }, [
+    connectZoom,
+    event.accountEmail,
+    event.id,
+    updateEvent,
+    zoomStatus.data?.configured,
+    zoomStatus.data?.connected,
+  ]);
 
   const handleSaveDescription = useCallback(() => {
     const trimmed = editDescription.trim();
@@ -851,18 +897,31 @@ export function EventDetailPopover({
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="h-8 flex-1 justify-center gap-1.5 text-xs"
+                        className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
                         disabled={updateEvent.isPending}
                         onClick={handleAddGoogleMeet}
                       >
                         <IconVideo className="h-3.5 w-3.5" />
-                        Google Meet
+                        Meet
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
+                        disabled={
+                          updateEvent.isPending || connectZoom.isPending
+                        }
+                        onClick={handleAddZoom}
+                      >
+                        <IconBrandZoom className="h-3.5 w-3.5" />
+                        Zoom
                       </Button>
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="h-8 flex-1 justify-center gap-1.5 text-xs text-muted-foreground"
+                        className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs text-muted-foreground"
                         onClick={() => setEditingField("meetingLink")}
                       >
                         <IconPlus className="h-3.5 w-3.5" />

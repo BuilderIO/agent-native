@@ -10,12 +10,27 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useCreateEvent, useDeleteEvent } from "@/hooks/use-events";
+import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
 import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
-import { IconPlus, IconVideo, IconUsers, IconX } from "@tabler/icons-react";
+import {
+  IconBrandZoom,
+  IconPlus,
+  IconVideo,
+  IconUsers,
+  IconX,
+} from "@tabler/icons-react";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+type VideoProvider = "none" | "google_meet" | "zoom";
 
 function parseAttendeeInput(value: string): string[] {
   return value
