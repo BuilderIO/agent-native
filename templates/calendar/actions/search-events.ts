@@ -10,9 +10,7 @@ export default defineAction({
     query: z
       .string()
       .optional()
-      .describe(
-        "Search term (case-insensitive substring match, required)",
-      ),
+      .describe("Search term (case-insensitive substring match, required)"),
     from: z
       .string()
       .optional()

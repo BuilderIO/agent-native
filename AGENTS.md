@@ -149,17 +149,17 @@ Extensions are mini sandboxed Alpine.js apps that run inside iframes. The agent 
 
 Extensions are 100% self-contained. They have FULL access to app data, external APIs, and their own persistent storage — **without any source code changes, new files, Builder, or schema migrations.**
 
-| Helper                                           | Purpose                    | Example                                           |
-| ------------------------------------------------ | -------------------------- | ------------------------------------------------- |
-| `extensionData.set(collection, id, data, opts?)` | Persist data per-extension | `extensionData.set('notes', id, { text: '...' })` |
-| `extensionData.list(collection, opts?)`          | List persisted items       | `extensionData.list('notes', { scope: 'all' })`   |
-| `extensionData.get(collection, id, opts?)`       | Get a single item          | `extensionData.get('notes', 'note-1')`            |
-| `extensionData.remove(collection, id, opts?)`    | Delete persisted item      | `extensionData.remove('notes', 'note-1')`         |
-| `appAction(name, params)`                        | Call any app action        | `appAction('list-emails', { view: 'inbox' })`     |
-| `dbQuery(sql, args)`                             | Read from SQL              | `dbQuery('SELECT * FROM tools')`                  |
-| `dbExec(sql, args)`                              | Write to SQL               | `dbExec('INSERT INTO ...')`                       |
+| Helper                                           | Purpose                                                   | Example                                                   |
+| ------------------------------------------------ | --------------------------------------------------------- | --------------------------------------------------------- |
+| `extensionData.set(collection, id, data, opts?)` | Persist data per-extension                                | `extensionData.set('notes', id, { text: '...' })`         |
+| `extensionData.list(collection, opts?)`          | List persisted items                                      | `extensionData.list('notes', { scope: 'all' })`           |
+| `extensionData.get(collection, id, opts?)`       | Get a single item                                         | `extensionData.get('notes', 'note-1')`                    |
+| `extensionData.remove(collection, id, opts?)`    | Delete persisted item                                     | `extensionData.remove('notes', 'note-1')`                 |
+| `appAction(name, params)`                        | Call any app action                                       | `appAction('list-emails', { view: 'inbox' })`             |
+| `dbQuery(sql, args)`                             | Read from SQL                                             | `dbQuery('SELECT * FROM tools')`                          |
+| `dbExec(sql, args)`                              | Write to SQL                                              | `dbExec('INSERT INTO ...')`                               |
 | `appFetch(path, options)`                        | Call allowed framework endpoints under `/_agent-native/*` | `appFetch('/_agent-native/application-state/navigation')` |
-| `extensionFetch(url, options)`                   | External API via proxy     | `extensionFetch('https://api.github.com/...')`    |
+| `extensionFetch(url, options)`                   | External API via proxy                                    | `extensionFetch('https://api.github.com/...')`            |
 
 > Legacy aliases `toolFetch` and `toolData` are still exposed inside the iframe for backward compatibility with existing extension HTML — prefer the `extension*` names in new code.
 

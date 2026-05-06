@@ -118,17 +118,17 @@ cd templates/calendar && pnpm action <name> [args]
 
 ### Events
 
-| Action                 | Args                                                                                                                                             | Purpose                                       |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------- |
-| `list-events`          | `--from`, `--to`, `--query`, `--json`                                                                                                            | Query Google Calendar events                  |
+| Action                 | Args                                                                                                                                             | Purpose                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| `list-events`          | `--from`, `--to`, `--query`, `--json`                                                                                                            | Query Google Calendar events                        |
 | `search-events`        | `--query` (required), `--from`, `--to`                                                                                                           | Search events broadly, including recurring meetings |
-| `get-event`            | `--id` (required), `--calendarId` (default: primary)                                                                                             | Fetch a single event by id                    |
-| `create-event`         | `--title`, `--start`, `--end`, `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`                     | Create event on Google Calendar               |
-| `update-event`         | `--id`, optional `--title`, `--start`, `--end`, `--recurrence`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`, `--accountEmail` | Update an event or recurrence                 |
-| `get-zoom-status`      | none                                                                                                                                             | Check Zoom OAuth configuration and connection |
-| `rsvp-event`           | `--id`, `--status accepted\|declined\|tentative`, optional `--scope single\|all\|thisAndFollowing`, `--accountEmail`                             | RSVP to a meeting invitation                  |
-| `delete-event`         | `--id`, optional `--scope single\|all\|thisAndFollowing`, `--removeOnly`, `--accountEmail`                                                       | Delete/remove an event                        |
-| `sync-google-calendar` | `--from`, `--to`                                                                                                                                 | Pull Google Calendar events                   |
+| `get-event`            | `--id` (required), `--calendarId` (default: primary)                                                                                             | Fetch a single event by id                          |
+| `create-event`         | `--title`, `--start`, `--end`, `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`                     | Create event on Google Calendar                     |
+| `update-event`         | `--id`, optional `--title`, `--start`, `--end`, `--recurrence`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`, `--accountEmail` | Update an event or recurrence                       |
+| `get-zoom-status`      | none                                                                                                                                             | Check Zoom OAuth configuration and connection       |
+| `rsvp-event`           | `--id`, `--status accepted\|declined\|tentative`, optional `--scope single\|all\|thisAndFollowing`, `--accountEmail`                             | RSVP to a meeting invitation                        |
+| `delete-event`         | `--id`, optional `--scope single\|all\|thisAndFollowing`, `--removeOnly`, `--accountEmail`                                                       | Delete/remove an event                              |
+| `sync-google-calendar` | `--from`, `--to`                                                                                                                                 | Pull Google Calendar events                         |
 
 ### Availability & Booking
 

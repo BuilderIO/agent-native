@@ -50,7 +50,12 @@ function toCompact(emails: any[]): any[] {
 function latestPerThread(emails: any[]): any[] {
   const byThread = new Map<
     string,
-    { latest: any; hasUnread: boolean; unreadCount: number; messageCount: number }
+    {
+      latest: any;
+      hasUnread: boolean;
+      unreadCount: number;
+      messageCount: number;
+    }
   >();
   for (const email of emails) {
     const key = `${email.accountEmail ?? ""}:${email.threadId || email.id}`;
@@ -70,23 +75,23 @@ function latestPerThread(emails: any[]): any[] {
       existing.unreadCount += 1;
     }
     if (
-      new Date(email.date).getTime() >
-      new Date(existing.latest.date).getTime()
+      new Date(email.date).getTime() > new Date(existing.latest.date).getTime()
     ) {
       existing.latest = email;
     }
   }
-  return Array.from(byThread.values()).map(
-    ({ latest, hasUnread, unreadCount, messageCount }) => ({
+  return Array.from(byThread.values())
+    .map(({ latest, hasUnread, unreadCount, messageCount }) => ({
       ...latest,
       isRead: !hasUnread,
       hasUnread,
       unreadCount,
       messageCount,
-    }),
-  ).sort(
-    (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-  );
+    }))
+    .sort(
+      (a: any, b: any) =>
+        new Date(b.date).getTime() - new Date(a.date).getTime(),
+    );
 }
 
 async function readLocalEmails(ownerEmail: string): Promise<any[]> {
@@ -129,7 +134,9 @@ export default defineAction({
       .describe("Max number of emails to return (default: 50)"),
     includeCounts: cliBoolean
       .optional()
-      .describe("Set to true to include thread/page unread counts and Gmail total estimate"),
+      .describe(
+        "Set to true to include thread/page unread counts and Gmail total estimate",
+      ),
     compact: cliBoolean.optional().describe("Set to true for compact output"),
   }),
   http: { method: "GET" },

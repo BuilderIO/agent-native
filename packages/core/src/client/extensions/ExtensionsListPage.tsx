@@ -247,7 +247,11 @@ export function ExtensionsListPage() {
                       <IconDotsVertical className="h-4 w-4" />
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent align="end" sideOffset={4} className="w-64 p-0">
+                  <PopoverContent
+                    align="end"
+                    sideOffset={4}
+                    className="w-64 p-0"
+                  >
                     <div className="p-3">
                       <p className="text-[12px]">
                         Delete{" "}
