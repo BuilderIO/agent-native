@@ -70,7 +70,11 @@ export const ComposeEditor = forwardRef<
 ) {
   const isSettingContent = useRef(false);
   const onChangeRef = useRef(onChange);
+  const onSendRef = useRef(onSend);
+  const onCloseRef = useRef(onClose);
   onChangeRef.current = onChange;
+  onSendRef.current = onSend;
+  onCloseRef.current = onClose;
 
   const editor = useEditor({
     extensions: [
@@ -109,12 +113,14 @@ export const ComposeEditor = forwardRef<
       handleKeyDown: (_view, event) => {
         if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
           event.preventDefault();
-          onSend();
+          event.stopPropagation();
+          onSendRef.current();
           return true;
         }
         if (event.key === "Escape") {
           event.preventDefault();
-          onClose();
+          event.stopPropagation();
+          onCloseRef.current();
           return true;
         }
         return false;

@@ -1,4 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useRef,
+} from "react";
 import type { Editor } from "@tiptap/react";
 import {
   IconTypography,
@@ -128,6 +134,13 @@ export function ComposeSlashMenu({
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [cursorCoords, setCursorCoords] = useState<{
+    cursorTop: number;
+    cursorBottom: number;
+    cursorLeft: number;
+    editorTop: number;
+    editorLeft: number;
+  } | null>(null);
   const [position, setPosition] = useState<{
     top: number;
     left: number;
@@ -216,9 +229,12 @@ export function ComposeSlashMenu({
           .closest(".compose-editor-wrapper")
           ?.getBoundingClientRect();
         if (editorRect) {
-          setPosition({
-            top: coords.bottom - editorRect.top + 4,
-            left: coords.left - editorRect.left,
+          setCursorCoords({
+            cursorTop: coords.top,
+            cursorBottom: coords.bottom,
+            cursorLeft: coords.left,
+            editorTop: editorRect.top,
+            editorLeft: editorRect.left,
           });
         }
         setIsOpen(true);
@@ -226,6 +242,8 @@ export function ComposeSlashMenu({
         if (isOpen) {
           setIsOpen(false);
           setQuery("");
+          setPosition(null);
+          setCursorCoords(null);
           slashPosRef.current = null;
         }
       }
@@ -237,7 +255,23 @@ export function ComposeSlashMenu({
     };
   }, [editor, isOpen]);
 
-  if (!isOpen || !position || filteredCommands.length === 0) return null;
+  useLayoutEffect(() => {
+    if (!isOpen || !cursorCoords || !menuRef.current) return;
+    const menuHeight = menuRef.current.offsetHeight;
+    const gap = 4;
+    const margin = 8;
+    const spaceBelow = window.innerHeight - cursorCoords.cursorBottom - margin;
+    const spaceAbove = cursorCoords.cursorTop - margin;
+    const placeAbove = spaceBelow < menuHeight + gap && spaceAbove > spaceBelow;
+    setPosition({
+      top: placeAbove
+        ? cursorCoords.cursorTop - cursorCoords.editorTop - menuHeight - gap
+        : cursorCoords.cursorBottom - cursorCoords.editorTop + gap,
+      left: cursorCoords.cursorLeft - cursorCoords.editorLeft,
+    });
+  }, [isOpen, cursorCoords, filteredCommands.length]);
+
+  if (!isOpen || !cursorCoords || filteredCommands.length === 0) return null;
 
   const basicCommands = filteredCommands.filter((c) => c.category === "basic");
   const mediaCommands = filteredCommands.filter((c) => c.category === "media");
@@ -249,8 +283,9 @@ export function ComposeSlashMenu({
       className="slash-command-menu"
       style={{
         position: "absolute",
-        top: position.top,
-        left: Math.min(position.left, 300),
+        top: position?.top ?? 0,
+        left: position ? Math.min(position.left, 300) : 0,
+        visibility: position ? "visible" : "hidden",
         zIndex: 50,
       }}
     >

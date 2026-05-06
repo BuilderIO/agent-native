@@ -147,8 +147,13 @@ assert.match(
 const desktopApp = read("packages/desktop-app/src/renderer/App.tsx");
 assert.match(
   desktopApp,
-  /enabledApps\.find\(\(app\) => app\.id === activeSidebarAppId\)/,
-  "desktop shell must mount only the active app's webviews to avoid stale Electron native guest surfaces",
+  /mountedAppIds/,
+  "desktop shell must keep visited app webviews mounted so app switching preserves live page state",
+);
+assert.doesNotMatch(
+  desktopApp,
+  /const activeApp = enabledApps\.find\(\(app\) => app\.id === activeSidebarAppId\)/,
+  "desktop shell must not unmount inactive apps when switching sidebar apps",
 );
 
 const frameClient = read("packages/frame/client/App.tsx");

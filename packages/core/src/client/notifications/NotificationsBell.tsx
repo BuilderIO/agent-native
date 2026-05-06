@@ -1,4 +1,4 @@
-import { agentNativePath } from "../api-path.js";
+import { agentNativePath, appPath } from "../api-path.js";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   IconBell,
@@ -142,8 +142,12 @@ export function NotificationsBell({
 
   const markRead = async (id: string) => {
     try {
+      // `keepalive: true` lets the request survive page navigation —
+      // without it, clicking a notification with a link aborts this
+      // request mid-flight and the row stays unread.
       await fetch(agentNativePath(`/_agent-native/notifications/${id}/read`), {
         method: "POST",
+        keepalive: true,
       });
       setItems((prev) =>
         prev
@@ -156,6 +160,25 @@ export function NotificationsBell({
     } catch {
       // best-effort
     }
+  };
+
+  // Reject any URL that isn't http(s) or a same-origin relative path. Blocks
+  // `javascript:` execution, `data:` URIs, and absolute redirects to phishing
+  // sites. Relative paths starting with `/` are routed through `appPath()` so
+  // the link works in mounted deployments (e.g. /mail subdirectory).
+  const safeNotificationLink = (link: string): string | null => {
+    if (link.startsWith("/") && !link.startsWith("//")) {
+      return appPath(link);
+    }
+    try {
+      const url = new URL(link, window.location.origin);
+      if (url.protocol === "http:" || url.protocol === "https:") {
+        return url.toString();
+      }
+    } catch {
+      // fallthrough
+    }
+    return null;
   };
 
   const markAllRead = async () => {
@@ -255,47 +278,62 @@ export function NotificationsBell({
               <IconLoader2 size={14} className="animate-spin" /> Loading…
             </div>
           ) : items.length > 0 ? (
-            items.map((n) => (
-              <div
-                key={n.id}
-                className={
-                  "group relative border-b border-border last:border-b-0 hover:bg-accent/40 " +
-                  (n.readAt ? "opacity-60" : "")
+            items.map((n) => {
+              const rawLink =
+                typeof n.metadata?.link === "string" ? n.metadata.link : null;
+              const link = rawLink ? safeNotificationLink(rawLink) : null;
+              const onItemClick = () => {
+                if (!n.readAt) void markRead(n.id);
+                if (link) {
+                  setOpen(false);
+                  window.location.assign(link);
                 }
-              >
-                <button
-                  type="button"
-                  onClick={() => (n.readAt ? undefined : markRead(n.id))}
-                  className="flex w-full flex-col items-start gap-0.5 px-3 py-2 pr-8 text-left"
+              };
+              return (
+                <div
+                  key={n.id}
+                  className={
+                    "group relative border-b border-border last:border-b-0 hover:bg-accent/40 " +
+                    (n.readAt ? "opacity-60" : "")
+                  }
                 >
-                  <div className="flex w-full items-center justify-between gap-2">
-                    <span className="truncate text-sm font-medium text-foreground">
-                      {n.title}
+                  <button
+                    type="button"
+                    onClick={onItemClick}
+                    className={
+                      "flex w-full flex-col items-start gap-0.5 px-3 py-2 pr-8 text-left" +
+                      (link ? " cursor-pointer" : "")
+                    }
+                  >
+                    <div className="flex w-full items-center justify-between gap-2">
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {n.title}
+                      </span>
+                      <SeverityBadge severity={n.severity} />
+                    </div>
+                    {n.body ? (
+                      <span className="line-clamp-2 text-xs text-muted-foreground">
+                        {n.body}
+                      </span>
+                    ) : null}
+                    <span className="text-[10px] text-muted-foreground/70">
+                      {new Date(n.createdAt).toLocaleString()}
                     </span>
-                    <SeverityBadge severity={n.severity} />
-                  </div>
-                  {n.body ? (
-                    <span className="line-clamp-2 text-xs text-muted-foreground">
-                      {n.body}
-                    </span>
-                  ) : null}
-                  <span className="text-[10px] text-muted-foreground/70">
-                    {new Date(n.createdAt).toLocaleString()}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  aria-label="Dismiss notification"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void dismiss(n.id);
-                  }}
-                  className="absolute right-2 top-2 hidden rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground group-hover:flex"
-                >
-                  <IconX size={12} />
-                </button>
-              </div>
-            ))
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Dismiss notification"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void dismiss(n.id);
+                    }}
+                    className="absolute right-2 top-2 hidden rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground group-hover:flex"
+                  >
+                    <IconX size={12} />
+                  </button>
+                </div>
+              );
+            })
           ) : (
             <div className="p-4 text-sm text-muted-foreground">
               No notifications.

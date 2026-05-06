@@ -648,6 +648,7 @@ export function useSendEmail() {
       subject: string;
       body: string;
       replyToId?: string;
+      replyToThreadId?: string;
       accountEmail?: string;
       attachments?: ComposeAttachment[];
     }) =>
@@ -667,7 +668,10 @@ export function useSendEmail() {
         ? cachedEmails.find((email) => email.id === data.replyToId)
         : undefined;
       const threadId =
-        replyTarget?.threadId || data.replyToId || makeTempId("thread");
+        data.replyToThreadId ||
+        replyTarget?.threadId ||
+        data.replyToId ||
+        makeTempId("thread");
 
       // Snapshot pre-send thread state so onError can roll back.
       const previousThread = getCachedThread(threadId);

@@ -33,10 +33,8 @@ import {
   IconMenu2,
   IconSettings,
   IconSearch,
-  IconPencil,
   IconCheck,
   IconPlus,
-  IconTool,
   IconRefresh,
   IconPin,
   IconPinnedFilled,
@@ -1016,18 +1014,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 <TooltipContent>Refresh inbox</TooltipContent>
               </Tooltip>
 
-              {/* Extensions */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link
-                    to="/extensions"
-                    className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
-                  >
-                    <IconTool className="h-4 w-4" />
-                  </Link>
-                </TooltipTrigger>
-                <TooltipContent>Extensions</TooltipContent>
-              </Tooltip>
+              <NotificationsBell />
 
               {/* Compose — prominent outline button */}
               <Tooltip>
@@ -1036,18 +1023,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     onClick={handleCompose}
                     variant="outline"
                     size="sm"
-                    className="h-9 sm:h-7 gap-1.5 px-2.5 text-[13px]"
+                    className="h-9 sm:h-7 px-3 text-[13px]"
                     aria-label="Compose email"
                   >
-                    <IconPencil className="h-3.5 w-3.5" />
                     <span>Compose</span>
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Compose (C)</TooltipContent>
               </Tooltip>
-
-              {/* Notifications — placed left of the avatar stack */}
-              <NotificationsBell />
 
               {/* Account avatars — overlapping stack like Figma */}
               {hasAccounts && (
