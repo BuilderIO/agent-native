@@ -6,12 +6,12 @@ export interface BuilderStatus {
   configured: boolean;
   builderEnabled: boolean;
   /**
-   * True when `BUILDER_PRIVATE_KEY` is set at the deploy level. Every user
-   * of this deploy shares the operator's Builder identity and per-user
-   * connect/disconnect is disabled. UIs must hide connect prompts and
-   * disconnect buttons when this is true.
+   * True when `BUILDER_PRIVATE_KEY` is set at the deploy level. This is a
+   * fallback credential; per-user/org Builder connections are still allowed
+   * and take precedence for that request.
    */
   envManaged?: boolean;
+  credentialSource?: "user" | "org" | "env";
   connectUrl: string;
   appHost: string;
   apiHost: string;
@@ -106,9 +106,9 @@ export interface BuilderConnectFlowOptions {
 export interface BuilderConnectFlow {
   configured: boolean;
   /**
-   * True when the deploy has BUILDER_PRIVATE_KEY set. UIs should treat
-   * Builder as connected for everyone in this mode and hide all connect /
-   * disconnect controls — `start()` will be a no-op.
+   * True when the deploy has BUILDER_PRIVATE_KEY set as a fallback. Connect
+   * is still available so users can override the fallback with their own
+   * Builder account.
    */
   envManaged: boolean;
   /**
@@ -190,6 +190,7 @@ export function useBuilderConnectFlow(
         builderEnabled?: boolean;
         orgName?: string | null;
         connectUrl?: string;
+        credentialSource?: "user" | "org" | "env";
         connectError?: { message: string; at: number };
       };
     } catch {
@@ -250,10 +251,6 @@ export function useBuilderConnectFlow(
   }, [fetchStatus, stopPoll]);
 
   const start = useCallback(() => {
-    // In env-managed mode, per-user OAuth is disabled — `/builder/connect`
-    // returns 409. Skip the popup and just refresh state so the UI flips
-    // to its "connected via deployment" rendering.
-    if (envManaged) return;
     stopPoll();
     setConnecting(true);
     setError(null);
@@ -323,7 +320,7 @@ export function useBuilderConnectFlow(
         );
       }
     }, POLL_INTERVAL_MS);
-  }, [envManaged, fetchStatus, popupUrl, statusConnectUrl, stopPoll]);
+  }, [fetchStatus, popupUrl, statusConnectUrl, stopPoll]);
 
   // Popup-side fast path: the error page broadcasts a message so we stop
   // polling immediately rather than waiting for the next 2s tick.

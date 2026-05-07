@@ -544,40 +544,10 @@ export function createCoreRoutesPlugin(
             branchProjectId: projectId || undefined,
           };
 
-          // Env-managed mode: BUILDER_PRIVATE_KEY is set at the deployment
-          // level, so every user shares the operator's Builder identity.
-          // Skip per-user credential lookups entirely — the env key is
-          // authoritative and the UI must hide connect/disconnect controls.
-          // Branch project IDs are still request-scoped above so a Builder.io
-          // org secret can enable branches without a deploy env var.
-          if (envStatus.envManaged) {
-            return withConnectToken(requestStatus);
-          }
-
-          // Per-user OAuth mode: read the user's app_secrets-stored creds.
-          try {
-            const { resolveBuilderCredentials } =
-              await import("./credential-provider.js");
-            const creds = await resolveBuilderCredentials();
-            if (creds.privateKey) {
-              return withConnectToken({
-                ...requestStatus,
-                configured: true,
-                privateKeyConfigured: true,
-                publicKeyConfigured: !!creds.publicKey,
-                userId: creds.userId || envStatus.userId,
-                orgName: creds.orgName || envStatus.orgName,
-                orgKind: creds.orgKind || envStatus.orgKind,
-              });
-            }
-          } catch {
-            // Secrets table not ready — fall through to env status
-          }
-          // Surface a recent OAuth callback failure so the parent's polling
-          // stops with a clear message instead of timing out at 5min. The
-          // callback handler writes a `builder-connect-error:<email>` row
-          // when `writeBuilderCredentials` throws; this read self-clears so
-          // the message only fires once.
+          // Surface a recent OAuth callback failure before reporting a
+          // deployment fallback as "connected"; otherwise a failed personal
+          // connect attempt on a deploy that also has BUILDER_PRIVATE_KEY set
+          // looks successful even though the user's credentials were not saved.
           try {
             if (userEmail) {
               const errKey = `builder-connect-error:${userEmail}`;
@@ -605,6 +575,35 @@ export function createCoreRoutesPlugin(
           } catch {
             // settings store unavailable — fall through
           }
+
+          // Read request-scoped Builder credentials first; deploy env is only
+          // the fallback. This keeps a root/local BUILDER_PRIVATE_KEY from
+          // blocking a user from connecting their own Builder account.
+          try {
+            const {
+              resolveBuilderCredentials,
+              resolveBuilderCredentialSource,
+            } = await import("./credential-provider.js");
+            const [creds, credentialSource] = await Promise.all([
+              resolveBuilderCredentials(),
+              resolveBuilderCredentialSource(),
+            ]);
+            if (creds.privateKey) {
+              return withConnectToken({
+                ...requestStatus,
+                configured: true,
+                privateKeyConfigured: true,
+                publicKeyConfigured: !!creds.publicKey,
+                userId: creds.userId || envStatus.userId,
+                orgName: creds.orgName || envStatus.orgName,
+                orgKind: creds.orgKind || envStatus.orgKind,
+                credentialSource: credentialSource ?? undefined,
+              });
+            }
+          } catch {
+            // Secrets table not ready — fall through to env status
+          }
+
           // Honor legacy disconnect flag for existing deployments.
           try {
             const disconnected = await getSetting("builder-disconnected");
@@ -706,22 +705,6 @@ export function createCoreRoutesPlugin(
         if (!ownerEmail) {
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
-        }
-
-        // Env-managed mode: per-user OAuth is disabled because the operator
-        // already provided a deploy-level Builder identity. Reject the
-        // connect attempt — any per-user keys we wrote would be ignored
-        // by the resolver, so completing the OAuth flow would be a no-op
-        // that misleads the user about the resulting connection state.
-        const { isBuilderEnvManaged } =
-          await import("./credential-provider.js");
-        if (isBuilderEnvManaged()) {
-          setResponseStatus(event, 409);
-          return {
-            error:
-              "Builder is managed by the deployment (BUILDER_PRIVATE_KEY is set). Per-user connect is disabled.",
-            envManaged: true,
-          };
         }
 
         const requestUrl = new URL(
@@ -1120,10 +1103,9 @@ export function createCoreRoutesPlugin(
     );
 
     // POST /_agent-native/builder/disconnect — revoke the user's per-user
-    // Builder credentials in app_secrets. In env-managed mode (deploy-level
-    // BUILDER_PRIVATE_KEY set) disconnection is operator-controlled — this
-    // endpoint refuses with 409 so a stale UI button can't pretend to
-    // disconnect a deploy-level identity it doesn't own.
+    // or org-scoped Builder credentials in app_secrets. Deploy-level env
+    // credentials are never mutated here; if env is configured it remains as
+    // the fallback after request-scoped credentials are removed.
     getH3App(nitroApp).use(
       `${P}/builder/disconnect`,
       defineEventHandler(async (event: H3Event) => {
@@ -1137,17 +1119,9 @@ export function createCoreRoutesPlugin(
           return { error: "unauthorized" };
         }
 
-        const { isBuilderEnvManaged, deleteBuilderCredentials } =
-          await import("./credential-provider.js");
-        if (isBuilderEnvManaged()) {
-          setResponseStatus(event, 409);
-          return {
-            ok: false,
-            error:
-              "Builder is managed by deploy-level BUILDER_PRIVATE_KEY. To disconnect, the operator must remove the env var.",
-            envManaged: true,
-          };
-        }
+        const { deleteBuilderCredentials } = await import(
+          "./credential-provider.js"
+        );
 
         // Mirror the connect-side scope decision so disconnect undoes
         // exactly what connect wrote: owner/admin connections land at
