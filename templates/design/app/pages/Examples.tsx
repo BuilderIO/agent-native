@@ -15,6 +15,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import { cn } from "@/lib/utils";
+import {
+  clearPendingGeneration,
+  writePendingGeneration,
+} from "@/lib/pending-generation";
 
 const EXAMPLES = [
   {
@@ -67,8 +71,6 @@ const EXAMPLES = [
   },
 ];
 
-const pendingGenerationKey = (id: string) => `design.pending-generation.${id}`;
-
 export default function Examples() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -106,29 +108,18 @@ export default function Examples() {
         projectType: "prototype",
       } as any)
       .catch(() => {
-        try {
-          window.sessionStorage.removeItem(pendingGenerationKey(id));
-        } catch {
-          // Storage may be unavailable.
-        }
+        clearPendingGeneration(id);
         queryClient.invalidateQueries({
           queryKey: ["action", "list-designs"],
         });
       });
 
-    try {
-      window.sessionStorage.setItem(
-        pendingGenerationKey(id),
-        JSON.stringify({
-          prompt: example.prompt,
-          files: [],
-          title,
-          source: example.title,
-        }),
-      );
-    } catch {
-      // Storage may be unavailable; the editor still opens with the design.
-    }
+    writePendingGeneration(id, {
+      prompt: example.prompt,
+      files: [],
+      title,
+      source: example.title,
+    });
 
     navigate(`/design/${id}`);
   };

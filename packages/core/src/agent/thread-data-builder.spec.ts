@@ -52,6 +52,27 @@ describe("buildAssistantMessage", () => {
     ).toBeNull();
   });
 
+  it("does not persist partial output from bare gateway stop errors when suppressed", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "checking..." } },
+      {
+        seq: 1,
+        event: {
+          type: "error",
+          error:
+            'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+          errorCode: "builder_gateway_error",
+        },
+      },
+    ];
+
+    expect(
+      buildAssistantMessage(events, "run-gateway-error", {
+        suppressInternalContinuation: true,
+      }),
+    ).toBeNull();
+  });
+
   it("persists recoverable errors by default for non-continuation server paths", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "checking..." } },

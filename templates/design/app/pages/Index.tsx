@@ -46,9 +46,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  clearPendingGeneration,
+  writePendingGeneration,
+} from "@/lib/pending-generation";
 
 type ProjectType = "prototype" | "other";
-
 interface Design {
   id: string;
   title: string;
@@ -58,8 +61,6 @@ interface Design {
   createdAt?: string;
   updatedAt?: string;
 }
-
-const pendingGenerationKey = (id: string) => `design.pending-generation.${id}`;
 
 export default function Index() {
   const navigate = useNavigate();
@@ -185,11 +186,7 @@ export default function Index() {
           projectType,
         } as any)
         .catch(() => {
-          try {
-            window.sessionStorage.removeItem(pendingGenerationKey(id));
-          } catch {
-            // Storage may be unavailable.
-          }
+          clearPendingGeneration(id);
           queryClient.invalidateQueries({
             queryKey: ["action", "list-designs"],
           });
@@ -217,14 +214,7 @@ export default function Index() {
 
       const { id, title } = createDesign(derivedTitle);
 
-      try {
-        window.sessionStorage.setItem(
-          pendingGenerationKey(id),
-          JSON.stringify({ prompt, files, title }),
-        );
-      } catch {
-        // Storage may be unavailable; the editor still opens with the design.
-      }
+      writePendingGeneration(id, { prompt, files, title });
 
       setShowNewPrompt(false);
       navigate(`/design/${id}`);

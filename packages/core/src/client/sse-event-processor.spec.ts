@@ -18,6 +18,14 @@ function commentOnlyStream(delayMs: number): ReadableStream<Uint8Array> {
   });
 }
 
+function silentStream(): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start() {
+      // Keep the stream open without data to exercise the client-side timer.
+    },
+  });
+}
+
 function eventStream(events: unknown[]): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -69,6 +77,31 @@ describe("SSE event processor no-progress recovery", () => {
     expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
   });
 
+  it("turns silent live streams into an auto-continuation signal", async () => {
+    vi.useFakeTimers();
+
+    const errPromise = (async () => {
+      try {
+        for await (const _ of readSSEStream(
+          silentStream(),
+          [],
+          { value: 0 },
+          undefined,
+        )) {
+          // no-op
+        }
+      } catch (err) {
+        return err;
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS);
+    const err = await errPromise;
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+  });
+
   it("turns raw comment-only live streams into an auto-continuation signal", async () => {
     vi.useFakeTimers();
     const onUpdate = vi.fn();
@@ -85,6 +118,29 @@ describe("SSE event processor no-progress recovery", () => {
     );
 
     await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS + 1);
+    const err = await errPromise;
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+    expect(onUpdate).not.toHaveBeenCalled();
+  });
+
+  it("turns raw silent live streams into an auto-continuation signal", async () => {
+    vi.useFakeTimers();
+    const onUpdate = vi.fn();
+
+    const errPromise = readSSEStreamRaw(
+      silentStream(),
+      [],
+      { value: 0 },
+      undefined,
+      onUpdate,
+    ).then(
+      () => undefined,
+      (err) => err,
+    );
+
+    await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS);
     const err = await errPromise;
 
     expect(err).toBeInstanceOf(AgentAutoContinueSignal);
@@ -153,6 +209,81 @@ describe("SSE event processor error classification", () => {
         [],
         { value: 0 },
         "tab-invalid-token",
+      ),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:auth-error" }),
+    );
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:run-error" }),
+    );
+  });
+
+  it("routes http auth error codes to auth handling even with generic text", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "error", error: "Forbidden", errorCode: "http_403" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-http-403",
+      ),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:auth-error" }),
+    );
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:run-error" }),
+    );
+  });
+
+  it("routes http_403 stream errors to auth handling before retry recovery", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error: "Forbidden",
+            errorCode: "http_403",
+            recoverable: true,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-http-403",
       ),
     );
 

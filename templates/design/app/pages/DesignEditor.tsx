@@ -63,6 +63,14 @@ import type {
 } from "@/components/design/types";
 import { ZOOM_PRESETS } from "@/components/design/types";
 import { prettyScreenName } from "@/lib/screen-names";
+import {
+  clearPendingGeneration,
+  hasFreshPendingGeneration,
+  isPendingGenerationStale,
+  patchPendingGeneration,
+  PENDING_GENERATION_STALE_MS,
+  readPendingGeneration,
+} from "@/lib/pending-generation";
 import type { TweakDefinition } from "@shared/api";
 import {
   Tooltip,
@@ -93,15 +101,6 @@ interface DesignData {
   data?: string | null;
   files: DesignFile[];
 }
-
-interface PendingGeneration {
-  prompt?: string;
-  files?: UploadedFile[];
-  title?: string;
-  source?: string;
-}
-
-const pendingGenerationKey = (id: string) => `design.pending-generation.${id}`;
 
 function applyInlineStyleToHtml(
   content: string,
@@ -174,18 +173,31 @@ export default function DesignEditor() {
   const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
   promptAnchorRef.current = generateBtnRef.current;
+  const [hasPendingGeneration, setHasPendingGeneration] = useState(() =>
+    hasFreshPendingGeneration(id),
+  );
+  const staleToastShownRef = useRef(false);
+  const markGenerationStale = useCallback(() => {
+    clearPendingGeneration(id);
+    setHasPendingGeneration(false);
+    if (!staleToastShownRef.current) {
+      staleToastShownRef.current = true;
+      toast.info("Generation is taking longer than expected. You can try again.");
+    }
+  }, [id]);
+  const handleGenerationComplete = useCallback(() => {
+    clearPendingGeneration(id);
+    setHasPendingGeneration(false);
+    staleToastShownRef.current = false;
+  }, [id]);
   const {
     generating,
     submit: agentSubmit,
     reset: resetAgentGenerating,
-  } = useAgentGenerating();
-  const [hasPendingGeneration, setHasPendingGeneration] = useState(() => {
-    if (typeof window === "undefined" || !id) return false;
-    try {
-      return !!window.sessionStorage.getItem(pendingGenerationKey(id));
-    } catch {
-      return false;
-    }
+    track: trackAgentGeneration,
+  } = useAgentGenerating({
+    onComplete: handleGenerationComplete,
+    onStale: markGenerationStale,
   });
 
   // Question flow + variant flow — full-canvas overlays driven by the agent.
@@ -214,14 +226,20 @@ export default function DesignEditor() {
   // Data fetching
   useEffect(() => {
     if (!id) return;
-    try {
-      setHasPendingGeneration(
-        !!window.sessionStorage.getItem(pendingGenerationKey(id)),
-      );
-    } catch {
+    const pending = readPendingGeneration(id);
+    if (!pending) {
       setHasPendingGeneration(false);
+      return;
     }
-  }, [id]);
+    if (isPendingGenerationStale(pending)) {
+      markGenerationStale();
+      return;
+    }
+    setHasPendingGeneration(true);
+    if (pending.runTabId) {
+      trackAgentGeneration(pending.runTabId);
+    }
+  }, [id, markGenerationStale, trackAgentGeneration]);
 
   const { data: designResult, isLoading: designLoading } = useActionQuery<
     DesignData | string
@@ -233,6 +251,34 @@ export default function DesignEditor() {
       refetchIntervalInBackground: true,
     },
   );
+
+  useEffect(() => {
+    if (!id || !hasPendingGeneration) return;
+    const pending = readPendingGeneration(id);
+    if (!pending) {
+      setHasPendingGeneration(false);
+      return;
+    }
+    if (isPendingGenerationStale(pending)) {
+      markGenerationStale();
+      return;
+    }
+
+    const timestamp = pending.startedAt ?? pending.createdAt ?? Date.now();
+    const remaining = Math.max(
+      0,
+      PENDING_GENERATION_STALE_MS - (Date.now() - timestamp),
+    );
+    const timer = window.setTimeout(() => {
+      const latest = readPendingGeneration(id);
+      if (isPendingGenerationStale(latest)) {
+        markGenerationStale();
+      }
+    }, remaining + 250);
+
+    return () => window.clearTimeout(timer);
+  }, [id, hasPendingGeneration, markGenerationStale]);
+
   const updateFileMutation = useActionMutation("update-file");
   const createCodingHandoffMutation = useActionMutation(
     "export-coding-handoff",

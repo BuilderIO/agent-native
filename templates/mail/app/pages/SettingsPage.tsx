@@ -1025,8 +1025,47 @@ function AutomationsSection() {
 function DraftingSection() {
   const { data: settings, isLoading } = useSettings();
   const updateSettings = useUpdateSettings();
+  const queryClient = useQueryClient();
   const [signature, setSignature] = useState("");
   const [writingStyle, setWritingStyle] = useState("");
+  const importSignature = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/import-gmail-signature"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || `Request failed (${res.status})`);
+      }
+      return res.json() as Promise<{
+        account: string;
+        signature: string;
+        imported: boolean;
+      }>;
+    },
+    onSuccess: (result) => {
+      setSignature(result.signature);
+      queryClient.setQueryData<UserSettings>(["settings"], (prev) =>
+        prev ? { ...prev, signature: result.signature } : prev,
+      );
+      if (result.imported) {
+        toast(`Imported signature from ${result.account}.`);
+      } else {
+        toast(`No Gmail signature found for ${result.account}.`);
+      }
+    },
+    onError: (error) =>
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to import Gmail signature.",
+      ),
+  });
 
   useEffect(() => {
     if (!settings) return;
@@ -1075,9 +1114,24 @@ function DraftingSection() {
         ) : (
           <>
             <div className="rounded-lg border border-border/20 bg-card/50 p-4">
-              <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                Signature
-              </label>
+              <div className="mb-1.5 flex items-center justify-between gap-3">
+                <label className="block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Signature
+                </label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => importSignature.mutate()}
+                  disabled={importSignature.isPending}
+                >
+                  {importSignature.isPending && (
+                    <IconLoader2 className="h-3 w-3 animate-spin" />
+                  )}
+                  Import from Gmail
+                </Button>
+              </div>
               <Textarea
                 value={signature}
                 onChange={(event) => setSignature(event.target.value)}
@@ -1086,7 +1140,8 @@ function DraftingSection() {
                 className="resize-none px-3 py-2 text-[13px] placeholder:text-muted-foreground/40"
               />
               <p className="mt-2 text-[12px] text-muted-foreground">
-                Added to new drafts before quoted reply history.
+                Added to new drafts before quoted reply history. Markdown links
+                and images are supported.
               </p>
             </div>
 
