@@ -512,7 +512,8 @@ export function strategicAccountsExtension(): string {
         const marker = 'export const ' + name;
         const startMarker = text.indexOf(marker);
         if (startMarker < 0) return [];
-        const start = text.indexOf('[', startMarker);
+        const equals = text.indexOf('=', startMarker);
+        const start = text.indexOf('[', equals);
         if (start < 0) return [];
         let depth = 0;
         let quote = '';
