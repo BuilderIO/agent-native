@@ -88,13 +88,6 @@ interface CalendarIssue {
   account?: CalendarAccount;
 }
 
-function unwrapActionResult<T>(data: unknown): T {
-  if (data && typeof data === "object" && "result" in data) {
-    return (data as { result: T }).result;
-  }
-  return data as T;
-}
-
 async function requestDisconnectCalendar(accountId: string): Promise<void> {
   const r = await fetch(
     agentNativePath("/_agent-native/actions/disconnect-calendar"),
@@ -695,7 +688,7 @@ export default function MeetingsIndexRoute() {
 
   const queryClient = useQueryClient();
   const { shouldShowSidebarLink: showDesktopCta } = useDesktopPromo();
-  const [syncPending, setSyncPending] = useState(false);
+  const [refreshPending, setRefreshPending] = useState(false);
 
   const accounts = useActionQuery<{ accounts: CalendarAccount[] } | undefined>(
     "list-calendar-accounts",
@@ -703,52 +696,47 @@ export default function MeetingsIndexRoute() {
     { retry: false },
   );
   const meetingsQuery = useActionQuery<
-    { meetings: Meeting[] } | Meeting[] | undefined
+    | { meetings: Meeting[]; calendarErrors?: CalendarFetchError[] }
+    | Meeting[]
+    | undefined
   >("list-meetings", { view: "all" }, { retry: false });
 
-  const runCalendarSync = useCallback(
-    async ({
-      showSuccessToast = false,
-    }: { showSuccessToast?: boolean } = {}) => {
-      setSyncPending(true);
-      try {
-        const result = await requestCalendarSync();
-        const syncError = summarizeSyncErrors(result);
-        if (syncError) throw new Error(syncError);
-        if (showSuccessToast) {
-          toast.success(
-            result.events
-              ? `Synced ${result.events} calendar event${
-                  result.events === 1 ? "" : "s"
-                }`
-              : "Calendar sync completed",
-          );
-        }
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : "Couldn't sync your calendar",
-        );
-      } finally {
-        setSyncPending(false);
-        queryClient.invalidateQueries({
-          queryKey: ["action", "list-meetings"],
-        });
-        queryClient.invalidateQueries({
-          queryKey: ["action", "list-calendar-accounts"],
-        });
-      }
-    },
-    [queryClient],
-  );
+  const refreshCalendarData = useCallback(async () => {
+    setRefreshPending(true);
+    try {
+      await Promise.all([accounts.refetch(), meetingsQuery.refetch()]);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't refresh your calendar",
+      );
+    } finally {
+      setRefreshPending(false);
+    }
+  }, [accounts, meetingsQuery]);
 
-  // After the OAuth popup closes, refetch accounts, kick off a sync, and
-  // refetch meetings so the page updates without requiring a manual refresh.
+  // After the OAuth popup closes, poll the account action briefly. The
+  // callback writes `calendar_accounts` just before the popup closes, but the
+  // browser can observe the close before React Query has seen the new row.
   const handleCalendarConnected = useCallback(async () => {
-    queryClient.invalidateQueries({
-      queryKey: ["action", "list-calendar-accounts"],
-    });
-    await runCalendarSync();
-  }, [queryClient, runCalendarSync]);
+    setRefreshPending(true);
+    try {
+      let connected = false;
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const result = await accounts.refetch();
+        connected = (result.data?.accounts?.length ?? 0) > 0;
+        if (connected) break;
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+      }
+      await meetingsQuery.refetch();
+      if (connected) toast.success("Calendar connected");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't refresh your calendar",
+      );
+    } finally {
+      setRefreshPending(false);
+    }
+  }, [accounts, meetingsQuery]);
 
   const meetings: Meeting[] = useMemo(() => {
     const data = meetingsQuery.data;
@@ -756,17 +744,22 @@ export default function MeetingsIndexRoute() {
     if (Array.isArray(data)) return data;
     return data.meetings ?? [];
   }, [meetingsQuery.data]);
+  const calendarErrors: CalendarFetchError[] = useMemo(() => {
+    const data = meetingsQuery.data;
+    if (!data || Array.isArray(data)) return [];
+    return data.calendarErrors ?? [];
+  }, [meetingsQuery.data]);
 
   const calendarAccounts = accounts.data?.accounts ?? [];
   const hasCalendar = calendarAccounts.length > 0;
   const calendarIssue = useMemo(
-    () => getCalendarIssue(calendarAccounts, meetings.length),
-    [calendarAccounts, meetings.length],
+    () => getCalendarIssue(calendarAccounts, calendarErrors),
+    [calendarAccounts, calendarErrors],
   );
 
-  const handleRetryCalendarSync = useCallback(() => {
-    void runCalendarSync({ showSuccessToast: true });
-  }, [runCalendarSync]);
+  const handleRetryCalendarFetch = useCallback(() => {
+    void refreshCalendarData();
+  }, [refreshCalendarData]);
 
   const handleCalendarDisconnected = useCallback(() => {
     queryClient.invalidateQueries({
@@ -784,28 +777,6 @@ export default function MeetingsIndexRoute() {
     : meetingsQuery.isError
       ? "Couldn't load meetings. Try again in a moment."
       : null;
-
-  // G6 — detect 0→1 calendar account transition and toast the success state.
-  const prevAccountCountRef = useRef<number | null>(null);
-  const prevMeetingCountRef = useRef<number>(0);
-  useEffect(() => {
-    const count = accounts.data?.accounts?.length ?? 0;
-    const prev = prevAccountCountRef.current;
-    prevAccountCountRef.current = count;
-    if (prev === 0 && count >= 1) {
-      toast.success("Calendar connected. Syncing your events…");
-    }
-  }, [accounts.data]);
-  useEffect(() => {
-    const next = meetings.length;
-    const prev = prevMeetingCountRef.current;
-    prevMeetingCountRef.current = next;
-    if (hasCalendar && prev === 0 && next > 0 && prevAccountCountRef.current) {
-      toast.success(
-        `Synced ${next} event${next === 1 ? "" : "s"} from your calendar`,
-      );
-    }
-  }, [meetings.length, hasCalendar]);
 
   const { upcoming, past } = useMemo(() => {
     const now = Date.now();
@@ -882,8 +853,6 @@ export default function MeetingsIndexRoute() {
           onQueryChange={setQuery}
           showDesktopCta={showDesktopCta}
           calendarAccounts={calendarAccounts}
-          onRetrySync={handleRetryCalendarSync}
-          retryPending={syncPending}
           onConnected={handleCalendarConnected}
           onDisconnected={handleCalendarDisconnected}
         />
@@ -901,8 +870,6 @@ export default function MeetingsIndexRoute() {
         onQueryChange={setQuery}
         showDesktopCta={showDesktopCta}
         calendarAccounts={calendarAccounts}
-        onRetrySync={handleRetryCalendarSync}
-        retryPending={syncPending}
         onConnected={handleCalendarConnected}
         onDisconnected={handleCalendarDisconnected}
       />
@@ -911,8 +878,8 @@ export default function MeetingsIndexRoute() {
         <div className="mb-4">
           <CalendarConnectionIssue
             issue={calendarIssue}
-            onRetrySync={handleRetryCalendarSync}
-            retryPending={syncPending}
+            onRetry={handleRetryCalendarFetch}
+            retryPending={refreshPending}
             onConnected={handleCalendarConnected}
           />
         </div>
@@ -922,8 +889,8 @@ export default function MeetingsIndexRoute() {
         calendarIssue ? (
           <CalendarConnectionIssue
             issue={calendarIssue}
-            onRetrySync={handleRetryCalendarSync}
-            retryPending={syncPending}
+            onRetry={handleRetryCalendarFetch}
+            retryPending={refreshPending}
             onConnected={handleCalendarConnected}
           />
         ) : (
@@ -933,8 +900,8 @@ export default function MeetingsIndexRoute() {
               No calendar meetings
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Clips pulls this list from Google Calendar. New synced calendar
-              events will appear here automatically.
+              Clips reads directly from Google Calendar. New events appear here
+              automatically.
             </p>
           </div>
         )
