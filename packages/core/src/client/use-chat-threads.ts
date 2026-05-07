@@ -92,33 +92,36 @@ export function useChatThreads(
     })();
   }, [fetchThreads, apiUrl, activeThreadId]);
 
-  const createThread = useCallback((preferredId?: string): Promise<string | null> => {
-    // Generate ID client-side for instant UI response
-    const id = preferredId || crypto.randomUUID();
-    const now = Date.now();
-    const optimistic: ChatThreadSummary = {
-      id,
-      title: "",
-      preview: "",
-      messageCount: 0,
-      createdAt: now,
-      updatedAt: now,
-    };
-    setThreads((prev) => [optimistic, ...prev]);
-    setActiveThreadId(id);
+  const createThread = useCallback(
+    (preferredId?: string): Promise<string | null> => {
+      // Generate ID client-side for instant UI response
+      const id = preferredId || crypto.randomUUID();
+      const now = Date.now();
+      const optimistic: ChatThreadSummary = {
+        id,
+        title: "",
+        preview: "",
+        messageCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+      setThreads((prev) => [optimistic, ...prev]);
+      setActiveThreadId(id);
 
-    // Persist to server in the background
-    fetch(`${apiUrl}/threads`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    }).catch(() => {
-      // If server fails, remove the optimistic thread
-      setThreads((prev) => prev.filter((t) => t.id !== id));
-    });
+      // Persist to server in the background
+      fetch(`${apiUrl}/threads`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      }).catch(() => {
+        // If server fails, remove the optimistic thread
+        setThreads((prev) => prev.filter((t) => t.id !== id));
+      });
 
-    return Promise.resolve(id);
-  }, [apiUrl]);
+      return Promise.resolve(id);
+    },
+    [apiUrl],
+  );
 
   const switchThread = useCallback((id: string) => {
     setActiveThreadId(id);

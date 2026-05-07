@@ -57,7 +57,12 @@ import {
   useDeleteAutomation,
 } from "@/hooks/use-automations";
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
-import type { Alias, AutomationAction, AutomationRule } from "@shared/types";
+import type {
+  Alias,
+  AutomationAction,
+  AutomationRule,
+  UserSettings,
+} from "@shared/types";
 import { TeamPage } from "@agent-native/core/client/org";
 import { toast } from "sonner";
 import {

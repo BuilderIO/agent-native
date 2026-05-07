@@ -191,6 +191,8 @@ When the user asks you to **draft**, **compose**, or **write** an email, first r
 
 Use the configured `signature` exactly when present. Do not rewrite it, summarize it, derive one from the user's name/email, or duplicate it if it already appears in the draft. If no signature is configured, omit the signature. Follow `writingStyle` when present, use Markdown only, and avoid generic AI email tropes, headings, and over-formal filler unless the user asks for that.
 
+If the user asks to use or refresh their Gmail signature, run `pnpm action import-gmail-signature`. It imports the connected Gmail account's saved signature into Mail drafting settings, preserving Markdown links and safe image URLs when possible.
+
 ### Queued Drafts (Org Review Queue)
 
 Queued drafts are durable SQL rows in `queued_email_drafts`. Use them when someone else asks the agent to prepare an email for an organization member to review and send, especially from Slack.

@@ -203,6 +203,14 @@ function authErrorReasonFromMessage(
     : "auth-required";
 }
 
+function safeAgentNativePath(path: string): string {
+  try {
+    return agentNativePath(path);
+  } catch {
+    return path;
+  }
+}
+
 function isMissingCredentialMessage(message: string): boolean {
   const msg = message.toLowerCase();
   return (
@@ -397,7 +405,7 @@ export function createAgentChatAdapter(options?: {
         authRecoveryAttempted = true;
         try {
           const sessionRes = await fetch(
-            agentNativePath("/_agent-native/auth/session"),
+            safeAgentNativePath("/_agent-native/auth/session"),
             {
               method: "GET",
               headers: { Accept: "application/json" },

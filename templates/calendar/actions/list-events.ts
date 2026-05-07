@@ -50,7 +50,8 @@ async function listLocalBookingEvents(
 
     return {
       id: `booking:${booking.id}`,
-      title: booking.eventTitle || link?.title || `Booking with ${booking.name}`,
+      title:
+        booking.eventTitle || link?.title || `Booking with ${booking.name}`,
       description,
       start: booking.start,
       end: booking.end,
@@ -146,7 +147,8 @@ export default defineAction({
       googleEvents.map((event) => event.googleEventId).filter(Boolean),
     );
     const bookingEvents = (await listLocalBookingEvents(from, to)).filter(
-      (event) => !event.googleEventId || !googleEventIds.has(event.googleEventId),
+      (event) =>
+        !event.googleEventId || !googleEventIds.has(event.googleEventId),
     );
 
     let events = [...googleEvents, ...icalEvents, ...bookingEvents];

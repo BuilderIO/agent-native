@@ -321,24 +321,31 @@ export default function DesignEditor() {
   const files = design?.files ?? [];
 
   useEffect(() => {
+    if (!id || files.length === 0) return;
+    clearPendingGeneration(id);
+    setHasPendingGeneration(false);
+    staleToastShownRef.current = false;
+  }, [id, files.length]);
+
+  useEffect(() => {
     if (!id || !design || files.length > 0) return;
 
-    const key = pendingGenerationKey(id);
-    let pending: PendingGeneration | null = null;
-    try {
-      const raw = window.sessionStorage.getItem(key);
-      pending = raw ? (JSON.parse(raw) as PendingGeneration) : null;
-      if (raw) window.sessionStorage.removeItem(key);
-    } catch {
-      pending = null;
-    }
-
+    const pending = readPendingGeneration(id);
     if (!pending) {
       setHasPendingGeneration(false);
       return;
     }
 
-    setHasPendingGeneration(false);
+    if (isPendingGenerationStale(pending)) {
+      markGenerationStale();
+      return;
+    }
+
+    if (pending.runTabId) {
+      setHasPendingGeneration(true);
+      trackAgentGeneration(pending.runTabId);
+      return;
+    }
 
     const prompt =
       pending.prompt?.trim() || `Create an initial design for ${design.title}.`;
@@ -362,8 +369,26 @@ export default function DesignEditor() {
       "Each file's content must be complete, self-contained HTML with Alpine.js + Tailwind via CDN. HTML templates are in your AGENTS.md.",
     ].join("\n");
 
-    agentSubmit(`Create design: ${prompt}`, context, { newTab: true });
-  }, [id, design, files.length, agentSubmit]);
+    const runTabId = agentSubmit(`Create design: ${prompt}`, context, {
+      newTab: true,
+    });
+    patchPendingGeneration(id, {
+      runTabId,
+      startedAt: Date.now(),
+    });
+    setHasPendingGeneration(true);
+  }, [
+    id,
+    design,
+    files.length,
+    agentSubmit,
+    markGenerationStale,
+    trackAgentGeneration,
+  ]);
+
+  useEffect(() => {
+    return () => clearPendingGeneration(id);
+  }, [id]);
 
   // Set active file to first file when data loads
   useEffect(() => {
@@ -1155,10 +1180,18 @@ export default function DesignEditor() {
         placeholder="Describe what you want to build..."
         skipLabel="Skip prompt"
         onSkip={() => {
-          agentSubmit(
+          const runTabId = agentSubmit(
             `Generate the initial design files for the "${design.title}" project.`,
             `The user has design "${id}" open and wants to fill it with files. Use the \`generate-design --designId="${id}"\` action with one or more files (index.html, etc.). DO NOT call create-design (the design already exists).`,
           );
+          patchPendingGeneration(id, {
+            prompt: `Create an initial design for ${design.title}.`,
+            files: [],
+            title: design.title,
+            runTabId,
+            startedAt: Date.now(),
+          });
+          setHasPendingGeneration(true);
           setShowPrompt(false);
         }}
         onSubmit={(prompt: string, files: UploadedFile[]) => {
@@ -1174,10 +1207,18 @@ export default function DesignEditor() {
             `Use the \`generate-design --designId="${id}"\` action with one or more files (index.html, etc.). The design already exists — DO NOT call create-design.`,
             "Each file's content must be complete, self-contained HTML with Alpine.js + Tailwind via CDN. HTML templates are in your AGENTS.md.",
           ].join("\n");
-          agentSubmit(
+          const runTabId = agentSubmit(
             `Generate design for "${design.title}": ${prompt}`,
             context,
           );
+          patchPendingGeneration(id, {
+            prompt,
+            files,
+            title: design.title,
+            runTabId,
+            startedAt: Date.now(),
+          });
+          setHasPendingGeneration(true);
           setShowPrompt(false);
         }}
         loading={generating}
