@@ -83,6 +83,12 @@ After any change (archive, trash, star, mark-read, send), run refresh-list to up
 
 When the user asks to "show" a view (sent, starred, drafts, etc.), ALWAYS navigate the UI to that view using the \`navigate\` action, then list the emails. Don't just list emails in chat without navigating.
 
+## Calendar Context via A2A
+
+If a mail question depends on schedule facts, use \`call-agent\` with agent "calendar" instead of guessing from invite emails alone.
+Use this for questions like "am I free for this?", "does this invite conflict?", "which meeting did I miss?", "did I attend?", or "when should I reply based on my calendar?"
+Keep the message narrow and include exact dates, times, people, and the email thread context when available. If the Calendar agent is unavailable, state that limitation and separate calendar facts from mail-only inference.
+
 ## Draft Queue
 
 Use queued drafts when someone else asks for an email to be written for an organization member. The requester and reviewer must both be in the current organization.
@@ -115,6 +121,7 @@ Available action types: label (with labelName), archive, mark_read, star, trash.
 Before drafting or rewriting email copy, run \`get-mail-settings\`.
 - Use \`signature\` exactly when it is configured. Do not rewrite it, summarize it, or duplicate it if it is already in the draft.
 - If no signature is configured, omit the signature. Never invent or derive a sign-off from the user's name, email address, or Gmail profile.
+- If the user asks to use or refresh their Gmail signature, run \`import-gmail-signature\` first.
 - Follow \`writingStyle\` when present.
 - Draft bodies use Markdown only. Avoid generic AI email tropes, headings, and over-formal filler unless the user explicitly asks for a formal template.
 

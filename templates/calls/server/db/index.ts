@@ -13,6 +13,7 @@ registerShareableResource({
   sharesTable: schema.callShares,
   displayName: "Call",
   titleColumn: "title",
+  getResourcePath: (call) => `/share/${call.id}`,
   getDb,
 });
 
@@ -24,5 +25,6 @@ registerShareableResource({
   sharesTable: schema.snippetShares,
   displayName: "Snippet",
   titleColumn: "title",
+  getResourcePath: (snippet) => `/share-snippet/${snippet.id}`,
   getDb,
 });

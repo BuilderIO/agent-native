@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef, useMemo } from "react";
-import { useNavigate } from "react-router";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 import {
   IconArrowLeft,
   IconBrandGithub,
@@ -40,6 +40,8 @@ interface UploadedFile {
 
 export default function DesignSystemSetup() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const sourceId = searchParams.get("source") ?? "";
 
   const [companyInfo, setCompanyInfo] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState("");
@@ -60,6 +62,7 @@ export default function DesignSystemSetup() {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const assetInputRef = useRef<HTMLInputElement>(null);
   const codeInputRef = useRef<HTMLInputElement>(null);
+  const appliedSourceIdRef = useRef<string | null>(null);
 
   const { data: designsData } = useActionQuery<{
     designs: Array<{ id: string; title: string; designSystemId?: string }>;
@@ -71,6 +74,16 @@ export default function DesignSystemSetup() {
 
   const existingProjects = designsData?.designs ?? [];
   const existingSystems = designSystemsData?.designSystems ?? [];
+
+  useEffect(() => {
+    if (!sourceId || appliedSourceIdRef.current === sourceId) return;
+    const sourceExists =
+      existingSystems.some((system) => system.id === sourceId) ||
+      existingProjects.some((project) => project.id === sourceId);
+    if (!sourceExists) return;
+    setSelectedProjectId(sourceId);
+    appliedSourceIdRef.current = sourceId;
+  }, [sourceId, existingProjects, existingSystems]);
 
   const hasAnySources = useMemo(() => {
     return (

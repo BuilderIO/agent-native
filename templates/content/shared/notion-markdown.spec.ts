@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseNfmForEditor,
+  normalizeNfmForNotion,
   normalizeNfmForStorage,
   serializeEditorToNfm,
 } from "./notion-markdown";
@@ -431,6 +432,11 @@ describe("serializeEditorToNfm", () => {
       expect(result).toContain("nested");
     });
 
+    it("treats four-space markdown list nesting as one Notion child level", () => {
+      const result = normalizeNfmForStorage("- parent\n    - child");
+      expect(result).toBe("- parent\n\t- child");
+    });
+
     it("round-trips indented text correctly", () => {
       const nfm = "parent\n\tchild\n\t\tgrandchild";
       const editorMd = parseNfmForEditor(nfm);
@@ -498,5 +504,50 @@ describe("serializeEditorToNfm", () => {
       const stored2 = serializeEditorToNfm(loaded);
       expect(stored2).toBe(stored);
     });
+  });
+});
+
+describe("normalizeNfmForNotion", () => {
+  it("strips editor-only details attrs and gives empty toggles a child block", () => {
+    const result = normalizeNfmForNotion(
+      '<details open="" data-heading-level="2">\n<summary>Toggle</summary>\n</details>',
+    );
+
+    expect(result).toBe(
+      [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "\t<empty-block/>",
+        "</details>",
+      ].join("\n"),
+    );
+  });
+
+  it("indents malformed toggle children so Notion treats them as children", () => {
+    const result = normalizeNfmForNotion(
+      [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "- item 1",
+        "plain child",
+        "</details>",
+      ].join("\n"),
+    );
+
+    expect(result).toBe(
+      [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "\t- item 1",
+        "\tplain child",
+        "</details>",
+      ].join("\n"),
+    );
+  });
+
+  it("isolates dividers from adjacent text before pushing to Notion", () => {
+    expect(normalizeNfmForNotion("above\n---\nbelow")).toBe(
+      "above\n\n---\n\nbelow",
+    );
   });
 });

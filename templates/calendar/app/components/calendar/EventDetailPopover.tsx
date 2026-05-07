@@ -17,6 +17,9 @@ import {
   IconAlignLeft,
   IconPlus,
   IconBrandZoom,
+  IconMessage,
+  IconPalette,
+  IconPaperclip,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -48,11 +51,32 @@ import {
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import { useUpdateEvent } from "@/hooks/use-events";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
+import { sendToAgentChat } from "@agent-native/core/client";
 import { toast } from "sonner";
 import {
   RenderedDescription,
   AutoGrowTextarea,
 } from "@/components/calendar/EventDescription";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
+import {
+  AttachmentControls,
+  EventColorSwatches,
+  ReminderControls,
+} from "@/components/calendar/EventOptionControls";
+import {
+  attachmentsToDrafts,
+  buildReminderPayload,
+  dateTimeInTimezoneToIso,
+  formatReminderText,
+  formatTimezoneLabel,
+  getLocalTimezone,
+  remindersToDraftState,
+  type AttachmentDraft,
+  type ReminderDraft,
+  type ReminderMode,
+  validateAttachmentDrafts,
+} from "@/lib/event-form-utils";
+import { getGoogleEventColorHex } from "@/lib/event-colors";
 
 function formatDuration(start: string, end: string): string {
   const totalMinutes = differenceInMinutes(parseISO(end), parseISO(start));
@@ -158,16 +182,6 @@ function MeetingLinkSkeleton({ provider }: { provider: "meet" | "zoom" }) {
   );
 }
 
-function formatReminderText(minutes: number): string {
-  if (minutes < 60) return `${minutes}min before`;
-  if (minutes < 1440) {
-    const h = Math.floor(minutes / 60);
-    return `${h}h before`;
-  }
-  const d = Math.floor(minutes / 1440);
-  return `${d}d before`;
-}
-
 type AvailabilityValue = "opaque" | "transparent";
 type VisibilityValue = "default" | "public" | "private";
 type ReminderValue =
@@ -252,10 +266,24 @@ function toDateInputValue(iso: string): string {
   return format(d, "yyyy-MM-dd");
 }
 
+function toAllDayEndDateInputValue(iso: string): string {
+  const d = parseISO(iso);
+  return format(new Date(d.getTime() - 1), "yyyy-MM-dd");
+}
+
 /** Convert ISO date string to local time input value (HH:mm) */
 function toTimeInputValue(iso: string): string {
   const d = parseISO(iso);
   return format(d, "HH:mm");
+}
+
+function formatEventDateRange(start: string, end: string, allDay?: boolean) {
+  const startDate = parseISO(start);
+  const endDate = parseISO(end);
+  const displayEndDate = allDay ? new Date(endDate.getTime() - 1) : endDate;
+  const startLabel = format(startDate, "EEE MMM d");
+  const endLabel = format(displayEndDate, "EEE MMM d");
+  return startLabel === endLabel ? startLabel : `${startLabel} - ${endLabel}`;
 }
 
 interface EventDetailPopoverProps {
@@ -299,11 +327,28 @@ export function EventDetailPopover({
   );
   const [editLocation, setEditLocation] = useState(event.location || "");
   const [editDate, setEditDate] = useState(() => toDateInputValue(event.start));
+  const [editEndDate, setEditEndDate] = useState(() =>
+    event.allDay
+      ? toAllDayEndDateInputValue(event.end)
+      : toDateInputValue(event.end),
+  );
   const [editStartTime, setEditStartTime] = useState(() =>
     toTimeInputValue(event.start),
   );
   const [editEndTime, setEditEndTime] = useState(() =>
     toTimeInputValue(event.end),
+  );
+  const [editTimezone, setEditTimezone] = useState(
+    event.startTimeZone || getLocalTimezone(),
+  );
+  const [editReminderMode, setEditReminderMode] = useState<ReminderMode>(
+    () => remindersToDraftState(event).mode,
+  );
+  const [editReminders, setEditReminders] = useState<ReminderDraft[]>(
+    () => remindersToDraftState(event).reminders,
+  );
+  const [editAttachments, setEditAttachments] = useState<AttachmentDraft[]>(
+    () => attachmentsToDrafts(event.attachments),
   );
   const [editMeetingLink, setEditMeetingLink] = useState("");
   const [pendingVideoProvider, setPendingVideoProvider] = useState<
@@ -321,9 +366,30 @@ export function EventDetailPopover({
     setEditDescription(event.description || "");
     setEditLocation(event.location || "");
     setEditDate(toDateInputValue(event.start));
+    setEditEndDate(
+      event.allDay
+        ? toAllDayEndDateInputValue(event.end)
+        : toDateInputValue(event.end),
+    );
     setEditStartTime(toTimeInputValue(event.start));
     setEditEndTime(toTimeInputValue(event.end));
-  }, [event.id, event.description, event.location, event.start, event.end]);
+    setEditTimezone(event.startTimeZone || getLocalTimezone());
+    const reminderState = remindersToDraftState(event);
+    setEditReminderMode(reminderState.mode);
+    setEditReminders(reminderState.reminders);
+    setEditAttachments(attachmentsToDrafts(event.attachments));
+  }, [
+    event.id,
+    event.description,
+    event.location,
+    event.start,
+    event.end,
+    event.allDay,
+    event.startTimeZone,
+    event.reminders,
+    event.remindersUseDefault,
+    event.attachments,
+  ]);
 
   // When defaultOpen changes to true (new event created), open the popover
   useEffect(() => {
@@ -393,11 +459,62 @@ export function EventDetailPopover({
 
   const handleReminderChange = useCallback(
     (value: ReminderValue) => {
+      if (value === "custom") {
+        const reminderState = remindersToDraftState(event);
+        setEditReminderMode(
+          reminderState.mode === "default" ? "custom" : reminderState.mode,
+        );
+        setEditReminders(reminderState.reminders);
+        setEditingField("reminders");
+        return;
+      }
       const updates = getReminderUpdate(value);
       if (Object.keys(updates).length > 0) saveField(updates);
     },
+    [event, saveField],
+  );
+
+  const handleSaveReminders = useCallback(() => {
+    saveField(buildReminderPayload(editReminderMode, editReminders));
+    setEditingField(null);
+  }, [editReminderMode, editReminders, saveField]);
+
+  const handleSaveAttachments = useCallback(() => {
+    const result = validateAttachmentDrafts(editAttachments);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    saveField({ attachments: result.attachments });
+    setEditingField(null);
+  }, [editAttachments, saveField]);
+
+  const handleColorChange = useCallback(
+    (nextColorId: string | undefined) => {
+      if (!nextColorId) return;
+      saveField({
+        colorId: nextColorId,
+        color: getGoogleEventColorHex(nextColorId),
+      });
+    },
     [saveField],
   );
+
+  const handleDraftDescription = useCallback(() => {
+    sendToAgentChat({
+      message: `Draft a concise calendar event description for "${event.title}".`,
+      context: `Event id: ${event.id}
+Title: ${event.title}
+When: ${event.start} to ${event.end}
+Timezone: ${event.startTimeZone || getLocalTimezone()}
+Location: ${event.location || "(none)"}
+Attendees: ${(event.attendees ?? []).map((attendee) => attendee.email).join(", ") || "(none)"}
+Current description: ${event.description || "(empty)"}
+
+Write a short, useful meeting description. If I ask you to apply it, update this event with the update-event action.`,
+      submit: true,
+    });
+  }, [event]);
 
   const handleAddGoogleMeet = useCallback(() => {
     if (!event.id || updateEvent.isPending) return;
@@ -477,16 +594,34 @@ export function EventDetailPopover({
   }, [editLocation, event.location, saveField]);
 
   const handleSaveTime = useCallback(() => {
-    const newStart = new Date(`${editDate}T${editStartTime}:00`).toISOString();
-    const newEnd = new Date(`${editDate}T${editEndTime}:00`).toISOString();
+    const allDayEnd = new Date(`${editEndDate}T00:00:00`);
+    allDayEnd.setDate(allDayEnd.getDate() + 1);
+    const newStart = event.allDay
+      ? new Date(`${editDate}T00:00:00`).toISOString()
+      : dateTimeInTimezoneToIso(editDate, editStartTime, editTimezone);
+    const newEnd = event.allDay
+      ? allDayEnd.toISOString()
+      : dateTimeInTimezoneToIso(editEndDate, editEndTime, editTimezone);
+    if (new Date(newEnd).getTime() <= new Date(newStart).getTime()) {
+      toast.error("End must be after start");
+      return;
+    }
     if (newStart !== event.start || newEnd !== event.end) {
-      saveField({ start: newStart, end: newEnd, allDay: event.allDay });
+      saveField({
+        start: newStart,
+        end: newEnd,
+        allDay: event.allDay,
+        startTimeZone: event.allDay ? undefined : editTimezone,
+        endTimeZone: event.allDay ? undefined : editTimezone,
+      });
     }
     setEditingField(null);
   }, [
     editDate,
+    editEndDate,
     editStartTime,
     editEndTime,
+    editTimezone,
     event.start,
     event.end,
     event.allDay,
@@ -580,9 +715,11 @@ export function EventDetailPopover({
   const localOffsetSign = localOffsetMinutes >= 0 ? "+" : "-";
   const localOffsetH = Math.floor(Math.abs(localOffsetMinutes) / 60);
   const localOffsetM = Math.abs(localOffsetMinutes) % 60;
-  const tzLabel = localOffsetM
-    ? `GMT${localOffsetSign}${localOffsetH}:${String(localOffsetM).padStart(2, "0")}`
-    : `GMT${localOffsetSign}${localOffsetH}`;
+  const tzLabel = event.startTimeZone
+    ? formatTimezoneLabel(event.startTimeZone)
+    : localOffsetM
+      ? `GMT${localOffsetSign}${localOffsetH}:${String(localOffsetM).padStart(2, "0")}`
+      : `GMT${localOffsetSign}${localOffsetH}`;
 
   const handleOpenChange = useCallback(
     (newOpen: boolean) => {
@@ -603,6 +740,8 @@ export function EventDetailPopover({
         else if (editingField === "location") handleSaveLocation();
         else if (editingField === "time") handleSaveTime();
         else if (editingField === "meetingLink") handleSaveMeetingLink();
+        else if (editingField === "reminders") handleSaveReminders();
+        else if (editingField === "attachments") handleSaveAttachments();
 
         setEditingField(null);
         isNewEventRef.current = false;
@@ -621,6 +760,8 @@ export function EventDetailPopover({
       handleSaveLocation,
       handleSaveTime,
       handleSaveMeetingLink,
+      handleSaveReminders,
+      handleSaveAttachments,
     ],
   );
 
@@ -766,12 +907,31 @@ export function EventDetailPopover({
                 <div className="flex items-start gap-3 py-1.5">
                   <IconClock className="mt-2 h-4 w-4 shrink-0 text-muted-foreground" />
                   <div className="flex-1 space-y-2">
-                    <input
-                      type="date"
-                      value={editDate}
-                      onChange={(e) => setEditDate(e.target.value)}
-                      className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
-                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="date"
+                        value={editDate}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setEditDate(next);
+                          setEditEndDate((current) =>
+                            current < next ? next : current,
+                          );
+                        }}
+                        className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
+                        aria-label="Start date"
+                      />
+                      <input
+                        type="date"
+                        min={editDate}
+                        value={editEndDate}
+                        onChange={(e) =>
+                          setEditEndDate(e.target.value || editDate)
+                        }
+                        className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
+                        aria-label="End date"
+                      />
+                    </div>
                     <div className="flex items-center gap-2">
                       <input
                         type="time"
@@ -789,6 +949,13 @@ export function EventDetailPopover({
                         className="flex-1 rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
                       />
                     </div>
+                    {!event.allDay && (
+                      <TimezoneCombobox
+                        id={`event-timezone-${event.id}`}
+                        value={editTimezone}
+                        onChange={setEditTimezone}
+                      />
+                    )}
                     <div className="flex justify-end gap-1.5">
                       <Button
                         variant="ghost"
@@ -796,8 +963,16 @@ export function EventDetailPopover({
                         className="h-6 text-xs"
                         onClick={() => {
                           setEditDate(toDateInputValue(event.start));
+                          setEditEndDate(
+                            event.allDay
+                              ? toAllDayEndDateInputValue(event.end)
+                              : toDateInputValue(event.end),
+                          );
                           setEditStartTime(toTimeInputValue(event.start));
                           setEditEndTime(toTimeInputValue(event.end));
+                          setEditTimezone(
+                            event.startTimeZone || getLocalTimezone(),
+                          );
                           setEditingField(null);
                         }}
                       >
@@ -827,7 +1002,11 @@ export function EventDetailPopover({
                       <div>
                         <span className="text-foreground">All day</span>
                         <span className="text-muted-foreground ml-2 text-xs">
-                          {format(parseISO(event.start), "EEE MMM d")}
+                          {formatEventDateRange(
+                            event.start,
+                            event.end,
+                            event.allDay,
+                          )}
                         </span>
                       </div>
                     ) : (
@@ -847,7 +1026,7 @@ export function EventDetailPopover({
                           </span>
                         </div>
                         <div className="text-muted-foreground text-xs mt-0.5">
-                          {format(parseISO(event.start), "EEE MMM d")}
+                          {formatEventDateRange(event.start, event.end)}
                         </div>
                       </>
                     )}
@@ -1029,34 +1208,97 @@ export function EventDetailPopover({
             ) : null}
 
             {/* Attachments */}
-            {event.attachments && event.attachments.length > 0 && (
+            {!isOverlay && (
               <>
                 <div className="mx-4 my-2 border-t border-border/50" />
-                <div className="px-4 py-1.5 space-y-1">
-                  {event.attachments.map((att, i) => (
-                    <a
-                      key={i}
-                      href={att.fileUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/50 group"
-                    >
-                      {att.iconLink ? (
-                        <img
-                          src={att.iconLink}
-                          alt=""
-                          className="h-4 w-4 shrink-0"
-                        />
-                      ) : (
-                        <IconFileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      )}
-                      <span className="truncate text-foreground">
-                        {att.title}
+                {editingField === "attachments" ? (
+                  <div className="px-4 py-1.5">
+                    <div className="mb-2 flex items-center gap-3">
+                      <IconPaperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="text-sm font-medium text-foreground">
+                        Attachments
                       </span>
-                      <IconExternalLink className="ml-auto h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
-                    </a>
-                  ))}
-                </div>
+                    </div>
+                    <AttachmentControls
+                      idPrefix={`event-${event.id}`}
+                      attachments={editAttachments}
+                      onChange={setEditAttachments}
+                    />
+                    <div className="mt-2 flex justify-end gap-1.5">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-xs"
+                        onClick={() => {
+                          setEditAttachments(
+                            attachmentsToDrafts(event.attachments),
+                          );
+                          setEditingField(null);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-6 text-xs"
+                        onClick={handleSaveAttachments}
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                ) : event.attachments && event.attachments.length > 0 ? (
+                  <div className="px-4 py-1.5 space-y-1">
+                    {event.attachments.map((att, i) => (
+                      <a
+                        key={i}
+                        href={att.fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/50 group"
+                      >
+                        {att.iconLink ? (
+                          <img
+                            src={att.iconLink}
+                            alt=""
+                            className="h-4 w-4 shrink-0"
+                          />
+                        ) : (
+                          <IconFileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className="truncate text-foreground">
+                          {att.title}
+                        </span>
+                        <IconExternalLink className="ml-auto h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                      </a>
+                    ))}
+                    <button
+                      type="button"
+                      className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                      onClick={() => {
+                        setEditAttachments(
+                          attachmentsToDrafts(event.attachments),
+                        );
+                        setEditingField("attachments");
+                      }}
+                    >
+                      <IconPlus className="h-4 w-4" />
+                      Add attachment
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 px-4 py-1.5 text-sm text-muted-foreground/60 hover:bg-muted/50 hover:text-foreground"
+                    onClick={() => {
+                      setEditAttachments([attachmentsToDrafts(undefined)[0]]);
+                      setEditingField("attachments");
+                    }}
+                  >
+                    <IconPaperclip className="h-4 w-4 shrink-0 text-muted-foreground/40" />
+                    Add attachment
+                  </button>
+                )}
               </>
             )}
 
@@ -1135,36 +1377,94 @@ export function EventDetailPopover({
                 <div className="px-4 py-1.5">
                   <div className="flex items-start gap-3">
                     <IconAlignLeft className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                    {isOverlay ? (
-                      event.description ? (
-                        <RenderedDescription description={event.description} />
-                      ) : null
-                    ) : editingField === "description" || !event.description ? (
-                      <AutoGrowTextarea
-                        value={editDescription}
-                        onChange={setEditDescription}
-                        onBlur={handleSaveDescription}
-                        onSubmit={handleSaveDescription}
-                        onEscape={() => {
-                          setEditDescription(event.description || "");
-                          setEditingField(null);
-                        }}
-                        autoFocus={editingField === "description"}
-                      />
-                    ) : (
-                      <RenderedDescription
-                        description={event.description}
-                        editable
-                        onClick={() => setEditingField("description")}
-                      />
-                    )}
+                    <div className="min-w-0 flex-1">
+                      {!isOverlay && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="mb-1 h-6 gap-1 px-1.5 text-[11px] text-muted-foreground"
+                          onClick={handleDraftDescription}
+                        >
+                          <IconMessage className="h-3 w-3" />
+                          Ask AI
+                        </Button>
+                      )}
+                      {isOverlay ? (
+                        event.description ? (
+                          <RenderedDescription
+                            description={event.description}
+                          />
+                        ) : null
+                      ) : editingField === "description" ||
+                        !event.description ? (
+                        <AutoGrowTextarea
+                          value={editDescription}
+                          onChange={setEditDescription}
+                          onBlur={handleSaveDescription}
+                          onSubmit={handleSaveDescription}
+                          onEscape={() => {
+                            setEditDescription(event.description || "");
+                            setEditingField(null);
+                          }}
+                          autoFocus={editingField === "description"}
+                        />
+                      ) : (
+                        <RenderedDescription
+                          description={event.description}
+                          editable
+                          onClick={() => setEditingField("description")}
+                        />
+                      )}
+                    </div>
                   </div>
                 </div>
               </>
             )}
 
             {/* Reminders */}
-            {event.reminders && event.reminders.length > 0 && (
+            {!isOverlay && editingField === "reminders" ? (
+              <>
+                <div className="mx-4 my-2 border-t border-border/50" />
+                <div className="px-4 py-1.5">
+                  <div className="mb-2 flex items-center gap-3">
+                    <IconBell className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="text-sm font-medium text-foreground">
+                      Event alerts
+                    </span>
+                  </div>
+                  <ReminderControls
+                    idPrefix={`event-${event.id}`}
+                    mode={editReminderMode}
+                    reminders={editReminders}
+                    onModeChange={setEditReminderMode}
+                    onRemindersChange={setEditReminders}
+                  />
+                  <div className="mt-2 flex justify-end gap-1.5">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs"
+                      onClick={() => {
+                        const reminderState = remindersToDraftState(event);
+                        setEditReminderMode(reminderState.mode);
+                        setEditReminders(reminderState.reminders);
+                        setEditingField(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="h-6 text-xs"
+                      onClick={handleSaveReminders}
+                    >
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              </>
+            ) : event.reminders && event.reminders.length > 0 ? (
               <>
                 <div className="mx-4 my-2 border-t border-border/50" />
                 <div className="flex items-start gap-3 px-4 py-1.5">
@@ -1178,7 +1478,7 @@ export function EventDetailPopover({
                   </div>
                 </div>
               </>
-            )}
+            ) : null}
 
             {/* Availability, visibility, and alerts */}
             {!isOverlay ? (
@@ -1186,60 +1486,80 @@ export function EventDetailPopover({
                 <div className="mx-4 my-2 border-t border-border/50" />
                 <div className="px-4 py-1.5">
                   <div className="grid grid-cols-3 gap-2">
-                    <Select
-                      value={availabilityValue}
-                      onValueChange={(value) =>
-                        handleAvailabilityChange(value as AvailabilityValue)
-                      }
-                      disabled={updateEvent.isPending}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="opaque">Busy</SelectItem>
-                        <SelectItem value="transparent">Free</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={visibilityValue}
-                      onValueChange={(value) =>
-                        handleVisibilityChange(value as VisibilityValue)
-                      }
-                      disabled={updateEvent.isPending}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="default">Default</SelectItem>
-                        <SelectItem value="public">Public</SelectItem>
-                        <SelectItem value="private">Private</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={reminderValue}
-                      onValueChange={(value) =>
-                        handleReminderChange(value as ReminderValue)
-                      }
-                      disabled={updateEvent.isPending}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="default">Default alert</SelectItem>
-                        <SelectItem value="none">No alert</SelectItem>
-                        <SelectItem value="0">At start</SelectItem>
-                        <SelectItem value="10">10 min</SelectItem>
-                        <SelectItem value="30">30 min</SelectItem>
-                        <SelectItem value="60">1 hour</SelectItem>
-                        <SelectItem value="1440">1 day</SelectItem>
-                        <SelectItem value="custom" disabled>
-                          Custom alert
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-muted-foreground">
+                        Show as
+                      </span>
+                      <Select
+                        value={availabilityValue}
+                        onValueChange={(value) =>
+                          handleAvailabilityChange(value as AvailabilityValue)
+                        }
+                        disabled={updateEvent.isPending}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="opaque">Busy</SelectItem>
+                          <SelectItem value="transparent">Free</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-muted-foreground">
+                        Visibility
+                      </span>
+                      <Select
+                        value={visibilityValue}
+                        onValueChange={(value) =>
+                          handleVisibilityChange(value as VisibilityValue)
+                        }
+                        disabled={updateEvent.isPending}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">Default</SelectItem>
+                          <SelectItem value="public">Public</SelectItem>
+                          <SelectItem value="private">Private</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-muted-foreground">
+                        Alerts
+                      </span>
+                      <Select
+                        value={reminderValue}
+                        onValueChange={(value) =>
+                          handleReminderChange(value as ReminderValue)
+                        }
+                        disabled={updateEvent.isPending}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">Default</SelectItem>
+                          <SelectItem value="none">None</SelectItem>
+                          <SelectItem value="0">At start</SelectItem>
+                          <SelectItem value="10">10 min</SelectItem>
+                          <SelectItem value="30">30 min</SelectItem>
+                          <SelectItem value="60">1 hour</SelectItem>
+                          <SelectItem value="1440">1 day</SelectItem>
+                          <SelectItem value="custom">Custom...</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex items-center gap-3">
+                    <IconPalette className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <EventColorSwatches
+                      value={event.colorId}
+                      onChange={handleColorChange}
+                    />
                   </div>
                 </div>
               </>

@@ -1,4 +1,5 @@
 import type { CalendarEvent, GoogleAuthStatus } from "../../shared/api.js";
+import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
 import {
   getOAuthTokens,
   saveOAuthTokens,
@@ -118,14 +119,37 @@ function mapReminders(
   };
 }
 
+function mapAttachments(event: any): CalendarEvent["attachments"] {
+  return event.attachments?.map((attachment: any) => ({
+    fileUrl: attachment.fileUrl,
+    title: attachment.title || "Untitled",
+    mimeType: attachment.mimeType || undefined,
+    iconLink: attachment.iconLink || undefined,
+    fileId: attachment.fileId || undefined,
+  }));
+}
+
+function mapColor(event: any): Pick<CalendarEvent, "color" | "colorId"> {
+  return {
+    colorId: event.colorId || undefined,
+    color: getGoogleEventColorHex(event.colorId),
+  };
+}
+
 function buildDateRange(event: CalendarEvent | Partial<CalendarEvent>) {
   return {
     start: event.allDay
       ? { date: event.start?.split("T")[0] }
-      : { dateTime: event.start },
+      : {
+          dateTime: event.start,
+          ...(event.startTimeZone ? { timeZone: event.startTimeZone } : {}),
+        },
     end: event.allDay
       ? { date: event.end?.split("T")[0] }
-      : { dateTime: event.end },
+      : {
+          dateTime: event.end,
+          ...(event.endTimeZone ? { timeZone: event.endTimeZone } : {}),
+        },
   };
 }
 
@@ -136,6 +160,7 @@ function applyEventOptions(body: any, event: CalendarEvent): void {
   if (event.transparency !== undefined) body.transparency = event.transparency;
   if (event.visibility !== undefined) body.visibility = event.visibility;
   if (event.status !== undefined) body.status = event.status;
+  if (event.colorId !== undefined) body.colorId = event.colorId;
   if (event.remindersUseDefault !== undefined) {
     body.reminders = event.remindersUseDefault
       ? { useDefault: true }
@@ -176,6 +201,7 @@ function applyEventPatchOptions(
   if (event.transparency !== undefined) body.transparency = event.transparency;
   if (event.visibility !== undefined) body.visibility = event.visibility;
   if (event.status !== undefined) body.status = event.status;
+  if (event.colorId !== undefined) body.colorId = event.colorId;
   if (event.remindersUseDefault !== undefined) {
     body.reminders = event.remindersUseDefault
       ? { useDefault: true }
@@ -509,6 +535,8 @@ export async function listEvents(
             description: event.description || "",
             start: event.start?.dateTime || event.start?.date || "",
             end: event.end?.dateTime || event.end?.date || "",
+            startTimeZone: event.start?.timeZone || undefined,
+            endTimeZone: event.end?.timeZone || undefined,
             location: event.location || "",
             allDay: !event.start?.dateTime,
             source: "google" as const,
@@ -517,6 +545,7 @@ export async function listEvents(
             accountEmail: email,
             responseStatus: selfAttendee?.responseStatus,
             transparency: event.transparency || undefined,
+            ...mapColor(event),
             eventType: event.eventType || "default",
             attendees: event.attendees?.map((a: any) => ({
               email: a.email,
@@ -551,13 +580,7 @@ export async function listEvents(
                     : undefined,
                 }
               : undefined,
-            attachments: event.attachments?.map((a: any) => ({
-              fileUrl: a.fileUrl,
-              title: a.title || "Untitled",
-              mimeType: a.mimeType || undefined,
-              iconLink: a.iconLink || undefined,
-              fileId: a.fileId || undefined,
-            })),
+            attachments: mapAttachments(event),
             visibility: event.visibility || undefined,
             status: event.status || undefined,
             outOfOfficeProperties: event.outOfOfficeProperties || undefined,
@@ -624,6 +647,8 @@ export async function listOverlayEvents(
           description: event.description || "",
           start: event.start?.dateTime || event.start?.date || "",
           end: event.end?.dateTime || event.end?.date || "",
+          startTimeZone: event.start?.timeZone || undefined,
+          endTimeZone: event.end?.timeZone || undefined,
           location: event.location || "",
           allDay: !event.start?.dateTime,
           source: "google" as const,
@@ -673,6 +698,8 @@ export async function getEvent(
     description: event.description || "",
     start: event.start?.dateTime || event.start?.date || "",
     end: event.end?.dateTime || event.end?.date || "",
+    startTimeZone: event.start?.timeZone || undefined,
+    endTimeZone: event.end?.timeZone || undefined,
     location: event.location || "",
     allDay: !event.start?.dateTime,
     source: "google",
@@ -681,6 +708,7 @@ export async function getEvent(
     accountEmail,
     responseStatus: selfAttendee?.responseStatus || undefined,
     transparency: event.transparency || undefined,
+    ...mapColor(event),
     eventType: event.eventType || "default",
     attendees: event.attendees?.map((a: any) => ({
       email: a.email,
@@ -695,13 +723,7 @@ export async function getEvent(
     recurringEventId: event.recurringEventId || undefined,
     hangoutLink: event.hangoutLink || undefined,
     conferenceData: mapConferenceData(event.conferenceData),
-    attachments: event.attachments?.map((a: any) => ({
-      fileUrl: a.fileUrl,
-      title: a.title || "Untitled",
-      mimeType: a.mimeType || undefined,
-      iconLink: a.iconLink || undefined,
-      fileId: a.fileId || undefined,
-    })),
+    attachments: mapAttachments(event),
     visibility: event.visibility || undefined,
     status: event.status || undefined,
     outOfOfficeProperties: event.outOfOfficeProperties || undefined,
@@ -747,6 +769,9 @@ export async function createEvent(
     ...buildDateRange(event),
   };
   applyEventOptions(body, event);
+  if (event.attachments !== undefined) {
+    body.attachments = event.attachments;
+  }
 
   if (event.attendees && event.attendees.length > 0) {
     body.attendees = event.attendees.map((a) => ({
@@ -759,10 +784,14 @@ export async function createEvent(
     body.conferenceData = createGoogleMeetRequest();
   }
 
-  const insertOpts: { conferenceDataVersion?: number; sendUpdates?: string } =
-    {};
+  const insertOpts: {
+    conferenceDataVersion?: number;
+    sendUpdates?: string;
+    supportsAttachments?: boolean;
+  } = {};
   if (opts?.addGoogleMeet) insertOpts.conferenceDataVersion = 1;
   if (opts?.sendUpdates) insertOpts.sendUpdates = opts.sendUpdates;
+  if (event.attachments !== undefined) insertOpts.supportsAttachments = true;
 
   const response = await calendarInsertEvent(
     client.accessToken,
@@ -803,12 +832,18 @@ export async function updateEvent(
   if (event.start !== undefined) {
     requestBody.start = event.allDay
       ? { date: event.start.split("T")[0] }
-      : { dateTime: event.start };
+      : {
+          dateTime: event.start,
+          ...(event.startTimeZone ? { timeZone: event.startTimeZone } : {}),
+        };
   }
   if (event.end !== undefined) {
     requestBody.end = event.allDay
       ? { date: event.end.split("T")[0] }
-      : { dateTime: event.end };
+      : {
+          dateTime: event.end,
+          ...(event.endTimeZone ? { timeZone: event.endTimeZone } : {}),
+        };
   }
   if (event.attendees !== undefined) {
     requestBody.attendees = event.attendees.map((a) => ({
@@ -819,6 +854,9 @@ export async function updateEvent(
   }
   if (event.recurrence !== undefined) {
     requestBody.recurrence = event.recurrence;
+  }
+  if (event.attachments !== undefined) {
+    requestBody.attachments = event.attachments;
   }
   applyEventPatchOptions(requestBody, event);
   if (options?.addGoogleMeet) {
@@ -833,6 +871,7 @@ export async function updateEvent(
     {
       sendUpdates: options?.sendUpdates,
       conferenceDataVersion: options?.addGoogleMeet ? 1 : undefined,
+      supportsAttachments: event.attachments !== undefined ? true : undefined,
     },
   );
 

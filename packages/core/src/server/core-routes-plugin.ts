@@ -91,6 +91,7 @@ import {
   detectEngineFromUserSecrets,
   isStoredEngineUsable,
 } from "../agent/engine/registry.js";
+import { registerBuiltinEngines } from "../agent/engine/builtin.js";
 import { getOrgContext } from "../org/context.js";
 import { isEnvVarWriteAllowed } from "./env-var-writes.js";
 
@@ -100,6 +101,47 @@ import { isEnvVarWriteAllowed } from "./env-var-writes.js";
  * collisions with template-specific `/api/*` routes.
  */
 export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
+
+registerBuiltinEngines();
+
+async function detectUsageEngineName(
+  event: H3Event,
+  userEmail: string | undefined,
+): Promise<string | null> {
+  try {
+    const stored = (await getSetting("agent-engine")) as {
+      engine?: string;
+    } | null;
+    if (isAgentEngineSettingConfigured(stored)) {
+      return (stored as { engine: string }).engine;
+    }
+    if (stored && typeof stored.engine === "string") {
+      const entry = getAgentEngineEntry(stored.engine);
+      if (entry && isStoredEngineUsable(stored, entry)) {
+        return stored.engine;
+      }
+    }
+
+    let orgId: string | undefined;
+    if (userEmail) {
+      try {
+        const orgCtx = await getOrgContext(event);
+        orgId = orgCtx.orgId ?? undefined;
+      } catch {
+        /* org module not present in this template */
+      }
+    }
+    const detectedFromUser = await runWithRequestContext(
+      { userEmail, orgId },
+      () => detectEngineFromUserSecrets(),
+    );
+    if (detectedFromUser) return detectedFromUser.name;
+
+    return detectEngineFromEnv()?.name ?? null;
+  } catch {
+    return null;
+  }
+}
 
 function trackBuilderLifecycle(
   name: string,
@@ -1565,11 +1607,19 @@ export function createCoreRoutesPlugin(
           1,
           Math.min(365, Number(sinceDaysParam) || 30),
         );
-        const { getUsageSummary } = await import("../usage/store.js");
-        return getUsageSummary({
-          ownerEmail: session.email,
-          sinceMs: Date.now() - sinceDays * 86_400_000,
-        });
+        const { getUsageSummary, usageBillingForEngine } =
+          await import("../usage/store.js");
+        const [summary, engineName] = await Promise.all([
+          getUsageSummary({
+            ownerEmail: session.email,
+            sinceMs: Date.now() - sinceDays * 86_400_000,
+          }),
+          detectUsageEngineName(event, session.email),
+        ]);
+        return {
+          ...summary,
+          billing: usageBillingForEngine(engineName),
+        };
       }),
     );
 

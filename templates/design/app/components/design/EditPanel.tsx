@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +15,7 @@ import type { ElementInfo } from "./types";
 
 interface EditPanelProps {
   selectedElement: ElementInfo | null;
+  pageStyles?: Record<string, string>;
   onStyleChange: (property: string, value: string) => void;
 }
 
@@ -32,6 +33,12 @@ function PropInput({
   placeholder?: string;
   type?: string;
 }) {
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
   return (
     <div className="flex items-center gap-2">
       <Label className="text-xs text-muted-foreground w-20 shrink-0">
@@ -39,8 +46,11 @@ function PropInput({
       </Label>
       <Input
         type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          onChange(e.target.value);
+        }}
         placeholder={placeholder}
         className="h-7 text-xs"
       />
@@ -58,25 +68,65 @@ function ColorInput({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const setNext = (next: string) => {
+    setDraft(next);
+    onChange(next);
+  };
+
   return (
     <div className="flex items-center gap-2">
       <Label className="text-xs text-muted-foreground w-20 shrink-0">
         {label}
       </Label>
       <div className="flex items-center gap-1.5 flex-1">
-        <div
-          className="w-6 h-6 rounded border border-border shrink-0"
-          style={{ backgroundColor: value || "transparent" }}
+        <input
+          type="color"
+          aria-label={`${label} color`}
+          value={toColorInputValue(draft)}
+          onChange={(e) => setNext(e.target.value)}
+          className="h-6 w-6 shrink-0 cursor-pointer rounded border border-border bg-transparent p-0"
         />
         <Input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
+          value={draft}
+          onChange={(e) => setNext(e.target.value)}
           placeholder="#000000"
           className="h-7 text-xs"
         />
       </div>
     </div>
   );
+}
+
+function toColorInputValue(value: string): string {
+  const trimmed = value.trim();
+  if (/^#[0-9a-f]{6}$/i.test(trimmed)) return trimmed;
+  if (/^#[0-9a-f]{3}$/i.test(trimmed)) {
+    return `#${trimmed
+      .slice(1)
+      .split("")
+      .map((char) => char + char)
+      .join("")}`;
+  }
+  const rgb = trimmed.match(
+    /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i,
+  );
+  if (rgb) {
+    return `#${rgb
+      .slice(1, 4)
+      .map((part) =>
+        Math.max(0, Math.min(255, Number(part)))
+          .toString(16)
+          .padStart(2, "0"),
+      )
+      .join("")}`;
+  }
+  return "#000000";
 }
 
 /** Select dropdown */
@@ -261,27 +311,35 @@ function parseNumericValue(value: string): number {
 
 /** Page-level properties when nothing is selected */
 function PageProperties({
+  styles,
   onStyleChange,
 }: {
+  styles: Record<string, string>;
   onStyleChange: (property: string, value: string) => void;
 }) {
+  const fontFamily = FONT_FAMILIES.some(
+    (option) => option.value === styles.fontFamily,
+  )
+    ? styles.fontFamily
+    : "sans-serif";
+
   return (
     <div className="space-y-4">
       <SectionTitle>Page</SectionTitle>
       <ColorInput
         label="Background"
-        value=""
+        value={styles.backgroundColor || ""}
         onChange={(v) => onStyleChange("backgroundColor", v)}
       />
       <PropSelect
         label="Font"
-        value="sans-serif"
+        value={fontFamily}
         onChange={(v) => onStyleChange("fontFamily", v)}
         options={FONT_FAMILIES}
       />
       <PropInput
         label="Base Size"
-        value="16px"
+        value={styles.fontSize || "16px"}
         onChange={(v) => onStyleChange("fontSize", v)}
         placeholder="16px"
       />
@@ -510,7 +568,11 @@ const TEXT_TAGS = new Set([
   "li",
 ]);
 
-export function EditPanel({ selectedElement, onStyleChange }: EditPanelProps) {
+export function EditPanel({
+  selectedElement,
+  pageStyles = {},
+  onStyleChange,
+}: EditPanelProps) {
   const isTextElement = selectedElement
     ? TEXT_TAGS.has(selectedElement.tagName)
     : false;
@@ -537,7 +599,9 @@ export function EditPanel({ selectedElement, onStyleChange }: EditPanelProps) {
       </div>
 
       <div className="flex-1 p-3 space-y-4 overflow-y-auto">
-        {!selectedElement && <PageProperties onStyleChange={onStyleChange} />}
+        {!selectedElement && (
+          <PageProperties styles={pageStyles} onStyleChange={onStyleChange} />
+        )}
 
         {selectedElement && isTextElement && (
           <>

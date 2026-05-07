@@ -32,6 +32,11 @@ export interface ShareableResourceRegistration {
    */
   titleColumn?: string;
   /**
+   * Optional app-relative path to this resource. Used by share notifications
+   * when the caller does not pass a more specific resourceUrl.
+   */
+  getResourcePath?: (resource: any) => string | undefined;
+  /**
    * Drizzle DB accessor from the template's server/db/index.ts. Required —
    * the framework-level share actions and access helpers call this to reach
    * the right DB instance (schema is template-specific).

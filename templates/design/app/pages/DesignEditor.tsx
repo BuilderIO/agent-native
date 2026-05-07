@@ -63,6 +63,14 @@ import type {
 } from "@/components/design/types";
 import { ZOOM_PRESETS } from "@/components/design/types";
 import { prettyScreenName } from "@/lib/screen-names";
+import {
+  clearPendingGeneration,
+  hasFreshPendingGeneration,
+  isPendingGenerationStale,
+  patchPendingGeneration,
+  PENDING_GENERATION_STALE_MS,
+  readPendingGeneration,
+} from "@/lib/pending-generation";
 import type { TweakDefinition } from "@shared/api";
 import {
   Tooltip,
@@ -94,15 +102,6 @@ interface DesignData {
   files: DesignFile[];
 }
 
-interface PendingGeneration {
-  prompt?: string;
-  files?: UploadedFile[];
-  title?: string;
-  source?: string;
-}
-
-const pendingGenerationKey = (id: string) => `design.pending-generation.${id}`;
-
 function applyInlineStyleToHtml(
   content: string,
   selector: string,
@@ -118,6 +117,22 @@ function applyInlineStyleToHtml(
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {
     return null;
+  }
+}
+
+function getBodyInlineStyles(content: string): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const body = doc.body;
+    if (!body) return {};
+    return {
+      backgroundColor: body.style.backgroundColor,
+      fontFamily: body.style.fontFamily,
+      fontSize: body.style.fontSize,
+    };
+  } catch {
+    return {};
   }
 }
 
@@ -158,14 +173,33 @@ export default function DesignEditor() {
   const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
   promptAnchorRef.current = generateBtnRef.current;
-  const { generating, submit: agentSubmit } = useAgentGenerating();
-  const [hasPendingGeneration, setHasPendingGeneration] = useState(() => {
-    if (typeof window === "undefined" || !id) return false;
-    try {
-      return !!window.sessionStorage.getItem(pendingGenerationKey(id));
-    } catch {
-      return false;
+  const [hasPendingGeneration, setHasPendingGeneration] = useState(() =>
+    hasFreshPendingGeneration(id),
+  );
+  const staleToastShownRef = useRef(false);
+  const markGenerationStale = useCallback(() => {
+    clearPendingGeneration(id);
+    setHasPendingGeneration(false);
+    if (!staleToastShownRef.current) {
+      staleToastShownRef.current = true;
+      toast.info(
+        "Generation is taking longer than expected. You can try again.",
+      );
     }
+  }, [id]);
+  const handleGenerationComplete = useCallback(() => {
+    clearPendingGeneration(id);
+    setHasPendingGeneration(false);
+    staleToastShownRef.current = false;
+  }, [id]);
+  const {
+    generating,
+    submit: agentSubmit,
+    reset: resetAgentGenerating,
+    track: trackAgentGeneration,
+  } = useAgentGenerating({
+    onComplete: handleGenerationComplete,
+    onStale: markGenerationStale,
   });
 
   // Question flow + variant flow — full-canvas overlays driven by the agent.
@@ -194,14 +228,20 @@ export default function DesignEditor() {
   // Data fetching
   useEffect(() => {
     if (!id) return;
-    try {
-      setHasPendingGeneration(
-        !!window.sessionStorage.getItem(pendingGenerationKey(id)),
-      );
-    } catch {
+    const pending = readPendingGeneration(id);
+    if (!pending) {
       setHasPendingGeneration(false);
+      return;
     }
-  }, [id]);
+    if (isPendingGenerationStale(pending)) {
+      markGenerationStale();
+      return;
+    }
+    setHasPendingGeneration(true);
+    if (pending.runTabId) {
+      trackAgentGeneration(pending.runTabId);
+    }
+  }, [id, markGenerationStale, trackAgentGeneration]);
 
   const { data: designResult, isLoading: designLoading } = useActionQuery<
     DesignData | string
@@ -213,6 +253,34 @@ export default function DesignEditor() {
       refetchIntervalInBackground: true,
     },
   );
+
+  useEffect(() => {
+    if (!id || !hasPendingGeneration) return;
+    const pending = readPendingGeneration(id);
+    if (!pending) {
+      setHasPendingGeneration(false);
+      return;
+    }
+    if (isPendingGenerationStale(pending)) {
+      markGenerationStale();
+      return;
+    }
+
+    const timestamp = pending.startedAt ?? pending.createdAt ?? Date.now();
+    const remaining = Math.max(
+      0,
+      PENDING_GENERATION_STALE_MS - (Date.now() - timestamp),
+    );
+    const timer = window.setTimeout(() => {
+      const latest = readPendingGeneration(id);
+      if (isPendingGenerationStale(latest)) {
+        markGenerationStale();
+      }
+    }, remaining + 250);
+
+    return () => window.clearTimeout(timer);
+  }, [id, hasPendingGeneration, markGenerationStale]);
+
   const updateFileMutation = useActionMutation("update-file");
   const createCodingHandoffMutation = useActionMutation(
     "export-coding-handoff",
@@ -255,24 +323,31 @@ export default function DesignEditor() {
   const files = design?.files ?? [];
 
   useEffect(() => {
+    if (!id || files.length === 0) return;
+    clearPendingGeneration(id);
+    setHasPendingGeneration(false);
+    staleToastShownRef.current = false;
+  }, [id, files.length]);
+
+  useEffect(() => {
     if (!id || !design || files.length > 0) return;
 
-    const key = pendingGenerationKey(id);
-    let pending: PendingGeneration | null = null;
-    try {
-      const raw = window.sessionStorage.getItem(key);
-      pending = raw ? (JSON.parse(raw) as PendingGeneration) : null;
-      if (raw) window.sessionStorage.removeItem(key);
-    } catch {
-      pending = null;
-    }
-
+    const pending = readPendingGeneration(id);
     if (!pending) {
       setHasPendingGeneration(false);
       return;
     }
 
-    setHasPendingGeneration(false);
+    if (isPendingGenerationStale(pending)) {
+      markGenerationStale();
+      return;
+    }
+
+    if (pending.runTabId) {
+      setHasPendingGeneration(true);
+      trackAgentGeneration(pending.runTabId);
+      return;
+    }
 
     const prompt =
       pending.prompt?.trim() || `Create an initial design for ${design.title}.`;
@@ -296,8 +371,26 @@ export default function DesignEditor() {
       "Each file's content must be complete, self-contained HTML with Alpine.js + Tailwind via CDN. HTML templates are in your AGENTS.md.",
     ].join("\n");
 
-    agentSubmit(`Create design: ${prompt}`, context, { newTab: true });
-  }, [id, design, files.length, agentSubmit]);
+    const runTabId = agentSubmit(`Create design: ${prompt}`, context, {
+      newTab: true,
+    });
+    patchPendingGeneration(id, {
+      runTabId,
+      startedAt: Date.now(),
+    });
+    setHasPendingGeneration(true);
+  }, [
+    id,
+    design,
+    files.length,
+    agentSubmit,
+    markGenerationStale,
+    trackAgentGeneration,
+  ]);
+
+  useEffect(() => {
+    return () => clearPendingGeneration(id);
+  }, [id]);
 
   // Set active file to first file when data loads
   useEffect(() => {
@@ -362,6 +455,14 @@ export default function DesignEditor() {
 
   // Resolve the content to render: prefer collab content, fall back to DB
   const activeContent = collabContent ?? activeFile?.content ?? "";
+  const pageStyles = useMemo(
+    () => getBodyInlineStyles(activeContent),
+    [activeContent],
+  );
+
+  useEffect(() => {
+    if (files.length > 0) resetAgentGenerating();
+  }, [files.length, resetAgentGenerating]);
 
   // Parse design.data for agent-supplied tweaks. The agent writes a JSON blob
   // to designs.data containing { tweaks: TweakDefinition[], ... }; we surface
@@ -1032,6 +1133,7 @@ export default function DesignEditor() {
         {mode === "edit" && (
           <EditPanel
             selectedElement={selectedElement}
+            pageStyles={pageStyles}
             onStyleChange={handleStyleChange}
           />
         )}
@@ -1080,10 +1182,18 @@ export default function DesignEditor() {
         placeholder="Describe what you want to build..."
         skipLabel="Skip prompt"
         onSkip={() => {
-          agentSubmit(
+          const runTabId = agentSubmit(
             `Generate the initial design files for the "${design.title}" project.`,
             `The user has design "${id}" open and wants to fill it with files. Use the \`generate-design --designId="${id}"\` action with one or more files (index.html, etc.). DO NOT call create-design (the design already exists).`,
           );
+          patchPendingGeneration(id, {
+            prompt: `Create an initial design for ${design.title}.`,
+            files: [],
+            title: design.title,
+            runTabId,
+            startedAt: Date.now(),
+          });
+          setHasPendingGeneration(true);
           setShowPrompt(false);
         }}
         onSubmit={(prompt: string, files: UploadedFile[]) => {
@@ -1099,10 +1209,18 @@ export default function DesignEditor() {
             `Use the \`generate-design --designId="${id}"\` action with one or more files (index.html, etc.). The design already exists — DO NOT call create-design.`,
             "Each file's content must be complete, self-contained HTML with Alpine.js + Tailwind via CDN. HTML templates are in your AGENTS.md.",
           ].join("\n");
-          agentSubmit(
+          const runTabId = agentSubmit(
             `Generate design for "${design.title}": ${prompt}`,
             context,
           );
+          patchPendingGeneration(id, {
+            prompt,
+            files,
+            title: design.title,
+            runTabId,
+            startedAt: Date.now(),
+          });
+          setHasPendingGeneration(true);
           setShowPrompt(false);
         }}
         loading={generating}

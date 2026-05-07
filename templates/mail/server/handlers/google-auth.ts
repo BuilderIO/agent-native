@@ -33,6 +33,7 @@ import {
 } from "../lib/google-auth.js";
 import { googleFetch } from "../lib/google-api.js";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { htmlSignatureToMarkdown } from "../../shared/gmail-signature.js";
 import {
   OAuthAccountOwnedByOtherUserError,
   setOAuthDisplayName,
@@ -195,7 +196,7 @@ export const handleGoogleCallback = defineEventHandler(
             owner ?? email,
             "mail-settings",
           )) as Record<string, unknown> | null;
-          if (!settings?.name) {
+          if (!settings?.name || !settings?.signature) {
             const sendAs = await googleFetch(
               `https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs`,
               client.accessToken,
@@ -203,13 +204,21 @@ export const handleGoogleCallback = defineEventHandler(
             const match = sendAs?.sendAs?.find(
               (s: any) => s.sendAsEmail?.toLowerCase() === email.toLowerCase(),
             );
-            if (match?.displayName) {
+            const updates: Record<string, unknown> = {};
+            if (!settings?.name && match?.displayName) {
               setAccountDisplayName(email, match.displayName);
               await setOAuthDisplayName("google", email, match.displayName);
+              updates.name = match.displayName;
+            }
+            if (!settings?.signature && typeof match?.signature === "string") {
+              const signature = htmlSignatureToMarkdown(match.signature);
+              if (signature) updates.signature = signature;
+            }
+            if (Object.keys(updates).length > 0) {
               await putUserSetting(owner ?? email, "mail-settings", {
                 ...(settings || {}),
-                name: match.displayName,
                 email,
+                ...updates,
               });
             }
           }

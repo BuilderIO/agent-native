@@ -1016,6 +1016,10 @@ export const deleteBooking = defineEventHandler(async (event: H3Event) => {
         return { error: "Access denied" };
       }
 
+      if (existing.status === "cancelled") {
+        return { success: true, alreadyCancelled: true };
+      }
+
       const hostEmail = await getBookingLinkOwnerEmail(existing.slug);
       const reqUrl = getRequestURL(event);
       const bookAgainUrl = existing.slug
@@ -1029,7 +1033,10 @@ export const deleteBooking = defineEventHandler(async (event: H3Event) => {
       });
       await deleteGoogleEventForBooking({ booking: existing, hostEmail });
 
-      await db.delete(schema.bookings).where(eq(schema.bookings.id, id));
+      await db
+        .update(schema.bookings)
+        .set({ status: "cancelled" })
+        .where(eq(schema.bookings.id, id));
       recordBookingsChanged(hostEmail);
       return { success: true };
     } catch (error: any) {

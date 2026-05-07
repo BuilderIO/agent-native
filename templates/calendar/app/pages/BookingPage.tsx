@@ -128,7 +128,10 @@ export default function BookingPage() {
           setConfirmedBooking(booking);
           setStep("confirmed");
         },
-        onError: () => toast.error("Failed to create booking"),
+        onError: (error) =>
+          toast.error(
+            error instanceof Error ? error.message : "Failed to create booking",
+          ),
       },
     );
   }

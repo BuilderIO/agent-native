@@ -20,6 +20,7 @@ import {
 import { useCreateEvent, useDeleteEvent } from "@/hooks/use-events";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
 import { setUndoAction } from "@/hooks/use-undo";
+import { sendToAgentChat } from "@agent-native/core/client";
 import { toast } from "sonner";
 import {
   AttendeeAutocomplete,
@@ -29,6 +30,7 @@ import {
 import {
   IconBrandZoom,
   IconChevronDown,
+  IconMessage,
   IconPlus,
   IconSettings2,
   IconVideo,
@@ -39,13 +41,36 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
+import {
+  AttachmentControls,
+  EventColorSwatches,
+  ReminderControls,
+} from "@/components/calendar/EventOptionControls";
+import {
+  buildReminderPayload,
+  createAttachmentDraft,
+  createReminderDraft,
+  dateTimeInTimezoneToIso,
+  getLocalTimezone,
+  type AttachmentDraft,
+  type ReminderDraft,
+  type ReminderMode,
+  validateAttachmentDrafts,
+} from "@/lib/event-form-utils";
+import { getGoogleEventColorHex } from "@/lib/event-colors";
 
 type VideoProvider = "none" | "google_meet" | "zoom";
 type EventType = "default" | "outOfOffice" | "focusTime" | "workingLocation";
 type Availability = "opaque" | "transparent";
 type Visibility = "default" | "public" | "private" | "confidential";
-type ReminderOption = "default" | "none" | "0" | "10" | "30" | "60" | "1440";
 type WorkingLocationType = "homeOffice" | "officeLocation" | "customLocation";
+
+function addDaysToDateString(date: string, days: number) {
+  const next = new Date(`${date}T00:00:00`);
+  next.setDate(next.getDate() + days);
+  return format(next, "yyyy-MM-dd");
+}
 
 function uniqueAttendees(attendees: AttendeeRecipient[]) {
   const byEmail = new Map<string, AttendeeRecipient>();
@@ -84,6 +109,7 @@ export function CreateEventPopover({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [date, setDate] = useState(defaultDateStr);
+  const [endDate, setEndDate] = useState(defaultDateStr);
   const [startTime, setStartTime] = useState(defaultStart || "09:00");
   const [endTime, setEndTime] = useState(defaultEnd || "10:00");
   const [location, setLocation] = useState("");
@@ -91,7 +117,15 @@ export function CreateEventPopover({
   const [eventType, setEventType] = useState<EventType>("default");
   const [availability, setAvailability] = useState<Availability>("opaque");
   const [visibility, setVisibility] = useState<Visibility>("default");
-  const [reminder, setReminder] = useState<ReminderOption>("default");
+  const [timezone, setTimezone] = useState(getLocalTimezone());
+  const [colorId, setColorId] = useState<string | undefined>();
+  const [reminderMode, setReminderMode] = useState<ReminderMode>("default");
+  const [reminders, setReminders] = useState<ReminderDraft[]>(() => [
+    createReminderDraft(),
+  ]);
+  const [attachments, setAttachments] = useState<AttachmentDraft[]>(() => [
+    createAttachmentDraft(),
+  ]);
   const [workingLocationType, setWorkingLocationType] =
     useState<WorkingLocationType>("customLocation");
   const [videoProvider, setVideoProvider] = useState<VideoProvider>("none");
@@ -111,7 +145,9 @@ export function CreateEventPopover({
     if (open) {
       setTitle("");
       setDescription("");
-      setDate(format(defaultDate || new Date(), "yyyy-MM-dd"));
+      const nextDate = format(defaultDate || new Date(), "yyyy-MM-dd");
+      setDate(nextDate);
+      setEndDate(nextDate);
       setStartTime(defaultStart || "09:00");
       setEndTime(defaultEnd || "10:00");
       setLocation("");
@@ -119,12 +155,38 @@ export function CreateEventPopover({
       setEventType("default");
       setAvailability("opaque");
       setVisibility("default");
-      setReminder("default");
+      setTimezone(getLocalTimezone());
+      setColorId(undefined);
+      setReminderMode("default");
+      setReminders([createReminderDraft()]);
+      setAttachments([createAttachmentDraft()]);
       setWorkingLocationType("customLocation");
       setVideoProvider("none");
       setAttendees([]);
     }
   }, [open, defaultDate, defaultStart, defaultEnd]);
+
+  function handleDateChange(nextDate: string) {
+    setDate(nextDate);
+    setEndDate((current) => (current < nextDate ? nextDate : current));
+  }
+
+  function handleDraftDescription() {
+    sendToAgentChat({
+      message: `Draft a concise calendar event description for "${title || "Untitled event"}".`,
+      context: `New event draft:
+Title: ${title || "(not set)"}
+Date: ${date}${endDate !== date ? ` to ${endDate}` : ""}
+Time: ${allDay ? "All day" : `${startTime} to ${endTime}`}
+Timezone: ${timezone}
+Location: ${location || "(none)"}
+Attendees: ${attendees.map((attendee) => attendee.email).join(", ") || "(none)"}
+Current description: ${description || "(empty)"}
+
+Write a short, useful meeting description. Keep it paste-ready and avoid adding facts that are not in the draft.`,
+      submit: true,
+    });
+  }
 
   useEffect(() => {
     if (timedOnlyStatus && allDay) setAllDay(false);
@@ -167,14 +229,24 @@ export function CreateEventPopover({
     }
 
     const effectiveAllDay = allDay && !timedOnlyStatus;
-    const allDayEnd = new Date(`${date}T00:00:00`);
+    const allDayEnd = new Date(`${endDate}T00:00:00`);
     allDayEnd.setDate(allDayEnd.getDate() + 1);
     const startISO = effectiveAllDay
       ? new Date(`${date}T00:00:00`).toISOString()
-      : new Date(`${date}T${startTime}:00`).toISOString();
+      : dateTimeInTimezoneToIso(date, startTime, timezone);
     const endISO = effectiveAllDay
       ? allDayEnd.toISOString()
-      : new Date(`${date}T${endTime}:00`).toISOString();
+      : dateTimeInTimezoneToIso(endDate, endTime, timezone);
+
+    if (new Date(endISO).getTime() <= new Date(startISO).getTime()) {
+      toast.error("End must be after start");
+      return;
+    }
+    const attachmentResult = validateAttachmentDrafts(attachments);
+    if (attachmentResult.error) {
+      toast.error(attachmentResult.error);
+      return;
+    }
 
     // Pick up any unsubmitted typed email so users do not lose the final entry.
     const trailingAttendees =
@@ -183,17 +255,7 @@ export function CreateEventPopover({
       ...attendees,
       ...trailingAttendees,
     ]);
-    const reminderPatch =
-      reminder === "default"
-        ? {}
-        : reminder === "none"
-          ? { remindersUseDefault: false, reminders: [] }
-          : {
-              remindersUseDefault: false,
-              reminders: [
-                { method: "popup" as const, minutes: Number(reminder) },
-              ],
-            };
+    const reminderPatch = buildReminderPayload(reminderMode, reminders);
     const statusPatch =
       eventType === "default"
         ? {}
@@ -210,6 +272,8 @@ export function CreateEventPopover({
         description,
         start: startISO,
         end: endISO,
+        startTimeZone: effectiveAllDay ? undefined : timezone,
+        endTimeZone: effectiveAllDay ? undefined : timezone,
         location,
         allDay: effectiveAllDay,
         transparency:
@@ -223,6 +287,12 @@ export function CreateEventPopover({
         ...statusPatch,
         addGoogleMeet: videoProvider === "google_meet",
         addZoom: videoProvider === "zoom",
+        color: colorId ? getGoogleEventColorHex(colorId) : undefined,
+        colorId,
+        attachments:
+          attachmentResult.attachments.length > 0
+            ? attachmentResult.attachments
+            : undefined,
         attendees:
           finalAttendees.length > 0
             ? finalAttendees.map((attendee) => ({
@@ -230,7 +300,6 @@ export function CreateEventPopover({
                 displayName: attendee.displayName,
               }))
             : undefined,
-        color: undefined,
       },
       {
         onSuccess: (result) => {
@@ -269,7 +338,7 @@ export function CreateEventPopover({
       <PopoverContent
         align="end"
         sideOffset={8}
-        className="w-[calc(100vw-2rem)] p-4 sm:w-80"
+        className="max-h-[calc(100vh-4rem)] w-[calc(100vw-2rem)] overflow-y-auto p-4 sm:w-80"
         onInteractOutside={(event) => {
           const target = event.target as HTMLElement;
           if (target.closest("[data-attendee-autocomplete]")) {
@@ -342,9 +411,21 @@ export function CreateEventPopover({
           )}
 
           <div className="space-y-1.5">
-            <Label htmlFor="event-description" className="text-xs">
-              Description
-            </Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="event-description" className="text-xs">
+                Description
+              </Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground"
+                onClick={handleDraftDescription}
+              >
+                <IconMessage className="h-3 w-3" />
+                Ask AI
+              </Button>
+            </div>
             <Textarea
               id="event-description"
               value={description}
@@ -355,17 +436,32 @@ export function CreateEventPopover({
             />
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="event-date" className="text-xs">
-              Date
-            </Label>
-            <Input
-              id="event-date"
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="h-8 text-sm"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="event-date" className="text-xs">
+                Start date
+              </Label>
+              <Input
+                id="event-date"
+                type="date"
+                value={date}
+                onChange={(e) => handleDateChange(e.target.value)}
+                className="h-8 text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="event-end-date" className="text-xs">
+                End date
+              </Label>
+              <Input
+                id="event-end-date"
+                type="date"
+                min={date}
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value || date)}
+                className="h-8 text-sm"
+              />
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
@@ -402,7 +498,13 @@ export function CreateEventPopover({
                   id="end-time"
                   type="time"
                   value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setEndTime(next);
+                    if (endDate === date && next <= startTime) {
+                      setEndDate(addDaysToDateString(date, 1));
+                    }
+                  }}
                   className="h-8 text-sm"
                 />
               </div>
@@ -583,29 +685,46 @@ export function CreateEventPopover({
                 </div>
               </div>
 
+              {!allDay && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="event-timezone" className="text-xs">
+                    Timezone
+                  </Label>
+                  <TimezoneCombobox
+                    id="event-timezone"
+                    value={timezone}
+                    onChange={setTimezone}
+                  />
+                </div>
+              )}
+
               <div className="space-y-1.5">
-                <Label htmlFor="event-reminder" className="text-xs">
-                  Alert
-                </Label>
-                <Select
-                  value={reminder}
-                  onValueChange={(value) =>
-                    setReminder(value as ReminderOption)
-                  }
-                >
-                  <SelectTrigger id="event-reminder" className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="default">Calendar default</SelectItem>
-                    <SelectItem value="none">No alert</SelectItem>
-                    <SelectItem value="0">At start time</SelectItem>
-                    <SelectItem value="10">10 minutes before</SelectItem>
-                    <SelectItem value="30">30 minutes before</SelectItem>
-                    <SelectItem value="60">1 hour before</SelectItem>
-                    <SelectItem value="1440">1 day before</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label className="text-xs">Color</Label>
+                <EventColorSwatches
+                  value={colorId}
+                  onChange={setColorId}
+                  includeDefault
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs">Alerts</Label>
+                <ReminderControls
+                  idPrefix="event"
+                  mode={reminderMode}
+                  reminders={reminders}
+                  onModeChange={setReminderMode}
+                  onRemindersChange={setReminders}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs">Attachments</Label>
+                <AttachmentControls
+                  idPrefix="event"
+                  attachments={attachments}
+                  onChange={setAttachments}
+                />
               </div>
             </CollapsibleContent>
           </Collapsible>

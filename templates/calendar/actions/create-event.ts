@@ -7,10 +7,12 @@ import * as googleCalendar from "../server/lib/google-calendar.js";
 import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
 import {
   availabilityInput,
+  attachmentsInput,
   buildReminderOverrides,
   buildStatusEventFields,
   cliBoolean,
   eventTypeInput,
+  googleColorIdInput,
   reminderMethodInput,
   reminderMinutesInput,
   remindersInput,
@@ -54,6 +56,14 @@ export default defineAction({
     title: z.string().describe("Event title"),
     start: z.string().describe("Start time, ISO format"),
     end: z.string().describe("End time, ISO format"),
+    startTimeZone: z
+      .string()
+      .optional()
+      .describe("IANA timezone for the event start, e.g. America/New_York"),
+    endTimeZone: z
+      .string()
+      .optional()
+      .describe("IANA timezone for the event end, e.g. America/New_York"),
     description: z.string().optional().describe("Event description"),
     location: z.string().optional().describe("Event location"),
     allDay: cliBoolean.optional().describe("Whether the event is all-day"),
@@ -73,6 +83,12 @@ export default defineAction({
       ),
     reminders: remindersInput.describe(
       "Custom reminder overrides, max 5, such as [{method:'popup', minutes:10}].",
+    ),
+    attachments: attachmentsInput.describe(
+      "Google Calendar attachments, max 25. Use Drive or https file URLs, e.g. [{fileUrl,title}].",
+    ),
+    colorId: googleColorIdInput.describe(
+      "Google Calendar event color id, 1 through 11.",
     ),
     reminderMinutes: reminderMinutesInput.describe(
       "Convenience field for a single reminder in minutes before the event.",
@@ -164,6 +180,8 @@ export default defineAction({
       location: args.location || "",
       start: new Date(args.start).toISOString(),
       end: new Date(args.end).toISOString(),
+      startTimeZone: args.startTimeZone,
+      endTimeZone: args.endTimeZone ?? args.startTimeZone,
       allDay: args.allDay ?? false,
       source: "google",
       accountEmail: acctEmail,
@@ -171,6 +189,8 @@ export default defineAction({
       transparency: args.transparency,
       visibility: args.visibility,
       attendees,
+      attachments: args.attachments,
+      colorId: args.colorId,
       ...reminderFields,
       ...statusEventFields,
       createdAt: new Date().toISOString(),

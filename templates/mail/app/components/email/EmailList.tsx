@@ -224,6 +224,39 @@ function EmptyMailboxState({ view }: { view: string }) {
   );
 }
 
+function MailLoadingState({
+  containerRef,
+}: {
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  return (
+    <div className="flex h-full flex-col" ref={containerRef}>
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/30 bg-background/70 px-4">
+        <Spinner className="h-3.5 w-3.5 text-muted-foreground" />
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-foreground/80">Loading mail</p>
+          <p className="text-[11px] text-muted-foreground">
+            Checking connected accounts and latest messages
+          </p>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {Array.from({ length: 12 }).map((_, i) => (
+          <div
+            key={i}
+            className="flex h-[48px] items-center gap-3 px-4 sm:h-[38px]"
+          >
+            <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-muted" />
+            <div className="h-3 w-28 animate-pulse rounded bg-muted" />
+            <div className="h-3 flex-1 animate-pulse rounded bg-muted" />
+            <div className="h-3 w-12 animate-pulse rounded bg-muted" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Error state ────────────────────────────────────────────────────────────
 // Rendered when the emails query fails. The "Try again" button must give
 // visible feedback during the refetch — without it, clicking on a persistent
@@ -723,10 +756,11 @@ export function EmailList({
   );
 
   const trashFocused = useCallback(() => {
+    if (view === "trash") return;
     const threadKeys = getActionThreadKeys();
     if (threadKeys.length === 0) return;
     trashThreadKeys(threadKeys);
-  }, [getActionThreadKeys, trashThreadKeys]);
+  }, [getActionThreadKeys, trashThreadKeys, view]);
 
   const resolveTargets = useCallback(
     (keys: string[]): ThreadSummary[] =>
@@ -809,17 +843,41 @@ export function EmailList({
     ],
   );
 
+  const getThreadMessagesForKey = useCallback(
+    (key: string) => emails.filter((e) => (e.threadId || e.id) === key),
+    [emails],
+  );
+
+  const setThreadStarred = useCallback(
+    (thread: ThreadSummary, isStarred: boolean) => {
+      const key = thread.latestMessage.threadId || thread.latestMessage.id;
+      const messages = getThreadMessagesForKey(key);
+      const targets = isStarred
+        ? [thread.latestMessage]
+        : messages.filter((message) => message.isStarred);
+      const fallbackTargets =
+        targets.length > 0 ? targets : [thread.latestMessage];
+
+      for (const target of fallbackTargets) {
+        toggleStar.mutate({
+          id: target.id,
+          isStarred,
+          accountEmail: target.accountEmail,
+          threadId: key,
+        });
+      }
+    },
+    [getThreadMessagesForKey, toggleStar],
+  );
+
   const starFocused = useCallback(() => {
     const keys = getActionThreadKeys();
     if (keys.length === 0) return;
     for (const t of resolveTargets(keys)) {
-      toggleStar.mutate({
-        id: t.latestMessage.id,
-        isStarred: !t.latestMessage.isStarred,
-      });
+      setThreadStarred(t, !t.hasStarred);
     }
     setSelectedIds(new Set());
-  }, [toggleStar, getActionThreadKeys, resolveTargets, setSelectedIds]);
+  }, [getActionThreadKeys, resolveTargets, setSelectedIds, setThreadStarred]);
 
   const replyFocused = useCallback(() => {
     const id = focusedIdRef.current;
@@ -964,8 +1022,7 @@ export function EmailList({
 
   const handleStar = (e: React.MouseEvent, thread: ThreadSummary) => {
     e.stopPropagation();
-    const email = thread.latestMessage;
-    toggleStar.mutate({ id: email.id, isStarred: !email.isStarred });
+    setThreadStarred(thread, !thread.hasStarred);
   };
 
   const handleToggleReadThread = (
@@ -1003,6 +1060,7 @@ export function EmailList({
 
   const handleTrashThread = (e: React.MouseEvent, thread: ThreadSummary) => {
     e.stopPropagation();
+    if (view === "trash") return;
     const key = thread.latestMessage.threadId || thread.latestMessage.id;
     trashThreadKeys([key]);
   };
@@ -1170,23 +1228,7 @@ export function EmailList({
 
   // Loading skeleton — Superhuman-style single-line rows
   if (isLoading) {
-    return (
-      <div className="flex h-full flex-col" ref={containerRef}>
-        <div className="flex-1 overflow-y-auto">
-          {Array.from({ length: 12 }).map((_, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-3 px-4 h-[48px] sm:h-[38px]"
-            >
-              <div className="h-2 w-2 rounded-full bg-muted animate-pulse" />
-              <div className="h-3 w-28 rounded bg-muted animate-pulse" />
-              <div className="h-3 w-48 rounded bg-muted animate-pulse flex-1" />
-              <div className="h-3 w-12 rounded bg-muted animate-pulse" />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
+    return <MailLoadingState containerRef={containerRef} />;
   }
 
   // Empty state
@@ -1265,7 +1307,7 @@ export function EmailList({
 
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
-      {selectedIds.size > 0 ? (
+      {selectedIds.size > 0 && (
         <div className="flex h-10 shrink-0 items-center justify-between border-b border-border/40 bg-muted/40 px-3">
           <div className="flex items-center gap-2">
             <button
@@ -1329,22 +1371,17 @@ export function EmailList({
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-            <button
-              type="button"
-              onClick={trashFocused}
-              className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-            >
-              <IconTrash className="h-3.5 w-3.5" />
-              Move to Trash
-            </button>
+            {view !== "trash" && (
+              <button
+                type="button"
+                onClick={trashFocused}
+                className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+              >
+                <IconTrash className="h-3.5 w-3.5" />
+                Move to Trash
+              </button>
+            )}
           </div>
-        </div>
-      ) : (
-        <div className="flex h-9 shrink-0 items-center justify-between border-b border-border/30 bg-background/70 px-3">
-          {selectionPresetMenu}
-          <span className="text-xs text-muted-foreground/70">
-            {threads.length} conversation{threads.length === 1 ? "" : "s"}
-          </span>
         </div>
       )}
       <div className="flex-1 overflow-y-auto">

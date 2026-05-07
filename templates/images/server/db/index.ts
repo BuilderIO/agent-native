@@ -11,5 +11,6 @@ registerShareableResource({
   sharesTable: schema.imageLibraryShares,
   displayName: "Image Library",
   titleColumn: "title",
+  getResourcePath: (library) => `/library/${library.id}`,
   getDb,
 });

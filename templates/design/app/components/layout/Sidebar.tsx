@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { FeedbackButton, appPath } from "@agent-native/core/client";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   Tooltip,
   TooltipContent,
@@ -145,7 +146,10 @@ export function Sidebar() {
           </div>
 
           <div className="border-t border-border px-3 py-2 space-y-2">
-            <FeedbackButton />
+            <div className="flex items-center gap-1">
+              <FeedbackButton className="min-w-0 flex-1" />
+              <ThemeToggle className="h-8 w-8 shrink-0" />
+            </div>
             <OrgSwitcher />
           </div>
         </>

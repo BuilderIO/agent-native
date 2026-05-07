@@ -130,7 +130,7 @@ export const dispatchExtensions = {
 ### Messaging & Routing
 
 - `list-dispatch-overview`: high-level counts, recent audit, approvals, vault health
-- `list-dispatch-usage-metrics`: workspace-level LLM usage, estimated cost, users, app access, and recent activity
+- `list-dispatch-usage-metrics`: workspace-level LLM usage, spend or Builder.io credit spend, users, app access, and recent activity
 - `list-destinations`: saved Slack, Telegram, and email targets
 - `upsert-destination`: create or update a saved destination (Slack, Telegram, or email)
 - `delete-destination`: remove a saved destination

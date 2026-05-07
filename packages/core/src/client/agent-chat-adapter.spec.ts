@@ -39,14 +39,22 @@ function emptySseResponse(runId = "run-empty"): Response {
 }
 
 function idleSseResponse(runId = "run-idle"): Response {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   return new Response(
     new ReadableStream<Uint8Array>({
       start(controller) {
-        setTimeout(() => {
-          controller.enqueue(
-            new TextEncoder().encode(`: ping ${Date.now()}\n\n`),
-          );
+        timer = setTimeout(() => {
+          try {
+            controller.enqueue(
+              new TextEncoder().encode(`: ping ${Date.now()}\n\n`),
+            );
+          } catch {
+            // The watchdog may have cancelled the stream first.
+          }
         }, SSE_NO_PROGRESS_TIMEOUT_MS + 1);
+      },
+      cancel() {
+        if (timer) clearTimeout(timer);
       },
     }),
     {
@@ -328,7 +336,135 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:missing-api-key" }),
     );
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/_agent-native/auth/session",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("treats invalid token responses as auth failures", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ error: "Invalid token" }, 401));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-invalid-token",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "what's on my calendar" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:auth-error" }),
+    );
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:run-error" }),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId: "chat-invalid-token" },
+      }),
+    );
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/_agent-native/auth/session",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries the chat request once when the session is still valid after an auth failure", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let chatPostCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/auth/session") {
+        return jsonResponse({
+          email: "user@example.com",
+          token: "still-valid",
+        });
+      }
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        chatPostCount += 1;
+        return chatPostCount === 1
+          ? jsonResponse({ error: "Invalid token" }, 403)
+          : sseResponse([{ type: "done" }]);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-auth-retry",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "resume the task" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(chatPostCount).toBe(2);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/_agent-native/auth/session",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:auth-error" }),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId: "chat-auth-retry" },
+      }),
+    );
   });
 
   it("sends plan mode as request metadata without polluting the message", async () => {

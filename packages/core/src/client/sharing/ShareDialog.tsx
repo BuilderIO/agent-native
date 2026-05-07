@@ -276,6 +276,7 @@ export function ShareDialog(props: ShareDialogProps) {
             <InviteTab
               resourceType={resourceType}
               resourceId={resourceId}
+              shareUrl={shareUrl}
               sharesQuery={sharesQuery}
               showVisibility={!tabsEnabled}
               orgMembers={orgMembers}
@@ -392,12 +393,19 @@ function LinkTab(props: {
 function InviteTab(props: {
   resourceType: string;
   resourceId: string;
+  shareUrl?: string;
   sharesQuery: ReturnType<typeof useActionQuery<SharesResponse>>;
   showVisibility: boolean;
   orgMembers: OrgMember[];
 }) {
-  const { resourceType, resourceId, sharesQuery, showVisibility, orgMembers } =
-    props;
+  const {
+    resourceType,
+    resourceId,
+    shareUrl,
+    sharesQuery,
+    showVisibility,
+    orgMembers,
+  } = props;
 
   const share = useActionMutation("share-resource");
   const unshare = useActionMutation("unshare-resource");
@@ -405,6 +413,7 @@ function InviteTab(props: {
 
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("viewer");
+  const [notifyPeople, setNotifyPeople] = useState(true);
 
   const data = sharesQuery.data;
   const shares = data?.shares ?? [];
@@ -423,6 +432,8 @@ function InviteTab(props: {
         principalType: "user",
         principalId: trimmed,
         role,
+        notify: notifyPeople,
+        resourceUrl: getNotificationUrl(shareUrl),
       } as any,
       {
         onSuccess: () => {
@@ -456,19 +467,30 @@ function InviteTab(props: {
   return (
     <div className="space-y-4">
       {canManage ? (
-        <div className="flex items-stretch gap-2">
-          <input
-            type="email"
-            placeholder="Add people by email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleAdd();
-            }}
-            autoComplete="off"
-            className="flex-1 min-w-0 h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
-          />
-          <RoleSelect value={role} onChange={setRole} />
+        <div className="space-y-2">
+          <div className="flex items-stretch gap-2">
+            <input
+              type="email"
+              placeholder="Add people by email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleAdd();
+              }}
+              autoComplete="off"
+              className="flex-1 min-w-0 h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+            />
+            <RoleSelect value={role} onChange={setRole} />
+          </div>
+          <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={notifyPeople}
+              onChange={(e) => setNotifyPeople(e.target.checked)}
+              className="h-4 w-4 rounded border-input accent-primary"
+            />
+            Notify people
+          </label>
         </div>
       ) : null}
 
@@ -747,6 +769,12 @@ function Avatar({ label, org }: { label: string; org?: boolean }) {
       )}
     </span>
   );
+}
+
+function getNotificationUrl(explicit?: string): string | undefined {
+  if (explicit) return explicit;
+  if (typeof window === "undefined") return undefined;
+  return window.location.href;
 }
 
 function cap(s: string): string {

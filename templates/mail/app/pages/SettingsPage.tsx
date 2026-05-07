@@ -18,6 +18,7 @@ import {
   IconPlayerPlay,
   IconSignature,
   IconFilter,
+  IconInfoCircle,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -56,8 +57,14 @@ import {
   useDeleteAutomation,
 } from "@/hooks/use-automations";
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
-import type { Alias, AutomationAction, AutomationRule } from "@shared/types";
+import type {
+  Alias,
+  AutomationAction,
+  AutomationRule,
+  UserSettings,
+} from "@shared/types";
 import { TeamPage } from "@agent-native/core/client/org";
+import { toast } from "sonner";
 import {
   Tooltip,
   TooltipContent,
@@ -1023,8 +1030,47 @@ function AutomationsSection() {
 function DraftingSection() {
   const { data: settings, isLoading } = useSettings();
   const updateSettings = useUpdateSettings();
+  const queryClient = useQueryClient();
   const [signature, setSignature] = useState("");
   const [writingStyle, setWritingStyle] = useState("");
+  const importSignature = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/import-gmail-signature"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || `Request failed (${res.status})`);
+      }
+      return res.json() as Promise<{
+        account: string;
+        signature: string;
+        imported: boolean;
+      }>;
+    },
+    onSuccess: (result) => {
+      setSignature(result.signature);
+      queryClient.setQueryData<UserSettings>(["settings"], (prev) =>
+        prev ? { ...prev, signature: result.signature } : prev,
+      );
+      if (result.imported) {
+        toast(`Imported signature from ${result.account}.`);
+      } else {
+        toast(`No Gmail signature found for ${result.account}.`);
+      }
+    },
+    onError: (error) =>
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to import Gmail signature.",
+      ),
+  });
 
   useEffect(() => {
     if (!settings) return;
@@ -1038,10 +1084,21 @@ function DraftingSection() {
     signature !== savedSignature || writingStyle !== savedWritingStyle;
 
   const handleSave = () => {
-    updateSettings.mutate({
-      signature: signature.trim(),
-      writingStyle: writingStyle.trim(),
-    });
+    updateSettings.mutate(
+      {
+        signature: signature.trim(),
+        writingStyle: writingStyle.trim(),
+      },
+      {
+        onSuccess: () => toast("Drafting settings saved."),
+        onError: (error) =>
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Failed to save drafting settings.",
+          ),
+      },
+    );
   };
 
   return (
@@ -1062,9 +1119,24 @@ function DraftingSection() {
         ) : (
           <>
             <div className="rounded-lg border border-border/20 bg-card/50 p-4">
-              <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                Signature
-              </label>
+              <div className="mb-1.5 flex items-center justify-between gap-3">
+                <label className="block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Signature
+                </label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => importSignature.mutate()}
+                  disabled={importSignature.isPending}
+                >
+                  {importSignature.isPending && (
+                    <IconLoader2 className="h-3 w-3 animate-spin" />
+                  )}
+                  Import from Gmail
+                </Button>
+              </div>
               <Textarea
                 value={signature}
                 onChange={(event) => setSignature(event.target.value)}
@@ -1073,7 +1145,8 @@ function DraftingSection() {
                 className="resize-none px-3 py-2 text-[13px] placeholder:text-muted-foreground/40"
               />
               <p className="mt-2 text-[12px] text-muted-foreground">
-                Added to new drafts before quoted reply history.
+                Added to new drafts before quoted reply history. Markdown links
+                and images are supported.
               </p>
             </div>
 
@@ -1239,6 +1312,9 @@ function SlackIntakeSection() {
         queryKey: ["integration-status", "slack"],
       }),
   });
+  const slackStatusDescription = data?.configured
+    ? "Slack credentials are configured."
+    : "Add SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET to enable Slack intake.";
 
   return (
     <div className="flex-1 overflow-y-auto p-4 sm:p-8">
@@ -1272,11 +1348,9 @@ function SlackIntakeSection() {
                   </span>
                 </div>
                 <p className="mt-0.5 text-[12px] text-muted-foreground">
-                  {data?.configured
-                    ? "Slack credentials are configured."
-                    : "Slack credentials are missing."}
+                  {slackStatusDescription}
                 </p>
-                {data?.error && (
+                {data?.configured && data?.error && (
                   <p className="mt-1 text-[11px] text-red-400">{data.error}</p>
                 )}
               </div>
@@ -1291,10 +1365,19 @@ function SlackIntakeSection() {
                 {data?.enabled ? "Disable" : "Enable"}
               </Button>
             </div>
-            {data?.webhookUrl && (
+            {data?.configured && data?.webhookUrl && (
               <div>
-                <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                  Webhook URL
+                <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Slack POST endpoint
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <IconInfoCircle className="h-3.5 w-3.5" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Use in Slack Event Subscriptions. Browser GET may show Not
+                      Found.
+                    </TooltipContent>
+                  </Tooltip>
                 </label>
                 <Input readOnly value={data.webhookUrl} className="font-mono" />
               </div>

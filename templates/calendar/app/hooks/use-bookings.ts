@@ -3,6 +3,15 @@ import { useActionQuery } from "@agent-native/core/client";
 import { appApiPath } from "@/lib/api-path";
 import type { Booking } from "@shared/api";
 
+async function readErrorMessage(res: Response, fallback: string) {
+  try {
+    const body = (await res.json()) as { error?: string; message?: string };
+    return body.error || body.message || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function useBookings() {
   return useActionQuery<Booking[]>("list-bookings");
 }
@@ -73,7 +82,11 @@ export function useCreateBooking() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error("Failed to create booking");
+      if (!res.ok) {
+        throw new Error(
+          await readErrorMessage(res, "Failed to create booking"),
+        );
+      }
       return res.json();
     },
     onSuccess: () => {

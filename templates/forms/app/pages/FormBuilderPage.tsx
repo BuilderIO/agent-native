@@ -2,7 +2,6 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useParams, useNavigate } from "react-router";
 import { nanoid } from "nanoid";
 import {
-  IconShare,
   IconExternalLink,
   IconCheck,
   IconGripVertical,
@@ -35,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { FieldRenderer } from "@/components/builder/FieldRenderer";
 import { FieldPropertiesPanel } from "@/components/builder/FieldPropertiesPanel";
+import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
 import { useForm, useUpdateForm } from "@/hooks/use-forms";
 import { useFormResponses } from "@/hooks/use-responses";
 import { useDbStatus } from "@/hooks/use-db-status";
@@ -118,6 +118,10 @@ export function FormBuilderPage() {
   const [agentPrompt, setAgentPrompt] = useState("");
   const agentPromptRef = useRef<HTMLTextAreaElement>(null);
   const { send, codeRequiredDialog } = useSendToAgentChat();
+  const promptRun = useAgentPromptRun({
+    staleMessage:
+      "Form edit is taking longer than expected. You can try again.",
+  });
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">(
     "idle",
   );
@@ -337,10 +341,12 @@ export function FormBuilderPage() {
   }
 
   function submitAgentPrompt() {
-    if (!agentPrompt.trim()) return;
+    const trimmed = agentPrompt.trim();
+    if (!trimmed || promptRun.isActivePrompt(trimmed)) return;
     const context = `Current form:\nTitle: ${form.title}\nDescription: ${form.description || "None"}\nFields: ${JSON.stringify(fields, null, 2)}`;
-    const result = send({ message: agentPrompt.trim(), context, submit: true });
+    const result = send({ message: trimmed, context, submit: true });
     if (result === null) return;
+    promptRun.trackRun(trimmed, result);
     setAgentPopoverOpen(false);
     setAgentPrompt("");
   }
@@ -365,6 +371,10 @@ export function FormBuilderPage() {
   }
 
   function copyShareLink() {
+    if (form.status !== "published") {
+      toast.info("Publish this form before copying its public link");
+      return;
+    }
     if (isLocal) {
       setShowCloudUpgrade(true);
       return;
@@ -432,33 +442,54 @@ export function FormBuilderPage() {
                   </a>
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Preview</TooltipContent>
+              <TooltipContent>Preview published form</TooltipContent>
             </Tooltip>
           )}
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={copyShareLink}
-              >
-                {copied ? (
-                  <IconCheck className="h-4 w-4" />
-                ) : (
-                  <IconShare className="h-4 w-4" />
-                )}
-              </Button>
+              <span className="inline-flex">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={copyShareLink}
+                  disabled={form.status !== "published"}
+                  aria-label={
+                    form.status === "published"
+                      ? "Copy public form link"
+                      : "Publish before copying the public form link"
+                  }
+                >
+                  {copied ? (
+                    <IconCheck className="h-4 w-4" />
+                  ) : (
+                    <IconCopy className="h-4 w-4" />
+                  )}
+                </Button>
+              </span>
             </TooltipTrigger>
-            <TooltipContent>{copied ? "Copied!" : "Share"}</TooltipContent>
+            <TooltipContent>
+              {form.status === "published"
+                ? copied
+                  ? "Public link copied"
+                  : "Copy published public link"
+                : "Publish before copying the public link"}
+            </TooltipContent>
           </Tooltip>
 
-          <ShareButton
-            resourceType="form"
-            resourceId={form.id}
-            resourceTitle={form.title}
-          />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex">
+                <ShareButton
+                  resourceType="form"
+                  resourceId={form.id}
+                  resourceTitle={form.title}
+                />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>Manage access and sharing settings</TooltipContent>
+          </Tooltip>
 
           <Button size="sm" className="text-xs" onClick={handleTogglePublish}>
             {form.status === "published" ? "Unpublish" : "Publish"}
@@ -512,6 +543,7 @@ export function FormBuilderPage() {
           agentPopoverOpen={agentPopoverOpen}
           agentPrompt={agentPrompt}
           agentPromptRef={agentPromptRef}
+          promptRun={promptRun}
           onTitleChange={(v) => {
             setLocalTitle(v);
             save({ id: form.id, title: v });
@@ -596,6 +628,7 @@ function BuilderContent({
   agentPopoverOpen,
   agentPrompt,
   agentPromptRef,
+  promptRun,
   onTitleChange,
   onDescriptionChange,
   onSelectField,
@@ -622,6 +655,7 @@ function BuilderContent({
   agentPopoverOpen: boolean;
   agentPrompt: string;
   agentPromptRef: React.RefObject<HTMLTextAreaElement | null>;
+  promptRun: ReturnType<typeof useAgentPromptRun>;
   onTitleChange: (v: string) => void;
   onDescriptionChange: (v: string) => void;
   onSelectField: (id: string | null) => void;
@@ -801,7 +835,10 @@ function BuilderContent({
                     size="icon"
                     className="h-7 w-7"
                     onClick={onSubmitAgent}
-                    disabled={!agentPrompt.trim()}
+                    disabled={
+                      !agentPrompt.trim() ||
+                      promptRun.isActivePrompt(agentPrompt)
+                    }
                     aria-label="Send prompt"
                   >
                     <IconArrowUp className="h-3.5 w-3.5" />

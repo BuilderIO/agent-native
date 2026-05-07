@@ -11,6 +11,7 @@ registerShareableResource({
   sharesTable: schema.recordingShares,
   displayName: "Recording",
   titleColumn: "title",
+  getResourcePath: (recording) => `/r/${recording.id}`,
   getDb,
 });
 
@@ -20,6 +21,7 @@ registerShareableResource({
   sharesTable: schema.meetingShares,
   displayName: "Meeting",
   titleColumn: "title",
+  getResourcePath: (meeting) => `/meetings/${meeting.id}`,
   getDb,
 });
 

@@ -72,8 +72,8 @@ Google Calendar events are NOT stored in the local database. They are fetched li
 - \`pnpm action view-screen\` — See what the user is looking at (current view, date, events). ALWAYS run this first.
 - \`pnpm action list-events --from YYYY-MM-DD --to YYYY-MM-DD\` — List events from Google Calendar. The --to date is exclusive, so use tomorrow for today's events.
 - \`pnpm action search-events --query "term"\` — Search events by title, people, organizer, location, or description across a broad one-year past/future window. Use this for recurring meetings and "how often do I meet with X?" questions.
-- \`pnpm action create-event --title "..." --start "ISO" --end "ISO"\` — Create a new event. Use \`--eventType outOfOffice\` for OOO, \`--eventType focusTime\` for focus time, \`--eventType workingLocation\` for working location, \`--transparency transparent\` to show as Free, \`--visibility private\` for private events, and \`--reminderMinutes 10\` for alert timing.
-- \`pnpm action update-event --id "google-..." --transparency opaque|transparent --visibility default|public|private --reminderMinutes 10\` — Update event availability, visibility, or reminders.
+- \`pnpm action create-event --title "..." --start "ISO" --end "ISO"\` — Create a new event. Use \`--eventType outOfOffice\` for OOO, \`--eventType focusTime\` for focus time, \`--eventType workingLocation\` for working location, \`--transparency transparent\` to show as Free, \`--visibility private\` for private events, \`--startTimeZone America/Los_Angeles\` for timezone anchoring, \`--colorId 9\` for Google event color, \`--reminders '[{"method":"popup","minutes":10}]'\` for alerts, and \`--attachments '[{"fileUrl":"https://...","title":"Agenda"}]'\` for Drive/HTTPS file links.
+- \`pnpm action update-event --id "google-..." --transparency opaque|transparent --visibility default|public|private --reminderMinutes 10\` — Update event availability, visibility, reminders, timezone, color, attachments, or generated video links.
 - \`pnpm action navigate --view=calendar --calendarViewMode=day\` — Navigate the UI (day/week/month views, dates)
 - \`pnpm action navigate --view=calendar --date=YYYY-MM-DD\` — Navigate to a specific date
 - \`pnpm action navigate --view=availability\` — Show availability settings
@@ -85,8 +85,8 @@ Google Calendar events are NOT stored in the local database. They are fetched li
 - \`pnpm action create-booking-link --title "Meeting" --slug meeting --duration 30\` — Create a booking link
 - \`pnpm action duplicate-booking-link --sourceSlug meeting --copies '[...]'\` — Duplicate one booking link into one or more variants
 
-## Local UI Visual Preferences vs Google Calendar API
-The Calendar app can visually color-code Google events locally. This is an app-layer display preference, not a Google Calendar event mutation. When the user asks to color meetings by internal/external, 1:1/group, focus time, or to use a single calendar color, use \`update-calendar-visual-preferences\` or edit the local classification/palette in \`app/lib/event-colors.ts\` if the requested categories are not covered. Do not call \`update-event\` with unsupported \`colorId\`/color fields, and do not say UI-layer color-coding is impossible because of Google Calendar API limits.
+## Local UI Visual Preferences vs Google Calendar Event Color
+Use \`create-event\` or \`update-event --colorId 1..11\` when the user wants one specific Google Calendar event color changed. Use \`update-calendar-visual-preferences\` when the user wants broad app-layer display rules such as color-coding meetings by internal/external, 1:1/group, focus time, or one display color for all Google events.
 
 ## Google Connection Check
 Before answering schedule questions, run view-screen first for context, then use list-events for the requested date range even if the user is currently on Settings, Booking Links, or another non-calendar page. Do not infer a Google Calendar connection problem just because the current page is Settings. Only ask the user to reconnect Google if list-events or the explicit Google status reports an auth/connection error.

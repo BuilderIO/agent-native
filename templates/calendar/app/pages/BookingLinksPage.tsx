@@ -649,6 +649,10 @@ export default function BookingLinksPage({
     const slug = slugify(input.slug);
     const duration = input.length;
     if (!title || !slug || !Number.isFinite(duration)) return;
+    if (duration < 5) {
+      toast.error("Duration must be at least 5 minutes.");
+      return;
+    }
     // Pre-generate an optimistic id so we can navigate instantly; the mutation
     // inserts the row into the list cache synchronously via onMutate.
     const optimisticId = `optimistic_${nanoid()}`;
@@ -1746,7 +1750,7 @@ function BookingPreview({
       <div className="border-b border-border/60 bg-muted/30 px-4 py-2 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            Preview
+            Read-only preview
           </span>
           <div className="flex items-center gap-1">
             {!isActive && (
@@ -1793,7 +1797,7 @@ function BookingPreview({
                     <IconExternalLink className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Open in new tab</TooltipContent>
+                <TooltipContent>Open interactive booking link</TooltipContent>
               </Tooltip>
             )}
           </div>
@@ -1805,11 +1809,12 @@ function BookingPreview({
         )}
       </div>
 
-      {/* Interactive booking page preview */}
+      {/* Read-only booking page preview */}
       <div
+        inert={true}
         className={cn(
-          "p-6 space-y-5",
-          !isActive && "opacity-50 pointer-events-none",
+          "pointer-events-none select-none space-y-5 p-6",
+          !isActive && "opacity-50",
         )}
       >
         {/* Header */}

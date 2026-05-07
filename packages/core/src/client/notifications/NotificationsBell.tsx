@@ -29,6 +29,10 @@ interface NotificationsBellProps {
    * the user grants permission. Silently no-ops on denied or unsupported.
    */
   browserNotifications?: boolean;
+  /** Empty-state title shown when there are no notifications. */
+  emptyTitle?: string;
+  /** Optional empty-state detail text. */
+  emptyDescription?: string;
 }
 
 const POLL_MS_DEFAULT = 10_000;
@@ -46,6 +50,8 @@ export function NotificationsBell({
   pollMs = POLL_MS_DEFAULT,
   className,
   browserNotifications = false,
+  emptyTitle = "No app notifications yet.",
+  emptyDescription,
 }: NotificationsBellProps) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
@@ -335,8 +341,13 @@ export function NotificationsBell({
               );
             })
           ) : (
-            <div className="p-4 text-sm text-muted-foreground">
-              No notifications.
+            <div className="space-y-1 p-4 text-sm">
+              <p className="font-medium text-foreground">{emptyTitle}</p>
+              {emptyDescription ? (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {emptyDescription}
+                </p>
+              ) : null}
             </div>
           )}
         </div>

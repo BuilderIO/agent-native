@@ -491,27 +491,54 @@ export function useMarkThreadRead() {
 export function useToggleStar() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, isStarred }: { id: string; isStarred: boolean }) =>
+    mutationFn: ({
+      id,
+      isStarred,
+      accountEmail,
+    }: {
+      id: string;
+      isStarred: boolean;
+      accountEmail?: string;
+      threadId?: string;
+    }) =>
       apiFetch(`/api/emails/${id}/star`, {
         method: "PATCH",
-        body: JSON.stringify({ isStarred }),
+        body: JSON.stringify({ isStarred, accountEmail }),
       }),
-    onMutate: async ({ id, isStarred }) => {
+    onMutate: async ({ id, isStarred, threadId }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
+      const target = previous
+        .flatMap(([, data]) => flattenInfiniteEmails(data))
+        .find((e) => e.id === id);
+      const resolvedThreadId = threadId || target?.threadId || target?.id;
+      const previousThread = resolvedThreadId
+        ? getCachedThread(resolvedThreadId)
+        : undefined;
       setOptimisticOverride(id, { isStarred });
       qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
         mapInfiniteEmails(old, (emails) =>
           emails.map((e) => (e.id === id ? { ...e, isStarred } : e)),
         ),
       );
-      return { previous };
+      if (resolvedThreadId && previousThread) {
+        setCachedThread(
+          resolvedThreadId,
+          previousThread.map((message) =>
+            message.id === id ? { ...message, isStarred } : message,
+          ),
+        );
+      }
+      return { previous, previousThread, threadId: resolvedThreadId };
     },
     onError: (_err, { id }, context) => {
       clearOptimisticOverride(id);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.threadId && context.previousThread) {
+        setCachedThread(context.threadId, context.previousThread);
+      }
     },
     onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
   });

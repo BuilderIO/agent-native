@@ -99,7 +99,7 @@ export default defineAction({
       case "update": {
         if (!args.id) return "Error: --id is required for update";
 
-        const updates: Record<string, any> = { updated_at: Date.now() };
+        const updates: Record<string, any> = { updatedAt: Date.now() };
         if (args.name !== undefined) updates.name = args.name;
         if (args.condition !== undefined) updates.condition = args.condition;
         if (args.actions !== undefined) {

@@ -16,6 +16,10 @@ export const visibilityInput = z
   .enum(["default", "public", "private", "confidential"])
   .optional();
 
+export const googleColorIdInput = z
+  .enum(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"])
+  .optional();
+
 export const reminderMethodInput = z.enum(["popup", "email"]).optional();
 
 export const reminderMinutesInput = z.coerce
@@ -33,6 +37,19 @@ export const remindersInput = z
     }),
   )
   .max(5)
+  .optional();
+
+export const attachmentsInput = z
+  .array(
+    z.object({
+      fileUrl: z.string().url(),
+      title: z.string().min(1),
+      mimeType: z.string().optional(),
+      iconLink: z.string().url().optional(),
+      fileId: z.string().optional(),
+    }),
+  )
+  .max(25)
   .optional();
 
 export const workingLocationTypeInput = z

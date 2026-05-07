@@ -59,6 +59,7 @@ import {
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { useMeetingStartNotifications } from "@/hooks/use-meeting-start-notifications";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AgentToggleButton,
@@ -94,6 +95,7 @@ export default function CalendarView() {
     sidebarEvent,
     setSidebarEvent,
     focusedEvent,
+    setFocusedEvent,
     hiddenCalendars,
   } = useCalendarContext();
   const { prefs: viewPrefs, update: setViewPrefs } = useViewPreferences();
@@ -246,6 +248,16 @@ export default function CalendarView() {
         : events,
     [events, viewMode, selectedDate],
   );
+  const openNotificationEvent = useCallback(
+    (event: CalendarEvent) => {
+      setSelectedDate(parseISO(event.start));
+      setViewMode("day");
+      setSidebarEvent(event);
+      setFocusedEvent(event);
+    },
+    [setFocusedEvent, setSelectedDate, setSidebarEvent, setViewMode],
+  );
+  useMeetingStartNotifications(events, openNotificationEvent);
 
   const selectedEvent = useMemo(() => {
     const candidate = sidebarEvent ?? focusedEvent;
@@ -778,7 +790,10 @@ export default function CalendarView() {
                 </TooltipContent>
               </Tooltip>
 
-              <NotificationsBell />
+              <NotificationsBell
+                browserNotifications
+                emptyDescription="Calendar can pop browser alerts while this app is open. Clips desktop handles fuller meeting prompts with one-click notes."
+              />
               <CreateEventPopover
                 open={createDialogOpen}
                 onOpenChange={(open) => {
@@ -905,8 +920,12 @@ export default function CalendarView() {
                 location: snapshot.location ?? "",
                 start: snapshot.start,
                 end: snapshot.end,
+                startTimeZone: snapshot.startTimeZone,
+                endTimeZone: snapshot.endTimeZone,
                 allDay: snapshot.allDay ?? false,
                 color: snapshot.color,
+                colorId: snapshot.colorId,
+                attachments: snapshot.attachments,
                 eventType: snapshot.eventType,
                 transparency: snapshot.transparency,
                 visibility: snapshot.visibility,

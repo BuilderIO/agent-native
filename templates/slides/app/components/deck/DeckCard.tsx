@@ -60,8 +60,20 @@ export default function DeckCard({
   };
 
   const handleRenameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") commitRename();
-    else if (e.key === "Escape") setIsRenaming(false);
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      commitRename();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsRenaming(false);
+    }
+  };
+
+  const startRename = () => {
+    setMenuOpen(false);
+    window.setTimeout(() => setIsRenaming(true), 0);
   };
 
   return (
@@ -95,7 +107,11 @@ export default function DeckCard({
                 onChange={(e) => setRenameValue(e.target.value)}
                 onBlur={commitRename}
                 onKeyDown={handleRenameKeyDown}
-                onClick={(e) => e.preventDefault()}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
                 className="flex-1 min-w-0 bg-transparent border-b border-border text-sm font-medium text-foreground outline-none"
               />
             ) : (
@@ -138,11 +154,9 @@ export default function DeckCard({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-40">
             <DropdownMenuItem
-              onClick={(e) => {
+              onSelect={(e) => {
                 e.preventDefault();
-                e.stopPropagation();
-                setMenuOpen(false);
-                setIsRenaming(true);
+                startRename();
               }}
             >
               <IconPencil className="w-3.5 h-3.5 mr-2" />

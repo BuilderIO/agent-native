@@ -25,6 +25,7 @@ function isInternalContinuationError(event: {
   const msg = event.error.toLowerCase();
   return (
     event.recoverable === true ||
+    code === "builder_gateway_error" ||
     code === "builder_gateway_timeout" ||
     code === "stale_run" ||
     code === "timeout" ||
@@ -39,6 +40,7 @@ function isInternalContinuationError(event: {
     code === "too_many_concurrent_requests" ||
     code === "overloaded_error" ||
     msg.includes("timeout") ||
+    msg.includes("gateway error") ||
     msg.includes("gateway timeout") ||
     msg.includes("inactivity timeout") ||
     msg.includes("stream ended") ||

@@ -35,7 +35,7 @@ export default defineAction({
 
     const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
     await client.execute({
-      sql: `INSERT INTO slide_comments (id, deck_id, slide_id, thread_id, parent_id, content, quoted_text, author_email, author_name, resolved, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ${nowExpr}, ${nowExpr})`,
+      sql: `INSERT INTO slide_comments (id, deck_id, slide_id, thread_id, parent_id, content, quoted_text, author_email, author_name, resolved, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${nowExpr}, ${nowExpr})`,
       args: [
         id,
         deckId,
@@ -46,6 +46,7 @@ export default defineAction({
         quotedText ?? null,
         authorEmail,
         authorName,
+        isPostgres() ? false : 0,
       ],
     });
 

@@ -70,6 +70,11 @@ function escapeHtml(value: string): string {
 function applyInlineMarkdown(text: string): string {
   return text
     .replace(
+      /!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g,
+      (_match, alt, url) =>
+        `<img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" style="max-width:100%;height:auto;" />`,
+    )
+    .replace(
       /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
       (_match, label, url) =>
         `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`,

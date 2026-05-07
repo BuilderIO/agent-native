@@ -287,6 +287,7 @@ function SharePanel(
 
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("viewer");
+  const [notifyPeople, setNotifyPeople] = useState(true);
   const orgMembers = useOrgMembers();
   const datalistId = `share-autocomplete-${resourceType}-${resourceId}`;
 
@@ -356,6 +357,8 @@ function SharePanel(
         principalType: "user",
         principalId: trimmed,
         role,
+        notify: notifyPeople,
+        resourceUrl: getNotificationUrl(props.shareUrl),
       } as any,
       {
         onSuccess: () => {
@@ -391,6 +394,7 @@ function SharePanel(
         principalType: s.principalType,
         principalId: s.principalId,
         role: next,
+        notify: false,
       } as any,
       {
         onSuccess: () => {
@@ -485,40 +489,52 @@ function SharePanel(
       </div>
 
       {canManage ? (
-        <div className="mb-4 flex items-stretch gap-2">
-          <input
-            type="email"
-            placeholder="Add people by email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleAdd();
-            }}
-            list={orgMembers.length > 0 ? datalistId : undefined}
-            autoComplete="off"
-            className="flex-1 min-w-0 h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
-          />
-          {orgMembers.length > 0 ? (
-            <datalist id={datalistId}>
-              {orgMembers
-                .filter(
-                  (m) =>
-                    m.email !== sharesQuery.data?.ownerEmail &&
-                    !(sharesQuery.data?.shares ?? []).some(
-                      (s) =>
-                        s.principalType === "user" && s.principalId === m.email,
-                    ),
-                )
-                .map((m) => (
-                  <option
-                    key={m.email}
-                    value={m.email}
-                    label={m.name ?? undefined}
-                  />
-                ))}
-            </datalist>
-          ) : null}
-          <RoleSelect value={role} onChange={setRole} />
+        <div className="mb-4 space-y-2">
+          <div className="flex items-stretch gap-2">
+            <input
+              type="email"
+              placeholder="Add people by email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleAdd();
+              }}
+              list={orgMembers.length > 0 ? datalistId : undefined}
+              autoComplete="off"
+              className="flex-1 min-w-0 h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+            />
+            {orgMembers.length > 0 ? (
+              <datalist id={datalistId}>
+                {orgMembers
+                  .filter(
+                    (m) =>
+                      m.email !== sharesQuery.data?.ownerEmail &&
+                      !(sharesQuery.data?.shares ?? []).some(
+                        (s) =>
+                          s.principalType === "user" &&
+                          s.principalId === m.email,
+                      ),
+                  )
+                  .map((m) => (
+                    <option
+                      key={m.email}
+                      value={m.email}
+                      label={m.name ?? undefined}
+                    />
+                  ))}
+              </datalist>
+            ) : null}
+            <RoleSelect value={role} onChange={setRole} />
+          </div>
+          <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={notifyPeople}
+              onChange={(e) => setNotifyPeople(e.target.checked)}
+              className="h-4 w-4 rounded border-input accent-primary"
+            />
+            Notify people
+          </label>
         </div>
       ) : null}
 
@@ -812,6 +828,11 @@ function Avatar({ label, org }: { label: string; org?: boolean }) {
 
 function keyOf(s: Share): string {
   return `${s.principalType}:${s.principalId}`;
+}
+function getNotificationUrl(explicit?: string): string | undefined {
+  if (explicit) return explicit;
+  if (typeof window === "undefined") return undefined;
+  return window.location.href;
 }
 function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);

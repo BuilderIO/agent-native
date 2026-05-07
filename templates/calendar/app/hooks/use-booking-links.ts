@@ -4,7 +4,7 @@ import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import { appApiPath } from "@/lib/api-path";
 import type { BookingLink, ConferencingConfig, CustomField } from "@shared/api";
 
-const LIST_KEY = ["action", "list-booking-links"] as const;
+const LIST_KEY = ["action", "list-booking-links", undefined] as const;
 
 export function useBookingLinks() {
   return useActionQuery<BookingLink[]>("list-booking-links");
@@ -135,7 +135,7 @@ export function useDeleteBookingLink() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["action", "list-booking-links"],
+        queryKey: LIST_KEY,
       });
     },
   });

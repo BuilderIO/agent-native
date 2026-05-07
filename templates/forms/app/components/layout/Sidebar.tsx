@@ -18,6 +18,7 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { useForms, useCreateForm } from "@/hooks/use-forms";
+import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
 import {
   useSendToAgentChat,
   FeedbackButton,
@@ -41,6 +42,10 @@ export function Sidebar() {
   const forms = Array.isArray(formsData) ? formsData : [];
   const createForm = useCreateForm();
   const { send } = useSendToAgentChat();
+  const promptRun = useAgentPromptRun({
+    staleMessage:
+      "Form generation is taking longer than expected. You can try again.",
+  });
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -65,13 +70,15 @@ export function Sidebar() {
   }
 
   function handleSubmitPrompt() {
-    if (!prompt.trim()) return;
+    const trimmed = prompt.trim();
+    if (!trimmed || promptRun.isActivePrompt(trimmed)) return;
     setPopoverOpen(false);
-    send({
-      message: `Create a new form based on this description: ${prompt.trim()}`,
+    const tabId = send({
+      message: `Create a new form based on this description: ${trimmed}`,
       context:
         "Create the form using the create-form script with appropriate title, description, and fields. After creating, tell the user the form name and a summary of the fields.",
     });
+    promptRun.trackRun(trimmed, tabId);
   }
 
   const newFormButton = (
@@ -127,7 +134,7 @@ export function Sidebar() {
             size="icon"
             className="h-7 w-7"
             onClick={handleSubmitPrompt}
-            disabled={!prompt.trim()}
+            disabled={!prompt.trim() || promptRun.isActivePrompt(prompt)}
             aria-label="Send prompt"
           >
             <IconArrowUp size={14} />
