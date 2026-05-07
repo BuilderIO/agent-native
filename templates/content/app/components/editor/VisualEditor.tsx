@@ -418,7 +418,9 @@ async function uploadAndInsertImageFiles(
   if (files.length === 0) return;
 
   const toastId = toast.loading(
-    files.length === 1 ? "Uploading image..." : `Uploading ${files.length} images...`,
+    files.length === 1
+      ? "Uploading image..."
+      : `Uploading ${files.length} images...`,
   );
 
   try {
@@ -435,7 +437,10 @@ async function uploadAndInsertImageFiles(
       const node = imageType.create({ src, alt: file.name });
       const tr = view.state.tr.insert(insertPos, node).scrollIntoView();
       view.dispatch(tr);
-      insertPos = Math.min(insertPos + node.nodeSize, view.state.doc.content.size);
+      insertPos = Math.min(
+        insertPos + node.nodeSize,
+        view.state.doc.content.size,
+      );
     }
 
     toast.success(files.length === 1 ? "Image added" : "Images added", {
