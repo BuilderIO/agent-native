@@ -102,6 +102,7 @@ const TARGET_ROOT = path.resolve("templates", "analytics");
 const argv = process.argv.slice(2);
 const write = argv.includes("--write");
 const validateSql = argv.includes("--validate-sql");
+const REMOVED_LEGACY_IDS = ["fusion-developer-pain"];
 
 const DATE_START = "{{dateStart}}";
 const DATE_END = "{{dateEnd}}";
@@ -145,6 +146,7 @@ async function main() {
 
     if (write) {
       await ensureTables(db);
+      await pruneRemovedLegacyResources(db);
       for (const dashboard of dashboards) {
         await upsertDashboard(db, dashboard, orgId);
       }
