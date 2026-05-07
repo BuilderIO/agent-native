@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.12.9
+
+### Patch Changes
+
+- 7a849c3: Give the shared extensions sidebar header room for its full label and replace the docs icon tooltip with an interactive popover.
+- 7a849c3: Include the Images app as a default connected A2A agent and guide agents to use it for generated imagery.
+- 7a849c3: Images-template library refactor + agent-discovery polish.
+- 7a849c3: Remember extension sidebar usage and add collapsible sort controls.
+
 ## 0.12.8
 
 ### Patch Changes
