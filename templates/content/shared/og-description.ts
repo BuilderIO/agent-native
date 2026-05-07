@@ -1,4 +1,5 @@
-const DEFAULT_DESCRIPTION = "Read this public document in Agent-Native Content.";
+const DEFAULT_DESCRIPTION =
+  "Read this public document in Agent-Native Content.";
 const DEFAULT_MAX_LENGTH = 160;
 
 function stripFrontmatter(markdown: string): string {
