@@ -93,7 +93,7 @@ Each design is stored as one or more files in the `design_files` table:
 5. **Dark mode support** — use Tailwind `dark:` prefix. Respect the user's system preference via `class="dark"` on `<html>` or a toggle.
 6. **Accessible** — proper ARIA labels, `role` attributes, keyboard navigation, focus management (`focus:`, `focus-visible:`), skip links, semantic HTML.
 7. **NEVER use these fonts**: Inter, Roboto, Arial — use distinctive typography from Google Fonts.
-8. **NEVER generate empty/placeholder images** — use solid color blocks, gradients, SVG patterns, or CSS shapes. If an image is needed, use a colored div with descriptive text.
+8. **NEVER generate empty/placeholder images** — for decorative placeholders use solid color blocks, gradients, SVG patterns, or CSS shapes. When the user wants real raster imagery, or a design needs a brand/product/hero image, call the Images agent over A2A with `call-agent` agent "images" and use the returned asset IDs and URLs; do not call image providers directly.
 9. **CSS custom properties for theming** — always define a `:root` block with theme variables so the tweaks panel can modify them live.
 
 ### Complete HTML Skeleton

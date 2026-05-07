@@ -43,8 +43,7 @@ describe("agent discovery", () => {
         (!template.hidden || template.defaultAgent) &&
         template.prodUrl &&
         template.name !== "dispatch",
-    )
-      .map((template) => template.name);
+    ).map((template) => template.name);
 
     expect(getBuiltinAgents("dispatch").map((agent) => agent.id)).toEqual(
       expected,

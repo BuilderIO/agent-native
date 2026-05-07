@@ -29,16 +29,15 @@ interface AgentEntry {
 const BUILTIN_AGENTS: AgentEntry[] = TEMPLATES.filter(
   (template) =>
     (!template.hidden || template.defaultAgent) && !!template.prodUrl,
-)
-  .map((template) => ({
-    id: template.name,
-    name: template.label,
-    description: template.description ?? template.hint,
-    url: template.prodUrl!,
-    devUrl: `http://localhost:${template.devPort}`,
-    devPort: template.devPort,
-    color: template.color,
-  }));
+).map((template) => ({
+  id: template.name,
+  name: template.label,
+  description: template.description ?? template.hint,
+  url: template.prodUrl!,
+  devUrl: `http://localhost:${template.devPort}`,
+  devPort: template.devPort,
+  color: template.color,
+}));
 
 const HIDDEN_FIRST_PARTY_AGENT_IDS = new Set(
   TEMPLATES.filter(

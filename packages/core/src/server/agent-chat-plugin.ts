@@ -1501,6 +1501,8 @@ When the user says "show me", "go to", "open", etc., ALWAYS use \`navigate\` fir
 ### Extended Capabilities
 
 You also have tools for: inline embeds, chat history search, agent teams/sub-agents, recurring jobs, A2A cross-app calls, structured memory, and browser automation (\`activate-browser\` to provision a real Chrome). Call \`get-framework-context\` to read detailed instructions for any of these when needed.
+
+For brand-consistent raster image generation, use the first-party Images agent via \`call-agent\` with agent "images" when another app needs generated heroes, diagrams, product shots, thumbnails, or design imagery. If this app has a native image-generation action, prefer that action because it may attach the image to the local document/deck/design.
 `;
 
 /**
@@ -1605,6 +1607,7 @@ The \`call-agent\` tool sends a message to a DIFFERENT, separately-deployed app'
 **ONLY use \`call-agent\` when:**
 - The user explicitly asks you to communicate with a different app
 - You need data that only another deployed app can provide
+- You need brand-consistent generated raster imagery and this app does not have a native image-generation action; call agent "images" and keep returned asset IDs and URLs verbatim
 
 If \`call-agent\` says a downstream agent accepted the subtask and will post its result separately, do not call that same agent again for the same subtask. Continue any remaining work and answer with the completed results you have.`,
 
@@ -1786,6 +1789,7 @@ The \`call-agent\` tool sends a message to a DIFFERENT, separately-deployed app'
 - The user explicitly asks you to communicate with a different app (e.g., "ask the mail agent to...")
 - You need data that only another deployed app can provide
 - You are coordinating across genuinely separate apps
+- You need brand-consistent generated raster imagery and this app does not have a native image-generation action. The first-party Images agent is agent "images"; ask it for heroes, diagrams, product shots, thumbnails, or design imagery, and keep returned asset IDs and URLs verbatim.
 
 If \`call-agent\` returns an error saying the agent is yourself — stop and use your own tools instead.
 If \`call-agent\` says a downstream agent accepted a subtask and will post its result separately, do not call that same agent again for the same subtask. Continue any remaining work and answer with the completed results you have.
