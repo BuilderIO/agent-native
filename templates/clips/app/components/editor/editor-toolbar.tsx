@@ -2,6 +2,8 @@ import { useState } from "react";
 import {
   IconArrowBackUp,
   IconArrowForwardUp,
+  IconChevronDown,
+  IconDots,
   IconZoomIn,
   IconZoomOut,
   IconPlayerPlay,
@@ -17,6 +19,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -65,6 +75,7 @@ export interface EditorToolbarProps {
   onOpenThumbnailPicker: () => void;
   onOpenChapters: () => void;
   onOpenStitch: () => void;
+  chaptersOpen?: boolean;
 }
 
 export function EditorToolbar({
@@ -81,6 +92,7 @@ export function EditorToolbar({
   onOpenThumbnailPicker,
   onOpenChapters,
   onOpenStitch,
+  chaptersOpen,
 }: EditorToolbarProps) {
   const undo = useActionMutation("undo-edit" as any);
   const clear = useActionMutation("clear-edits" as any);
@@ -220,7 +232,7 @@ export function EditorToolbar({
   };
 
   return (
-    <div className="flex items-center gap-1 px-2 h-11 border-b border-border bg-card/40">
+    <div className="flex h-11 min-w-0 items-center gap-1 overflow-hidden border-b border-border bg-card/40 px-2">
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -260,16 +272,20 @@ export function EditorToolbar({
         <TooltipContent>Play / Pause (Space)</TooltipContent>
       </Tooltip>
 
-      <div className="text-xs font-mono text-muted-foreground px-2">
+      <div className="min-w-fit px-2 font-mono text-xs text-muted-foreground">
         {formatMs(playheadMs)} / {formatMs(effectiveMs)}
         {durationMs !== effectiveMs && (
-          <span className="opacity-60"> ({formatMs(durationMs)} src)</span>
+          <span className="hidden opacity-60 lg:inline">
+            {" "}
+            ({formatMs(durationMs)} src)
+          </span>
         )}
       </div>
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
       <SplitButton recordingId={recordingId} playheadMs={playheadMs} />
+
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -284,36 +300,49 @@ export function EditorToolbar({
         </TooltipTrigger>
         <TooltipContent>Cut selection</TooltipContent>
       </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={handleTrimStart}
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" variant="ghost" className="gap-1">
+            Trim
+            <IconChevronDown className="h-3.5 w-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-56">
+          <DropdownMenuLabel>Trim to playhead</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
             disabled={trim.isPending || playheadMs < 500}
+            onSelect={handleTrimStart}
           >
-            <IconScissors className="w-4 h-4 mr-1" />
-            Start
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Cut everything before the playhead</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={handleTrimEnd}
+            <IconScissors className="mr-2 h-4 w-4" />
+            Cut before playhead
+          </DropdownMenuItem>
+          <DropdownMenuItem
             disabled={trim.isPending || durationMs - playheadMs < 500}
+            onSelect={handleTrimEnd}
           >
-            <IconScissors className="w-4 h-4 mr-1" />
-            End
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Cut everything after the playhead</TooltipContent>
-      </Tooltip>
+            <IconScissors className="mr-2 h-4 w-4" />
+            Cut after playhead
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <Separator orientation="vertical" className="h-6 mx-1" />
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            size="sm"
+            variant={chaptersOpen ? "secondary" : "ghost"}
+            onClick={onOpenChapters}
+          >
+            <IconBookmarks className="w-4 h-4 mr-1" />
+            Chapters
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Show chapters</TooltipContent>
+      </Tooltip>
 
       <Tooltip>
         <TooltipTrigger asChild>
@@ -324,40 +353,32 @@ export function EditorToolbar({
         </TooltipTrigger>
         <TooltipContent>Edit thumbnail</TooltipContent>
       </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button size="sm" variant="ghost" onClick={onOpenChapters}>
-            <IconBookmarks className="w-4 h-4 mr-1" />
-            Chapters
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Chapters</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button size="sm" variant="ghost" onClick={onOpenStitch}>
-            <IconPuzzle className="w-4 h-4 mr-1" />
-            Stitch
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Stitch recordings</TooltipContent>
-      </Tooltip>
 
-      <Separator orientation="vertical" className="h-6 mx-1" />
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button size="sm" variant="ghost" onClick={() => setClearOpen(true)}>
-            <IconTrash className="w-4 h-4" />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" variant="ghost" aria-label="More edit actions">
+            <IconDots className="h-4 w-4" />
           </Button>
-        </TooltipTrigger>
-        <TooltipContent>Clear all edits</TooltipContent>
-      </Tooltip>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-52">
+          <DropdownMenuLabel>More edits</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={onOpenStitch}>
+            <IconPuzzle className="mr-2 h-4 w-4" />
+            Stitch clips
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => setClearOpen(true)}>
+            <IconTrash className="mr-2 h-4 w-4" />
+            Clear all edits
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
-      <div className="flex-1" />
+      <div className="min-w-3 flex-1" />
 
       {/* Zoom slider */}
-      <div className="flex items-center gap-1.5 w-40">
+      <div className="hidden w-32 shrink-0 items-center gap-1.5 md:flex">
         <IconZoomOut className="w-3.5 h-3.5 text-muted-foreground" />
         <Slider
           min={1}
@@ -373,6 +394,7 @@ export function EditorToolbar({
 
       <Button
         size="sm"
+        className="shrink-0"
         onClick={handleExportClick}
         disabled={exporting || !video.videoUrl}
       >
@@ -385,7 +407,7 @@ export function EditorToolbar({
           ? exportProgress?.stage === "loading-ffmpeg"
             ? "Loading ffmpeg…"
             : `${Math.round((exportProgress?.progress ?? 0) * 100)}%`
-          : "Download MP4"}
+          : "Export MP4"}
       </Button>
 
       <AlertDialog open={longWarnOpen} onOpenChange={setLongWarnOpen}>

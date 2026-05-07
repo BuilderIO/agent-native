@@ -119,7 +119,7 @@ export function ChaptersEditor({
       <div className="flex-1 overflow-auto">
         {local.length === 0 ? (
           <div className="px-3 py-4 text-xs text-muted-foreground">
-            No chapters yet. Play to a point and click "Add here" to create one.
+            No chapters yet.
           </div>
         ) : (
           local.map((c, i) => (
