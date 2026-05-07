@@ -303,6 +303,18 @@ function topFunnelTab1Filters() {
   };
 }
 
+function topFunnelBlogFilters() {
+  return {
+    ...topFunnelTab1Filters(),
+    pageType: ["blog"],
+  };
+}
+
+function daysAgoDate(days: number): string {
+  const date = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  return date.toISOString().slice(0, 10);
+}
+
 async function buildDashboards(): Promise<DashboardMigration[]> {
   const [
     keyMetrics,
@@ -426,6 +438,58 @@ async function buildDashboards(): Promise<DashboardMigration[]> {
       ],
     ),
     dashboard(
+      "blog-signups",
+      "Blog by Signups",
+      "Top Funnel subview focused on blog pages sorted by signups.",
+      "client/pages/adhoc/top-funnel/**#blog-signups",
+      [
+        panel(
+          "page-performance",
+          "Blog Page Performance by Signups",
+          topFunnel.pagePerformanceQuery(topFunnelBlogFilters(), false, {
+            col: "signups",
+            dir: "desc",
+          }),
+        ),
+        panel(
+          "top-blog-signups",
+          "Top Blog Pages by Signups",
+          topFunnel.topNQuery(25, "blog", DATE_START, DATE_END, "Weekly"),
+          {
+            chartType: "area",
+            xKey: "flex_date",
+            yKeys: ["traffic", "signups"],
+          },
+        ),
+      ],
+    ),
+    dashboard(
+      "blog-visitors",
+      "Blog by Visitors",
+      "Top Funnel subview focused on blog pages sorted by new visitors.",
+      "client/pages/adhoc/top-funnel/**#blog-visitors",
+      [
+        panel(
+          "page-performance",
+          "Blog Page Performance by Visitors",
+          topFunnel.pagePerformanceQuery(topFunnelBlogFilters(), false, {
+            col: "new_visitors",
+            dir: "desc",
+          }),
+        ),
+        panel(
+          "top-blog-visitors",
+          "Top Blog Pages by Visitors",
+          topFunnel.topNQuery(25, "blog", DATE_START, DATE_END, "Weekly"),
+          {
+            chartType: "area",
+            xKey: "flex_date",
+            yKeys: ["traffic", "signups"],
+          },
+        ),
+      ],
+    ),
+    dashboard(
       "signup-growth",
       "Signup Growth vs 2x Goal",
       "Legacy 2026 signup-growth tracker. The 2x goal line was visual-only in React; this SQL version preserves the signup source data.",
@@ -545,6 +609,40 @@ ORDER BY arr_change DESC`,
           "translation-articles",
           "Translation Articles",
           devrel.translationsArticleQuery(DATE_START, DATE_END),
+        ),
+      ],
+    ),
+    dashboard(
+      "recent",
+      "Recent Articles Only",
+      "DevRel Leaderboard subview scoped to articles published in the last 30 days at migration time.",
+      "client/pages/adhoc/devrel-leaderboard/**#recent",
+      [
+        panel(
+          "author-summary",
+          "Recent Author Summary",
+          devrel.authorSummaryQuery(DATE_START, DATE_END, daysAgoDate(30)),
+        ),
+        panel(
+          "article-detail",
+          "Recent Article Detail",
+          devrel.articleDetailQuery(DATE_START, DATE_END, daysAgoDate(30)),
+        ),
+        panel(
+          "author-timeseries",
+          "Recent Author Timeseries",
+          devrel.authorTimeseriesQuery(
+            DATE_START,
+            DATE_END,
+            daysAgoDate(30),
+            "signups",
+            "WEEK",
+          ),
+          {
+            chartType: "area",
+            xKey: "flex_date",
+            yKey: "value",
+          },
         ),
       ],
     ),

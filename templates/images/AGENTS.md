@@ -29,7 +29,7 @@ and for other agent-native apps over A2A.
 | `list-libraries`                          | List accessible image libraries                            |
 | `create-library`                          | Create a new image library                                 |
 | `get-library`                             | Read a library with collections, assets, and runs          |
-| `update-library`                          | Update metadata, style brief, defaults, logo, cover        |
+| `update-library`                          | Update metadata, instructions, style brief, logo, cover    |
 | `delete-library`                          | Delete a library and children                              |
 | `create-collection` / `update-collection` | Manage category-specific collections                       |
 | `list-assets` / `get-asset`               | Read images and reference assets                           |
