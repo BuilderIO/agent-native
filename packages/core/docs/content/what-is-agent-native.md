@@ -120,7 +120,7 @@ The vision: fewer handoffs, one person doing the work of a small team.
 
 ## Fork and customize {#fork-and-customize}
 
-Agent-native apps follow a fork-and-customize model. You start from a **template** — Mail, Calendar, Analytics, Slides, Clips, Design, Forms, Dispatch — and make it yours. Each one is a complete, working SaaS product you fork wholesale, not a blank scaffold:
+Agent-native apps follow a fork-and-customize model. You start from a **template** — Calendar, Content, Slides, Analytics, Mail, Clips, Design, Forms, Dispatch — and make it yours. Each one is a complete, working SaaS product you fork wholesale, not a blank scaffold:
 
 1. Pick a template on [agent-native.com/templates](/templates)
 2. Use it immediately as a hosted app (e.g. mail.agent-native.com)

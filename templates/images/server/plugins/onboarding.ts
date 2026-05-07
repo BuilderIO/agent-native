@@ -1,13 +1,84 @@
+/**
+ * Custom onboarding plugin for Images.
+ *
+ * Lead with Builder-managed image generation (one-click, org-shared
+ * credential) while keeping S3-compatible storage explicit for originals,
+ * thumbnails, and exports.
+ *
+ * Why it lives here: must be in server/plugins/ so the framework skips its
+ * default onboarding plugin, and all step registrations share the same module
+ * context as the framework onboarding route handlers (in-memory Map).
+ */
+
 import {
   createOnboardingPlugin,
   registerOnboardingStep,
 } from "@agent-native/core/onboarding";
+import {
+  resolveHasBuilderPrivateKey,
+  resolveSecret,
+} from "@agent-native/core/server";
 import { isObjectStorageConfigured } from "../lib/storage.js";
 
 const basePlugin = createOnboardingPlugin();
 
+const builderImageGenerationEnabled =
+  process.env.BUILDER_IMAGE_GENERATION_ENABLED === "true";
+
 export default async (nitroApp: any): Promise<void> => {
   await basePlugin(nitroApp);
+
+  registerOnboardingStep({
+    id: "image-generation",
+    order: 14,
+    required: true,
+    title: "Image generation",
+    description:
+      "Use Builder-managed image generation, or add a Gemini key as a manual fallback.",
+    methods: [
+      {
+        id: "builder",
+        kind: "builder-cli-auth",
+        label: "Connect Builder.io",
+        description: builderImageGenerationEnabled
+          ? "Recommended one-click setup. Uses Builder credits and keeps provider keys out of this app."
+          : "Coming soon. Use a Gemini key for image generation until the Builder-managed API is deployed.",
+        primary: true,
+        badge: builderImageGenerationEnabled ? "recommended" : "soon",
+        disabled: !builderImageGenerationEnabled,
+        disabledLabel: "Coming soon",
+        payload: { scope: "image-generation" },
+      },
+      {
+        id: "gemini-key",
+        kind: "form",
+        label: "Gemini API key",
+        description:
+          "Secondary BYOK option for local development or teams that want to pay Google directly.",
+        payload: {
+          writeScope: "workspace",
+          fields: [
+            {
+              key: "GEMINI_API_KEY",
+              label: "GEMINI_API_KEY",
+              placeholder: "AIza...",
+              secret: true,
+            },
+          ],
+        },
+      },
+    ],
+    isComplete: async () => {
+      if (builderImageGenerationEnabled) {
+        try {
+          if (await resolveHasBuilderPrivateKey()) return true;
+        } catch {
+          // Fall through to the manual key fallback.
+        }
+      }
+      return !!(await resolveSecret("GEMINI_API_KEY").catch(() => null));
+    },
+  });
 
   registerOnboardingStep({
     id: "image-storage",

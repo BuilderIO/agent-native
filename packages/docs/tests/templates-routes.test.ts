@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loader } from "../app/routes/templates.$slug";
-import { templates } from "../app/components/TemplateCard";
+import { featuredTemplates, templates } from "../app/components/TemplateCard";
 import { NAV_SECTIONS } from "../app/components/docsNavItems";
 import { buildSitemapPaths } from "../app/vite-sitemap-plugin";
 
@@ -35,7 +35,7 @@ describe("template routes", () => {
     ).toThrow(expect.objectContaining({ status: 404 }));
   });
 
-  it("keeps docs sidebar template links aligned with the public catalog", () => {
+  it("keeps docs sidebar template links aligned with the featured catalog", () => {
     const navTemplateSection = NAV_SECTIONS.find(
       (section) => section.title === "Templates",
     );
@@ -44,15 +44,13 @@ describe("template routes", () => {
     const sidebarTemplatePaths = navTemplateSection!.items.map(
       (item) => item.to,
     );
-    const catalogTemplatePaths = templates.map(
+    const catalogTemplatePaths = featuredTemplates.map(
       (template) => `/templates/${template.slug}`,
     );
 
-    // Every catalog template must be reachable from the sidebar — the sidebar
-    // is allowed to have additional entries for templates that don't yet have
-    // a rich catalog card (e.g. calls, voice, recruiting). The forward-only
-    // check still catches catalog drift (a new catalog entry without a
-    // sidebar link) without forcing every template to have a card.
+    // Every featured catalog template must be reachable from the sidebar.
+    // Non-featured templates may still keep direct docs pages without being
+    // promoted in the main navigation.
     for (const catalogPath of catalogTemplatePaths) {
       expect(sidebarTemplatePaths).toContain(catalogPath);
     }

@@ -23,7 +23,7 @@ When you open a deck, you get a slide editor in the middle, a sidebar of slides 
 
 - **Generate decks from a prompt.** "Generate a 10-slide pitch deck for a coffee subscription service, audience is investors."
 - **Edit slides visually** — double-click text to edit, click a block for the bubble menu, use `/` for the slash menu to insert blocks.
-- **Generate images with AI.** Hero images, product mockups, illustrations — generated with Gemini, multiple variations per request.
+- **Generate images with AI.** Hero images, product mockups, illustrations — preferably delegated to Images, with Builder-managed image generation ready to enable once deployed and direct provider keys as today's fallback.
 - **Search stock photos and company logos.** "Find the logo for stripe.com and add it to slide 2."
 - **Present full-screen** with keyboard navigation, auto-hiding controls, and speaker notes.
 - **Comment, collaborate, and share.** Multiple people can edit the same deck in real time. Generate a public read-only URL or share with specific teammates.
@@ -86,7 +86,7 @@ Built-in layouts: title, section divider, content with bullets, two-column, imag
 
 ### AI image generation
 
-Generate images with Gemini directly from the editor or via the agent. Each request returns multiple variations so you can pick the one that fits. Style reference images keep results visually consistent.
+Generate images through the Images app when brand libraries matter; once the managed backend is deployed, that path can use Builder-managed image generation and keep the audit trail with the source library. Direct provider-key generation remains the fallback for standalone decks.
 
 Actions: `generate-image`, `edit-image`, `image-search`, `logo-lookup`. UI panels: `ImageGenPanel.tsx`, `ImageSearchPanel.tsx`, `LogoSearchPanel.tsx`.
 

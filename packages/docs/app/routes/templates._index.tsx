@@ -1,5 +1,5 @@
 import {
-  templates,
+  featuredTemplates,
   TemplateCard,
   trackEvent,
 } from "../components/TemplateCard";
@@ -19,7 +19,7 @@ export default function TemplatesPage() {
       </div>
 
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {templates.map((t) => (
+        {featuredTemplates.map((t) => (
           <TemplateCard key={t.name} template={t} />
         ))}
       </div>

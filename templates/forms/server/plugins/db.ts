@@ -31,7 +31,7 @@ export default runMigrations(
       sql: {
         postgres: `ALTER TABLE forms ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost';
 ALTER TABLE forms ADD COLUMN IF NOT EXISTS org_id TEXT;
-ALTER TABLE forms ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public';
+ALTER TABLE forms ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private';
 CREATE TABLE IF NOT EXISTS form_shares (
   id TEXT PRIMARY KEY,
   resource_id TEXT NOT NULL,
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS form_shares (
     {
       version: 5,
       sql: {
-        sqlite: `ALTER TABLE forms ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'`,
+        sqlite: `ALTER TABLE forms ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private'`,
       },
     },
     {
@@ -80,6 +80,13 @@ CREATE TABLE IF NOT EXISTS form_shares (
       sql: {
         postgres: `ALTER TABLE forms ADD COLUMN IF NOT EXISTS deleted_at TEXT`,
         sqlite: `ALTER TABLE forms ADD COLUMN deleted_at TEXT`,
+      },
+    },
+    {
+      version: 9,
+      sql: {
+        postgres: `ALTER TABLE forms ALTER COLUMN visibility SET DEFAULT 'private'`,
+        sqlite: `SELECT 1`,
       },
     },
   ],

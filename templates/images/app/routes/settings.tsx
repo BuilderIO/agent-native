@@ -10,15 +10,15 @@ export default function SettingsPage() {
       <div>
         <h2 className="text-2xl font-semibold tracking-tight">Settings</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Configure Gemini and object storage from the agent sidebar setup
-          checklist.
+          Connect Builder-managed image generation and object storage from the
+          agent sidebar setup checklist.
         </p>
       </div>
       <div className="grid gap-4 md:grid-cols-3">
         <InfoTile
           icon={<IconKey className="h-5 w-5" />}
-          title="Gemini"
-          body="Required for Nano Banana 2 image generation."
+          title="Image generation"
+          body="Builder-managed is coming soon; use Gemini keys as the fallback."
         />
         <InfoTile
           icon={<IconCloudUpload className="h-5 w-5" />}

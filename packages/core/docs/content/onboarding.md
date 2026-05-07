@@ -134,14 +134,16 @@ export default defineNitroPlugin(() => {
 
 ### Method kinds
 
-| Kind               | Payload                         | Use for                                   |
-| ------------------ | ------------------------------- | ----------------------------------------- |
-| `link`             | `{ url, external? }`            | Send user to an OAuth flow or docs page   |
-| `form`             | `{ fields, writeScope? }`       | Collect env vars (keys, secrets, URLs)    |
-| `builder-cli-auth` | `{ scope: "llm" \| "browser" }` | Connect Builder (unlocks shared infra)    |
-| `agent-task`       | `{ prompt }`                    | Send a prompt to the agent chat to handle |
+| Kind               | Payload                                               | Use for                                   |
+| ------------------ | ----------------------------------------------------- | ----------------------------------------- |
+| `link`             | `{ url, external? }`                                  | Send user to an OAuth flow or docs page   |
+| `form`             | `{ fields, writeScope? }`                             | Collect env vars (keys, secrets, URLs)    |
+| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)    |
+| `agent-task`       | `{ prompt }`                                          | Send a prompt to the agent chat to handle |
 
 The `primary: true` flag marks a method as the big CTA for its step.
+Use `badge: "soon"` plus `disabled: true` when a setup path should be visible
+before it is available.
 
 ### Built-in steps
 

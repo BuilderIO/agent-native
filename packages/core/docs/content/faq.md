@@ -60,12 +60,11 @@ You can, but agent-native works best when built from the ground up. The architec
 
 The framework ships with production-ready templates you can use as daily drivers:
 
-- **[Mail](/templates/mail)** — full-featured email client (like Superhuman)
 - **[Calendar](/templates/calendar)** — Google Calendar + Calendly-style booking links
 - **[Content](/templates/content)** — Notion-style documents
 - **[Slides](/templates/slides)** — presentation builder
-- **[Video](/templates/video)** — video composition with Remotion
 - **[Analytics](/templates/analytics)** — data platform (like Amplitude/Mixpanel)
+- **[Mail](/templates/mail)** — full-featured email client (like Superhuman)
 - **[Clips](/templates/clips)** — async screen + camera recording (replaces Loom)
 - **[Design](/templates/design)** — agent-native HTML prototyping studio
 - **[Forms](/templates/forms)** — form builder (like Typeform)

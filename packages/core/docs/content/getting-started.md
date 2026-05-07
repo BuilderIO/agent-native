@@ -93,12 +93,11 @@ Each template is a complete app with UI, agent actions, database schema, and AI 
 
 | Template                            | Replaces                                         |
 | ----------------------------------- | ------------------------------------------------ |
-| [Mail](/templates/mail)             | Superhuman, Gmail                                |
 | [Calendar](/templates/calendar)     | Google Calendar, Calendly                        |
 | [Content](/templates/content)       | Notion, Google Docs                              |
 | [Slides](/templates/slides)         | Google Slides, Pitch                             |
-| [Video](/templates/video)           | video editing                                    |
 | [Analytics](/templates/analytics)   | Amplitude, Mixpanel, Looker                      |
+| [Mail](/templates/mail)             | Superhuman, Gmail                                |
 | [Clips](/templates/clips)           | Replaces Loom — screen + camera recording        |
 | [Design](/templates/design)         | HTML prototyping studios                         |
 | [Forms](/docs/template-forms)       | Typeform                                         |

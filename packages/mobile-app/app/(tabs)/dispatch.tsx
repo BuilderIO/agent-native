@@ -1,9 +1,9 @@
 import { SafeAreaView, StyleSheet } from "react-native";
 import AppWebView from "@/components/AppWebView";
-import { DEFAULT_APPS } from "@agent-native/shared-app-config";
+import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
 import { getAppUrl } from "@/lib/get-app-url";
 
-const dispatch = DEFAULT_APPS.find((a) => a.id === "dispatch")!;
+const dispatch = TEMPLATE_APPS.find((a) => a.id === "dispatch")!;
 
 export default function DispatchTab() {
   return (

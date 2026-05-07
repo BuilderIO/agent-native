@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import CodeBlock from "../components/CodeBlock";
 import Seascape from "../components/Seascape";
 import {
+  featuredTemplates,
   templates,
   TemplateCard,
   trackEvent,
@@ -344,11 +345,9 @@ export default function Home() {
           </div>
 
           <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-            {templates
-              .filter((t) => t.slug !== "starter")
-              .map((t) => (
-                <TemplateCard key={t.name} template={t} />
-              ))}
+            {featuredTemplates.map((t) => (
+              <TemplateCard key={t.name} template={t} />
+            ))}
           </div>
 
           <div className="mt-8 text-center">

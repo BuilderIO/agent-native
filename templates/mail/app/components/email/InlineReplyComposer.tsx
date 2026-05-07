@@ -46,8 +46,9 @@ import type {
 } from "@shared/types";
 import { RecipientInput } from "./RecipientInput";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
-import { openFilePicker, uploadFile, formatFileSize } from "@/lib/upload";
+import { openFilePicker, uploadFile } from "@/lib/upload";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
+import { AttachmentStrip } from "./AttachmentStrip";
 
 function splitQuotedContent(body: string): [string, string] {
   const replyMatch = body.match(/\n*— On .+? wrote:\n/);
@@ -354,27 +355,38 @@ export const InlineReplyComposer = forwardRef<
           </div>
         </>
       ) : (
-        <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="text-[13px] font-semibold text-green-400">
-              Draft
-            </span>
-            <span className="text-[13px] text-muted-foreground/70 truncate">
-              to {recipientDisplay}
-            </span>
+        <>
+          <div className="flex items-center justify-between px-4 pt-3 pb-1">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-[13px] font-semibold text-green-400">
+                Reply
+              </span>
+              <span className="text-[13px] text-muted-foreground/70 truncate">
+                to {recipientDisplay}
+              </span>
+            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => onPopOut(draft.id)}
+                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors shrink-0"
+                >
+                  <IconExternalLink className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Pop out to compose window</TooltipContent>
+            </Tooltip>
           </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => onPopOut(draft.id)}
-                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors shrink-0"
-              >
-                <IconExternalLink className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Pop out to compose window</TooltipContent>
-          </Tooltip>
-        </div>
+          <div className="flex items-center border-b border-border/30 px-4 pb-2">
+            <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
+              To
+            </span>
+            <RecipientInput
+              value={draft.to}
+              onChange={(val) => onUpdate(draft.id, { to: val })}
+            />
+          </div>
+        </>
       )}
 
       {/* Body */}
@@ -424,26 +436,10 @@ export const InlineReplyComposer = forwardRef<
 
       {/* Attachments */}
       {draft.attachments && draft.attachments.length > 0 && (
-        <div className="flex shrink-0 flex-wrap gap-1.5 border-t border-border/30 px-3 py-2">
-          {draft.attachments.map((att) => (
-            <div
-              key={att.id}
-              className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs"
-            >
-              <IconPaperclip className="h-3 w-3 text-muted-foreground shrink-0" />
-              <span className="truncate max-w-[140px]">{att.originalName}</span>
-              <span className="text-muted-foreground shrink-0">
-                {formatFileSize(att.size)}
-              </span>
-              <button
-                onClick={() => handleRemoveAttachment(att.id)}
-                className="ml-0.5 rounded-sm p-0.5 text-muted-foreground hover:text-foreground hover:bg-foreground/10 transition-colors"
-              >
-                <IconX className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
-        </div>
+        <AttachmentStrip
+          attachments={draft.attachments}
+          onRemove={handleRemoveAttachment}
+        />
       )}
 
       {/* Toolbar */}

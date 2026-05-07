@@ -48,10 +48,11 @@ import { toast } from "sonner";
 import type { ComposeState } from "@shared/types";
 import { RecipientInput } from "./RecipientInput";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
-import { openFilePicker, uploadFile, formatFileSize } from "@/lib/upload";
+import { openFilePicker, uploadFile } from "@/lib/upload";
 import type { ComposeAttachment } from "@shared/types";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
+import { AttachmentStrip } from "./AttachmentStrip";
 
 /**
  * Split a compose body into the editable portion and the quoted history.
@@ -699,28 +700,10 @@ export function ComposeModal({
 
           {/* Attachments */}
           {activeDraft.attachments && activeDraft.attachments.length > 0 && (
-            <div className="flex shrink-0 flex-wrap gap-1.5 border-t border-border px-3 py-2">
-              {activeDraft.attachments.map((att) => (
-                <div
-                  key={att.id}
-                  className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs"
-                >
-                  <IconPaperclip className="h-3 w-3 text-muted-foreground shrink-0" />
-                  <span className="truncate max-w-[140px]">
-                    {att.originalName}
-                  </span>
-                  <span className="text-muted-foreground shrink-0">
-                    {formatFileSize(att.size)}
-                  </span>
-                  <button
-                    onClick={() => handleRemoveAttachment(att.id)}
-                    className="ml-0.5 rounded-sm p-0.5 text-muted-foreground hover:text-foreground hover:bg-foreground/10 transition-colors"
-                  >
-                    <IconX className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
+            <AttachmentStrip
+              attachments={activeDraft.attachments}
+              onRemove={handleRemoveAttachment}
+            />
           )}
 
           {/* Toolbar */}

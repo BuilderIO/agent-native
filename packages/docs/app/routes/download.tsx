@@ -236,7 +236,7 @@ export default function DownloadPage() {
         <div className="grid gap-4 sm:grid-cols-3">
           <FeatureItem
             title="Built-in apps"
-            description="Mail, Calendar, Content, Analytics, Slides, Videos, and Forms — all ready to use."
+            description="Calendar, Content, Slides, Analytics, Mail, Clips, Design, Dispatch, and Forms — all ready to use."
           />
           <FeatureItem
             title="Auto-updates"

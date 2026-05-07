@@ -180,24 +180,35 @@
   max-width: 120px;
 }
 
-/* Date/actions container on email rows — fixed width, no layout shift */
-.email-list-row .hover-actions {
+/* Date/actions container on email rows — reserve enough room for actions. */
+.email-list-row .row-action-rail {
+  position: relative;
   display: flex;
-  position: absolute;
-  right: 0.5rem;
-  top: 0;
-  bottom: 0;
+  width: 3rem;
+  height: 100%;
+  flex-shrink: 0;
   align-items: center;
-  z-index: 2;
-  padding-left: 1rem;
+  justify-content: flex-end;
+  margin-left: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .email-list-row .row-action-rail {
+    width: 9rem;
+  }
+}
+
+.email-list-row .hover-actions {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   opacity: 0;
   pointer-events: none;
-  background: linear-gradient(
-    to right,
-    hsl(var(--background) / 0),
-    hsl(var(--background)) 35%
-  );
+  background: hsl(var(--background));
   transition: opacity 120ms ease;
+  z-index: 2;
 }
 .email-list-row.focused .hover-actions,
 .email-list-row:hover .hover-actions {
@@ -205,22 +216,27 @@
   pointer-events: auto;
 }
 .email-list-row.focused .hover-actions {
-  background: linear-gradient(
-    to right,
-    hsl(var(--accent) / 0),
-    hsl(var(--accent)) 35%
-  );
+  background: hsl(var(--accent));
 }
 .email-list-row.selected .hover-actions {
-  background: linear-gradient(
-    to right,
-    hsl(var(--secondary) / 0),
-    hsl(var(--secondary)) 35%
-  );
+  background: hsl(var(--secondary));
 }
 .email-list-row.focused .row-time,
 .email-list-row:hover .row-time {
   visibility: hidden;
+}
+
+@media (max-width: 639px) {
+  .email-list-row:hover .hover-actions,
+  .email-list-row.focused .hover-actions {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .email-list-row:hover .row-time,
+  .email-list-row.focused .row-time {
+    visibility: visible;
+  }
 }
 
 /* Sonner toast — readable width with room for actions */
