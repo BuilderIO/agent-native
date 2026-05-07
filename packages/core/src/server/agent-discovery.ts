@@ -23,12 +23,12 @@ interface AgentEntry {
 
 /**
  * Built-in agent registry. Derive this from the published CLI metadata so
- * connected-agent discovery stays aligned with the public template allow-list
+ * connected-agent discovery stays aligned with first-party template metadata
  * without depending on @agent-native/shared-app-config at runtime.
  */
-const BUILTIN_AGENTS: AgentEntry[] = visibleTemplates()
 const BUILTIN_AGENTS: AgentEntry[] = TEMPLATES.filter(
-  (template) => (!template.hidden || template.defaultAgent) && !!template.prodUrl,
+  (template) =>
+    (!template.hidden || template.defaultAgent) && !!template.prodUrl,
 )
   .map((template) => ({
     id: template.name,

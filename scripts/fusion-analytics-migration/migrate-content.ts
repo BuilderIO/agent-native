@@ -1995,6 +1995,13 @@ function buildExtensions(): ExtensionMigration[] {
       qbrExtension(),
     ),
     extension(
+      "cs-qbr-deck-builder",
+      "CS QBR Deck Builder",
+      "Customer Success QBR deck builder with live CSM book data and org-shared notes.",
+      csQbrExtension(),
+      [jsonData("cs-qbr-notes", "Alex Beebe", "data/cs-qbr/Alex_Beebe.json")],
+    ),
+    extension(
       "gcn-prep",
       "GCN Conference Prep",
       "Search migrated GCN speaker and meeting prep data.",
@@ -2009,6 +2016,12 @@ function buildExtensions(): ExtensionMigration[] {
       "User Engagement Planner",
       "Validate a company/org and generate an engagement-analysis prompt.",
       engagementExtension(),
+    ),
+    extension(
+      "discovery-coach",
+      "Discovery Coach",
+      "Fusion discovery coaching workflow for translating operational pain into business pain.",
+      discoveryCoachExtension(),
     ),
     extension(
       "customer-health",
