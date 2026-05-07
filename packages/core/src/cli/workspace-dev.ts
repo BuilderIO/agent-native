@@ -14,6 +14,8 @@ interface WorkspaceApp {
   dir: string;
   port: number;
   process?: ChildProcess;
+  restartTimer?: NodeJS.Timeout;
+  restartAttempts?: number;
   /**
    * Set true once we've successfully connected to the upstream. After that we
    * skip the readiness probe on every request — the child server stays
@@ -123,7 +125,12 @@ function pipeAppOutput(
 function syncApps(): void {
   const discovered = discoverApps();
   for (const app of discovered) {
-    if (appById.has(app.id)) continue;
+    const existing = appById.get(app.id);
+    if (existing) {
+      existing.name = app.name;
+      existing.dir = app.dir;
+      continue;
+    }
     const usedPorts = new Set(apps.map((existing) => existing.port));
     let port = appPortStart;
     while (usedPorts.has(port)) port++;
@@ -179,6 +186,12 @@ function appForRequest(req: http.IncomingMessage): WorkspaceApp | null {
 }
 
 function startApp(app: WorkspaceApp): void {
+  if (app.process && !app.process.killed) return;
+  if (app.restartTimer) {
+    clearTimeout(app.restartTimer);
+    app.restartTimer = undefined;
+  }
+
   const basePath = `/${app.id}`;
   const workspaceAppsJson = JSON.stringify(
     apps.map((workspaceApp) => ({
@@ -220,6 +233,11 @@ function startApp(app: WorkspaceApp): void {
   app.process = child;
 
   const prefix = `[${app.id}]`;
+  const stableTimer = setTimeout(() => {
+    app.restartAttempts = 0;
+  }, 5_000);
+  stableTimer.unref();
+
   child.stdout?.on("data", (chunk) => {
     pipeAppOutput(prefix, chunk, (value) => process.stdout.write(value));
   });
@@ -227,8 +245,22 @@ function startApp(app: WorkspaceApp): void {
     pipeAppOutput(prefix, chunk, (value) => process.stderr.write(value));
   });
   child.on("exit", (code) => {
+    clearTimeout(stableTimer);
+    app.process = undefined;
+    app.ready = false;
     if (code === 0 || shuttingDown) return;
-    console.error(`${prefix} exited with code ${code}`);
+    app.restartAttempts = (app.restartAttempts ?? 0) + 1;
+    const delay = appRestartDelay(app.restartAttempts);
+    console.error(
+      `${prefix} exited with code ${code}; retrying in ${Math.round(
+        delay / 1000,
+      )}s`,
+    );
+    app.restartTimer = setTimeout(() => {
+      app.restartTimer = undefined;
+      startApp(app);
+    }, delay);
+    app.restartTimer.unref();
   });
 }
 
@@ -274,6 +306,14 @@ const PROXY_READY_TIMEOUT_MS = Number(
   process.env.WORKSPACE_PROXY_READY_TIMEOUT_MS ?? 30_000,
 );
 const PROXY_READY_RETRY_DELAY_MS = 250;
+const APP_RESTART_MAX_DELAY_MS = 10_000;
+
+function appRestartDelay(attempts: number): number {
+  return Math.min(
+    1_000 * 2 ** Math.max(0, attempts - 1),
+    APP_RESTART_MAX_DELAY_MS,
+  );
+}
 
 function probePort(port: number, timeoutMs = 1_000): Promise<boolean> {
   return new Promise((resolve) => {
