@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { CalendarEvent } from "../shared/api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { calendarGetEvent } from "../server/lib/google-api.js";
+import { getGoogleEventColorHex } from "../shared/google-event-colors.js";
 
 export default defineAction({
   description: "Fetch a single Google Calendar event by id",
@@ -47,6 +48,8 @@ export default defineAction({
           description: evt.description || "",
           start: evt.start?.dateTime || evt.start?.date || "",
           end: evt.end?.dateTime || evt.end?.date || "",
+          startTimeZone: evt.start?.timeZone || undefined,
+          endTimeZone: evt.end?.timeZone || undefined,
           location: evt.location || "",
           allDay: !evt.start?.dateTime,
           source: "google",
@@ -55,6 +58,8 @@ export default defineAction({
           accountEmail: acctEmail,
           responseStatus: selfAttendee?.responseStatus || undefined,
           transparency: evt.transparency || undefined,
+          colorId: evt.colorId || undefined,
+          color: getGoogleEventColorHex(evt.colorId),
           eventType: evt.eventType || "default",
           attendees: evt.attendees?.map((a: any) => ({
             email: a.email,

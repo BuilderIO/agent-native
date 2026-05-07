@@ -18,6 +18,7 @@ import {
   IconPlayerPlay,
   IconSignature,
   IconFilter,
+  IconInfoCircle,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -1251,6 +1252,9 @@ function SlackIntakeSection() {
         queryKey: ["integration-status", "slack"],
       }),
   });
+  const slackStatusDescription = data?.configured
+    ? "Slack credentials are configured."
+    : "Add SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET to enable Slack intake.";
 
   return (
     <div className="flex-1 overflow-y-auto p-4 sm:p-8">
@@ -1284,11 +1288,9 @@ function SlackIntakeSection() {
                   </span>
                 </div>
                 <p className="mt-0.5 text-[12px] text-muted-foreground">
-                  {data?.configured
-                    ? "Slack credentials are configured."
-                    : "Slack credentials are missing."}
+                  {slackStatusDescription}
                 </p>
-                {data?.error && (
+                {data?.configured && data?.error && (
                   <p className="mt-1 text-[11px] text-red-400">{data.error}</p>
                 )}
               </div>
@@ -1303,10 +1305,19 @@ function SlackIntakeSection() {
                 {data?.enabled ? "Disable" : "Enable"}
               </Button>
             </div>
-            {data?.webhookUrl && (
+            {data?.configured && data?.webhookUrl && (
               <div>
-                <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                  Webhook URL
+                <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Slack POST endpoint
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <IconInfoCircle className="h-3.5 w-3.5" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Use in Slack Event Subscriptions. Browser GET may show Not
+                      Found.
+                    </TooltipContent>
+                  </Tooltip>
                 </label>
                 <Input readOnly value={data.webhookUrl} className="font-mono" />
               </div>

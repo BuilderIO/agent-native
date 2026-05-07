@@ -11,6 +11,7 @@ import { readBody, getSession } from "@agent-native/core/server";
 import { emit } from "@agent-native/core/event-bus";
 import * as googleCalendar from "../lib/google-calendar.js";
 import { prepareZoomMeetingPatch } from "../lib/event-video-conferencing.js";
+import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
 
 async function uEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);
@@ -155,6 +156,8 @@ export const getEvent = defineEventHandler(async (event: H3Event) => {
           description: evt.description || "",
           start: evt.start?.dateTime || evt.start?.date || "",
           end: evt.end?.dateTime || evt.end?.date || "",
+          startTimeZone: evt.start?.timeZone || undefined,
+          endTimeZone: evt.end?.timeZone || undefined,
           location: evt.location || "",
           allDay: !evt.start?.dateTime,
           source: "google",
@@ -163,6 +166,8 @@ export const getEvent = defineEventHandler(async (event: H3Event) => {
           accountEmail: acctEmail,
           responseStatus: selfAttendee?.responseStatus || undefined,
           transparency: evt.transparency || undefined,
+          colorId: evt.colorId || undefined,
+          color: getGoogleEventColorHex(evt.colorId),
           eventType: evt.eventType || "default",
           attendees: evt.attendees?.map((a: any) => ({
             email: a.email,
