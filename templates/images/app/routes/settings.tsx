@@ -18,7 +18,7 @@ export default function SettingsPage() {
         <InfoTile
           icon={<IconKey className="h-5 w-5" />}
           title="Image generation"
-          body="Builder-managed is coming soon; use Gemini keys as the fallback."
+          body="Builder-managed generation uses Builder credits; Gemini keys remain available as the fallback."
         />
         <InfoTile
           icon={<IconCloudUpload className="h-5 w-5" />}

@@ -868,7 +868,6 @@ function cxDoubleClickApp() {
     loading: false,
     error: '',
     days: '90',
-    segment: 'enterprise',
     selected: null,
     data: {
       ndr: [], renewals: [], expansion: [], csqls: [], prs: [], credits: [], seats: [], pylonAging: [], pylonResolution: []
@@ -976,7 +975,6 @@ function cxDoubleClickApp() {
 <div x-data="cxDoubleClickApp()" x-init="init()" class="space-y-4">
   <div class="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-card p-4">
     <label class="space-y-1"><span class="text-xs text-muted-foreground">NDR period</span><select x-model="days" class="rounded-md border border-border bg-background px-3 py-2"><option value="90">90 day</option><option value="180">6 month</option><option value="365">12 month</option></select></label>
-    <label class="space-y-1"><span class="text-xs text-muted-foreground">Segment</span><select x-model="segment" class="rounded-md border border-border bg-background px-3 py-2"><option value="enterprise">Enterprise</option><option value="fusion">Ramped Fusion</option><option value="all">All CX</option></select></label>
     <button class="rounded-md bg-primary px-3 py-2 text-xs text-primary-foreground" x-on:click="load()" x-text="loading ? 'Loading' : 'Refresh'"></button>
     <p x-show="error" class="text-xs text-red-700" x-text="error"></p>
   </div>
@@ -1039,7 +1037,6 @@ function expansionAttainmentApp() {
     deals: [],
     summary: {},
     targetARR: 7500000,
-    pipelineConversionRate: 35,
     avgDaysToClose: 90,
     qTargets: [760000, 1390000, 2150000, 3200000],
     qExpansionPercents: [10, 15, 25, 45],
@@ -1061,7 +1058,6 @@ function expansionAttainmentApp() {
       const scenario = {
         name: this.scenarioName || 'Scenario ' + new Date().toLocaleDateString(),
         targetARR: this.targetARR,
-        pipelineConversionRate: this.pipelineConversionRate,
         avgDaysToClose: this.avgDaysToClose,
         qTargets: this.qTargets,
         qExpansionPercents: this.qExpansionPercents,
@@ -1073,7 +1069,6 @@ function expansionAttainmentApp() {
     },
     applyScenario(s) {
       this.targetARR = Number(s.targetARR || this.targetARR);
-      this.pipelineConversionRate = Number(s.pipelineConversionRate || this.pipelineConversionRate);
       this.avgDaysToClose = Number(s.avgDaysToClose || this.avgDaysToClose);
       this.qTargets = (s.qTargets || this.qTargets).map(Number);
       this.qExpansionPercents = (s.qExpansionPercents || this.qExpansionPercents).map(Number);
@@ -1229,7 +1224,6 @@ function expansionAttainmentApp() {
     <h2 class="mb-4 font-medium">Scenario Parameters</h2>
     <div class="grid gap-4 md:grid-cols-3">
       <label class="space-y-1"><span class="text-xs text-muted-foreground">Total Target ARR</span><input type="number" x-model.number="targetARR" class="w-full rounded-md border border-input bg-background px-3 py-2 text-right" /></label>
-      <label class="space-y-1"><span class="text-xs text-muted-foreground">Pipeline Conversion Rate</span><input type="range" min="10" max="70" step="5" x-model.number="pipelineConversionRate" class="w-full" /><span class="block text-right text-sm" x-text="pipelineConversionRate + '%'"></span></label>
       <label class="space-y-1"><span class="text-xs text-muted-foreground">Avg Days to Close</span><input type="number" x-model.number="avgDaysToClose" class="w-full rounded-md border border-input bg-background px-3 py-2 text-right" /></label>
     </div>
     <div class="mt-5 grid gap-4 border-t border-border pt-4 lg:grid-cols-4">

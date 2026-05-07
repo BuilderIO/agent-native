@@ -196,7 +196,7 @@ function saveBool(key: string, value: boolean): void {
   saveString(key, value ? "1" : "0");
 }
 
-type ByokVoiceProvider = Extract<VoiceProvider, "gemini" | "openai" | "groq">;
+type ByokVoiceProvider = Extract<VoiceProvider, "gemini" | "groq">;
 type VoiceProviderMode = "native" | "builder" | "byok";
 type MacosPrivacyPane =
   | "camera"
@@ -237,7 +237,7 @@ function nativeVoiceProvider(): VoiceProvider {
 }
 
 function isByokVoiceProvider(value: VoiceProvider): value is ByokVoiceProvider {
-  return value === "gemini" || value === "openai" || value === "groq";
+  return value === "gemini" || value === "groq";
 }
 
 function voiceProviderMode(value: VoiceProvider): VoiceProviderMode {
@@ -255,7 +255,6 @@ function normalizeVoiceProvider(value: string): VoiceProvider {
     value === "macos-native" ||
     value === "builder-gemini" ||
     value === "gemini" ||
-    value === "openai" ||
     value === "groq"
     ? value
     : native;
@@ -2381,14 +2380,12 @@ type VoiceProviderStatus = {
   "macos-native": boolean;
   builder: boolean;
   gemini: boolean;
-  openai: boolean;
   groq: boolean;
 };
 
 function keyForByokProvider(provider: ByokVoiceProvider): string {
   return {
     gemini: "GEMINI_API_KEY",
-    openai: "OPENAI_API_KEY",
     groq: "GROQ_API_KEY",
   }[provider];
 }
@@ -2396,7 +2393,6 @@ function keyForByokProvider(provider: ByokVoiceProvider): string {
 function labelForByokProvider(provider: ByokVoiceProvider): string {
   return {
     gemini: "Google Gemini",
-    openai: "OpenAI",
     groq: "Groq",
   }[provider];
 }
@@ -2510,7 +2506,6 @@ function Setup({
           "macos-native": Boolean(json?.native),
           builder: Boolean(json?.builder),
           gemini: Boolean(json?.gemini),
-          openai: Boolean(json?.openai),
           groq: Boolean(json?.groq),
         });
         setProviderStatusLoading(false);
@@ -2617,7 +2612,6 @@ function Setup({
               "macos-native": true,
               builder: false,
               gemini: byokProvider === "gemini",
-              openai: byokProvider === "openai",
               groq: byokProvider === "groq",
             },
       );
@@ -2833,7 +2827,7 @@ function Setup({
             <div className="setup-section">
               <SettingLabel
                 label="Key provider"
-                hint="Gemini is the recommended provider for fast cleanup; OpenAI and Groq are available when you prefer those keys."
+                hint="Gemini is recommended for cleanup; Groq is available as the speech-to-text fallback."
                 htmlFor="voice-byok-provider"
               />
               <select
@@ -2848,7 +2842,6 @@ function Setup({
                 }}
               >
                 <option value="gemini">Google Gemini (recommended)</option>
-                <option value="openai">OpenAI</option>
                 <option value="groq">Groq</option>
               </select>
               <div className="setup-key-row">

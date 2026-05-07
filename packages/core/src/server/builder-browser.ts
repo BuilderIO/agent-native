@@ -29,12 +29,12 @@ export interface BuilderBrowserStatus {
   branchProjectIdConfigured: boolean;
   branchProjectId?: string;
   /**
-   * True when `BUILDER_PRIVATE_KEY` is set at the deployment level. Every
-   * user of this deploy shares the operator's Builder identity; the UI
-   * must hide the per-user connect/disconnect flow and show a read-only
-   * "managed by deployment" state instead.
+   * True when `BUILDER_PRIVATE_KEY` is set at the deployment level. This is a
+   * fallback credential; signed-in users can still connect their own Builder
+   * account, which takes precedence for their request.
    */
   envManaged: boolean;
+  credentialSource?: "user" | "org" | "env";
   appHost: string;
   apiHost: string;
   connectUrl: string;
@@ -308,6 +308,7 @@ export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
     branchProjectIdConfigured: !!branchProjectId,
     branchProjectId: branchProjectId || undefined,
     envManaged,
+    credentialSource: envManaged ? "env" : undefined,
     appHost: getBuilderAppHost(),
     apiHost: getBuilderApiHost(),
     connectUrl: getBuilderBrowserConnectUrl(origin),

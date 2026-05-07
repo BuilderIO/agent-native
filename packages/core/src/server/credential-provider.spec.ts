@@ -21,6 +21,7 @@ import {
   writeBuilderCredentials,
   deleteBuilderCredentials,
   resolveBuilderCredential,
+  resolveBuilderCredentialSource,
   resolveSecret,
 } from "./credential-provider.js";
 
@@ -163,13 +164,29 @@ describe("resolveBuilderCredential", () => {
     expect(mockReadAppSecret).not.toHaveBeenCalled();
   });
 
-  it("returns env value when set (deploy-managed mode beats per-user/org)", async () => {
+  it("returns request-scoped credentials before the env fallback", async () => {
     process.env.BUILDER_PRIVATE_KEY = "deploy-key";
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockReadAppSecret.mockResolvedValueOnce({
+      value: "personal-key",
+      last4: "-key",
+      updatedAt: 1,
+    });
+    expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
+      "personal-key",
+    );
+    expect(mockReadAppSecret).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to env when no user/org scoped Builder key exists", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
       "deploy-key",
     );
-    expect(mockReadAppSecret).not.toHaveBeenCalled();
+    expect(mockReadAppSecret).toHaveBeenCalledTimes(2);
   });
 
   it("falls back to org scope when no user-scope row exists", async () => {
@@ -222,6 +239,24 @@ describe("resolveBuilderCredential", () => {
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
     expect(mockReadAppSecret).toHaveBeenCalledTimes(1);
     expect(mockReadAppSecret.mock.calls[0][0].scope).toBe("user");
+  });
+
+  it("reports the effective credential source", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ value: "org-key", last4: "-key", updatedAt: 1 });
+    expect(await resolveBuilderCredentialSource()).toBe("org");
+  });
+
+  it("reports env as the credential source when scoped credentials are missing", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+    expect(await resolveBuilderCredentialSource()).toBe("env");
   });
 });
 

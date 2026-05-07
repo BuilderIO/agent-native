@@ -64,9 +64,9 @@ and for other agent-native apps over A2A.
 - Avoid in-image text unless the user explicitly asks for exact visible text.
 - For diagrams, use the normal image path but specify chart type, label
   placement, line weights, hierarchy, and whitespace.
-- Builder-managed image generation is wired but currently gated behind
-  `BUILDER_IMAGE_GENERATION_ENABLED=true`. Until that flag is enabled, use the
-  user-provided Gemini key fallback.
+- Builder-managed image generation is enabled by default. Set
+  `BUILDER_IMAGE_GENERATION_ENABLED=false` only when a deployment needs to force
+  the user-provided Gemini key fallback.
 - For logo accuracy, ask the image provider to leave a clean placeholder region
   and composite the canonical uploaded logo server-side.
 

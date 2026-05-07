@@ -15,6 +15,7 @@
 - Auto-generated titles and summaries are drafted from the transcript. Always offer the user a chance to edit before publishing.
 - When a user shares a recording without a title, run `regenerate-title` on their behalf.
 - Filler-word removal uses the "conservative" preset by default (only um / uh / ah) — escalate to "aggressive" (rambles, repeats) only if the user asks.
+- Clips recording transcripts are native-first: show macOS/Web Speech text immediately, generate the title from that native text with Gemini 3.1 Flash-Lite, and run optional cleanup in the background. Never route Clips recording transcription to OpenAI; if Gemini/Builder cleanup fails, keep the native transcript and log details.
 
 ## View-counting rule
 

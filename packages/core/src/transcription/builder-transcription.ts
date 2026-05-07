@@ -32,6 +32,13 @@ export interface BuilderTranscribeResult {
   }>;
 }
 
+function describeError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const cause = (err as Error & { cause?: unknown }).cause;
+  const causeText = cause ? `; cause: ${describeError(cause)}` : "";
+  return `${err.name}: ${err.message}${causeText}`;
+}
+
 export async function transcribeWithBuilder(
   opts: BuilderTranscribeOptions,
 ): Promise<BuilderTranscribeResult> {
@@ -79,21 +86,24 @@ export async function transcribeWithBuilder(
     if ((err as Error)?.name === "AbortError") {
       throw new Error("Builder transcription timed out after 45 seconds.");
     }
-    throw err;
+    throw new Error(
+      `Builder transcription request failed before response: ${describeError(err)}`,
+      { cause: err },
+    );
   } finally {
     clearTimeout(timeout);
   }
 
   if (res.status === 402) {
     throw new Error(
-      "Builder transcription credits exhausted. Upgrade your plan or switch to OpenAI Whisper in Settings.",
+      "Builder transcription credits exhausted. Upgrade your Builder.io plan or configure another supported fallback.",
     );
   }
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(
-      `Builder transcription failed (${res.status}): ${text.slice(0, 300)}`,
+      `Builder transcription failed (${res.status} ${res.statusText}): ${text}`,
     );
   }
 

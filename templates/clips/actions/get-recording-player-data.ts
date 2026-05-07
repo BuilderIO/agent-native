@@ -23,6 +23,7 @@ import { asc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { parseSpaceIds } from "../server/lib/recordings.js";
 import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
+import { readAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
@@ -45,6 +46,13 @@ export default defineAction({
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
       .limit(1);
+    const cleanupStateRaw = await readAppState(
+      `transcript-cleanup-${args.recordingId}`,
+    ).catch(() => null);
+    const cleanupState =
+      cleanupStateRaw && typeof cleanupStateRaw === "object"
+        ? (cleanupStateRaw as Record<string, unknown>)
+        : null;
 
     const comments = await db
       .select()
@@ -182,6 +190,26 @@ export default defineAction({
             fullText: transcript.fullText,
             failureReason: transcript.failureReason,
             segments: transcriptSegments,
+            cleanup: cleanupState
+              ? {
+                  status:
+                    typeof cleanupState.status === "string"
+                      ? cleanupState.status
+                      : "unknown",
+                  provider:
+                    typeof cleanupState.provider === "string"
+                      ? cleanupState.provider
+                      : null,
+                  failureReason:
+                    typeof cleanupState.failureReason === "string"
+                      ? cleanupState.failureReason
+                      : null,
+                  updatedAt:
+                    typeof cleanupState.updatedAt === "string"
+                      ? cleanupState.updatedAt
+                      : null,
+                }
+              : null,
           }
         : null,
       comments: comments.map((c) => ({

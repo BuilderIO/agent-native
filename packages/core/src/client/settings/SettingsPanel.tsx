@@ -167,11 +167,10 @@ function SettingsSelect({
 // click actually disconnects. Arm auto-reverts after 4s of idle so a user
 // who wandered off doesn't come back to a disconnect waiting for them.
 //
-// Hits /_agent-native/builder/disconnect which scrubs BUILDER_* keys from the
-// template `.env`, `process.env`, and the `persisted-env-vars` settings row.
-// On success we dispatch `agent-engine:configured-changed` so dependent cards
-// refresh inline (no hard reload — that was racing with nitro's env-runner
-// restart and hitting React Router's error boundary).
+// Hits /_agent-native/builder/disconnect which removes request-scoped
+// Builder credentials from app_secrets. Deployment env credentials are left
+// alone and remain as fallback. On success we dispatch
+// `agent-engine:configured-changed` so dependent cards refresh inline.
 function DisconnectBuilderButton() {
   const { status } = useBuilderStatus();
   const [phase, setPhase] = useState<"idle" | "armed" | "busy">("idle");
@@ -264,12 +263,10 @@ function DisconnectBuilderButton() {
     setPhase("idle");
   }, [clearArmedTimer]);
 
-  // Env-managed: Builder identity comes from the deploy-level
-  // BUILDER_PRIVATE_KEY. Disconnection is operator-controlled (rotate / unset
-  // the env var); the per-user disconnect endpoint refuses with 409. The
-  // early return MUST come after every hook above to satisfy rules-of-hooks
-  // (status?.envManaged transitions undefined → boolean as the fetch resolves).
-  if (status?.envManaged) return null;
+  // When only the deploy fallback is active there is nothing request-scoped
+  // for this button to remove. The early return MUST come after every hook
+  // above to satisfy rules-of-hooks.
+  if (status?.credentialSource === "env") return null;
 
   if (phase === "armed") {
     return (
@@ -323,6 +320,7 @@ function UseBuilderCard({
   connected,
   orgName,
   envManaged,
+  credentialSource,
   label = "Connect Builder.io",
   subtitle = "Free credits to start — no API key needed.",
   dim,
@@ -332,6 +330,7 @@ function UseBuilderCard({
   connected: boolean;
   orgName?: string;
   envManaged?: boolean;
+  credentialSource?: "user" | "org" | "env";
   label?: string;
   subtitle?: string;
   dim?: boolean;
@@ -359,24 +358,31 @@ function UseBuilderCard({
         )}
         {envManaged ? (
           <p className="text-[10px] text-muted-foreground mt-1">
-            Managed by deployment — applied to all users of this app.
+            {credentialSource === "env"
+              ? "Deployment fallback is available. Connect your own account to override it."
+              : "Using your connected Builder account. Deployment fallback is still available."}
           </p>
-        ) : (
+        ) : null}
+        {connectUrl || credentialSource !== "env" ? (
           <div className="flex items-center gap-2 mt-2.5">
             {connectUrl && (
-              <a
-                href={connectUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
+              <button
+                type="button"
+                onClick={builderFlow.start}
+                disabled={builderFlow.connecting}
+                className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40 disabled:opacity-60"
               >
-                Reconnect
+                {builderFlow.connecting
+                  ? "Connecting..."
+                  : credentialSource === "env"
+                    ? "Connect account"
+                    : "Reconnect"}
                 <IconExternalLink size={10} />
-              </a>
+              </button>
             )}
-            <DisconnectBuilderButton />
+            {credentialSource !== "env" ? <DisconnectBuilderButton /> : null}
           </div>
-        )}
+        ) : null}
       </div>
     );
   }
@@ -573,6 +579,7 @@ function LLMSectionInner({
   connected,
   orgName,
   envManaged,
+  credentialSource,
   open,
   onToggle,
 }: {
@@ -582,6 +589,7 @@ function LLMSectionInner({
   connected: boolean;
   orgName?: string;
   envManaged?: boolean;
+  credentialSource?: "user" | "org" | "env";
   open?: boolean;
   onToggle?: () => void;
 }) {
@@ -849,6 +857,7 @@ function LLMSectionInner({
             connected={connected}
             orgName={orgName}
             envManaged={envManaged}
+            credentialSource={credentialSource}
             label="Connect Builder.io"
           />
           {!connected && (
@@ -1636,6 +1645,7 @@ export function SettingsPanel({
   const connectUrl = builder?.connectUrl;
   const orgName = builder?.orgName;
   const envManaged = !!builder?.envManaged;
+  const credentialSource = builder?.credentialSource;
   const builderBranchesAvailable = !!builder?.builderEnabled;
   const builderFlow = useBuilderConnectFlow({ popupUrl: connectUrl });
 
@@ -1727,6 +1737,7 @@ export function SettingsPanel({
         connected={connected}
         orgName={orgName}
         envManaged={envManaged}
+        credentialSource={credentialSource}
         open={openSection === "llm"}
         onToggle={() => toggle("llm")}
       />
@@ -1786,6 +1797,7 @@ export function SettingsPanel({
             connected={connected}
             orgName={orgName}
             envManaged={envManaged}
+            credentialSource={credentialSource}
           />
           <ManualSetupCard
             hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
@@ -1811,6 +1823,7 @@ export function SettingsPanel({
             connected={connected}
             orgName={orgName}
             envManaged={envManaged}
+            credentialSource={credentialSource}
           />
           <ManualSetupCard
             hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, or any Postgres/SQLite database."
@@ -1836,6 +1849,7 @@ export function SettingsPanel({
             connected={connected}
             orgName={orgName}
             envManaged={envManaged}
+            credentialSource={credentialSource}
           />
           <ManualSetupCard
             hint="Without a provider, files are stored as base64 in your database. Fine for dev, not recommended for production."
@@ -1861,6 +1875,7 @@ export function SettingsPanel({
             connected={connected}
             orgName={orgName}
             envManaged={envManaged}
+            credentialSource={credentialSource}
           />
           <ManualSetupCard
             hint="Configure Better Auth with BETTER_AUTH_SECRET and optional Google/GitHub OAuth providers."
@@ -1891,6 +1906,7 @@ export function SettingsPanel({
           connected={connected}
           orgName={orgName}
           envManaged={envManaged}
+          credentialSource={credentialSource}
         />
       </SettingsSection>
 
@@ -1909,6 +1925,7 @@ export function SettingsPanel({
             connected={connected}
             orgName={orgName}
             envManaged={envManaged}
+            credentialSource={credentialSource}
           />
         </SettingsSection>
       )}

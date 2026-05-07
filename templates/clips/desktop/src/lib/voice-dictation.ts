@@ -30,14 +30,12 @@ export type VoiceProvider =
   | "builder-gemini"
   | "builder"
   | "gemini"
-  | "openai"
   | "groq";
 type ServerVoiceProvider =
   | "auto"
   | "builder-gemini"
   | "builder"
   | "gemini"
-  | "openai"
   | "groq";
 
 type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
@@ -50,7 +48,6 @@ type VoiceShortcutSource =
 interface ProviderStatus {
   builder: boolean;
   gemini: boolean;
-  openai: boolean;
   groq: boolean;
   browser: true;
   // Apple's SFSpeechRecognizer + AVAudioEngine driven from Rust. The
@@ -359,7 +356,7 @@ async function transcribe(
       : "webm";
   form.append("audio", audioBlob, `voice.${ext}`);
   // Tells the server which provider to use. "auto" matches the existing
-  // server default (Builder Gemini → Gemini → Groq → OpenAI fallback chain),
+  // server default (Builder Gemini → Gemini → Groq fallback chain),
   // anything else pins to that one provider with no fallback.
   form.append("provider", providerPref);
   const trimmedInstructions = instructions?.trim();
@@ -492,7 +489,6 @@ export function installDesktopVoiceDictation(
       providerStatus = {
         builder: !!data.builder,
         gemini: !!data.gemini,
-        openai: !!data.openai,
         groq: !!data.groq,
         browser: true,
         native: !!data.native,
@@ -517,7 +513,6 @@ export function installDesktopVoiceDictation(
       return {
         builder: false,
         gemini: false,
-        openai: false,
         groq: false,
         browser: true,
         native: false,
@@ -562,7 +557,6 @@ export function installDesktopVoiceDictation(
       return { kind: "server", providerPref: "builder-gemini" };
     if (status.gemini) return { kind: "server", providerPref: "gemini" };
     if (status.groq) return { kind: "server", providerPref: "groq" };
-    if (status.openai) return { kind: "server", providerPref: "openai" };
     if (
       status.native &&
       typeof navigator !== "undefined" &&

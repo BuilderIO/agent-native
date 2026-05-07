@@ -49,6 +49,14 @@ const GEMINI_BYOK_URL = `https://generativelanguage.googleapis.com/v1beta/models
 
 const MAX_INPUT_CHARS = 200_000;
 
+const CLIPS_TRANSCRIPT_AGENT_INSTRUCTIONS = [
+  "Relevant Clips AGENTS.md rules:",
+  "- User-facing language calls a recording a Clip.",
+  "- Generated titles should be concise, specific, and human-editable.",
+  "- Native Web Speech/macOS Speech text is the source transcript; Gemini only cleans or titles it.",
+  "- Cleanup preserves the speaker's meaning and voice, fixes recognition errors, and must not invent facts.",
+].join("\n");
+
 export interface CleanupResult {
   task: "cleanup" | "title" | "summary";
   // For task='cleanup' — the cleaned transcript text.
@@ -327,14 +335,14 @@ function buildPrompt({
 
   if (task === "title") {
     return {
-      system: `You produce one short, descriptive title for a recorded session. Output the title only — no quotes, no preamble, no markdown. Keep it under 80 characters.${langHint}`,
+      system: `${CLIPS_TRANSCRIPT_AGENT_INSTRUCTIONS}\n\nYou produce one short, descriptive title for a Clip. Output the title only — no quotes, no preamble, no markdown. Keep it under 80 characters.${langHint}`,
       user: `Pick a concise, specific title for this transcript:${ctxBlock}\n\n<transcript>\n${transcript}\n</transcript>`,
     };
   }
 
   if (task === "cleanup") {
     return {
-      system: `You clean up live speech-recognition transcripts. Preserve the speaker's meaning and voice. Fix obvious recognition errors, punctuation, capitalization, and spacing. Remove false starts and filler when clearly unintentional. Do not add facts. Output only the cleaned transcript text — no preamble, no markdown.${langHint}`,
+      system: `${CLIPS_TRANSCRIPT_AGENT_INSTRUCTIONS}\n\nYou clean up live speech-recognition transcripts. Preserve the speaker's meaning and voice. Fix obvious recognition errors, punctuation, capitalization, and spacing. Remove false starts and filler when clearly unintentional. Do not add facts. Output only the cleaned transcript text — no preamble, no markdown.${langHint}`,
       user: `Clean up this transcript and return only the final text:${ctxBlock}\n\n<transcript>\n${transcript}\n</transcript>`,
     };
   }
