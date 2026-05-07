@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.12.7
+
+### Patch Changes
+
+- 7d0ebfc: Add Builder-managed image generation onboarding support and endpoint helpers.
+- 7d0ebfc: Move Mail lower in template pickers, remove non-featured templates from default selections, and add a hosted Mail Google sign-in notice.
+- 7d0ebfc: Preserve standard `backdrop-filter` declarations in production CSS builds.
+- 7d0ebfc: Allow share dialogs to customize visibility and link copy for template-specific access wording.
+
 ## 0.12.6
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.2.8
+
+### Patch Changes
+
+- 7d0ebfc: Move Mail lower in template pickers, remove non-featured templates from default selections, and add a hosted Mail Google sign-in notice.
+
 ## 0.2.7
 
 ### Patch Changes
