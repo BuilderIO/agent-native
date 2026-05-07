@@ -7,11 +7,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client";
 import { toast } from "sonner";
-import {
-  IconArrowUpRight,
-  IconMessageCircle,
-  IconPhotoPlus,
-} from "@tabler/icons-react";
+import { IconArrowUpRight, IconPhotoPlus } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -309,36 +305,13 @@ function HomeGeneratePanel({
     <>
       <section className="px-2 py-6 sm:py-10">
         <div className="mx-auto w-full max-w-2xl space-y-8">
-          <div className="space-y-3 text-center">
-            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl border bg-card text-muted-foreground">
-              <IconMessageCircle className="h-5 w-5" />
-            </div>
+          <div className="text-center">
             <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
               What image should we make?
             </h1>
           </div>
 
           <div className="space-y-4">
-            <Select value={selectValue} onValueChange={handleLibraryChange}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Choose a library" />
-              </SelectTrigger>
-              <SelectContent>
-                {sortedLibraries.map((library) => (
-                  <SelectItem key={library.id} value={library.id}>
-                    {library.title}
-                  </SelectItem>
-                ))}
-                <SelectItem value="generic">No library - generic</SelectItem>
-                <SelectItem value="__new__">
-                  <span className="flex items-center gap-2">
-                    <IconPhotoPlus className="h-3.5 w-3.5" />
-                    New library...
-                  </span>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-
             <PromptComposer
               placeholder={
                 selectedLibrary
@@ -353,6 +326,28 @@ function HomeGeneratePanel({
             />
 
             <div className="mt-5 flex flex-wrap items-center justify-center gap-3 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">Library</span>
+                <Select value={selectValue} onValueChange={handleLibraryChange}>
+                  <SelectTrigger className="h-8 w-[220px] text-sm">
+                    <SelectValue placeholder="Choose a library" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sortedLibraries.map((library) => (
+                      <SelectItem key={library.id} value={library.id}>
+                        {library.title}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="generic">No library - generic</SelectItem>
+                    <SelectItem value="__new__">
+                      <span className="flex items-center gap-2">
+                        <IconPhotoPlus className="h-3.5 w-3.5" />
+                        New library...
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="flex items-center gap-2">
                 <span className="text-muted-foreground">Aspect</span>
                 <Select value={aspectRatio} onValueChange={handleAspectChange}>

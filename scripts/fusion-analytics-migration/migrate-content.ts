@@ -257,6 +257,39 @@ function extractConstSql(rel: string, name: string): string {
   return match[1].replace(/\\`/g, "`").trim();
 }
 
+function extractConstArrayLiteral(rel: string, name: string): string {
+  const source = readLegacy(rel);
+  const start = source.indexOf(`const ${name}`);
+  if (start < 0) throw new Error(`Could not find ${name} in ${rel}`);
+  const eq = source.indexOf("=", start);
+  const arrayStart = source.indexOf("[", eq);
+  if (eq < 0 || arrayStart < 0)
+    throw new Error(`Could not find array literal for ${name} in ${rel}`);
+
+  let depth = 0;
+  let quote: string | null = null;
+  let escaped = false;
+  for (let i = arrayStart; i < source.length; i++) {
+    const ch = source[i];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === `"` || ch === `'` || ch === "`") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "[") depth++;
+    if (ch === "]") {
+      depth--;
+      if (depth === 0) return source.slice(arrayStart, i + 1);
+    }
+  }
+  throw new Error(`Unterminated array literal for ${name} in ${rel}`);
+}
+
 function currentBigQuerySql(sql: string): string {
   return sql
     .replace(
