@@ -108,18 +108,27 @@ export function ExportMenu({
   };
 
   const handleExportGoogleSlides = async () => {
+    // Open the importer synchronously during the click. window.open() loses
+    // its user activation after `await`, so opening it after the fetch gets
+    // silently popup-blocked in Safari/Firefox. Returns null when blocked
+    // (e.g. user has disabled popups for the site) — we fall back to a
+    // toast that tells them what to do.
+    const importerWindow = window.open(
+      "https://docs.google.com/presentation/u/0/?usp=import",
+      "_blank",
+      "noopener,noreferrer",
+    );
     try {
       const { blob, filename } = await fetchPptxExport();
       triggerBlobDownload(blob, filename);
-      const importerUrl =
-        "https://docs.google.com/presentation/u/0/?usp=import";
-      window.open(importerUrl, "_blank", "noopener,noreferrer");
       toast({
         title: "Open in Google Slides",
-        description:
-          "We downloaded the .pptx and opened Google Slides — choose File → Import slides and drop the file in.",
+        description: importerWindow
+          ? "We downloaded the .pptx and opened Google Slides — choose File → Import slides and drop the file in."
+          : "We downloaded the .pptx. Open Google Slides → File → Import slides and drop the file in (your browser blocked the popup).",
       });
     } catch (err) {
+      importerWindow?.close();
       console.error("Export failed:", err);
       toast({
         title: "Export failed",

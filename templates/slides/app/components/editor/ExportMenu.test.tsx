@@ -100,4 +100,60 @@ describe("<ExportMenu>", () => {
       expect.objectContaining({ title: "Open in Google Slides" }),
     );
   });
+
+  it("opens the importer synchronously before awaiting the export", async () => {
+    // Browsers (Safari, Firefox) block window.open() after an `await`
+    // because the user activation is lost. Verify open fires during the
+    // click — i.e. before fetch resolves.
+    let resolveFetch!: (value: Response) => void;
+    globalThis.fetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    ) as typeof fetch;
+
+    renderMenu();
+    const trigger = screen.getByRole("button", { name: /export/i });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByText("Export to Google Slides"));
+
+    expect(window.open).toHaveBeenCalledWith(
+      "https://docs.google.com/presentation/u/0/?usp=import",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    resolveFetch(
+      new Response(new Blob(["pptx"], { type: PPTX_CONTENT_TYPE }), {
+        status: 200,
+        headers: {
+          "content-disposition": 'attachment; filename="quarterly.pptx"',
+        },
+      }),
+    );
+    await waitFor(() => {
+      expect(toastMock).toHaveBeenCalled();
+    });
+  });
+
+  it("falls back to a popup-blocked toast when window.open returns null", async () => {
+    vi.spyOn(window, "open").mockReturnValueOnce(null);
+
+    renderMenu();
+    const trigger = screen.getByRole("button", { name: /export/i });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByText("Export to Google Slides"));
+
+    await waitFor(() => {
+      expect(toastMock).toHaveBeenCalled();
+    });
+    expect(toastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Open in Google Slides",
+        description: expect.stringContaining("blocked the popup"),
+      }),
+    );
+  });
 });
