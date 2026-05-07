@@ -23,21 +23,14 @@ function canProbeImageUrl(url: string): boolean {
   }
 }
 
-export function hasCustomThumbnail(editsJson: string | null | undefined) {
-  if (!editsJson) return false;
-  try {
-    const parsed = JSON.parse(editsJson);
-    return Boolean(parsed?.thumbnail);
-  } catch {
-    return false;
-  }
-}
-
 export function canvasHasVisibleContent(canvas: HTMLCanvasElement): boolean {
   if (!canvas.width || !canvas.height) return false;
 
   const width = PROBE_WIDTH;
-  const height = Math.max(1, Math.round((canvas.height / canvas.width) * width));
+  const height = Math.max(
+    1,
+    Math.round((canvas.height / canvas.width) * width),
+  );
   const probe = document.createElement("canvas");
   probe.width = width;
   probe.height = height;

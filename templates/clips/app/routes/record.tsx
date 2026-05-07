@@ -117,9 +117,7 @@ function captureThumbnailFromPreview(
   recordingId: string,
 ): void {
   void captureVideoThumbnailBlob(video)
-    .then((blob) =>
-      blob ? uploadRecordingThumbnail(recordingId, blob) : null,
-    )
+    .then((blob) => (blob ? uploadRecordingThumbnail(recordingId, blob) : null))
     .catch(() => {
       // best effort — the player has a backfill path if this misses.
     });

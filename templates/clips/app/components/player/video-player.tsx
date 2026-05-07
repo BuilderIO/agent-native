@@ -99,11 +99,8 @@ export interface VideoPlayerProps {
   /** Optional poster/thumbnail styling. */
   cover?: boolean;
   /**
-   * Viewer role for this recording. When `owner` (and `thumbnailUrl` is not
-   * already set) we opportunistically capture the first rendered frame and
-   * POST it to `/api/recordings/:id/thumbnail` so the library grid has a
-   * real thumbnail on future loads — fixes clips recorded before the
-   * thumbnail-capture feature shipped.
+   * Viewer role for this recording. When `owner`, we opportunistically capture
+   * a visible frame for missing or blank auto-generated library thumbnails.
    */
   role?: "owner" | "admin" | "editor" | "viewer";
 }
@@ -204,21 +201,18 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setIsPreparing(false);
     }, []);
 
-    const rejectPlayAttempt = useCallback(
-      (attemptId: number, err: unknown) => {
-        if (attemptId !== playAttemptIdRef.current) return;
-        playAttemptPendingRef.current = false;
-        setIsPlayPending(false);
-        setIsBuffering(false);
+    const rejectPlayAttempt = useCallback((attemptId: number, err: unknown) => {
+      if (attemptId !== playAttemptIdRef.current) return;
+      playAttemptPendingRef.current = false;
+      setIsPlayPending(false);
+      setIsBuffering(false);
 
-        const name = err instanceof DOMException ? err.name : "";
-        if (name === "AbortError") return;
+      const name = err instanceof DOMException ? err.name : "";
+      if (name === "AbortError") return;
 
-        console.warn("[clips] playback start failed", err);
-        setPlayError("Could not start playback. Try again.");
-      },
-      [],
-    );
+      console.warn("[clips] playback start failed", err);
+      setPlayError("Could not start playback. Try again.");
+    }, []);
 
     const attachPlayPromise = useCallback(
       (playPromise: Promise<void> | undefined, attemptId: number) => {
