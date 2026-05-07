@@ -75,7 +75,7 @@ const BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";
 const BUTTON_OUTLINE_SM = cn(
   BUTTON_BASE,
-  "h-9 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+  "h-9 px-3 border border-[hsl(var(--sidebar-border,var(--input)))] bg-[hsl(var(--sidebar-background,var(--background)))] text-foreground hover:bg-[hsl(var(--sidebar-accent,var(--accent)))] hover:text-[hsl(var(--sidebar-accent-foreground,var(--accent-foreground)))]",
 );
 const BUTTON_PRIMARY_SM = cn(
   BUTTON_BASE,
@@ -85,6 +85,8 @@ const BUTTON_GHOST_ICON = cn(
   BUTTON_BASE,
   "h-7 w-7 p-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground",
 );
+const SHARE_POPOVER_SURFACE =
+  "border-[hsl(var(--sidebar-border,var(--border)))] bg-[hsl(var(--sidebar-background,var(--popover)))]";
 
 const VIS_META: Record<
   Visibility,
@@ -241,7 +243,10 @@ export function ShareButton(props: ShareButtonProps) {
       <PopoverContent
         align="end"
         sideOffset={6}
-        className="z-[2000] w-[min(460px,92vw)] rounded-lg p-4 shadow-lg"
+        className={cn(
+          "z-[2000] w-[min(460px,92vw)] rounded-lg p-4 shadow-lg",
+          SHARE_POPOVER_SURFACE,
+        )}
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <SharePanel
