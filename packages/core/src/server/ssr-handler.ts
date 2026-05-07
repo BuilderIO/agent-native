@@ -111,6 +111,24 @@ function prefixMountedHtml(html: string, basePath: string): string {
     });
 }
 
+function isFrameworkOrAssetPath(pathname: string): boolean {
+  return (
+    pathname.startsWith("/.well-known/") ||
+    pathname.startsWith("/_agent_native/") ||
+    pathname.startsWith("/_agent-native/") ||
+    pathname.startsWith("/api/") ||
+    pathname.startsWith("/@vite/") ||
+    pathname.startsWith("/@id/") ||
+    pathname.startsWith("/@fs/") ||
+    pathname === "/@react-refresh" ||
+    pathname === "/__vite_ping" ||
+    pathname === "/__open-in-editor" ||
+    pathname === "/favicon.ico" ||
+    pathname === "/favicon.png" ||
+    (/\.\w+$/.test(pathname) && !pathname.endsWith(".data"))
+  );
+}
+
 async function rewriteMountedResponse(
   response: Response,
   basePath: string,
@@ -150,14 +168,7 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
   return defineEventHandler(async (event) => {
     const basePath = getAppBasePath();
     const p = stripAppBasePath(event.url.pathname);
-    if (
-      p.startsWith("/.well-known/") ||
-      p.startsWith("/_agent-native/") ||
-      p.startsWith("/api/") ||
-      p === "/favicon.ico" ||
-      p === "/favicon.png" ||
-      (/\.\w+$/.test(p) && !p.endsWith(".data"))
-    ) {
+    if (isFrameworkOrAssetPath(p)) {
       return new Response(null, { status: 404 });
     }
     try {

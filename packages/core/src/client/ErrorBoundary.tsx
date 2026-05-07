@@ -1,6 +1,9 @@
 import { useEffect } from "react";
 import { isRouteErrorResponse, Link, useRouteError } from "react-router";
 
+const homeLinkClassName =
+  "mt-6 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 cursor-pointer";
+
 function useApplyThemeClass() {
   useEffect(() => {
     const root = document.documentElement;
@@ -21,7 +24,13 @@ function useApplyThemeClass() {
 
 export function ErrorBoundary() {
   useApplyThemeClass();
-  const error = useRouteError();
+  let canUseRouterLink = true;
+  let error: unknown;
+  try {
+    error = useRouteError();
+  } catch {
+    canUseRouterLink = false;
+  }
   let status: number | null = null;
   let title = "Something went wrong";
   let details = "An unexpected error occurred.";
@@ -70,12 +79,15 @@ export function ErrorBoundary() {
         )}
         <h1 className="mt-3 text-2xl font-semibold">{title}</h1>
         <p className="mt-2 text-muted-foreground text-sm">{details}</p>
-        <Link
-          to="/"
-          className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 cursor-pointer"
-        >
-          Go home
-        </Link>
+        {canUseRouterLink ? (
+          <Link to="/" className={homeLinkClassName}>
+            Go home
+          </Link>
+        ) : (
+          <a href="/" className={homeLinkClassName}>
+            Go home
+          </a>
+        )}
         {stack && (
           <pre className="mt-6 w-full text-left text-xs overflow-auto p-4 bg-muted rounded">
             <code>{stack}</code>
