@@ -322,7 +322,11 @@ export function calendarPatchEvent(
   calendarId: string,
   eventId: string,
   body: any,
-  params?: { sendUpdates?: string; conferenceDataVersion?: number },
+  params?: {
+    sendUpdates?: string;
+    conferenceDataVersion?: number;
+    supportsAttachments?: boolean;
+  },
 ) {
   return googleFetch(
     `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${qs(params ?? {})}`,
@@ -358,7 +362,11 @@ export function calendarInsertEvent(
   accessToken: string,
   calendarId: string,
   body: any,
-  params?: { conferenceDataVersion?: number; sendUpdates?: string },
+  params?: {
+    conferenceDataVersion?: number;
+    sendUpdates?: string;
+    supportsAttachments?: boolean;
+  },
 ) {
   return googleFetch(
     `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events${qs(params ?? {})}`,

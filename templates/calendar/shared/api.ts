@@ -4,6 +4,10 @@ export interface CalendarEvent {
   description: string;
   start: string; // ISO 8601
   end: string; // ISO 8601
+  /** IANA timezone for timed starts, e.g. America/New_York. */
+  startTimeZone?: string;
+  /** IANA timezone for timed ends, e.g. America/New_York. */
+  endTimeZone?: string;
   location: string;
   allDay: boolean;
   source: "local" | "google" | "ical";
@@ -14,6 +18,8 @@ export interface CalendarEvent {
   /** Set when this event belongs to an overlaid person's calendar */
   overlayEmail?: string;
   color?: string;
+  /** Google Calendar event color id (1-11). */
+  colorId?: string;
   /** User's RSVP status from Google Calendar */
   responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
   /** Google Calendar free/busy visibility; transparent means the event is free */

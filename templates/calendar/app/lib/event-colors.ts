@@ -1,4 +1,8 @@
 import type { CalendarEvent } from "@shared/api";
+export {
+  GOOGLE_EVENT_COLOR_OPTIONS,
+  getGoogleEventColorHex,
+} from "@shared/google-event-colors";
 import type { CalendarColorMode } from "./calendar-view-preferences";
 
 // ─── Palette (dark-mode editor inspired) ─────────────────────────────────────
