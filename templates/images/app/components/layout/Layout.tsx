@@ -21,6 +21,10 @@ export function Layout({ children }: LayoutProps) {
     setMobileSidebarOpen(false);
   }, [location.pathname]);
 
+  const hideHeader =
+    location.pathname === "/extensions" ||
+    location.pathname.startsWith("/extensions/");
+
   return (
     <HeaderActionsProvider>
       <AgentSidebar
@@ -61,7 +65,7 @@ export function Layout({ children }: LayoutProps) {
               </button>
               <span className="text-base font-bold tracking-tight">Images</span>
             </div>
-            <Header />
+            {!hideHeader && <Header />}
             <main className="flex-1 overflow-y-auto">{children}</main>
           </div>
         </div>

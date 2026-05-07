@@ -74,7 +74,13 @@ function DbSyncSetup() {
   const qc = useQueryClient();
   useDbSync({
     queryClient: qc,
-    queryKeys: ["image-libraries", "image-assets", "image-runs", "app-state"],
+    queryKeys: [
+      "image-libraries",
+      "image-assets",
+      "image-runs",
+      "app-state",
+      "extensions",
+    ],
     ignoreSource: TAB_ID,
   });
   return null;

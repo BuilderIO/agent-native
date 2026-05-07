@@ -338,7 +338,9 @@ function HomeGeneratePanel({
                         {library.title}
                       </SelectItem>
                     ))}
-                    <SelectItem value="generic">No library - generic</SelectItem>
+                    <SelectItem value="generic">
+                      No library - generic
+                    </SelectItem>
                     <SelectItem value="__new__">
                       <span className="flex items-center gap-2">
                         <IconPhotoPlus className="h-3.5 w-3.5" />

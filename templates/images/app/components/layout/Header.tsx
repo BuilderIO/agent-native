@@ -6,6 +6,7 @@ import { AgentToggleButton } from "@agent-native/core/client";
 const pageTitles: Record<string, string> = {
   "/": "Create",
   "/libraries": "Libraries",
+  "/extensions": "Extensions",
   "/settings": "Settings",
 };
 

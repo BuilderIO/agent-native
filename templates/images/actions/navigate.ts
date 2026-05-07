@@ -4,13 +4,22 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "Navigate the Images UI. Views: create, libraries, library, image, audit, settings. Use libraryId or assetId where appropriate.",
+    "Navigate the Images UI. Views: create, libraries, library, image, extensions, audit, settings. Use libraryId, assetId, or extensionId where appropriate.",
   schema: z.object({
     view: z
-      .enum(["create", "libraries", "library", "image", "audit", "settings"])
+      .enum([
+        "create",
+        "libraries",
+        "library",
+        "image",
+        "extensions",
+        "audit",
+        "settings",
+      ])
       .optional(),
     libraryId: z.string().optional(),
     assetId: z.string().optional(),
+    extensionId: z.string().optional(),
     path: z.string().optional(),
   }),
   http: false,
