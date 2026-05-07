@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -72,14 +72,13 @@ interface CalendarAccount {
   lastSyncError?: string | null;
 }
 
-interface SyncCalendarsResult {
-  synced?: number;
-  events?: number;
-  meetings?: number;
-  errors?: Array<{ accountId: string; error: string }>;
+interface CalendarFetchError {
+  accountId: string;
+  error: string;
+  needsReauth?: boolean;
 }
 
-type CalendarIssueKind = "reauth" | "sync-error" | "not-synced" | "empty-feed";
+type CalendarIssueKind = "reauth" | "fetch-error";
 
 interface CalendarIssue {
   kind: CalendarIssueKind;
@@ -94,29 +93,6 @@ function unwrapActionResult<T>(data: unknown): T {
     return (data as { result: T }).result;
   }
   return data as T;
-}
-
-async function requestCalendarSync(): Promise<SyncCalendarsResult> {
-  const r = await fetch(
-    agentNativePath("/_agent-native/actions/sync-calendars"),
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    },
-  );
-  const text = await r.text().catch(() => "");
-  let payload: unknown = {};
-  try {
-    payload = text ? JSON.parse(text) : {};
-  } catch {
-    // Keep the fallback below.
-  }
-  if (!r.ok) {
-    const parsed = payload as { error?: string };
-    throw new Error(parsed.error || `Sync failed (${r.status})`);
-  }
-  return unwrapActionResult<SyncCalendarsResult>(payload) ?? {};
 }
 
 async function requestDisconnectCalendar(accountId: string): Promise<void> {
@@ -140,7 +116,7 @@ async function requestDisconnectCalendar(accountId: string): Promise<void> {
   }
 }
 
-async function startCalendarOAuth(onClosed?: () => void): Promise<void> {
+async function startCalendarOAuth(): Promise<void> {
   const r = await fetch(
     agentNativePath("/_agent-native/actions/connect-calendar?provider=google"),
   );
@@ -173,7 +149,6 @@ async function startCalendarOAuth(onClosed?: () => void): Promise<void> {
     const interval = window.setInterval(() => {
       if (popup.closed) {
         window.clearInterval(interval);
-        onClosed?.();
         resolve();
       }
     }, 500);
@@ -189,15 +164,6 @@ function cleanCalendarError(message?: string | null): string | null {
   return clean.length > 180 ? `${clean.slice(0, 177)}...` : clean;
 }
 
-function summarizeSyncErrors(result: SyncCalendarsResult): string | null {
-  const errors = result.errors?.filter((e) => e.error) ?? [];
-  if (errors.length === 0) return null;
-  const first = cleanCalendarError(errors[0]?.error);
-  if (!first) return "Calendar sync failed.";
-  if (errors.length === 1) return first;
-  return `${first} ${errors.length} calendars need attention.`;
-}
-
 function calendarAccountLabel(account: CalendarAccount): string {
   return (
     account.email ||
@@ -208,7 +174,7 @@ function calendarAccountLabel(account: CalendarAccount): string {
 
 function getCalendarIssue(
   accounts: CalendarAccount[],
-  meetingCount: number,
+  liveErrors: CalendarFetchError[],
 ): CalendarIssue | null {
   const reauthAccount = accounts.find((a) => a.status === "needs-reauth");
   if (reauthAccount) {
@@ -226,41 +192,26 @@ function getCalendarIssue(
   if (erroredAccount) {
     const label = calendarAccountLabel(erroredAccount);
     return {
-      kind: "sync-error",
+      kind: "fetch-error",
       account: erroredAccount,
-      title: "Calendar sync needs attention",
-      description: `Clips could not finish syncing ${label}. Your meetings may be out of date.`,
+      title: "Calendar connection needs attention",
+      description: `Clips could not read events from ${label}. Reconnect the calendar if this keeps happening.`,
       detail: cleanCalendarError(erroredAccount.lastSyncError),
     };
   }
 
-  const unsyncedAccount =
-    meetingCount === 0
-      ? accounts.find((a) => a.status !== "disconnected" && !a.lastSyncedAt)
-      : null;
-  if (unsyncedAccount) {
-    const label = calendarAccountLabel(unsyncedAccount);
+  const liveError = liveErrors[0];
+  if (liveError) {
+    const account = accounts.find((a) => a.id === liveError.accountId);
+    const label = account ? calendarAccountLabel(account) : "Google Calendar";
     return {
-      kind: "not-synced",
-      account: unsyncedAccount,
-      title: "Calendar has not synced yet",
-      description: `Run a sync to pull upcoming events from ${label}.`,
-    };
-  }
-
-  const connectedAccount =
-    meetingCount === 0
-      ? (accounts.find((a) => a.status === "connected") ?? accounts[0])
-      : null;
-  if (connectedAccount) {
-    const label = calendarAccountLabel(connectedAccount);
-    return {
-      kind: "empty-feed",
-      account: connectedAccount,
-      title: "No synced calendar meetings",
-      description: `Clips is connected to ${label}, but no Google Calendar events have appeared here yet.`,
-      detail:
-        "Sync again, or reconnect the calendar if Google Calendar has upcoming events that Clips should show.",
+      kind: "fetch-error",
+      account,
+      title: liveError.needsReauth
+        ? "Reconnect Google Calendar"
+        : "Calendar connection needs attention",
+      description: `Clips could not read events from ${label}.`,
+      detail: cleanCalendarError(liveError.error),
     };
   }
 
@@ -319,7 +270,7 @@ function CalendarConnectionAction({
   variant = "default",
 }: {
   label: string;
-  onConnected?: () => void;
+  onConnected?: () => void | Promise<void>;
   variant?: "default" | "outline" | "secondary";
 }) {
   const [error, setError] = useState<string | null>(null);
@@ -328,7 +279,8 @@ function CalendarConnectionAction({
   const handleConnect = () => {
     setError(null);
     setPending(true);
-    startCalendarOAuth(() => void onConnected?.())
+    startCalendarOAuth()
+      .then(() => onConnected?.())
       .then(() => setPending(false))
       .catch((e: Error) => {
         setError(e.message);
@@ -413,15 +365,11 @@ function ConnectCalendarEmptyState({
 
 function CalendarAccountMenu({
   accounts,
-  onRetrySync,
-  retryPending,
   onConnected,
   onDisconnected,
 }: {
   accounts: CalendarAccount[];
-  onRetrySync: () => void;
-  retryPending: boolean;
-  onConnected?: () => void;
+  onConnected?: () => void | Promise<void>;
   onDisconnected?: () => void;
 }) {
   const [connectPending, setConnectPending] = useState(false);
@@ -434,14 +382,15 @@ function CalendarAccountMenu({
     primaryAccount?.status === "needs-reauth"
       ? "Needs reconnect"
       : primaryAccount?.lastSyncError
-        ? "Sync issue"
+        ? "Connection issue"
         : primaryAccount
           ? "Connected"
           : "Not connected";
 
   const handleReconnect = () => {
     setConnectPending(true);
-    startCalendarOAuth(() => void onConnected?.())
+    startCalendarOAuth()
+      .then(() => onConnected?.())
       .then(() => {
         setConnectPending(false);
       })
@@ -512,18 +461,6 @@ function CalendarAccountMenu({
           <DropdownMenuItem
             onSelect={(event) => {
               event.preventDefault();
-              onRetrySync();
-            }}
-            disabled={!primaryAccount || retryPending}
-          >
-            <IconRefresh
-              className={`mr-2 h-4 w-4 ${retryPending ? "animate-spin" : ""}`}
-            />
-            {retryPending ? "Syncing calendar..." : "Sync now"}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
               handleReconnect();
             }}
             disabled={connectPending}
@@ -559,7 +496,7 @@ function CalendarAccountMenu({
         <AlertDialogHeader>
           <AlertDialogTitle>Disconnect Google Calendar?</AlertDialogTitle>
           <AlertDialogDescription>
-            Clips will stop syncing meetings from{" "}
+            Clips will stop reading events from{" "}
             {disconnectTarget
               ? calendarAccountLabel(disconnectTarget)
               : "this account"}
@@ -588,14 +525,14 @@ function CalendarAccountMenu({
 
 function CalendarConnectionIssue({
   issue,
-  onRetrySync,
+  onRetry,
   retryPending,
   onConnected,
 }: {
   issue: CalendarIssue;
-  onRetrySync: () => void;
+  onRetry: () => void;
   retryPending: boolean;
-  onConnected?: () => void;
+  onConnected?: () => void | Promise<void>;
 }) {
   const shouldShowRetry = issue.kind !== "reauth";
   return (
@@ -624,14 +561,14 @@ function CalendarConnectionIssue({
             <Button
               size="sm"
               variant="outline"
-              onClick={onRetrySync}
+              onClick={onRetry}
               disabled={retryPending}
               className="gap-1.5 cursor-pointer"
             >
               <IconRefresh
                 className={`h-3.5 w-3.5 ${retryPending ? "animate-spin" : ""}`}
               />
-              {retryPending ? "Syncing..." : "Retry sync"}
+              {retryPending ? "Refreshing..." : "Try again"}
             </Button>
           )}
           <CalendarConnectionAction
@@ -654,8 +591,6 @@ function MeetingsHeader({
   onQueryChange,
   showDesktopCta,
   calendarAccounts,
-  onRetrySync,
-  retryPending,
   onConnected,
   onDisconnected,
 }: {
@@ -663,9 +598,7 @@ function MeetingsHeader({
   onQueryChange: (next: string) => void;
   showDesktopCta: boolean;
   calendarAccounts: CalendarAccount[];
-  onRetrySync: () => void;
-  retryPending: boolean;
-  onConnected?: () => void;
+  onConnected?: () => void | Promise<void>;
   onDisconnected?: () => void;
 }) {
   return (
@@ -677,8 +610,6 @@ function MeetingsHeader({
         <div className="ml-auto flex items-center gap-2">
           <CalendarAccountMenu
             accounts={calendarAccounts}
-            onRetrySync={onRetrySync}
-            retryPending={retryPending}
             onConnected={onConnected}
             onDisconnected={onDisconnected}
           />
@@ -710,17 +641,22 @@ function MeetingsHeader({
           </div>
         </div>
         {showDesktopCta && (
-          <Button
-            asChild
-            size="sm"
-            variant="secondary"
-            className="h-8 w-fit shrink-0 gap-1.5 cursor-pointer"
-          >
-            <NavLink to="/download">
-              <IconAppWindow className="h-4 w-4" />
-              Get desktop app
-            </NavLink>
-          </Button>
+          <div className="flex w-fit shrink-0 flex-col items-start gap-1 sm:items-end">
+            <Button
+              asChild
+              size="sm"
+              variant="secondary"
+              className="h-8 w-fit gap-1.5 cursor-pointer"
+            >
+              <NavLink to="/download">
+                <IconAppWindow className="h-4 w-4" />
+                Get desktop app
+              </NavLink>
+            </Button>
+            <p className="max-w-56 text-[11px] leading-snug text-muted-foreground">
+              Required for meeting reminders and recording.
+            </p>
+          </div>
         )}
       </div>
     </>
