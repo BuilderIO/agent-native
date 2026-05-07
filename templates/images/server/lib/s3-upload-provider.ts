@@ -28,8 +28,7 @@ interface S3Config {
 function readS3Config(): S3Config | null {
   const env = process.env;
   const bucket = env.IMAGES_STORAGE_BUCKET || env.S3_BUCKET;
-  const accessKeyId =
-    env.IMAGES_STORAGE_ACCESS_KEY_ID || env.S3_ACCESS_KEY_ID;
+  const accessKeyId = env.IMAGES_STORAGE_ACCESS_KEY_ID || env.S3_ACCESS_KEY_ID;
   const secretAccessKey =
     env.IMAGES_STORAGE_SECRET_ACCESS_KEY || env.S3_SECRET_ACCESS_KEY;
   const endpoint = env.IMAGES_STORAGE_ENDPOINT || env.S3_ENDPOINT;
