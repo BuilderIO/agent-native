@@ -401,30 +401,48 @@ export function ExtensionsSidebarSection() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="group/help relative min-w-0 py-2">
+      <div className="relative min-w-0 py-2">
         <div
           className={cn(
-            "flex items-center justify-between px-3",
-            sortedTools.length > 0 && "mb-1",
+            "group/extensions-section flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
+            location.pathname.startsWith("/extensions")
+              ? "text-sidebar-accent-foreground"
+              : "text-muted-foreground hover:bg-sidebar-accent/50",
+            extensionsOpen && sortedTools.length > 0 && "mb-1",
           )}
         >
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Extensions
-            <a
-              href="https://agent-native.com/docs/extensions"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="opacity-0 group-hover/help:opacity-100 transition-opacity text-muted-foreground/50 hover:text-muted-foreground"
-              aria-label="Extensions documentation"
-            >
-              <IconHelpCircle className="h-3 w-3" />
-            </a>
-          </span>
+          <button
+            type="button"
+            onClick={toggleExtensionsOpen}
+            className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
+            aria-expanded={extensionsOpen}
+          >
+            <IconTool className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Extensions</span>
+          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <a
+                href="https://agent-native.com/docs/extensions"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 opacity-0 transition-all hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/extensions-section:opacity-100"
+                aria-label="Extensions documentation"
+              >
+                <IconHelpCircle className="h-3.5 w-3.5" />
+              </a>
+            </TooltipTrigger>
+            <TooltipContent>Extensions docs</TooltipContent>
+          </Tooltip>
+          <ExtensionSortMenu
+            value={sortModeState}
+            onChange={setExtensionSortMode}
+          />
           <Popover open={showCreate} onOpenChange={setShowCreate}>
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground"
                 aria-label="New extension"
               >
                 <IconPlus className="h-3.5 w-3.5" />
@@ -446,193 +464,212 @@ export function ExtensionsSidebarSection() {
               />
             </PopoverContent>
           </Popover>
+          <button
+            type="button"
+            onClick={toggleExtensionsOpen}
+            className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+            aria-label={
+              extensionsOpen ? "Collapse extensions" : "Expand extensions"
+            }
+          >
+            <IconChevronDown
+              className={cn(
+                "h-3.5 w-3.5 shrink-0 transition-transform",
+                !extensionsOpen && "-rotate-90",
+              )}
+            />
+          </button>
         </div>
 
-        {isLoading ? (
-          <div className="min-w-0 space-y-0.5 px-1">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="flex items-center rounded-md px-2 py-1.5">
+        {extensionsOpen &&
+          (isLoading ? (
+            <div className="min-w-0 space-y-0.5 px-1">
+              {[1, 2, 3].map((i) => (
                 <div
-                  className="h-3 rounded bg-muted animate-pulse"
-                  style={{ width: `${60 + i * 20}px` }}
-                />
-              </div>
-            ))}
-          </div>
-        ) : sortedTools.length === 0 ? null : (
-          <div className="min-w-0 space-y-0.5 px-1">
-            {visibleTools.map((extension) => {
-              const isActive =
-                location.pathname === `/extensions/${extension.id}` ||
-                location.pathname === `/extensions/${extension.id}/edit`;
-              const isFav = favoriteIds.has(extension.id);
-              const isRenamingThis = renamingId === extension.id;
-              const actionsVisible =
-                menuOpenId === extension.id || isRenamingThis;
-
-              return (
-                <div
-                  key={extension.id}
-                  onDragOver={(e) => {
-                    if (!draggingId || draggingId === extension.id) return;
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = "move";
-                    setDragOverId(extension.id);
-                  }}
-                  onDragLeave={() => {
-                    setDragOverId((current) =>
-                      current === extension.id ? null : current,
-                    );
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const activeId =
-                      draggingId || e.dataTransfer.getData("text/plain");
-                    setDraggingId(null);
-                    setDragOverId(null);
-                    if (activeId) reorderTool(activeId, extension.id);
-                  }}
-                  className={cn(
-                    "group/extension relative flex items-center min-w-0 rounded-md",
-                    draggingId === extension.id && "opacity-50",
-                    dragOverId === extension.id &&
-                      draggingId !== extension.id &&
-                      "bg-accent/60",
-                  )}
+                  key={i}
+                  className="flex items-center rounded-md px-2 py-1.5"
                 >
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        draggable
-                        onDragStart={(e) => {
-                          setDraggingId(extension.id);
-                          setDragOverId(null);
-                          e.dataTransfer.effectAllowed = "move";
-                          e.dataTransfer.setData("text/plain", extension.id);
-                        }}
-                        onDragEnd={() => {
-                          setDraggingId(null);
-                          setDragOverId(null);
-                        }}
-                        className="-ml-2 cursor-grab rounded p-0.5 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/70 active:cursor-grabbing group-hover/extension:opacity-100 group-focus-within/extension:opacity-100"
-                        aria-label={`Reorder ${extension.name}`}
-                      >
-                        <IconGripVertical className="h-3 w-3" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>Drag to reorder</TooltipContent>
-                  </Tooltip>
-                  <Link
-                    to={`/extensions/${extension.id}`}
+                  <div
+                    className="h-3 rounded bg-muted animate-pulse"
+                    style={{ width: `${60 + i * 20}px` }}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : sortedTools.length === 0 ? null : (
+            <div className="min-w-0 space-y-0.5 px-1">
+              {visibleTools.map((extension) => {
+                const isActive =
+                  location.pathname === `/extensions/${extension.id}` ||
+                  location.pathname === `/extensions/${extension.id}/edit`;
+                const isFav = favoriteIds.has(extension.id);
+                const isRenamingThis = renamingId === extension.id;
+                const actionsVisible =
+                  menuOpenId === extension.id || isRenamingThis;
+
+                return (
+                  <div
+                    key={extension.id}
+                    onDragOver={(e) => {
+                      if (!draggingId || draggingId === extension.id) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      setDragOverId(extension.id);
+                    }}
+                    onDragLeave={() => {
+                      setDragOverId((current) =>
+                        current === extension.id ? null : current,
+                      );
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const activeId =
+                        draggingId || e.dataTransfer.getData("text/plain");
+                      setDraggingId(null);
+                      setDragOverId(null);
+                      if (activeId) reorderTool(activeId, extension.id);
+                    }}
                     className={cn(
-                      "flex min-w-0 flex-1 items-center rounded-md px-2 py-1.5 pr-12 text-xs transition-[padding,color,background-color] md:pr-2 md:group-hover/extension:pr-12 md:group-focus-within/extension:pr-12",
-                      actionsVisible && "md:pr-12",
-                      isActive
-                        ? "bg-accent text-accent-foreground font-medium"
-                        : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
+                      "group/extension relative flex items-center min-w-0 rounded-md",
+                      draggingId === extension.id && "opacity-50",
+                      dragOverId === extension.id &&
+                        draggingId !== extension.id &&
+                        "bg-accent/60",
                     )}
                   >
-                    {isRenamingThis ? (
-                      <input
-                        autoFocus
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onBlur={() => submitRename(extension.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") submitRename(extension.id);
-                          if (e.key === "Escape") setRenamingId(null);
-                        }}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          draggable
+                          onDragStart={(e) => {
+                            setDraggingId(extension.id);
+                            setDragOverId(null);
+                            e.dataTransfer.effectAllowed = "move";
+                            e.dataTransfer.setData("text/plain", extension.id);
+                          }}
+                          onDragEnd={() => {
+                            setDraggingId(null);
+                            setDragOverId(null);
+                          }}
+                          className="-ml-2 cursor-grab rounded p-0.5 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/70 active:cursor-grabbing group-hover/extension:opacity-100 group-focus-within/extension:opacity-100"
+                          aria-label={`Reorder ${extension.name}`}
+                        >
+                          <IconGripVertical className="h-3 w-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Drag to reorder</TooltipContent>
+                    </Tooltip>
+                    <Link
+                      to={`/extensions/${extension.id}`}
+                      className={cn(
+                        "flex min-w-0 flex-1 items-center rounded-md px-2 py-1.5 pr-12 text-xs transition-[padding,color,background-color] md:pr-2 md:group-hover/extension:pr-12 md:group-focus-within/extension:pr-12",
+                        actionsVisible && "md:pr-12",
+                        isActive
+                          ? "bg-accent text-accent-foreground font-medium"
+                          : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
+                      )}
+                    >
+                      {isRenamingThis ? (
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onBlur={() => submitRename(extension.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") submitRename(extension.id);
+                            if (e.key === "Escape") setRenamingId(null);
+                          }}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }}
+                          className="min-w-0 flex-1 truncate border-b border-primary bg-transparent px-0 py-0 text-xs outline-none"
+                        />
+                      ) : (
+                        <span className="block truncate">{extension.name}</span>
+                      )}
+                    </Link>
+
+                    <div
+                      className={cn(
+                        "pointer-events-none absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/extension:opacity-100 md:group-focus-within/extension:opacity-100",
+                        actionsVisible && "md:opacity-100",
+                      )}
+                    >
+                      <button
+                        type="button"
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
+                          toggleFavorite(extension.id);
                         }}
-                        className="min-w-0 flex-1 truncate border-b border-primary bg-transparent px-0 py-0 text-xs outline-none"
-                      />
-                    ) : (
-                      <span className="block truncate">{extension.name}</span>
-                    )}
-                  </Link>
-
-                  <div
-                    className={cn(
-                      "pointer-events-none absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/extension:opacity-100 md:group-focus-within/extension:opacity-100",
-                      actionsVisible && "md:opacity-100",
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        toggleFavorite(extension.id);
-                      }}
-                      className={cn(
-                        "pointer-events-auto cursor-pointer rounded p-0.5 transition-colors",
-                        isFav
-                          ? "text-yellow-500"
-                          : "text-muted-foreground/40 hover:text-yellow-500",
-                      )}
-                      aria-label={isFav ? "Unfavorite" : "Favorite"}
-                    >
-                      {isFav ? (
-                        <IconStarFilled className="h-3 w-3" />
-                      ) : (
-                        <IconStar className="h-3 w-3" />
-                      )}
-                    </button>
-
-                    <DropdownMenu
-                      open={menuOpenId === extension.id}
-                      onOpenChange={(open) =>
-                        setMenuOpenId(open ? extension.id : null)
-                      }
-                    >
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          className="pointer-events-auto cursor-pointer rounded p-0.5 text-muted-foreground/40 transition-colors hover:text-foreground"
-                          aria-label="Extension actions"
-                        >
-                          <IconDots className="h-3 w-3" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        align="end"
-                        sideOffset={4}
-                        className="min-w-[140px]"
+                        className={cn(
+                          "pointer-events-auto cursor-pointer rounded p-0.5 transition-colors",
+                          isFav
+                            ? "text-yellow-500"
+                            : "text-muted-foreground/40 hover:text-yellow-500",
+                        )}
+                        aria-label={isFav ? "Unfavorite" : "Favorite"}
                       >
-                        <DropdownMenuItem
-                          onSelect={() => startRename(extension)}
+                        {isFav ? (
+                          <IconStarFilled className="h-3 w-3" />
+                        ) : (
+                          <IconStar className="h-3 w-3" />
+                        )}
+                      </button>
+
+                      <DropdownMenu
+                        open={menuOpenId === extension.id}
+                        onOpenChange={(open) =>
+                          setMenuOpenId(open ? extension.id : null)
+                        }
+                      >
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            className="pointer-events-auto cursor-pointer rounded p-0.5 text-muted-foreground/40 transition-colors hover:text-foreground"
+                            aria-label="Extension actions"
+                          >
+                            <IconDots className="h-3 w-3" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="end"
+                          sideOffset={4}
+                          className="min-w-[140px]"
                         >
-                          <IconPencil className="h-3.5 w-3.5" />
-                          Rename
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => handleDelete(extension.id)}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <IconTrash className="h-3.5 w-3.5" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                          <DropdownMenuItem
+                            onSelect={() => startRename(extension)}
+                          >
+                            <IconPencil className="h-3.5 w-3.5" />
+                            Rename
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => handleDelete(extension.id)}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <IconTrash className="h-3.5 w-3.5" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-            {hasMoreExtensions && (
-              <button
-                type="button"
-                aria-expanded={showAllExtensions}
-                onClick={() => setShowAllExtensions((current) => !current)}
-                className="ml-5 mt-1 inline-flex h-5 items-center rounded px-1.5 text-[11px] font-medium text-muted-foreground/60 transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-              >
-                {showAllExtensions ? "show less" : "show more"}
-              </button>
-            )}
-          </div>
-        )}
+                );
+              })}
+              {hasMoreExtensions && (
+                <button
+                  type="button"
+                  aria-expanded={showAllExtensions}
+                  onClick={() => setShowAllExtensions((current) => !current)}
+                  className="ml-5 mt-1 inline-flex h-5 items-center rounded px-1.5 text-[11px] font-medium text-muted-foreground/60 transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                >
+                  {showAllExtensions ? "show less" : "show more"}
+                </button>
+              )}
+            </div>
+          ))}
       </div>
     </TooltipProvider>
   );

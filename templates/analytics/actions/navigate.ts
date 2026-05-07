@@ -27,7 +27,12 @@ export default defineAction({
   }),
   http: false,
   run: async (args) => {
-    if (!args.view && !args.dashboardId && !args.analysisId && !args.extensionId) {
+    if (
+      !args.view &&
+      !args.dashboardId &&
+      !args.analysisId &&
+      !args.extensionId
+    ) {
       return "Error: At least --view, --dashboardId, --analysisId, or --extensionId is required.";
     }
     const nav: Record<string, string> = {};

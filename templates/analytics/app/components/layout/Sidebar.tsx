@@ -861,14 +861,14 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       return applyOrder(analysesList, analysisOrderState);
     }
     return [...analysesList].sort((a, b) => {
-        const aPop = popularityOf(popularity, "analysis", a.id);
-        const bPop = popularityOf(popularity, "analysis", b.id);
-        if (aPop !== bPop) return bPop - aPop;
+      const aPop = popularityOf(popularity, "analysis", a.id);
+      const bPop = popularityOf(popularity, "analysis", b.id);
+      if (aPop !== bPop) return bPop - aPop;
       const aFav = favoriteIds.has(`analysis:${a.id}`) ? 0 : 1;
       const bFav = favoriteIds.has(`analysis:${b.id}`) ? 0 : 1;
       if (aFav !== bFav) return aFav - bFav;
-        return a.name.localeCompare(b.name);
-      });
+      return a.name.localeCompare(b.name);
+    });
   }, [
     analysesList,
     analysisSortMode,
@@ -918,14 +918,14 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       return applyOrder(all, dashboardOrderState);
     }
     return [...all].sort((a, b) => {
-        const aPop = popularityOf(popularity, "dashboard", a.id);
-        const bPop = popularityOf(popularity, "dashboard", b.id);
-        if (aPop !== bPop) return bPop - aPop;
+      const aPop = popularityOf(popularity, "dashboard", a.id);
+      const bPop = popularityOf(popularity, "dashboard", b.id);
+      if (aPop !== bPop) return bPop - aPop;
       const aFav = favoriteIds.has(a.id) ? 0 : 1;
       const bFav = favoriteIds.has(b.id) ? 0 : 1;
       if (aFav !== bFav) return aFav - bFav;
-        return a.name.localeCompare(b.name);
-      });
+      return a.name.localeCompare(b.name);
+    });
   }, [
     hiddenIds,
     staticDashboardRenames,
@@ -1255,7 +1255,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               type="button"
               onClick={toggleDashOpen}
               className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
-              aria-label={dashOpen ? "Collapse dashboards" : "Expand dashboards"}
+              aria-label={
+                dashOpen ? "Collapse dashboards" : "Expand dashboards"
+              }
             >
               <IconChevronDown
                 className={cn(
@@ -1347,7 +1349,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               type="button"
               onClick={toggleAnalysesOpen}
               className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
-              aria-label={analysesOpen ? "Collapse analyses" : "Expand analyses"}
+              aria-label={
+                analysesOpen ? "Collapse analyses" : "Expand analyses"
+              }
             >
               <IconChevronDown
                 className={cn(

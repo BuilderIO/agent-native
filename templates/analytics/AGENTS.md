@@ -238,9 +238,9 @@ cd templates/analytics && pnpm action <name> [args]
 
 ### Context & Navigation
 
-| Action        | Args                                                     | Purpose                    |
-| ------------- | -------------------------------------------------------- | -------------------------- |
-| `view-screen` |                                                          | See what the user sees now |
+| Action        | Args                                                                          | Purpose                    |
+| ------------- | ----------------------------------------------------------------------------- | -------------------------- |
+| `view-screen` |                                                                               | See what the user sees now |
 | `navigate`    | `--view <name> [--dashboardId <id>] [--analysisId <id>] [--extensionId <id>]` | Navigate the UI            |
 
 ### Data Dictionary
