@@ -857,7 +857,6 @@ export default function RecordingPage() {
                         "Suggest a better title",
                         "Generate chapters from the transcript",
                       ]}
-                      showHeader={false}
                     />
                   </TabsContent>
                 ) : null}
