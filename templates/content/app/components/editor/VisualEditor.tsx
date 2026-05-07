@@ -2,7 +2,7 @@ import {
   useEditor,
   EditorContent,
   Extension,
-  Node,
+  Node as TiptapNode,
   mergeAttributes,
 } from "@tiptap/react";
 import type { Extensions } from "@tiptap/core";
@@ -62,7 +62,7 @@ import {
  * serializer from the paragraph extension itself. A separate monkey-patch
  * extension was too timing-sensitive and could miss the serializer instance.
  */
-export const EmptyLineParagraph = Node.create({
+export const EmptyLineParagraph = TiptapNode.create({
   name: "paragraph",
 
   // Match Tiptap's built-in paragraph priority so ProseMirror chooses a
