@@ -1,4 +1,11 @@
-import { useState, useEffect, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useLayoutEffect,
+  type ReactNode,
+} from "react";
 import ReactMarkdown from "react-markdown";
 import type { Slide } from "@/context/DeckContext";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -107,6 +114,230 @@ const markdownComponents = {
     return <pre {...props}>{children}</pre>;
   },
 };
+
+const MIN_AUTOFIT_SCALE = 0.65;
+
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
+
+export interface SlideFitTransform {
+  scale: number;
+  x: number;
+  y: number;
+  fitted: boolean;
+}
+
+export function computeSlideFitTransform({
+  contentWidth,
+  contentHeight,
+  viewportWidth,
+  viewportHeight,
+  minX = 0,
+  minY = 0,
+  minScale = MIN_AUTOFIT_SCALE,
+}: {
+  contentWidth: number;
+  contentHeight: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  minX?: number;
+  minY?: number;
+  minScale?: number;
+}): SlideFitTransform {
+  const safeContentWidth = Math.max(1, contentWidth);
+  const safeContentHeight = Math.max(1, contentHeight);
+  const rawScale = Math.min(
+    1,
+    Math.max(1, viewportWidth) / safeContentWidth,
+    Math.max(1, viewportHeight) / safeContentHeight,
+  );
+  const scale = Math.max(minScale, rawScale);
+
+  return {
+    scale,
+    x: minX < 0 ? -minX * scale : 0,
+    y: minY < 0 ? -minY * scale : 0,
+    fitted: rawScale < 0.999,
+  };
+}
+
+function ensureRawHtmlFitLayers(root: HTMLElement): HTMLElement[] {
+  const fmdSlides = Array.from(
+    root.querySelectorAll<HTMLElement>(".fmd-slide"),
+  );
+
+  return fmdSlides.map((slide) => {
+    const existing = Array.from(slide.children).find(
+      (child): child is HTMLElement =>
+        child instanceof HTMLElement &&
+        child.hasAttribute("data-fmd-autofit-content"),
+    );
+    if (existing) return existing;
+
+    const layer = document.createElement("div");
+    layer.setAttribute("data-fmd-autofit-content", "true");
+    layer.className = "fmd-autofit-scale";
+
+    const nonStyleChildren = Array.from(slide.childNodes).filter(
+      (child) =>
+        !(
+          child instanceof HTMLElement &&
+          child.tagName.toLowerCase() === "style"
+        ),
+    );
+
+    for (const child of nonStyleChildren) {
+      layer.appendChild(child);
+    }
+    slide.appendChild(layer);
+    return layer;
+  });
+}
+
+function measureContentBounds(target: HTMLElement): {
+  contentWidth: number;
+  contentHeight: number;
+  minX: number;
+  minY: number;
+} {
+  const targetRect = target.getBoundingClientRect();
+  let minX = 0;
+  let minY = 0;
+  let maxX = target.scrollWidth;
+  let maxY = target.scrollHeight;
+
+  for (const el of Array.from(target.querySelectorAll<HTMLElement>("*"))) {
+    if (el.tagName.toLowerCase() === "style") continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) continue;
+
+    minX = Math.min(minX, rect.left - targetRect.left);
+    minY = Math.min(minY, rect.top - targetRect.top);
+    maxX = Math.max(maxX, rect.right - targetRect.left);
+    maxY = Math.max(maxY, rect.bottom - targetRect.top);
+  }
+
+  return {
+    contentWidth: Math.max(target.scrollWidth, maxX - minX),
+    contentHeight: Math.max(target.scrollHeight, maxY - minY),
+    minX,
+    minY,
+  };
+}
+
+function useSlideAutofit(
+  ref: React.RefObject<HTMLDivElement | null>,
+  canvasWidth: number,
+  canvasHeight: number,
+  fitKey: string,
+) {
+  useIsomorphicLayoutEffect(() => {
+    const root = ref.current;
+    if (!root || typeof ResizeObserver === "undefined") return;
+
+    let raf = 0;
+    let disposed = false;
+
+    const resetTarget = (target: HTMLElement) => {
+      target.style.setProperty("--fmd-fit-scale", "1");
+      target.style.setProperty("--fmd-fit-x", "0px");
+      target.style.setProperty("--fmd-fit-y", "0px");
+      target.removeAttribute("data-fmd-autofit-active");
+    };
+
+    const measureNow = () => {
+      if (disposed) return;
+
+      const isEditing = !!root.querySelector('[contenteditable="true"]');
+      const rawTargets = ensureRawHtmlFitLayers(root);
+      const targets =
+        rawTargets.length > 0
+          ? rawTargets
+          : [root].filter((target) => target.scrollHeight > 0);
+
+      for (const target of targets) {
+        if (isEditing) {
+          resetTarget(target);
+          continue;
+        }
+
+        resetTarget(target);
+        const bounds = measureContentBounds(target);
+        const viewportWidth = target.clientWidth || canvasWidth;
+        const viewportHeight = target.clientHeight || canvasHeight;
+        const transform = computeSlideFitTransform({
+          ...bounds,
+          viewportWidth,
+          viewportHeight,
+        });
+
+        target.style.setProperty("--fmd-fit-scale", String(transform.scale));
+        target.style.setProperty("--fmd-fit-x", `${transform.x}px`);
+        target.style.setProperty("--fmd-fit-y", `${transform.y}px`);
+        if (transform.fitted) {
+          target.setAttribute("data-fmd-autofit-active", "true");
+        }
+      }
+    };
+
+    const scheduleMeasure = () => {
+      if (disposed) return;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(measureNow);
+    };
+
+    scheduleMeasure();
+
+    const resizeObserver = new ResizeObserver(scheduleMeasure);
+    resizeObserver.observe(root);
+
+    const mutationObserver = new MutationObserver(scheduleMeasure);
+    mutationObserver.observe(root, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+      attributeFilter: ["contenteditable", "class", "src"],
+    });
+
+    root.addEventListener("load", scheduleMeasure, true);
+    document.fonts?.ready.then(scheduleMeasure).catch(() => {});
+
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(raf);
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+      root.removeEventListener("load", scheduleMeasure, true);
+    };
+  }, [canvasWidth, canvasHeight, fitKey, ref]);
+}
+
+function AutoFitContent({
+  canvasWidth,
+  canvasHeight,
+  fitKey,
+  className = "",
+  children,
+}: {
+  canvasWidth: number;
+  canvasHeight: number;
+  fitKey: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useSlideAutofit(ref, canvasWidth, canvasHeight, fitKey);
+
+  return (
+    <div
+      ref={ref}
+      data-slide-autofit-root="true"
+      className={`fmd-autofit-scale ${className}`}
+    >
+      {children}
+    </div>
+  );
+}
 
 /** Renders blank slide HTML content and applies white filter to logo images */
 function BlankSlideContent({ content }: { content: string }) {
@@ -287,16 +518,26 @@ export function SlideInner({
         data-slide-canvas={slide.id}
       >
         {imageLoadingOverlay}
-        <div className="slide-content text-white/90">
+        <AutoFitContent
+          canvasWidth={dims.width}
+          canvasHeight={dims.height}
+          fitKey={left}
+          className="slide-content text-white/90"
+        >
           <ReactMarkdown components={markdownComponents}>
             {left.trim()}
           </ReactMarkdown>
-        </div>
-        <div className="slide-content text-white/90">
+        </AutoFitContent>
+        <AutoFitContent
+          canvasWidth={dims.width}
+          canvasHeight={dims.height}
+          fitKey={right}
+          className="slide-content text-white/90"
+        >
           <ReactMarkdown components={markdownComponents}>
             {right.trim()}
           </ReactMarkdown>
-        </div>
+        </AutoFitContent>
       </div>
     );
   }
@@ -308,7 +549,14 @@ export function SlideInner({
         style={{ ...sizeStyle, ...bgStyle, ...dsStyle }}
         data-slide-canvas={slide.id}
       >
-        <BlankSlideContent content={content} />
+        <AutoFitContent
+          canvasWidth={dims.width}
+          canvasHeight={dims.height}
+          fitKey={content}
+          className="h-full w-full"
+        >
+          <BlankSlideContent content={content} />
+        </AutoFitContent>
       </div>
     );
   }
@@ -325,9 +573,14 @@ export function SlideInner({
       data-slide-canvas={slide.id}
     >
       {imageLoadingOverlay}
-      <div className="slide-content text-white/90 w-full">
+      <AutoFitContent
+        canvasWidth={dims.width}
+        canvasHeight={dims.height}
+        fitKey={content}
+        className="slide-content text-white/90 w-full"
+      >
         <ReactMarkdown components={markdownComponents}>{content}</ReactMarkdown>
-      </div>
+      </AutoFitContent>
     </div>
   );
 }

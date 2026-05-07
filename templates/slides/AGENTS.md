@@ -370,6 +370,22 @@ Same rule for `/deck/<id>/present` (presentation mode), `/share/<token>` (share 
 
 Every slide `content` is HTML. The slide renderer provides the black background — your HTML is the inner content.
 
+### Fixed Canvas and Density Limits
+
+Slides render into a fixed native canvas. The default 16:9 deck is **960x540 CSS pixels** and is scaled up by the renderer for larger editor and presentation viewports. After the standard `padding: 80px 110px`, a 16:9 slide has about 740x380 px of usable content space. Generate HTML for that fixed box, not for a 1920x1080 artboard.
+
+Per-block density limits for 16:9 slides:
+
+- Title slide: max 60-character heading, max 80-character subtitle, one optional short label.
+- Section slide: max 40-character heading.
+- Content slide: one heading up to 50 characters plus max 5 bullets, each up to 60 characters.
+- Statement slide: max 100-character quote plus max 40-character attribution.
+- Metrics slide: one heading plus max 4 metrics in one row or a 2x2 grid; each metric value max 12 characters and each label max 30 characters.
+- Two- or three-column slide: each column max 4 lines, about 60 characters per line.
+- Image or `.fmd-img-placeholder`: one image up to 320px tall, or one Mermaid diagram with little or no body text alongside it.
+
+If the source material exceeds those limits, split it across additional slides instead of packing the slide tighter. The renderer auto-shrinks overfull slides as a safety net, but the result will look smaller than a purpose-fit slide.
+
 ### Outer wrapper (required for every slide)
 
 ```html
@@ -734,7 +750,7 @@ title: Slide 2 — Key Metrics
 
 ### Required Quality Checks
 
-- Body text minimum 24px on 1920x1080 slides, 16px on web UI
+- Body text minimum 22px on the 960x540 native slide canvas, 16px on web UI
 - "Earn its place" — every element must justify its existence
 - Empty space is solved with composition, not filler content
 - When you think "adding this would look better" — that is usually a sign of AI slop
@@ -803,8 +819,8 @@ Always make 2 showcase slides first to lock the visual grammar before scaling:
 
 ### Typography on Slides
 
-- Heading: 48-72px (1920x1080 canvas)
-- Body: 24-32px minimum
+- Heading: 48-72px on the 960x540 native slide canvas
+- Body: 22-32px minimum
 - Caption: 18-20px
 - Use `font-variation-settings` for weight morphing (if variable font available)
 - Two-tier shadow: 1px tight shadow + 8px ambient shadow (never single shadow)

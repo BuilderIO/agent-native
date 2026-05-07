@@ -33,6 +33,7 @@ export function serializeLibrary(row: any) {
     id: row.id,
     title: row.title,
     description: row.description,
+    customInstructions: row.customInstructions ?? "",
     styleBrief: parseJson<StyleBrief>(row.styleBrief, {}),
     settings: parseJson<Record<string, unknown>>(row.settings, {}),
     canonicalLogoAssetId: row.canonicalLogoAssetId,
@@ -40,6 +41,46 @@ export function serializeLibrary(row: any) {
     visibility: row.visibility,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+  };
+}
+
+export function serializeGenerationRun(row: any) {
+  const metadata = parseJson<Record<string, unknown>>(row.metadata, {});
+  const referenceAssetIds = parseJson<string[]>(row.referenceAssetIds, []);
+  const outputAssetIds = Array.isArray(metadata.outputAssetIds)
+    ? metadata.outputAssetIds.filter(
+        (id): id is string => typeof id === "string",
+      )
+    : typeof metadata.assetId === "string"
+      ? [metadata.assetId]
+      : [];
+  return {
+    ...row,
+    originalPrompt: row.prompt,
+    userPrompt: row.prompt,
+    referenceAssetIds,
+    metadata,
+    settingsUsed: metadata.settingsUsed ?? {
+      model: row.model,
+      aspectRatio: row.aspectRatio,
+      imageSize: row.imageSize,
+      groundingMode: row.groundingMode,
+    },
+    referenceSelection: metadata.referenceSelection ?? {
+      mode: "legacy",
+      selectedAssetIds: referenceAssetIds,
+    },
+    output: {
+      assetId: typeof metadata.assetId === "string" ? metadata.assetId : null,
+      assetIds: outputAssetIds,
+      provider:
+        typeof metadata.provider === "string" ? metadata.provider : null,
+      providerGenerationId:
+        typeof metadata.providerGenerationId === "string"
+          ? metadata.providerGenerationId
+          : null,
+      creditsCharged: metadata.creditsCharged ?? null,
+    },
   };
 }
 

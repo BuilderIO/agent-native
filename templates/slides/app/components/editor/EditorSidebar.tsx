@@ -354,6 +354,7 @@ function AddSlidePopover({
         "Create the slide content and insert it at the correct position using `add-slide` with --deckId=" +
           deckId +
           ".",
+        "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep each slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
         "If the user asked for multiple slides, call `add-slide` once per slide. Use positions starting at " +
           (activeSlideIndex + 1) +
           " so the new slides land after the active slide in order.",

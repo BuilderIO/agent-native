@@ -2,7 +2,11 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { requireLibrary, serializeAsset } from "./_helpers.js";
+import {
+  requireLibrary,
+  serializeAsset,
+  serializeGenerationRun,
+} from "./_helpers.js";
 
 export default defineAction({
   description: "Get a generation run and all assets produced by that run.",
@@ -22,6 +26,9 @@ export default defineAction({
       .select()
       .from(schema.imageAssets)
       .where(eq(schema.imageAssets.generationRunId, runId));
-    return { run, assets: assets.map(serializeAsset) };
+    return {
+      run: serializeGenerationRun(run),
+      assets: assets.map(serializeAsset),
+    };
   },
 });

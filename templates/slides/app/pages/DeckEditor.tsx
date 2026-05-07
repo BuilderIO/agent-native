@@ -176,6 +176,8 @@ export default function DeckEditor() {
         "Answers:",
         formatted,
         "",
+        "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep each slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
+        "",
         "Now generate the slides based on these preferences. Start a manage-progress run, add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in. Use add-slide with --deckId=" +
           id +
           " to add slides sequentially. Wait for each add-slide result before calling it again.",
@@ -203,7 +205,7 @@ export default function DeckEditor() {
     sendToAgentChat({
       message:
         "Skip the questions — just go ahead and create the slides with your best judgment.",
-      context: `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults. Start a manage-progress run, add the first slide as soon as it is ready, then continue sequentially using add-slide with --deckId=${id}. Wait for each add-slide result before calling it again.`,
+      context: `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults. Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels); keep each slide within the density limits in AGENTS.md and split dense source material across more slides instead of packing it tightly. Start a manage-progress run, add the first slide as soon as it is ready, then continue sequentially using add-slide with --deckId=${id}. Wait for each add-slide result before calling it again.`,
       submit: true,
     });
 

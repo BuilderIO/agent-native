@@ -59,6 +59,20 @@ export interface StyleBrief {
   doNot?: string[];
 }
 
+export interface ImageLibrarySummary {
+  id: string;
+  title: string;
+  description?: string | null;
+  customInstructions: string;
+  styleBrief: StyleBrief;
+  settings: Record<string, unknown>;
+  canonicalLogoAssetId?: string | null;
+  coverAssetId?: string | null;
+  visibility?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface ImageAssetMetadata {
   category?: ImageCategory;
   colors?: string[];

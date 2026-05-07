@@ -11,6 +11,7 @@ export const imageLibraries = table("image_libraries", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   description: text("description"),
+  customInstructions: text("custom_instructions").notNull().default(""),
   styleBrief: text("style_brief").notNull().default("{}"),
   settings: text("settings").notNull().default("{}"),
   canonicalLogoAssetId: text("canonical_logo_asset_id"),

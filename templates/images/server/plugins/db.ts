@@ -136,6 +136,11 @@ export default runMigrations(
       sql: `CREATE INDEX IF NOT EXISTS image_generation_runs_caller_created_idx
             ON image_generation_runs (caller_app_id, created_at)`,
     },
+    {
+      version: 13,
+      sql: `ALTER TABLE image_libraries
+            ADD COLUMN IF NOT EXISTS custom_instructions TEXT NOT NULL DEFAULT ''`,
+    },
   ],
   { table: "images_migrations" },
 );

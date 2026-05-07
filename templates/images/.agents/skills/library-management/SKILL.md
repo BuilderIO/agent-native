@@ -11,6 +11,7 @@ Use this skill before adding fields, changing access checks, or modifying delete
 
 ```
 image_libraries           — top-level library, has ownableColumns + shares
+  ├─ custom_instructions  — durable free-text prompt guidance
   └─ image_collections    — optional sub-grouping (categories), inherits access
   └─ image_assets         — every image (refs + generated), inherits access
   └─ image_generation_runs — one per generate call, inherits access

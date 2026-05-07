@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   FeatureNotConfiguredError,
   getBuilderImageGenerationBaseUrl,
@@ -23,6 +23,10 @@ export interface ReferenceForGeneration {
   mimeType: string;
   data: string;
 }
+
+// Keep automatic reference context compact for Gemini. Explicit
+// referenceAssetIds bypass this cap because the caller made a deliberate set.
+export const DEFAULT_GENERATION_REFERENCE_LIMIT = 6;
 
 export interface GenerateProviderInput {
   prompt: string;
@@ -343,6 +347,7 @@ function toBuilderReferenceRole(role: string) {
 export function compilePrompt(input: {
   libraryTitle: string;
   styleBrief: StyleBrief;
+  customInstructions?: string | null;
   prompt: string;
   referenceCount: number;
   includeLogo: boolean;
@@ -362,6 +367,9 @@ export function compilePrompt(input: {
     input.category === "diagram"
       ? "\nDiagram mode: use clear hierarchy, precise labels only when requested, consistent line weights, and enough whitespace for readability."
       : "";
+  const customInstructions = input.customInstructions?.trim()
+    ? `\nLibrary custom instructions:\n${input.customInstructions.trim()}\n`
+    : "";
 
   return `Create a brand-consistent image for the "${input.libraryTitle}" image library.
 
@@ -372,7 +380,7 @@ ${style.description || "Infer the style from the references."}${palette}
 ${style.composition ? `\nComposition: ${style.composition}.` : ""}
 ${style.lighting ? `\nLighting: ${style.lighting}.` : ""}
 ${style.typographyPolicy ? `\nTypography policy: ${style.typographyPolicy}.` : ""}
-${doNot}${logoInstruction}${diagramInstruction}
+${doNot}${logoInstruction}${diagramInstruction}${customInstructions}
 
 Do not render headlines, body text, UI labels, or prompt wording inside the image unless the user explicitly asks for exact visible text.
 
@@ -384,20 +392,45 @@ export async function selectReferences(input: {
   libraryId: string;
   collectionId?: string | null;
   categories?: ImageCategory[];
+  referenceAssetIds?: string[];
   sourceAssetId?: string;
   limit?: number;
 }): Promise<ReferenceForGeneration[]> {
   const db = getDb();
-  const filters = [eq(schema.imageAssets.libraryId, input.libraryId)];
-  if (input.sourceAssetId) {
-    filters.push(eq(schema.imageAssets.id, input.sourceAssetId));
+  const explicitIds = [...new Set(input.referenceAssetIds ?? [])];
+  if (explicitIds.length) {
+    if (input.sourceAssetId && !explicitIds.includes(input.sourceAssetId)) {
+      explicitIds.unshift(input.sourceAssetId);
+    }
+    const rows = await db
+      .select()
+      .from(schema.imageAssets)
+      .where(
+        and(
+          eq(schema.imageAssets.libraryId, input.libraryId),
+          inArray(schema.imageAssets.id, explicitIds),
+        ),
+      );
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return loadReferenceData(
+      explicitIds
+        .map((id) => byId.get(id))
+        .filter(
+          (asset): asset is NonNullable<typeof asset> =>
+            Boolean(asset) &&
+            asset.status !== "archived" &&
+            asset.status !== "failed",
+        ),
+    );
   }
+  const filters = [eq(schema.imageAssets.libraryId, input.libraryId)];
   const rows = await db
     .select()
     .from(schema.imageAssets)
     .where(filters.length === 1 ? filters[0] : and(...filters));
 
   const categories = new Set(input.categories ?? []);
+  const limit = input.limit ?? DEFAULT_GENERATION_REFERENCE_LIMIT;
   const scored = rows
     .filter((asset) => asset.status !== "archived" && asset.status !== "failed")
     .map((asset) => {
@@ -418,18 +451,54 @@ export async function selectReferences(input: {
     .sort(
       (a, b) =>
         b.score - a.score || b.asset.createdAt.localeCompare(a.asset.createdAt),
-    )
-    .slice(0, input.limit ?? 8);
+    );
+  const source = input.sourceAssetId
+    ? scored.find((item) => item.asset.id === input.sourceAssetId)
+    : undefined;
+  const remainingLimit = Math.max(0, limit - (source ? 1 : 0));
+  const pool = scored
+    .filter((item) => item.asset.id !== source?.asset.id)
+    .slice(0, Math.max(remainingLimit * 4, remainingLimit));
+  const sampled = sampleWeighted(pool, remainingLimit);
+  const selected = source ? [source, ...sampled] : sampled;
 
+  return loadReferenceData(selected.map((item) => item.asset));
+}
+
+function sampleWeighted<T extends { score: number }>(
+  items: T[],
+  limit: number,
+): T[] {
+  if (limit <= 0) return [];
+  return items
+    .map((item) => ({
+      item,
+      key: Math.random() ** (1 / Math.max(1, item.score + 1)),
+    }))
+    .sort((a, b) => b.key - a.key)
+    .slice(0, limit)
+    .map(({ item }) => item);
+}
+
+async function loadReferenceData(
+  selected: Array<{
+    id: string;
+    role: string;
+    mimeType: string;
+    objectKey: string;
+    metadata: string;
+  }>,
+) {
   const refs: ReferenceForGeneration[] = [];
-  for (const item of scored) {
-    const bytes = await getObject(item.asset.objectKey).catch(() => null);
+  for (const asset of selected) {
+    const bytes = await getObject(asset.objectKey).catch(() => null);
     if (!bytes) continue;
+    const metadata = parseJson<{ category?: string }>(asset.metadata, {});
     refs.push({
-      id: item.asset.id,
-      role: item.asset.role,
-      category: item.metadata.category,
-      mimeType: item.asset.mimeType,
+      id: asset.id,
+      role: asset.role,
+      category: metadata.category,
+      mimeType: asset.mimeType,
       data: bytes.toString("base64"),
     });
   }

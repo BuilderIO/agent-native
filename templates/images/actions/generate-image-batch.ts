@@ -23,6 +23,7 @@ export default defineAction({
           aspectRatio: z.enum(ASPECT_RATIOS).optional(),
           imageSize: z.enum(IMAGE_SIZES).optional(),
           categories: z.array(z.enum(IMAGE_CATEGORIES)).optional(),
+          referenceAssetIds: z.array(z.string()).optional(),
           sourceAssetId: z.string().optional(),
         }),
       )
@@ -53,6 +54,7 @@ export default defineAction({
             imageSize: slot.imageSize ?? "2K",
             model: base.model,
             categories: slot.categories,
+            referenceAssetIds: slot.referenceAssetIds,
             includeLogo: base.includeLogo,
             groundingMode: base.groundingMode,
             slotId: slot.slotId,
