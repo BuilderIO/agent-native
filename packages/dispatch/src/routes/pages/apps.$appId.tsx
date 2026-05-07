@@ -24,7 +24,7 @@ interface WorkspaceAppSummary {
 
 function workspaceAppHref(app: WorkspaceAppSummary): string | null {
   if (app.status === "pending") return app.builderUrl || null;
-  return app.url || app.path || null;
+  return app.path || app.url || null;
 }
 
 export function meta() {

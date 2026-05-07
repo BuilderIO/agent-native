@@ -117,6 +117,7 @@ export function ShareDialog(props: ShareDialogProps) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("viewer");
   const [notifyPeople, setNotifyPeople] = useState(true);
+  const hasInviteEmail = email.trim().length > 0;
   const [passwordEnabled, setPasswordEnabled] = useState(!!password);
   const [passwordValue, setPasswordValue] = useState(password ?? "");
   const [expiryValue, setExpiryValue] = useState(
@@ -245,15 +246,17 @@ export function ShareDialog(props: ShareDialogProps) {
                   Invite
                 </Button>
               </div>
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Checkbox
-                  checked={notifyPeople}
-                  onCheckedChange={(checked) =>
-                    setNotifyPeople(checked === true)
-                  }
-                />
-                Notify people
-              </label>
+              {hasInviteEmail ? (
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Checkbox
+                    checked={notifyPeople}
+                    onCheckedChange={(checked) =>
+                      setNotifyPeople(checked === true)
+                    }
+                  />
+                  Notify people
+                </label>
+              ) : null}
             </div>
             {sharesQuery.data?.ownerEmail || shares.length ? (
               <div className="rounded-md border border-border divide-y divide-border">

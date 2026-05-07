@@ -1,3 +1,5 @@
+import { agentNativePath } from "./api-path.js";
+
 /**
  * Frame Communication (browser)
  *
@@ -109,6 +111,51 @@ export function isInFrame(): boolean {
  */
 export function getCallbackOrigin(): string {
   return typeof window !== "undefined" ? window.location.origin : "";
+}
+
+function envFlag(name: string): boolean {
+  const env = (
+    import.meta as unknown as {
+      env?: Record<string, string | boolean | undefined>;
+    }
+  ).env;
+  const value = env?.[name];
+  const processValue =
+    typeof process !== "undefined"
+      ? (process.env as Record<string, string | undefined>)?.[name]
+      : undefined;
+  return (
+    value === true ||
+    value === "1" ||
+    value === "true" ||
+    processValue === "1" ||
+    processValue === "true"
+  );
+}
+
+function shouldUseWorkspaceCallbackRelay(path: string): boolean {
+  return (
+    envFlag("VITE_AGENT_NATIVE_WORKSPACE") &&
+    path.startsWith("/_agent-native/") &&
+    (path.endsWith("/callback") || path.includes("/callback/"))
+  );
+}
+
+/**
+ * Build an OAuth redirect URI for a framework callback route.
+ *
+ * Workspace deploys use one provider-registered root callback URL and then
+ * relay to the app-specific callback based on OAuth state. Standalone apps
+ * keep using their mounted app callback path.
+ */
+export function oauthRedirectUri(callbackPath: string): string {
+  const normalized = callbackPath.startsWith("/")
+    ? callbackPath
+    : `/${callbackPath}`;
+  const path = shouldUseWorkspaceCallbackRelay(normalized)
+    ? normalized
+    : agentNativePath(normalized);
+  return `${getCallbackOrigin()}${path}`;
 }
 
 // ---------------------------------------------------------------------------

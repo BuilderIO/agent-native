@@ -29,6 +29,17 @@ in `apps/<app>/AGENTS.md`; shared cross-app behavior belongs in
 - Do not satisfy a new-app request by adding a route, page, component, or file
   to `apps/starter` or another existing app unless the user explicitly asks to
   modify that existing app.
+- Workspace apps are discovered from `apps/<app-id>/package.json`. There is no
+  separate workspace app registry to edit for Dispatch to list the app.
+- Use relative workspace links like `/<app-id>`. Never hardcode
+  `localhost`, `127.0.0.1`, `8080`, `8100`, or any dev port in app cards,
+  instructions, redirects, or navigation; the active workspace gateway/browser
+  origin owns the port.
+- React Router apps must preserve `APP_BASE_PATH` / `VITE_APP_BASE_PATH` in
+  `app/entry.client.tsx` via `appBasePath()` so the app hydrates correctly
+  when mounted at `/<app-id>`.
+- Use the framework/template UI stack for standard UI: shadcn/ui components and
+  `@tabler/icons-react`. Do not add `lucide-react` or another icon library.
 - In local development, scaffold the app from the workspace root with
   `pnpm exec agent-native create <app-id> --template=<template>`. In production
   Dispatch posts the request to Builder branch creation; the Builder branch

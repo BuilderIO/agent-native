@@ -1197,7 +1197,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           <span className="text-lg font-bold tracking-tight">Analytics</span>
         </Link>
       </div>
-      <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden py-2">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2">
         <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
           {/* Data Sources link */}
           <Link
@@ -1420,114 +1420,125 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </SortableContext>
             </DndContext>
           )}
+        </nav>
 
-          <div className="min-w-0 border-t border-border mt-2 pt-2">
+        <div className="mt-auto min-w-0 px-2 pt-2 text-sm font-medium lg:px-4">
+          <nav className="grid min-w-0 items-start space-y-1 pb-1">
+            {bottomItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = location.pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  to={item.href}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                    isActive
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-muted-foreground hover:bg-sidebar-accent/50",
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+
+          <div className="min-w-0 border-t border-border/70">
             <ExtensionsSidebarSection />
           </div>
 
-          {bottomItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = location.pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                to={item.href}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {item.label}
-              </Link>
-            );
-          })}
-          <FeedbackButton />
-        </nav>
-      </div>
-      <div className="p-4 border-t border-border space-y-2">
-        <OrgSwitcher />
-        <TooltipProvider delayDuration={200}>
-          <div className="flex items-center justify-between">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() =>
-                    document.dispatchEvent(
-                      new KeyboardEvent("keydown", {
-                        key: "p",
-                        metaKey: true,
-                      }),
-                    )
-                  }
-                  className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
-                >
-                  <IconSearch className="h-4 w-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                <p>Search (\u2318P)</p>
-              </TooltipContent>
-            </Tooltip>
-            <Popover open={logoutOpen} onOpenChange={setLogoutOpen}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <PopoverTrigger asChild>
-                    <button className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50">
-                      <IconLogout className="h-4 w-4" />
-                    </button>
-                  </PopoverTrigger>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  <p>Sign Out</p>
-                </TooltipContent>
-              </Tooltip>
-              <PopoverContent className="w-48 p-3" side="top" align="start">
-                <p className="text-sm mb-3">Sign out?</p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      setLogoutOpen(false);
-                      logout();
-                    }}
-                    className="flex-1 rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors"
-                  >
-                    Yes
-                  </button>
-                  <button
-                    onClick={() => setLogoutOpen(false)}
-                    className="flex-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent/50 transition-colors"
-                  >
-                    Cancel
-                  </button>
+          <div className="space-y-2 border-t border-border/70 pt-2">
+            <OrgSwitcher />
+            <TooltipProvider delayDuration={200}>
+              <div className="flex items-center gap-1">
+                <FeedbackButton className="min-w-0 flex-1" />
+                <div className="flex shrink-0 items-center gap-0.5">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() =>
+                          document.dispatchEvent(
+                            new KeyboardEvent("keydown", {
+                              key: "p",
+                              metaKey: true,
+                            }),
+                          )
+                        }
+                        className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
+                      >
+                        <IconSearch className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      <p>Search (\u2318P)</p>
+                    </TooltipContent>
+                  </Tooltip>
+                  <Popover open={logoutOpen} onOpenChange={setLogoutOpen}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <PopoverTrigger asChild>
+                          <button className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50">
+                            <IconLogout className="h-4 w-4" />
+                          </button>
+                        </PopoverTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <p>Sign Out</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <PopoverContent
+                      className="w-48 p-3"
+                      side="top"
+                      align="start"
+                    >
+                      <p className="text-sm mb-3">Sign out?</p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            setLogoutOpen(false);
+                            logout();
+                          }}
+                          className="flex-1 rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors"
+                        >
+                          Yes
+                        </button>
+                        <button
+                          onClick={() => setLogoutOpen(false)}
+                          className="flex-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent/50 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => {
+                          const next = light ? "dark" : "light";
+                          setTheme(next);
+                          persistThemePreference(next);
+                        }}
+                        className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
+                      >
+                        {light ? (
+                          <IconMoon className="h-4 w-4" />
+                        ) : (
+                          <IconSun className="h-4 w-4" />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      <p>{light ? "Dark mode" : "Light mode"}</p>
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
-              </PopoverContent>
-            </Popover>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => {
-                    const next = light ? "dark" : "light";
-                    setTheme(next);
-                    persistThemePreference(next);
-                  }}
-                  className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
-                >
-                  {light ? (
-                    <IconMoon className="h-4 w-4" />
-                  ) : (
-                    <IconSun className="h-4 w-4" />
-                  )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                <p>{light ? "Dark mode" : "Light mode"}</p>
-              </TooltipContent>
-            </Tooltip>
+              </div>
+            </TooltipProvider>
           </div>
-        </TooltipProvider>
+        </div>
       </div>
     </div>
   );

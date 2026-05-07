@@ -61,7 +61,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
           name="viewport"
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <script
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
         <meta name="theme-color" content="#18181B" />
         <meta name="apple-mobile-web-app-title" content="Notes" />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />

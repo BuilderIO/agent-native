@@ -241,18 +241,41 @@ describe("aiSdkPartToEngineEvents (v6 stream protocol)", () => {
     ]);
   });
 
-  it("absorbs reasoning-start / reasoning-end and tool-input-* lifecycle parts", () => {
-    for (const type of [
-      "reasoning-start",
-      "reasoning-end",
-      "tool-input-start",
-      "tool-input-delta",
-      "tool-input-end",
-    ]) {
+  it("absorbs reasoning boundaries and tool-input-end lifecycle parts", () => {
+    for (const type of ["reasoning-start", "reasoning-end", "tool-input-end"]) {
       expect(aiSdkPartToEngineEvents({ type, id: "x", delta: "y" })).toEqual(
         [],
       );
     }
+  });
+
+  it("emits tool input progress while arguments are being assembled", () => {
+    expect(
+      aiSdkPartToEngineEvents({
+        type: "tool-input-start",
+        id: "tc-1",
+        toolName: "create-document",
+      }),
+    ).toEqual([
+      {
+        type: "tool-input-start",
+        id: "tc-1",
+        name: "create-document",
+      },
+    ]);
+    expect(
+      aiSdkPartToEngineEvents({
+        type: "tool-input-delta",
+        id: "tc-1",
+        delta: '{"title"',
+      }),
+    ).toEqual([
+      {
+        type: "tool-input-delta",
+        id: "tc-1",
+        text: '{"title"',
+      },
+    ]);
   });
 
   it("converts tool-call to tool-call event (v6 input field)", () => {

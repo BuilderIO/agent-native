@@ -158,6 +158,20 @@ export function getAppUrl(event: H3Event, path = "/"): string {
   return `${getOrigin(event)}${getAppBasePath()}${cleanPath}`;
 }
 
+function isWorkspaceOAuthCallbackRelayEnabled(): boolean {
+  return (
+    process.env.AGENT_NATIVE_WORKSPACE === "1" ||
+    process.env.VITE_AGENT_NATIVE_WORKSPACE === "1"
+  );
+}
+
+function isFrameworkOAuthCallbackPath(pathname: string): boolean {
+  return (
+    pathname.startsWith("/_agent-native/") &&
+    (pathname.endsWith("/callback") || pathname.includes("/callback/"))
+  );
+}
+
 function getOriginalRequestPath(event: H3Event): string {
   const mountedPathname = (event as any).context?._mountedPathname;
   if (typeof mountedPathname === "string" && mountedPathname) {
@@ -194,6 +208,12 @@ function isRequestUnderAppBasePath(event: H3Event): boolean {
 
 function getDefaultOAuthRedirectUrl(event: H3Event, path: string): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  if (
+    isWorkspaceOAuthCallbackRelayEnabled() &&
+    isFrameworkOAuthCallbackPath(cleanPath)
+  ) {
+    return `${getOrigin(event)}${cleanPath}`;
+  }
   const basePath = isRequestUnderAppBasePath(event) ? getAppBasePath() : "";
   return `${getOrigin(event)}${basePath}${cleanPath}`;
 }
@@ -252,7 +272,13 @@ export function isAllowedOAuthRedirectUri(
   const basePath = getAppBasePath();
   const allowedPrefixes =
     basePath && isRequestUnderAppBasePath(event)
-      ? [`${basePath}/_agent-native/`]
+      ? [
+          `${basePath}/_agent-native/`,
+          ...(isWorkspaceOAuthCallbackRelayEnabled() &&
+          isFrameworkOAuthCallbackPath(url.pathname)
+            ? ["/_agent-native/"]
+            : []),
+        ]
       : ["/_agent-native/"];
   if (!allowedPrefixes.some((prefix) => url.pathname.startsWith(prefix))) {
     return false;

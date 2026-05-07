@@ -482,6 +482,35 @@ function readWorkspaceAppsFromManifestFile(): WorkspaceAppSummary[] | null {
   return null;
 }
 
+function readWorkspaceAppsFromFilesystem(
+  workspaceRoot: string,
+): WorkspaceAppSummary[] | null {
+  const appsDir = path.join(workspaceRoot, "apps");
+  if (!fs.existsSync(appsDir)) return null;
+
+  const apps = fs
+    .readdirSync(appsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry): WorkspaceAppSummary | null => {
+      const appDir = path.join(appsDir, entry.name);
+      const pkg = readJson(path.join(appDir, "package.json"));
+      if (!pkg) return null;
+      return {
+        id: entry.name,
+        name: pkg.displayName || titleCase(entry.name),
+        description: pkg.description || "",
+        path: `/${entry.name}`,
+        url: workspaceAppUrl(`/${entry.name}`),
+        isDispatch: entry.name === "dispatch",
+        status: "ready",
+      } satisfies WorkspaceAppSummary;
+    })
+    .filter((app): app is WorkspaceAppSummary => !!app)
+    .sort(sortWorkspaceApps);
+
+  return apps.length ? apps : null;
+}
+
 export function getEnvBuilderProjectId(): string | null {
   return (
     process.env.DISPATCH_BUILDER_PROJECT_ID ||
@@ -535,6 +564,18 @@ export function getWorkspaceInfo(): WorkspaceInfo {
 export async function listWorkspaceApps(
   options: ListWorkspaceAppsOptions = {},
 ): Promise<WorkspaceAppSummary[]> {
+  const workspaceRoot = findWorkspaceRoot();
+  const localFilesystemApps =
+    workspaceRoot && isLocalAppCreationRuntime()
+      ? readWorkspaceAppsFromFilesystem(workspaceRoot)
+      : null;
+  if (localFilesystemApps) {
+    return maybeIncludeAgentCards(
+      await appendPendingWorkspaceApps(localFilesystemApps),
+      options,
+    );
+  }
+
   const manifestApps =
     readWorkspaceAppsFromEnv() ?? readWorkspaceAppsFromManifestFile();
   if (manifestApps) {
@@ -544,7 +585,6 @@ export async function listWorkspaceApps(
     );
   }
 
-  const workspaceRoot = findWorkspaceRoot();
   if (!workspaceRoot) {
     return maybeIncludeAgentCards(
       await appendPendingWorkspaceApps([
@@ -562,33 +602,7 @@ export async function listWorkspaceApps(
     );
   }
 
-  const appsDir = path.join(workspaceRoot, "apps");
-  if (!fs.existsSync(appsDir)) {
-    return maybeIncludeAgentCards(
-      await appendPendingWorkspaceApps([]),
-      options,
-    );
-  }
-
-  const apps = fs
-    .readdirSync(appsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry): WorkspaceAppSummary | null => {
-      const appDir = path.join(appsDir, entry.name);
-      const pkg = readJson(path.join(appDir, "package.json"));
-      if (!pkg) return null;
-      return {
-        id: entry.name,
-        name: pkg.displayName || titleCase(entry.name),
-        description: pkg.description || "",
-        path: `/${entry.name}`,
-        url: workspaceAppUrl(`/${entry.name}`),
-        isDispatch: entry.name === "dispatch",
-        status: "ready",
-      } satisfies WorkspaceAppSummary;
-    })
-    .filter((app): app is WorkspaceAppSummary => !!app)
-    .sort(sortWorkspaceApps);
+  const apps = readWorkspaceAppsFromFilesystem(workspaceRoot) ?? [];
   return maybeIncludeAgentCards(
     await appendPendingWorkspaceApps(apps),
     options,

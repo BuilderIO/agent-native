@@ -162,8 +162,8 @@ export function engineMessagesToAISDK(messages: EngineMessage[]): any[] {
  *
  * v6 emits lifecycle events (`text-start` / `text-delta` / `text-end`,
  * `reasoning-start` / `reasoning-delta` / `reasoning-end`, `tool-input-*`).
- * We absorb the boundary events and forward only the deltas plus the terminal
- * `tool-call`, `finish-step`, and `finish` parts.
+ * We absorb text/reasoning boundaries, forward text/reasoning/tool-input
+ * deltas, and keep the terminal `tool-call`, `finish-step`, and `finish` parts.
  */
 export function aiSdkPartToEngineEvents(part: any): EngineEvent[] {
   const events: EngineEvent[] = [];
@@ -184,7 +184,25 @@ export function aiSdkPartToEngineEvents(part: any): EngineEvent[] {
       break;
 
     case "tool-input-start":
+      events.push({
+        type: "tool-input-start",
+        id: part.id ?? part.toolCallId,
+        name: part.toolName,
+      });
+      break;
     case "tool-input-delta":
+      events.push({
+        type: "tool-input-delta",
+        id: part.id ?? part.toolCallId,
+        name: part.toolName,
+        text:
+          typeof part.delta === "string"
+            ? part.delta
+            : typeof part.text === "string"
+              ? part.text
+              : "",
+      });
+      break;
     case "tool-input-end":
       // Ignored: the terminal `tool-call` part carries the full input.
       break;

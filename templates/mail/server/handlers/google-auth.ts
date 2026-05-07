@@ -9,7 +9,6 @@ import {
   readBody,
   getSession,
   isElectron,
-  getOrigin,
   getAppUrl,
   resolveOAuthRedirectUri,
   encodeOAuthState,
@@ -38,6 +37,8 @@ import {
   OAuthAccountOwnedByOtherUserError,
   setOAuthDisplayName,
 } from "@agent-native/core/oauth-tokens";
+
+const OAUTH_STATE_APP_ID = process.env.APP_NAME || "mail";
 
 function googleOAuthErrorPayload(
   error: any,
@@ -126,7 +127,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       owner,
       desktop,
       addAccount: false,
-      app: "mail",
+      app: OAUTH_STATE_APP_ID,
       returnUrl,
       flowId,
     });
@@ -294,7 +295,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         owner: session.email,
         desktop,
         addAccount: true,
-        app: "mail",
+        app: OAUTH_STATE_APP_ID,
         flowId,
       });
       const url = getAuthUrl(undefined, redirectUri, state);

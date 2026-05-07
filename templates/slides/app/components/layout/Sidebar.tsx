@@ -39,7 +39,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
 
   if (collapsed) {
     return (
-      <aside className="flex h-full w-12 shrink-0 flex-col items-center gap-1 border-r border-border bg-sidebar py-2 text-sidebar-foreground">
+      <aside className="flex h-full w-12 shrink-0 flex-col items-center gap-1 overflow-hidden border-r border-border bg-sidebar py-2 text-sidebar-foreground">
         {onToggleCollapsed && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -54,7 +54,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
             <TooltipContent>Expand sidebar</TooltipContent>
           </Tooltip>
         )}
-        <nav className="flex flex-1 flex-col items-center gap-1 pt-1">
+        <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto pt-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = isItemActive(item.href);
@@ -117,35 +117,42 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
         )}
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = isItemActive(item.href);
-          return (
-            <Link
-              key={item.href}
-              to={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-                isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
-              )}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <nav className="space-y-1 px-2 py-2">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = isItemActive(item.href);
+            return (
+              <Link
+                key={item.href}
+                to={item.href}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                  isActive
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+                )}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
 
-      <div className="border-t border-border px-2 py-2">
-        <ExtensionsSidebarSection />
-      </div>
+        <div className="mt-auto shrink-0">
+          <div className="border-t border-border px-2 py-1">
+            <ExtensionsSidebarSection />
+          </div>
 
-      <div className="border-t border-border px-3 py-2 space-y-2">
-        <FeedbackButton />
-        <OrgSwitcher />
+          <div className="border-t border-border px-3 py-2">
+            <OrgSwitcher />
+          </div>
+
+          <div className="border-t border-border px-3 py-2">
+            <FeedbackButton />
+          </div>
+        </div>
       </div>
     </aside>
   );

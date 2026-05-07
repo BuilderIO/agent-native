@@ -44,7 +44,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
           name="viewport"
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <script
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
         <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#EF4444" />
         <meta name="mobile-web-app-capable" content="yes" />

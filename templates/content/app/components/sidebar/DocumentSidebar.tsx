@@ -342,7 +342,7 @@ export function DocumentSidebar({
   return (
     <div
       className={cn(
-        "relative flex flex-col h-full border-r border-border bg-muted/30",
+        "relative flex h-full min-h-0 flex-col border-r border-border bg-muted/30",
         width === undefined && "w-full",
       )}
       style={width === undefined ? undefined : { width, flexShrink: 0 }}
@@ -412,7 +412,7 @@ export function DocumentSidebar({
         </div>
       )}
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         <div className="py-2">
           {/* IconSearch results */}
           {filteredDocuments ? (
@@ -543,17 +543,19 @@ export function DocumentSidebar({
         </div>
       </ScrollArea>
 
-      <div className="border-t border-border px-3 py-1 mt-2">
+      <div className="shrink-0 border-t border-border">
         <ExtensionsSidebarSection />
       </div>
 
       {/* Footer */}
-      <div className="border-t border-border px-3 py-2 space-y-2 mt-2">
-        <FeedbackButton />
+      <div className="shrink-0 space-y-2 border-t border-border px-3 py-2">
         <OrgSwitcher />
-        <div className="flex items-center justify-end gap-0.5">
-          <NotionButton />
-          <ThemeToggle />
+        <div className="flex items-center gap-1">
+          <FeedbackButton className="min-w-0 flex-1" />
+          <div className="flex shrink-0 items-center gap-0.5">
+            <NotionButton />
+            <ThemeToggle />
+          </div>
         </div>
       </div>
 

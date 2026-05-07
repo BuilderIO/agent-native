@@ -13,7 +13,7 @@ import { getDb, schema } from "../db/index.js";
 import { getActiveOrganizationId } from "./recordings.js";
 import { exchangeCode, getUserInfo } from "./google-calendar-client.js";
 
-export const CLIPS_GOOGLE_OAUTH_APP_ID = "clips";
+export const CLIPS_GOOGLE_OAUTH_APP_ID = process.env.APP_NAME || "clips";
 
 export function isCalendarConnectState(state: OAuthStatePayload): boolean {
   return state.app === CLIPS_GOOGLE_OAUTH_APP_ID && state.addAccount === true;

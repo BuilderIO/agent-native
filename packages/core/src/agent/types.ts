@@ -111,6 +111,7 @@ export interface AgentChatRequest {
 
 export type AgentChatEvent =
   | { type: "text"; text: string }
+  | { type: "activity"; label: string; tool?: string }
   | { type: "tool_start"; tool: string; input: Record<string, string> }
   | { type: "tool_done"; tool: string; result: string }
   | {

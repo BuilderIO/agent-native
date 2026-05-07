@@ -184,7 +184,7 @@ export function Sidebar() {
         )}
       </div>
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         <div className="py-2">
           {formsLoading && forms.length === 0
             ? Array.from({ length: 5 }).map((_, i) => (
@@ -237,7 +237,7 @@ export function Sidebar() {
       </ScrollArea>
 
       {/* Pinned nav + footer */}
-      <div className="px-3 pt-2">
+      <div className="shrink-0 border-t border-border px-3 py-1.5">
         <Link
           to="/team"
           onClick={() => isMobile && setMobileOpen(false)}
@@ -254,16 +254,16 @@ export function Sidebar() {
       </div>
 
       {/* Tools */}
-      <div className="px-3 pt-2">
+      <div className="shrink-0 border-t border-border px-1.5 py-1.5">
         <ExtensionsSidebarSection />
       </div>
 
       {/* Footer */}
-      <div className="border-t border-border px-3 py-2 space-y-2 mt-2">
-        <FeedbackButton />
+      <div className="shrink-0 space-y-2 border-t border-border px-3 py-2">
         <OrgSwitcher />
-        <div className="flex items-center justify-end">
-          <ThemeToggle />
+        <div className="flex items-center gap-2">
+          <FeedbackButton className="min-w-0 flex-1" />
+          <ThemeToggle className="h-9 w-9 shrink-0" />
         </div>
       </div>
     </div>

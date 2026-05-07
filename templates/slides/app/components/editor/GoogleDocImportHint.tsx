@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
 import {
   IconAlertCircle,
   IconBrandGoogleDrive,
@@ -234,10 +234,9 @@ export function GoogleDocImportHint({
       "popup,width=520,height=720",
     );
     try {
-      const callbackUrl = new URL(
-        agentNativePath("/_agent-native/google-docs/callback"),
-        window.location.origin,
-      ).toString();
+      const callbackUrl = oauthRedirectUri(
+        "/_agent-native/google-docs/callback",
+      );
       const authUrl = new URL(endpoint("/_agent-native/google-docs/auth-url"));
       authUrl.searchParams.set("redirect_uri", callbackUrl);
       authUrl.searchParams.set(

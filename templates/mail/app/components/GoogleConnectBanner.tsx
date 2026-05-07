@@ -13,7 +13,11 @@ import {
   IconLogout,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
-import { agentNativePath, getCallbackOrigin } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  isInBuilderFrame,
+  oauthRedirectUri,
+} from "@agent-native/core/client";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
@@ -96,7 +100,11 @@ export function GoogleConnectBanner({
   const accounts = googleStatus.data?.accounts ?? [];
   const hasAccounts = accounts.length > 0;
 
-  const isElectron = useMemo(() => /Electron/i.test(navigator.userAgent), []);
+  const isBuilderFrame = useMemo(() => isInBuilderFrame(), []);
+  const useDesktopAuth = useMemo(
+    () => /AgentNativeDesktop/i.test(navigator.userAgent) && !isBuilderFrame,
+    [isBuilderFrame],
+  );
   const desktopPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const addAccountPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
@@ -116,7 +124,7 @@ export function GoogleConnectBanner({
       ? "/_agent-native/google/add-account/auth-url"
       : "/_agent-native/google/auth-url";
     const redirectUri = encodeURIComponent(
-      `${origin}${agentNativePath("/_agent-native/google/callback")}`,
+      oauthRedirectUri("/_agent-native/google/callback"),
     );
     window.open(
       `${origin}${agentNativePath(endpoint)}?redirect_uri=${redirectUri}&desktop=1&flow_id=${flowId}&redirect=1`,
@@ -172,7 +180,7 @@ export function GoogleConnectBanner({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const redirectUri = `${getCallbackOrigin()}${agentNativePath("/_agent-native/google/callback")}`;
+  const redirectUri = oauthRedirectUri("/_agent-native/google/callback");
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -257,12 +265,14 @@ export function GoogleConnectBanner({
       typeof (window as any).ReactNativeWebView !== "undefined";
     if (isNativeWebView) {
       window.location.href = addAccountUrl.data.url;
+    } else if (isBuilderFrame) {
+      window.location.href = addAccountUrl.data.url;
     } else {
       window.open(addAccountUrl.data.url, "_blank");
     }
     setWantAddAccount(false);
 
-    if (isNativeWebView) return;
+    if (isNativeWebView || isBuilderFrame) return;
 
     const prevCount = accounts.length;
     if (addAccountPollRef.current) clearInterval(addAccountPollRef.current);
@@ -284,11 +294,11 @@ export function GoogleConnectBanner({
     // accounts.length is captured into prevCount above; including it in deps
     // would tear down and recreate the interval whenever the count changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wantAddAccount, addAccountUrl.data]);
+  }, [wantAddAccount, addAccountUrl.data, isBuilderFrame]);
 
   function handleConnect() {
     setDesktopAuthIssue(null);
-    if (isElectron) {
+    if (useDesktopAuth) {
       signInViaDesktopBrowser();
       return;
     }
@@ -300,7 +310,7 @@ export function GoogleConnectBanner({
   }
 
   function handleAddAccount() {
-    if (isElectron) {
+    if (useDesktopAuth) {
       signInViaDesktopBrowser(true);
       return;
     }
