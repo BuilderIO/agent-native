@@ -302,21 +302,30 @@ export function onboardingProgressExtension(): string {
             <div class="space-y-4">
               <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
                 <div class="rounded-lg border bg-card p-4"><div class="text-xs uppercase text-muted-foreground">Active Onboardings</div><div class="mt-1 text-2xl font-semibold" x-text="analyticsRows().length"></div><div class="text-xs text-muted-foreground" x-text="tabCount('fusion') + ' Fusion / ' + tabCount('publish') + ' Publish / ' + tabCount('publish-academy') + ' Academy'"></div></div>
-                <div class="rounded-lg border bg-card p-4"><div class="text-xs uppercase text-muted-foreground">Avg Completion</div><div class="mt-1 text-2xl font-semibold" x-text="Math.round(avg(analyticsRows().map((r) => r.pctComplete))) + '%'"></div><div class="text-xs text-muted-foreground">Goal or plan progress</div></div>
-                <div class="rounded-lg border bg-card p-4"><div class="text-xs uppercase text-muted-foreground">Avg Days In</div><div class="mt-1 text-2xl font-semibold" x-text="Math.round(avg(analyticsRows().map((r) => r.daysSinceKickoff))) + 'd'"></div><div class="text-xs text-muted-foreground">Since kickoff</div></div>
-                <div class="rounded-lg border bg-card p-4"><div class="text-xs uppercase text-muted-foreground">At Risk</div><div class="mt-1 text-2xl font-semibold" x-text="analyticsRows().filter((r) => Number(r.daysSinceKickoff || 0) > 90 && Number(r.pctComplete || 0) < 50).length"></div><div class="text-xs text-muted-foreground">Over 90d and under 50%</div></div>
+                <div class="rounded-lg border bg-card p-4"><div class="text-xs uppercase text-muted-foreground">Avg / Median Completion</div><div class="mt-1 text-2xl font-semibold" x-text="fmtMetric(avg(analyticsRows().map((r) => r.pctComplete)), '%')"></div><div class="text-xs text-muted-foreground" x-text="'Median ' + fmtMetric(median(analyticsRows().map((r) => r.pctComplete)), '%')"></div></div>
+                <div class="rounded-lg border bg-card p-4"><div class="text-xs uppercase text-muted-foreground">Avg / Median Days In</div><div class="mt-1 text-2xl font-semibold" x-text="fmtMetric(avg(analyticsRows().map((r) => r.daysSinceKickoff)), 'd')"></div><div class="text-xs text-muted-foreground" x-text="'Median ' + fmtMetric(median(analyticsRows().map((r) => r.daysSinceKickoff)), 'd')"></div></div>
+                <div class="rounded-lg border bg-card p-4"><div class="text-xs uppercase text-muted-foreground">At Risk</div><div class="mt-1 text-2xl font-semibold" x-text="atRiskRows().length"></div><div class="text-xs text-muted-foreground" x-text="'>90d in and <50% complete / ' + noKickoffRows().length + ' missing kickoff'"></div></div>
               </div>
               <div class="grid gap-4 lg:grid-cols-2">
-                <div class="rounded-lg border bg-card p-4">
-                  <div class="mb-3 font-medium">Completion % spread</div>
+                <div class="rounded-lg border bg-card p-4" x-data="{ buckets: bucket(analyticsRows(), 'pctComplete', [{ label: '0-20%', min: 0, max: 20 }, { label: '21-40%', min: 21, max: 40 }, { label: '41-60%', min: 41, max: 60 }, { label: '61-80%', min: 61, max: 80 }, { label: '81-100%', min: 81, max: 100 }]) }">
+                  <div class="mb-3"><div class="font-medium">Completion % spread</div><div class="text-xs text-muted-foreground">How far along customers are. Customer names mirror the legacy chart tooltip.</div></div>
                   <template x-for="b in bucket(analyticsRows(), 'pctComplete', [{ label: '0-20%', min: 0, max: 20 }, { label: '21-40%', min: 21, max: 40 }, { label: '41-60%', min: 41, max: 60 }, { label: '61-80%', min: 61, max: 80 }, { label: '81-100%', min: 81, max: 100 }])" :key="b.label">
-                    <div class="mb-2 grid grid-cols-[70px_1fr_32px] items-center gap-2 text-xs"><span x-text="b.label"></span><div class="h-2 rounded bg-muted"><div class="h-2 rounded bg-blue-500" :style="'width:' + Math.min(100, b.count * 12) + '%'"></div></div><span class="text-right tabular-nums" x-text="b.count"></span></div>
+                    <div class="mb-3 text-xs"><div class="grid grid-cols-[70px_1fr_32px] items-center gap-2"><span x-text="b.label"></span><div class="h-2 rounded bg-muted"><div class="h-2 rounded bg-blue-500" :style="'width:' + bucketWidth(b, bucket(analyticsRows(), 'pctComplete', [{ label: '0-20%', min: 0, max: 20 }, { label: '21-40%', min: 21, max: 40 }, { label: '41-60%', min: 41, max: 60 }, { label: '61-80%', min: 61, max: 80 }, { label: '81-100%', min: 81, max: 100 }])) + '%'"></div></div><span class="text-right tabular-nums" x-text="b.count"></span></div><div x-show="b.customers.length" class="mt-1 truncate text-[11px] text-muted-foreground" x-text="b.customers.slice(0, 8).join(', ') + (b.customers.length > 8 ? ' +' + (b.customers.length - 8) + ' more' : '')"></div></div>
                   </template>
                 </div>
                 <div class="rounded-lg border bg-card p-4">
-                  <div class="mb-3 font-medium">Days since kickoff</div>
+                  <div class="mb-3"><div class="font-medium">Days since kickoff</div><div class="text-xs text-muted-foreground">Length of onboarding so far. Older buckets are more likely stalled.</div></div>
                   <template x-for="b in bucket(analyticsRows(), 'daysSinceKickoff', [{ label: '0-30d', min: 0, max: 30 }, { label: '31-60d', min: 31, max: 60 }, { label: '61-90d', min: 61, max: 90 }, { label: '91-120d', min: 91, max: 120 }, { label: '120d+', min: 121, max: 9999 }])" :key="b.label">
-                    <div class="mb-2 grid grid-cols-[70px_1fr_32px] items-center gap-2 text-xs"><span x-text="b.label"></span><div class="h-2 rounded bg-muted"><div class="h-2 rounded bg-amber-500" :style="'width:' + Math.min(100, b.count * 12) + '%'"></div></div><span class="text-right tabular-nums" x-text="b.count"></span></div>
+                    <div class="mb-3 text-xs"><div class="grid grid-cols-[70px_1fr_32px] items-center gap-2"><span x-text="b.label"></span><div class="h-2 rounded bg-muted"><div class="h-2 rounded bg-amber-500" :style="'width:' + bucketWidth(b, bucket(analyticsRows(), 'daysSinceKickoff', [{ label: '0-30d', min: 0, max: 30 }, { label: '31-60d', min: 31, max: 60 }, { label: '61-90d', min: 61, max: 90 }, { label: '91-120d', min: 91, max: 120 }, { label: '120d+', min: 121, max: 9999 }])) + '%'"></div></div><span class="text-right tabular-nums" x-text="b.count"></span></div><div x-show="b.customers.length" class="mt-1 truncate text-[11px] text-muted-foreground" x-text="b.customers.slice(0, 8).join(', ') + (b.customers.length > 8 ? ' +' + (b.customers.length - 8) + ' more' : '')"></div></div>
+                  </template>
+                </div>
+              </div>
+              <div x-show="nearCompleteRows().length" class="rounded-lg border bg-card p-4">
+                <div class="mb-2 font-medium" x-text="'Near complete (' + nearCompleteRows().length + ')'"></div>
+                <div class="mb-2 text-xs text-muted-foreground">Customers at or above 80% completion, good candidates to graduate from onboarding.</div>
+                <div class="flex flex-wrap gap-1.5">
+                  <template x-for="row in nearCompleteRows()" :key="row.orgId">
+                    <button type="button" class="rounded-full border px-2 py-1 text-xs hover:bg-muted" x-on:click="activeTab = row.product; selectedOrgId = row.orgId" x-text="row.name + ' ' + Number(row.pctComplete || 0) + '%'"></button>
                   </template>
                 </div>
               </div>
@@ -364,13 +373,18 @@ export function onboardingProgressExtension(): string {
                         <p class="mt-1 text-xs text-muted-foreground" x-text="(selected().domain ? selected().domain + ' / ' : '') + 'Owner: ' + (selected().ownerName || '-') + ' / Kickoff: ' + fmtDate(selected().kickoffDate) + ' / ' + (selected().daysSinceKickoff ?? '?') + ' days in'"></p>
                         <div class="mt-2 flex flex-wrap gap-1.5">
                           <span class="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground" x-text="selected().accountStatus || 'status unknown'"></span>
-                          <span class="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground" x-text="selected().csmSentiment || 'sentiment unknown'"></span>
+                          <span class="rounded px-1.5 py-0.5 text-[10px]" :class="sentimentClass(selected().csmSentiment)" x-text="selected().csmSentiment || 'sentiment unknown'"></span>
+                          <span class="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground" x-show="selected().onboardingStage" x-text="'stage: ' + selected().onboardingStage"></span>
                           <span class="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground" x-text="(selected().activeUserCount || 0) + ' active users'"></span>
                         </div>
+                        <p class="mt-1 font-mono text-[10px] text-muted-foreground" x-text="'orgId: ' + selected().orgId"></p>
                       </div>
-                      <a x-show="selected().academyUrl" :href="selected().academyUrl" target="_blank" rel="noreferrer" class="text-xs text-primary hover:underline">Academy</a>
+                      <a :href="selected().academyUrl || 'https://academy.builder.io'" target="_blank" rel="noreferrer" class="shrink-0 text-xs text-primary hover:underline">Open in Academy</a>
                     </div>
-                    <div x-show="selected().statusNote" class="mt-3 rounded-md bg-muted/40 p-3 text-sm whitespace-pre-wrap" x-text="stripHtml(selected().statusNote || '')"></div>
+                    <div x-show="selected().statusNote" class="mt-3 rounded-md bg-muted/40 p-3 text-sm">
+                      <div class="mb-1 text-xs text-muted-foreground">Status note</div>
+                      <p class="whitespace-pre-wrap leading-relaxed" x-text="stripHtml(selected().statusNote || '')"></p>
+                    </div>
                   </section>
                   <section class="rounded-lg border p-4">
                     <h3 class="mb-3 text-sm font-semibold">Goals <span class="font-normal text-muted-foreground" x-text="'(' + (selected().goalsCompleted || selected().goals?.filter((g) => g.completed).length || 0) + '/' + (selected().goalsTotal || selected().goals?.length || 0) + ')'"></span></h3>
