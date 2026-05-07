@@ -3238,25 +3238,76 @@ function csQbrExtension(): string {
           computeMetrics() {
             const rows = this.book?.rows || [];
             const sum = (key) => rows.reduce((total, row) => total + Number(row[key] || 0), 0);
-            const q2RenewalArr = rows.filter((row) => row.renewal_date >= '2026-05-01' && row.renewal_date <= '2026-07-31').reduce((total, row) => total + Number(row.arr || 0), 0);
-            const active = sum('active_users_30d');
-            const seats = sum('contracted_user_seats');
-            const creditsUsed = sum('ai_credits_used_30d');
-            const credits = sum('contracted_ai_credits');
+            const quarter = this.quarter();
+            const q2RenewalArr = this.allRenewalAccounts().reduce((total, row) => total + Number(row.arr || 0), 0);
+            const churnedArr = rows.filter((row) => {
+              const status = String(row.company_status || '').toLowerCase();
+              const d = String(row.renewal_date || '').slice(0, 10);
+              return status.includes('churn') && d >= quarter.prevStart && d <= quarter.end;
+            }).reduce((total, row) => total + Number(row.arr || 0), 0);
+            const adoptionRows = this.adoptionRows();
+            const active = adoptionRows.reduce((total, row) => total + Number(row.activeUsers30d || 0), 0);
+            const seats = adoptionRows.reduce((total, row) => total + Number(row.contractedSeats || 0), 0);
+            const creditsUsed = adoptionRows.reduce((total, row) => total + Number(row.creditsUsed30d || 0), 0);
+            const credits = adoptionRows.reduce((total, row) => total + Number(row.contractedCredits || 0), 0);
+            const bookSeatUtil = seats ? (active / seats) * 100 : 0;
+            const bookCreditUtil = credits ? (creditsUsed / credits) * 100 : 0;
+            const openPipelineArr = this.expansionDeals(200).reduce((total, deal) => total + Number(deal.netNewArr || 0), 0);
             this.metrics = {
               accountCount: rows.length,
               arr: sum('arr'),
               q2RenewalArr,
-              bookSeatUtil: seats ? (active / seats) * 100 : 0,
-              bookCreditUtil: credits ? (creditsUsed / credits) * 100 : 0,
-              openPipelineArr: sum('open_pipeline_arr')
+              bookSeatUtil,
+              bookCreditUtil,
+              openPipelineArr,
+              churnRate: q2RenewalArr ? (churnedArr / q2RenewalArr) * 100 : 0,
+              retentionPayoutTier: this.retentionTier(q2RenewalArr ? (churnedArr / q2RenewalArr) * 100 : 0),
+              adoptionPayoutTier: this.adoptionTier(bookSeatUtil),
+              expansionTarget: this.expansionTarget(),
+              csmTier: this.csmTier(),
+              quarterLabel: this.quarterLabel(),
+              currentQuarter: this.currentQuarter()
             };
+          },
+          quarter() {
+            const today = new Date();
+            const quarters = [
+              { name: 'Q1', label: 'Q1 FY27 (Feb-Apr 2026)', start: '2026-02-01', end: '2026-04-30', prevStart: '2026-02-01', prevEnd: '2026-04-30' },
+              { name: 'Q2', label: 'Q2 FY27 (May-Jul 2026)', start: '2026-05-01', end: '2026-07-31', prevStart: '2026-02-01', prevEnd: '2026-04-30' },
+              { name: 'Q3', label: 'Q3 FY27 (Aug-Oct 2026)', start: '2026-08-01', end: '2026-10-31', prevStart: '2026-05-01', prevEnd: '2026-07-31' },
+              { name: 'Q4', label: 'Q4 FY27 (Nov 2026-Jan 2027)', start: '2026-11-01', end: '2027-01-31', prevStart: '2026-08-01', prevEnd: '2026-10-31' }
+            ];
+            const iso = today.toISOString().slice(0, 10);
+            return quarters.find((q) => iso >= q.start && iso <= q.end) || quarters[quarters.length - 1];
+          },
+          currentQuarter() {
+            return this.quarter().name;
+          },
+          quarterLabel() {
+            return this.quarter().label;
+          },
+          csmTier() {
+            const key = String(this.selected || '').toLowerCase().trim();
+            return ['jordan', 'alex', 'sabena'].some((name) => key.includes(name)) ? 'commercial' : 'enterprise';
+          },
+          expansionTarget() {
+            const targets = {
+              enterprise: { Q1: 126500, Q2: 218500, Q3: 327750, Q4: 477250 },
+              commercial: { Q1: 93500, Q2: 161500, Q3: 242250, Q4: 352750 }
+            };
+            return targets[this.csmTier()]?.[this.currentQuarter()] || 0;
+          },
+          number(value) {
+            return Number(String(value || '').replace(/[^0-9.]/g, '')) || 0;
           },
           money(value) {
             return '$' + Math.round(Number(value || 0)).toLocaleString();
           },
           pct(value) {
-            return Math.round(Number(value || 0)) + '%';
+            return Math.round(Number(value || 0) * 10) / 10 + '%';
+          },
+          date(value) {
+            return value ? String(value).slice(0, 10) : '-';
           },
           rows() {
             return this.book?.rows || [];
@@ -3264,28 +3315,119 @@ function csQbrExtension(): string {
           topAccounts(limit = 6) {
             return this.rows().slice(0, limit);
           },
-          renewalAccounts() {
-            return this.rows().filter((row) => row.renewal_date >= '2026-05-01' && row.renewal_date <= '2026-07-31').slice(0, 6);
-          },
-          adoptionAccounts() {
-            return this.rows().slice(0, 18).map((row) => {
-              const seat = Number(row.seat_util_pct || 0);
-              const credit = Number(row.credit_util_pct || 0);
-              return { name: row.company_name, pct: Math.max(seat, credit), seat, credit };
+          allRenewalAccounts() {
+            const quarter = this.quarter();
+            return this.rows().filter((row) => {
+              const d = String(row.renewal_date || '').slice(0, 10);
+              return d >= quarter.start && d <= quarter.end;
             });
           },
+          renewalAccounts(limit = 6) {
+            return this.allRenewalAccounts().slice(0, limit);
+          },
+          upForRenewalArr() {
+            return this.allRenewalAccounts().reduce((total, row) => total + Number(row.arr || 0), 0);
+          },
+          adoptionRows(limit = 200) {
+            return this.rows().filter((row) => row.root_org_id && Number(row.account_age_days || 365) >= 45).map((row) => {
+              const seat = Number(row.seat_util_pct || 0);
+              const credit = Number(row.credit_util_pct || 0);
+              const rawUtil = Math.max(seat, credit);
+              const discounted = Number(row.account_age_days || 365) < 90;
+              return {
+                name: row.company_name,
+                rootOrgId: row.root_org_id,
+                activeUsers30d: Number(row.active_users_30d || 0),
+                contractedSeats: Number(row.contracted_user_seats || 0),
+                seatUtil30d: seat,
+                creditsUsed30d: Number(row.ai_credits_used_30d || 0),
+                contractedCredits: Number(row.contracted_ai_credits || 0),
+                creditUtil30d: credit,
+                utilizationPct: discounted ? rawUtil * 0.6 : rawUtil,
+                accountAgeDays: Number(row.account_age_days || 365),
+                discounted,
+                excluded: false
+              };
+            }).sort((a, b) => b.utilizationPct - a.utilizationPct).slice(0, limit);
+          },
+          adoptionAccounts() {
+            return this.adoptionRows(18).map((row) => ({ name: row.name, pct: row.utilizationPct, seat: row.seatUtil30d, credit: row.creditUtil30d }));
+          },
           expansionPipeline() {
-            return this.rows().filter((row) => Number(row.open_pipeline_arr || 0) > 0).slice(0, 8);
+            const byAccount = {};
+            this.expansionDeals(200).forEach((deal) => {
+              const key = deal.account || 'Unknown';
+              if (!byAccount[key]) byAccount[key] = { company_id: key, company_name: key, open_pipeline_arr: 0 };
+              byAccount[key].open_pipeline_arr += Number(deal.netNewArr || 0);
+            });
+            return Object.values(byAccount).sort((a, b) => b.open_pipeline_arr - a.open_pipeline_arr).slice(0, 8);
+          },
+          expansionDeals(limit = 30) {
+            return (this.deals || []).map((deal) => ({
+              name: (deal.account || 'Unknown') + ' - ' + (deal.pipeline_name || 'Deal'),
+              account: deal.account || 'Unknown',
+              netNewArr: Number(deal.net_new_arr || deal.netNewArr || 0),
+              closeDate: this.date(deal.close_date || deal.closeDate),
+              stage: deal.stage || ''
+            })).filter((deal) => deal.netNewArr > 0).slice(0, limit);
+          },
+          displayedExpansionDealTotal() {
+            return this.expansionDeals(8).reduce((total, deal) => total + Number(deal.netNewArr || 0), 0);
+          },
+          retentionTier(churnPct) {
+            const churn = Number(churnPct || 0);
+            if (churn <= 8) return 150;
+            if (churn <= 9) return 137.5;
+            if (churn <= 10) return 125;
+            if (churn <= 11) return 112.5;
+            if (churn <= 12) return 100;
+            if (churn <= 13) return 87.5;
+            if (churn <= 14) return 75;
+            if (churn <= 15) return 62.5;
+            if (churn <= 16) return 50;
+            if (churn <= 17) return 37.5;
+            if (churn <= 18) return 25;
+            if (churn <= 19) return 12.5;
+            return 0;
+          },
+          adoptionTier(utilizationPct) {
+            const util = Number(utilizationPct || 0);
+            if (util >= 100) return 200;
+            if (util >= 90) return 185;
+            if (util >= 80) return 165;
+            if (util >= 70) return 135;
+            if (util >= 60) return 115;
+            if (util >= 50) return 100;
+            if (util >= 40) return 90;
+            if (util >= 30) return 75;
+            if (util >= 20) return 60;
+            return 0;
+          },
+          predictedChurnPct() {
+            const due = this.upForRenewalArr();
+            const predicted = this.number(this.form.predictedRetentionArr);
+            return due && predicted ? Math.max(0, ((due - predicted) / due) * 100) : 0;
+          },
+          predictedRetentionTier() {
+            return this.number(this.form.predictedRetentionArr) && this.upForRenewalArr() ? this.retentionTier(this.predictedChurnPct()) : null;
+          },
+          adoptionAchievement() {
+            return this.form.q2AdoptionGoal ? this.adoptionTier(this.number(this.form.q2AdoptionGoal)) : null;
+          },
+          variableCompRows() {
+            return [
+              { label: 'Retention', weight: 40, achievement: this.predictedRetentionTier() },
+              { label: 'Adoption', weight: 30, achievement: this.adoptionAchievement() },
+              { label: 'Expansion', weight: 30, achievement: this.form.predictedExpansionArr ? this.expansionAchievement() : null }
+            ].map((row) => ({ ...row, weighted: row.achievement == null ? null : (row.weight / 100) * row.achievement }));
           },
           retentionAchievement() {
-            const raw = Number(String(this.form.predictedRetentionArr || '').replace(/[^0-9.]/g, ''));
-            const due = Number(this.metrics?.q2RenewalArr || 0);
-            return due ? Math.round((raw / due) * 100) : 0;
+            return Math.round(this.predictedRetentionTier() || 0);
           },
           expansionAchievement() {
-            const raw = Number(String(this.form.predictedExpansionArr || '').replace(/[^0-9.]/g, ''));
-            const pipeline = Number(this.metrics?.openPipelineArr || 0);
-            return pipeline ? Math.round((raw / pipeline) * 100) : 0;
+            const raw = this.number(this.form.predictedExpansionArr);
+            const target = Number(this.metrics?.expansionTarget || this.expansionTarget() || 0);
+            return target ? Math.round(Math.min(150, (raw / target) * 100)) : 0;
           },
           achievementColor(value) {
             const pct = Number(value || 0);
@@ -3293,8 +3435,23 @@ function csQbrExtension(): string {
             if (pct >= 75) return '#facc15';
             return '#f87171';
           },
+          sentimentClass(sentiment) {
+            const value = String(sentiment || '').toLowerCase();
+            if (value.includes('healthy') || value.includes('green')) return 'bg-green-900/30 text-green-400';
+            if (value.includes('risk') || value.includes('red') || value.includes('churn')) return 'bg-red-900/30 text-red-400';
+            return 'bg-yellow-900/30 text-yellow-400';
+          },
+          utilColor(value) {
+            const pct = Number(value || 0);
+            if (pct >= 50) return '#4ade80';
+            if (pct >= 30) return '#facc15';
+            return '#f87171';
+          },
+          totalEstimatedPayout() {
+            return this.variableCompRows().reduce((total, row) => total + Number(row.weighted || 0), 0);
+          },
           askList() {
-            return [this.form.ask1, this.form.ask2, this.form.ask3];
+            return [this.form.ask1, this.form.ask2, this.form.ask3, ...(this.form.extraAsks || [])].filter((ask, index) => index < 3 || String(ask || '').trim());
           },
           printDeck() {
             this.showExportMenu = false;
@@ -3318,9 +3475,14 @@ function csQbrExtension(): string {
             this.saving = true;
             await extensionData.set('cs-qbr-notes', this.selected, { ...this.form, csmName: this.selected, savedAt: new Date().toISOString() }, { scope: 'org' });
             this.saving = false;
+            this.savedFlash = true;
+            setTimeout(() => { this.savedFlash = false; }, 1600);
           },
           addAsk() {
             this.form.extraAsks.push('');
+          },
+          removeAsk(index) {
+            this.form.extraAsks.splice(index, 1);
           }
         };
       }
