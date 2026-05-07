@@ -6,6 +6,7 @@ import net from "node:net";
 import path from "node:path";
 import type { Duplex } from "node:stream";
 import * as Sentry from "@sentry/node";
+import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 
 interface WorkspaceApp {
   id: string;
@@ -138,8 +139,19 @@ function firstPathSegment(url: string | undefined): string | null {
 }
 
 function appForRequest(req: http.IncomingMessage): WorkspaceApp | null {
+  const params = new URL(req.url || "/", "http://workspace.local")
+    .searchParams;
+  const explicit = params.get("_app");
+  if (explicit && appById.has(explicit)) return appById.get(explicit) ?? null;
+
   const direct = firstPathSegment(req.url);
   if (direct && appById.has(direct)) return appById.get(direct) ?? null;
+
+  const fromState = extractOAuthStateAppId(params.get("state"));
+  if (fromState && appById.has(fromState)) {
+    return appById.get(fromState) ?? null;
+  }
+
   const referer = req.headers.referer;
   const fromReferer =
     typeof referer === "string" ? firstPathSegment(referer) : null;
@@ -150,6 +162,13 @@ function appForRequest(req: http.IncomingMessage): WorkspaceApp | null {
 
 function startApp(app: WorkspaceApp): void {
   const basePath = `/${app.id}`;
+  const workspaceAppsJson = JSON.stringify(
+    apps.map((workspaceApp) => ({
+      id: workspaceApp.id,
+      name: workspaceApp.name,
+      path: `/${workspaceApp.id}`,
+    })),
+  );
   const child = spawn(
     "pnpm",
     [
@@ -170,7 +189,10 @@ function startApp(app: WorkspaceApp): void {
       env: {
         ...process.env,
         APP_NAME: app.id,
+        AGENT_NATIVE_WORKSPACE: "1",
+        AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson,
         APP_BASE_PATH: basePath,
+        VITE_AGENT_NATIVE_WORKSPACE: "1",
         VITE_APP_BASE_PATH: basePath,
         PORT: String(app.port),
         WORKSPACE_GATEWAY_URL: gatewayUrl,

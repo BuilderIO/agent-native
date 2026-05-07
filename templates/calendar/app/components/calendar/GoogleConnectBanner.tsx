@@ -12,7 +12,7 @@ import {
   IconLogout,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
-import { agentNativePath, getCallbackOrigin } from "@agent-native/core/client";
+import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
@@ -110,7 +110,7 @@ export function GoogleConnectBanner({
       ? "/_agent-native/google/add-account/auth-url"
       : "/_agent-native/google/auth-url";
     const redirectUri = encodeURIComponent(
-      `${origin}${agentNativePath("/_agent-native/google/callback")}`,
+      oauthRedirectUri("/_agent-native/google/callback"),
     );
     window.open(
       `${origin}${agentNativePath(endpoint)}?redirect_uri=${redirectUri}&desktop=1&flow_id=${flowId}&redirect=1`,
@@ -163,7 +163,7 @@ export function GoogleConnectBanner({
   const [envStatus, setEnvStatus] = useState<EnvKeyStatus[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const redirectUri = `${getCallbackOrigin()}${agentNativePath("/_agent-native/google/callback")}`;
+  const redirectUri = oauthRedirectUri("/_agent-native/google/callback");
 
   const fetchStatus = useCallback(async () => {
     try {

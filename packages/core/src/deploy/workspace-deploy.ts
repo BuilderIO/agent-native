@@ -167,6 +167,8 @@ function buildOneApp(
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     NITRO_PRESET: preset,
+    AGENT_NATIVE_WORKSPACE: "1",
+    VITE_AGENT_NATIVE_WORKSPACE: "1",
     APP_BASE_PATH: `/${app}`,
     VITE_APP_BASE_PATH: `/${app}`,
     [WORKSPACE_APPS_ENV_KEY]: JSON.stringify(workspaceApps),
@@ -454,7 +456,9 @@ function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
   Object.assign(processRef.env, {
+    AGENT_NATIVE_WORKSPACE: "1",
     APP_BASE_PATH: basePath,
+    VITE_AGENT_NATIVE_WORKSPACE: "1",
     VITE_APP_BASE_PATH: basePath,
     ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
   });
