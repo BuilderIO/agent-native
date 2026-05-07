@@ -1,12 +1,15 @@
 import { useCallback, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import {
+  IconCheckbox,
+  IconChecks,
   IconDots,
   IconPlus,
   IconPalette,
   IconStar,
   IconStarFilled,
   IconTrash,
+  IconX,
 } from "@tabler/icons-react";
 import {
   ShareButton,
@@ -16,6 +19,7 @@ import {
 } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -69,6 +73,11 @@ export default function DesignSystems() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedSystemIds, setSelectedSystemIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const { data, isLoading } = useActionQuery<{
     designSystems: DesignSystem[];
@@ -78,6 +87,10 @@ export default function DesignSystems() {
   const deleteMutation = useActionMutation("delete-design-system");
 
   const designSystems = data?.designSystems ?? [];
+  const selectedSystemCount = selectedSystemIds.size;
+  const allSystemsSelected =
+    designSystems.length > 0 &&
+    designSystems.every((ds) => selectedSystemIds.has(ds.id));
 
   const openSetupFromDesignSystem = useCallback(
     (id: string) => {
@@ -85,6 +98,53 @@ export default function DesignSystems() {
     },
     [navigate],
   );
+
+  const toggleSelectionMode = useCallback(() => {
+    if (isSelectionMode) {
+      setSelectedSystemIds(new Set());
+    }
+    setIsSelectionMode((current) => !current);
+  }, [isSelectionMode]);
+
+  const exitSelectionMode = useCallback(() => {
+    setIsSelectionMode(false);
+    setSelectedSystemIds(new Set());
+  }, []);
+
+  const toggleSystemSelection = useCallback((id: string) => {
+    setSelectedSystemIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleAllSystems = useCallback(() => {
+    setSelectedSystemIds((current) => {
+      const next = new Set(current);
+      const shouldClear =
+        designSystems.length > 0 &&
+        designSystems.every((ds) => next.has(ds.id));
+
+      designSystems.forEach((ds) => {
+        if (shouldClear) {
+          next.delete(ds.id);
+        } else {
+          next.add(ds.id);
+        }
+      });
+
+      return next;
+    });
+  }, [designSystems]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedSystemIds(new Set());
+  }, []);
 
   const handleSetDefault = useCallback(
     (id: string) => {
@@ -140,6 +200,38 @@ export default function DesignSystems() {
     });
   }, [deleteId, queryClient, deleteMutation]);
 
+  const handleBulkDelete = useCallback(() => {
+    const ids = Array.from(selectedSystemIds);
+    if (ids.length === 0) return;
+
+    const idsToDelete = new Set(ids);
+
+    queryClient.setQueryData(
+      ["action", "list-design-systems", undefined],
+      (old: any) => {
+        const systems = old?.designSystems ?? [];
+        return {
+          ...old,
+          count: Math.max((old?.count ?? systems.length) - ids.length, 0),
+          designSystems: systems.filter(
+            (ds: DesignSystem) => !idsToDelete.has(ds.id),
+          ),
+        };
+      },
+    );
+
+    setBulkDeleteOpen(false);
+    exitSelectionMode();
+
+    void Promise.all(ids.map((id) => deleteMutation.mutateAsync({ id } as any)))
+      .then(() => undefined)
+      .catch(() => {
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-design-systems"],
+        });
+      });
+  }, [selectedSystemIds, queryClient, exitSelectionMode, deleteMutation]);
+
   const parseData = (dataStr: string): DesignSystemData | null => {
     try {
       return JSON.parse(dataStr);
@@ -151,14 +243,27 @@ export default function DesignSystems() {
   useSetPageTitle("Design Systems");
 
   useSetHeaderActions(
-    <Button
-      size="sm"
-      onClick={() => navigate("/design-systems/setup")}
-      className="cursor-pointer"
-    >
-      <IconPlus className="w-3.5 h-3.5" />
-      New Design System
-    </Button>,
+    <div className="flex items-center gap-2">
+      {designSystems.length > 0 ? (
+        <Button
+          variant={isSelectionMode ? "secondary" : "ghost"}
+          size="sm"
+          onClick={toggleSelectionMode}
+          className="cursor-pointer"
+        >
+          <IconCheckbox className="w-3.5 h-3.5" />
+          {isSelectionMode ? "Done" : "Select"}
+        </Button>
+      ) : null}
+      <Button
+        size="sm"
+        onClick={() => navigate("/design-systems/setup")}
+        className="cursor-pointer"
+      >
+        <IconPlus className="w-3.5 h-3.5" />
+        New Design System
+      </Button>
+    </div>,
   );
 
   return (
@@ -171,6 +276,58 @@ export default function DesignSystems() {
             <EmptyState />
           ) : (
             <>
+              {isSelectionMode ? (
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2">
+                  <div className="text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">
+                      {selectedSystemCount}
+                    </span>{" "}
+                    selected
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={toggleAllSystems}
+                          className="h-8 w-8 cursor-pointer"
+                        >
+                          <IconChecks className="w-4 h-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {allSystemsSelected
+                          ? "Clear all design systems"
+                          : "Select all design systems"}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={clearSelection}
+                          className="h-8 w-8 cursor-pointer"
+                        >
+                          <IconX className="w-4 h-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Clear selection</TooltipContent>
+                    </Tooltip>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => setBulkDeleteOpen(true)}
+                      disabled={selectedSystemCount === 0}
+                      className="cursor-pointer"
+                    >
+                      <IconTrash className="w-3.5 h-3.5" />
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {/* New design system card */}
                 <button
@@ -196,13 +353,24 @@ export default function DesignSystems() {
                 {designSystems.map((ds) => {
                   const parsed = parseData(ds.data);
                   const colors = parsed?.colors;
+                  const isSelected = selectedSystemIds.has(ds.id);
                   return (
                     <div
                       key={ds.id}
-                      className="group relative rounded-xl border border-border bg-card overflow-hidden"
+                      aria-selected={isSelected}
+                      className={`group relative rounded-xl border bg-card overflow-hidden ${
+                        isSelected
+                          ? "border-[#609FF8]/70 ring-2 ring-[#609FF8]/40"
+                          : "border-border"
+                      }`}
                     >
                       <button
-                        onClick={() => openSetupFromDesignSystem(ds.id)}
+                        onClick={() =>
+                          isSelectionMode
+                            ? toggleSystemSelection(ds.id)
+                            : openSetupFromDesignSystem(ds.id)
+                        }
+                        aria-pressed={isSelectionMode ? isSelected : undefined}
                         className="block w-full text-left cursor-pointer"
                       >
                         {/* Color preview */}
@@ -260,49 +428,70 @@ export default function DesignSystems() {
                           resourceTitle={ds.title}
                         />
                       </div>
-                      {/* Star button */}
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            onClick={() => handleSetDefault(ds.id)}
-                            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-md bg-black/60 hover:bg-black/80 cursor-pointer"
-                          >
-                            {ds.isDefault ? (
-                              <IconStarFilled className="w-3.5 h-3.5 text-yellow-400" />
-                            ) : (
-                              <IconStar className="w-3.5 h-3.5 text-muted-foreground" />
-                            )}
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {ds.isDefault
-                            ? "Currently default"
-                            : "Set as default"}
-                        </TooltipContent>
-                      </Tooltip>
-                      <div className="absolute top-2 right-10 z-10 opacity-0 group-hover:opacity-100">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 bg-black/60 hover:bg-black/80 cursor-pointer"
-                              aria-label={`More actions for ${ds.title}`}
-                            >
-                              <IconDots className="w-3.5 h-3.5 text-foreground/70" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onClick={() => setDeleteId(ds.id)}
-                              className="text-red-400 focus:text-red-400 cursor-pointer"
-                            >
-                              <IconTrash className="w-3.5 h-3.5 mr-2" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
+                      {isSelectionMode ? (
+                        <div className="absolute top-2 left-2 z-10">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={() =>
+                                  toggleSystemSelection(ds.id)
+                                }
+                                onClick={(event) => event.stopPropagation()}
+                                aria-label={`Select ${ds.title}`}
+                                className="h-5 w-5 border-white/60 bg-black/60 text-white data-[state=checked]:border-[#609FF8] data-[state=checked]:bg-[#609FF8]"
+                              />
+                            </TooltipTrigger>
+                            <TooltipContent>{`Select ${ds.title}`}</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      ) : (
+                        <>
+                          {/* Star button */}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => handleSetDefault(ds.id)}
+                                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-md bg-black/60 hover:bg-black/80 cursor-pointer"
+                              >
+                                {ds.isDefault ? (
+                                  <IconStarFilled className="w-3.5 h-3.5 text-yellow-400" />
+                                ) : (
+                                  <IconStar className="w-3.5 h-3.5 text-muted-foreground" />
+                                )}
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {ds.isDefault
+                                ? "Currently default"
+                                : "Set as default"}
+                            </TooltipContent>
+                          </Tooltip>
+                          <div className="absolute top-2 right-10 z-10 opacity-0 group-hover:opacity-100">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 bg-black/60 hover:bg-black/80 cursor-pointer"
+                                  aria-label={`More actions for ${ds.title}`}
+                                >
+                                  <IconDots className="w-3.5 h-3.5 text-foreground/70" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={() => setDeleteId(ds.id)}
+                                  className="text-red-400 focus:text-red-400 cursor-pointer"
+                                >
+                                  <IconTrash className="w-3.5 h-3.5 mr-2" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </>
+                      )}
                     </div>
                   );
                 })}
@@ -313,15 +502,33 @@ export default function DesignSystems() {
       </div>
 
       <AlertDialog
-        open={!!deleteId}
-        onOpenChange={(open) => !open && setDeleteId(null)}
+        open={!!deleteId || bulkDeleteOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteId(null);
+            setBulkDeleteOpen(false);
+          }
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Design System?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {bulkDeleteOpen
+                ? `Delete ${selectedSystemCount} ${
+                    selectedSystemCount === 1
+                      ? "Design System"
+                      : "Design Systems"
+                  }?`
+                : "Delete Design System?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete this design system and unlink it from
-              any designs that use it. This action cannot be undone.
+              {bulkDeleteOpen
+                ? `This will permanently delete ${
+                    selectedSystemCount === 1
+                      ? "this design system and unlink it from any designs that use it"
+                      : `these ${selectedSystemCount} design systems and unlink them from any designs that use them`
+                  }. This action cannot be undone.`
+                : "This will permanently delete this design system and unlink it from any designs that use it. This action cannot be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -329,7 +536,7 @@ export default function DesignSystems() {
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleDelete}
+              onClick={bulkDeleteOpen ? handleBulkDelete : handleDelete}
               className="bg-red-600 hover:bg-red-700 cursor-pointer"
             >
               Delete

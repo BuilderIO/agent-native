@@ -20,6 +20,7 @@ import {
 import { useCreateEvent, useDeleteEvent } from "@/hooks/use-events";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
 import { setUndoAction } from "@/hooks/use-undo";
+import { sendToAgentChat } from "@agent-native/core/client";
 import { toast } from "sonner";
 import {
   AttendeeAutocomplete,
@@ -29,6 +30,7 @@ import {
 import {
   IconBrandZoom,
   IconChevronDown,
+  IconMessage,
   IconPlus,
   IconSettings2,
   IconVideo,
@@ -39,12 +41,29 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
+import {
+  AttachmentControls,
+  EventColorSwatches,
+  ReminderControls,
+} from "@/components/calendar/EventOptionControls";
+import {
+  buildReminderPayload,
+  createAttachmentDraft,
+  createReminderDraft,
+  dateTimeInTimezoneToIso,
+  getLocalTimezone,
+  type AttachmentDraft,
+  type ReminderDraft,
+  type ReminderMode,
+  validateAttachmentDrafts,
+} from "@/lib/event-form-utils";
+import { getGoogleEventColorHex } from "@/lib/event-colors";
 
 type VideoProvider = "none" | "google_meet" | "zoom";
 type EventType = "default" | "outOfOffice" | "focusTime" | "workingLocation";
 type Availability = "opaque" | "transparent";
 type Visibility = "default" | "public" | "private" | "confidential";
-type ReminderOption = "default" | "none" | "0" | "10" | "30" | "60" | "1440";
 type WorkingLocationType = "homeOffice" | "officeLocation" | "customLocation";
 
 function addDaysToDateString(date: string, days: number) {
@@ -98,7 +117,16 @@ export function CreateEventPopover({
   const [eventType, setEventType] = useState<EventType>("default");
   const [availability, setAvailability] = useState<Availability>("opaque");
   const [visibility, setVisibility] = useState<Visibility>("default");
-  const [reminder, setReminder] = useState<ReminderOption>("default");
+  const [timezone, setTimezone] = useState(getLocalTimezone());
+  const [colorId, setColorId] = useState<string | undefined>();
+  const [reminderMode, setReminderMode] =
+    useState<ReminderMode>("default");
+  const [reminders, setReminders] = useState<ReminderDraft[]>(() => [
+    createReminderDraft(),
+  ]);
+  const [attachments, setAttachments] = useState<AttachmentDraft[]>(() => [
+    createAttachmentDraft(),
+  ]);
   const [workingLocationType, setWorkingLocationType] =
     useState<WorkingLocationType>("customLocation");
   const [videoProvider, setVideoProvider] = useState<VideoProvider>("none");
@@ -128,7 +156,11 @@ export function CreateEventPopover({
       setEventType("default");
       setAvailability("opaque");
       setVisibility("default");
-      setReminder("default");
+      setTimezone(getLocalTimezone());
+      setColorId(undefined);
+      setReminderMode("default");
+      setReminders([createReminderDraft()]);
+      setAttachments([createAttachmentDraft()]);
       setWorkingLocationType("customLocation");
       setVideoProvider("none");
       setAttendees([]);

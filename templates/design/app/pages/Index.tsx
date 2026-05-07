@@ -265,7 +265,10 @@ export default function Index() {
     queryClient.setQueryData(
       ["action", "list-designs", undefined],
       (old: any) => ({
-        count: Math.max((old?.count ?? (old?.designs ?? []).length) - ids.length, 0),
+        count: Math.max(
+          (old?.count ?? (old?.designs ?? []).length) - ids.length,
+          0,
+        ),
         designs: (old?.designs ?? []).filter(
           (d: Design) => !idsToDelete.has(d.id),
         ),

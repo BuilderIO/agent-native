@@ -12,6 +12,7 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 import {
+  createNotionPageWithMarkdown,
   resolveNotionMarkdownResponse,
   type NotionPageMarkdown,
 } from "./notion";
@@ -154,5 +155,66 @@ describe("resolveNotionMarkdownResponse", () => {
       "> - access: amplitude, fullstory, sigma, jira",
     );
     expect(editorMarkdown).not.toMatch(/^ {4,}- /m);
+  });
+});
+
+describe("createNotionPageWithMarkdown", () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    global.fetch = originalFetch;
+  });
+
+  it("sends Notion-normalized markdown for toggles, lists, and dividers", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: "new-page",
+          url: "https://www.notion.so/new-page",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    await createNotionPageWithMarkdown({
+      accessToken: "token",
+      parentPageId: "parent-page",
+      title: "Builder Todo",
+      content: [
+        '<details open="" data-heading-level="2">',
+        "<summary>→ → team mtg guidance on hackathon</summary>",
+        "</details>",
+        "",
+        "- parent",
+        "    - child",
+        "above",
+        "---",
+        "below",
+      ].join("\n"),
+    });
+
+    const request = vi.mocked(global.fetch).mock.calls[0];
+    expect(request[0]).toBe("https://api.notion.com/v1/pages");
+    const body = JSON.parse(String(request[1]?.body));
+    expect(body.markdown).toContain(
+      [
+        "<details>",
+        "<summary>→ → team mtg guidance on hackathon</summary>",
+        "\t<empty-block/>",
+        "</details>",
+      ].join("\n"),
+    );
+    expect(body.markdown).toContain("- parent\n\t- child");
+    expect(body.markdown).toContain("above\n\n---\n\nbelow");
+    expect(body.markdown).not.toContain("data-heading-level");
+    expect(body.markdown).not.toContain("open=");
   });
 });

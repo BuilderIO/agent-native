@@ -25,7 +25,7 @@ function normalizeCommonMarkListIndents(markdown: string): string {
         : 4;
 
     for (let i = listBlockStart; i < end; i++) {
-      const match = output[i].match(/^( +)([-*+]\s+|\d+[.)]\s+.*)$/);
+      const match = output[i].match(/^( +)((?:[-*+]\s+|\d+[.)]\s+).*)$/);
       if (!match) continue;
       const spaceCount = match[1].length;
       if (spaceCount < unit || spaceCount % unit !== 0) continue;
@@ -678,10 +678,7 @@ function convertNfmBlocks(text: string): string {
       // A Notion list can be nested under a paragraph; CommonMark cannot
       // represent that as `    - item` without turning it into a code block,
       // so use blockquote nesting for those visual-indentation cases.
-      if (
-        LIST_ITEM_RE.test(content) ||
-        /^\[[ x]]\s/i.test(content)
-      ) {
+      if (LIST_ITEM_RE.test(content) || /^\[[ x]]\s/i.test(content)) {
         if (quoteListBaseIndent !== null && depth >= quoteListBaseIndent) {
           const listDepth = depth - quoteListBaseIndent;
           result.push(
@@ -717,10 +714,7 @@ function convertNfmBlocks(text: string): string {
       continue;
     }
 
-    if (
-      LIST_ITEM_RE.test(trimmed) ||
-      /^\[[ x]]\s/i.test(trimmed)
-    ) {
+    if (LIST_ITEM_RE.test(trimmed) || /^\[[ x]]\s/i.test(trimmed)) {
       noteStandardListItem(0);
     } else if (trimmed) {
       resetListState();
