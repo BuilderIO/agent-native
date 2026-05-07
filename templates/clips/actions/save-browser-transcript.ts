@@ -16,8 +16,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import regenerateTitle from "./regenerate-title.js";
-
-const DEFAULT_TITLE = "Untitled recording";
+import { isAutoTitleReplaceable } from "./lib/title-source.js";
 
 function nativeSegmentsJson(fullText: string): string {
   return JSON.stringify([
@@ -27,11 +26,6 @@ function nativeSegmentsJson(fullText: string): string {
       text: fullText.trim(),
     },
   ]);
-}
-
-function isDefaultTitle(title: string | null | undefined): boolean {
-  const trimmed = (title ?? "").trim();
-  return !trimmed || trimmed === DEFAULT_TITLE;
 }
 
 export default defineAction({
@@ -124,12 +118,17 @@ export default defineAction({
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     const [rec] = await db
-      .select({ title: schema.recordings.title })
+      .select({
+        title: schema.recordings.title,
+        titleSource: schema.recordings.titleSource,
+      })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
       .limit(1);
 
-    const titleQueued = !!(rec && isDefaultTitle(rec.title));
+    const titleQueued = !!(
+      rec && isAutoTitleReplaceable(rec.title, rec.titleSource)
+    );
     if (titleQueued) {
       void regenerateTitle
         .run({

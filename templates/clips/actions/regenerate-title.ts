@@ -19,8 +19,10 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import cleanupTranscript from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
-
-const DEFAULT_TITLE = "Untitled recording";
+import {
+  isAutoTitleReplaceable,
+  isDefaultTitle,
+} from "./lib/title-source.js";
 
 function transcriptTextFromSegments(raw: string | null | undefined): string {
   if (!raw) return "";
@@ -36,11 +38,6 @@ function transcriptTextFromSegments(raw: string | null | undefined): string {
   } catch {
     return "";
   }
-}
-
-function isDefaultTitle(title: string | null | undefined): boolean {
-  const trimmed = (title ?? "").trim();
-  return !trimmed || trimmed === DEFAULT_TITLE;
 }
 
 function cleanGeneratedTitle(raw: string | null | undefined): string | null {
@@ -154,6 +151,7 @@ export default defineAction({
       .select({
         id: schema.recordings.id,
         title: schema.recordings.title,
+        titleSource: schema.recordings.titleSource,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
@@ -197,18 +195,25 @@ export default defineAction({
 
       if (generatedTitle) {
         const [fresh] = await db
-          .select({ title: schema.recordings.title })
+          .select({
+            title: schema.recordings.title,
+            titleSource: schema.recordings.titleSource,
+          })
           .from(schema.recordings)
           .where(eq(schema.recordings.id, args.recordingId))
           .limit(1);
 
         if (!fresh) throw new Error(`Recording not found: ${args.recordingId}`);
 
-        if (isDefaultTitle(fresh.title) || fresh.title === rec.title) {
+        if (
+          isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
+          fresh.title === rec.title
+        ) {
           await db
             .update(schema.recordings)
             .set({
               title: generatedTitle,
+              titleSource: "ai",
               updatedAt: new Date().toISOString(),
             })
             .where(eq(schema.recordings.id, args.recordingId));
@@ -242,18 +247,25 @@ export default defineAction({
     const fallbackTitle = fallbackTitleFromTranscript(transcriptText);
     if (fallbackTitle) {
       const [fresh] = await db
-        .select({ title: schema.recordings.title })
+        .select({
+          title: schema.recordings.title,
+          titleSource: schema.recordings.titleSource,
+        })
         .from(schema.recordings)
         .where(eq(schema.recordings.id, args.recordingId))
         .limit(1);
 
       if (!fresh) throw new Error(`Recording not found: ${args.recordingId}`);
 
-      if (isDefaultTitle(fresh.title) || fresh.title === rec.title) {
+      if (
+        isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
+        fresh.title === rec.title
+      ) {
         await db
           .update(schema.recordings)
           .set({
             title: fallbackTitle,
+            titleSource: "ai",
             updatedAt: new Date().toISOString(),
           })
           .where(eq(schema.recordings.id, args.recordingId));
