@@ -203,6 +203,158 @@ fn sanitize_recording_id(value: &str) -> String {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn start_screencapturekit_recording(
+    app: &AppHandle,
+    safe_id: &str,
+    include_audio: bool,
+) -> Result<NativeFullscreenSession, String> {
+    let path = std::env::temp_dir().join(format!(
+        "clips-fullscreen-{safe_id}-{}-sck.mp4",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&path);
+
+    let content =
+        SCShareableContent::get().map_err(|e| format!("shareable content lookup failed: {e:?}"))?;
+    let displays = content.displays();
+    let display = displays
+        .first()
+        .ok_or_else(|| "No displays available for ScreenCaptureKit recording.".to_string())?;
+
+    let width = display.width();
+    let height = display.height();
+    let filter = SCContentFilter::create()
+        .with_display(display)
+        .with_excluding_windows(&[])
+        .build();
+    let mut config = SCStreamConfiguration::new()
+        .with_width(width)
+        .with_height(height)
+        .with_fps(60)
+        .with_queue_depth(8)
+        .with_shows_cursor(true)
+        .with_captures_audio(false)
+        .with_captures_microphone(include_audio)
+        .with_excludes_current_process_audio(true)
+        .with_sample_rate(48000)
+        .with_channel_count(2);
+
+    config.set_stream_name(Some("Clips full-screen recording"));
+
+    let recording_config = SCRecordingOutputConfiguration::new()
+        .with_output_url(&path)
+        .with_video_codec(SCRecordingOutputCodec::H264)
+        .with_output_file_type(SCRecordingOutputFileType::MP4);
+    let recording = SCRecordingOutput::new(&recording_config).ok_or_else(|| {
+        "ScreenCaptureKit recording output could not be created. macOS 15+ is required.".to_string()
+    })?;
+    let stream = SCStream::new(&filter, &config);
+    stream
+        .add_recording_output(&recording)
+        .map_err(|e| format!("add recording output failed: {e:?}"))?;
+    if let Err(err) = stream.start_capture() {
+        let _ = stream.remove_recording_output(&recording);
+        let _ = std::fs::remove_file(&path);
+        return Err(format!("capture start failed: {err:?}"));
+    }
+
+    let (fallback_width, fallback_height) = primary_monitor_size(app);
+    Ok(NativeFullscreenSession {
+        backend: NativeFullscreenBackend::ScreenCaptureKit { stream, recording },
+        path,
+        mime_type: MP4_RECORDING_MIME_TYPE,
+        started_at: Instant::now(),
+        width: Some(width).or(fallback_width),
+        height: Some(height).or(fallback_height),
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn start_screencapture_recording(
+    app: &AppHandle,
+    safe_id: &str,
+    include_audio: bool,
+) -> Result<NativeFullscreenSession, String> {
+    if !std::path::Path::new("/usr/sbin/screencapture").exists() {
+        return Err("macOS screencapture is unavailable on this machine.".into());
+    }
+
+    let path = std::env::temp_dir().join(format!(
+        "clips-fullscreen-{safe_id}-{}.mov",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&path);
+
+    let (width, height) = primary_monitor_size(app);
+
+    let mut command = Command::new("/usr/sbin/screencapture");
+    command
+        .arg("-v")
+        .arg("-x")
+        .arg("-C")
+        .arg("-D1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    if include_audio {
+        command.arg("-g");
+    }
+    command.arg(&path);
+
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("screencapture spawn failed: {e}"))?;
+
+    std::thread::sleep(Duration::from_millis(300));
+    if let Some(status) = child
+        .try_wait()
+        .map_err(|e| format!("screencapture startup check failed: {e}"))?
+    {
+        let _ = std::fs::remove_file(&path);
+        return Err(format!(
+            "screencapture exited before recording started ({status}). Check Screen Recording and Microphone permissions for Clips."
+        ));
+    }
+
+    Ok(NativeFullscreenSession {
+        backend: NativeFullscreenBackend::Screencapture { child },
+        path,
+        mime_type: QUICKTIME_RECORDING_MIME_TYPE,
+        started_at: Instant::now(),
+        width,
+        height,
+    })
+}
+
+fn primary_monitor_size(app: &AppHandle) -> (Option<u32>, Option<u32>) {
+    let monitor_size = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|monitor| *monitor.size());
+    (
+        monitor_size.map(|size| size.width),
+        monitor_size.map(|size| size.height),
+    )
+}
+
+fn stop_native_recording(backend: &mut NativeFullscreenBackend) -> Result<(), String> {
+    match backend {
+        NativeFullscreenBackend::Screencapture { child } => stop_screencapture(child),
+        #[cfg(target_os = "macos")]
+        NativeFullscreenBackend::ScreenCaptureKit { stream, recording } => {
+            let stop_result = stream
+                .stop_capture()
+                .map_err(|e| format!("ScreenCaptureKit stop failed: {e:?}"));
+            let remove_result = stream
+                .remove_recording_output(recording)
+                .map_err(|e| format!("ScreenCaptureKit recording finalize failed: {e:?}"));
+            stop_result.and(remove_result)
+        }
+    }
+}
+
 fn stop_screencapture(child: &mut Child) -> Result<(), String> {
     if child
         .try_wait()
@@ -455,7 +607,7 @@ fn prepare_recording_file(
 
     let original = PreparedRecordingFile {
         path: session.path.clone(),
-        mime_type: QUICKTIME_RECORDING_MIME_TYPE,
+        mime_type: session.mime_type,
         bytes: source_bytes,
         temporary: false,
     };
@@ -470,7 +622,7 @@ fn prepare_recording_file(
 
     let presets = native_transcode_presets(session.width, session.height, source_bytes);
     for (index, preset) in presets.iter().enumerate() {
-        let compressed_path = session.path.with_extension("mp4");
+        let compressed_path = compressed_recording_path(&session.path);
         let _ = std::fs::remove_file(&compressed_path);
         match transcode_with_avconvert(&session.path, &compressed_path, preset) {
             Ok(()) => {
@@ -519,6 +671,15 @@ fn prepare_recording_file(
     Ok(original)
 }
 
+fn compressed_recording_path(path: &Path) -> PathBuf {
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("recording");
+    path.with_file_name(format!("{stem}-compressed.mp4"))
+}
+
 fn native_transcode_presets(
     width: Option<u32>,
     height: Option<u32>,
@@ -533,8 +694,8 @@ fn native_transcode_presets(
 }
 
 fn transcode_with_avconvert(
-    source: &std::path::Path,
-    output: &std::path::Path,
+    source: &Path,
+    output: &Path,
     preset: &str,
 ) -> Result<(), String> {
     let mut child = Command::new(AVCONVERT_PATH)
