@@ -4,6 +4,34 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  customerHealthExtension,
+  cxDoubleClickExtension,
+  expansionAttainmentExtension,
+  hubspotExtension,
+  riskMeetingExtension,
+} from "./manual-account-extensions";
+import {
+  engagementExtension as manualEngagementExtension,
+  gcnExtension as manualGcnExtension,
+} from "./manual-conference-extensions";
+import {
+  agentNativeMetricsExtension,
+  competitiveLandscapeExtension,
+  explorerExtension,
+  onboardingProgressExtension,
+  strategicAccountsExtension,
+} from "./manual-data-extensions";
+import {
+  dbtExtension as manualDbtExtension,
+  fusionEngExtension,
+  gcloudExtension,
+  jiraExtension,
+  queryExplorerExtension as manualQueryExplorerExtension,
+  sentryExtension,
+  slackExtension as manualSlackExtension,
+  stripeExtension as manualStripeExtension,
+} from "./manual-provider-extensions";
 
 type Dialect = "sqlite" | "postgres";
 type ChartType =
@@ -2068,7 +2096,7 @@ function buildExtensions(): ExtensionMigration[] {
       "gcn-prep",
       "GCN Conference Prep",
       "Search migrated GCN speaker and meeting prep data.",
-      gcnExtension(),
+      manualGcnExtension(),
       [
         jsonData("legacy", "meetings", "data/gcn-meetings.json"),
         jsonData("legacy", "speakers", "data/gcn-speakers.json"),
@@ -2078,7 +2106,7 @@ function buildExtensions(): ExtensionMigration[] {
       "engagement-planner",
       "User Engagement Planner",
       "Validate a company/org and generate an engagement-analysis prompt.",
-      engagementExtension(),
+      manualEngagementExtension(),
     ),
     extension(
       "discovery-coach",
@@ -2090,91 +2118,85 @@ function buildExtensions(): ExtensionMigration[] {
       "customer-health",
       "Customer Health",
       "Customer health lookup using BigQuery plus Gong and Pylon actions.",
-      actionSearchExtension("Customer Health", [
-        "bigquery",
-        "gong-calls",
-        "pylon-issues",
-      ]),
+      customerHealthExtension(),
     ),
     extension(
       "risk-meeting",
       "Risk Meeting",
       "Risk review helper for HubSpot/Pylon account signals.",
-      actionSearchExtension("Risk Meeting", ["hubspot-deals", "pylon-issues"]),
+      riskMeetingExtension(),
     ),
     extension(
       "stripe",
       "Stripe Billing",
       "Stripe customer billing, subscriptions, refunds, and payment status.",
-      stripeExtension(),
+      manualStripeExtension(),
     ),
     extension(
       "slack-feedback",
       "Slack Feedback",
       "Search and review Slack feedback messages.",
-      slackExtension(),
+      manualSlackExtension(),
     ),
     extension(
       "dbt-workspace",
       "dbt Model Workspace",
       "Store dbt snippets and test SQL against BigQuery.",
-      dbtExtension(),
+      manualDbtExtension(),
     ),
     extension(
       "query-explorer",
       "Query Explorer",
       "Ad-hoc SQL runner with org-scoped history.",
-      queryExplorerExtension(),
+      manualQueryExplorerExtension(),
+    ),
+    extension(
+      "explorer",
+      "Explorer",
+      "Visual event explorer with SQL preview and saved BigQuery runs.",
+      explorerExtension(),
     ),
     extension(
       "hubspot",
       "HubSpot Sales",
       "HubSpot sales pipeline and deal lookup.",
-      actionSearchExtension("HubSpot Sales", [
-        "hubspot-deals",
-        "hubspot-metrics",
-        "hubspot-pipelines",
-      ]),
+      hubspotExtension(),
     ),
     extension(
       "sentry",
       "Sentry Error Health",
       "Sentry issue and project lookup.",
-      actionSearchExtension("Sentry Error Health", ["sentry"]),
+      sentryExtension(),
     ),
     extension(
       "gcloud",
       "Google Cloud Health",
       "Google Cloud logs and metrics helper.",
-      actionSearchExtension("Google Cloud Health", ["gcloud"]),
+      gcloudExtension(),
     ),
     extension(
       "jira",
       "Jira Tickets",
       "Jira search, sprint, and analytics helper.",
-      actionSearchExtension("Jira Tickets", ["jira", "jira-analytics"]),
+      jiraExtension(),
     ),
     extension(
       "fusion-eng",
       "Fusion Engineering",
       "Grafana/GCloud engineering telemetry launcher.",
-      actionSearchExtension("Fusion Engineering", ["grafana", "gcloud"]),
+      fusionEngExtension(),
     ),
     extension(
       "cx-double-click",
       "CX Double Click",
       "CX pipeline and renewal workflow shell.",
-      actionSearchExtension("CX Double Click", [
-        "bigquery",
-        "hubspot-deals",
-        "pylon-issues",
-      ]),
+      cxDoubleClickExtension(),
     ),
     extension(
       "onboarding-progress",
       "Onboarding Progress",
       "Org-scoped onboarding snapshot browser.",
-      dataBrowserExtension("Onboarding Progress", "onboarding"),
+      onboardingProgressExtension(),
       [
         jsonData(
           "onboarding",
@@ -2244,7 +2266,7 @@ function buildExtensions(): ExtensionMigration[] {
       "competitive-landscape",
       "Competitive Landscape",
       "Competitive mention data and refresh notes.",
-      dataBrowserExtension("Competitive Landscape", "competitive"),
+      competitiveLandscapeExtension(),
       [
         jsonData(
           "competitive",
@@ -2258,16 +2280,13 @@ function buildExtensions(): ExtensionMigration[] {
       "expansion-attainment",
       "Expansion Attainment Plan",
       "Expansion planning helper with persisted scenarios.",
-      actionSearchExtension("Expansion Attainment Plan", [
-        "hubspot-deals",
-        "hubspot-metrics",
-      ]),
+      expansionAttainmentExtension(),
     ),
     extension(
       "strategic-accounts",
       "Strategic Accounts",
       "Strategic account coverage and blocker source data.",
-      dataBrowserExtension("Strategic Accounts", "strategic"),
+      strategicAccountsExtension(),
       [
         rawData(
           "strategic",
@@ -2285,10 +2304,7 @@ function buildExtensions(): ExtensionMigration[] {
       "agent-native-metrics",
       "Product Double Click Metrics",
       "NPM, GitHub stars, and contributor snapshots from legacy Fusion data files.",
-      dataBrowserExtension(
-        "Product Double Click Metrics",
-        "agent-native-metrics",
-      ),
+      agentNativeMetricsExtension(),
       [
         jsonData(
           "agent-native-metrics",
