@@ -546,7 +546,10 @@ async function startNativeFullscreenRecording(
             // leaving the user on an empty desktop.
             try {
               await openExternal(
-                `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
+                `${params.serverUrl.replace(
+                  /\/+$/,
+                  "",
+                )}${viewUrl}?saveFailed=1`,
               );
             } catch (openErr) {
               console.error("[clips-recorder] openExternal failed:", openErr);
