@@ -381,7 +381,7 @@ async function pickProvider(
 
 export default defineAction({
   description:
-    "Ensure a recording has a transcript. Preserves native Web Speech/macOS Speech transcripts first, then falls back to Builder Gemini Flash-Lite transcription or Groq when needed.",
+    "Ensure a recording has a transcript. Preserves native Web Speech/macOS Speech transcripts first, then uses configured backup transcription only when needed.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
   }),
@@ -624,8 +624,8 @@ export default defineAction({
       if (preserved) return preserved;
 
       const reason = builderError
-        ? `Builder transcription failed: ${builderError}. Add GROQ_API_KEY in Settings → API Keys to enable the only BYOK speech-to-text fallback.`
-        : "No transcript was captured by native speech recognition, and no fallback provider is configured. Connect Builder.io (free, no API key needed) or add GROQ_API_KEY in Settings.";
+        ? "No native transcript was captured, and backup transcription could not finish. Retry transcription or check microphone and speech permissions."
+        : "No transcript was captured by native speech recognition, and no backup transcription provider is configured.";
       await upsertTranscriptRow(db, {
         recordingId: args.recordingId,
         ownerEmail,

@@ -1557,13 +1557,13 @@ export function installDesktopVoiceDictation(
   const isMainWindow = (label?: string) =>
     label === "main" || label === "popover";
   listen<FocusEventPayload>("tauri://blur", (ev) => {
-    if (!isMainWindow(ev.payload.windowLabel)) return;
+    if (!isMainWindow(ev.payload?.windowLabel)) return;
     invoke("recording_pill_set_detached", { detached: true }).catch(() => {});
   })
     .then((u) => unlistens.push(u))
     .catch(() => {});
   listen<FocusEventPayload>("tauri://focus", (ev) => {
-    if (!isMainWindow(ev.payload.windowLabel)) return;
+    if (!isMainWindow(ev.payload?.windowLabel)) return;
     invoke("recording_pill_set_detached", { detached: false }).catch(() => {});
   })
     .then((u) => unlistens.push(u))

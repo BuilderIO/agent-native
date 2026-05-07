@@ -602,6 +602,22 @@ const migrations = runMigrations(
       version: 35,
       sql: `CREATE INDEX IF NOT EXISTS clips_vocabulary_owner_email_idx ON clips_vocabulary (owner_email)`,
     },
+    {
+      version: 36,
+      sql: `CREATE TABLE IF NOT EXISTS clips_vocabulary_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 37,
+      sql: `CREATE INDEX IF NOT EXISTS clips_vocabulary_shares_resource_idx ON clips_vocabulary_shares (resource_id)`,
+    },
   ],
   { table: "clips_migrations" },
 );

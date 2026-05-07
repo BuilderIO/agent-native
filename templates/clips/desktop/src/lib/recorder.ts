@@ -49,6 +49,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
+import { loadVocabulary } from "./personal-vocabulary";
 
 export type CaptureMode = "screen" | "screen-camera" | "camera";
 export type CaptureSource = "full-screen" | "window";
@@ -156,11 +157,23 @@ interface NativeFullscreenUploadResult {
 }
 
 async function startNativeTranscriptCapture(): Promise<NativeTranscriptCapture | null> {
+  const maxRestarts = 60;
+  let committedText = "";
+  let activeText = "";
   let latestText = "";
+  let stopping = false;
+  let disposed = false;
+  let restartCount = 0;
+  let restartTimer: ReturnType<typeof window.setTimeout> | null = null;
   let settleFinal: ((text: string) => void) | null = null;
   const unlistens: UnlistenFn[] = [];
 
   const cleanup = () => {
+    disposed = true;
+    if (restartTimer) {
+      window.clearTimeout(restartTimer);
+      restartTimer = null;
+    }
     unlistens.splice(0).forEach((unlisten) => {
       try {
         unlisten();
@@ -170,29 +183,104 @@ async function startNativeTranscriptCapture(): Promise<NativeTranscriptCapture |
     });
   };
 
+  const refreshLatest = () => {
+    latestText = [committedText, activeText].filter(Boolean).join("\n\n");
+  };
+
+  const commitActiveText = () => {
+    const text = activeText.trim();
+    if (!text) {
+      refreshLatest();
+      return;
+    }
+    if (!committedText.endsWith(text)) {
+      committedText = [committedText, text].filter(Boolean).join("\n\n");
+    }
+    activeText = "";
+    refreshLatest();
+  };
+
+  const shouldRestartAfterError = (error: string | undefined) => {
+    const normalized = (error ?? "").toLowerCase();
+    return (
+      normalized.includes("no speech") ||
+      normalized.includes("kafassistant") ||
+      normalized.includes("error 1101")
+    );
+  };
+
+  const startNativeSpeech = async () => {
+    const contextualStrings = await loadVocabulary().catch(() => []);
+    if (disposed || stopping) return;
+    await invoke("native_speech_set_vocabulary", {
+      strings: contextualStrings,
+    }).catch(() => {});
+    if (disposed || stopping) return;
+    await invoke("native_speech_start", {
+      locale: navigator.language || "en-US",
+    });
+    console.log(
+      `[clips-recorder] native_speech_start ok (vocab=${contextualStrings.length})`,
+    );
+  };
+
+  const scheduleRestart = (reason: string) => {
+    if (disposed || stopping) return;
+    if (restartCount >= maxRestarts) {
+      console.warn(
+        `[clips-recorder] native transcript restart limit reached after ${reason}; preserving captured text`,
+      );
+      return;
+    }
+    restartCount += 1;
+    if (restartTimer) window.clearTimeout(restartTimer);
+    restartTimer = window.setTimeout(
+      () => {
+        restartTimer = null;
+        startNativeSpeech().catch((err) => {
+          console.warn(
+            "[clips-recorder] native transcript restart failed:",
+            err,
+          );
+          scheduleRestart("restart failure");
+        });
+      },
+      Math.min(250 + restartCount * 50, 1000),
+    );
+  };
+
   try {
     unlistens.push(
       await listen<{ text: string }>("voice:partial-transcript", (event) => {
         const text = event.payload?.text?.trim();
-        if (text) latestText = text;
+        if (text) {
+          activeText = text;
+          refreshLatest();
+        }
       }),
       await listen<{ text: string }>("voice:final-transcript", (event) => {
         const text = event.payload?.text?.trim();
-        if (text) latestText = text;
-        settleFinal?.(latestText);
+        if (text) activeText = text;
+        commitActiveText();
+        if (stopping) {
+          settleFinal?.(latestText);
+          return;
+        }
+        scheduleRestart("final transcript");
       }),
       await listen<{ error: string }>("voice:speech-error", (event) => {
-        console.warn(
-          "[clips-recorder] native transcript error:",
-          event.payload?.error,
-        );
+        const error = event.payload?.error;
+        console.warn("[clips-recorder] native transcript error:", error);
+        commitActiveText();
+        if (!stopping && shouldRestartAfterError(error)) {
+          scheduleRestart("speech endpoint");
+          return;
+        }
         settleFinal?.(latestText);
       }),
     );
 
-    await invoke("native_speech_start", {
-      locale: navigator.language || "en-US",
-    });
+    await startNativeSpeech();
   } catch (err) {
     cleanup();
     console.warn("[clips-recorder] native transcript unavailable:", err);
@@ -201,6 +289,11 @@ async function startNativeTranscriptCapture(): Promise<NativeTranscriptCapture |
 
   return {
     async stop() {
+      stopping = true;
+      if (restartTimer) {
+        window.clearTimeout(restartTimer);
+        restartTimer = null;
+      }
       const finalTextPromise = new Promise<string>((resolve) => {
         const timeout = window.setTimeout(() => resolve(latestText), 1800);
         settleFinal = (text) => {
@@ -213,6 +306,7 @@ async function startNativeTranscriptCapture(): Promise<NativeTranscriptCapture |
         await invoke("native_speech_stop");
       } catch (err) {
         console.warn("[clips-recorder] native_speech_stop failed:", err);
+        commitActiveText();
         cleanup();
         return latestText;
       }
@@ -222,6 +316,7 @@ async function startNativeTranscriptCapture(): Promise<NativeTranscriptCapture |
       return finalText.trim();
     },
     async cancel() {
+      stopping = true;
       try {
         await invoke("native_speech_cancel");
       } catch {
@@ -418,10 +513,6 @@ async function startNativeFullscreenRecording(
     await invoke("park_popover_offscreen").catch(() => {});
     emit("clips:popover-visible", false).catch(() => {});
 
-    nativeTranscriptCapture = wantsAudio
-      ? await startNativeTranscriptCapture()
-      : null;
-
     console.log("[clips-recorder] invoking show_countdown + createRecording");
     const countdownPromise = (async () => {
       try {
@@ -453,6 +544,9 @@ async function startNativeFullscreenRecording(
       recordingId: id,
       includeAudio: wantsAudio,
     });
+    nativeTranscriptCapture = wantsAudio
+      ? await startNativeTranscriptCapture()
+      : null;
   } catch (err) {
     await nativeTranscriptCapture?.cancel().catch(() => {});
     streamCleanups.forEach((cleanup) => cleanup());
@@ -1025,10 +1119,7 @@ async function startNativeRecordingInner(
 
   await invoke("park_popover_offscreen").catch(() => {});
   emit("clips:popover-visible", false).catch(() => {});
-
-  const nativeTranscriptCapture = wantsAudio
-    ? await startNativeTranscriptCapture()
-    : null;
+  let nativeTranscriptCapture: NativeTranscriptCapture | null = null;
 
   // Choose the primary video track for MediaRecorder:
   //   - screen mode             → display
@@ -1192,6 +1283,9 @@ async function startNativeRecordingInner(
   ]);
   stateUnlistens = toolbarUnlistens;
 
+  nativeTranscriptCapture = wantsAudio
+    ? await startNativeTranscriptCapture()
+    : null;
   recorder.start(2_000);
   recordingStartCue.play();
   // The toolbar is already open (the popover's bubble-session effect

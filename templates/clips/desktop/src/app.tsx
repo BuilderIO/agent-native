@@ -918,9 +918,15 @@ export function App() {
   // from THAT render and stops the camera stream even though recording is
   // still in flight.
   const recordingFlowGateRef = useRef(false);
-  recordingFlowGateRef.current = isRecording || recordingFlowActive;
+  useEffect(() => {
+    recordingFlowGateRef.current = isRecording || recordingFlowActive;
+  }, [isRecording, recordingFlowActive]);
   const bubbleActive =
-    wantsCamera && (popoverVisible || isRecording || recordingFlowActive);
+    wantsCamera &&
+    (popoverVisible ||
+      isRecording ||
+      recordingFlowActive ||
+      recordingFlowGateRef.current);
   // The toolbar is recording chrome, not pre-record chrome. Showing it while
   // the popover is merely open leaves a disabled 0:00 Stop/Pause pill on the
   // desktop, which reads as a stuck recorder and can trap accessibility clicks.
@@ -1180,6 +1186,7 @@ export function App() {
     // flow" during the macOS screen-picker focus dance. The bubble
     // session effect also keys off this flag (via `bubbleActive`) so
     // the bubble + camera stream stay alive while the picker is up.
+    recordingFlowGateRef.current = true;
     setRecordingFlowActive(true);
     // Tell Rust we're entering the recording flow NOW, not after the
     // handle arrives. The macOS screen-picker dialog steals focus from
@@ -1289,6 +1296,7 @@ export function App() {
         // bubble-session effect must be allowed to stop them again on
         // its next cleanup (e.g. if the user closes the popover).
         bubbleStreamTransferredToRecorder.current = false;
+        recordingFlowGateRef.current = false;
         setRecordingFlowActive(false);
         try {
           await invoke("set_recording_state", { active: false });
@@ -1387,6 +1395,7 @@ export function App() {
             // acquire the camera cleanly again.
             bubbleStreamTransferredToRecorder.current = false;
             bubbleStreamRef.current = null;
+            recordingFlowGateRef.current = false;
             setRecorder(null);
             setRecordingFlowActive(false);
             invoke("set_recording_state", { active: false }).catch(() => {});
@@ -1413,6 +1422,7 @@ export function App() {
             ).clipsForceAlive = false;
             bubbleStreamTransferredToRecorder.current = false;
             bubbleStreamRef.current = null;
+            recordingFlowGateRef.current = false;
             setRecorder(null);
             setRecordingFlowActive(false);
             invoke("set_recording_state", { active: false }).catch(() => {});
@@ -2537,8 +2547,8 @@ function Setup({
       ? "Uses macOS on-device speech recognition for the fastest free dictation."
       : "Uses the browser's built-in speech recognition when available.",
     builder:
-      "Uses Builder.io's Gemini Flash-Lite path for fast cleanup. No Google API key needed.",
-    byok: "Use your own provider key. Gemini is the recommended default for low-latency cleanup.",
+      "Uses Builder.io for fast cleanup. No separate provider key needed.",
+    byok: "Use your own provider key for cleanup.",
   };
   const shortcutHint: Record<VoiceShortcutPreference, string> = {
     fn: "Press the Fn / globe key to dictate.",
@@ -2827,7 +2837,7 @@ function Setup({
             <div className="setup-section">
               <SettingLabel
                 label="Key provider"
-                hint="Gemini is recommended for cleanup; Groq is available as the speech-to-text fallback."
+                hint="Choose which provider key to use for cleanup."
                 htmlFor="voice-byok-provider"
               />
               <select
