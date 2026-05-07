@@ -59,6 +59,7 @@ import {
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { useMeetingStartNotifications } from "@/hooks/use-meeting-start-notifications";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AgentToggleButton,
@@ -246,6 +247,7 @@ export default function CalendarView() {
         : events,
     [events, viewMode, selectedDate],
   );
+  useMeetingStartNotifications(events);
 
   const selectedEvent = useMemo(() => {
     const candidate = sidebarEvent ?? focusedEvent;
@@ -778,7 +780,7 @@ export default function CalendarView() {
                 </TooltipContent>
               </Tooltip>
 
-              <NotificationsBell />
+              <NotificationsBell browserNotifications />
               <CreateEventPopover
                 open={createDialogOpen}
                 onOpenChange={(open) => {

@@ -373,6 +373,11 @@ export function EventDetailPopover({
     );
     setEditStartTime(toTimeInputValue(event.start));
     setEditEndTime(toTimeInputValue(event.end));
+    setEditTimezone(event.startTimeZone || getLocalTimezone());
+    const reminderState = remindersToDraftState(event);
+    setEditReminderMode(reminderState.mode);
+    setEditReminders(reminderState.reminders);
+    setEditAttachments(attachmentsToDrafts(event.attachments));
   }, [
     event.id,
     event.description,
@@ -380,6 +385,10 @@ export function EventDetailPopover({
     event.start,
     event.end,
     event.allDay,
+    event.startTimeZone,
+    event.reminders,
+    event.remindersUseDefault,
+    event.attachments,
   ]);
 
   // When defaultOpen changes to true (new event created), open the popover
@@ -450,11 +459,62 @@ export function EventDetailPopover({
 
   const handleReminderChange = useCallback(
     (value: ReminderValue) => {
+      if (value === "custom") {
+        const reminderState = remindersToDraftState(event);
+        setEditReminderMode(
+          reminderState.mode === "default" ? "custom" : reminderState.mode,
+        );
+        setEditReminders(reminderState.reminders);
+        setEditingField("reminders");
+        return;
+      }
       const updates = getReminderUpdate(value);
       if (Object.keys(updates).length > 0) saveField(updates);
     },
+    [event, saveField],
+  );
+
+  const handleSaveReminders = useCallback(() => {
+    saveField(buildReminderPayload(editReminderMode, editReminders));
+    setEditingField(null);
+  }, [editReminderMode, editReminders, saveField]);
+
+  const handleSaveAttachments = useCallback(() => {
+    const result = validateAttachmentDrafts(editAttachments);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    saveField({ attachments: result.attachments });
+    setEditingField(null);
+  }, [editAttachments, saveField]);
+
+  const handleColorChange = useCallback(
+    (nextColorId: string | undefined) => {
+      if (!nextColorId) return;
+      saveField({
+        colorId: nextColorId,
+        color: getGoogleEventColorHex(nextColorId),
+      });
+    },
     [saveField],
   );
+
+  const handleDraftDescription = useCallback(() => {
+    sendToAgentChat({
+      message: `Draft a concise calendar event description for "${event.title}".`,
+      context: `Event id: ${event.id}
+Title: ${event.title}
+When: ${event.start} to ${event.end}
+Timezone: ${event.startTimeZone || getLocalTimezone()}
+Location: ${event.location || "(none)"}
+Attendees: ${(event.attendees ?? []).map((attendee) => attendee.email).join(", ") || "(none)"}
+Current description: ${event.description || "(empty)"}
+
+Write a short, useful meeting description. If I ask you to apply it, update this event with the update-event action.`,
+      submit: true,
+    });
+  }, [event]);
 
   const handleAddGoogleMeet = useCallback(() => {
     if (!event.id || updateEvent.isPending) return;
@@ -538,16 +598,22 @@ export function EventDetailPopover({
     allDayEnd.setDate(allDayEnd.getDate() + 1);
     const newStart = event.allDay
       ? new Date(`${editDate}T00:00:00`).toISOString()
-      : new Date(`${editDate}T${editStartTime}:00`).toISOString();
+      : dateTimeInTimezoneToIso(editDate, editStartTime, editTimezone);
     const newEnd = event.allDay
       ? allDayEnd.toISOString()
-      : new Date(`${editEndDate}T${editEndTime}:00`).toISOString();
+      : dateTimeInTimezoneToIso(editEndDate, editEndTime, editTimezone);
     if (new Date(newEnd).getTime() <= new Date(newStart).getTime()) {
       toast.error("End must be after start");
       return;
     }
     if (newStart !== event.start || newEnd !== event.end) {
-      saveField({ start: newStart, end: newEnd, allDay: event.allDay });
+      saveField({
+        start: newStart,
+        end: newEnd,
+        allDay: event.allDay,
+        startTimeZone: event.allDay ? undefined : editTimezone,
+        endTimeZone: event.allDay ? undefined : editTimezone,
+      });
     }
     setEditingField(null);
   }, [
@@ -555,6 +621,7 @@ export function EventDetailPopover({
     editEndDate,
     editStartTime,
     editEndTime,
+    editTimezone,
     event.start,
     event.end,
     event.allDay,
@@ -648,9 +715,11 @@ export function EventDetailPopover({
   const localOffsetSign = localOffsetMinutes >= 0 ? "+" : "-";
   const localOffsetH = Math.floor(Math.abs(localOffsetMinutes) / 60);
   const localOffsetM = Math.abs(localOffsetMinutes) % 60;
-  const tzLabel = localOffsetM
-    ? `GMT${localOffsetSign}${localOffsetH}:${String(localOffsetM).padStart(2, "0")}`
-    : `GMT${localOffsetSign}${localOffsetH}`;
+  const tzLabel = event.startTimeZone
+    ? formatTimezoneLabel(event.startTimeZone)
+    : localOffsetM
+      ? `GMT${localOffsetSign}${localOffsetH}:${String(localOffsetM).padStart(2, "0")}`
+      : `GMT${localOffsetSign}${localOffsetH}`;
 
   const handleOpenChange = useCallback(
     (newOpen: boolean) => {
@@ -671,6 +740,8 @@ export function EventDetailPopover({
         else if (editingField === "location") handleSaveLocation();
         else if (editingField === "time") handleSaveTime();
         else if (editingField === "meetingLink") handleSaveMeetingLink();
+        else if (editingField === "reminders") handleSaveReminders();
+        else if (editingField === "attachments") handleSaveAttachments();
 
         setEditingField(null);
         isNewEventRef.current = false;
@@ -689,6 +760,8 @@ export function EventDetailPopover({
       handleSaveLocation,
       handleSaveTime,
       handleSaveMeetingLink,
+      handleSaveReminders,
+      handleSaveAttachments,
     ],
   );
 
@@ -876,6 +949,13 @@ export function EventDetailPopover({
                         className="flex-1 rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
                       />
                     </div>
+                    {!event.allDay && (
+                      <TimezoneCombobox
+                        id={`event-timezone-${event.id}`}
+                        value={editTimezone}
+                        onChange={setEditTimezone}
+                      />
+                    )}
                     <div className="flex justify-end gap-1.5">
                       <Button
                         variant="ghost"
@@ -890,6 +970,9 @@ export function EventDetailPopover({
                           );
                           setEditStartTime(toTimeInputValue(event.start));
                           setEditEndTime(toTimeInputValue(event.end));
+                          setEditTimezone(
+                            event.startTimeZone || getLocalTimezone(),
+                          );
                           setEditingField(null);
                         }}
                       >
