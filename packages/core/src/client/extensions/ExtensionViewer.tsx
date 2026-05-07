@@ -34,6 +34,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import {
+  deleteOrHideExtension,
+  invalidateExtensionRemoval,
+} from "./delete-extension.js";
 
 const THEME_CSS_VARS = [
   "--background",
@@ -82,6 +86,7 @@ interface Extension {
   description?: string;
   content?: string;
   updatedAt?: string;
+  canDelete?: boolean;
 }
 
 export interface ExtensionViewerProps {
@@ -421,12 +426,13 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     return () => window.removeEventListener("message", handleMessage);
   }, [extensionId, queryClient]);
 
-  const { data: extension, isLoading } = useQuery<Extension>({
+  const { data: extension, isLoading } = useQuery<Extension | null>({
     queryKey: ["extension", extensionId],
     queryFn: async () => {
       const res = await fetch(
         agentNativePath(`/_agent-native/extensions/${extensionId}`),
       );
+      if (res.status === 403 || res.status === 404) return null;
       if (!res.ok) throw new Error("Failed to fetch extension");
       return res.json();
     },
@@ -593,6 +599,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
             <ToolMoreMenu
               extensionId={extensionId}
               toolName={extension.name}
+              canDelete={extension.canDelete}
               onOpenChange={onPopoverOpenChange}
             />
             <NotificationsBell />
@@ -639,10 +646,12 @@ interface SlotDeclaration {
 function ToolMoreMenu({
   extensionId,
   toolName,
+  canDelete,
   onOpenChange,
 }: {
   extensionId: string;
   toolName: string;
+  canDelete?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -687,18 +696,16 @@ function ToolMoreMenu({
   const deleteExtension = async () => {
     closeMenu();
     try {
-      await fetch(agentNativePath(`/_agent-native/extensions/${extensionId}`), {
-        method: "DELETE",
-      });
-    } finally {
-      queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
-      queryClient.invalidateQueries({ queryKey: ["extensions"] });
+      await deleteOrHideExtension({ id: extensionId, canDelete });
+      invalidateExtensionRemoval(queryClient, extensionId);
       slots.forEach((s) =>
         queryClient.invalidateQueries({
           queryKey: ["slot-installs", s.slotId],
         }),
       );
       navigate("/extensions");
+    } catch {
+      queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
     }
   };
 
@@ -777,15 +784,22 @@ function ToolMoreMenu({
                 className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10 cursor-pointer text-left"
               >
                 <IconTrash className="h-3.5 w-3.5" />
-                <span>Delete extension…</span>
+                <span>
+                  {canDelete === false
+                    ? "Remove from my list..."
+                    : "Delete extension..."}
+                </span>
               </button>
             </div>
           </>
         ) : (
           <div className="flex flex-col gap-2 p-3">
             <p className="text-[12px]">
-              Delete <span className="font-medium">{toolName}</span>? This
-              removes the extension everywhere, for everyone it's shared with.
+              {canDelete === false ? "Remove " : "Delete "}
+              <span className="font-medium">{toolName}</span>?
+              {canDelete === false
+                ? " This hides it from your Extensions list without deleting it for anyone else."
+                : " This removes the extension everywhere, for everyone it's shared with."}
             </p>
             <div className="flex justify-end gap-1">
               <button
@@ -800,7 +814,7 @@ function ToolMoreMenu({
                 onClick={deleteExtension}
                 className="rounded-md bg-destructive px-2 py-1 text-[12px] text-destructive-foreground hover:bg-destructive/90 cursor-pointer"
               >
-                Delete
+                {canDelete === false ? "Remove" : "Delete"}
               </button>
             </div>
           </div>

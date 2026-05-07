@@ -25,6 +25,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import {
+  deleteOrHideExtension,
+  invalidateExtensionRemoval,
+} from "./delete-extension.js";
 
 interface Extension {
   id: string;
@@ -32,6 +36,7 @@ interface Extension {
   description?: string;
   content?: string;
   updatedAt?: string;
+  canDelete?: boolean;
 }
 
 export interface EmbeddedExtensionProps {
@@ -85,12 +90,13 @@ export function EmbeddedExtension({
     return () => observer.disconnect();
   }, []);
 
-  const { data: extension } = useQuery<Extension>({
+  const { data: extension, isLoading } = useQuery<Extension | null>({
     queryKey: ["extension", extensionId],
     queryFn: async () => {
       const res = await fetch(
         agentNativePath(`/_agent-native/extensions/${extensionId}`),
       );
+      if (res.status === 403 || res.status === 404) return null;
       if (!res.ok) throw new Error("Failed to fetch extension");
       return res.json();
     },
@@ -232,6 +238,7 @@ export function EmbeddedExtension({
   }, [extensionId]);
 
   if (!extension) {
+    if (!isLoading) return null;
     return (
       <div
         className={className}
@@ -261,6 +268,7 @@ export function EmbeddedExtension({
         extensionId={extensionId}
         slotId={slotId}
         toolName={extension.name}
+        canDelete={extension.canDelete}
       />
     </div>
   );
@@ -270,10 +278,12 @@ function EmbeddedToolMenu({
   extensionId,
   slotId,
   toolName,
+  canDelete,
 }: {
   extensionId: string;
   slotId: string;
   toolName: string;
+  canDelete?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -304,17 +314,11 @@ function EmbeddedToolMenu({
 
   const deleteExtension = async () => {
     closeMenu();
-    queryClient.setQueryData<any[]>(["slot-installs", slotId], (old) =>
-      (old ?? []).filter((i) => i.extensionId !== extensionId),
-    );
     try {
-      await fetch(agentNativePath(`/_agent-native/extensions/${extensionId}`), {
-        method: "DELETE",
-      });
-    } finally {
-      queryClient.invalidateQueries({ queryKey: ["slot-installs", slotId] });
+      await deleteOrHideExtension({ id: extensionId, canDelete });
+      invalidateExtensionRemoval(queryClient, extensionId);
+    } catch {
       queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
-      queryClient.invalidateQueries({ queryKey: ["extensions"] });
     }
   };
 
@@ -364,15 +368,19 @@ function EmbeddedToolMenu({
               <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
               <span>Remove from this widget area</span>
             </button>
-            <div className="my-1 h-px bg-border/40" />
-            <button
-              type="button"
-              onClick={() => setConfirmingDelete(true)}
-              className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10 cursor-pointer text-left"
-            >
-              <IconTrash className="h-3.5 w-3.5" />
-              <span>Delete extension…</span>
-            </button>
+            {canDelete !== false && (
+              <>
+                <div className="my-1 h-px bg-border/40" />
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(true)}
+                  className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10 cursor-pointer text-left"
+                >
+                  <IconTrash className="h-3.5 w-3.5" />
+                  <span>Delete extension...</span>
+                </button>
+              </>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-2 p-2">

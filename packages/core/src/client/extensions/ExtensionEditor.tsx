@@ -21,6 +21,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import {
+  deleteOrHideExtension,
+  invalidateExtensionRemoval,
+} from "./delete-extension.js";
 
 interface SlotDeclaration {
   id: string;
@@ -33,6 +37,7 @@ interface Extension {
   name: string;
   description?: string;
   content?: string;
+  canDelete?: boolean;
 }
 
 export interface ExtensionEditorProps {
@@ -126,30 +131,25 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
   const handleDelete = async () => {
     if (!extensionId) return;
     setDeleting(true);
+    const prev = queryClient.getQueryData<Extension[]>(["extensions"]);
     try {
-      const prev = queryClient.getQueryData<Extension[]>(["extensions"]);
       queryClient.setQueryData<Extension[]>(["extensions"], (old) =>
         (old ?? []).filter((t) => t.id !== extensionId),
       );
 
-      const res = await fetch(
-        agentNativePath(`/_agent-native/extensions/${extensionId}`),
-        {
-          method: "DELETE",
-        },
-      );
-      if (!res.ok) {
-        if (prev) queryClient.setQueryData(["extensions"], prev);
-        throw new Error("Delete failed");
-      }
-
-      queryClient.invalidateQueries({ queryKey: ["extensions"] });
+      await deleteOrHideExtension({
+        id: extensionId,
+        canDelete: existingTool?.canDelete,
+      });
+      invalidateExtensionRemoval(queryClient, extensionId);
       slots.forEach((s) =>
         queryClient.invalidateQueries({
           queryKey: ["slot-installs", s.slotId],
         }),
       );
       navigate("/extensions");
+    } catch {
+      if (prev) queryClient.setQueryData(["extensions"], prev);
     } finally {
       setDeleting(false);
       setConfirmingDelete(false);
@@ -278,16 +278,24 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
                           className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10 cursor-pointer text-left"
                         >
                           <IconTrash className="h-3.5 w-3.5" />
-                          <span>Delete extension…</span>
+                          <span>
+                            {existingTool?.canDelete === false
+                              ? "Remove from my list..."
+                              : "Delete extension..."}
+                          </span>
                         </button>
                       </div>
                     </>
                   ) : (
                     <div className="flex flex-col gap-2 p-3">
                       <p className="text-[12px]">
-                        Delete <span className="font-medium">{name}</span>? This
-                        removes the extension everywhere, for everyone it's
-                        shared with.
+                        {existingTool?.canDelete === false
+                          ? "Remove "
+                          : "Delete "}
+                        <span className="font-medium">{name}</span>?
+                        {existingTool?.canDelete === false
+                          ? " This hides it from your Extensions list without deleting it for anyone else."
+                          : " This removes the extension everywhere, for everyone it's shared with."}
                       </p>
                       <div className="flex justify-end gap-1">
                         <button
@@ -306,7 +314,13 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
                             deleting && "opacity-60",
                           )}
                         >
-                          {deleting ? "Deleting…" : "Delete"}
+                          {deleting
+                            ? existingTool?.canDelete === false
+                              ? "Removing..."
+                              : "Deleting..."
+                            : existingTool?.canDelete === false
+                              ? "Remove"
+                              : "Delete"}
                         </button>
                       </div>
                     </div>

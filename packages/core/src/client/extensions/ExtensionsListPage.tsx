@@ -24,12 +24,17 @@ import {
   applyToolsOrder,
   getToolsOrder,
 } from "./extension-order.js";
+import {
+  deleteOrHideExtension,
+  invalidateExtensionRemoval,
+} from "./delete-extension.js";
 
 interface Extension {
   id: string;
   name: string;
   description?: string;
   icon?: string;
+  canDelete?: boolean;
 }
 
 let lastCreateSubmission: { prompt: string; at: number } | null = null;
@@ -124,11 +129,8 @@ export function ExtensionsListPage() {
       (old ?? []).filter((item) => item.id !== extension.id),
     );
     try {
-      const res = await fetch(
-        agentNativePath(`/_agent-native/extensions/${extension.id}`),
-        { method: "DELETE" },
-      );
-      if (!res.ok) throw new Error("Delete failed");
+      await deleteOrHideExtension(extension);
+      invalidateExtensionRemoval(queryClient, extension.id);
     } catch {
       if (previous) queryClient.setQueryData(["extensions"], previous);
     } finally {
@@ -262,9 +264,11 @@ export function ExtensionsListPage() {
                   >
                     <div className="p-3">
                       <p className="text-[12px]">
-                        Delete{" "}
+                        {extension.canDelete === false ? "Remove " : "Delete "}
                         <span className="font-medium">{extension.name}</span>?
-                        This removes it everywhere it is shared.
+                        {extension.canDelete === false
+                          ? " This hides it from your Extensions list without deleting it for anyone else."
+                          : " This removes it everywhere it is shared."}
                       </p>
                       <div className="mt-3 flex justify-end gap-1">
                         <button
@@ -285,8 +289,12 @@ export function ExtensionsListPage() {
                         >
                           <IconTrash className="h-3.5 w-3.5" />
                           {deletingId === extension.id
-                            ? "Deleting..."
-                            : "Delete"}
+                            ? extension.canDelete === false
+                              ? "Removing..."
+                              : "Deleting..."
+                            : extension.canDelete === false
+                              ? "Remove"
+                              : "Delete"}
                         </button>
                       </div>
                     </div>
