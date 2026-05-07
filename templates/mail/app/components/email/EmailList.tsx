@@ -2,14 +2,10 @@ import {
   IconAlertCircle,
   IconArchive,
   IconChevronDown,
-  IconClock,
   IconFolder,
-  IconInbox,
   IconMail,
   IconMailOpened,
-  IconSend,
   IconSquare,
-  IconStar,
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
@@ -155,75 +151,6 @@ export function InboxZero() {
   );
 }
 
-const EMPTY_VIEW_COPY: Record<
-  string,
-  {
-    title: string;
-    subtitle: string;
-    icon: typeof IconMail;
-  }
-> = {
-  snoozed: {
-    title: "No snoozed emails",
-    subtitle:
-      "Snoozed conversations will reappear here until their return time.",
-    icon: IconClock,
-  },
-  scheduled: {
-    title: "No scheduled emails",
-    subtitle: "Messages scheduled to send later will appear here.",
-    icon: IconSend,
-  },
-  starred: {
-    title: "No pinned emails",
-    subtitle: "Pinned conversations stay here for quick access.",
-    icon: IconStar,
-  },
-  sent: {
-    title: "No sent emails",
-    subtitle: "Messages you send will appear here.",
-    icon: IconSend,
-  },
-  drafts: {
-    title: "No drafts",
-    subtitle: "Saved compose drafts will appear here.",
-    icon: IconMail,
-  },
-  archive: {
-    title: "No archived emails",
-    subtitle: "Archived conversations will appear here.",
-    icon: IconArchive,
-  },
-  trash: {
-    title: "Trash is empty",
-    subtitle: "Deleted conversations will appear here.",
-    icon: IconTrash,
-  },
-};
-
-function EmptyMailboxState({ view }: { view: string }) {
-  const copy = EMPTY_VIEW_COPY[view] ?? {
-    title: "No emails here",
-    subtitle: "Conversations for this view will appear here.",
-    icon: IconInbox,
-  };
-  const EmptyIcon = copy.icon;
-
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
-        <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-          <EmptyIcon className="h-5 w-5 text-muted-foreground" />
-        </div>
-        <p className="text-sm font-medium text-foreground/85">{copy.title}</p>
-        <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-          {copy.subtitle}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function MailLoadingState({
   containerRef,
 }: {
@@ -231,15 +158,6 @@ function MailLoadingState({
 }) {
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/30 bg-background/70 px-4">
-        <Spinner className="h-3.5 w-3.5 text-muted-foreground" />
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-foreground/80">Loading mail</p>
-          <p className="text-[11px] text-muted-foreground">
-            Checking connected accounts and latest messages
-          </p>
-        </div>
-      </div>
       <div className="flex-1 overflow-y-auto">
         {Array.from({ length: 12 }).map((_, i) => (
           <div
@@ -1264,10 +1182,7 @@ export function EmailList({
         </div>
       );
     }
-    if (view === "inbox" && (!labelParam || labelParam === "important")) {
-      return <InboxZero />;
-    }
-    return <EmptyMailboxState view={labelParam ? "label" : view} />;
+    return <InboxZero />;
   }
 
   const selectionPresetMenu = (

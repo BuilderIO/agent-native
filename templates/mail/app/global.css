@@ -724,8 +724,7 @@
   color: rgba(255, 255, 255, 1) !important;
 }
 
-.inbox-zero .inbox-zero-header button:hover,
-.inbox-zero .inbox-zero-header a:hover {
+.inbox-zero .inbox-zero-header button:hover {
   background: rgba(255, 255, 255, 0.14) !important;
 }
 
