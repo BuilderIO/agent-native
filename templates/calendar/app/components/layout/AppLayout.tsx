@@ -234,7 +234,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                 <div className="flex shrink-0 items-center gap-2">
                   {headerControls?.right}
                   <NotificationsBell emptyDescription="Calendar can pop browser alerts while this app is open. Clips desktop handles fuller meeting prompts with one-click notes." />
-                  <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
+                  <AgentToggleButton />
                 </div>
               </header>
             )}

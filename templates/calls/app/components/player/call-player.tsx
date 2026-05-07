@@ -375,7 +375,7 @@ export function CallPlayer({
             Comments
           </Button>
           <NotificationsBell />
-          <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
+          <AgentToggleButton />
         </div>
       </header>
 

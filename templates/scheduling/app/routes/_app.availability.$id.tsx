@@ -261,7 +261,7 @@ export default function ScheduleEditor() {
               <span>Set as default</span>
             </div>
             <NotificationsBell />
-            <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
+            <AgentToggleButton />
           </div>
         </div>
       </header>

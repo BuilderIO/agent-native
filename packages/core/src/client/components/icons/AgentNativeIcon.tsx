@@ -11,11 +11,10 @@ interface AgentNativeIconProps extends Omit<SVGProps<SVGSVGElement>, "fill"> {
 }
 
 /**
- * Monochrome agent-native "A" mark. Source paths are taken verbatim from the
- * Tauri menu-bar icon at `packages/core/src/assets/branding/tray-icon.svg`,
- * with `fill="white"` swapped for `fill="currentColor"` so the icon inherits
- * the surrounding text color (set via Tailwind `text-*` classes on a parent
- * or directly via `className`).
+ * Monochrome agent-native "A" mark. Source paths are taken from the Tauri
+ * menu-bar icon at `packages/core/src/assets/branding/tray-icon.svg`, with the
+ * padded tray viewBox cropped for toolbar use and `fill="white"` swapped for
+ * `fill="currentColor"` so the icon inherits the surrounding text color.
  */
 export function AgentNativeIcon({
   size = 24,
@@ -27,7 +26,7 @@ export function AgentNativeIcon({
       xmlns="http://www.w3.org/2000/svg"
       width={size}
       height={size}
-      viewBox="-19 -19 152 152"
+      viewBox="0 0 114 114"
       fill="none"
       className={className}
       {...rest}

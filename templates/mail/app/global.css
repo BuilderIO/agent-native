@@ -714,7 +714,9 @@
 .inbox-zero .inbox-zero-header button,
 .inbox-zero .inbox-zero-header span {
   color: rgba(255, 255, 255, 0.82) !important;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  text-shadow:
+    0 4px 3px rgba(0, 0, 0, 0.1),
+    0 10px 8px rgba(0, 0, 0, 0.04);
 }
 
 .inbox-zero .inbox-zero-header a[aria-current],

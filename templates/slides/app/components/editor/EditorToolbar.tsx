@@ -945,7 +945,7 @@ graph TD
       </DropdownMenu>
 
       <NotificationsBell />
-      <AgentToggleButton className="flex-shrink-0 text-muted-foreground hover:text-foreground/70 hover:bg-accent" />
+      <AgentToggleButton />
     </div>
   );
 }

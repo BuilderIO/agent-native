@@ -50,7 +50,7 @@ export function Header({ onOpenSidebar }: HeaderProps) {
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {actions}
-        <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
+        <AgentToggleButton />
       </div>
     </header>
   );
