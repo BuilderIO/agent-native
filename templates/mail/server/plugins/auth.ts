@@ -32,11 +32,16 @@ export default createAuthPlugin({
       "Multi-account Gmail in a single unified inbox",
       "Autonomous triage, archiving, and follow-ups",
     ],
+    runLocalCommand:
+      "npx @agent-native/core create my-mail-app --template mail",
   },
   googleSignInNotice: {
     host: "mail.agent-native.com",
-    title: "Google may show warnings for hosted Mail",
-    body: "The production Mail app asks Google for Gmail permissions on the shared agent-native.com OAuth client, so Google may show warning screens you need to click through. Other Agent-Native templates and self-hosted Mail apps with your own Google OAuth client do not have this hosted-app warning.",
+    title: "Hosted Mail may show Google warnings",
+    body: [
+      "This demo uses Agent-Native's shared Google OAuth client. Because Mail asks for Gmail access, Google may show extra consent or warning screens before continuing.",
+      "Self-hosting Mail with your own Google OAuth client avoids this hosted-demo warning. Use Run Locally on the left to start that path.",
+    ],
     continueLabel: "Continue to Google",
     cancelLabel: "Not now",
   },

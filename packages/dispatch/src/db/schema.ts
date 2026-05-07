@@ -130,13 +130,13 @@ export const vaultAuditLog = table("vault_audit_log", {
   createdAt: integer("created_at").notNull(),
 });
 
-// ─── Workspace Resources: shared skills, instructions, agents ──────
+// ─── Workspace Resources: shared skills, instructions, agents, knowledge ──────
 
 export const workspaceResources = table("workspace_resources", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull(),
   orgId: text("org_id"),
-  kind: text("kind").notNull(), // "skill" | "instruction" | "agent"
+  kind: text("kind").notNull(), // "skill" | "instruction" | "agent" | "knowledge"
   name: text("name").notNull(),
   description: text("description"),
   path: text("path").notNull(), // resource path, e.g. "skills/designer.md"

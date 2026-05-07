@@ -178,6 +178,7 @@ export interface AuthOptions {
     tagline: string;
     description?: string;
     features?: string[];
+    runLocalCommand?: string;
   };
   /**
    * Optional host-scoped notice shown before the built-in Google sign-in
@@ -186,7 +187,7 @@ export interface AuthOptions {
   googleSignInNotice?: {
     host?: string;
     title: string;
-    body: string;
+    body: string | string[];
     continueLabel?: string;
     cancelLabel?: string;
   };

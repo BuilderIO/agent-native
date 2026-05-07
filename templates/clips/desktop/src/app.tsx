@@ -918,9 +918,15 @@ export function App() {
   // from THAT render and stops the camera stream even though recording is
   // still in flight.
   const recordingFlowGateRef = useRef(false);
-  recordingFlowGateRef.current = isRecording || recordingFlowActive;
+  useEffect(() => {
+    recordingFlowGateRef.current = isRecording || recordingFlowActive;
+  }, [isRecording, recordingFlowActive]);
   const bubbleActive =
-    wantsCamera && (popoverVisible || isRecording || recordingFlowActive);
+    wantsCamera &&
+    (popoverVisible ||
+      isRecording ||
+      recordingFlowActive ||
+      recordingFlowGateRef.current);
   // The toolbar is recording chrome, not pre-record chrome. Showing it while
   // the popover is merely open leaves a disabled 0:00 Stop/Pause pill on the
   // desktop, which reads as a stuck recorder and can trap accessibility clicks.
@@ -958,13 +964,70 @@ export function App() {
     setCameraError(null);
 
     let cancelled = false;
+    const sessionUnlistens: Array<() => void> = [];
+    const trackSessionListen = (p: Promise<() => void>) => {
+      p.then((u) => {
+        if (cancelled) {
+          try {
+            u();
+          } catch {
+            // ignore
+          }
+          return;
+        }
+        sessionUnlistens.push(u);
+      }).catch(() => {
+        // ignore — best effort during window teardown
+      });
+    };
     // Dual-transport bookkeeping. We try WebRTC first; if it fails or
     // times out, we fall back to the canvas pump. Only one should be
     // active at a time — the ref below guarantees we never double-start.
     let webrtcHandle: BubbleWebrtcHandle | null = null;
     let stopPump: (() => void) | null = null;
     let fellBackToPump = false;
+    let recordingPumpActive = false;
+    let wantsRecordingPump =
+      (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive ===
+      true;
     let stream: MediaStream | null = null;
+
+    const startPump = (reason: string, fallback: boolean) => {
+      if (cancelled || stopPump || !stream) return;
+      if (fallback) fellBackToPump = true;
+      else recordingPumpActive = true;
+      console.log("[clips-popover] starting bubble canvas pump — %s", reason);
+      stopPump = startBubbleFramePump(stream);
+    };
+
+    const stopRecordingPump = (reason: string) => {
+      if (!recordingPumpActive || fellBackToPump) return;
+      console.log(
+        "[clips-popover] stopping recording bubble pump — %s",
+        reason,
+      );
+      try {
+        stopPump?.();
+      } catch {
+        // ignore
+      }
+      stopPump = null;
+      recordingPumpActive = false;
+    };
+
+    trackSessionListen(
+      listen<{ active?: boolean; reason?: string }>(
+        "clips:bubble-recording-mode",
+        (event) => {
+          wantsRecordingPump = event.payload?.active === true;
+          if (wantsRecordingPump) {
+            startPump(event.payload?.reason ?? "recording-mode", false);
+          } else {
+            stopRecordingPump(event.payload?.reason ?? "recording-mode-ended");
+          }
+        },
+      ),
+    );
 
     console.log(
       "[clips-popover] bubble session start — acquiring camera + showing bubble",
@@ -1010,9 +1073,7 @@ export function App() {
           );
           webrtcHandle?.stop();
           webrtcHandle = null;
-          if (stream) {
-            stopPump = startBubbleFramePump(stream);
-          }
+          startPump(reason, true);
         };
         webrtcHandle = startBubbleWebrtc({
           stream: s,
@@ -1023,6 +1084,9 @@ export function App() {
           },
           onFailure: startCanvasFallback,
         });
+        if (wantsRecordingPump) {
+          startPump("recording-mode-latched", false);
+        }
       })
       .catch((err) => {
         if (cancelled) return;
@@ -1060,6 +1124,14 @@ export function App() {
         stopPump();
         stopPump = null;
       }
+      sessionUnlistens.forEach((u) => {
+        try {
+          u();
+        } catch {
+          // ignore
+        }
+      });
+      sessionUnlistens.length = 0;
       // Critical: if the recorder borrowed this stream, it now owns the
       // track lifecycle. Stopping tracks here would end them out from
       // under `MediaRecorder`, producing the laggy-bubble / dead-track
@@ -1180,6 +1252,7 @@ export function App() {
     // flow" during the macOS screen-picker focus dance. The bubble
     // session effect also keys off this flag (via `bubbleActive`) so
     // the bubble + camera stream stay alive while the picker is up.
+    recordingFlowGateRef.current = true;
     setRecordingFlowActive(true);
     // Tell Rust we're entering the recording flow NOW, not after the
     // handle arrives. The macOS screen-picker dialog steals focus from
@@ -1236,6 +1309,10 @@ export function App() {
       // visibility=hidden on a pinhole-sized window.
       (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
         true;
+      emit("clips:bubble-recording-mode", {
+        active: true,
+        reason: "recording-start",
+      }).catch(() => {});
 
       const recordingPromise = startNativeRecording({
         serverUrl,
@@ -1284,11 +1361,16 @@ export function App() {
         // Clear the force-alive flag if it was latched before the failure.
         (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
           false;
+        emit("clips:bubble-recording-mode", {
+          active: false,
+          reason: "recording-start-failed",
+        }).catch(() => {});
         // Hand the stream back to the popover session. The recorder
         // never got far enough to take ownership of the tracks, so the
         // bubble-session effect must be allowed to stop them again on
         // its next cleanup (e.g. if the user closes the popover).
         bubbleStreamTransferredToRecorder.current = false;
+        recordingFlowGateRef.current = false;
         setRecordingFlowActive(false);
         try {
           await invoke("set_recording_state", { active: false });
@@ -1383,10 +1465,15 @@ export function App() {
             (
               window as unknown as { clipsForceAlive?: boolean }
             ).clipsForceAlive = false;
+            emit("clips:bubble-recording-mode", {
+              active: false,
+              reason: "recording-stop",
+            }).catch(() => {});
             // Recorder has stopped its tracks; next popover session can
             // acquire the camera cleanly again.
             bubbleStreamTransferredToRecorder.current = false;
             bubbleStreamRef.current = null;
+            recordingFlowGateRef.current = false;
             setRecorder(null);
             setRecordingFlowActive(false);
             invoke("set_recording_state", { active: false }).catch(() => {});
@@ -1411,8 +1498,13 @@ export function App() {
             (
               window as unknown as { clipsForceAlive?: boolean }
             ).clipsForceAlive = false;
+            emit("clips:bubble-recording-mode", {
+              active: false,
+              reason: "recording-cancel",
+            }).catch(() => {});
             bubbleStreamTransferredToRecorder.current = false;
             bubbleStreamRef.current = null;
+            recordingFlowGateRef.current = false;
             setRecorder(null);
             setRecordingFlowActive(false);
             invoke("set_recording_state", { active: false }).catch(() => {});
@@ -2537,8 +2629,8 @@ function Setup({
       ? "Uses macOS on-device speech recognition for the fastest free dictation."
       : "Uses the browser's built-in speech recognition when available.",
     builder:
-      "Uses Builder.io's Gemini Flash-Lite path for fast cleanup. No Google API key needed.",
-    byok: "Use your own provider key. Gemini is the recommended default for low-latency cleanup.",
+      "Uses Builder.io for fast cleanup. No separate provider key needed.",
+    byok: "Use your own provider key for cleanup.",
   };
   const shortcutHint: Record<VoiceShortcutPreference, string> = {
     fn: "Press the Fn / globe key to dictate.",
@@ -2827,7 +2919,7 @@ function Setup({
             <div className="setup-section">
               <SettingLabel
                 label="Key provider"
-                hint="Gemini is recommended for cleanup; Groq is available as the speech-to-text fallback."
+                hint="Choose which provider key to use for cleanup."
                 htmlFor="voice-byok-provider"
               />
               <select

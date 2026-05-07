@@ -32,7 +32,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import {
@@ -50,6 +50,7 @@ import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import regenerateTitle from "./regenerate-title.js";
 import cleanupTranscript from "./cleanup-transcript.js";
+import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 
 /**
  * Default title seeded by `create-recording`. Used to detect "the user hasn't
@@ -162,9 +163,14 @@ async function cleanupNativeTranscript({
   });
 
   try {
+    const agentsContext = await loadAgentsMdContext({
+      ownerEmail,
+      purpose: "cleanup",
+    });
     const result = await cleanupTranscript.run({
       transcript: sourceText,
       task: "cleanup",
+      context: agentsContext,
     });
     const cleanedText = result.cleanedText?.trim();
     if (!cleanedText || cleanedText === sourceText) {
@@ -237,7 +243,12 @@ async function completeReadyTranscript({
       durationMs: schema.recordings.durationMs,
     })
     .from(schema.recordings)
-    .where(eq(schema.recordings.id, recordingId))
+    .where(
+      and(
+        eq(schema.recordings.id, recordingId),
+        eq(schema.recordings.ownerEmail, ownerEmail),
+      ),
+    )
     .limit(1);
 
   void cleanupNativeTranscript({
@@ -255,12 +266,17 @@ async function completeReadyTranscript({
 
   const titleQueued = !!(recForTitle && isDefaultTitle(recForTitle.title));
   if (titleQueued) {
-    void regenerateTitle.run({ recordingId }).catch((err) => {
-      console.warn(
-        `[clips] native-transcript title generation failed for ${recordingId}:`,
-        (err as Error)?.message ?? String(err),
-      );
-    });
+    void regenerateTitle
+      .run({
+        recordingId,
+        transcriptText: fullText,
+      })
+      .catch((err) => {
+        console.warn(
+          `[clips] native-transcript title generation failed for ${recordingId}:`,
+          (err as Error)?.message ?? String(err),
+        );
+      });
   }
 
   // Wake the player polling so it picks up the queued cleanup state row
@@ -370,7 +386,7 @@ async function pickProvider(
 
 export default defineAction({
   description:
-    "Ensure a recording has a transcript. Preserves native Web Speech/macOS Speech transcripts first, then falls back to Builder Gemini Flash-Lite transcription or Groq when needed.",
+    "Ensure a recording has a transcript. Preserves native Web Speech/macOS Speech transcripts first, then uses configured backup transcription only when needed.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
   }),
@@ -613,8 +629,8 @@ export default defineAction({
       if (preserved) return preserved;
 
       const reason = builderError
-        ? `Builder transcription failed: ${builderError}. Add GROQ_API_KEY in Settings → API Keys to enable the only BYOK speech-to-text fallback.`
-        : "No transcript was captured by native speech recognition, and no fallback provider is configured. Connect Builder.io (free, no API key needed) or add GROQ_API_KEY in Settings.";
+        ? "No native transcript was captured, and backup transcription could not finish. Retry transcription or check microphone and speech permissions."
+        : "No transcript was captured by native speech recognition, and no backup transcription provider is configured.";
       await upsertTranscriptRow(db, {
         recordingId: args.recordingId,
         ownerEmail,

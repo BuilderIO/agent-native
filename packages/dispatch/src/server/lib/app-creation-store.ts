@@ -20,6 +20,11 @@ import {
 } from "./dispatch-store.js";
 import { identityKeyForIncoming } from "./dispatch-integrations.js";
 import { createRequest, listSecrets } from "./vault-store.js";
+import {
+  grantWorkspaceResourcesToApp,
+  listWorkspaceResourceOptions,
+  type WorkspaceResourceOption,
+} from "./workspace-resources-store.js";
 
 const SETTINGS_KEY = "dispatch-app-creation-settings";
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
@@ -827,6 +832,7 @@ function buildWorkspaceAppPrompt(input: {
   appId?: string | null;
   template?: string | null;
   selectedKeys?: string[];
+  selectedResources?: WorkspaceResourceOption[];
 }): { appId: string; prompt: string } {
   const appId =
     slugify(input.appId || "") ||
@@ -835,6 +841,15 @@ function buildWorkspaceAppPrompt(input: {
     ) ||
     "new-app";
   const selectedKeys = input.selectedKeys || [];
+  const selectedResources = input.selectedResources || [];
+  const resourceList = selectedResources.length
+    ? selectedResources
+        .map(
+          (resource) =>
+            `- ${resource.name} (${resource.kind}, ${resource.path})`,
+        )
+        .join("\n")
+    : "none";
   return {
     appId,
     prompt: [
@@ -846,11 +861,15 @@ function buildWorkspaceAppPrompt(input: {
       selectedKeys.length
         ? `Dispatch vault keys selected for this app: ${selectedKeys.join(", ")}`
         : "Dispatch vault keys selected for this app: none",
+      `Dispatch workspace resources selected for this app:\n${resourceList}`,
       "",
       `Use the workspace app layout: create it under apps/${appId}, mount it at /${appId}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
       selectedKeys.length
         ? `Dispatch will create pending vault requests for the selected keys for appId "${appId}" after this app creation request is accepted. Do not grant or sync vault keys directly from the app-creation branch.`
         : "Do not grant or request any Dispatch vault keys unless the user asks later.",
+      selectedResources.length
+        ? `Dispatch will create workspace resource grants for the selected resources for appId "${appId}". After the app exists, sync workspace resources so the app receives those shared resources. Add a short note to apps/${appId}/AGENTS.md telling the app agent to read relevant shared resources under context/ or the selected resource paths before doing GTM/domain work.`
+        : "Do not grant any Dispatch workspace resources unless the user asks later.",
       "",
       "Agent-native rules (these are the framework's contract — not optional):",
       `- Persist ALL data in SQL via Drizzle. Add tables to apps/${appId}/server/db/schema.ts and migrations to apps/${appId}/server/plugins/db.ts. NEVER use localStorage, sessionStorage, IndexedDB, or in-memory state for anything the user expects to persist — agent and UI must read the same source of truth.`,
@@ -890,11 +909,29 @@ async function requestSelectedVaultKeys(input: {
   );
 }
 
+async function selectedWorkspaceResourcesForIds(
+  resourceIds: string[] | undefined,
+): Promise<WorkspaceResourceOption[]> {
+  if (!resourceIds?.length) return [];
+  const requested = new Set(resourceIds);
+  const resources = await listWorkspaceResourceOptions();
+  return resources.filter((resource) => requested.has(resource.id));
+}
+
+async function grantSelectedWorkspaceResources(input: {
+  appId: string;
+  resourceIds: string[];
+}) {
+  if (input.resourceIds.length === 0) return;
+  await grantWorkspaceResourcesToApp(input);
+}
+
 export async function startWorkspaceAppCreation(input: {
   prompt: string;
   appId?: string | null;
   template?: string | null;
   secretIds?: string[];
+  resourceIds?: string[];
 }) {
   const initial = buildWorkspaceAppPrompt({
     prompt: input.prompt,
@@ -920,11 +957,15 @@ export async function startWorkspaceAppCreation(input: {
         .filter((secret) => input.secretIds?.includes(secret.id))
         .map((secret) => secret.credentialKey)
     : [];
+  const selectedResources = await selectedWorkspaceResourcesForIds(
+    input.resourceIds,
+  );
   const built = buildWorkspaceAppPrompt({
     prompt: input.prompt,
     appId: input.appId,
     template: input.template,
     selectedKeys,
+    selectedResources,
   });
   const prompt = built.prompt;
 
@@ -932,6 +973,10 @@ export async function startWorkspaceAppCreation(input: {
     await requestSelectedVaultKeys({
       appId: built.appId,
       selectedKeys,
+    });
+    await grantSelectedWorkspaceResources({
+      appId: built.appId,
+      resourceIds: selectedResources.map((resource) => resource.id),
     });
     return {
       mode: "local-agent",
@@ -996,6 +1041,10 @@ export async function startWorkspaceAppCreation(input: {
   await requestSelectedVaultKeys({
     appId: built.appId,
     selectedKeys,
+  });
+  await grantSelectedWorkspaceResources({
+    appId: built.appId,
+    resourceIds: selectedResources.map((resource) => resource.id),
   });
 
   return {

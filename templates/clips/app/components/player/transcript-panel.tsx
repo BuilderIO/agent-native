@@ -126,8 +126,8 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         <div>
           <p>Transcribing…</p>
           <p className="text-xs mt-1">
-            Native speech appears first when available; Gemini Flash-Lite
-            cleanup follows in the background.
+            Live transcript appears as soon as speech is captured. Cleanup
+            continues in the background.
           </p>
         </div>
       </div>
@@ -138,7 +138,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     return (
       <div className="p-4 space-y-3">
         <div className="text-sm text-destructive">
-          Transcription failed: {failureReason ?? "Unknown error"}
+          Transcript unavailable: {friendlyTranscriptFailure(failureReason)}
         </div>
         <div className="flex items-center gap-2">
           {onRetry ? (
@@ -146,29 +146,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
               Retry
             </Button>
           ) : null}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              window.open(
-                new URL(
-                  agentNativePath("/_agent-native/builder/connect"),
-                  window.location.origin,
-                ).toString(),
-                "_blank",
-                "noopener,noreferrer",
-              );
-            }}
-            className="inline-flex items-center gap-1.5"
-          >
-            <IconBolt className="h-3.5 w-3.5" />
-            Connect Builder.io
-          </Button>
         </div>
-        <p className="text-[11px] text-muted-foreground">
-          Builder.io includes free credits for transcription — no API key
-          needed.
-        </p>
       </div>
     );
   }
@@ -210,10 +188,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
       {cleanup?.status === "running" ? (
         <div className="mx-3 mt-3 rounded-md border border-border bg-accent/30 px-3 py-2 text-xs text-muted-foreground flex items-center gap-2">
           <IconLoader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-          <span>
-            Native transcript is ready. Cleaning up with Gemini 3.1 Flash-Lite
-            in the background.
-          </span>
+          <span>Cleaning up transcript in the background.</span>
         </div>
       ) : null}
 
@@ -309,6 +284,8 @@ function isTranscriptionSetupNeeded(
     r.includes("api key") ||
     r.includes("not configured") ||
     r.includes("no transcription") ||
+    r.includes("no backup transcription provider") ||
+    r.includes("no fallback provider") ||
     r.includes("quota") ||
     r.includes("rate limit") ||
     r.includes("rejected the api key") ||
@@ -326,6 +303,27 @@ function isConnectedBuilderRetryable(
     r.includes("connect builder") ||
     r.includes("no transcription provider")
   );
+}
+
+function friendlyTranscriptFailure(reason: string | null | undefined): string {
+  if (!reason) return "No transcript was captured.";
+  const normalized = reason.toLowerCase();
+  if (
+    normalized.includes("builder transcription failed") ||
+    normalized.includes("connecttimeout") ||
+    normalized.includes("fetch failed") ||
+    normalized.includes("backup transcription could not finish")
+  ) {
+    return "No speech was captured locally, and backup transcription did not finish. Retry or check microphone and speech permissions.";
+  }
+  if (
+    normalized.includes("api key") ||
+    normalized.includes("not configured") ||
+    normalized.includes("connect builder")
+  ) {
+    return "No speech was captured locally, and backup transcription is not set up.";
+  }
+  return reason;
 }
 
 /**
@@ -478,6 +476,8 @@ function TranscriptSetupCard({
     failureReason?.toLowerCase().includes("quota") ||
     failureReason?.toLowerCase().includes("rate limit") ||
     failureReason?.toLowerCase().includes("rejected the api key");
+  const isConnectedFallbackError =
+    builderConfigured === true && !isProviderError;
 
   return (
     <div className="p-4">
@@ -486,12 +486,16 @@ function TranscriptSetupCard({
           <p className="text-sm font-medium">
             {isProviderError
               ? "Transcription provider error"
-              : "Enable transcription"}
+              : isConnectedFallbackError
+                ? "Transcript unavailable"
+                : "Enable transcription"}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
             {isProviderError
-              ? "Your API key hit a quota or auth error. Switch to Builder.io (free) or update your key."
-              : "Unlock auto-captions, transcript search, and AI summaries for this Clip."}
+              ? "Your API key hit a quota or auth error. Switch to Builder.io or update your key."
+              : isConnectedFallbackError
+                ? "No speech was captured locally, and backup transcription did not finish. Retry in a moment."
+                : "Unlock captions, transcript search, and summaries for this Clip."}
           </p>
         </div>
 
@@ -522,7 +526,7 @@ function TranscriptSetupCard({
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
                   {builderConfigured
-                    ? "High-quality transcription — no API key needed."
+                    ? "Ready to use for backup transcription."
                     : "One-click setup. No API key required."}
                 </p>
               </div>
@@ -586,7 +590,7 @@ function TranscriptSetupCard({
             {isProviderError
               ? "Update your API key"
               : builderConfigured
-                ? "Add a fallback Groq key"
+                ? "Advanced backup option"
                 : "Or use your own Groq key"}
             {showByok ? (
               <IconChevronUp className="h-3 w-3" />

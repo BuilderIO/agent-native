@@ -118,7 +118,7 @@ export function TranscriptEditor({
 
   return (
     <div className={cn("flex flex-col h-full min-h-0", className)}>
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border text-xs text-muted-foreground">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2 text-xs text-muted-foreground">
         <div>
           Transcript{" "}
           {selection ? (
@@ -130,23 +130,23 @@ export function TranscriptEditor({
             <span>· select text to trim</span>
           )}
         </div>
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={!selection}
-          onClick={() => {
-            if (!selection) return;
-            onTrimRange?.({
-              startMs: selection.startMs,
-              endMs: selection.endMs,
-            });
-            setSelection(null);
-            window.getSelection()?.removeAllRanges();
-          }}
-        >
-          <IconScissors className="w-3.5 h-3.5 mr-1" />
-          Trim selection
-        </Button>
+        {selection ? (
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              onTrimRange?.({
+                startMs: selection.startMs,
+                endMs: selection.endMs,
+              });
+              setSelection(null);
+              window.getSelection()?.removeAllRanges();
+            }}
+          >
+            <IconScissors className="mr-1 h-3.5 w-3.5" />
+            Cut selection
+          </Button>
+        ) : null}
       </div>
 
       <div
@@ -158,8 +158,7 @@ export function TranscriptEditor({
       >
         {segments.length === 0 ? (
           <div className="text-muted-foreground text-sm">
-            No transcript yet. Run <code>pnpm action transcribe-recording</code>{" "}
-            to generate one.
+            No transcript yet.
           </div>
         ) : (
           rendered

@@ -10,6 +10,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import cleanupTranscript from "./cleanup-transcript.js";
+import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 
 export default defineAction({
   description:
@@ -32,9 +33,14 @@ export default defineAction({
       throw new Error("Dictation has no transcript to clean up");
     }
 
+    const agentsContext = await loadAgentsMdContext({
+      ownerEmail: dictation.ownerEmail,
+      purpose: "cleanup",
+    });
     const result = await cleanupTranscript.run({
       transcript: raw,
       task: "cleanup",
+      context: agentsContext,
     });
     const cleanedText = result.cleanedText ?? raw;
 

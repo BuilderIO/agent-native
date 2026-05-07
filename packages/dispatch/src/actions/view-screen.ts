@@ -19,6 +19,7 @@ import {
 } from "../server/lib/vault-store.js";
 import { listWorkspaceApps } from "../server/lib/app-creation-store.js";
 import { listDispatchUsageMetrics } from "../server/lib/usage-metrics-store.js";
+import { listWorkspaceResourceOptions } from "../server/lib/workspace-resources-store.js";
 
 export default defineAction({
   description:
@@ -87,6 +88,9 @@ export default defineAction({
         .filter((g) => g.status === "active")
         .map((g) => ({ secretId: g.secretId, appId: g.appId }));
       screen.vaultPendingRequests = requests;
+    }
+    if (navigation?.view === "workspace" || navigation?.view === "new-app") {
+      screen.workspaceResources = await listWorkspaceResourceOptions();
     }
 
     if (Object.keys(screen).length === 0) {

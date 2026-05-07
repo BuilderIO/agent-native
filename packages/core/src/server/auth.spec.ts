@@ -1255,6 +1255,47 @@ describe("server/auth", () => {
       expect(html).not.toContain('src="/agent-native-icon-dark.svg"');
     });
 
+    it("renders an optional run-local command in the marketing panel", async () => {
+      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const html = getOnboardingHtml({
+        marketing: {
+          appName: "Agent-Native Mail",
+          tagline: "Manage email with an agent.",
+          runLocalCommand:
+            "npx @agent-native/core create my-mail-app --template mail",
+        },
+      });
+
+      expect(html).toContain('id="run-local-button"');
+      expect(html).toContain("Run Locally");
+      expect(html).toContain(
+        "npx @agent-native/core create my-mail-app --template mail",
+      );
+      expect(html).toContain("function __anCopyRunLocalCommand()");
+    });
+
+    it("can split the Google preflight notice into paragraphs", async () => {
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
+
+      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const html = getOnboardingHtml({
+        googleOnly: true,
+        googleSignInNotice: {
+          title: "Hosted Mail may show Google warnings",
+          body: [
+            "This demo uses a shared OAuth client.",
+            "Self-hosting avoids this warning.",
+          ],
+        },
+      });
+
+      expect(html).toContain('id="google-preflight-copy"');
+      expect(html).toContain("This demo uses a shared OAuth client.");
+      expect(html).toContain("Self-hosting avoids this warning.");
+      expect(html.match(/class="google-preflight-copy"/g)).toHaveLength(2);
+    });
+
     it("defaults the active tab from the login or signup path", async () => {
       const { getOnboardingHtml } = await import("./onboarding-html.js");
       const html = getOnboardingHtml();

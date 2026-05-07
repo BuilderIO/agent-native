@@ -84,6 +84,12 @@ export default defineAction({
         : [];
       screen.vaultPendingRequests = requests;
     }
+    if (navigation?.view === "workspace" || navigation?.view === "new-app") {
+      screen.workspaceResources = await runDispatchAction(
+        "list-workspace-resource-options",
+        {},
+      );
+    }
 
     if (Object.keys(screen).length === 0) {
       return "No application state found. Is the app running?";

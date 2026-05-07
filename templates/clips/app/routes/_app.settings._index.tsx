@@ -181,8 +181,8 @@ export default function SettingsIndexRoute() {
                   Background cleanup
                 </Label>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Show the native transcript immediately, then polish it with
-                  Gemini 3.1 Flash-Lite when available.
+                  Show the native transcript immediately, then clean it up in
+                  the background when available.
                 </p>
               </div>
               <Switch
