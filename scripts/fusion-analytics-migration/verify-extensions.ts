@@ -756,19 +756,23 @@ async function verifyRichUi(
   spec: ExtensionSpec,
   opts: { allowEmptyState?: boolean } = {},
 ) {
+  const expected = spec.expectedText ?? [];
   const summary = await page.waitFor<{
     text: string;
     error?: string;
     loading?: boolean;
   }>(
     `(() => {
+      const expected = ${JSON.stringify(expected)};
       const states = [...document.querySelectorAll('*')]
         .map((el) => el._x_dataStack?.[0])
         .filter(Boolean);
       const loadingState = states.find((candidate) => Object.prototype.hasOwnProperty.call(candidate, 'loading'));
       if (loadingState?.loading) return null;
+      const text = document.body.innerText || '';
+      if (expected.some((phrase) => !text.includes(phrase))) return null;
       return {
-        text: document.body.innerText || '',
+        text,
         error: loadingState?.error || '',
         loading: !!loadingState?.loading
       };
@@ -1289,6 +1293,13 @@ async function verifyEngagement(page: CdpPage, contextId: number) {
 
 async function verifyDbt(page: CdpPage, contextId: number) {
   const id = "codex-verify-dbt";
+  await page.waitFor(
+    `(() => [...document.querySelectorAll('*')]
+      .map((el) => el._x_dataStack?.[0])
+      .some((candidate) => candidate && typeof candidate.saveSnippet === 'function'))()`,
+    contextId,
+    90_000,
+  );
   await page.evaluate(
     `(async () => {
       const state = [...document.querySelectorAll('*')]
