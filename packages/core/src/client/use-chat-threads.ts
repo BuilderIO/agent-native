@@ -92,9 +92,9 @@ export function useChatThreads(
     })();
   }, [fetchThreads, apiUrl, activeThreadId]);
 
-  const createThread = useCallback((): Promise<string | null> => {
+  const createThread = useCallback((preferredId?: string): Promise<string | null> => {
     // Generate ID client-side for instant UI response
-    const id = crypto.randomUUID();
+    const id = preferredId || crypto.randomUUID();
     const now = Date.now();
     const optimistic: ChatThreadSummary = {
       id,

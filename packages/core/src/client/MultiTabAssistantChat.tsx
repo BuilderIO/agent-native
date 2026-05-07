@@ -834,6 +834,8 @@ export function MultiTabAssistantChat({
       const model = event.data.data?.model as string | undefined;
       const effort = event.data.data?.effort as unknown;
       const newTab = event.data.data?.newTab as boolean | undefined;
+      const tabId = event.data.data?.tabId;
+      const requestedTabId = typeof tabId === "string" ? tabId : undefined;
       const background = event.data.data?.background as boolean | undefined;
 
       // Make sure the sidebar is visible to show the response, unless the
@@ -881,7 +883,7 @@ export function MultiTabAssistantChat({
 
       if (newTab) {
         const previousTabId = activeThreadIdRef.current;
-        createThread().then((newId) => {
+        createThread(requestedTabId).then((newId) => {
           if (newId) {
             newThreadIds.current.add(newId);
             sendToTab(newId);
