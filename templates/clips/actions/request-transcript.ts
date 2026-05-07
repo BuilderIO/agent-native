@@ -512,6 +512,13 @@ export default defineAction({
           text: s.text.trim(),
         }));
 
+        const preserved = await preserveReadyTranscriptIfAvailable({
+          db,
+          recordingId: args.recordingId,
+          ownerEmail,
+        });
+        if (preserved) return preserved;
+
         await upsertTranscriptRow(db, {
           recordingId: args.recordingId,
           ownerEmail,
@@ -753,6 +760,13 @@ export default defineAction({
         endMs: Math.max(0, Math.round(s.end * 1000)),
         text: s.text.trim(),
       }));
+
+      const preserved = await preserveReadyTranscriptIfAvailable({
+        db,
+        recordingId: args.recordingId,
+        ownerEmail,
+      });
+      if (preserved) return preserved;
 
       await upsertTranscriptRow(db, {
         recordingId: args.recordingId,
