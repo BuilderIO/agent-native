@@ -895,10 +895,7 @@ function seedReadOnlyToolResultsFromHistory(
   const cache = new Map<string, string>();
   if (!isInternalContinuationTurn(messages)) return cache;
 
-  const pendingToolCalls = new Map<
-    string,
-    { name: string; input: unknown }
-  >();
+  const pendingToolCalls = new Map<string, { name: string; input: unknown }>();
   for (const message of messages) {
     if (message.role === "assistant") {
       for (const part of message.content) {
@@ -988,10 +985,7 @@ function stableStringify(value: unknown): string {
     .join(",")}}`;
 }
 
-function toolCallCacheKey(
-  toolName: string,
-  input: unknown,
-): string {
+function toolCallCacheKey(toolName: string, input: unknown): string {
   return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input))}`;
 }
 

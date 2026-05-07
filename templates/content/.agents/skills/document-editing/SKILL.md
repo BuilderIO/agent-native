@@ -15,7 +15,7 @@ Always use the dedicated scripts for document operations. Never use raw `db-exec
 
 ### list-documents
 
-List all documents in a tree structure.
+List document metadata in a tree structure. This intentionally does not return full document bodies; call `get-document` for the one document you need to read.
 
 ```bash
 pnpm action list-documents
@@ -24,7 +24,7 @@ pnpm action list-documents --format json
 
 ### search-documents
 
-Search documents by title and content.
+Search documents by title and content. Results include snippets, not full document bodies; call `get-document` before editing or summarizing a specific result.
 
 ```bash
 pnpm action search-documents --query "meeting notes"

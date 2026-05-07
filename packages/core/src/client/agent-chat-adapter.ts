@@ -74,7 +74,9 @@ function messageTextFromContent(
 function isToolCallContentPart(
   part: unknown,
 ): part is Extract<ContentPart, { type: "tool-call" }> {
-  return Boolean(part && typeof part === "object" && (part as any).type === "tool-call");
+  return Boolean(
+    part && typeof part === "object" && (part as any).type === "tool-call",
+  );
 }
 
 function toolResultContent(result: unknown): string {
@@ -184,7 +186,9 @@ function assistantUiMessagesToStructuredHistory(
               ? part.argsText
               : JSON.stringify(part.args ?? {}),
           args:
-            part.args && typeof part.args === "object" && !Array.isArray(part.args)
+            part.args &&
+            typeof part.args === "object" &&
+            !Array.isArray(part.args)
               ? part.args
               : {},
           ...(part.result !== undefined
@@ -747,10 +751,7 @@ export function createAgentChatAdapter(options?: {
           }
           const structuredCombinedHistory = isTransient
             ? structuredContinuationFragments
-            : [
-                ...structuredContinuationFragments,
-                ...structuredPartialHistory,
-              ];
+            : [...structuredContinuationFragments, ...structuredPartialHistory];
           currentHistory = [
             ...history,
             { role: "user", content: normalizeMentions(userMessageText) },

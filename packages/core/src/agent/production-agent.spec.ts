@@ -501,7 +501,10 @@ describe("runAgentLoop", () => {
         result: expect.stringContaining("Skipped duplicate read-only call"),
       }),
     );
-    expect(events).toContainEqual({ type: "text", text: "answered from history" });
+    expect(events).toContainEqual({
+      type: "text",
+      text: "answered from history",
+    });
   });
 
   it("still runs identical read-only tools on a fresh user turn", async () => {

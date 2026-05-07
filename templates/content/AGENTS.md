@@ -19,16 +19,17 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 **Update the `LEARNINGS.md` resource when you learn something important.**
 
-| Action            | Args                                                        | Purpose                 |
-| ----------------- | ----------------------------------------------------------- | ----------------------- |
+| Action | Args | Purpose |
+| ------ | ---- | ------- |
+
 In chat, use the `resources` tool (`action: list`, `read`, `write`, or `delete`) rather than repeatedly calling legacy `resource-*` names. Do not re-read `AGENTS.md` or `LEARNINGS.md` during continuation/retry turns if their contents are already in the conversation.
 
-| Action      | Args                                                        | Purpose                 |
-| ----------- | ----------------------------------------------------------- | ----------------------- |
-| `resources` | `action=read path=<path> [scope=personal\|shared]`          | Read a resource         |
+| Action      | Args                                                               | Purpose                 |
+| ----------- | ------------------------------------------------------------------ | ----------------------- |
+| `resources` | `action=read path=<path> [scope=personal\|shared]`                 | Read a resource         |
 | `resources` | `action=write path=<path> content=<text> [scope=personal\|shared]` | Write/update a resource |
-| `resources` | `action=list [prefix=<path>] [scope=personal\|shared\|all]` | List resources          |
-| `resources` | `action=delete path=<path> [scope=personal\|shared]`        | Delete a resource       |
+| `resources` | `action=list [prefix=<path>] [scope=personal\|shared\|all]`        | List resources          |
+| `resources` | `action=delete path=<path> [scope=personal\|shared]`               | Delete a resource       |
 
 ## Skills
 
