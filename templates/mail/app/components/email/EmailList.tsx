@@ -97,6 +97,33 @@ const INBOX_ZERO_PHOTOS = [
   "photo-1552083375-1447ce886485", // Japanese garden
 ];
 
+function emptyStateHintForView(view: string): string {
+  switch (view) {
+    case "snoozed":
+      return "No snoozed emails right now.";
+    case "drafts":
+      return "Drafts you save will appear here.";
+    case "starred":
+      return "Star an email to keep it close at hand.";
+    case "sent":
+      return "Emails you send will appear here.";
+    case "scheduled":
+      return "Scheduled sends will appear here.";
+    case "archive":
+      return "Archived emails will appear here.";
+    case "trash":
+      return "Trashed emails appear here for 30 days.";
+    case "spam":
+      return "Spam Gmail flags will appear here.";
+    case "all":
+      return "All your mail will appear here.";
+    case "unread":
+      return "You're caught up — no unread mail.";
+    default:
+      return "Emails matching this view will appear here.";
+  }
+}
+
 export function InboxZero() {
   const [loaded, setLoaded] = useState(false);
 
@@ -1182,7 +1209,23 @@ export function EmailList({
         </div>
       );
     }
-    return <InboxZero />;
+    if (view === "inbox" || view === "important") {
+      return <InboxZero />;
+    }
+    return (
+      <div className="flex h-full flex-col" ref={containerRef}>
+        <div className="flex flex-1 flex-col items-center justify-center">
+          <div className="text-center px-8">
+            <p className="text-sm font-medium text-foreground/80">
+              Nothing here yet
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {emptyStateHintForView(view)}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const selectionPresetMenu = (
