@@ -5,8 +5,10 @@ import * as googleCalendar from "../server/lib/google-calendar.js";
 import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
 import {
   availabilityInput,
+  attachmentsInput,
   buildReminderOverrides,
   cliBoolean,
+  googleColorIdInput,
   normalizeGoogleEventId,
   normalizeRecurrence,
   reminderMethodInput,
@@ -19,7 +21,7 @@ import {
 
 export default defineAction({
   description:
-    "Update a Google Calendar event. Supports title, description, location, time, and recurrence rules such as RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR. For local UI color-coding, use update-calendar-visual-preferences instead; this action does not accept Google colorId values.",
+    "Update a Google Calendar event. Supports title, description, location, time, event color, attachments, reminders, and recurrence rules such as RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR.",
   schema: z.object({
     id: z
       .string()
@@ -35,6 +37,14 @@ export default defineAction({
     location: z.string().optional().describe("New event location"),
     start: z.string().optional().describe("New start time/date as ISO string"),
     end: z.string().optional().describe("New end time/date as ISO string"),
+    startTimeZone: z
+      .string()
+      .optional()
+      .describe("IANA timezone for the event start, e.g. America/New_York"),
+    endTimeZone: z
+      .string()
+      .optional()
+      .describe("IANA timezone for the event end, e.g. America/New_York"),
     allDay: cliBoolean.optional().describe("Whether the event is all-day"),
     transparency: availabilityInput.describe(
       "Google Calendar availability: opaque blocks time (Busy), transparent does not block time (Free).",
@@ -53,6 +63,12 @@ export default defineAction({
       ),
     reminders: remindersInput.describe(
       "Custom reminder overrides, max 5, such as [{method:'popup', minutes:10}].",
+    ),
+    attachments: attachmentsInput.describe(
+      "Replace Google Calendar attachments, max 25. Pass [] to clear.",
+    ),
+    colorId: googleColorIdInput.describe(
+      "Google Calendar event color id, 1 through 11.",
     ),
     reminderMinutes: reminderMinutesInput.describe(
       "Convenience field for a single reminder in minutes before the event.",
@@ -140,9 +156,13 @@ export default defineAction({
       args.location !== undefined ||
       args.start !== undefined ||
       args.end !== undefined ||
+      args.startTimeZone !== undefined ||
+      args.endTimeZone !== undefined ||
       args.allDay !== undefined ||
       args.transparency !== undefined ||
       args.visibility !== undefined ||
+      args.colorId !== undefined ||
+      args.attachments !== undefined ||
       args.status !== undefined ||
       recurrence !== undefined ||
       attendees !== undefined ||
@@ -162,11 +182,16 @@ export default defineAction({
     if (args.location !== undefined) updates.location = args.location;
     if (args.start !== undefined) updates.start = args.start;
     if (args.end !== undefined) updates.end = args.end;
+    if (args.startTimeZone !== undefined)
+      updates.startTimeZone = args.startTimeZone;
+    if (args.endTimeZone !== undefined) updates.endTimeZone = args.endTimeZone;
     if (args.allDay !== undefined) updates.allDay = args.allDay;
     if (args.transparency !== undefined)
       updates.transparency = args.transparency;
     if (args.visibility !== undefined) updates.visibility = args.visibility;
     if (args.status !== undefined) updates.status = args.status;
+    if (args.colorId !== undefined) updates.colorId = args.colorId;
+    if (args.attachments !== undefined) updates.attachments = args.attachments;
     if (recurrence !== undefined) updates.recurrence = recurrence;
     if (attendees !== undefined) updates.attendees = attendees;
     Object.assign(updates, reminderFields);

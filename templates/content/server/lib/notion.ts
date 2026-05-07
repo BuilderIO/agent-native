@@ -7,7 +7,10 @@ import {
 } from "@agent-native/core/oauth-tokens";
 import { getSession } from "@agent-native/core/server";
 import type { H3Event } from "h3";
-import { normalizeNfmForStorage } from "../../shared/notion-markdown.js";
+import {
+  normalizeNfmForNotion,
+  normalizeNfmForStorage,
+} from "../../shared/notion-markdown.js";
 
 export const NOTION_PROVIDER = "notion";
 export const NOTION_API_BASE = "https://api.notion.com/v1";
@@ -415,7 +418,7 @@ export async function pushDocumentToNotionPage(args: {
   ]);
 
   const markdown = appendChildRefTags(
-    normalizeNfmForStorage(args.content),
+    normalizeNfmForNotion(args.content),
     childRefs,
   );
 
@@ -479,7 +482,7 @@ export async function createNotionPageWithMarkdown(args: {
         ],
       },
     },
-    markdown: normalizeNfmForStorage(args.content),
+    markdown: normalizeNfmForNotion(args.content),
   };
 
   if (args.icon) {

@@ -2,8 +2,53 @@ import { useEffect, useState } from "react";
 import { IconLoader2, IconMessageCircle } from "@tabler/icons-react";
 import { focusAgentChat } from "@agent-native/core/client";
 
+export function isAgentSidebarVisible() {
+  const panel = document.querySelector<HTMLElement>(".agent-sidebar-panel");
+  if (!panel) return false;
+  if (panel.getAttribute("aria-hidden") === "true") return false;
+  if (panel.inert) return false;
+
+  const style = window.getComputedStyle(panel);
+  if (style.display === "none" || style.visibility === "hidden") return false;
+
+  const rect = panel.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function useAgentSidebarVisible() {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const update = () => setVisible(isAgentSidebarVisible());
+    update();
+
+    const observer = new MutationObserver(update);
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["aria-hidden", "class", "inert", "style"],
+      childList: true,
+      subtree: true,
+    });
+    window.addEventListener("resize", update);
+    window.addEventListener("agent-panel:open", update);
+    window.addEventListener("agent-panel:toggle", update);
+    window.addEventListener("agent-panel:set-mode", update);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
+      window.removeEventListener("agent-panel:open", update);
+      window.removeEventListener("agent-panel:toggle", update);
+      window.removeEventListener("agent-panel:set-mode", update);
+    };
+  }, []);
+
+  return visible;
+}
+
 export function AgentWorkIndicator() {
   const [running, setRunning] = useState(false);
+  const sidebarVisible = useAgentSidebarVisible();
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -16,7 +61,7 @@ export function AgentWorkIndicator() {
     return () => window.removeEventListener("agentNative.chatRunning", handler);
   }, []);
 
-  if (!running) return null;
+  if (!running || sidebarVisible) return null;
 
   return (
     <div className="pointer-events-none fixed bottom-4 left-1/2 z-50 w-[calc(100vw-2rem)] max-w-sm -translate-x-1/2 md:bottom-5">

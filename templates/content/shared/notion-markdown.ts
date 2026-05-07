@@ -2,9 +2,68 @@ export const VISUAL_INDENT = "\u00A0\u00A0";
 
 const LEGACY_TOGGLE_RE = /^(?:[-*]\s+)?(?:▶|▾)\s+(.*)$/;
 const CODE_FENCE_RE = /^```/;
+const LIST_ITEM_RE = /^([-*+]\s+|\d+[.)]\s+)/;
 
 function normalizeLineEndings(markdown: string): string {
   return markdown.replace(/\r\n?/g, "\n");
+}
+
+function normalizeCommonMarkListIndents(markdown: string): string {
+  const lines = normalizeLineEndings(markdown).split("\n");
+  const output = [...lines];
+  let inCodeFence = false;
+  let listBlockStart: number | null = null;
+  let listBlockSpaceIndents: number[] = [];
+
+  const flushListBlock = (end: number) => {
+    if (listBlockStart === null) return;
+
+    const unit =
+      listBlockSpaceIndents.some((indent) => indent % 4 !== 0) ||
+      listBlockSpaceIndents.includes(2)
+        ? 2
+        : 4;
+
+    for (let i = listBlockStart; i < end; i++) {
+      const match = output[i].match(/^( +)([-*+]\s+|\d+[.)]\s+.*)$/);
+      if (!match) continue;
+      const spaceCount = match[1].length;
+      if (spaceCount < unit || spaceCount % unit !== 0) continue;
+      output[i] = `${"\t".repeat(spaceCount / unit)}${match[2]}`;
+    }
+
+    listBlockStart = null;
+    listBlockSpaceIndents = [];
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+
+    if (CODE_FENCE_RE.test(trimmed)) {
+      flushListBlock(i);
+      inCodeFence = !inCodeFence;
+      continue;
+    }
+    if (inCodeFence) continue;
+
+    const listMatch = lines[i].match(/^([ \t]*)([-*+]\s+|\d+[.)]\s+)/);
+    if (!listMatch) {
+      if (trimmed) flushListBlock(i);
+      continue;
+    }
+
+    if (listBlockStart === null) {
+      listBlockStart = i;
+    }
+
+    const indent = listMatch[1];
+    if (indent && !indent.includes("\t")) {
+      listBlockSpaceIndents.push(indent.length);
+    }
+  }
+
+  flushListBlock(lines.length);
+  return output.join("\n");
 }
 
 function getLeadingIndent(rawLine: string): { indent: number; text: string } {
@@ -38,7 +97,7 @@ function prefixIndent(indent: number): string {
 }
 
 function normalizeLegacyStructure(markdown: string): string {
-  const lines = normalizeLineEndings(markdown).split("\n");
+  const lines = normalizeCommonMarkListIndents(markdown).split("\n");
   const output: string[] = [];
   const toggleStack: number[] = [];
   let inCodeFence = false;
@@ -424,7 +483,7 @@ function nfmLinesToHtml(lines: string[]): string {
       if (/^<\/?[a-zA-Z]/.test(t)) continue;
       const { indent, rest } = countLineIndent(line);
       const content = rest.trim();
-      if (/^[-*+]\s/.test(content) || /^\d+\.\s/.test(content)) {
+      if (LIST_ITEM_RE.test(content)) {
         indentLevels.add(indent - baseIndent);
       }
     }
@@ -488,7 +547,7 @@ function nfmLinesToHtml(lines: string[]): string {
     }
 
     const listMatch =
-      content.match(/^[-*+]\s+(.*)/) || content.match(/^\d+\.\s+(.*)/);
+      content.match(/^[-*+]\s+(.*)/) || content.match(/^\d+[.)]\s+(.*)/);
 
     if (listMatch) {
       const text = listMatch[1].trim();
@@ -620,8 +679,7 @@ function convertNfmBlocks(text: string): string {
       // represent that as `    - item` without turning it into a code block,
       // so use blockquote nesting for those visual-indentation cases.
       if (
-        /^[-*+]\s/.test(content) ||
-        /^\d+\.\s/.test(content) ||
+        LIST_ITEM_RE.test(content) ||
         /^\[[ x]]\s/i.test(content)
       ) {
         if (quoteListBaseIndent !== null && depth >= quoteListBaseIndent) {
@@ -660,8 +718,7 @@ function convertNfmBlocks(text: string): string {
     }
 
     if (
-      /^[-*+]\s/.test(trimmed) ||
-      /^\d+\.\s/.test(trimmed) ||
+      LIST_ITEM_RE.test(trimmed) ||
       /^\[[ x]]\s/i.test(trimmed)
     ) {
       noteStandardListItem(0);
@@ -714,7 +771,7 @@ function isPlainTextLine(trimmed: string): boolean {
   if (!trimmed) return false;
   if (/^#{1,6}\s/.test(trimmed)) return false;
   if (/^[-*+]\s/.test(trimmed)) return false;
-  if (/^\d+\.\s/.test(trimmed)) return false;
+  if (/^\d+[.)]\s/.test(trimmed)) return false;
   if (/^>/.test(trimmed)) return false;
   if (/^\|/.test(trimmed)) return false;
   if (/^```/.test(trimmed)) return false;
@@ -725,4 +782,125 @@ function isPlainTextLine(trimmed: string): boolean {
 
 export function serializeEditorToNfm(markdown: string): string {
   return normalizeNfmForStorage(markdown);
+}
+
+function sanitizeDetailsOpenTag(line: string, indent: string): string {
+  const attrs = line.trim().match(/^<details\b([^>]*)>/)?.[1] || "";
+  const color = attrs.match(/\scolor=(?:"[^"]*"|'[^']*'|[^\s>]+)/)?.[0] || "";
+  return `${indent}<details${color}>`;
+}
+
+function normalizeDetailsForNotion(markdown: string): string {
+  const lines = markdown.split("\n");
+  const output: string[] = [];
+  const stack: Array<{ indent: string; childCount: number }> = [];
+  let inCodeFence = false;
+
+  const currentFrame = () => stack[stack.length - 1] || null;
+  const indentAsChild = (line: string, parentIndent: string) => {
+    if (!line.trim()) return line;
+    const childIndent = `${parentIndent}\t`;
+    if (line.startsWith(childIndent)) return line;
+    const withoutParent = line.startsWith(parentIndent)
+      ? line.slice(parentIndent.length)
+      : line;
+    return `${childIndent}${withoutParent.trimStart()}`;
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (CODE_FENCE_RE.test(trimmed)) {
+      inCodeFence = !inCodeFence;
+      output.push(
+        currentFrame() && !line.startsWith(`${currentFrame()!.indent}\t`)
+          ? indentAsChild(line, currentFrame()!.indent)
+          : line,
+      );
+      if (currentFrame()) currentFrame()!.childCount++;
+      continue;
+    }
+
+    if (!inCodeFence) {
+      const openMatch = line.match(/^([ \t]*)<details\b[^>]*>\s*$/);
+      if (openMatch) {
+        const parent = currentFrame();
+        const indent = parent ? `${parent.indent}\t` : openMatch[1];
+        if (parent) parent.childCount++;
+        output.push(sanitizeDetailsOpenTag(line, indent));
+        stack.push({ indent, childCount: 0 });
+        continue;
+      }
+
+      const summaryMatch = trimmed.match(/^<summary>(.*)<\/summary>\s*$/);
+      if (summaryMatch && currentFrame()) {
+        output.push(
+          `${currentFrame()!.indent}<summary>${summaryMatch[1]}</summary>`,
+        );
+        continue;
+      }
+
+      if (/^<\/details>\s*$/.test(trimmed) && currentFrame()) {
+        const frame = stack.pop()!;
+        if (frame.childCount === 0) {
+          output.push(`${frame.indent}\t<empty-block/>`);
+        }
+        output.push(`${frame.indent}</details>`);
+        continue;
+      }
+    }
+
+    const frame = currentFrame();
+    if (frame && trimmed) {
+      frame.childCount++;
+      output.push(indentAsChild(line, frame.indent));
+      continue;
+    }
+
+    output.push(line);
+  }
+
+  return output.join("\n");
+}
+
+function separateDividersForNotion(markdown: string): string {
+  const lines = markdown.split("\n");
+  const output: string[] = [];
+  let inCodeFence = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (CODE_FENCE_RE.test(trimmed)) {
+      inCodeFence = !inCodeFence;
+      output.push(line);
+      continue;
+    }
+
+    if (!inCodeFence && /^(---+|\*\*\*+|___+)$/.test(trimmed)) {
+      if (output.length > 0 && output[output.length - 1].trim() !== "") {
+        output.push("");
+      }
+      output.push(trimmed);
+      continue;
+    }
+
+    if (
+      output.length > 0 &&
+      /^(---+|\*\*\*+|___+)$/.test(output[output.length - 1].trim()) &&
+      trimmed
+    ) {
+      output.push("");
+    }
+    output.push(line);
+  }
+
+  return output.join("\n");
+}
+
+export function normalizeNfmForNotion(markdown: string): string {
+  return trimTrailingBlankLines(
+    separateDividersForNotion(
+      normalizeDetailsForNotion(normalizeNfmForStorage(markdown)),
+    ),
+  );
 }

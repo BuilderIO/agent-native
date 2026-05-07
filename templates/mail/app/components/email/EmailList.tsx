@@ -224,6 +224,41 @@ function EmptyMailboxState({ view }: { view: string }) {
   );
 }
 
+function MailLoadingState({
+  containerRef,
+}: {
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  return (
+    <div className="flex h-full flex-col" ref={containerRef}>
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/30 bg-background/70 px-4">
+        <Spinner className="h-3.5 w-3.5 text-muted-foreground" />
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-foreground/80">
+            Loading mail
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            Checking connected accounts and latest messages
+          </p>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {Array.from({ length: 12 }).map((_, i) => (
+          <div
+            key={i}
+            className="flex h-[48px] items-center gap-3 px-4 sm:h-[38px]"
+          >
+            <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-muted" />
+            <div className="h-3 w-28 animate-pulse rounded bg-muted" />
+            <div className="h-3 flex-1 animate-pulse rounded bg-muted" />
+            <div className="h-3 w-12 animate-pulse rounded bg-muted" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Error state ────────────────────────────────────────────────────────────
 // Rendered when the emails query fails. The "Try again" button must give
 // visible feedback during the refetch — without it, clicking on a persistent
@@ -1195,23 +1230,7 @@ export function EmailList({
 
   // Loading skeleton — Superhuman-style single-line rows
   if (isLoading) {
-    return (
-      <div className="flex h-full flex-col" ref={containerRef}>
-        <div className="flex-1 overflow-y-auto">
-          {Array.from({ length: 12 }).map((_, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-3 px-4 h-[48px] sm:h-[38px]"
-            >
-              <div className="h-2 w-2 rounded-full bg-muted animate-pulse" />
-              <div className="h-3 w-28 rounded bg-muted animate-pulse" />
-              <div className="h-3 w-48 rounded bg-muted animate-pulse flex-1" />
-              <div className="h-3 w-12 rounded bg-muted animate-pulse" />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
+    return <MailLoadingState containerRef={containerRef} />;
   }
 
   // Empty state

@@ -2,7 +2,6 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useParams, useNavigate } from "react-router";
 import { nanoid } from "nanoid";
 import {
-  IconShare,
   IconExternalLink,
   IconCheck,
   IconGripVertical,
@@ -436,40 +435,54 @@ export function FormBuilderPage() {
                   </a>
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Preview</TooltipContent>
+              <TooltipContent>Preview published form</TooltipContent>
             </Tooltip>
           )}
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={copyShareLink}
-                disabled={form.status !== "published"}
-              >
-                {copied ? (
-                  <IconCheck className="h-4 w-4" />
-                ) : (
-                  <IconShare className="h-4 w-4" />
-                )}
-              </Button>
+              <span className="inline-flex">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={copyShareLink}
+                  disabled={form.status !== "published"}
+                  aria-label={
+                    form.status === "published"
+                      ? "Copy public form link"
+                      : "Publish before copying the public form link"
+                  }
+                >
+                  {copied ? (
+                    <IconCheck className="h-4 w-4" />
+                  ) : (
+                    <IconCopy className="h-4 w-4" />
+                  )}
+                </Button>
+              </span>
             </TooltipTrigger>
             <TooltipContent>
               {form.status === "published"
                 ? copied
-                  ? "Copied!"
-                  : "Copy public link"
-                : "Publish to copy public link"}
+                  ? "Public link copied"
+                  : "Copy published public link"
+                : "Publish before copying the public link"}
             </TooltipContent>
           </Tooltip>
 
-          <ShareButton
-            resourceType="form"
-            resourceId={form.id}
-            resourceTitle={form.title}
-          />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex">
+                <ShareButton
+                  resourceType="form"
+                  resourceId={form.id}
+                  resourceTitle={form.title}
+                />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>Manage access and sharing settings</TooltipContent>
+          </Tooltip>
 
           <Button size="sm" className="text-xs" onClick={handleTogglePublish}>
             {form.status === "published" ? "Unpublish" : "Publish"}

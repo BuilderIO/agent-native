@@ -2,6 +2,8 @@ import { useState, useRef, useCallback } from "react";
 import { useNavigate, Link } from "react-router";
 import { nanoid } from "nanoid";
 import {
+  IconCheckbox,
+  IconChecks,
   IconPlus,
   IconPalette,
   IconSearch,
@@ -9,10 +11,12 @@ import {
   IconTrash,
   IconCopy,
   IconCode,
+  IconX,
 } from "@tabler/icons-react";
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -37,6 +41,11 @@ import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@/components/layout/HeaderActions";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type ProjectType = "prototype" | "other";
 
@@ -57,6 +66,11 @@ export default function Index() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedDesignIds, setSelectedDesignIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [showNewPrompt, setShowNewPrompt] = useState(false);
 
   const anchorElRef = useRef<HTMLElement | null>(null);
@@ -82,10 +96,60 @@ export default function Index() {
           d.projectType.toLowerCase().includes(search.toLowerCase()),
       )
     : designs;
+  const selectedDesignCount = selectedDesignIds.size;
+  const allVisibleSelected =
+    filtered.length > 0 &&
+    filtered.every((design) => selectedDesignIds.has(design.id));
 
   const openNewDesign = useCallback((e: React.MouseEvent<HTMLElement>) => {
     anchorElRef.current = e.currentTarget;
     setShowNewPrompt(true);
+  }, []);
+
+  const toggleSelectionMode = useCallback(() => {
+    if (isSelectionMode) {
+      setSelectedDesignIds(new Set());
+    }
+    setIsSelectionMode((current) => !current);
+  }, [isSelectionMode]);
+
+  const exitSelectionMode = useCallback(() => {
+    setIsSelectionMode(false);
+    setSelectedDesignIds(new Set());
+  }, []);
+
+  const toggleDesignSelection = useCallback((id: string) => {
+    setSelectedDesignIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleVisibleSelection = useCallback(() => {
+    setSelectedDesignIds((current) => {
+      const next = new Set(current);
+      const shouldClear =
+        filtered.length > 0 && filtered.every((design) => next.has(design.id));
+
+      filtered.forEach((design) => {
+        if (shouldClear) {
+          next.delete(design.id);
+        } else {
+          next.add(design.id);
+        }
+      });
+
+      return next;
+    });
+  }, [filtered]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedDesignIds(new Set());
   }, []);
 
   const createDesign = useCallback(
@@ -192,6 +256,34 @@ export default function Index() {
     });
   }, [deleteId, queryClient, deleteMutation]);
 
+  const handleBulkDelete = useCallback(() => {
+    const ids = Array.from(selectedDesignIds);
+    if (ids.length === 0) return;
+
+    const idsToDelete = new Set(ids);
+
+    queryClient.setQueryData(
+      ["action", "list-designs", undefined],
+      (old: any) => ({
+        count: Math.max((old?.count ?? (old?.designs ?? []).length) - ids.length, 0),
+        designs: (old?.designs ?? []).filter(
+          (d: Design) => !idsToDelete.has(d.id),
+        ),
+      }),
+    );
+
+    setBulkDeleteOpen(false);
+    exitSelectionMode();
+
+    void Promise.all(ids.map((id) => deleteMutation.mutateAsync({ id } as any)))
+      .then(() => undefined)
+      .catch(() => {
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-designs"],
+        });
+      });
+  }, [selectedDesignIds, queryClient, exitSelectionMode, deleteMutation]);
+
   const handleDuplicate = useCallback(
     (id: string) => {
       duplicateMutation.mutate({ id } as any, {
@@ -245,6 +337,17 @@ export default function Index() {
           />
         </div>
       ) : null}
+      {designs.length > 0 ? (
+        <Button
+          variant={isSelectionMode ? "secondary" : "ghost"}
+          size="sm"
+          onClick={toggleSelectionMode}
+          className="cursor-pointer"
+        >
+          <IconCheckbox className="w-3.5 h-3.5" />
+          {isSelectionMode ? "Done" : "Select"}
+        </Button>
+      ) : null}
       <Button size="sm" onClick={openNewDesign} className="cursor-pointer">
         <IconPlus className="w-3.5 h-3.5" />
         New Design
@@ -261,6 +364,58 @@ export default function Index() {
           <EmptyState onCreateDesign={openNewDesign} />
         ) : (
           <>
+            {isSelectionMode ? (
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2">
+                <div className="text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">
+                    {selectedDesignCount}
+                  </span>{" "}
+                  selected
+                </div>
+                <div className="flex items-center gap-1">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={toggleVisibleSelection}
+                        className="h-8 w-8 cursor-pointer"
+                      >
+                        <IconChecks className="w-4 h-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {allVisibleSelected
+                        ? "Clear visible selection"
+                        : "Select visible designs"}
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={clearSelection}
+                        className="h-8 w-8 cursor-pointer"
+                      >
+                        <IconX className="w-4 h-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Clear selection</TooltipContent>
+                  </Tooltip>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setBulkDeleteOpen(true)}
+                    disabled={selectedDesignCount === 0}
+                    className="cursor-pointer"
+                  >
+                    <IconTrash className="w-3.5 h-3.5" />
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             {/* Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {/* New design card */}
@@ -284,12 +439,10 @@ export default function Index() {
               </button>
 
               {/* Design cards */}
-              {filtered.map((design) => (
-                <div
-                  key={design.id}
-                  className="group relative rounded-xl border border-border bg-card overflow-hidden"
-                >
-                  <Link to={`/design/${design.id}`} className="block">
+              {filtered.map((design) => {
+                const isSelected = selectedDesignIds.has(design.id);
+                const cardContent = (
+                  <>
                     <div className="aspect-video bg-muted/50 flex items-center justify-center">
                       <IconCode className="w-8 h-8 text-muted-foreground/40" />
                     </div>
@@ -304,39 +457,85 @@ export default function Index() {
                         {formatDate(design.updatedAt || design.createdAt)}
                       </div>
                     </div>
-                  </Link>
-                  {/* Three-dot menu */}
-                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 bg-black/60 hover:bg-black/80 cursor-pointer"
+                  </>
+                );
+
+                return (
+                  <div
+                    key={design.id}
+                    aria-selected={isSelected}
+                    className={`group relative rounded-xl border bg-card overflow-hidden ${
+                      isSelected
+                        ? "border-[#609FF8]/70 ring-2 ring-[#609FF8]/40"
+                        : "border-border"
+                    }`}
+                  >
+                    {isSelectionMode ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => toggleDesignSelection(design.id)}
+                          className="block w-full text-left cursor-pointer"
                         >
-                          <IconDots className="w-3.5 h-3.5 text-foreground/70" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={() => handleDuplicate(design.id)}
-                          className="cursor-pointer"
-                        >
-                          <IconCopy className="w-3.5 h-3.5 mr-2" />
-                          Duplicate
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => setDeleteId(design.id)}
-                          className="text-red-400 focus:text-red-400 cursor-pointer"
-                        >
-                          <IconTrash className="w-3.5 h-3.5 mr-2" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                          {cardContent}
+                        </button>
+                        <div className="absolute top-2 left-2 z-10">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={() =>
+                                  toggleDesignSelection(design.id)
+                                }
+                                onClick={(event) => event.stopPropagation()}
+                                aria-label={`Select ${design.title}`}
+                                className="h-5 w-5 border-white/60 bg-black/60 text-white data-[state=checked]:border-[#609FF8] data-[state=checked]:bg-[#609FF8]"
+                              />
+                            </TooltipTrigger>
+                            <TooltipContent>{`Select ${design.title}`}</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <Link to={`/design/${design.id}`} className="block">
+                          {cardContent}
+                        </Link>
+                        {/* Three-dot menu */}
+                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 bg-black/60 hover:bg-black/80 cursor-pointer"
+                              >
+                                <IconDots className="w-3.5 h-3.5 text-foreground/70" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() => handleDuplicate(design.id)}
+                                className="cursor-pointer"
+                              >
+                                <IconCopy className="w-3.5 h-3.5 mr-2" />
+                                Duplicate
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => setDeleteId(design.id)}
+                                className="text-red-400 focus:text-red-400 cursor-pointer"
+                              >
+                                <IconTrash className="w-3.5 h-3.5 mr-2" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}
@@ -355,15 +554,31 @@ export default function Index() {
 
       {/* Delete Confirmation */}
       <AlertDialog
-        open={!!deleteId}
-        onOpenChange={(open) => !open && setDeleteId(null)}
+        open={!!deleteId || bulkDeleteOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteId(null);
+            setBulkDeleteOpen(false);
+          }
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Design?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {bulkDeleteOpen
+                ? `Delete ${selectedDesignCount} ${
+                    selectedDesignCount === 1 ? "Design" : "Designs"
+                  }?`
+                : "Delete Design?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete this design and all its files. This
-              action cannot be undone.
+              {bulkDeleteOpen
+                ? `This will permanently delete ${
+                    selectedDesignCount === 1
+                      ? "this design and all its files"
+                      : `these ${selectedDesignCount} designs and all their files`
+                  }. This action cannot be undone.`
+                : "This will permanently delete this design and all its files. This action cannot be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -371,7 +586,7 @@ export default function Index() {
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleDelete}
+              onClick={bulkDeleteOpen ? handleBulkDelete : handleDelete}
               className="bg-red-600 hover:bg-red-700 cursor-pointer"
             >
               Delete
