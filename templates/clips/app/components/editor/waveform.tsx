@@ -88,11 +88,12 @@ export function Waveform({
     ctx.fillStyle = getWaveBg();
     ctx.fillRect(0, 0, totalWidth, height);
 
-    const hasPeaks =
+    const hasPeaks = Boolean(
       peaks?.bucketCount &&
-      peaks.peaks.some((value) => Math.abs(value) > 0.0001);
+      peaks.peaks.some((value) => Math.abs(value) > 0.0001),
+    );
 
-    if (hasPeaks) {
+    if (peaks && hasPeaks) {
       // Map each x pixel to a bucket range. Use max abs so silent gaps stay visible.
       const mid = height / 2;
       ctx.strokeStyle = getWaveColor();
@@ -136,17 +137,11 @@ export function Waveform({
         ctx.fillStyle = getBrandColorAlpha(0.24);
         for (const range of activityRanges) {
           const xStart =
-            (Math.max(0, range.startMs) / Math.max(durationMs, 1)) *
-            totalWidth;
+            (Math.max(0, range.startMs) / Math.max(durationMs, 1)) * totalWidth;
           const xEnd =
             (Math.min(durationMs, range.endMs) / Math.max(durationMs, 1)) *
             totalWidth;
-          ctx.fillRect(
-            xStart,
-            top,
-            Math.max(2, xEnd - xStart),
-            blockHeight,
-          );
+          ctx.fillRect(xStart, top, Math.max(2, xEnd - xStart), blockHeight);
         }
       }
     }

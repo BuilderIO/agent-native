@@ -418,6 +418,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                 durationMs={durationMs}
                 excludedRanges={excludedRanges}
                 selectionRange={selectionRange}
+                activityRanges={transcriptSegments}
                 onSeek={seek}
                 onScroll={(s) => setScrollLeft(s)}
               />
