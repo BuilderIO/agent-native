@@ -2203,7 +2203,11 @@ function buildExtensions(): ExtensionMigration[] {
           "account-analysis",
           "data/onboarding/account-analysis",
         ),
-        ...rawDirectoryData("onboarding", "bundle-md", "data/onboarding/bundles"),
+        ...rawDirectoryData(
+          "onboarding",
+          "bundle-md",
+          "data/onboarding/bundles",
+        ),
       ],
     ),
     extension(
@@ -2944,20 +2948,24 @@ async function validateDashboardSql(
 
 async function pruneRemovedLegacyResources(db: Db) {
   for (const id of REMOVED_LEGACY_IDS) {
-    await db.execute(`DELETE FROM dashboard_shares WHERE resource_id = ?`, [id]);
+    await db.execute(`DELETE FROM dashboard_shares WHERE resource_id = ?`, [
+      id,
+    ]);
     await db.execute(`DELETE FROM analysis_shares WHERE resource_id = ?`, [id]);
     await db.execute(`DELETE FROM tool_shares WHERE resource_id = ?`, [id]);
     await db.execute(`DELETE FROM tool_data WHERE tool_id = ?`, [id]);
-    const deletedDash = await db.execute(`DELETE FROM dashboards WHERE id = ?`, [
-      id,
-    ]);
+    const deletedDash = await db.execute(
+      `DELETE FROM dashboards WHERE id = ?`,
+      [id],
+    );
     const deletedAnalysis = await db.execute(
       `DELETE FROM analyses WHERE id = ?`,
       [id],
     );
-    const deletedExtension = await db.execute(`DELETE FROM tools WHERE id = ?`, [
-      id,
-    ]);
+    const deletedExtension = await db.execute(
+      `DELETE FROM tools WHERE id = ?`,
+      [id],
+    );
     const removed =
       deletedDash.rowsAffected +
       deletedAnalysis.rowsAffected +

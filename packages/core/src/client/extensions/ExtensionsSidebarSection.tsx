@@ -3,7 +3,9 @@ import { useState, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router";
 import {
+  IconChevronDown,
   IconPlus,
+  IconSettings,
   IconStar,
   IconStarFilled,
   IconTrash,
@@ -11,6 +13,7 @@ import {
   IconHelpCircle,
   IconPencil,
   IconGripVertical,
+  IconTool,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { sendToAgentChat } from "../agent-chat.js";
@@ -24,6 +27,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu.js";
 import {
@@ -37,6 +44,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import {
+  extensionPopularityOf,
+  useExtensionPopularity,
+} from "./extension-popularity.js";
 
 interface Extension {
   id: string;
@@ -47,6 +58,10 @@ interface Extension {
 
 const FAVORITES_KEY = "extensions-favorites";
 const COLLAPSED_EXTENSION_COUNT = 3;
+const EXTENSIONS_OPEN_KEY = "extensions-sidebar-open";
+const EXTENSIONS_SORT_MODE_KEY = "extensions-sort-mode";
+
+type ExtensionSortMode = "most-used" | "alphabetical" | "manual";
 
 function getFavorites(): Set<string> {
   try {

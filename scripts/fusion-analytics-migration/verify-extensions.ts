@@ -191,7 +191,8 @@ async function getFreePort(): Promise<number> {
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
       server.close(() => {
-        if (!address || typeof address === "string") reject(new Error("No port"));
+        if (!address || typeof address === "string")
+          reject(new Error("No port"));
         else resolve(address.port);
       });
     });
@@ -387,7 +388,9 @@ class CdpPage {
 
 async function launchPage() {
   const port = await getFreePort();
-  const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "an-ext-chrome-"));
+  const userDataDir = await fs.mkdtemp(
+    path.join(os.tmpdir(), "an-ext-chrome-"),
+  );
   const chrome = spawn(chromePath(), [
     "--headless=new",
     "--disable-gpu",
@@ -408,7 +411,9 @@ async function launchPage() {
     { method: "PUT" },
   ).then((res) => res.json() as Promise<{ webSocketDebuggerUrl: string }>);
 
-  const ws = new WebSocket(target.webSocketDebuggerUrl ?? version.webSocketDebuggerUrl);
+  const ws = new WebSocket(
+    target.webSocketDebuggerUrl ?? version.webSocketDebuggerUrl,
+  );
   await new Promise<void>((resolve, reject) => {
     ws.addEventListener("open", () => resolve(), { once: true });
     ws.addEventListener(
@@ -458,8 +463,12 @@ async function openExtension(page: CdpPage, spec: ExtensionSpec) {
     frame.contextId,
     20_000,
   );
-  const text = await page.evaluate<string>("document.body.innerText", frame.contextId);
-  if (!text.includes(spec.title)) throw new Error(`Missing title ${spec.title}`);
+  const text = await page.evaluate<string>(
+    "document.body.innerText",
+    frame.contextId,
+  );
+  if (!text.includes(spec.title))
+    throw new Error(`Missing title ${spec.title}`);
   if (text.includes("Authentication required")) {
     throw new Error("Extension iframe rendered unauthenticated");
   }
@@ -601,17 +610,20 @@ async function verifyQuery(page: CdpPage, contextId: number) {
     contextId,
     45_000,
   );
-  const history = await page.evaluate<Array<{ id: string; data?: { sql?: string } }>>(
-    `extensionData.list('history', { scope: 'org' })`,
-    contextId,
-  );
-  for (const row of history.filter((row) => row.data?.sql === "SELECT 1 AS ok")) {
+  const history = await page.evaluate<
+    Array<{ id: string; data?: { sql?: string } }>
+  >(`extensionData.list('history', { scope: 'org' })`, contextId);
+  for (const row of history.filter(
+    (row) => row.data?.sql === "SELECT 1 AS ok",
+  )) {
     await page.evaluate(
       `extensionData.remove('history', ${jsString(row.id)}, { scope: 'org' })`,
       contextId,
     );
   }
-  if (/Action not found|Missing required|Authentication required/i.test(output)) {
+  if (
+    /Action not found|Missing required|Authentication required/i.test(output)
+  ) {
     throw new Error(output);
   }
   return `outputChars=${output.length}`;
@@ -635,7 +647,11 @@ async function verifySlack(page: CdpPage, contextId: number) {
   return `search input ready (${value})`;
 }
 
-async function verifyAction(page: CdpPage, contextId: number, spec: ExtensionSpec) {
+async function verifyAction(
+  page: CdpPage,
+  contextId: number,
+  spec: ExtensionSpec,
+) {
   if (spec.query) await setField(page, contextId, "input", spec.query);
   await clickButton(page, contextId, spec.action!);
   const output = await page.waitFor<string>(
@@ -649,7 +665,11 @@ async function verifyAction(page: CdpPage, contextId: number, spec: ExtensionSpe
     contextId,
     45_000,
   );
-  if (/Action not found|Unknown action|Missing required|Authentication required/i.test(output)) {
+  if (
+    /Action not found|Unknown action|Missing required|Authentication required/i.test(
+      output,
+    )
+  ) {
     throw new Error(output);
   }
   return `${spec.action} outputChars=${output.length}`;

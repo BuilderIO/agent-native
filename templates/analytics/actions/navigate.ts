@@ -10,7 +10,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "View to navigate to (overview, adhoc, analyses, data-dictionary, data-sources, settings)",
+        "View to navigate to (overview, adhoc, analyses, extensions, data-dictionary, data-sources, settings)",
       ),
     dashboardId: z
       .string()
@@ -20,11 +20,15 @@ export default defineAction({
       .string()
       .optional()
       .describe("Analysis ID to open (used with view=analyses)"),
+    extensionId: z
+      .string()
+      .optional()
+      .describe("Extension ID to open (used with view=extensions)"),
   }),
   http: false,
   run: async (args) => {
-    if (!args.view && !args.dashboardId && !args.analysisId) {
-      return "Error: At least --view, --dashboardId, or --analysisId is required.";
+    if (!args.view && !args.dashboardId && !args.analysisId && !args.extensionId) {
+      return "Error: At least --view, --dashboardId, --analysisId, or --extensionId is required.";
     }
     const nav: Record<string, string> = {};
     if (args.view) nav.view = args.view;
@@ -36,12 +40,17 @@ export default defineAction({
       nav.analysisId = args.analysisId;
       if (!args.view) nav.view = "analyses";
     }
+    if (args.extensionId) {
+      nav.extensionId = args.extensionId;
+      if (!args.view) nav.view = "extensions";
+    }
     await writeAppState("navigate", nav);
 
     const parts: string[] = [];
     if (nav.view) parts.push(nav.view);
     if (nav.dashboardId) parts.push(`dashboard:${nav.dashboardId}`);
     if (nav.analysisId) parts.push(`analysis:${nav.analysisId}`);
+    if (nav.extensionId) parts.push(`extension:${nav.extensionId}`);
     return `Navigating to ${parts.join(" ")}`;
   },
 });

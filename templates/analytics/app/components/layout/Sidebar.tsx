@@ -24,7 +24,6 @@ import {
   IconUsers,
   IconReportAnalytics,
   IconSearch,
-  IconArrowsSort,
 } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
