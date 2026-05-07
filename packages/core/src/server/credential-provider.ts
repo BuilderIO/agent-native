@@ -148,10 +148,8 @@ export function isBuilderEnvManaged(): boolean {
 }
 
 /**
- * Resolve the Builder private key for the current request. In env-managed
- * mode (deploy-level `BUILDER_PRIVATE_KEY` set) returns the env value for
- * every caller. Otherwise reads the current user's per-user OAuth-stored
- * key from `app_secrets`.
+ * Resolve the Builder private key for the current request. User/org OAuth
+ * credentials win; deploy-level `BUILDER_PRIVATE_KEY` is the fallback.
  */
 export async function resolveBuilderPrivateKey(): Promise<string | null> {
   return resolveBuilderCredential("BUILDER_PRIVATE_KEY");

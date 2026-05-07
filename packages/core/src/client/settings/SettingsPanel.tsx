@@ -366,26 +366,28 @@ function UseBuilderCard({
               : "Using your connected Builder account. Deployment fallback is still available."}
           </p>
         ) : null}
-        <div className="flex items-center gap-2 mt-2.5">
-          {connectUrl && (
-            <button
-              type="button"
-              onClick={builderFlow.start}
-              disabled={builderFlow.connecting}
-              className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40 disabled:opacity-60"
-            >
-              {builderFlow.connecting
-                ? "Connecting..."
-                : credentialSource === "env"
-                  ? "Connect account"
-                  : "Reconnect"}
-              <IconExternalLink size={10} />
-            </button>
-          )}
-          {credentialSource !== "env" ? (
-            <DisconnectBuilderButton />
-          ) : null}
-        </div>
+        {connectUrl || credentialSource !== "env" ? (
+          <div className="flex items-center gap-2 mt-2.5">
+            {connectUrl && (
+              <button
+                type="button"
+                onClick={builderFlow.start}
+                disabled={builderFlow.connecting}
+                className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40 disabled:opacity-60"
+              >
+                {builderFlow.connecting
+                  ? "Connecting..."
+                  : credentialSource === "env"
+                    ? "Connect account"
+                    : "Reconnect"}
+                <IconExternalLink size={10} />
+              </button>
+            )}
+            {credentialSource !== "env" ? (
+              <DisconnectBuilderButton />
+            ) : null}
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -582,6 +584,7 @@ function LLMSectionInner({
   connected,
   orgName,
   envManaged,
+  credentialSource,
   open,
   onToggle,
 }: {
@@ -591,6 +594,7 @@ function LLMSectionInner({
   connected: boolean;
   orgName?: string;
   envManaged?: boolean;
+  credentialSource?: "user" | "org" | "env";
   open?: boolean;
   onToggle?: () => void;
 }) {
