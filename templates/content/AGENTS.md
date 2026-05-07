@@ -125,7 +125,7 @@ Documents are **private by default** — only the creator can see them. To grant
 
 | Action                    | Args                                                                                                                              | Purpose                                  |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `share-resource`          | `--resourceType document --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin` | Grant a user or org access to a document |
+| `share-resource`          | `--resourceType document --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin --notify true\|false --resourceUrl /page/<id>` | Grant a user or org access to a document |
 | `unshare-resource`        | `--resourceType document --resourceId <id> --principalType user\|org --principalId <email-or-orgId>`                              | Revoke a share grant                     |
 | `list-resource-shares`    | `--resourceType document --resourceId <id>`                                                                                       | Show current visibility + all grants     |
 | `set-resource-visibility` | `--resourceType document --resourceId <id> --visibility private\|org\|public`                                                     | Change coarse visibility                 |

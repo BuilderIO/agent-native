@@ -42,7 +42,14 @@ function safeNotificationUrl(value: string, appUrl: string): string | null {
   try {
     const base = new URL(appUrl);
     if (trimmed.startsWith("/")) {
-      return new URL(appPath(trimmed), `${base.origin}/`).toString();
+      const path = appPath(trimmed);
+      const basePath = base.pathname.replace(/\/+$/, "");
+      const alreadyIncludesBase =
+        basePath && basePath !== "/" && path.startsWith(`${basePath}/`);
+      const joined = alreadyIncludesBase
+        ? `${base.origin}${path}`
+        : `${appUrl.replace(/\/+$/, "")}${path}`;
+      return new URL(joined).toString();
     }
 
     const url = new URL(trimmed);

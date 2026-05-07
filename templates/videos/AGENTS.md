@@ -216,7 +216,7 @@ The framework auto-mounts these actions; no per-template wiring needed:
 
 | Action                    | Args                                                                                                                   | Purpose                                 |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `share-resource`          | `--resourceType composition --resourceId <id> --principalType user --principalId <email> --role viewer\|editor\|admin` | Grant access to a user or org           |
+| `share-resource`          | `--resourceType composition --resourceId <id> --principalType user --principalId <email> --role viewer\|editor\|admin --notify true\|false --resourceUrl /c/<id>` | Grant access to a user or org           |
 | `unshare-resource`        | `--resourceType composition --resourceId <id> --principalType user --principalId <email>`                              | Revoke a share grant                    |
 | `list-resource-shares`    | `--resourceType composition --resourceId <id>`                                                                         | List current visibility + all grants    |
 | `set-resource-visibility` | `--resourceType composition --resourceId <id> --visibility private\|org\|public`                                       | Change a composition's visibility level |

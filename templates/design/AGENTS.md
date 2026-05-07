@@ -365,7 +365,7 @@ Designs and design systems are **private by default** — only the creator sees 
 
 | Action                    | Args                                                                                                                                           | Purpose                          |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| `share-resource`          | `--resourceType design\|design-system --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin` | Grant access                     |
+| `share-resource`          | `--resourceType design\|design-system --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin --notify true\|false --resourceUrl /design/<id>` | Grant access                     |
 | `unshare-resource`        | `--resourceType design\|design-system --resourceId <id> --principalType user\|org --principalId <email-or-orgId>`                              | Revoke access                    |
 | `list-resource-shares`    | `--resourceType design\|design-system --resourceId <id>`                                                                                       | Show current visibility + grants |
 | `set-resource-visibility` | `--resourceType design\|design-system --resourceId <id> --visibility private\|org\|public`                                                     | Change coarse visibility         |

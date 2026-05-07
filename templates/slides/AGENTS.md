@@ -316,7 +316,7 @@ Decks and design systems are **private by default** — only the creator sees th
 
 | Action                    | Args                                                                                                                                         | Purpose                    |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| `share-resource`          | `--resourceType deck\|design-system --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin` | Grant a user or org access |
+| `share-resource`          | `--resourceType deck\|design-system --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin --notify true\|false --resourceUrl /deck/<id>` | Grant a user or org access |
 | `unshare-resource`        | `--resourceType deck\|design-system --resourceId <id> --principalType user\|org --principalId <email-or-orgId>`                              | Revoke a share grant       |
 | `list-resource-shares`    | `--resourceType deck\|design-system --resourceId <id>`                                                                                       | Show visibility + grants   |
 | `set-resource-visibility` | `--resourceType deck\|design-system --resourceId <id> --visibility private\|org\|public`                                                     | Change coarse visibility   |
