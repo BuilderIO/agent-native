@@ -2879,6 +2879,23 @@ function qbrExtension(): string {
           q2Deals() {
             return Array.isArray(this.hs?.top_deals) ? this.hs.top_deals.slice(0, 12) : [];
           },
+          deckNbmRows() {
+            if (this.form.nbmRows.length) return this.form.nbmRows;
+            return Array.from({ length: 8 }, (_, index) => ({
+              id: 'empty-' + index,
+              accountName: '',
+              contactNameTitle: '',
+              products: '',
+              technicalPocIncluded: '',
+              weekNumber: '',
+              builderLeader: '',
+              valuePyramid: '',
+              preNbmDiscoCalls: '',
+              meetingsSinceNBM: '',
+              currentStage: '',
+              opportunityValue: ''
+            }));
+          },
           askList() {
             return [this.form.ask1, this.form.ask2, this.form.ask3];
           },
@@ -3029,7 +3046,7 @@ function qbrExtension(): string {
               </div>
               <div class="slide flex h-full w-full flex-col bg-[#0d0d0d] px-[4%] py-[4%]" x-show="slide === 4">
                 <img x-bind:src="logoUrl" class="absolute right-[4%] top-[5%] h-9 w-9" alt="" /><h1 class="mb-3 text-4xl font-black">Q1 NBMs</h1>
-                <div class="flex-1 overflow-hidden rounded-lg border border-gray-700"><table class="h-full w-full text-[10px]"><thead><tr class="bg-[#1e1e1e]"><template x-for="col in ['Account Name','Primary NBM Contact','Products','Technical POC','Week #','Builder Leader','Value Pyramid','Pre-NBM Calls','Meetings Since','Current Stage','Current $']"><th class="border-r border-gray-700 px-2 py-2 text-left font-bold whitespace-pre-line" x-text="col"></th></template></tr></thead><tbody><template x-if="!form.nbmRows.length"><template x-for="i in 8"><tr class="odd:bg-[#111] even:bg-[#141414]"><template x-for="col in 11"><td class="border-r border-gray-800 px-2 py-2 text-gray-700">&nbsp;</td></template></tr></template></template><template x-for="(row, i) in form.nbmRows" :key="row.id"><tr class="odd:bg-[#111] even:bg-[#141414]"><td class="border-r border-gray-800 px-2 py-2" x-text="row.accountName"></td><td class="border-r border-gray-800 px-2 py-2 text-gray-300" x-text="row.contactNameTitle"></td><td class="border-r border-gray-800 px-2 py-2 text-gray-300" x-text="row.products"></td><td class="border-r border-gray-800 px-2 py-2 text-center text-gray-300" x-text="row.technicalPocIncluded"></td><td class="border-r border-gray-800 px-2 py-2 text-center text-gray-300" x-text="row.weekNumber"></td><td class="border-r border-gray-800 px-2 py-2 text-gray-300" x-text="row.builderLeader"></td><td class="border-r border-gray-800 px-2 py-2 text-center text-gray-300" x-text="row.valuePyramid"></td><td class="border-r border-gray-800 px-2 py-2 text-center text-gray-300" x-text="row.preNbmDiscoCalls"></td><td class="border-r border-gray-800 px-2 py-2 text-center text-gray-300" x-text="row.meetingsSinceNBM"></td><td class="border-r border-gray-800 px-2 py-2 text-gray-300" x-text="row.currentStage"></td><td class="px-2 py-2 text-right" x-text="row.opportunityValue ? fullMoney(row.opportunityValue) : 'none'"></td></tr></template></tbody></table></div>
+                <div class="flex-1 overflow-hidden rounded-lg border border-gray-700"><table class="h-full w-full text-[10px]"><thead><tr class="bg-[#1e1e1e]"><template x-for="col in ['Account Name','Primary NBM Contact','Products','Technical POC','Week #','Builder Leader','Value Pyramid','Pre-NBM Calls','Meetings Since','Current Stage','Current $']"><th class="border-r border-gray-700 px-2 py-2 text-left font-bold whitespace-pre-line" x-text="col"></th></template></tr></thead><tbody><template x-for="(row, i) in deckNbmRows()" :key="row.id"><tr class="odd:bg-[#111] even:bg-[#141414]"><td class="border-r border-gray-800 px-2 py-2" x-text="row.accountName || ' '"></td><td class="border-r border-gray-800 px-2 py-2 text-gray-300" x-text="row.contactNameTitle"></td><td class="border-r border-gray-800 px-2 py-2 text-gray-300" x-text="row.products"></td><td class="border-r border-gray-800 px-2 py-2 text-center text-gray-300" x-text="row.technicalPocIncluded"></td><td class="border-r border-gray-800 px-2 py-2 text-center text-gray-300" x-text="row.weekNumber"></td><td class="border-r border-gray-800 px-2 py-2 text-gray-300" x-text="row.builderLeader"></td><td class="border-r border-gray-800 px-2 py-2 text-center text-gray-300" x-text="row.valuePyramid"></td><td class="border-r border-gray-800 px-2 py-2 text-center text-gray-300" x-text="row.preNbmDiscoCalls"></td><td class="border-r border-gray-800 px-2 py-2 text-center text-gray-300" x-text="row.meetingsSinceNBM"></td><td class="border-r border-gray-800 px-2 py-2 text-gray-300" x-text="row.currentStage"></td><td class="px-2 py-2 text-right" x-text="row.opportunityValue ? fullMoney(row.opportunityValue) : 'none'"></td></tr></template></tbody></table></div>
               </div>
               <div class="slide flex h-full w-full flex-col bg-[#0d0d0d] px-[5%] py-[4%]" x-show="slide === 5">
                 <img x-bind:src="logoUrl" class="absolute right-[4%] top-[5%] h-9 w-9" alt="" /><h1 class="mb-[3%] text-4xl font-black">Q2 Forecast</h1>
