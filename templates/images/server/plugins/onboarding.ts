@@ -14,11 +14,13 @@ import {
   createOnboardingPlugin,
   registerOnboardingStep,
 } from "@agent-native/core/onboarding";
+import { registerFileUploadProvider } from "@agent-native/core/file-upload";
 import {
   resolveHasBuilderPrivateKey,
   resolveSecret,
 } from "@agent-native/core/server";
 import { isObjectStorageConfigured } from "../lib/storage.js";
+import { s3FileUploadProvider } from "../lib/s3-upload-provider.js";
 
 const basePlugin = createOnboardingPlugin();
 
@@ -27,6 +29,12 @@ const builderImageGenerationEnabled =
 
 export default async (nitroApp: any): Promise<void> => {
   await basePlugin(nitroApp);
+
+  // Register the S3-compatible upload provider. It self-checks env vars
+  // (IMAGES_STORAGE_* / S3_*) and only activates when configured. The
+  // framework falls through to Builder.io storage when BUILDER_PRIVATE_KEY
+  // is set, then to the SQL fallback in dev.
+  registerFileUploadProvider(s3FileUploadProvider);
 
   registerOnboardingStep({
     id: "image-generation",
