@@ -143,7 +143,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   const [thumbOpen, setThumbOpen] = useState(false);
   const [stitchOpen, setStitchOpen] = useState(false);
-  const [chaptersOpen, setChaptersOpen] = useState(true);
+  const [chaptersOpen, setChaptersOpen] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -152,10 +152,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     if (!containerRef.current) return;
     const el = containerRef.current;
     const ro = new ResizeObserver(() => {
-      setViewportWidth(el.clientWidth);
+      setViewportWidth(Math.max(1, el.clientWidth));
     });
     ro.observe(el);
-    setViewportWidth(el.clientWidth);
+    setViewportWidth(Math.max(1, el.clientWidth));
     return () => ro.disconnect();
   }, []);
 
@@ -163,6 +163,12 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     viewportWidth,
     Math.floor(viewportWidth * Math.max(1, zoom)),
   );
+
+  useEffect(() => {
+    setScrollLeft((current) =>
+      Math.min(current, Math.max(0, totalWidth - viewportWidth)),
+    );
+  }, [totalWidth, viewportWidth]);
 
   // Sync the <video> to play state.
   useEffect(() => {
@@ -335,7 +341,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   return (
     <div
-      className={cn("flex flex-col h-full min-h-0 bg-background", className)}
+      className={cn(
+        "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background",
+        className,
+      )}
     >
       <EditorToolbar
         recordingId={recordingId}
@@ -351,18 +360,26 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         onOpenThumbnailPicker={() => setThumbOpen(true)}
         onOpenChapters={() => setChaptersOpen((v) => !v)}
         onOpenStitch={() => setStitchOpen(true)}
+        chaptersOpen={chaptersOpen}
       />
 
       {/* Preview + transcript + chapters sidebar */}
-      <div className="grid grid-cols-[1fr,320px] flex-1 min-h-0">
-        <div className="flex flex-col min-h-0">
+      <div
+        className={cn(
+          "grid flex-1 min-h-0 min-w-0 overflow-hidden",
+          chaptersOpen
+            ? "grid-cols-[minmax(0,1fr)_300px]"
+            : "grid-cols-[minmax(0,1fr)]",
+        )}
+      >
+        <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
           {/* Row 1: video */}
-          <div className="flex items-center justify-center bg-black/80 min-h-0 p-3">
+          <div className="flex min-h-[220px] min-w-0 flex-1 items-center justify-center overflow-hidden bg-black p-4">
             {videoUrl ? (
               <video
                 ref={videoRef}
                 src={videoUrl}
-                className="max-h-full max-w-full rounded shadow"
+                className="h-full w-full rounded object-contain shadow"
                 onPlay={() => setPlaying(true)}
                 onPause={() => setPlaying(false)}
                 controls={false}
@@ -376,7 +393,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
           </div>
 
           {/* Row 2: transcript editor */}
-          <div className="border-t border-border h-56">
+          <div className="h-40 shrink-0 border-t border-border">
             <TranscriptEditor
               segments={transcriptSegments}
               edits={edits}
@@ -389,9 +406,9 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
           {/* Row 3: waveform + timeline */}
           <div
             ref={containerRef}
-            className="border-t border-border p-2 space-y-1 bg-card/30"
+            className="min-w-0 shrink-0 space-y-1 overflow-hidden border-t border-border bg-card/30 p-2"
           >
-            <div className="relative">
+            <div className="relative min-w-0 overflow-hidden">
               <Waveform
                 peaks={peaks}
                 width={viewportWidth}
@@ -405,7 +422,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                 onScroll={(s) => setScrollLeft(s)}
               />
               <div
-                className="absolute inset-0 pointer-events-none"
+                className="pointer-events-none absolute inset-0 overflow-hidden"
                 style={{ height: WAVEFORM_HEIGHT }}
               >
                 <div
@@ -428,29 +445,34 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
             </div>
 
             <div
-              style={{
-                transform: `translateX(${-scrollLeft}px)`,
-                width: totalWidth,
-              }}
+              className="min-w-0 overflow-hidden rounded-sm border border-border/70"
+              style={{ width: viewportWidth }}
             >
-              <Timeline
-                width={totalWidth}
-                durationMs={durationMs}
-                playheadMs={playheadMs}
-                chapters={chapters}
-                excludedRanges={excludedRanges}
-                splitPoints={splitPoints}
-                scrollLeft={scrollLeft}
-                onSeek={seek}
-                onClickChapter={(c) => seek(c.startMs)}
-              />
+              <div
+                style={{
+                  transform: `translateX(${-scrollLeft}px)`,
+                  width: totalWidth,
+                }}
+              >
+                <Timeline
+                  width={totalWidth}
+                  durationMs={durationMs}
+                  playheadMs={playheadMs}
+                  chapters={chapters}
+                  excludedRanges={excludedRanges}
+                  splitPoints={splitPoints}
+                  scrollLeft={scrollLeft}
+                  onSeek={seek}
+                  onClickChapter={(c) => seek(c.startMs)}
+                />
+              </div>
             </div>
 
-            <div className="text-[10px] text-muted-foreground font-mono flex justify-between pt-1">
+            <div className="flex justify-between gap-3 pt-1 font-mono text-[10px] text-muted-foreground">
               <span>
                 {excludedRanges.length} trim(s) · {splitPoints.length} split(s)
               </span>
-              <span>
+              <span className="truncate text-right">
                 zoom {zoom}x · selection {formatMs(effectiveSelection.startMs)}–
                 {formatMs(effectiveSelection.endMs)}
               </span>
@@ -459,8 +481,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         </div>
 
         {/* Sidebar: chapters */}
-        <div className="border-l border-border flex flex-col min-h-0">
-          {chaptersOpen && (
+        {chaptersOpen ? (
+          <div className="flex min-h-0 min-w-0 flex-col border-l border-border">
             <ChaptersEditor
               recordingId={recordingId}
               chapters={chapters}
@@ -468,8 +490,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
               onSeek={seek}
               className="flex-1"
             />
-          )}
-        </div>
+          </div>
+        ) : null}
       </div>
 
       <ThumbnailPicker
