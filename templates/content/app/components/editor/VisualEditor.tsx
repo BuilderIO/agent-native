@@ -27,7 +27,9 @@ import {
   TextSelection,
   AllSelection,
 } from "@tiptap/pm/state";
-import { useEffect, useRef, useMemo } from "react";
+import type { EditorView } from "@tiptap/pm/view";
+import { useEffect, useRef, useMemo, useState } from "react";
+import { IconPhoto } from "@tabler/icons-react";
 import { BubbleToolbar } from "./BubbleToolbar";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { LinkHoverPreview } from "./LinkHoverPreview";
@@ -41,6 +43,12 @@ import {
   parseNfmForEditor,
   serializeEditorToNfm,
 } from "@shared/notion-markdown";
+import {
+  getImageFiles,
+  hasImageFiles,
+  imageUploadErrorMessage,
+  uploadImageFile,
+} from "./image-upload";
 
 /**
  * Override the paragraph node's markdown serialization so that empty
@@ -402,6 +410,42 @@ interface VisualEditorExtensionOptions {
   user?: { name: string; color: string } | null;
 }
 
+async function uploadAndInsertImageFiles(
+  view: EditorView,
+  files: File[],
+  position: number,
+): Promise<void> {
+  if (files.length === 0) return;
+
+  const toastId = toast.loading(
+    files.length === 1 ? "Uploading image..." : `Uploading ${files.length} images...`,
+  );
+
+  try {
+    let insertPos = Math.min(position, view.state.doc.content.size);
+    const imageType = view.state.schema.nodes.image;
+    if (!imageType) {
+      throw new Error("Image blocks are not available in this editor.");
+    }
+
+    for (const file of files) {
+      const src = await uploadImageFile(file);
+      if (!view.dom.isConnected) return;
+
+      const node = imageType.create({ src, alt: file.name });
+      const tr = view.state.tr.insert(insertPos, node).scrollIntoView();
+      view.dispatch(tr);
+      insertPos = Math.min(insertPos + node.nodeSize, view.state.doc.content.size);
+    }
+
+    toast.success(files.length === 1 ? "Image added" : "Images added", {
+      id: toastId,
+    });
+  } catch (error) {
+    toast.error(imageUploadErrorMessage(error), { id: toastId });
+  }
+}
+
 export function createVisualEditorExtensions({
   ydoc,
   localAwareness,
@@ -487,6 +531,7 @@ export function VisualEditor({
   editable = true,
   onComment,
 }: VisualEditorProps) {
+  const [isDraggingImage, setIsDraggingImage] = useState(false);
   const isSettingContent = useRef(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -535,6 +580,57 @@ export function VisualEditor({
     editorProps: {
       attributes: {
         class: "notion-editor",
+      },
+      handleDrop(view, event) {
+        setIsDraggingImage(false);
+        if (!view.editable || !event.dataTransfer) return false;
+
+        const files = getImageFiles(event.dataTransfer.files);
+        if (files.length === 0) return false;
+
+        event.preventDefault();
+        const coords = view.posAtCoords({
+          left: event.clientX,
+          top: event.clientY,
+        });
+        void uploadAndInsertImageFiles(
+          view,
+          files,
+          coords?.pos ?? view.state.selection.from,
+        );
+        return true;
+      },
+      handlePaste(view, event) {
+        if (!view.editable || !event.clipboardData) return false;
+
+        const files = getImageFiles(event.clipboardData.files);
+        if (files.length === 0) return false;
+
+        event.preventDefault();
+        void uploadAndInsertImageFiles(view, files, view.state.selection.from);
+        return true;
+      },
+      handleDOMEvents: {
+        dragover(view, event) {
+          if (!view.editable || !hasImageFiles(event.dataTransfer)) {
+            return false;
+          }
+          event.preventDefault();
+          event.dataTransfer!.dropEffect = "copy";
+          setIsDraggingImage(true);
+          return true;
+        },
+        dragleave(view, event) {
+          const wrapper = view.dom.closest(".visual-editor-wrapper");
+          if (
+            !wrapper ||
+            !(event.relatedTarget instanceof Node) ||
+            !wrapper.contains(event.relatedTarget)
+          ) {
+            setIsDraggingImage(false);
+          }
+          return false;
+        },
       },
     },
     editable,
@@ -643,7 +739,9 @@ export function VisualEditor({
   }
 
   return (
-    <div className="visual-editor-wrapper">
+    <div
+      className={`visual-editor-wrapper${isDraggingImage ? " visual-editor-wrapper--dragging" : ""}`}
+    >
       {editable ? (
         <BubbleToolbar editor={editor} onComment={onComment} />
       ) : null}
@@ -652,6 +750,14 @@ export function VisualEditor({
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
       {editable ? <TableHoverControls editor={editor} /> : null}
+      {editable && isDraggingImage ? (
+        <div className="media-drop-overlay">
+          <div className="media-drop-overlay__content">
+            <IconPhoto size={16} />
+            <span>Drop image</span>
+          </div>
+        </div>
+      ) : null}
       <EditorContent editor={editor} />
     </div>
   );
