@@ -684,7 +684,9 @@ async function verifyCsQbr(page: CdpPage, contextId: number) {
     loadedSeed?: boolean;
   }>(
     `(async () => {
-      const state = document.querySelector('[x-data]')?._x_dataStack?.[0];
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && typeof candidate.selectOwner === 'function');
       if (!state) throw new Error('Missing CS QBR Alpine state');
       await state.selectOwner('Alex Beebe');
       return {
@@ -708,7 +710,9 @@ async function verifyCsQbr(page: CdpPage, contextId: number) {
   );
   await page.evaluate(
     `(async () => {
-      const state = document.querySelector('[x-data]')?._x_dataStack?.[0];
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && typeof candidate.resetForm === 'function');
       if (!state) throw new Error('Missing CS QBR Alpine state');
       state.selected = ${jsString(testOwner)};
       state.deckOpen = false;
@@ -751,7 +755,9 @@ async function verifyDiscoveryCoach(page: CdpPage, contextId: number) {
     lostSignals: number;
   }>(
     `(() => {
-      const state = document.querySelector('[x-data]')?._x_dataStack?.[0];
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && candidate.opPains && candidate.stages);
       if (!state) throw new Error('Missing Discovery Coach Alpine state');
       return {
         stages: state.stages?.length || 0,
@@ -778,7 +784,9 @@ async function verifyDiscoveryCoach(page: CdpPage, contextId: number) {
   await clickButton(page, contextId, "Operational pains");
   await page.evaluate(
     `(() => {
-      const state = document.querySelector('[x-data]')?._x_dataStack?.[0];
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && candidate.opPains && candidate.stages);
       state.selectedPain = 0;
       return true;
     })()`,
