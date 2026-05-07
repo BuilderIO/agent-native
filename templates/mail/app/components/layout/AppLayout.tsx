@@ -28,7 +28,7 @@ import {
 } from "@/hooks/use-google-auth";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
-import { SidebarThemeRow, ThemeToggle } from "@/components/ThemeToggle";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { SearchBar } from "./SearchBar";
 import {
   IconMenu2,
@@ -1242,7 +1242,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             )}
             <div
               className={cn(
-                "w-64 bg-background/85 backdrop-blur-2xl border-r border-border/30 shadow-2xl overflow-y-auto",
+                "flex w-64 flex-col overflow-hidden bg-background/85 backdrop-blur-2xl border-r border-border/30 shadow-2xl",
                 sidebarPinned && !isMobile
                   ? "absolute left-0 top-11 bottom-0 z-10"
                   : "fixed left-0 top-0 bottom-0 z-40",
@@ -1280,200 +1280,200 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   </TooltipContent>
                 </Tooltip>
               </div>
-              {/* Accounts */}
-              {hasAccounts && (
-                <div className="px-4 pt-5 pb-4 border-b border-border/20">
-                  <div className="space-y-2">
-                    {accounts.map((account) => {
-                      const isActive =
-                        activeAccounts.size === 0 ||
-                        activeAccounts.has(account.email);
-                      return (
-                        <button
-                          key={account.email}
-                          onClick={() => {
-                            setActiveAccounts((prev) => {
-                              const next = new Set(prev);
-                              if (next.size === 0) {
-                                for (const a of accounts) {
-                                  if (a.email !== account.email)
-                                    next.add(a.email);
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {/* Accounts */}
+                {hasAccounts && (
+                  <div className="px-4 pt-5 pb-4 border-b border-border/20">
+                    <div className="space-y-2">
+                      {accounts.map((account) => {
+                        const isActive =
+                          activeAccounts.size === 0 ||
+                          activeAccounts.has(account.email);
+                        return (
+                          <button
+                            key={account.email}
+                            onClick={() => {
+                              setActiveAccounts((prev) => {
+                                const next = new Set(prev);
+                                if (next.size === 0) {
+                                  for (const a of accounts) {
+                                    if (a.email !== account.email)
+                                      next.add(a.email);
+                                  }
+                                } else if (next.has(account.email)) {
+                                  next.delete(account.email);
+                                  if (next.size === 0) return new Set();
+                                } else {
+                                  next.add(account.email);
+                                  if (next.size === accounts.length)
+                                    return new Set();
                                 }
-                              } else if (next.has(account.email)) {
-                                next.delete(account.email);
-                                if (next.size === 0) return new Set();
-                              } else {
-                                next.add(account.email);
-                                if (next.size === accounts.length)
-                                  return new Set();
-                              }
-                              return next;
-                            });
-                          }}
-                          className={cn(
-                            "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-all",
-                            isActive ? "opacity-100" : "opacity-30",
-                          )}
-                        >
-                          {account.photoUrl ? (
-                            <img
-                              src={account.photoUrl}
-                              alt=""
-                              className="h-8 w-8 rounded-full object-cover shrink-0"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : (
-                            <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-[12px] font-semibold text-primary shrink-0">
-                              {account.email[0]?.toUpperCase()}
-                            </div>
-                          )}
-                          <span className="text-[13px] text-foreground truncate">
-                            {account.email}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <div className="p-4">
-                <div className="space-y-0.5">
-                  {[
-                    { id: "inbox", label: "Inbox", href: "/inbox" },
-                    { id: "starred", label: "Starred", href: "/starred" },
-                    { id: "snoozed", label: "Snoozed", href: "/snoozed" },
-                    { id: "sent", label: "Sent", href: "/sent" },
-                    {
-                      id: "draft-queue",
-                      label: "Draft queue",
-                      href: "/draft-queue",
-                    },
-                    {
-                      id: "scheduled",
-                      label: "Scheduled",
-                      href: "/scheduled",
-                    },
-                    { id: "drafts", label: "Drafts", href: "/drafts" },
-                    { id: "archive", label: "Archive", href: "/archive" },
-                    { id: "trash", label: "Trash", href: "/trash" },
-                  ].map((item) => (
-                    <Link
-                      key={item.id}
-                      to={item.href}
-                      onClick={closeSidebar}
-                      className={cn(
-                        "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
-                        view === item.id
-                          ? "bg-accent/60 text-foreground font-medium"
-                          : "text-foreground/70 hover:bg-accent/30",
-                      )}
-                    >
-                      <span>{item.label}</span>
-                      {item.id === "draft-queue" && queuedDrafts.count > 0 && (
-                        <span className="text-[12px] text-amber-300 tabular-nums">
-                          {queuedDrafts.count}
-                        </span>
-                      )}
-                      {item.id === "inbox" && inboxSidebarUnreadCount > 0 && (
-                        <span className="text-[12px] text-muted-foreground/50 tabular-nums">
-                          {inboxSidebarUnreadCount}
-                        </span>
-                      )}
-                    </Link>
-                  ))}
-                </div>
-
-                {/* Pinned labels */}
-                {pinnedLabels.filter(
-                  (l) => !collapsibleViews.some((v) => v.id === l),
-                ).length > 0 && (
-                  <>
-                    <h2 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mt-5 mb-3">
-                      Labels
-                    </h2>
-                    <div className="space-y-0.5">
-                      {visibleTabs
-                        .filter((t) => t.id !== "inbox" && t.type === "label")
-                        .map((tab) => {
-                          const count = getTotalCount(tab.id);
-                          const depth = labelDepth(tab.fullLabel ?? tab.label);
-                          return (
-                            <Link
-                              key={tab.id}
-                              to={tab.href}
-                              onClick={closeSidebar}
-                              className={cn(
-                                "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
-                                tab.isActive
-                                  ? "bg-accent/60 text-foreground font-medium"
-                                  : "text-foreground/70 hover:bg-accent/30",
-                              )}
-                            >
-                              <span
-                                className="flex min-w-0 items-center gap-2"
-                                style={{ paddingLeft: depth * 12 }}
-                              >
-                                {tab.color && (
-                                  <span
-                                    className="h-2 w-2 rounded-full shrink-0"
-                                    style={{ backgroundColor: tab.color }}
-                                  />
-                                )}
-                                <span
-                                  className="truncate"
-                                  title={tab.fullLabel}
-                                >
-                                  {shortLabelName(tab.fullLabel ?? tab.label)}
-                                </span>
-                              </span>
-                              {count > 0 && (
-                                <span className="text-[12px] text-muted-foreground/50 tabular-nums">
-                                  {count}
-                                </span>
-                              )}
-                            </Link>
-                          );
-                        })}
+                                return next;
+                              });
+                            }}
+                            className={cn(
+                              "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-all",
+                              isActive ? "opacity-100" : "opacity-30",
+                            )}
+                          >
+                            {account.photoUrl ? (
+                              <img
+                                src={account.photoUrl}
+                                alt=""
+                                className="h-8 w-8 rounded-full object-cover shrink-0"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-[12px] font-semibold text-primary shrink-0">
+                                {account.email[0]?.toUpperCase()}
+                              </div>
+                            )}
+                            <span className="text-[13px] text-foreground truncate">
+                              {account.email}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
-                  </>
+                  </div>
                 )}
 
-                {/* Tools section */}
-                <div className="mt-3 pt-1 border-t border-border/20">
+                <div className="p-4">
+                  <div className="space-y-0.5">
+                    {[
+                      { id: "inbox", label: "Inbox", href: "/inbox" },
+                      { id: "starred", label: "Starred", href: "/starred" },
+                      { id: "snoozed", label: "Snoozed", href: "/snoozed" },
+                      { id: "sent", label: "Sent", href: "/sent" },
+                      {
+                        id: "draft-queue",
+                        label: "Draft queue",
+                        href: "/draft-queue",
+                      },
+                      {
+                        id: "scheduled",
+                        label: "Scheduled",
+                        href: "/scheduled",
+                      },
+                      { id: "drafts", label: "Drafts", href: "/drafts" },
+                      { id: "archive", label: "Archive", href: "/archive" },
+                      { id: "trash", label: "Trash", href: "/trash" },
+                    ].map((item) => (
+                      <Link
+                        key={item.id}
+                        to={item.href}
+                        onClick={closeSidebar}
+                        className={cn(
+                          "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
+                          view === item.id
+                            ? "bg-accent/60 text-foreground font-medium"
+                            : "text-foreground/70 hover:bg-accent/30",
+                        )}
+                      >
+                        <span>{item.label}</span>
+                        {item.id === "draft-queue" &&
+                          queuedDrafts.count > 0 && (
+                            <span className="text-[12px] text-amber-300 tabular-nums">
+                              {queuedDrafts.count}
+                            </span>
+                          )}
+                        {item.id === "inbox" && inboxSidebarUnreadCount > 0 && (
+                          <span className="text-[12px] text-muted-foreground/50 tabular-nums">
+                            {inboxSidebarUnreadCount}
+                          </span>
+                        )}
+                      </Link>
+                    ))}
+                  </div>
+
+                  {/* Pinned labels */}
+                  {pinnedLabels.filter(
+                    (l) => !collapsibleViews.some((v) => v.id === l),
+                  ).length > 0 && (
+                    <>
+                      <h2 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mt-5 mb-3">
+                        Labels
+                      </h2>
+                      <div className="space-y-0.5">
+                        {visibleTabs
+                          .filter((t) => t.id !== "inbox" && t.type === "label")
+                          .map((tab) => {
+                            const count = getTotalCount(tab.id);
+                            const depth = labelDepth(
+                              tab.fullLabel ?? tab.label,
+                            );
+                            return (
+                              <Link
+                                key={tab.id}
+                                to={tab.href}
+                                onClick={closeSidebar}
+                                className={cn(
+                                  "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
+                                  tab.isActive
+                                    ? "bg-accent/60 text-foreground font-medium"
+                                    : "text-foreground/70 hover:bg-accent/30",
+                                )}
+                              >
+                                <span
+                                  className="flex min-w-0 items-center gap-2"
+                                  style={{ paddingLeft: depth * 12 }}
+                                >
+                                  {tab.color && (
+                                    <span
+                                      className="h-2 w-2 rounded-full shrink-0"
+                                      style={{ backgroundColor: tab.color }}
+                                    />
+                                  )}
+                                  <span
+                                    className="truncate"
+                                    title={tab.fullLabel}
+                                  >
+                                    {shortLabelName(tab.fullLabel ?? tab.label)}
+                                  </span>
+                                </span>
+                                {count > 0 && (
+                                  <span className="text-[12px] text-muted-foreground/50 tabular-nums">
+                                    {count}
+                                  </span>
+                                )}
+                              </Link>
+                            );
+                          })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="shrink-0 border-t border-border/20">
+                <div className="px-2 py-1">
                   <ExtensionsSidebarSection />
                 </div>
 
-                {/* Settings / Appearance / Feedback / Account */}
-                <div className="mt-3 border-t border-border/20 pt-3">
-                  <div className="flex items-center gap-1 px-1">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Link
-                          to="/settings"
-                          onClick={closeSidebar}
-                          aria-label="Settings"
-                          className={cn(
-                            "flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
-                            location.pathname === "/settings" &&
-                              "bg-accent/60 text-foreground",
-                          )}
-                        >
-                          <IconSettings className="h-4 w-4" />
-                        </Link>
-                      </TooltipTrigger>
-                      <TooltipContent>Settings</TooltipContent>
-                    </Tooltip>
-                    <ThemeToggle />
-                    <FeedbackButton
-                      variant="icon"
-                      side="right"
-                      className="h-7 w-7"
-                    />
-                  </div>
-                  <div className="mt-3 px-1">
-                    <OrgSwitcher />
-                  </div>
+                <div className="border-t border-border/20 px-3 py-2">
+                  <OrgSwitcher />
+                </div>
+
+                <div className="flex items-center gap-1 border-t border-border/20 px-2 py-2">
+                  <FeedbackButton className="min-w-0 flex-1" />
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Link
+                        to="/settings"
+                        onClick={closeSidebar}
+                        aria-label="Settings"
+                        className={cn(
+                          "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
+                          location.pathname === "/settings" &&
+                            "bg-accent/60 text-foreground",
+                        )}
+                      >
+                        <IconSettings className="h-4 w-4" />
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent>Settings</TooltipContent>
+                  </Tooltip>
+                  <ThemeToggle className="h-8 w-8 shrink-0" />
                 </div>
               </div>
             </div>
@@ -1694,8 +1694,8 @@ function StandardLayout({ children }: AppLayoutProps) {
             className="fixed inset-0 z-30 bg-black/20"
             onClick={() => setSidebarOpen(false)}
           />
-          <div className="fixed left-0 top-0 bottom-0 z-40 w-64 bg-background/70 backdrop-blur-2xl border-r border-border/30 shadow-2xl overflow-y-auto">
-            <div className="p-4">
+          <div className="fixed left-0 top-0 bottom-0 z-40 flex w-64 flex-col overflow-hidden bg-background/70 backdrop-blur-2xl border-r border-border/30 shadow-2xl">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
               <div className="space-y-0.5">
                 {[
                   { id: "inbox", label: "Inbox", href: "/inbox" },
@@ -1736,13 +1736,20 @@ function StandardLayout({ children }: AppLayoutProps) {
                   </Link>
                 ))}
               </div>
+            </div>
 
-              <div className="mt-3 pt-1 border-t border-border/20">
+            <div className="shrink-0 border-t border-border/20">
+              <div className="px-2 py-1">
                 <ExtensionsSidebarSection />
               </div>
 
-              <div className="mt-3 border-t border-border/20 pt-3">
-                <div className="flex items-center gap-1 px-1">
+              <div className="border-t border-border/20 px-3 py-2">
+                <OrgSwitcher />
+              </div>
+
+              <div className="flex items-center gap-1 border-t border-border/20 px-2 py-2">
+                <FeedbackButton className="min-w-0 flex-1" />
+                <div className="flex shrink-0 items-center gap-0.5">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Link
@@ -1750,7 +1757,7 @@ function StandardLayout({ children }: AppLayoutProps) {
                         onClick={() => setSidebarOpen(false)}
                         aria-label="Settings"
                         className={cn(
-                          "flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
+                          "flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
                           location.pathname === "/settings" &&
                             "bg-accent/60 text-foreground",
                         )}
@@ -1760,15 +1767,7 @@ function StandardLayout({ children }: AppLayoutProps) {
                     </TooltipTrigger>
                     <TooltipContent>Settings</TooltipContent>
                   </Tooltip>
-                  <ThemeToggle />
-                  <FeedbackButton
-                    variant="icon"
-                    side="right"
-                    className="h-7 w-7"
-                  />
-                </div>
-                <div className="mt-3 px-1">
-                  <OrgSwitcher />
+                  <ThemeToggle className="h-8 w-8 shrink-0" />
                 </div>
               </div>
             </div>
