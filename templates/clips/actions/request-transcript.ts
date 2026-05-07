@@ -11,11 +11,11 @@
  *   1. Builder.io transcription (Gemini 3.1 Flash-Lite behind the Builder
  *      proxy) when Builder is connected.
  *   2. `GROQ_API_KEY` → Groq's fast speech-to-text fallback.
- *   3. `OPENAI_API_KEY` → OpenAI speech-to-text fallback.
- *   4. Neither → keep any native transcript or fail with a clear reason.
+ *   3. Neither → keep any native transcript or fail with a clear reason.
  *
- * Both providers accept the same multipart form-data shape, so the only
- * differences are the endpoint URL and the `model` field.
+ * Clips intentionally does not route recording transcription to OpenAI.
+ * Native macOS/Web Speech output is the primary source; Gemini is reserved
+ * for cleanup/title generation after native text exists.
  *
  * Native transcription: the browser's Web Speech API and desktop macOS Speech
  * run during recording and save an instant transcript via
@@ -39,6 +39,7 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
+import { getSetting } from "@agent-native/core/settings";
 import { resolveCredential } from "@agent-native/core/credentials";
 import { readAppSecret } from "@agent-native/core/secrets";
 import {
@@ -78,7 +79,7 @@ interface SpeechToTextResponse {
 }
 
 type TranscriptionProvider = {
-  name: "groq" | "openai";
+  name: "groq";
   endpoint: string;
   model: string;
   apiKey: string;
@@ -86,9 +87,32 @@ type TranscriptionProvider = {
 
 const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_MODEL = "whisper-large-v3-turbo";
-const OPENAI_ENDPOINT = "https://api.openai.com/v1/audio/transcriptions";
-const OPENAI_MODEL = "whisper-1";
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
+const CLIPS_USER_PREFS_KEY = "clips-user-prefs";
+
+function serializeError(err: unknown): Record<string, unknown> {
+  if (!(err instanceof Error)) {
+    return { message: String(err) };
+  }
+  const cause = (err as Error & { cause?: unknown }).cause;
+  return {
+    name: err.name,
+    message: err.message,
+    stack: err.stack,
+    ...(cause ? { cause: serializeError(cause) } : {}),
+  };
+}
+
+async function writeTranscriptCleanupState(
+  recordingId: string,
+  value: Record<string, unknown>,
+): Promise<void> {
+  await writeAppState(`transcript-cleanup-${recordingId}`, {
+    ...value,
+    updatedAt: new Date().toISOString(),
+  });
+  await writeAppState("refresh-signal", { ts: Date.now() });
+}
 
 function fullTextSegmentJson(
   text: string,
@@ -101,6 +125,11 @@ function fullTextSegmentJson(
       text: text.trim(),
     },
   ]);
+}
+
+async function transcriptCleanupEnabled(): Promise<boolean> {
+  const settings = await getSetting(CLIPS_USER_PREFS_KEY).catch(() => null);
+  return settings?.transcriptCleanupEnabled !== false;
 }
 
 async function cleanupNativeTranscript({
@@ -119,6 +148,19 @@ async function cleanupNativeTranscript({
   const sourceText = fullText.trim();
   if (!sourceText) return { cleaned: false };
 
+  if (!(await transcriptCleanupEnabled())) {
+    await writeTranscriptCleanupState(recordingId, {
+      status: "disabled",
+    });
+    return { cleaned: false };
+  }
+
+  await writeTranscriptCleanupState(recordingId, {
+    status: "running",
+    provider: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
+    startedAt: new Date().toISOString(),
+  });
+
   try {
     const result = await cleanupTranscript.run({
       transcript: sourceText,
@@ -126,6 +168,10 @@ async function cleanupNativeTranscript({
     });
     const cleanedText = result.cleanedText?.trim();
     if (!cleanedText || cleanedText === sourceText) {
+      await writeTranscriptCleanupState(recordingId, {
+        status: "unchanged",
+        provider: result.provider,
+      });
       return { cleaned: false, provider: result.provider };
     }
 
@@ -140,16 +186,136 @@ async function cleanupNativeTranscript({
       fullText: cleanedText,
       now,
     });
-    await writeAppState("refresh-signal", { ts: Date.now() });
+    await writeTranscriptCleanupState(recordingId, {
+      status: "ready",
+      provider: result.provider,
+    });
 
     return { cleaned: true, provider: result.provider };
   } catch (err) {
+    const details = serializeError(err);
     console.warn(
-      `[clips] native transcript cleanup skipped for ${recordingId}:`,
-      (err as Error).message,
+      `[clips] native transcript cleanup skipped for ${recordingId}`,
     );
+    console.warn("[clips] native transcript cleanup error details", details);
+    await writeTranscriptCleanupState(recordingId, {
+      status: "failed",
+      provider: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
+      failureReason: (err as Error)?.message ?? String(err),
+      details,
+    });
     return { cleaned: false };
   }
+}
+
+async function completeReadyTranscript({
+  db,
+  recordingId,
+  ownerEmail,
+  fullText,
+  segmentsJson,
+  preserved = false,
+}: {
+  db: ReturnType<typeof getDb>;
+  recordingId: string;
+  ownerEmail: string;
+  fullText: string;
+  segmentsJson?: string | null;
+  preserved?: boolean;
+}): Promise<{
+  recordingId: string;
+  status: "ready";
+  cleaned: boolean;
+  provider: "existing" | "native";
+  cleanupQueued: boolean;
+  titleQueued: boolean;
+  preserved?: true;
+}> {
+  const [recForTitle] = await db
+    .select({
+      title: schema.recordings.title,
+      durationMs: schema.recordings.durationMs,
+    })
+    .from(schema.recordings)
+    .where(eq(schema.recordings.id, recordingId))
+    .limit(1);
+
+  void cleanupNativeTranscript({
+    db,
+    recordingId,
+    ownerEmail,
+    fullText,
+    durationMs: recForTitle?.durationMs,
+  }).catch((err) => {
+    console.warn(
+      `[clips] native transcript cleanup failed for ${recordingId}:`,
+      (err as Error)?.message ?? String(err),
+    );
+  });
+
+  const titleQueued = !!(recForTitle && isDefaultTitle(recForTitle.title));
+  if (titleQueued) {
+    void regenerateTitle.run({ recordingId }).catch((err) => {
+      console.warn(
+        `[clips] native-transcript title generation failed for ${recordingId}:`,
+        (err as Error)?.message ?? String(err),
+      );
+    });
+  }
+
+  return {
+    recordingId,
+    status: "ready",
+    cleaned: false,
+    provider: segmentsJson && segmentsJson !== "[]" ? "existing" : "native",
+    cleanupQueued: true,
+    titleQueued,
+    ...(preserved ? { preserved: true as const } : {}),
+  };
+}
+
+async function preserveReadyTranscriptIfAvailable({
+  db,
+  recordingId,
+  ownerEmail,
+}: {
+  db: ReturnType<typeof getDb>;
+  recordingId: string;
+  ownerEmail: string;
+}): Promise<{
+  recordingId: string;
+  status: "ready";
+  cleaned: boolean;
+  provider: "existing" | "native";
+  cleanupQueued: boolean;
+  titleQueued: boolean;
+  preserved?: true;
+} | null> {
+  const [current] = await db
+    .select({
+      status: schema.recordingTranscripts.status,
+      fullText: schema.recordingTranscripts.fullText,
+      segmentsJson: schema.recordingTranscripts.segmentsJson,
+    })
+    .from(schema.recordingTranscripts)
+    .where(eq(schema.recordingTranscripts.recordingId, recordingId))
+    .limit(1);
+
+  if (current?.status === "ready" && current.fullText?.trim()) {
+    console.log(
+      `[clips] Keeping ready native transcript for ${recordingId}; cloud fallback result ignored`,
+    );
+    return completeReadyTranscript({
+      db,
+      recordingId,
+      ownerEmail,
+      fullText: current.fullText,
+      segmentsJson: current.segmentsJson,
+      preserved: true,
+    });
+  }
+
+  return null;
 }
 
 /**
@@ -182,8 +348,9 @@ async function resolveKey(
 async function pickProvider(
   userEmail: string | null,
 ): Promise<TranscriptionProvider | null> {
-  // Prefer Groq when Builder/native are unavailable — it is the faster
-  // OpenAI-compatible speech-to-text fallback.
+  // Prefer Groq when Builder/native are unavailable — it is the fast
+  // Whisper-compatible speech-to-text fallback. Clips no longer falls back
+  // to OpenAI for recording transcription.
   const groqKey = await resolveKey("GROQ_API_KEY", userEmail);
   if (groqKey) {
     return {
@@ -193,21 +360,12 @@ async function pickProvider(
       apiKey: groqKey,
     };
   }
-  const openaiKey = await resolveKey("OPENAI_API_KEY", userEmail);
-  if (openaiKey) {
-    return {
-      name: "openai",
-      endpoint: OPENAI_ENDPOINT,
-      model: OPENAI_MODEL,
-      apiKey: openaiKey,
-    };
-  }
   return null;
 }
 
 export default defineAction({
   description:
-    "Ensure a recording has a transcript. Preserves native Web Speech/macOS Speech transcripts first, then falls back to Builder Gemini Flash-Lite transcription, Groq, or OpenAI when needed.",
+    "Ensure a recording has a transcript. Preserves native Web Speech/macOS Speech transcripts first, then falls back to Builder Gemini Flash-Lite transcription or Groq when needed.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
   }),
@@ -233,51 +391,13 @@ export default defineAction({
       existingNativeTranscript?.status === "ready" &&
       existingNativeTranscript.fullText?.trim()
     ) {
-      const [recForTitle] = await db
-        .select({
-          title: schema.recordings.title,
-          durationMs: schema.recordings.durationMs,
-        })
-        .from(schema.recordings)
-        .where(eq(schema.recordings.id, args.recordingId))
-        .limit(1);
-
-      const cleanupWork = cleanupNativeTranscript({
+      return completeReadyTranscript({
         db,
         recordingId: args.recordingId,
         ownerEmail,
         fullText: existingNativeTranscript.fullText,
-        durationMs: recForTitle?.durationMs,
+        segmentsJson: existingNativeTranscript.segmentsJson,
       });
-      const titleWork =
-        recForTitle && isDefaultTitle(recForTitle.title)
-          ? regenerateTitle.run({ recordingId: args.recordingId })
-          : Promise.resolve(null);
-
-      const [cleanupResult, titleResult] = await Promise.allSettled([
-        cleanupWork,
-        titleWork,
-      ]);
-      if (titleResult.status === "rejected") {
-        console.warn(
-          `[clips] native-transcript title generation failed for ${args.recordingId}:`,
-          (titleResult.reason as Error)?.message ?? String(titleResult.reason),
-        );
-      }
-
-      return {
-        recordingId: args.recordingId,
-        status: "ready" as const,
-        cleaned:
-          cleanupResult.status === "fulfilled"
-            ? cleanupResult.value.cleaned
-            : false,
-        provider:
-          existingNativeTranscript.segmentsJson &&
-          existingNativeTranscript.segmentsJson !== "[]"
-            ? "existing"
-            : "native",
-      };
     }
 
     // ── Builder transcription (cloud fallback) ────────────────────────
@@ -305,6 +425,12 @@ export default defineAction({
         .limit(1);
       if (!rec || !rec.videoUrl) {
         const reason = "Recording has no videoUrl";
+        const preserved = await preserveReadyTranscriptIfAvailable({
+          db,
+          recordingId: args.recordingId,
+          ownerEmail,
+        });
+        if (preserved) return preserved;
         await upsertTranscriptRow(db, {
           recordingId: args.recordingId,
           ownerEmail,
@@ -352,6 +478,12 @@ export default defineAction({
         }
       } catch (err) {
         const reason = `Failed to fetch video: ${(err as Error).message}`;
+        const preserved = await preserveReadyTranscriptIfAvailable({
+          db,
+          recordingId: args.recordingId,
+          ownerEmail,
+        });
+        if (preserved) return preserved;
         await upsertTranscriptRow(db, {
           recordingId: args.recordingId,
           ownerEmail,
@@ -422,7 +554,14 @@ export default defineAction({
         };
       } catch (err) {
         const reason = (err as Error).message;
+        const details = serializeError(err);
         if (reason.includes("credits exhausted")) {
+          const preserved = await preserveReadyTranscriptIfAvailable({
+            db,
+            recordingId: args.recordingId,
+            ownerEmail,
+          });
+          if (preserved) return preserved;
           await upsertTranscriptRow(db, {
             recordingId: args.recordingId,
             ownerEmail,
@@ -435,59 +574,35 @@ export default defineAction({
         }
         builderError = reason;
         console.warn(
-          `[clips] Builder transcription failed for ${args.recordingId}; falling back to BYOK providers:`,
-          reason,
+          `[clips] Builder transcription failed for ${args.recordingId}; preserving native transcript if present and falling back to Groq if configured.`,
         );
+        console.warn("[clips] Builder transcription error details", details);
+        await writeTranscriptCleanupState(args.recordingId, {
+          status: "builder-transcription-failed",
+          provider: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
+          failureReason: reason,
+          details,
+        });
       }
     }
 
-    // ── Groq / OpenAI fallback ────────────────────────────────────────
+    // ── Groq fallback ─────────────────────────────────────────────────
     // Resolve the provider BEFORE overwriting the transcript row — if no
     // key is configured but a native transcript already exists
     // (from Web Speech API or macOS Speech during recording), preserve it instead of
     // clobbering it with "pending" then "failed".
     const provider = await pickProvider(userEmail);
     if (!provider) {
-      const [existingRow] = await db
-        .select({
-          status: schema.recordingTranscripts.status,
-          fullText: schema.recordingTranscripts.fullText,
-        })
-        .from(schema.recordingTranscripts)
-        .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
-        .limit(1);
-
-      if (existingRow?.status === "ready" && existingRow.fullText?.trim()) {
-        console.log(
-          `[clips] No cloud provider configured but native transcript exists for ${args.recordingId} — keeping it`,
-        );
-        // Still queue title generation — the native transcript is good enough
-        // to produce a real title even without a cloud speech-to-text key.
-        const [recForTitle] = await db
-          .select({ title: schema.recordings.title })
-          .from(schema.recordings)
-          .where(eq(schema.recordings.id, args.recordingId))
-          .limit(1);
-        if (recForTitle && isDefaultTitle(recForTitle.title)) {
-          try {
-            await regenerateTitle.run({ recordingId: args.recordingId });
-          } catch (delegateErr) {
-            console.warn(
-              `[clips] auto-title delegation failed for ${args.recordingId}:`,
-              (delegateErr as Error).message,
-            );
-          }
-        }
-        return {
-          recordingId: args.recordingId,
-          status: "ready" as const,
-          provider: "browser",
-        };
-      }
+      const preserved = await preserveReadyTranscriptIfAvailable({
+        db,
+        recordingId: args.recordingId,
+        ownerEmail,
+      });
+      if (preserved) return preserved;
 
       const reason = builderError
-        ? `Builder transcription failed: ${builderError}. Add GROQ_API_KEY or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
-        : "No transcription provider configured. Connect Builder.io (free, no API key needed) or add GROQ_API_KEY / OPENAI_API_KEY in Settings.";
+        ? `Builder transcription failed: ${builderError}. Add GROQ_API_KEY in Settings → API Keys to enable the only BYOK speech-to-text fallback.`
+        : "No transcript was captured by native speech recognition, and no fallback provider is configured. Connect Builder.io (free, no API key needed) or add GROQ_API_KEY in Settings.";
       await upsertTranscriptRow(db, {
         recordingId: args.recordingId,
         ownerEmail,
@@ -526,6 +641,12 @@ export default defineAction({
       .limit(1);
     if (!rec || !rec.videoUrl) {
       const reason = "Recording has no videoUrl";
+      const preserved = await preserveReadyTranscriptIfAvailable({
+        db,
+        recordingId: args.recordingId,
+        ownerEmail,
+      });
+      if (preserved) return preserved;
       await upsertTranscriptRow(db, {
         recordingId: args.recordingId,
         ownerEmail,
@@ -579,6 +700,12 @@ export default defineAction({
       }
     } catch (err) {
       const reason = `Failed to fetch video: ${(err as Error).message}`;
+      const preserved = await preserveReadyTranscriptIfAvailable({
+        db,
+        recordingId: args.recordingId,
+        ownerEmail,
+      });
+      if (preserved) return preserved;
       await upsertTranscriptRow(db, {
         recordingId: args.recordingId,
         ownerEmail,
@@ -590,7 +717,7 @@ export default defineAction({
       throw new Error(reason);
     }
 
-    // Post to the provider. Groq and OpenAI accept the same form shape.
+    // Post to the provider. Groq accepts the OpenAI-compatible form shape.
     const form = new FormData();
     form.append(
       "file",
@@ -675,6 +802,12 @@ export default defineAction({
         (err as Error)?.name === "AbortError"
           ? `${provider.name} transcription timed out after 45 seconds.`
           : (err as Error).message;
+      const preserved = await preserveReadyTranscriptIfAvailable({
+        db,
+        recordingId: args.recordingId,
+        ownerEmail,
+      });
+      if (preserved) return preserved;
       await upsertTranscriptRow(db, {
         recordingId: args.recordingId,
         ownerEmail,

@@ -316,7 +316,8 @@ function isConnectedBuilderRetryable(
  *
  * Builder.io is the primary/recommended path — free, one-click, no separate
  * API key required (uses BUILDER_PRIVATE_KEY once the user connects).
- * BYOK (Groq preferred, OpenAI fallback) is the secondary option.
+ * BYOK Groq is the secondary speech-to-text option when native/Builder cannot
+ * produce a transcript. Clips does not route recording transcription to OpenAI.
  */
 function TranscriptSetupCard({
   failureReason,
@@ -422,12 +423,8 @@ function TranscriptSetupCard({
     if (!apiKey.trim() || saving) return;
     setSaving(true);
     try {
-      // Route gsk_… to GROQ_API_KEY (faster, preferred), else OPENAI_API_KEY
-      const secretKey = apiKey.trim().startsWith("gsk_")
-        ? "GROQ_API_KEY"
-        : "OPENAI_API_KEY";
       const res = await fetch(
-        agentNativePath(`/_agent-native/secrets/${secretKey}`),
+        agentNativePath("/_agent-native/secrets/GROQ_API_KEY"),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -572,8 +569,8 @@ function TranscriptSetupCard({
             {isProviderError
               ? "Update your API key"
               : builderConfigured
-                ? "Add a fallback API key (Groq / OpenAI)"
-                : "Or use your own API key (Groq / OpenAI)"}
+                ? "Add a fallback Groq key"
+                : "Or use your own Groq key"}
             {showByok ? (
               <IconChevronUp className="h-3 w-3" />
             ) : (
@@ -584,9 +581,8 @@ function TranscriptSetupCard({
           {showByok && (
             <div className="mt-2 space-y-2 pl-1">
               <p className="text-[11px] text-muted-foreground">
-                Groq key starts with <code className="font-mono">gsk_</code>{" "}
-                (fast, recommended) or OpenAI starts with{" "}
-                <code className="font-mono">sk-</code>.
+                Groq keys start with <code className="font-mono">gsk_</code>.
+                Native speech remains the primary transcript source.
               </p>
               <div className="flex gap-1.5">
                 <Input
@@ -596,7 +592,7 @@ function TranscriptSetupCard({
                   onKeyDown={(e) => {
                     if (e.key === "Enter") saveApiKey();
                   }}
-                  placeholder="gsk_… or sk-…"
+                  placeholder="gsk_…"
                   className="h-8 text-xs"
                 />
                 <Button
@@ -619,15 +615,6 @@ function TranscriptSetupCard({
                   className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
                 >
                   Get Groq key
-                  <IconExternalLink className="h-3 w-3" />
-                </a>
-                <a
-                  href="https://platform.openai.com/api-keys"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-                >
-                  Get OpenAI key
                   <IconExternalLink className="h-3 w-3" />
                 </a>
               </div>
