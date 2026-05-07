@@ -14,6 +14,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AgentSidebar, configureTracking } from "@agent-native/core/client";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
+import { defaultSocialImageMeta } from "./seo";
 
 import appCss from "./global.css?url";
 
@@ -60,11 +61,7 @@ export const meta = () => [
     content:
       "Build agentic apps where AI agents and UI share the same database and state. Open source framework with ready-to-fork templates.",
   },
-  {
-    property: "og:image",
-    content:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c5ac2a70b1246fdaf606f526ab47a8a",
-  },
+  ...defaultSocialImageMeta(),
   {
     property: "og:title",
     content: "Agent-Native — Framework for Agent-Native Apps",
@@ -77,12 +74,6 @@ export const meta = () => [
   { property: "og:type", content: "website" },
   { property: "og:url", content: "https://agent-native.com" },
   { property: "og:site_name", content: "Agent-Native" },
-  { name: "twitter:card", content: "summary_large_image" },
-  {
-    name: "twitter:image",
-    content:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c5ac2a70b1246fdaf606f526ab47a8a",
-  },
 ];
 
 function CanonicalLink() {

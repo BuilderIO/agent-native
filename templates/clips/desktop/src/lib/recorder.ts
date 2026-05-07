@@ -51,6 +51,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { loadVocabulary } from "./personal-vocabulary";
+import {
+  buildCaptureTitle,
+  type CaptureTitleResult,
+} from "./recording-title";
 
 export type CaptureMode = "screen" | "screen-camera" | "camera";
 export type CaptureSource = "full-screen" | "window";
@@ -110,9 +114,14 @@ async function createRecording(
   serverUrl: string,
   hasCamera: boolean,
   hasAudio: boolean,
+  titleContext?: CaptureTitleResult,
 ) {
   const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/create-recording`;
-  console.log("[clips-recorder] POST", url, { hasCamera, hasAudio });
+  console.log("[clips-recorder] POST", url, {
+    hasCamera,
+    hasAudio,
+    title: titleContext?.title,
+  });
   let res: Response;
   try {
     res = await fetch(url, {
@@ -123,7 +132,19 @@ async function createRecording(
       // requests without Allow-Credentials — and dev auth is bypassed, so
       // cookies aren't needed.
       credentials: "include",
-      body: JSON.stringify({ hasCamera, hasAudio, visibility: "public" }),
+      body: JSON.stringify({
+        hasCamera,
+        hasAudio,
+        visibility: "public",
+        ...(titleContext
+          ? {
+              title: titleContext.title,
+              titleSource: titleContext.titleSource,
+              sourceAppName: titleContext.sourceAppName,
+              sourceWindowTitle: titleContext.sourceWindowTitle,
+            }
+          : {}),
+      }),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -137,7 +158,33 @@ async function createRecording(
     console.error("[clips-recorder] bad response:", url, res.status, body);
     throw new Error(`create-recording ${res.status}: ${body.slice(0, 200)}`);
   }
-  return (await res.json()) as { id: string };
+  const data = (await res.json()) as { result?: { id: string }; id?: string };
+  const result = data.result ?? data;
+  if (!result.id) {
+    throw new Error("create-recording did not return an id");
+  }
+  return { id: result.id };
+}
+
+interface ActiveWindowContext {
+  appName?: string | null;
+  windowTitle?: string | null;
+  bundleId?: string | null;
+  source?: string;
+}
+
+async function captureTitleForRecording(params: {
+  mode: CaptureMode;
+  source?: CaptureSource;
+}): Promise<CaptureTitleResult> {
+  const context = await invoke<ActiveWindowContext>("active_window_context")
+    .catch(() => null);
+  return buildCaptureTitle({
+    appName: context?.appName,
+    windowTitle: context?.windowTitle,
+    displaySurface: params.source === "full-screen" ? "monitor" : "window",
+    mode: params.mode,
+  });
 }
 
 interface NativeTranscriptCapture {
@@ -524,6 +571,10 @@ async function startNativeFullscreenRecording(
   try {
     await invoke("park_popover_offscreen").catch(() => {});
     emit("clips:popover-visible", false).catch(() => {});
+    const captureTitle = await captureTitleForRecording({
+      mode: params.mode,
+      source: "full-screen",
+    });
 
     console.log("[clips-recorder] invoking show_countdown + createRecording");
     const countdownPromise = (async () => {
@@ -543,6 +594,7 @@ async function startNativeFullscreenRecording(
       params.serverUrl,
       wantsCamera,
       wantsAudio,
+      captureTitle,
     ).finally(() => {
       console.timeEnd("[clips-recorder] createRecording duration");
     });
@@ -1131,6 +1183,10 @@ async function startNativeRecordingInner(
 
   await invoke("park_popover_offscreen").catch(() => {});
   emit("clips:popover-visible", false).catch(() => {});
+  const captureTitle = await captureTitleForRecording({
+    mode: params.mode,
+    source: captureSource,
+  });
   let nativeTranscriptCapture: NativeTranscriptCapture | null = null;
 
   // Choose the primary video track for MediaRecorder:
@@ -1173,6 +1229,7 @@ async function startNativeRecordingInner(
     params.serverUrl,
     wantsCamera,
     wantsAudio,
+    captureTitle,
   ).finally(() => {
     console.timeEnd("[clips-recorder] createRecording duration");
   });

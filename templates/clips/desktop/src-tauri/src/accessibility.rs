@@ -54,6 +54,34 @@
 //!   - AXValue can also be a CFNumber (sliders) or CFURL — we only return
 //!     a String when it's a CFString; otherwise "".
 
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveWindowContext {
+    pub app_name: Option<String>,
+    pub window_title: Option<String>,
+    pub bundle_id: Option<String>,
+    pub source: String,
+}
+
+#[tauri::command]
+pub async fn active_window_context() -> Result<ActiveWindowContext, String> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(macos::active_window_context_impl())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(ActiveWindowContext {
+            app_name: None,
+            window_title: None,
+            bundle_id: None,
+            source: "unsupported".into(),
+        })
+    }
+}
+
 #[tauri::command]
 pub async fn read_focused_field_text() -> Result<String, String> {
     #[cfg(target_os = "macos")]
@@ -96,6 +124,16 @@ pub async fn accessibility_request_permission() -> Result<bool, String> {
 
 #[cfg(target_os = "macos")]
 mod macos {
+    use super::ActiveWindowContext;
+    use core_foundation::array::CFArray;
+    use core_foundation::base::{CFType, TCFType};
+    use core_foundation::dictionary::CFDictionary;
+    use core_foundation::number::CFNumber;
+    use core_foundation::string::CFString;
+    use core_graphics::window::{
+        kCGNullWindowID, kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly,
+        CGWindowListCopyWindowInfo,
+    };
     use std::ffi::c_void;
     use std::ptr;
 
@@ -114,6 +152,15 @@ mod macos {
 
     // CFStringEncoding for UTF-8 = 0x08000100.
     const K_CF_STRING_ENCODING_UTF8: u32 = 0x08000100;
+    const IGNORED_WINDOW_OWNERS: &[&str] = &[
+        "Clips",
+        "Clips Dev",
+        "Control Center",
+        "Dock",
+        "Notification Center",
+        "SystemUIServer",
+        "Window Server",
+    ];
 
     #[link(name = "ApplicationServices", kind = "framework")]
     extern "C" {
@@ -291,6 +338,138 @@ mod macos {
             };
             CFRelease(value);
             result
+        }
+    }
+
+    pub fn active_window_context_impl() -> ActiveWindowContext {
+        let window = active_window_from_core_graphics();
+        let frontmost = frontmost_application();
+
+        ActiveWindowContext {
+            app_name: window
+                .as_ref()
+                .and_then(|w| w.app_name.clone())
+                .or_else(|| frontmost.as_ref().and_then(|app| app.app_name.clone())),
+            window_title: window.and_then(|w| w.window_title),
+            bundle_id: frontmost.and_then(|app| app.bundle_id),
+            source: "core-graphics".to_string(),
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct WindowInfo {
+        app_name: Option<String>,
+        window_title: Option<String>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct AppInfo {
+        app_name: Option<String>,
+        bundle_id: Option<String>,
+    }
+
+    fn active_window_from_core_graphics() -> Option<WindowInfo> {
+        unsafe {
+            let raw = CGWindowListCopyWindowInfo(
+                kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+                kCGNullWindowID,
+            );
+            if raw.is_null() {
+                return None;
+            }
+
+            let windows: CFArray<CFDictionary<CFString, CFType>> =
+                TCFType::wrap_under_create_rule(raw);
+            for index in 0..windows.len() {
+                let Some(window) = windows.get(index) else {
+                    continue;
+                };
+                let layer = dict_number_i64(&window, "kCGWindowLayer").unwrap_or(0);
+                if layer != 0 {
+                    continue;
+                }
+                let owner = dict_string(&window, "kCGWindowOwnerName");
+                if owner
+                    .as_deref()
+                    .map(is_ignored_window_owner)
+                    .unwrap_or(true)
+                {
+                    continue;
+                }
+                let title = dict_string(&window, "kCGWindowName");
+                return Some(WindowInfo {
+                    app_name: owner,
+                    window_title: title,
+                });
+            }
+        }
+        None
+    }
+
+    fn frontmost_application() -> Option<AppInfo> {
+        use objc2::msg_send;
+        use objc2::runtime::{AnyClass, AnyObject};
+
+        unsafe {
+            let class_name = std::ffi::CString::new("NSWorkspace").ok()?;
+            let cls: &AnyClass = AnyClass::get(&class_name)?;
+            let workspace: *mut AnyObject = msg_send![cls, sharedWorkspace];
+            if workspace.is_null() {
+                return None;
+            }
+            let app: *mut AnyObject = msg_send![workspace, frontmostApplication];
+            if app.is_null() {
+                return None;
+            }
+            let app_name: *mut AnyObject = msg_send![app, localizedName];
+            let bundle_id: *mut AnyObject = msg_send![app, bundleIdentifier];
+            Some(AppInfo {
+                app_name: ns_string_to_owned(app_name),
+                bundle_id: ns_string_to_owned(bundle_id),
+            })
+        }
+    }
+
+    fn dict_string(
+        dict: &CFDictionary<CFString, CFType>,
+        key: &'static str,
+    ) -> Option<String> {
+        let key = CFString::from_static_string(key);
+        let value = dict.find(&key)?;
+        let string = value.downcast::<CFString>()?.to_string();
+        let trimmed = string.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    }
+
+    fn dict_number_i64(dict: &CFDictionary<CFString, CFType>, key: &'static str) -> Option<i64> {
+        let key = CFString::from_static_string(key);
+        dict.find(&key)?.downcast::<CFNumber>()?.to_i64()
+    }
+
+    fn is_ignored_window_owner(owner: &str) -> bool {
+        IGNORED_WINDOW_OWNERS
+            .iter()
+            .any(|ignored| owner.eq_ignore_ascii_case(ignored))
+    }
+
+    unsafe fn ns_string_to_owned(ptr: *mut objc2::runtime::AnyObject) -> Option<String> {
+        if ptr.is_null() {
+            return None;
+        }
+        let utf8_ptr: *const i8 = objc2::msg_send![ptr, UTF8String];
+        if utf8_ptr.is_null() {
+            return None;
+        }
+        let cstr = std::ffi::CStr::from_ptr(utf8_ptr);
+        let value = cstr.to_string_lossy().trim().to_string();
+        if value.is_empty() {
+            None
+        } else {
+            Some(value)
         }
     }
 }

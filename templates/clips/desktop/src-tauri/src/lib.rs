@@ -102,6 +102,7 @@ pub fn run() {
             eventkit::eventkit_request_access,
             eventkit::eventkit_list_events,
             // Accessibility (read focused field text for personal-vocabulary auto-learn)
+            accessibility::active_window_context,
             accessibility::read_focused_field_text,
             accessibility::accessibility_check_permission,
             accessibility::accessibility_request_permission,
