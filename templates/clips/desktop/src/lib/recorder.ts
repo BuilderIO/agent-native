@@ -224,13 +224,16 @@ async function startNativeTranscriptCapture(): Promise<NativeTranscriptCapture |
     );
   };
 
-  const scheduleRestart = (reason: string) => {
-    if (disposed || stopping) return;
+  // Returns true when a restart was scheduled. Callers MUST settle the
+  // final-transcript promise themselves when this returns false — otherwise
+  // the consumer hangs until the 1800ms safety timeout.
+  const scheduleRestart = (reason: string): boolean => {
+    if (disposed || stopping) return false;
     if (restartCount >= maxRestarts) {
       console.warn(
         `[clips-recorder] native transcript restart limit reached after ${reason}; preserving captured text`,
       );
-      return;
+      return false;
     }
     restartCount += 1;
     if (restartTimer) window.clearTimeout(restartTimer);
@@ -242,11 +245,14 @@ async function startNativeTranscriptCapture(): Promise<NativeTranscriptCapture |
             "[clips-recorder] native transcript restart failed:",
             err,
           );
-          scheduleRestart("restart failure");
+          if (!scheduleRestart("restart failure")) {
+            settleFinal?.(latestText);
+          }
         });
       },
       Math.min(250 + restartCount * 50, 1000),
     );
+    return true;
   };
 
   try {
@@ -266,14 +272,19 @@ async function startNativeTranscriptCapture(): Promise<NativeTranscriptCapture |
           settleFinal?.(latestText);
           return;
         }
-        scheduleRestart("final transcript");
+        if (!scheduleRestart("final transcript")) {
+          settleFinal?.(latestText);
+        }
       }),
       await listen<{ error: string }>("voice:speech-error", (event) => {
         const error = event.payload?.error;
         console.warn("[clips-recorder] native transcript error:", error);
         commitActiveText();
-        if (!stopping && shouldRestartAfterError(error)) {
-          scheduleRestart("speech endpoint");
+        if (
+          !stopping &&
+          shouldRestartAfterError(error) &&
+          scheduleRestart("speech endpoint")
+        ) {
           return;
         }
         settleFinal?.(latestText);
