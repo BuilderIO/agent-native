@@ -331,7 +331,10 @@ describe("createAgentChatAdapter", () => {
     );
 
     expect(dispatchEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agent-chat:auth-error" }),
+      expect.objectContaining({
+        type: "agent-chat:auth-error",
+        detail: { reason: "auth-required", tabId: "chat-auth" },
+      }),
     );
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:missing-api-key" }),
@@ -367,6 +370,7 @@ describe("createAgentChatAdapter", () => {
     const adapter = createAgentChatAdapter({
       apiUrl: "/_agent-native/agent-chat",
       tabId: "chat-invalid-token",
+      threadId: "thread-invalid-token",
     });
 
     await drain(
@@ -382,7 +386,14 @@ describe("createAgentChatAdapter", () => {
     );
 
     expect(dispatchEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agent-chat:auth-error" }),
+      expect.objectContaining({
+        type: "agent-chat:auth-error",
+        detail: {
+          reason: "auth-required",
+          tabId: "chat-invalid-token",
+          threadId: "thread-invalid-token",
+        },
+      }),
     );
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:run-error" }),

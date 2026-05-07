@@ -11,6 +11,7 @@ type ExtensionKind =
   | "gcn"
   | "qbr"
   | "cs-qbr"
+  | "ae-pipeline"
   | "discovery"
   | "engagement"
   | "dbt"
@@ -155,8 +156,7 @@ const SPECS: Record<string, ExtensionSpec> = {
   "ae-pipeline": {
     id: "ae-pipeline",
     title: "AE PG Scoreboard",
-    kind: "action",
-    action: "hubspot-metrics",
+    kind: "ae-pipeline",
   },
 };
 
@@ -233,6 +233,44 @@ async function waitForJson<T>(url: string, timeoutMs = 15_000): Promise<T> {
     await delay(150);
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
+async function enableTargetDiscovery(wsUrl: string) {
+  const ws = new WebSocket(wsUrl);
+  await new Promise<void>((resolve, reject) => {
+    ws.addEventListener("open", () => resolve(), { once: true });
+    ws.addEventListener(
+      "error",
+      () => reject(new Error("Failed to connect to Chrome browser CDP")),
+      { once: true },
+    );
+  });
+  await new Promise<void>((resolve, reject) => {
+    const id = 1;
+    const timeout = setTimeout(
+      () => reject(new Error("Timed out enabling target discovery")),
+      5_000,
+    );
+    ws.addEventListener(
+      "message",
+      (event) => {
+        const message = JSON.parse(String(event.data)) as CdpMessage;
+        if (message.id !== id) return;
+        clearTimeout(timeout);
+        if (message.error) reject(new Error(message.error.message));
+        else resolve();
+      },
+      { once: false },
+    );
+    ws.send(
+      JSON.stringify({
+        id,
+        method: "Target.setDiscoverTargets",
+        params: { discover: true },
+      }),
+    );
+  });
+  return ws;
 }
 
 type CdpMessage = {
@@ -500,6 +538,7 @@ async function launchPage() {
   const version = await waitForJson<{ webSocketDebuggerUrl: string }>(
     `http://127.0.0.1:${port}/json/version`,
   );
+  const browserWs = await enableTargetDiscovery(version.webSocketDebuggerUrl);
   const target = await fetch(
     `http://127.0.0.1:${port}/json/new?${encodeURIComponent("about:blank")}`,
     { method: "PUT" },
@@ -526,6 +565,9 @@ async function launchPage() {
     page,
     async close() {
       page.close();
+      try {
+        browserWs.close();
+      } catch {}
       chrome.kill();
       await waitForExit(chrome);
       await fs.rm(userDataDir, { recursive: true, force: true });
@@ -648,29 +690,113 @@ async function verifyGcn(page: CdpPage, contextId: number) {
 }
 
 async function verifyQbr(page: CdpPage, contextId: number) {
-  const id = "codex-verify-qbr";
-  await setField(page, contextId, "input", id);
-  await setField(
-    page,
+  const id = "Codex Verify AE";
+  const selected = await page.evaluate<{
+    owner?: string;
+    hasHubspot?: boolean;
+  }>(
+    `(async () => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && typeof candidate.selectOwner === 'function');
+      if (!state) throw new Error('Missing QBR Alpine state');
+      const select = document.querySelector('select');
+      const hasAndrewOption = select && [...select.options].some((option) => option.value === 'Andrew Bishop');
+      if (hasAndrewOption) {
+        select.value = 'Andrew Bishop';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      } else {
+        await state.selectOwner('Andrew Bishop');
+      }
+      const started = Date.now();
+      while ((state.loading || state.owner !== 'Andrew Bishop') && Date.now() - started < 45000) {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+      return { owner: state.owner, hasHubspot: !!state.hs };
+    })()`,
     contextId,
-    "textarea[placeholder='Quarter goals']",
-    "Extension browser verification",
+    60_000,
   );
-  await clickButton(page, contextId, "Save form");
+  if (selected.owner !== "Andrew Bishop") {
+    throw new Error(`QBR owner did not select: ${selected.owner}`);
+  }
+  await clickButton(page, contextId, "View Deck");
+  await page.waitFor<string>(
+    `document.body.innerText.includes('AE QBR Deck') && document.body.innerText.includes('Andrew Bishop')`,
+    contextId,
+  );
+  await page.evaluate(
+    `(async () => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && typeof candidate.save === 'function');
+      if (!state) throw new Error('Missing QBR Alpine state');
+      state.deckOpen = false;
+      state.owner = ${jsString(id)};
+      state.form = state.emptyForm();
+      state.form.q2SmartGoals = 'Sales QBR extension browser verification';
+      state.form.ask1 = 'Verify Agent Native deck builder';
+      await state.save();
+      return true;
+    })()`,
+    contextId,
+  );
   const saved = await page.waitFor<{ data?: { owner?: string } }>(
     `extensionData.get('qbr-notes', ${jsString(id)}, { scope: 'org' })`,
-    contextId,
-  );
-  await clickButton(page, contextId, "Preview deck");
-  await page.waitFor<string>(
-    `document.body.innerText.includes('Sales QBR Preview') && document.body.innerText.includes(${jsString(id)})`,
     contextId,
   );
   await page.evaluate(
     `extensionData.remove('qbr-notes', ${jsString(id)}, { scope: 'org' })`,
     contextId,
   );
-  return `saved owner=${saved.data?.owner ?? id}`;
+  return `selected=${selected.owner}, hubspot=${selected.hasHubspot}, saved=${saved.data?.owner ?? id}`;
+}
+
+async function verifyAePipeline(page: CdpPage, contextId: number) {
+  const state = await page.waitFor<{
+    rows: number;
+    managers: number;
+    error?: string;
+    text?: string;
+  }>(
+    `(() => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && typeof candidate.filteredRows === 'function');
+      if (!state || state.loading) return null;
+      return {
+        rows: state.rows?.length || 0,
+        managers: state.managers?.length || 0,
+        error: state.error || '',
+        text: document.body.innerText
+      };
+    })()`,
+    contextId,
+    60_000,
+  );
+  if (state.error) throw new Error(state.error);
+  if (!state.rows || !state.managers) {
+    throw new Error(`AE pipeline rows missing: ${JSON.stringify(state)}`);
+  }
+  if (
+    !state.text?.includes("By Manager") ||
+    !state.text.includes("By AE") ||
+    !state.text.includes("S1 Pipeline")
+  ) {
+    throw new Error("AE pipeline UI did not render manager/AE scoreboard");
+  }
+  await page.evaluate(
+    `(() => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && typeof candidate.filteredRows === 'function');
+      state.aeType = 'EAE';
+      state.manager = state.managers[0]?.manager || 'all';
+      return state.filteredRows().length;
+    })()`,
+    contextId,
+  );
+  return `rows=${state.rows}, managers=${state.managers}`;
 }
 
 async function verifyCsQbr(page: CdpPage, contextId: number) {
@@ -942,19 +1068,21 @@ async function verifyOne(page: CdpPage, spec: ExtensionSpec) {
           ? await verifyQbr(page, contextId)
           : spec.kind === "cs-qbr"
             ? await verifyCsQbr(page, contextId)
-            : spec.kind === "discovery"
-              ? await verifyDiscoveryCoach(page, contextId)
-              : spec.kind === "engagement"
-                ? await verifyEngagement(page, contextId)
-                : spec.kind === "dbt"
-                  ? await verifyDbt(page, contextId)
-                  : spec.kind === "query"
-                    ? await verifyQuery(page, contextId)
-                    : spec.kind === "stripe"
-                      ? await verifyStripe(page, contextId)
-                      : spec.kind === "slack"
-                        ? await verifySlack(page, contextId)
-                        : await verifyAction(page, contextId, spec);
+            : spec.kind === "ae-pipeline"
+              ? await verifyAePipeline(page, contextId)
+              : spec.kind === "discovery"
+                ? await verifyDiscoveryCoach(page, contextId)
+                : spec.kind === "engagement"
+                  ? await verifyEngagement(page, contextId)
+                  : spec.kind === "dbt"
+                    ? await verifyDbt(page, contextId)
+                    : spec.kind === "query"
+                      ? await verifyQuery(page, contextId)
+                      : spec.kind === "stripe"
+                        ? await verifyStripe(page, contextId)
+                        : spec.kind === "slack"
+                          ? await verifySlack(page, contextId)
+                          : await verifyAction(page, contextId, spec);
   const errors = await page.evaluate<string[]>(
     `window._extensionErrors || []`,
     contextId,

@@ -40,8 +40,14 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-export function fetchThreadMessages(threadId: string): Promise<EmailMessage[]> {
-  return apiFetch(`/api/threads/${threadId}/messages`);
+export function fetchThreadMessages(
+  threadId: string,
+  accountEmail?: string,
+): Promise<EmailMessage[]> {
+  const params = new URLSearchParams();
+  if (accountEmail) params.set("accountEmail", accountEmail);
+  const suffix = params.toString() ? `?${params}` : "";
+  return apiFetch(`/api/threads/${threadId}/messages${suffix}`);
 }
 
 let externalRefreshAt = 0;
@@ -371,6 +377,7 @@ export function useThreadMessages(threadId: string | undefined) {
   const { messages, isFromCache, isLoading } = useThreadCache(
     threadId,
     placeholder,
+    placeholder?.[0]?.accountEmail,
   );
   return {
     data: messages,

@@ -117,7 +117,7 @@ export function createOAuth2Client(
 // on multi-account or multi-tab setups. When we hit a quota error, we pause
 // all calls for this token briefly so the per-minute window can refill and
 // subsequent requests don't pile on top of an already-exhausted quota.
-const QUOTA_COOLDOWN_MS = 45_000;
+const QUOTA_COOLDOWN_MS = 90_000;
 const tokenCooldowns = new Map<string, number>();
 
 function cooldownKey(accessToken: string): string {
@@ -136,8 +136,11 @@ function isInCooldown(accessToken: string): number {
   return until - Date.now();
 }
 
-function tripCooldown(accessToken: string) {
-  tokenCooldowns.set(cooldownKey(accessToken), Date.now() + QUOTA_COOLDOWN_MS);
+function tripCooldown(accessToken: string, cooldownMs = QUOTA_COOLDOWN_MS) {
+  tokenCooldowns.set(
+    cooldownKey(accessToken),
+    Date.now() + Math.max(cooldownMs, QUOTA_COOLDOWN_MS),
+  );
 }
 
 function isQuotaError(status: number, data: any): boolean {
@@ -160,16 +163,39 @@ function isQuotaError(status: number, data: any): boolean {
   return /quota|rate limit/i.test(msg);
 }
 
+function isQuotaErrorText(text: string | undefined): boolean {
+  return !!text && /\b(?:429|quota|rate limit|rateLimitExceeded)\b/i.test(text);
+}
+
+function parseRetryAfterMs(headers: Headers): number | undefined {
+  const raw = headers.get("retry-after");
+  if (!raw) return undefined;
+
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds > 0) return seconds * 1000;
+
+  const dateMs = Date.parse(raw);
+  if (Number.isFinite(dateMs)) {
+    return Math.max(0, dateMs - Date.now());
+  }
+
+  return undefined;
+}
+
+function quotaCooldownMessage(cooldownMs = QUOTA_COOLDOWN_MS): string {
+  return `Rate limit cooldown, retry in ${Math.ceil(cooldownMs / 1000)}s`;
+}
+
 // ---------------------------------------------------------------------------
 // Proactive per-token quota bucket
 // ---------------------------------------------------------------------------
-// Gmail's per-user quota is 250 units/second. We run a token bucket below
-// that (240/s refill, 480 capacity) so a burst can briefly exceed the steady
-// rate while the long-run average still lands under the cap. This sits in
-// FRONT of the circuit breaker — the breaker only trips when Google actually
-// returns a 429/403-quota; the bucket's job is to make that rare.
-const BUCKET_REFILL_PER_SEC = 240;
-const BUCKET_CAPACITY = 480;
+// Gmail's per-user quota is 250 units/second. We deliberately run below that
+// so other tabs, serverless instances, and Google-side accounting jitter have
+// headroom. This sits in FRONT of the circuit breaker — the breaker only trips
+// when Google actually returns a 429/403-quota; the bucket's job is to make
+// that rare.
+const BUCKET_REFILL_PER_SEC = 180;
+const BUCKET_CAPACITY = 360;
 
 // Cost table from https://developers.google.com/gmail/api/reference/quota.
 // Most-specific patterns first — `estimateRequestCost` walks this in order.
@@ -257,18 +283,22 @@ export async function acquireQuota(
   cost: number,
 ): Promise<void> {
   const b = getBucket(accessToken);
-  // Cap cost at capacity so a single too-big request doesn't deadlock —
-  // we'll still effectively pay the full cost via the refill wait.
-  const want = Math.min(cost, BUCKET_CAPACITY);
-  while (true) {
-    refillBucket(b);
-    if (b.tokens >= want) {
-      b.tokens -= want;
-      return;
+  let remaining = Math.max(0, cost);
+  while (remaining > 0) {
+    // Charge oversized batch calls in capacity-sized chunks so a 100-thread
+    // batch actually pays roughly 1000 units instead of only one bucketful.
+    const want = Math.min(remaining, BUCKET_CAPACITY);
+    while (true) {
+      refillBucket(b);
+      if (b.tokens >= want) {
+        b.tokens -= want;
+        remaining -= want;
+        break;
+      }
+      const deficit = want - b.tokens;
+      const waitMs = Math.ceil((deficit / BUCKET_REFILL_PER_SEC) * 1000);
+      await new Promise((r) => setTimeout(r, Math.max(waitMs, 10)));
     }
-    const deficit = want - b.tokens;
-    const waitMs = Math.ceil((deficit / BUCKET_REFILL_PER_SEC) * 1000);
-    await new Promise((r) => setTimeout(r, Math.max(waitMs, 10)));
   }
 }
 
@@ -283,7 +313,7 @@ export async function googleFetch(
   const remaining = isInCooldown(accessToken);
   if (remaining > 0) {
     throw new Error(
-      `Google API error (429): Rate limit cooldown, retry in ${Math.ceil(remaining / 1000)}s`,
+      `Google API error (429): ${quotaCooldownMessage(remaining)}`,
     );
   }
 
@@ -316,16 +346,22 @@ export async function googleFetch(
 
     const data = res.status !== 503 ? await res.json().catch(() => null) : null;
 
-    // 429 or 403-with-quota-reason — retry a couple times with backoff, then
-    // trip the per-token circuit breaker so subsequent requests fast-fail.
-    if (!res.ok && isQuotaError(res.status, data) && attempt < maxRetries - 1) {
-      const delay = Math.min(1500 * 2 ** attempt, 8000);
-      await new Promise((r) => setTimeout(r, delay));
-      continue;
+    // 429 or 403-with-quota-reason — do NOT retry immediately. A retry inside
+    // the same exhausted quota window just deepens the lockout. Trip the
+    // per-token circuit breaker and let callers/UI retry after the cooldown.
+    if (!res.ok && isQuotaError(res.status, data)) {
+      const cooldownMs = parseRetryAfterMs(res.headers) ?? QUOTA_COOLDOWN_MS;
+      tripCooldown(accessToken, cooldownMs);
+      const msg =
+        (data as any)?.error?.message ||
+        (data as any)?.error_description ||
+        quotaCooldownMessage(cooldownMs);
+      throw new Error(
+        `Google API error (${res.status}): ${msg}; retry in ${Math.ceil(cooldownMs / 1000)}s`,
+      );
     }
 
     if (!res.ok) {
-      if (isQuotaError(res.status, data)) tripCooldown(accessToken);
       const msg =
         (data as any)?.error?.message ||
         (data as any)?.error_description ||
@@ -637,7 +673,7 @@ async function gmailBatchGet(
   const remaining = isInCooldown(accessToken);
   if (remaining > 0) {
     throw new Error(
-      `Google API error (429): Rate limit cooldown, retry in ${Math.ceil(remaining / 1000)}s`,
+      `Google API error (429): ${quotaCooldownMessage(remaining)}`,
     );
   }
 
@@ -678,7 +714,9 @@ async function gmailBatchGet(
     } catch {
       /* body is multipart or plain text — fine */
     }
-    if (isQuotaError(res.status, parsed)) tripCooldown(accessToken);
+    if (isQuotaError(res.status, parsed)) {
+      tripCooldown(accessToken, parseRetryAfterMs(res.headers));
+    }
     throw new Error(
       `Google API error (${res.status}): Gmail batch failed: ${text || res.statusText}`,
     );
@@ -695,7 +733,15 @@ async function gmailBatchGet(
     );
   }
 
-  return parseBatchResponse(respText, respBoundary, ids);
+  const parsed = parseBatchResponse(respText, respBoundary, ids);
+  const quotaPart = parsed.find((part) => isQuotaErrorText(part.error));
+  if (quotaPart) {
+    tripCooldown(accessToken);
+    throw new Error(
+      `Google API error (429): Gmail batch rate limit for ${quotaPart.id}; ${quotaCooldownMessage()}`,
+    );
+  }
+  return parsed;
 }
 
 export async function gmailBatchGetMessages(
@@ -803,7 +849,11 @@ function parseBatchResponse(
     } else {
       const msg =
         parsed?.error?.message || parsed?.error_description || `HTTP ${status}`;
-      results[slot] = { id: ids[slot], data: null, error: msg };
+      results[slot] = {
+        id: ids[slot],
+        data: null,
+        error: `HTTP ${status}: ${msg}`,
+      };
     }
   }
 

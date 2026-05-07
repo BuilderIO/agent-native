@@ -2734,12 +2734,29 @@ const AssistantChatInner = forwardRef<
   // Listen for auth error events from the adapter
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
+      const detail = (e as CustomEvent).detail as
+        | {
+            reason?: string;
+            tabId?: string;
+            threadId?: string;
+          }
+        | undefined;
+      const eventTabId =
+        typeof detail?.tabId === "string" ? detail.tabId : null;
+      const eventThreadId =
+        typeof detail?.threadId === "string" ? detail.threadId : null;
+      if (
+        (eventTabId || eventThreadId) &&
+        eventTabId !== tabId &&
+        eventThreadId !== threadId
+      ) {
+        return;
+      }
       setAuthError({ sessionExpired: detail?.reason === "session-expired" });
     };
     window.addEventListener("agent-chat:auth-error", handler);
     return () => window.removeEventListener("agent-chat:auth-error", handler);
-  }, []);
+  }, [tabId, threadId]);
 
   // Listen for loop-limit events from the adapter
   useEffect(() => {

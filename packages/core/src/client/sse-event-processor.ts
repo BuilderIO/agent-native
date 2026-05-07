@@ -155,25 +155,6 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   );
 }
 
-function isAuthFailureText(message: string, errorCode?: string): boolean {
-  const code = String(errorCode ?? "").toLowerCase();
-  const msg = message.toLowerCase();
-  return (
-    code === "unauthorized" ||
-    code === "authentication_error" ||
-    code === "permission_error" ||
-    code === "http_401" ||
-    code === "http_403" ||
-    msg.includes("authentication required") ||
-    msg.includes("unauthorized") ||
-    msg.includes("forbidden") ||
-    msg.includes("not authenticated") ||
-    msg.includes("invalid token") ||
-    msg.includes("invalid or expired token") ||
-    msg.includes("session expired")
-  );
-}
-
 function isMissingCredentialText(message: string, errorCode?: string): boolean {
   const code = String(errorCode ?? "").toLowerCase();
   const msg = message.toLowerCase();
@@ -411,27 +392,6 @@ export function processEvent(
 
   if (ev.type === "error") {
     const errMsg = ev.error ?? "Unknown error";
-    if (isAuthFailureText(errMsg, ev.errorCode)) {
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("agent-chat:auth-error", {
-            detail: {
-              reason: errMsg.toLowerCase().includes("session")
-                ? "session-expired"
-                : "auth-required",
-            },
-          }),
-        );
-      }
-      content.push({ type: "text", text: "" });
-      return {
-        action: "error",
-        result: {
-          content: [...content],
-          status: { type: "incomplete" as const, reason: "error" as const },
-        } as ChatModelRunResult,
-      };
-    }
     if (
       (ev.errorCode === "run_timeout" && ev.recoverable) ||
       isAutoRecoverableError(ev, errMsg)

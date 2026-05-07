@@ -14,10 +14,14 @@ type CacheEntry = {
   fetchedAt: number;
 };
 
+type WarmTarget = string | { id: string; accountEmail?: string };
+
 const STORAGE_KEY = "mail.threadCache.v1";
 const STORAGE_TTL = 60 * 60 * 1000; // 1 hour
 const STORAGE_MAX_ENTRIES = 50;
 const STORAGE_MAX_BYTES = 3 * 1024 * 1024; // ~3MB, well under the 5MB cap
+const BACKGROUND_RATE_LIMIT_COOLDOWN_MS = 90 * 1000;
+const WARM_BATCH_LIMIT = 4;
 
 // Park state on globalThis so Vite HMR module reloads don't wipe the cache.
 type Globals = {
@@ -36,6 +40,7 @@ const subscribers = (g.__mailThreadSubscribers ??= new Map());
 // in-flight fetch started before the invalidate discards its result
 // instead of repopulating stale data.
 const versions = (g.__mailThreadVersions ??= new Map());
+let backgroundCooldownUntil = 0;
 
 function getVersion(threadId: string): number {
   return versions.get(threadId) ?? 0;
@@ -47,8 +52,44 @@ function notify(threadId: string) {
   for (const fn of set) fn();
 }
 
-async function fetchThread(threadId: string): Promise<EmailMessage[]> {
-  const res = await fetch(appApiPath(`/api/threads/${threadId}/messages`), {
+function normalizeTarget(target: WarmTarget): { id: string; accountEmail?: string } {
+  return typeof target === "string" ? { id: target } : target;
+}
+
+function isRateLimitMessage(message: string): boolean {
+  return /\b(?:429|quota|rate limit)\b/i.test(message);
+}
+
+function retryDelayFromMessage(message: string): number {
+  const match = message.match(/retry in\s+(\d+)s/i);
+  if (!match) return BACKGROUND_RATE_LIMIT_COOLDOWN_MS;
+  const seconds = Number(match[1]);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return BACKGROUND_RATE_LIMIT_COOLDOWN_MS;
+  }
+  return Math.min(Math.max(seconds * 1000, 15_000), 5 * 60_000);
+}
+
+function noteFetchError(message: string) {
+  if (!isRateLimitMessage(message)) return;
+  backgroundCooldownUntil = Math.max(
+    backgroundCooldownUntil,
+    Date.now() + retryDelayFromMessage(message),
+  );
+}
+
+function canRunBackgroundFetch() {
+  return Date.now() >= backgroundCooldownUntil;
+}
+
+async function fetchThread(
+  threadId: string,
+  accountEmail?: string,
+): Promise<EmailMessage[]> {
+  const params = new URLSearchParams();
+  if (accountEmail) params.set("accountEmail", accountEmail);
+  const suffix = params.toString() ? `?${params}` : "";
+  const res = await fetch(appApiPath(`/api/threads/${threadId}/messages${suffix}`), {
     headers: {
       "Content-Type": "application/json",
       "X-Request-Source": TAB_ID,
@@ -56,7 +97,9 @@ async function fetchThread(threadId: string): Promise<EmailMessage[]> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new Error(body?.error || `Request failed (${res.status})`);
+    const message = body?.error || `Request failed (${res.status})`;
+    noteFetchError(message);
+    throw new Error(message);
   }
   return res.json();
 }
@@ -146,22 +189,26 @@ const STALE_AFTER = 60 * 1000; // 1 minute
 
 // Fetch if not already cached or in flight. Safe to call many times for the
 // same id — dedupes via the inflight map.
-export function ensureThread(threadId: string): Promise<EmailMessage[]> {
+export function ensureThread(
+  threadId: string,
+  accountEmail?: string,
+): Promise<EmailMessage[]> {
   const cached = cache.get(threadId);
   if (cached) {
     // Stale-while-revalidate: return cached instantly, refresh in background.
     if (
       Date.now() - cached.fetchedAt > STALE_AFTER &&
-      !inflight.get(threadId)
+      !inflight.get(threadId) &&
+      canRunBackgroundFetch()
     ) {
-      void backgroundRefresh(threadId);
+      void backgroundRefresh(threadId, accountEmail);
     }
     return Promise.resolve(cached.messages);
   }
   const existing = inflight.get(threadId);
   if (existing) return existing;
   const startedVersion = getVersion(threadId);
-  const p = fetchThread(threadId)
+  const p = fetchThread(threadId, accountEmail)
     .then((messages) => {
       // If invalidateCachedThread ran while we were in flight, the version
       // bumped — discard the stale response rather than repopulating.
@@ -185,9 +232,10 @@ export function ensureThread(threadId: string): Promise<EmailMessage[]> {
 
 // Silently refresh a cached thread. Only notifies subscribers if the content
 // actually changed, avoiding re-render churn when nothing's new.
-function backgroundRefresh(threadId: string) {
+function backgroundRefresh(threadId: string, accountEmail?: string) {
+  if (!canRunBackgroundFetch()) return Promise.resolve([]);
   const startedVersion = getVersion(threadId);
-  const p = fetchThread(threadId)
+  const p = fetchThread(threadId, accountEmail)
     .then((messages) => {
       if (getVersion(threadId) !== startedVersion) {
         inflight.delete(threadId);
@@ -210,19 +258,25 @@ function backgroundRefresh(threadId: string) {
   return p;
 }
 
-// Bulk warm — threads.get is 10 units and the server-side token bucket
-// paces us under Gmail's 250/user/sec cap automatically, so we can run
-// with higher concurrency without tripping quota. 10 in flight = 100
-// units/sec worst case, comfortably within budget.
-export function warmThreads(threadIds: string[], concurrency = 10) {
-  const queue = threadIds.filter((id) => !cache.has(id) && !inflight.has(id));
+// Bulk warm a tiny window of likely-next threads. Direct clicks still fetch
+// immediately; this background path backs off completely after a quota error.
+export function warmThreads(targets: WarmTarget[], concurrency = 2) {
+  if (!canRunBackgroundFetch()) return;
+  const queue = targets
+    .map(normalizeTarget)
+    .filter((target) => !cache.has(target.id) && !inflight.has(target.id))
+    .slice(0, WARM_BATCH_LIMIT);
   if (queue.length === 0) return;
   let active = 0;
   const pump = () => {
     while (active < concurrency && queue.length > 0) {
-      const id = queue.shift()!;
+      if (!canRunBackgroundFetch()) {
+        queue.length = 0;
+        return;
+      }
+      const target = queue.shift()!;
       active++;
-      ensureThread(id)
+      ensureThread(target.id, target.accountEmail)
         .catch(() => {})
         .finally(() => {
           active--;
@@ -238,6 +292,7 @@ export function warmThreads(threadIds: string[], concurrency = 10) {
 export function useThreadCache(
   threadId: string | undefined,
   placeholder?: EmailMessage[],
+  accountEmail?: string,
 ): {
   messages: EmailMessage[] | undefined;
   isFromCache: boolean;
@@ -269,7 +324,7 @@ export function useThreadCache(
   // Kick off the fetch synchronously during render for cold opens so the
   // hook returns isLoading=true on the first paint. ensureThread dedupes.
   if (!inflight.has(threadId)) {
-    void ensureThread(threadId).catch(() => {});
+    void ensureThread(threadId, accountEmail).catch(() => {});
   }
   return {
     messages: placeholder,

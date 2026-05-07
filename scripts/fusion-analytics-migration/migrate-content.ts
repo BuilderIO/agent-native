@@ -1921,6 +1921,12 @@ function buildAnalyses(): AnalysisMigration[] {
 function memoAnalyses(): AnalysisMigration[] {
   return [
     memoAnalysis(
+      "fusion-developer-pain-assessment",
+      "Fusion Developer Pain Assessment",
+      "Bottom-up Fusion developer pain memo migrated from Gong, HubSpot, and Slack evidence.",
+      "data/memos/fusion-developer-pain-assessment.md",
+    ),
+    memoAnalysis(
       "success-stories",
       "Success Stories",
       "Narrative success-story memo migrated from Fusion data files.",
@@ -1931,6 +1937,30 @@ function memoAnalyses(): AnalysisMigration[] {
       "Success Stories Table",
       "Tabular success-story source memo migrated from Fusion data files.",
       "data/memos/success-stories-table.md",
+    ),
+    memoAnalysis(
+      "tech-partners",
+      "Tech Partners State of the Union",
+      "Technology partner account memo migrated as a SQL analysis artifact.",
+      "data/memos/tech-partners.md",
+    ),
+    memoAnalysis(
+      "fusion-s1-comprehensive-analysis",
+      "Fusion S1 Comprehensive Analysis",
+      "Executive analysis of S1+ closed-lost Fusion deals migrated from Fusion data files.",
+      "data/fusion-s1-comprehensive-analysis.md",
+    ),
+    memoAnalysis(
+      "fusion-s1-deep-dive-report",
+      "Fusion S1 Deep Dive Report",
+      "Deal-by-deal S1 Fusion deep dive migrated from Fusion data files.",
+      "data/fusion-s1-deep-dive-report.md",
+    ),
+    memoAnalysis(
+      "fusion-s1-final-analysis",
+      "Fusion S1 Final Analysis",
+      "Narrative final S1 Fusion closed-lost analysis migrated from Fusion data files.",
+      "data/fusion-s1-final-analysis.md",
     ),
   ];
 }
@@ -2285,11 +2315,8 @@ function buildExtensions(): ExtensionMigration[] {
     extension(
       "ae-pipeline",
       "AE PG Scoreboard",
-      "AE pipeline scoreboard shell using HubSpot deal data.",
-      actionSearchExtension("AE PG Scoreboard", [
-        "hubspot-deals",
-        "hubspot-metrics",
-      ]),
+      "Interactive AE pipeline scoreboard migrated from the top-level Fusion dashboard.",
+      aePipelineExtension(),
     ),
   ];
 }
@@ -2411,6 +2438,252 @@ function dataBrowserExtension(title: string, collection: string): string {
   );
 }
 
+function aePipelineExtension(): string {
+  return baseExtension(
+    "AE PG Scoreboard",
+    `<script>
+      function aePipelineScoreboard() {
+        return {
+          quarter: 'q2-fy2027',
+          pipeline: 'both',
+          aeType: 'all',
+          manager: 'all',
+          loading: false,
+          error: '',
+          rows: [],
+          managers: [],
+          stageNote: '',
+          quarters: {
+            'q1-fy2027': { label: 'Q1 FY2027', range: 'Feb 1 - Apr 30', start: '2026-02-01', end: '2026-04-30' },
+            'q2-fy2027': { label: 'Q2 FY2027', range: 'May 1 - Jul 31', start: '2026-05-01', end: '2026-07-31' }
+          },
+          targets: [
+            { owner: 'Sharon Rosenblum', manager: 'Matt Duignan', type: 'CAE', pipeline: 585000, s1: 8 },
+            { owner: 'Dakota Johnson', manager: 'Matt Duignan', type: 'CAE', pipeline: 712500, s1: 9 },
+            { owner: 'Andrew Goodhand', manager: 'Matt Duignan', type: 'CAE', pipeline: 712500, s1: 9 },
+            { owner: 'Ziv Abergel', manager: 'Matt Duignan', type: 'CAE', pipeline: 712500, s1: 9 },
+            { owner: 'Taylor Nielsen', manager: 'Matt Duignan', type: 'CAE', pipeline: 787500, s1: 10 },
+            { owner: 'Wyatt Caldwell', manager: 'Matt Duignan', type: 'CAE', pipeline: 712500, s1: 9 },
+            { owner: 'Victoria Villaroel', manager: 'Matt Duignan', type: 'CAE', pipeline: 712500, s1: 9 },
+            { owner: 'Michael Castillo', manager: 'Brian Reisman', type: 'EAE', pipeline: 1072500, s1: 11 },
+            { owner: 'Erica Schaubroeck', manager: 'Brian Reisman', type: 'EAE', pipeline: 926250, s1: 10 },
+            { owner: 'Jessica Farnham', manager: 'Brian Reisman', type: 'EAE', pipeline: 975000, s1: 10 },
+            { owner: 'George Schultz', manager: 'Brian Reisman', type: 'EAE', pipeline: 1072500, s1: 11 },
+            { owner: 'Thomas Godfrey', manager: 'Brian Reisman', type: 'EAE', pipeline: 893750, s1: 10 },
+            { owner: 'Andrew Bishop', manager: 'Erin Buckelew', type: 'EAE', pipeline: 975000, s1: 10 },
+            { owner: 'Julia Shkrabova', manager: 'Erin Buckelew', type: 'EAE', pipeline: 1012500, s1: 11 },
+            { owner: 'Nina Abassi-Beard', manager: 'Erin Buckelew', type: 'EAE', pipeline: 536250, s1: 6 },
+            { owner: 'Oliver Fison', manager: 'Erin Buckelew', type: 'CAE', pipeline: 712500, s1: 9 },
+            { owner: 'Logan Tucker', manager: 'Luke Miller', type: 'EAE', pipeline: 1072500, s1: 11 },
+            { owner: 'Adam Elias', manager: 'Luke Miller', type: 'EAE', pipeline: 975000, s1: 10 },
+            { owner: 'James Russo', manager: 'Luke Miller', type: 'EAE', pipeline: 975000, s1: 10 }
+          ],
+          async init() {
+            await this.load();
+          },
+          money(value) {
+            const n = Number(value || 0);
+            if (Math.abs(n) >= 1000000) return '$' + (n / 1000000).toFixed(1) + 'm';
+            if (Math.abs(n) >= 1000) return '$' + Math.round(n / 1000).toLocaleString() + 'k';
+            return '$' + Math.round(n).toLocaleString();
+          },
+          pct(value) {
+            return Math.round(Number(value || 0) * 100) + '%';
+          },
+          targetSql() {
+            return this.targets.map((t) => "STRUCT('" + t.owner.replace(/'/g, "''") + "' AS owner_name, '" + t.manager.replace(/'/g, "''") + "' AS manager_name, '" + t.type + "' AS ae_type, " + t.pipeline + ".0 AS pipeline_target, " + t.s1 + " AS s1_target)").join(",\\n    ");
+          },
+          pipelinePredicate() {
+            if (this.pipeline === 'new-business') return "AND LOWER(COALESCE(d.pipeline_name, '')) LIKE '%new business%'";
+            if (this.pipeline === 'expansion') return "AND LOWER(COALESCE(d.pipeline_name, '')) LIKE '%expansion%' AND LOWER(COALESCE(d.pipeline_name, '')) NOT LIKE '%self%'";
+            return "AND (LOWER(COALESCE(d.pipeline_name, '')) LIKE '%new business%' OR (LOWER(COALESCE(d.pipeline_name, '')) LIKE '%expansion%' AND LOWER(COALESCE(d.pipeline_name, '')) NOT LIKE '%self%'))";
+          },
+          sql() {
+            const q = this.quarters[this.quarter];
+            return [
+              "WITH targets AS (",
+              "  SELECT * FROM UNNEST([",
+              "    " + this.targetSql(),
+              "  ])",
+              "), deals AS (",
+              "  SELECT",
+              "    COALESCE(sales_rep_owner_name, 'Unassigned') AS owner_name,",
+              "    COALESCE(stage_name, '') AS stage_name,",
+              "    COALESCE(pipeline_name, '') AS pipeline_name,",
+              "    SAFE_CAST(amount AS FLOAT64) AS amount,",
+              "    DATE(close_date) AS close_date,",
+              "    COALESCE(is_deal_closed, FALSE) AS is_deal_closed,",
+              "    DATE(nbm_meeting_booked_date) AS nbm_booked_date,",
+              "    DATE(nbm_meeting_complete_date) AS nbm_completed_date",
+              "  FROM \`builder-3b0a2.dbt_mart.dim_hs_deals\` d",
+              "  WHERE DATE(close_date) BETWEEN DATE('" + q.start + "') AND DATE('" + q.end + "')",
+              "  " + this.pipelinePredicate(),
+              ")",
+              "SELECT",
+              "  t.owner_name, t.manager_name, t.ae_type, t.pipeline_target, t.s1_target,",
+              "  COUNTIF(d.owner_name IS NOT NULL AND STARTS_WITH(LOWER(d.stage_name), 's0')) AS s0,",
+              "  COUNTIF(d.owner_name IS NOT NULL AND d.nbm_booked_date BETWEEN DATE('" + q.start + "') AND DATE('" + q.end + "')) AS nbm_scheduled,",
+              "  COUNTIF(d.owner_name IS NOT NULL AND d.nbm_completed_date BETWEEN DATE('" + q.start + "') AND DATE('" + q.end + "')) AS nbm_completed,",
+              "  COUNTIF(d.owner_name IS NOT NULL AND NOT STARTS_WITH(LOWER(d.stage_name), 's0') AND NOT d.is_deal_closed) AS s1,",
+              "  COALESCE(SUM(IF(d.owner_name IS NOT NULL AND NOT STARTS_WITH(LOWER(d.stage_name), 's0') AND NOT d.is_deal_closed, d.amount, 0)), 0) AS s1_amount",
+              "FROM targets t",
+              "LEFT JOIN deals d ON LOWER(d.owner_name) = LOWER(t.owner_name)",
+              "GROUP BY t.owner_name, t.manager_name, t.ae_type, t.pipeline_target, t.s1_target",
+              "ORDER BY t.manager_name, t.owner_name"
+            ].join("\\n");
+          },
+          async load() {
+            this.loading = true;
+            this.error = '';
+            try {
+              const result = await appAction('bigquery', { sql: this.sql() });
+              this.rows = (result.rows || []).map((row) => {
+                const s1Target = Number(row.s1_target || 0);
+                const pipelineTarget = Number(row.pipeline_target || 0);
+                const s1 = Number(row.s1 || 0);
+                const amount = Number(row.s1_amount || 0);
+                return {
+                  owner: row.owner_name,
+                  manager: row.manager_name,
+                  type: row.ae_type,
+                  s0: Number(row.s0 || 0),
+                  nbmScheduled: Number(row.nbm_scheduled || 0),
+                  nbmCompleted: Number(row.nbm_completed || 0),
+                  s1,
+                  s1Amount: amount,
+                  s1Target,
+                  pipelineTarget,
+                  s1Gap: s1Target ? s1Target - s1 : null,
+                  pipelineGap: pipelineTarget ? pipelineTarget - amount : null,
+                  attainment: s1Target ? s1 / s1Target : null,
+                  pipelineAttainment: pipelineTarget ? amount / pipelineTarget : null
+                };
+              });
+              this.rollupManagers();
+              this.stageNote = 'S0 = Stage 0 opportunities; S1 = active non-S0 pipeline; NBM = HubSpot NBM meeting fields.';
+            } catch (e) {
+              this.error = e.message || String(e);
+            } finally {
+              this.loading = false;
+            }
+          },
+          rollupManagers() {
+            const map = {};
+            for (const row of this.rows) {
+              if (!map[row.manager]) map[row.manager] = { manager: row.manager, s0: 0, nbmScheduled: 0, nbmCompleted: 0, s1: 0, s1Amount: 0, s1Target: 0, pipelineTarget: 0 };
+              const m = map[row.manager];
+              m.s0 += row.s0;
+              m.nbmScheduled += row.nbmScheduled;
+              m.nbmCompleted += row.nbmCompleted;
+              m.s1 += row.s1;
+              m.s1Amount += row.s1Amount;
+              m.s1Target += row.s1Target;
+              m.pipelineTarget += row.pipelineTarget;
+            }
+            this.managers = Object.values(map).map((m) => ({ ...m, s1Gap: m.s1Target - m.s1, pipelineGap: m.pipelineTarget - m.s1Amount, attainment: m.s1Target ? m.s1 / m.s1Target : 0 })).sort((a, b) => a.manager.localeCompare(b.manager));
+          },
+          filteredRows() {
+            return this.rows.filter((row) => (this.aeType === 'all' || row.type === this.aeType) && (this.manager === 'all' || row.manager === this.manager)).sort((a, b) => (b.pipelineTarget || 0) - (a.pipelineTarget || 0));
+          },
+          totals() {
+            const rows = this.filteredRows();
+            const sum = (key) => rows.reduce((total, row) => total + Number(row[key] || 0), 0);
+            return { s0: sum('s0'), nbmScheduled: sum('nbmScheduled'), nbmCompleted: sum('nbmCompleted'), s1: sum('s1'), s1Amount: sum('s1Amount'), s1Target: sum('s1Target'), pipelineTarget: sum('pipelineTarget') };
+          },
+          color(value) {
+            if (value == null) return 'text-muted-foreground';
+            if (value >= 1) return 'text-emerald-400';
+            if (value >= 0.75) return 'text-amber-400';
+            return 'text-red-400';
+          }
+        };
+      }
+    </script>
+    <div x-data="aePipelineScoreboard()" x-init="init()" class="space-y-4">
+      <div class="rounded border bg-muted/30 p-4">
+        <div class="flex flex-wrap items-end gap-3">
+          <label class="space-y-1 text-xs text-muted-foreground">Quarter
+            <select x-model="quarter" x-on:change="load()" class="block rounded border bg-background px-3 py-2 text-sm text-foreground">
+              <template x-for="(q, id) in quarters" :key="id"><option x-bind:value="id" x-text="q.label + ' · ' + q.range"></option></template>
+            </select>
+          </label>
+          <label class="space-y-1 text-xs text-muted-foreground">Pipeline
+            <select x-model="pipeline" x-on:change="load()" class="block rounded border bg-background px-3 py-2 text-sm text-foreground">
+              <option value="both">New Business + Expansion</option>
+              <option value="new-business">New Business</option>
+              <option value="expansion">Expansion</option>
+            </select>
+          </label>
+          <label class="space-y-1 text-xs text-muted-foreground">AE Type
+            <select x-model="aeType" class="block rounded border bg-background px-3 py-2 text-sm text-foreground">
+              <option value="all">All</option><option value="CAE">CAE</option><option value="EAE">EAE</option>
+            </select>
+          </label>
+          <label class="space-y-1 text-xs text-muted-foreground">Manager
+            <select x-model="manager" class="block rounded border bg-background px-3 py-2 text-sm text-foreground">
+              <option value="all">All Managers</option>
+              <template x-for="m in managers" :key="m.manager"><option x-bind:value="m.manager" x-text="m.manager"></option></template>
+            </select>
+          </label>
+          <button class="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground" x-on:click="load()">Refresh</button>
+        </div>
+        <p class="mt-3 text-xs text-muted-foreground" x-text="stageNote"></p>
+      </div>
+      <p x-show="loading" class="rounded border p-3 text-muted-foreground">Loading HubSpot-backed AE pipeline...</p>
+      <p x-show="error" x-text="error" class="rounded border border-red-500/30 bg-red-950/20 p-3 text-red-500"></p>
+      <template x-if="!loading && !error">
+        <div class="space-y-4">
+          <div class="grid gap-3 md:grid-cols-4">
+            <div class="rounded border p-3"><p class="text-xs text-muted-foreground">S0 Created</p><p class="text-2xl font-semibold" x-text="totals().s0"></p></div>
+            <div class="rounded border p-3"><p class="text-xs text-muted-foreground">NBMs Scheduled / Complete</p><p class="text-2xl font-semibold"><span x-text="totals().nbmScheduled"></span> / <span x-text="totals().nbmCompleted"></span></p></div>
+            <div class="rounded border p-3"><p class="text-xs text-muted-foreground">S1 Pipeline</p><p class="text-2xl font-semibold" x-text="money(totals().s1Amount)"></p></div>
+            <div class="rounded border p-3"><p class="text-xs text-muted-foreground">Projected S1 Attainment</p><p class="text-2xl font-semibold" x-bind:class="color(totals().s1Target ? totals().s1 / totals().s1Target : null)" x-text="totals().s1Target ? pct(totals().s1 / totals().s1Target) : '—'"></p></div>
+          </div>
+          <div>
+            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">By Manager</p>
+            <div class="grid gap-2 md:grid-cols-4">
+              <template x-for="m in managers" :key="m.manager">
+                <button class="rounded border p-3 text-left hover:bg-accent" x-on:click="manager = manager === m.manager ? 'all' : m.manager">
+                  <p class="font-medium" x-text="m.manager"></p>
+                  <p class="mt-2 text-sm"><span x-text="m.s1"></span> S1 · <span x-text="money(m.s1Amount)"></span></p>
+                  <p class="text-xs text-muted-foreground">Gap <span x-text="m.s1Gap"></span> S1 · <span x-text="money(m.pipelineGap)"></span></p>
+                </button>
+              </template>
+            </div>
+          </div>
+          <div>
+            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">By AE</p>
+            <div class="overflow-auto rounded border">
+            <table class="w-full min-w-[920px] text-sm">
+              <thead class="bg-muted text-xs uppercase tracking-wide text-muted-foreground">
+                <tr><th class="px-3 py-2 text-left">AE</th><th class="px-3 py-2 text-left">Type</th><th class="px-3 py-2 text-left">Manager</th><th class="px-3 py-2 text-right">S0</th><th class="px-3 py-2 text-right">NBM Sched</th><th class="px-3 py-2 text-right">NBM Comp</th><th class="px-3 py-2 text-right">S1</th><th class="px-3 py-2 text-right">S1 Gap</th><th class="px-3 py-2 text-right">S1 Amount</th><th class="px-3 py-2 text-right">Pipeline Gap</th><th class="px-3 py-2 text-right">Attainment</th></tr>
+              </thead>
+              <tbody>
+                <template x-for="row in filteredRows()" :key="row.owner">
+                  <tr class="border-t">
+                    <td class="px-3 py-2 font-medium" x-text="row.owner"></td>
+                    <td class="px-3 py-2 text-muted-foreground" x-text="row.type"></td>
+                    <td class="px-3 py-2 text-muted-foreground" x-text="row.manager"></td>
+                    <td class="px-3 py-2 text-right tabular-nums" x-text="row.s0"></td>
+                    <td class="px-3 py-2 text-right tabular-nums" x-text="row.nbmScheduled"></td>
+                    <td class="px-3 py-2 text-right tabular-nums" x-text="row.nbmCompleted"></td>
+                    <td class="px-3 py-2 text-right tabular-nums" x-text="row.s1 + ' / ' + row.s1Target"></td>
+                    <td class="px-3 py-2 text-right tabular-nums" x-bind:class="color(row.attainment)" x-text="row.s1Gap ?? '—'"></td>
+                    <td class="px-3 py-2 text-right tabular-nums" x-text="money(row.s1Amount)"></td>
+                    <td class="px-3 py-2 text-right tabular-nums" x-bind:class="color(row.pipelineAttainment)" x-text="row.pipelineGap == null ? '—' : money(row.pipelineGap)"></td>
+                    <td class="px-3 py-2 text-right tabular-nums" x-bind:class="color(row.attainment)" x-text="row.attainment == null ? '—' : pct(row.attainment)"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>`,
+  );
+}
+
 function stripeExtension(): string {
   return baseExtension(
     "Stripe Billing",
@@ -2481,17 +2754,32 @@ function qbrExtension(): string {
       function salesQbr() {
         return {
           owner: '',
+          owners: ['Sharon Rosenblum','Dakota Johnson','Andrew Goodhand','Ziv Abergel','Taylor Nielsen','Wyatt Caldwell','Victoria Villaroel','Michael Castillo','Erica Schaubroeck','Jessica Farnham','George Schultz','Thomas Godfrey','Nina Abassi-Beard','Andrew Bishop','Oliver Fison','Julia Shkrabova','Logan Tucker','Adam Elias','James Russo'],
           loading: false,
           error: '',
           deckOpen: false,
           saved: [],
-          deals: null,
-          form: { goals: '', forecast: '', risks: '', asks: '' },
+          hs: null,
+          form: {
+            q1GoalsLookback: '',
+            fy26GoalsLookback: '',
+            fy27SmartGoals: '',
+            q2SmartGoals: '',
+            q1CommitAtWeek5: '',
+            q1BestCaseAtWeek5: '',
+            q1Analysis: '',
+            nbmRows: [],
+            q2Target: '',
+            territoryPlanLink: '',
+            ask1: '',
+            ask2: '',
+            ask3: ''
+          },
           parse(row) {
             if (!row || row.data == null) return null;
             try {
               const parsed = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
-              return parsed && parsed.value && parsed.value.owner ? parsed.value : parsed;
+              return parsed && parsed.value ? parsed.value : parsed;
             } catch (_) {
               return null;
             }
@@ -2499,28 +2787,61 @@ function qbrExtension(): string {
           async init() {
             this.saved = await extensionData.list('qbr-notes', { scope: 'org' });
           },
-          async loadSaved() {
-            const row = await extensionData.get('qbr-notes', this.owner, { scope: 'org' });
+          emptyForm() {
+            return {
+              q1GoalsLookback: '',
+              fy26GoalsLookback: '',
+              fy27SmartGoals: '',
+              q2SmartGoals: '',
+              q1CommitAtWeek5: '',
+              q1BestCaseAtWeek5: '',
+              q1Analysis: '',
+              nbmRows: [],
+              q2Target: '',
+              territoryPlanLink: '',
+              ask1: '',
+              ask2: '',
+              ask3: ''
+            };
+          },
+          async selectOwner(name) {
+            this.owner = name;
+            this.deckOpen = false;
+            this.form = this.emptyForm();
+            await Promise.all([this.loadSaved(name), this.loadDeals()]);
+          },
+          async loadSaved(name) {
+            const row = await extensionData.get('qbr-notes', name || this.owner, { scope: 'org' });
             const data = this.parse(row);
-            if (data) this.form = { goals: data.goals || data.notes || '', forecast: data.forecast || '', risks: data.risks || '', asks: data.asks || '' };
+            if (data) this.form = { ...this.form, ...data };
           },
           dealSql() {
             const owner = this.owner.replace(/'/g, "''");
             return [
-              "SELECT deal_name, company_name, stage_name, pipeline_name, DATE(close_date) AS close_date, SAFE_CAST(amount AS FLOAT64) AS amount, COALESCE(hs_manual_forecast_category, 'Uncategorized') AS forecast_category",
-              "FROM \`builder-3b0a2.dbt_mart.dim_hs_deals\`",
-              "WHERE LOWER(COALESCE(sales_rep_owner_name, '')) = LOWER('" + owner + "')",
-              "  AND DATE(close_date) BETWEEN DATE('2026-05-01') AND DATE('2026-07-31')",
-              "ORDER BY amount DESC",
-              "LIMIT 100"
+              "WITH deals AS (",
+              "  SELECT deal_name, company_name, stage_name, pipeline_name, DATE(close_date) AS close_date, SAFE_CAST(amount AS FLOAT64) AS amount, COALESCE(hs_manual_forecast_category, 'Uncategorized') AS forecast_category, COALESCE(is_closed_won, FALSE) AS is_closed_won, COALESCE(is_deal_closed, FALSE) AS is_deal_closed, DATE(nbm_meeting_booked_date) AS nbm_booked_date, DATE(nbm_meeting_complete_date) AS nbm_completed_date",
+              "  FROM \`builder-3b0a2.dbt_mart.dim_hs_deals\`",
+              "  WHERE LOWER(COALESCE(sales_rep_owner_name, '')) = LOWER('" + owner + "')",
+              ")",
+              "SELECT",
+              "  COUNTIF(is_closed_won AND DATE(close_date) BETWEEN DATE('2026-02-01') AND DATE('2026-04-30')) AS q1_closed_won_count,",
+              "  COALESCE(SUM(IF(is_closed_won AND DATE(close_date) BETWEEN DATE('2026-02-01') AND DATE('2026-04-30'), amount, 0)), 0) AS q1_closed_won_arr,",
+              "  COUNTIF(is_deal_closed AND NOT is_closed_won AND DATE(close_date) BETWEEN DATE('2026-02-01') AND DATE('2026-04-30')) AS q1_closed_lost_count,",
+              "  COUNTIF(STARTS_WITH(LOWER(stage_name), 's0') AND DATE(close_date) BETWEEN DATE('2026-02-01') AND DATE('2026-04-30')) AS q1_s0_count,",
+              "  COUNTIF(nbm_booked_date BETWEEN DATE('2026-02-01') AND DATE('2026-04-30')) AS q1_nbm_scheduled,",
+              "  COUNTIF(nbm_completed_date BETWEEN DATE('2026-02-01') AND DATE('2026-04-30')) AS q1_nbm_completed,",
+              "  COUNTIF(NOT STARTS_WITH(LOWER(stage_name), 's0') AND NOT is_deal_closed AND DATE(close_date) BETWEEN DATE('2026-05-01') AND DATE('2026-07-31')) AS q2_pipeline_count,",
+              "  COALESCE(SUM(IF(NOT STARTS_WITH(LOWER(stage_name), 's0') AND NOT is_deal_closed AND DATE(close_date) BETWEEN DATE('2026-05-01') AND DATE('2026-07-31'), amount, 0)), 0) AS q2_pipeline_arr,",
+              "  ARRAY_AGG(STRUCT(deal_name, company_name, stage_name, pipeline_name, close_date, amount, forecast_category) ORDER BY amount DESC LIMIT 12) AS top_deals",
+              "FROM deals"
             ].join("\\n");
           },
           async loadDeals() {
-            if (!this.owner.trim()) { this.error = 'Enter an AE owner name first.'; return; }
+            if (!this.owner.trim()) { return; }
             this.loading = true; this.error = '';
             try {
-              await this.loadSaved();
-              this.deals = await appAction('bigquery', { sql: this.dealSql() });
+              const result = await appAction('bigquery', { sql: this.dealSql() });
+              this.hs = (result.rows || [])[0] || null;
             } catch (e) {
               this.error = e.message || String(e);
             } finally {
@@ -2532,48 +2853,106 @@ function qbrExtension(): string {
             await extensionData.set('qbr-notes', this.owner, { owner: this.owner, ...this.form, updatedAt: new Date().toISOString() }, { scope: 'org' });
             await this.init();
           },
-          totalPipeline() {
-            return (this.deals?.rows || []).reduce((sum, row) => sum + Number(row.amount || 0), 0);
+          money(value) {
+            const n = Number(value || 0);
+            if (Math.abs(n) >= 1000000) return '$' + (n / 1000000).toFixed(1) + 'm';
+            if (Math.abs(n) >= 1000) return '$' + Math.round(n / 1000).toLocaleString() + 'k';
+            return '$' + Math.round(n).toLocaleString();
+          },
+          addNbmRow() {
+            this.form.nbmRows.push({ id: String(Date.now()), accountName: '', contactNameTitle: '', products: '', weekNumber: '', currentStage: '', opportunityValue: '' });
           }
         };
       }
     </script>
-    <div x-data="salesQbr()" x-init="init()" class="space-y-4">
-      <div class="flex flex-wrap gap-2">
-        <input x-model="owner" class="min-w-64 flex-1 rounded border px-3 py-2" placeholder="AE / owner name" />
-        <button class="rounded border px-3 py-2" x-on:click="loadDeals()">Load QBR data</button>
-        <button class="rounded border px-3 py-2" x-on:click="save()">Save form</button>
-        <button class="rounded bg-primary px-3 py-2 text-primary-foreground" x-on:click="deckOpen = true">Preview deck</button>
+    <div x-data="salesQbr()" x-init="init()" class="space-y-5">
+      <div class="rounded border bg-muted/30 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p class="text-xs uppercase tracking-wide text-muted-foreground">Q1 FY27 Review · Q2 FY27 Planning</p>
+            <h2 class="text-xl font-semibold">Sales QBR Deck Builder</h2>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <select class="min-w-64 rounded border bg-background px-3 py-2" x-on:change="selectOwner($event.target.value)">
+              <option value="">Select Account Executive</option>
+              <template x-for="name in owners" :key="name"><option x-bind:value="name" x-text="name"></option></template>
+            </select>
+            <button class="rounded border px-3 py-2" x-bind:disabled="!owner || loading" x-on:click="loadDeals()">Refresh HubSpot</button>
+            <button class="rounded border px-3 py-2" x-bind:disabled="!owner" x-on:click="save()">Save</button>
+            <button class="rounded bg-primary px-4 py-2 text-primary-foreground" x-bind:disabled="!owner" x-on:click="deckOpen = true">View Deck</button>
+          </div>
+        </div>
       </div>
       <p x-show="loading" class="text-muted-foreground">Loading HubSpot-backed QBR data...</p>
       <p x-show="error" x-text="error" class="text-red-600"></p>
-      <div x-show="!deckOpen" class="grid gap-3 md:grid-cols-2">
-        <textarea x-model="form.goals" class="h-28 rounded border p-3" placeholder="Quarter goals"></textarea>
-        <textarea x-model="form.forecast" class="h-28 rounded border p-3" placeholder="Forecast narrative"></textarea>
-        <textarea x-model="form.risks" class="h-28 rounded border p-3" placeholder="Risks and blockers"></textarea>
-        <textarea x-model="form.asks" class="h-28 rounded border p-3" placeholder="Leadership asks"></textarea>
+      <template x-if="owner && hs && !deckOpen">
+        <div class="grid gap-3 md:grid-cols-4">
+          <div class="rounded border p-3"><p class="text-xs text-muted-foreground">Q1 Closed Won</p><p class="text-xl font-semibold" x-text="money(hs.q1_closed_won_arr)"></p><p class="text-xs text-muted-foreground" x-text="hs.q1_closed_won_count + ' deals'"></p></div>
+          <div class="rounded border p-3"><p class="text-xs text-muted-foreground">Q1 Closed Lost</p><p class="text-xl font-semibold" x-text="hs.q1_closed_lost_count"></p></div>
+          <div class="rounded border p-3"><p class="text-xs text-muted-foreground">Q1 NBMs</p><p class="text-xl font-semibold"><span x-text="hs.q1_nbm_scheduled"></span> / <span x-text="hs.q1_nbm_completed"></span></p></div>
+          <div class="rounded border p-3"><p class="text-xs text-muted-foreground">Q2 Pipeline</p><p class="text-xl font-semibold" x-text="money(hs.q2_pipeline_arr)"></p><p class="text-xs text-muted-foreground" x-text="hs.q2_pipeline_count + ' deals'"></p></div>
+        </div>
+      </template>
+      <div x-show="owner && !deckOpen" class="space-y-4">
+        <section class="rounded border p-4">
+          <h3 class="mb-3 font-semibold">Goals</h3>
+          <div class="grid gap-3 md:grid-cols-2">
+            <textarea x-model="form.q1GoalsLookback" class="h-24 rounded border p-3" placeholder="Q1 goals lookback"></textarea>
+            <textarea x-model="form.fy26GoalsLookback" class="h-24 rounded border p-3" placeholder="FY26 goals lookback"></textarea>
+            <textarea x-model="form.fy27SmartGoals" class="h-24 rounded border p-3" placeholder="FY27 SMART goals"></textarea>
+            <textarea x-model="form.q2SmartGoals" class="h-24 rounded border p-3" placeholder="Q2 SMART goals"></textarea>
+          </div>
+        </section>
+        <section class="rounded border p-4">
+          <h3 class="mb-3 font-semibold">Performance Summary</h3>
+          <div class="grid gap-3 md:grid-cols-3">
+            <input x-model="form.q1CommitAtWeek5" class="rounded border px-3 py-2" placeholder="Q1 commit at week 5" />
+            <input x-model="form.q1BestCaseAtWeek5" class="rounded border px-3 py-2" placeholder="Q1 best case at week 5" />
+            <input x-model="form.q2Target" class="rounded border px-3 py-2" placeholder="Q2 target" />
+          </div>
+          <textarea x-model="form.q1Analysis" class="mt-3 h-24 w-full rounded border p-3" placeholder="Q1 analysis"></textarea>
+        </section>
+        <section class="rounded border p-4">
+          <div class="mb-3 flex items-center justify-between"><h3 class="font-semibold">NBM Plan</h3><button class="rounded border px-3 py-1.5 text-xs" x-on:click="addNbmRow()">Add row</button></div>
+          <div class="space-y-2">
+            <template x-for="row in form.nbmRows" :key="row.id">
+              <div class="grid gap-2 md:grid-cols-5">
+                <input x-model="row.accountName" class="rounded border px-3 py-2" placeholder="Account" />
+                <input x-model="row.contactNameTitle" class="rounded border px-3 py-2" placeholder="Contact / title" />
+                <input x-model="row.products" class="rounded border px-3 py-2" placeholder="Products" />
+                <input x-model="row.weekNumber" class="rounded border px-3 py-2" placeholder="Week" />
+                <input x-model="row.opportunityValue" class="rounded border px-3 py-2" placeholder="Value" />
+              </div>
+            </template>
+          </div>
+        </section>
+        <section class="rounded border p-4">
+          <h3 class="mb-3 font-semibold">Territory & Asks</h3>
+          <input x-model="form.territoryPlanLink" class="mb-3 w-full rounded border px-3 py-2" placeholder="Territory plan link" />
+          <div class="grid gap-3 md:grid-cols-3">
+            <input x-model="form.ask1" class="rounded border px-3 py-2" placeholder="Ask 1" />
+            <input x-model="form.ask2" class="rounded border px-3 py-2" placeholder="Ask 2" />
+            <input x-model="form.ask3" class="rounded border px-3 py-2" placeholder="Ask 3" />
+          </div>
+        </section>
       </div>
-      <section x-show="deals && !deckOpen" class="rounded border p-3">
-        <h2 class="font-medium">Pipeline loaded</h2>
-        <p class="text-sm text-muted-foreground"><span x-text="(deals?.rows || []).length"></span> deals · $<span x-text="Math.round(totalPipeline()).toLocaleString()"></span></p>
-        <pre class="mt-2 max-h-72 overflow-auto whitespace-pre-wrap text-xs" x-text="JSON.stringify(deals?.rows || [], null, 2)"></pre>
-      </section>
       <section x-show="deckOpen" class="space-y-3 rounded border p-4">
         <div class="flex items-center justify-between">
-          <h2 class="text-base font-semibold">Sales QBR Preview</h2>
+          <div><p class="text-xs uppercase tracking-wide text-muted-foreground">AE QBR Deck</p><h2 class="text-xl font-semibold" x-text="owner"></h2></div>
           <button class="rounded border px-3 py-1.5 text-xs" x-on:click="deckOpen = false">Back to form</button>
         </div>
-        <div class="rounded bg-muted p-4">
-          <p class="text-xs uppercase text-muted-foreground">Owner</p>
-          <h3 class="text-xl font-semibold" x-text="owner || 'Unassigned owner'"></h3>
-          <p class="mt-2 text-sm">Pipeline: $<span x-text="Math.round(totalPipeline()).toLocaleString()"></span></p>
+        <div class="grid gap-3 md:grid-cols-3">
+          <div class="rounded bg-muted p-3"><p class="text-xs text-muted-foreground">Q1 Closed Won</p><p class="font-semibold" x-text="money(hs?.q1_closed_won_arr || 0)"></p></div>
+          <div class="rounded bg-muted p-3"><p class="text-xs text-muted-foreground">Q2 Pipeline</p><p class="font-semibold" x-text="money(hs?.q2_pipeline_arr || 0)"></p></div>
+          <div class="rounded bg-muted p-3"><p class="text-xs text-muted-foreground">Q2 Target</p><p class="font-semibold" x-text="form.q2Target || 'Not set'"></p></div>
         </div>
         <div class="grid gap-3 md:grid-cols-2">
-          <div class="rounded border p-3"><p class="font-medium">Goals</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.goals || 'No goals saved yet.'"></p></div>
-          <div class="rounded border p-3"><p class="font-medium">Forecast</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.forecast || 'No forecast saved yet.'"></p></div>
-          <div class="rounded border p-3"><p class="font-medium">Risks</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.risks || 'No risks saved yet.'"></p></div>
-          <div class="rounded border p-3"><p class="font-medium">Asks</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.asks || 'No asks saved yet.'"></p></div>
+          <div class="rounded border p-3"><p class="font-medium">Goals</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.q2SmartGoals || form.fy27SmartGoals || 'No goals saved yet.'"></p></div>
+          <div class="rounded border p-3"><p class="font-medium">Performance</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.q1Analysis || 'No analysis saved yet.'"></p></div>
+          <div class="rounded border p-3"><p class="font-medium">Territory</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.territoryPlanLink || 'No territory plan link saved yet.'"></p></div>
+          <div class="rounded border p-3"><p class="font-medium">Asks</p><ul class="mt-2 list-disc space-y-1 pl-5 text-sm"><template x-for="ask in [form.ask1, form.ask2, form.ask3].filter(Boolean)" :key="ask"><li x-text="ask"></li></template></ul></div>
         </div>
+        <div class="rounded border p-3"><p class="font-medium">NBM Plan</p><p class="mt-1 text-sm text-muted-foreground" x-text="form.nbmRows.length ? form.nbmRows.length + ' planned NBMs' : 'No NBM rows entered yet.'"></p></div>
       </section>
     </div>`,
   );

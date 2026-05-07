@@ -395,7 +395,11 @@ export function createAgentChatAdapter(options?: {
         if (typeof window === "undefined") return;
         window.dispatchEvent(
           new CustomEvent("agent-chat:auth-error", {
-            detail: { reason },
+            detail: {
+              reason,
+              ...(tabId ? { tabId } : {}),
+              ...(threadId ? { threadId } : {}),
+            },
           }),
         );
       };
