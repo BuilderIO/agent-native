@@ -121,6 +121,7 @@ Available action types: label (with labelName), archive, mark_read, star, trash.
 Before drafting or rewriting email copy, run \`get-mail-settings\`.
 - Use \`signature\` exactly when it is configured. Do not rewrite it, summarize it, or duplicate it if it is already in the draft.
 - If no signature is configured, omit the signature. Never invent or derive a sign-off from the user's name, email address, or Gmail profile.
+- If the user asks to use or refresh their Gmail signature, run \`import-gmail-signature\` first.
 - Follow \`writingStyle\` when present.
 - Draft bodies use Markdown only. Avoid generic AI email tropes, headings, and over-formal filler unless the user explicitly asks for a formal template.
 

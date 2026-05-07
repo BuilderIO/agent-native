@@ -247,7 +247,16 @@ export default function CalendarView() {
         : events,
     [events, viewMode, selectedDate],
   );
-  useMeetingStartNotifications(events);
+  const openNotificationEvent = useCallback(
+    (event: CalendarEvent) => {
+      setSelectedDate(parseISO(event.start));
+      setViewMode("day");
+      setSidebarEvent(event);
+      setFocusedEvent(event);
+    },
+    [setFocusedEvent, setSelectedDate, setSidebarEvent, setViewMode],
+  );
+  useMeetingStartNotifications(events, openNotificationEvent);
 
   const selectedEvent = useMemo(() => {
     const candidate = sidebarEvent ?? focusedEvent;
@@ -782,7 +791,7 @@ export default function CalendarView() {
 
               <NotificationsBell
                 browserNotifications
-                emptyDescription="This bell shows app updates. Event alerts are set inside each calendar event."
+                emptyDescription="Calendar can pop browser alerts while this app is open. Clips desktop handles fuller meeting prompts with one-click notes."
               />
               <CreateEventPopover
                 open={createDialogOpen}

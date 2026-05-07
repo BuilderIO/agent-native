@@ -64,8 +64,14 @@ export function htmlSignatureToMarkdown(html: string): string {
   next = next
     .replace(/<(strong|b)\b[^>]*>([\s\S]*?)<\/\1>/gi, "**$2**")
     .replace(/<(em|i)\b[^>]*>([\s\S]*?)<\/\1>/gi, "*$2*")
-    .replace(/<\/(div|p|li|tr|table|section|article|blockquote|h[1-6])>/gi, "\n")
-    .replace(/<(div|p|li|tr|table|section|article|blockquote|h[1-6])\b[^>]*>/gi, "\n")
+    .replace(
+      /<\/(div|p|li|tr|table|section|article|blockquote|h[1-6])>/gi,
+      "\n",
+    )
+    .replace(
+      /<(div|p|li|tr|table|section|article|blockquote|h[1-6])\b[^>]*>/gi,
+      "\n",
+    )
     .replace(/<[^>]+>/g, "");
 
   return cleanMarkdown(next);

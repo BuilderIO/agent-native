@@ -39,14 +39,22 @@ function emptySseResponse(runId = "run-empty"): Response {
 }
 
 function idleSseResponse(runId = "run-idle"): Response {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   return new Response(
     new ReadableStream<Uint8Array>({
       start(controller) {
-        setTimeout(() => {
-          controller.enqueue(
-            new TextEncoder().encode(`: ping ${Date.now()}\n\n`),
-          );
+        timer = setTimeout(() => {
+          try {
+            controller.enqueue(
+              new TextEncoder().encode(`: ping ${Date.now()}\n\n`),
+            );
+          } catch {
+            // The watchdog may have cancelled the stream first.
+          }
         }, SSE_NO_PROGRESS_TIMEOUT_MS + 1);
+      },
+      cancel() {
+        if (timer) clearTimeout(timer);
       },
     }),
     {

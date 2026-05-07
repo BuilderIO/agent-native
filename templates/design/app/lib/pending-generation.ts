@@ -1,5 +1,6 @@
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 
+export const PENDING_GENERATION_STALE_MS = 2 * 60 * 1000;
 export const PENDING_GENERATION_TTL_MS = 10 * 60 * 1000;
 
 export interface PendingGeneration {
@@ -8,6 +9,8 @@ export interface PendingGeneration {
   title?: string;
   source?: string;
   createdAt?: number;
+  startedAt?: number;
+  runTabId?: string;
 }
 
 export function pendingGenerationKey(id: string): string {
@@ -25,16 +28,29 @@ export function writePendingGeneration(
   );
 }
 
-export function clearPendingGeneration(id: string): void {
-  if (typeof window === "undefined") return;
+export function patchPendingGeneration(
+  id: string | undefined,
+  patch: Partial<PendingGeneration>,
+): void {
+  if (typeof window === "undefined" || !id) return;
+  const current = readPendingGeneration(id, { allowUntimestamped: true });
+  if (!current) return;
+  window.sessionStorage.setItem(
+    pendingGenerationKey(id),
+    JSON.stringify({ ...current, ...patch }),
+  );
+}
+
+export function clearPendingGeneration(id: string | undefined): void {
+  if (typeof window === "undefined" || !id) return;
   window.sessionStorage.removeItem(pendingGenerationKey(id));
 }
 
 export function readPendingGeneration(
-  id: string,
+  id: string | undefined,
   options: { consume?: boolean; allowUntimestamped?: boolean } = {},
 ): PendingGeneration | null {
-  if (typeof window === "undefined") return null;
+  if (typeof window === "undefined" || !id) return null;
   const key = pendingGenerationKey(id);
   try {
     const raw = window.sessionStorage.getItem(key);
@@ -58,6 +74,17 @@ export function readPendingGeneration(
   }
 }
 
-export function hasFreshPendingGeneration(id: string): boolean {
+export function isPendingGenerationStale(
+  pending: PendingGeneration | null,
+): boolean {
+  if (!pending) return false;
+  const timestamp = pending.startedAt ?? pending.createdAt;
+  return (
+    typeof timestamp === "number" &&
+    Date.now() - timestamp > PENDING_GENERATION_STALE_MS
+  );
+}
+
+export function hasFreshPendingGeneration(id: string | undefined): boolean {
   return !!readPendingGeneration(id);
 }

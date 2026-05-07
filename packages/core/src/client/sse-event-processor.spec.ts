@@ -7,13 +7,21 @@ import {
 } from "./sse-event-processor.js";
 
 function commentOnlyStream(delayMs: number): ReadableStream<Uint8Array> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   return new ReadableStream<Uint8Array>({
     start(controller) {
-      setTimeout(() => {
-        controller.enqueue(
-          new TextEncoder().encode(`: ping ${Date.now()}\n\n`),
-        );
+      timer = setTimeout(() => {
+        try {
+          controller.enqueue(
+            new TextEncoder().encode(`: ping ${Date.now()}\n\n`),
+          );
+        } catch {
+          // The watchdog may have cancelled the stream first.
+        }
       }, delayMs);
+    },
+    cancel() {
+      if (timer) clearTimeout(timer);
     },
   });
 }

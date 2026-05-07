@@ -59,7 +59,11 @@ function formatStartTime(startIso: string, now: number) {
   return `Starts in ${minutes} min`;
 }
 
-function notifyEvent(event: CalendarEvent, now: number) {
+function notifyEvent(
+  event: CalendarEvent,
+  now: number,
+  onClick?: (event: CalendarEvent) => void,
+) {
   const title = event.title.trim() || "Meeting starting";
   const location = event.location.trim();
   const body = location
@@ -73,15 +77,24 @@ function notifyEvent(event: CalendarEvent, now: number) {
 
   notification.onclick = () => {
     window.focus();
+    onClick?.(event);
   };
 }
 
-export function useMeetingStartNotifications(events: CalendarEvent[]) {
+export function useMeetingStartNotifications(
+  events: CalendarEvent[],
+  onNotificationClick?: (event: CalendarEvent) => void,
+) {
   const eventsRef = useRef(events);
+  const onNotificationClickRef = useRef(onNotificationClick);
 
   useEffect(() => {
     eventsRef.current = events;
   }, [events]);
+
+  useEffect(() => {
+    onNotificationClickRef.current = onNotificationClick;
+  }, [onNotificationClick]);
 
   useEffect(() => {
     if (!supportsNotifications()) return;
@@ -102,7 +115,7 @@ export function useMeetingStartNotifications(events: CalendarEvent[]) {
         if (!isNotificationCandidate(event, now)) continue;
 
         try {
-          notifyEvent(event, now);
+          notifyEvent(event, now, onNotificationClickRef.current);
           sent.add(key);
           changed = true;
         } catch {
