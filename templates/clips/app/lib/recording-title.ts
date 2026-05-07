@@ -114,7 +114,10 @@ function cleanTitlePart(value: string | null | undefined): string | null {
 
 function stripBrowserSuffix(value: string): string {
   return value
-    .replace(/\s+-\s+(Google Chrome|Chrome|Brave Browser|Brave|Microsoft Edge|Edge|Safari|Firefox)$/i, "")
+    .replace(
+      /\s+-\s+(Google Chrome|Chrome|Brave Browser|Brave|Microsoft Edge|Edge|Safari|Firefox)$/i,
+      "",
+    )
     .trim();
 }
 

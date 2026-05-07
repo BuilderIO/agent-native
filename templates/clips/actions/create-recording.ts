@@ -29,7 +29,7 @@ const cliBoolean = z
 
 export default defineAction({
   description:
-    "Create a new recording row in 'uploading' status and return its id plus the chunk upload URL template. The frontend POSTs chunks to /api/uploads/:id/chunk?index=N&total=T&isFinal=0|1, then finalizes on the last chunk.",
+    "Create a new recording row in 'uploading' status and return its id plus the chunk upload URL template. The frontend POSTs chunks to /api/uploads/:id/chunk?index=N&total=T&isFinal=0|1, then finalizes on the last chunk. Recorders can pass app/window title context for an immediate fallback title.",
   schema: z.object({
     id: z
       .string()
@@ -126,9 +126,7 @@ export default defineAction({
       startedAt: now,
     });
 
-    console.log(
-      `Created recording "${title}" (${id})`,
-    );
+    console.log(`Created recording "${title}" (${id})`);
 
     return {
       id,

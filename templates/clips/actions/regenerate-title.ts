@@ -19,10 +19,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import cleanupTranscript from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
-import {
-  isAutoTitleReplaceable,
-  isDefaultTitle,
-} from "./lib/title-source.js";
+import { isAutoTitleReplaceable, isDefaultTitle } from "./lib/title-source.js";
 
 function transcriptTextFromSegments(raw: string | null | undefined): string {
   if (!raw) return "";

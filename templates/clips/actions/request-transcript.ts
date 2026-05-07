@@ -552,12 +552,7 @@ export default defineAction({
           .from(schema.recordings)
           .where(eq(schema.recordings.id, args.recordingId))
           .limit(1);
-        if (
-          isAutoTitleReplaceable(
-            freshRec?.title,
-            freshRec?.titleSource,
-          )
-        ) {
+        if (isAutoTitleReplaceable(freshRec?.title, freshRec?.titleSource)) {
           try {
             await regenerateTitle.run({ recordingId: args.recordingId });
           } catch (delegateErr) {

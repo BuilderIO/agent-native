@@ -16,10 +16,7 @@ function hasMetaProperty(meta: MetaDescriptor[], property: string) {
 function hasMetaName(meta: MetaDescriptor[], name: string) {
   return meta.some(
     (item) =>
-      item &&
-      typeof item === "object" &&
-      "name" in item &&
-      item.name === name,
+      item && typeof item === "object" && "name" in item && item.name === name,
   );
 }
 

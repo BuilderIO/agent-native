@@ -17,6 +17,7 @@ import {
   trackEvent,
   type Template,
 } from "../components/TemplateCard";
+import { withDefaultSocialImage } from "../seo";
 
 function findTemplate(slug: string | undefined) {
   if (slug === "videos") slug = "video";
@@ -35,11 +36,15 @@ export function loader({ params }: LoaderFunctionArgs) {
 
 export const meta = ({ params }: { params: { slug?: string } }) => {
   const template = findTemplate(params.slug);
-  if (!template) return [{ title: "Template Not Found — Agent-Native" }];
-  return [
+  if (!template) {
+    return withDefaultSocialImage([
+      { title: "Template Not Found — Agent-Native" },
+    ]);
+  }
+  return withDefaultSocialImage([
     { title: `Agent-Native ${template.name} Template` },
     { name: "description", content: template.description },
-  ];
+  ]);
 };
 
 function TemplateFallbackArt({ template }: { template: Template }) {

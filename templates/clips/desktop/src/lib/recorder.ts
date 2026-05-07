@@ -51,10 +51,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { loadVocabulary } from "./personal-vocabulary";
-import {
-  buildCaptureTitle,
-  type CaptureTitleResult,
-} from "./recording-title";
+import { buildCaptureTitle, type CaptureTitleResult } from "./recording-title";
 
 export type CaptureMode = "screen" | "screen-camera" | "camera";
 export type CaptureSource = "full-screen" | "window";
@@ -177,8 +174,9 @@ async function captureTitleForRecording(params: {
   mode: CaptureMode;
   source?: CaptureSource;
 }): Promise<CaptureTitleResult> {
-  const context = await invoke<ActiveWindowContext>("active_window_context")
-    .catch(() => null);
+  const context = await invoke<ActiveWindowContext>(
+    "active_window_context",
+  ).catch(() => null);
   return buildCaptureTitle({
     appName: context?.appName,
     windowTitle: context?.windowTitle,

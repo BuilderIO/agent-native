@@ -1,29 +1,31 @@
 import { Link } from "react-router";
 import { useState } from "react";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { withDefaultSocialImage } from "../seo";
 
-export const meta = () => [
-  { title: "Agent-Native Slides — Open Source AI Presentation Builder" },
-  {
-    name: "description",
-    content:
-      "Generate and edit presentations with AI. Open source alternative to Google Slides and Pitch. Create slide decks via natural language with visual editing, 8 layouts, image generation, logo search, sharing, and presentation mode.",
-  },
-  {
-    property: "og:title",
-    content: "Agent-Native Slides — Open Source AI Presentation Builder",
-  },
-  {
-    property: "og:description",
-    content:
-      "Generate and edit presentations with AI. Create slide decks via natural language.",
-  },
-  {
-    name: "keywords",
-    content:
-      "AI presentation maker, AI slide generator, open source Google Slides alternative, Pitch alternative, AI PowerPoint, AI deck builder, agent-native slides, AI presentation tool, AI slide deck, prompt to presentation",
-  },
-];
+export const meta = () =>
+  withDefaultSocialImage([
+    { title: "Agent-Native Slides — Open Source AI Presentation Builder" },
+    {
+      name: "description",
+      content:
+        "Generate and edit presentations with AI. Open source alternative to Google Slides and Pitch. Create slide decks via natural language with visual editing, 8 layouts, image generation, logo search, sharing, and presentation mode.",
+    },
+    {
+      property: "og:title",
+      content: "Agent-Native Slides — Open Source AI Presentation Builder",
+    },
+    {
+      property: "og:description",
+      content:
+        "Generate and edit presentations with AI. Create slide decks via natural language.",
+    },
+    {
+      name: "keywords",
+      content:
+        "AI presentation maker, AI slide generator, open source Google Slides alternative, Pitch alternative, AI PowerPoint, AI deck builder, agent-native slides, AI presentation tool, AI slide deck, prompt to presentation",
+    },
+  ]);
 
 const template = templates.find((t) => t.slug === "slides")!;
 

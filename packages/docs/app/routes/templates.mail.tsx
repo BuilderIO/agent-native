@@ -1,32 +1,35 @@
 import { Link } from "react-router";
 import { useState } from "react";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { withDefaultSocialImage } from "../seo";
 
-export const meta = () => [
-  {
-    title: "Agent-Native Mail — Open Source Alternative to Gmail & Superhuman",
-  },
-  {
-    name: "description",
-    content:
-      "Build an AI-powered email client you own. Superhuman-style keyboard shortcuts, AI triage, smart search, and a fully customizable interface. Open source alternative to Gmail and Superhuman.",
-  },
-  {
-    property: "og:title",
-    content:
-      "Agent-Native Mail — Open Source Alternative to Gmail & Superhuman",
-  },
-  {
-    property: "og:description",
-    content:
-      "Superhuman-style email client with keyboard shortcuts, AI triage, and a fully customizable interface. Own your inbox workflow.",
-  },
-  {
-    name: "keywords",
-    content:
-      "AI email client, open source email, Gmail alternative, Superhuman alternative, AI inbox, keyboard shortcuts email, agent-native mail, AI email triage, smart inbox, natural language email",
-  },
-];
+export const meta = () =>
+  withDefaultSocialImage([
+    {
+      title:
+        "Agent-Native Mail — Open Source Alternative to Gmail & Superhuman",
+    },
+    {
+      name: "description",
+      content:
+        "Build an AI-powered email client you own. Superhuman-style keyboard shortcuts, AI triage, smart search, and a fully customizable interface. Open source alternative to Gmail and Superhuman.",
+    },
+    {
+      property: "og:title",
+      content:
+        "Agent-Native Mail — Open Source Alternative to Gmail & Superhuman",
+    },
+    {
+      property: "og:description",
+      content:
+        "Superhuman-style email client with keyboard shortcuts, AI triage, and a fully customizable interface. Own your inbox workflow.",
+    },
+    {
+      name: "keywords",
+      content:
+        "AI email client, open source email, Gmail alternative, Superhuman alternative, AI inbox, keyboard shortcuts email, agent-native mail, AI email triage, smart inbox, natural language email",
+    },
+  ]);
 
 const template = templates.find((t) => t.slug === "mail")!;
 

@@ -1,33 +1,35 @@
 import { Link } from "react-router";
 import { useState } from "react";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { withDefaultSocialImage } from "../seo";
 
-export const meta = () => [
-  {
-    title:
-      "Agent-Native Forms — Open Source AI Form Builder & Typeform Alternative",
-  },
-  {
-    name: "description",
-    content:
-      "Build, edit, and manage forms with AI. Open source alternative to Typeform and Google Forms. Generate forms from a prompt, customize visually, and route submissions to Slack, Discord, Google Sheets, or webhooks.",
-  },
-  {
-    property: "og:title",
-    content:
-      "Agent-Native Forms — Open Source AI Form Builder & Typeform Alternative",
-  },
-  {
-    property: "og:description",
-    content:
-      "Build forms with AI. Generate, customize, publish, and route submissions — built on an agent you own.",
-  },
-  {
-    name: "keywords",
-    content:
-      "AI form builder, Typeform alternative, open source Google Forms alternative, AI survey tool, AI form generator, agent-native forms, prompt to form, form automation, form integrations, customizable form builder",
-  },
-];
+export const meta = () =>
+  withDefaultSocialImage([
+    {
+      title:
+        "Agent-Native Forms — Open Source AI Form Builder & Typeform Alternative",
+    },
+    {
+      name: "description",
+      content:
+        "Build, edit, and manage forms with AI. Open source alternative to Typeform and Google Forms. Generate forms from a prompt, customize visually, and route submissions to Slack, Discord, Google Sheets, or webhooks.",
+    },
+    {
+      property: "og:title",
+      content:
+        "Agent-Native Forms — Open Source AI Form Builder & Typeform Alternative",
+    },
+    {
+      property: "og:description",
+      content:
+        "Build forms with AI. Generate, customize, publish, and route submissions — built on an agent you own.",
+    },
+    {
+      name: "keywords",
+      content:
+        "AI form builder, Typeform alternative, open source Google Forms alternative, AI survey tool, AI form generator, agent-native forms, prompt to form, form automation, form integrations, customizable form builder",
+    },
+  ]);
 
 const template = templates.find((t) => t.slug === "forms")!;
 
