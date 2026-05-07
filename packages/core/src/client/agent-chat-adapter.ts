@@ -179,13 +179,28 @@ function isAuthErrorMessage(message: string): boolean {
     msg.includes("authentication required") ||
     msg.includes("unauthorized") ||
     msg.includes("not authenticated") ||
+    msg.includes("forbidden") ||
     msg.includes("invalid token") ||
     msg.includes("invalid or expired token") ||
     msg.includes("session expired") ||
+    msg.includes("http_401") ||
+    msg.includes("http_403") ||
     msg.includes("401") ||
     msg.includes("403") ||
     msg.includes("405")
   );
+}
+
+function authErrorReasonFromMessage(
+  message: string,
+): "auth-required" | "session-expired" {
+  const msg = message.toLowerCase();
+  return msg.includes("session") ||
+    msg.includes("expired") ||
+    msg.includes("invalid token") ||
+    msg.includes("405")
+    ? "session-expired"
+    : "auth-required";
 }
 
 function isMissingCredentialMessage(message: string): boolean {
@@ -348,6 +363,7 @@ export function createAgentChatAdapter(options?: {
       let visibleContinuationPrefix: ContentPart[] = [];
       let lastAutoContinueReason: string | null = null;
       const attemptedRunIds: string[] = [];
+      let authRecoveryAttempted = false;
 
       const connectionRecoveryDetails = (): string => {
         return [
@@ -363,6 +379,39 @@ export function createAgentChatAdapter(options?: {
         ]
           .filter(Boolean)
           .join("\n");
+      };
+
+      const dispatchAuthError = (
+        reason: "auth-required" | "session-expired",
+      ) => {
+        if (typeof window === "undefined") return;
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:auth-error", {
+            detail: { reason },
+          }),
+        );
+      };
+
+      const tryRecoverAuthOnce = async (): Promise<boolean> => {
+        if (authRecoveryAttempted || abortSignal.aborted) return false;
+        authRecoveryAttempted = true;
+        try {
+          const sessionRes = await fetch(
+            agentNativePath("/_agent-native/auth/session"),
+            {
+              method: "GET",
+              headers: { Accept: "application/json" },
+              cache: "no-store",
+              credentials: "same-origin",
+              signal: abortSignal,
+            },
+          );
+          if (!sessionRes.ok) return false;
+          const session = await sessionRes.json().catch(() => null);
+          return Boolean(session && !session.error);
+        } catch {
+          return false;
+        }
       };
 
       try {
@@ -630,13 +679,10 @@ export function createAgentChatAdapter(options?: {
               }
 
               if (res.status === 401 || res.status === 403) {
-                if (typeof window !== "undefined") {
-                  window.dispatchEvent(
-                    new CustomEvent("agent-chat:auth-error", {
-                      detail: { reason: "auth-required" },
-                    }),
-                  );
+                if (await tryRecoverAuthOnce()) {
+                  continue;
                 }
+                dispatchAuthError("auth-required");
                 content.push({ type: "text", text: "" });
                 yield {
                   content: [...content],
@@ -651,13 +697,10 @@ export function createAgentChatAdapter(options?: {
               // 405 Method Not Allowed usually means the session is broken/expired
               // (e.g. a redirect to a login page that only accepts GET).
               if (res.status === 405) {
-                if (typeof window !== "undefined") {
-                  window.dispatchEvent(
-                    new CustomEvent("agent-chat:auth-error", {
-                      detail: { reason: "session-expired" },
-                    }),
-                  );
+                if (await tryRecoverAuthOnce()) {
+                  continue;
                 }
+                dispatchAuthError("session-expired");
                 content.push({ type: "text", text: "" });
                 yield {
                   content: [...content],
@@ -673,13 +716,10 @@ export function createAgentChatAdapter(options?: {
               try {
                 const body = await res.text();
                 if (isAuthErrorMessage(body)) {
-                  if (typeof window !== "undefined") {
-                    window.dispatchEvent(
-                      new CustomEvent("agent-chat:auth-error", {
-                        detail: { reason: "auth-required" },
-                      }),
-                    );
+                  if (await tryRecoverAuthOnce()) {
+                    continue;
                   }
+                  dispatchAuthError(authErrorReasonFromMessage(body));
                   content.push({ type: "text", text: "" });
                   yield {
                     content: [...content],
@@ -813,9 +853,10 @@ export function createAgentChatAdapter(options?: {
 
             // Don't try to reconnect for auth/client errors — show error directly
             if (isAuthError) {
-              if (typeof window !== "undefined") {
-                window.dispatchEvent(new Event("agent-chat:auth-error"));
+              if (await tryRecoverAuthOnce()) {
+                continue;
               }
+              dispatchAuthError(authErrorReasonFromMessage(errMsg));
               content.push({ type: "text", text: "" });
               yield {
                 content: [...content],

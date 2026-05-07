@@ -63,6 +63,32 @@ export class AgentAutoContinueSignal extends Error {
 
 export const SSE_NO_PROGRESS_TIMEOUT_MS = 75_000;
 
+async function readChunkWithProgressTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  lastMeaningfulEventAt: number,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  const elapsed = Date.now() - lastMeaningfulEventAt;
+  const timeoutMs = Math.max(0, SSE_NO_PROGRESS_TIMEOUT_MS - elapsed);
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const readPromise = reader.read();
+  // If the timeout wins and cancellation causes the pending read to reject,
+  // swallow that rejection because the generator is already recovering.
+  void readPromise.catch(() => {});
+
+  const timeoutPromise = new Promise<"timeout">((resolve) => {
+    timeoutId = setTimeout(() => resolve("timeout"), timeoutMs);
+  });
+  const result = await Promise.race([readPromise, timeoutPromise]);
+  if (timeoutId) {
+    clearTimeout(timeoutId);
+  }
+  if (result === "timeout") {
+    await reader.cancel("no_progress").catch(() => {});
+    throw new AgentAutoContinueSignal({ reason: "no_progress" });
+  }
+  return result;
+}
+
 function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   const code = String(ev.errorCode ?? "").toLowerCase();
   const msg = errMsg.toLowerCase();
@@ -75,6 +101,8 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "unauthorized" ||
     code === "authentication_error" ||
     code === "permission_error" ||
+    code === "http_401" ||
+    code === "http_403" ||
     code === "gateway_not_enabled" ||
     code === "missing_api_key" ||
     code === "missing_credentials" ||
@@ -134,8 +162,11 @@ function isAuthFailureText(message: string, errorCode?: string): boolean {
     code === "unauthorized" ||
     code === "authentication_error" ||
     code === "permission_error" ||
+    code === "http_401" ||
+    code === "http_403" ||
     msg.includes("authentication required") ||
     msg.includes("unauthorized") ||
+    msg.includes("forbidden") ||
     msg.includes("not authenticated") ||
     msg.includes("invalid token") ||
     msg.includes("invalid or expired token") ||
@@ -519,7 +550,10 @@ export async function* readSSEStream(
 
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readChunkWithProgressTimeout(
+        reader,
+        lastMeaningfulEventAt,
+      );
       if (done) break;
 
       buf += decoder.decode(value, { stream: true });
@@ -576,7 +610,12 @@ export async function* readSSEStream(
       }
     }
   } finally {
-    reader.releaseLock();
+    try {
+      reader.releaseLock();
+    } catch {
+      // The timeout path cancels the stream before unwinding; some runtimes
+      // still consider the pending read active for a tick.
+    }
   }
 
   // Stream ended without explicit done event. Even an empty content array is
@@ -606,7 +645,10 @@ export async function readSSEStreamRaw(
 
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readChunkWithProgressTimeout(
+        reader,
+        lastMeaningfulEventAt,
+      );
       if (done) break;
 
       buf += decoder.decode(value, { stream: true });
@@ -664,7 +706,11 @@ export async function readSSEStreamRaw(
       }
     }
   } finally {
-    reader.releaseLock();
+    try {
+      reader.releaseLock();
+    } catch {
+      // See readSSEStream: cancellation may race lock release in browsers.
+    }
   }
   if (content.length > 0) onUpdate([...content]);
 }

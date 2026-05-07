@@ -52,7 +52,7 @@ export function useProductionAgent(
       // Notify any listeners that generation is running
       window.dispatchEvent(
         new CustomEvent("agentNative.chatRunning", {
-          detail: { running: true },
+          detail: { isRunning: true, running: true },
         }),
       );
 
@@ -223,7 +223,7 @@ export function useProductionAgent(
         setIsGenerating(false);
         window.dispatchEvent(
           new CustomEvent("agentNative.chatRunning", {
-            detail: { running: false },
+            detail: { isRunning: false, running: false },
           }),
         );
         abortRef.current = null;

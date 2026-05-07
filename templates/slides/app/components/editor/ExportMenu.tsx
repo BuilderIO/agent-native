@@ -46,26 +46,56 @@ export function ExportMenu({
     a.remove();
   };
 
+  const triggerBlobDownload = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const filenameFromDisposition = (value: string | null) => {
+    const match = value?.match(/filename="?([^"]+)"?/i);
+    const fallback = deckTitle.replace(/[^a-zA-Z0-9_-]/g, "-") || "deck";
+    return match?.[1] ?? `${fallback}.pptx`;
+  };
+
+  const readErrorMessage = async (res: Response, fallback: string) => {
+    try {
+      const data = await res.json();
+      return data.error || data.message || fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
   const handleExportPptx = async () => {
     try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/actions/export-pptx"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ deckId }),
-        },
-      );
-      const data = await res.json();
-      if (data.filename) {
-        triggerDownload(data.filename);
-      } else {
+      const res = await fetch(`${appBasePath()}/api/exports/pptx`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deckId }),
+      });
+      if (!res.ok) {
         toast({
           title: "Export failed",
-          description: data.error || "Could not generate PPTX file.",
+          description: await readErrorMessage(
+            res,
+            "Could not generate PPTX file.",
+          ),
           variant: "destructive",
         });
+        return;
       }
+      const blob = await res.blob();
+      triggerBlobDownload(
+        blob,
+        filenameFromDisposition(res.headers.get("content-disposition")),
+      );
     } catch (err) {
       console.error("Export failed:", err);
       toast({
