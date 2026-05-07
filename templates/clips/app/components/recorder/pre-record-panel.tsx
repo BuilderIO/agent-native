@@ -88,7 +88,7 @@ const MODE_OPTIONS: Array<{
   },
   {
     value: "screen+camera",
-    label: "Screen + Camera",
+    label: "Screen + cam",
     icon: IconVideo,
     sub: "Screen with webcam bubble",
   },
@@ -327,7 +327,7 @@ export function PreRecordPanel({
                 title={opt.sub}
                 onClick={() => setMode(opt.value)}
                 className={cn(
-                  "flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 text-center text-[12px] font-medium transition-colors",
+                  "flex h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-2 text-center text-[11px] font-medium leading-none transition-colors",
                   active
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
@@ -336,7 +336,7 @@ export function PreRecordPanel({
                 aria-pressed={active}
               >
                 <Icon className="h-4 w-4 shrink-0" />
-                <span className="truncate">{opt.label}</span>
+                <span>{opt.label}</span>
               </button>
             );
           })}
