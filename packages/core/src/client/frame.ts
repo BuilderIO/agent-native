@@ -120,7 +120,17 @@ function envFlag(name: string): boolean {
     }
   ).env;
   const value = env?.[name];
-  return value === true || value === "1" || value === "true";
+  const processValue =
+    typeof process !== "undefined"
+      ? (process.env as Record<string, string | undefined>)?.[name]
+      : undefined;
+  return (
+    value === true ||
+    value === "1" ||
+    value === "true" ||
+    processValue === "1" ||
+    processValue === "true"
+  );
 }
 
 function shouldUseWorkspaceCallbackRelay(path: string): boolean {

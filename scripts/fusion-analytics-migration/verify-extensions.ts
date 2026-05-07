@@ -818,6 +818,10 @@ function csQbrEntryUiExpression(requireComplete: boolean) {
       .map((el) => el._x_dataStack?.[0])
       .find((candidate) => candidate && typeof candidate.selectOwner === 'function');
     if (!state || state.loadingBook || !state.selected || state.deckOpen || !state.metrics) return null;
+    if (state.adoptionOpen === false) {
+      state.adoptionOpen = true;
+      return null;
+    }
 
     const text = (document.body.innerText || '').replace(/\\s+/g, ' ').trim();
     const lower = text.toLowerCase();
@@ -1015,7 +1019,7 @@ async function verifyCsQbr(page: CdpPage, contextId: number) {
   await setField(
     page,
     contextId,
-    "textarea[placeholder='Q1 lesson learned']",
+    "textarea[x-model='form.q1LessonLearned']",
     "CS QBR extension browser verification",
   );
   await setField(page, contextId, "input[placeholder='Ask 1']", "Verify deck");

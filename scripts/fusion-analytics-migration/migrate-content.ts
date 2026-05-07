@@ -3507,18 +3507,298 @@ function csQbrExtension(): string {
           <div class="rounded border p-3"><p class="text-xs text-muted-foreground">Open Pipeline</p><p class="text-lg font-semibold" x-text="money(metrics.openPipelineArr)"></p></div>
         </div>
       </template>
-      <div x-show="selected && !deckOpen" class="grid gap-3 md:grid-cols-2">
-        <textarea x-model="form.q1LessonLearned" class="h-24 rounded border p-3" placeholder="Q1 lesson learned"></textarea>
-        <textarea x-model="form.q2ChangeBecauseOfIt" class="h-24 rounded border p-3" placeholder="Q2 change because of it"></textarea>
-        <textarea x-model="form.atRiskAccounts" class="h-24 rounded border p-3" placeholder="At-risk accounts"></textarea>
-        <textarea x-model="form.q2ChurnPrediction" class="h-24 rounded border p-3" placeholder="Q2 churn prediction"></textarea>
-        <textarea x-model="form.laggardActionPlan" class="h-24 rounded border p-3" placeholder="Laggard adoption action plan"></textarea>
-        <textarea x-model="form.keyExpansionOpportunities" class="h-24 rounded border p-3" placeholder="Expansion action plan"></textarea>
-        <input x-model="form.predictedRetentionArr" class="rounded border px-3 py-2" placeholder="Predicted retained ARR" />
-        <input x-model="form.predictedExpansionArr" class="rounded border px-3 py-2" placeholder="Predicted expansion ARR" />
-        <input x-model="form.ask1" class="rounded border px-3 py-2" placeholder="Ask 1" />
-        <input x-model="form.ask2" class="rounded border px-3 py-2" placeholder="Ask 2" />
-        <input x-model="form.ask3" class="rounded border px-3 py-2" placeholder="Ask 3" />
+      <div x-show="selected && !deckOpen" class="mx-auto max-w-4xl pb-20">
+        <div x-show="pipelineOpen" class="fixed inset-0 z-40 flex items-center justify-center bg-black/75 p-4" x-on:click.self="pipelineOpen = false">
+          <div class="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-[#1a3a6c] bg-[#111] p-6 text-white shadow-2xl">
+            <div class="mb-4 flex items-center justify-between">
+              <h3 class="text-base font-bold">Open Expansion & Renewal Pipeline</h3>
+              <button class="rounded px-2 py-1 text-sm text-gray-500 hover:bg-[#222] hover:text-white" x-on:click="pipelineOpen = false">Close</button>
+            </div>
+            <div class="space-y-1">
+              <template x-for="deal in expansionDeals(30)" :key="deal.name + deal.closeDate">
+                <div class="flex justify-between gap-4 border-b border-gray-800 py-2 text-sm last:border-0">
+                  <div>
+                    <p class="text-gray-200" x-text="deal.account"></p>
+                    <p class="text-xs text-gray-500"><span x-text="deal.stage || 'No stage'"></span><span x-text="' · ' + deal.closeDate"></span></p>
+                  </div>
+                  <span class="shrink-0 font-semibold text-white" x-text="money(deal.netNewArr)"></span>
+                </div>
+              </template>
+              <div class="flex justify-between border-t border-gray-700 pt-3 font-semibold">
+                <span>Total</span>
+                <span x-text="money(metrics?.openPipelineArr || 0)"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <template x-if="metrics">
+          <div class="mb-6 flex flex-wrap items-center gap-4 rounded-lg border border-[#1a5c40] bg-[#0d1f1a] px-4 py-2 text-sm text-gray-300">
+            <span class="font-bold text-green-400">Data Loaded</span>
+            <span x-text="metrics.accountCount + ' accounts · ' + metrics.quarterLabel"></span>
+            <button class="ml-auto text-[#00B4D8] transition-colors hover:text-white" x-bind:disabled="loadingBook" x-on:click="loadBook(selected)" x-text="loadingBook ? 'Refreshing...' : 'Refresh'"></button>
+          </div>
+        </template>
+
+        <div class="sticky top-0 z-20 mb-6 flex items-center justify-end gap-3 border-b bg-background/95 py-3 backdrop-blur">
+          <span x-show="savedFlash" class="text-sm font-medium text-green-500">Saved</span>
+          <button class="rounded-lg bg-[#00B4D8] px-5 py-2 text-sm font-bold text-black transition-colors hover:bg-[#00c8f0] disabled:cursor-not-allowed disabled:opacity-50" x-bind:disabled="saving" x-on:click="save()" x-text="saving ? 'Saving...' : 'Save'"></button>
+        </div>
+
+        <section class="mb-8">
+          <div class="mb-4 flex items-center gap-3 border-b border-gray-800 pb-2">
+            <h2 class="text-lg font-bold">1. Q1 Lesson Learned</h2>
+          </div>
+          <div class="grid gap-6 md:grid-cols-2">
+            <label class="block">
+              <span class="mb-1 block text-sm font-medium text-muted-foreground">Biggest lesson from Q1 <span class="text-red-500">*</span></span>
+              <textarea x-model="form.q1LessonLearned" class="h-32 w-full resize-none rounded-lg border border-gray-700 bg-[#1a1a1a] px-3 py-2 text-sm text-white focus:border-[#00B4D8] focus:outline-none" x-bind:class="!form.q1LessonLearned && 'border-red-600'" placeholder="What's the single biggest thing you learned this quarter?"></textarea>
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-sm font-medium text-muted-foreground">What's different in Q2 because of it <span class="text-red-500">*</span></span>
+              <textarea x-model="form.q2ChangeBecauseOfIt" class="h-32 w-full resize-none rounded-lg border border-gray-700 bg-[#1a1a1a] px-3 py-2 text-sm text-white focus:border-[#00B4D8] focus:outline-none" x-bind:class="!form.q2ChangeBecauseOfIt && 'border-red-600'" placeholder="Specific change in approach, process, or focus..."></textarea>
+            </label>
+          </div>
+        </section>
+
+        <section class="mb-8">
+          <div class="mb-4 flex items-center gap-3 border-b border-gray-800 pb-2">
+            <h2 class="text-lg font-bold">2. Retention</h2>
+            <span class="rounded-full border border-[#00B4D8]/20 bg-[#00B4D8]/10 px-2 py-0.5 text-xs text-[#00B4D8]">40% of Variable · Team</span>
+          </div>
+          <div class="mb-4 rounded-lg border border-[#1a5c40] bg-[#0d1f1a] p-3 text-sm text-gray-400">Auto-populated from HubSpot data. Renewal ARR, sentiment, and payout math match the Fusion Analytics form.</div>
+
+          <div class="mb-4 overflow-hidden rounded-lg border border-[#1a2a40] bg-[#0d1520]">
+            <template x-if="!renewalAccounts(8).length">
+              <p class="px-4 py-4 text-sm text-gray-500">No accounts are up for renewal in this quarter.</p>
+            </template>
+            <table x-show="renewalAccounts(8).length" class="w-full text-sm">
+              <thead>
+                <tr class="border-b border-gray-800 text-left text-gray-500">
+                  <th class="px-4 py-2 font-medium">Account</th>
+                  <th class="px-4 py-2 font-medium">ARR</th>
+                  <th class="px-4 py-2 font-medium">Renewal Date</th>
+                  <th class="px-4 py-2 font-medium">Sentiment</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="account in renewalAccounts(8)" :key="account.company_id">
+                  <tr class="border-b border-gray-800/50 last:border-0">
+                    <td class="px-4 py-2 text-gray-200" x-text="account.company_name"></td>
+                    <td class="px-4 py-2 font-semibold text-white" x-text="money(account.arr)"></td>
+                    <td class="px-4 py-2 text-gray-400" x-text="date(account.renewal_date)"></td>
+                    <td class="px-4 py-2"><span class="rounded px-1.5 py-0.5 text-xs" x-bind:class="sentimentClass(account.sentiment)" x-text="account.sentiment || 'Unknown'"></span></td>
+                  </tr>
+                </template>
+                <tr class="border-t-2 border-gray-600 bg-[#0d1f35]">
+                  <td class="px-4 py-2.5 text-xs font-bold uppercase tracking-widest text-blue-300">Total</td>
+                  <td class="px-4 py-2.5 text-base font-bold text-blue-200" x-text="money(upForRenewalArr())"></td>
+                  <td colspan="2"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:gap-6">
+            <label class="flex-1">
+              <span class="mb-1 block text-sm font-medium text-muted-foreground">Predicted retained ARR this quarter <span class="text-red-500">*</span> <span class="font-normal text-gray-500" x-show="upForRenewalArr()"> (up for renewal: <span class="text-white" x-text="money(upForRenewalArr())"></span>)</span></span>
+              <div class="relative">
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">$</span>
+                <input x-model="form.predictedRetentionArr" inputmode="numeric" class="w-full rounded-lg border border-[#1a2a40] bg-[#0d1520] py-2.5 pl-7 pr-4 text-sm text-white focus:border-[#00B4D8] focus:outline-none" x-bind:class="!form.predictedRetentionArr && 'border-red-500/60'" x-bind:placeholder="upForRenewalArr() ? Math.round(upForRenewalArr()).toLocaleString() : '250000'" />
+              </div>
+            </label>
+            <div x-show="predictedRetentionTier() !== null" class="shrink-0 pb-1 text-right">
+              <p class="text-xs text-gray-500">Predicted churn: <span class="font-semibold text-white" x-text="pct(predictedChurnPct())"></span></p>
+              <p class="mt-1 rounded-full border px-3 py-1 text-xs font-bold" x-bind:style="'background:' + achievementColor(predictedRetentionTier()) + '18; border-color:' + achievementColor(predictedRetentionTier()) + '44; color:' + achievementColor(predictedRetentionTier())" x-text="predictedRetentionTier() + '% achievement'"></p>
+            </div>
+          </div>
+
+          <label class="block">
+            <span class="mb-1 block text-sm font-medium text-muted-foreground">Retention plan <span class="text-red-500">*</span></span>
+            <textarea x-model="form.atRiskAccounts" class="h-32 w-full resize-none rounded-lg border border-gray-700 bg-[#1a1a1a] px-3 py-2 text-sm text-white focus:border-[#00B4D8] focus:outline-none" x-bind:class="!form.atRiskAccounts && 'border-red-600'" placeholder="How will you rescue at-risk accounts and gain confidence in each renewal?"></textarea>
+          </label>
+        </section>
+
+        <section class="mb-8">
+          <div class="mb-4 flex items-center gap-3 border-b border-gray-800 pb-2">
+            <h2 class="text-lg font-bold">3. Product Adoption</h2>
+            <span class="rounded-full border border-[#00B4D8]/20 bg-[#00B4D8]/10 px-2 py-0.5 text-xs text-[#00B4D8]">30% of Variable · Individual</span>
+          </div>
+
+          <div class="mb-4 overflow-hidden rounded-lg border border-[#1a2a40] bg-[#0d1520]">
+            <button class="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm text-gray-400 transition-colors hover:text-white" x-on:click="adoptionOpen = !adoptionOpen">
+              <span class="font-medium text-gray-300" x-text="'Account-level utilization (' + adoptionRows().length + ' accounts)'"></span>
+              <span class="flex flex-wrap items-center justify-end gap-4 text-xs">
+                <span>Book seat util: <strong class="text-white" x-text="pct(metrics?.bookSeatUtil || 0)"></strong></span>
+                <span>Book credit util: <strong class="text-white" x-text="pct(metrics?.bookCreditUtil || 0)"></strong></span>
+                <span x-text="adoptionOpen ? 'Hide' : 'Show'"></span>
+              </span>
+            </button>
+            <table x-show="adoptionOpen" class="w-full border-t border-gray-800 text-sm">
+              <thead>
+                <tr class="border-b border-gray-800 text-left text-gray-500">
+                  <th class="px-4 py-2 font-medium">Account</th>
+                  <th class="px-4 py-2 font-medium">Seat util T30d</th>
+                  <th class="px-4 py-2 font-medium">Active users</th>
+                  <th class="px-4 py-2 font-medium">Contracted</th>
+                  <th class="px-4 py-2 font-medium">AI credit util</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="account in adoptionRows(20)" :key="account.rootOrgId">
+                  <tr class="border-b border-gray-800/50 last:border-0">
+                    <td class="px-4 py-2 text-gray-200"><span x-text="account.name"></span><span x-show="account.discounted" class="ml-2 rounded bg-yellow-900/30 px-1.5 py-0.5 text-xs text-yellow-400">discounted</span></td>
+                    <td class="px-4 py-2"><div class="flex items-center gap-1.5"><div class="h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-gray-800"><div class="h-full rounded-full" x-bind:style="'width:' + Math.min(100, account.seatUtil30d) + '%; background:' + utilColor(account.seatUtil30d)"></div></div><span class="text-xs font-semibold" x-bind:style="'color:' + utilColor(account.seatUtil30d)" x-text="pct(account.seatUtil30d)"></span></div></td>
+                    <td class="px-4 py-2 text-xs text-gray-300" x-text="account.activeUsers30d || '-'"></td>
+                    <td class="px-4 py-2 text-xs text-gray-300" x-text="account.contractedSeats || '-'"></td>
+                    <td class="px-4 py-2"><div class="flex items-center gap-1.5"><div class="h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-gray-800"><div class="h-full rounded-full" x-bind:style="'width:' + Math.min(100, account.creditUtil30d) + '%; background:' + utilColor(account.creditUtil30d)"></div></div><span class="text-xs font-semibold" x-bind:style="'color:' + utilColor(account.creditUtil30d)" x-text="pct(account.creditUtil30d)"></span></div></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:gap-6">
+            <label class="flex-1">
+              <span class="mb-1 block text-sm font-medium text-muted-foreground">Predicted adoption % this quarter <span class="text-red-500">*</span> <span class="font-normal text-gray-500" x-show="metrics"> (current: <span class="text-white" x-text="pct(metrics?.bookSeatUtil || 0)"></span>)</span></span>
+              <div class="relative">
+                <input x-model="form.q2AdoptionGoal" inputmode="numeric" class="w-full rounded-lg border border-[#1a2a40] bg-[#0d1520] py-2.5 pl-4 pr-8 text-sm text-white focus:border-[#00B4D8] focus:outline-none" x-bind:class="!form.q2AdoptionGoal && 'border-red-500/60'" x-bind:placeholder="String(Math.round(metrics?.bookSeatUtil || 50))" />
+                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">%</span>
+              </div>
+            </label>
+            <div x-show="adoptionAchievement() !== null" class="shrink-0 pb-1 text-right">
+              <p class="rounded-full border px-3 py-1 text-xs font-bold" x-bind:style="'background:' + achievementColor(adoptionAchievement()) + '18; border-color:' + achievementColor(adoptionAchievement()) + '44; color:' + achievementColor(adoptionAchievement())" x-text="adoptionAchievement() + '% achievement'"></p>
+            </div>
+          </div>
+
+          <label class="block">
+            <span class="mb-1 block text-sm font-medium text-muted-foreground">Action plan for laggards <span class="text-red-500">*</span></span>
+            <textarea x-model="form.laggardActionPlan" class="h-32 w-full resize-none rounded-lg border border-gray-700 bg-[#1a1a1a] px-3 py-2 text-sm text-white focus:border-[#00B4D8] focus:outline-none" x-bind:class="!form.laggardActionPlan && 'border-red-600'" placeholder="Specific actions for accounts below 30% utilization..."></textarea>
+          </label>
+        </section>
+
+        <section class="mb-8">
+          <div class="mb-4 flex items-center gap-3 border-b border-gray-800 pb-2">
+            <h2 class="text-lg font-bold">4. Expansion</h2>
+            <span class="rounded-full border border-[#00B4D8]/20 bg-[#00B4D8]/10 px-2 py-0.5 text-xs text-[#00B4D8]">30% of Variable · Individual</span>
+          </div>
+
+          <div class="mb-4 grid gap-3 md:grid-cols-2">
+            <button class="rounded-lg border border-[#f59e0b]/30 bg-[#f59e0b]/10 px-3 py-2 text-left transition-opacity hover:opacity-80" x-bind:disabled="!expansionDeals(30).length" x-on:click="pipelineOpen = !!expansionDeals(30).length">
+              <span class="block text-xs font-bold uppercase tracking-wider text-[#f59e0b]">Open Pipeline</span>
+              <span class="font-semibold text-white" x-text="money(metrics?.openPipelineArr || 0)"></span>
+              <span class="ml-1.5 text-xs text-gray-500" x-show="metrics?.expansionTarget" x-text="'(' + Math.round(((metrics?.openPipelineArr || 0) / (metrics?.expansionTarget || 1)) * 100) + '% of target)'"></span>
+            </button>
+            <div class="rounded-lg border border-[#f59e0b]/30 bg-[#f59e0b]/10 px-3 py-2">
+              <span class="block text-xs font-bold uppercase tracking-wider text-[#f59e0b]">Quarter Target</span>
+              <span class="font-semibold text-white" x-text="money(metrics?.expansionTarget || expansionTarget()) + ' (' + (metrics?.csmTier || csmTier()) + ')'"></span>
+            </div>
+          </div>
+
+          <div class="mb-4 overflow-hidden rounded-lg border border-[#1a2a40] bg-[#0d1520]">
+            <div class="border-b border-gray-800 px-4 py-2 text-xs font-bold uppercase tracking-wider text-yellow-400">Open Expansion Pipeline</div>
+            <template x-if="!expansionDeals(8).length">
+              <p class="px-4 py-4 text-sm text-gray-500">No open expansion or renewal pipeline found.</p>
+            </template>
+            <table x-show="expansionDeals(8).length" class="w-full text-sm">
+              <thead>
+                <tr class="border-b border-gray-800 text-left text-gray-500">
+                  <th class="px-4 py-2 font-medium">Account</th>
+                  <th class="px-4 py-2 font-medium">Stage</th>
+                  <th class="px-4 py-2 font-medium">Close Date</th>
+                  <th class="px-4 py-2 text-right font-medium">ARR</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="deal in expansionDeals(8)" :key="deal.name + deal.closeDate">
+                  <tr class="border-b border-gray-800/50 last:border-0">
+                    <td class="px-4 py-2 text-gray-200" x-text="deal.account"></td>
+                    <td class="px-4 py-2 text-gray-400" x-text="deal.stage || '-'"></td>
+                    <td class="px-4 py-2 text-gray-400" x-text="deal.closeDate"></td>
+                    <td class="px-4 py-2 text-right font-semibold text-white" x-text="money(deal.netNewArr)"></td>
+                  </tr>
+                </template>
+                <tr class="border-t-2 border-gray-600 bg-[#1a1400]">
+                  <td class="px-4 py-2.5 text-xs font-bold uppercase tracking-widest text-amber-300">Total Shown</td>
+                  <td colspan="2"></td>
+                  <td class="px-4 py-2.5 text-right text-base font-bold text-amber-200" x-text="money(displayedExpansionDealTotal())"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:gap-6">
+            <label class="flex-1">
+              <span class="mb-1 block text-sm font-medium text-muted-foreground">Predicted expansion ARR this quarter <span class="text-red-500">*</span> <span class="font-normal text-gray-500" x-show="metrics"> (target: <span class="text-white" x-text="money(metrics?.expansionTarget || 0)"></span> · <span x-text="metrics?.csmTier"></span>)</span></span>
+              <div class="relative">
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">$</span>
+                <input x-model="form.predictedExpansionArr" inputmode="numeric" class="w-full rounded-lg border border-[#1a2a40] bg-[#0d1520] py-2.5 pl-7 pr-4 text-sm text-white focus:border-[#00B4D8] focus:outline-none" x-bind:class="!form.predictedExpansionArr && 'border-red-500/60'" x-bind:placeholder="Math.round(metrics?.expansionTarget || expansionTarget()).toLocaleString()" />
+              </div>
+            </label>
+            <div x-show="form.predictedExpansionArr" class="shrink-0 pb-1 text-right">
+              <p class="text-xs text-gray-500" x-text="expansionAchievement() + '% of target'"></p>
+              <p class="mt-1 rounded-full border px-3 py-1 text-xs font-bold" x-bind:style="'background:' + achievementColor(expansionAchievement()) + '18; border-color:' + achievementColor(expansionAchievement()) + '44; color:' + achievementColor(expansionAchievement())" x-text="expansionAchievement() + '% achievement'"></p>
+            </div>
+          </div>
+
+          <label class="block">
+            <span class="mb-1 block text-sm font-medium text-muted-foreground">Action plan for expansion <span class="text-red-500">*</span></span>
+            <textarea x-model="form.keyExpansionOpportunities" class="h-32 w-full resize-none rounded-lg border border-gray-700 bg-[#1a1a1a] px-3 py-2 text-sm text-white focus:border-[#00B4D8] focus:outline-none" x-bind:class="!form.keyExpansionOpportunities && 'border-red-600'" placeholder="Specific plans for driving towards expansion targets this quarter..."></textarea>
+          </label>
+        </section>
+
+        <section class="mb-8">
+          <div class="mb-4 flex items-center gap-3 border-b border-gray-800 pb-2">
+            <h2 class="text-lg font-bold">Estimated Variable Compensation</h2>
+          </div>
+          <div class="overflow-hidden rounded-lg border border-gray-800 bg-[#0d0d0d]">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="border-b border-gray-800 text-left text-gray-500">
+                  <th class="px-4 py-2 font-medium">Component</th>
+                  <th class="px-4 py-2 font-medium">Weight</th>
+                  <th class="px-4 py-2 font-medium">Achievement</th>
+                  <th class="px-4 py-2 text-right font-medium">Weighted Payout</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="row in variableCompRows()" :key="row.label">
+                  <tr class="border-b border-gray-800/50 last:border-0">
+                    <td class="px-4 py-2 text-gray-200" x-text="row.label"></td>
+                    <td class="px-4 py-2 text-gray-400" x-text="row.weight + '%'"></td>
+                    <td class="px-4 py-2"><span x-show="row.achievement !== null" class="rounded-full border px-2 py-0.5 text-xs font-bold" x-bind:style="'background:' + achievementColor(row.achievement) + '18; border-color:' + achievementColor(row.achievement) + '44; color:' + achievementColor(row.achievement)" x-text="Math.round(row.achievement) + '%'"></span><span x-show="row.achievement === null" class="text-gray-600">Enter prediction</span></td>
+                    <td class="px-4 py-2 text-right font-semibold text-white" x-text="row.weighted === null ? '-' : Math.round(row.weighted) + '%'"></td>
+                  </tr>
+                </template>
+                <tr class="border-t-2 border-gray-700 bg-[#111]">
+                  <td class="px-4 py-2.5 text-xs font-bold uppercase tracking-widest text-[#00B4D8]">Estimated total payout</td>
+                  <td colspan="2"></td>
+                  <td class="px-4 py-2.5 text-right text-base font-bold text-[#00B4D8]" x-text="Math.round(totalEstimatedPayout()) + '%'"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="mb-8">
+          <div class="mb-4 flex items-center gap-3 border-b border-gray-800 pb-2">
+            <h2 class="text-lg font-bold">5. Asks</h2>
+          </div>
+          <div class="grid gap-3 md:grid-cols-3">
+            <label><span class="mb-1 block text-sm font-medium text-muted-foreground">Ask 1 <span class="text-red-500">*</span></span><input x-model="form.ask1" class="w-full rounded-lg border border-gray-700 bg-[#1a1a1a] px-3 py-2 text-sm text-white focus:border-[#00B4D8] focus:outline-none" x-bind:class="!form.ask1 && 'border-red-600'" placeholder="Ask 1" /></label>
+            <label><span class="mb-1 block text-sm font-medium text-muted-foreground">Ask 2</span><input x-model="form.ask2" class="w-full rounded-lg border border-gray-700 bg-[#1a1a1a] px-3 py-2 text-sm text-white focus:border-[#00B4D8] focus:outline-none" placeholder="Ask 2" /></label>
+            <label><span class="mb-1 block text-sm font-medium text-muted-foreground">Ask 3</span><input x-model="form.ask3" class="w-full rounded-lg border border-gray-700 bg-[#1a1a1a] px-3 py-2 text-sm text-white focus:border-[#00B4D8] focus:outline-none" placeholder="Ask 3" /></label>
+          </div>
+          <div class="mt-3 space-y-2">
+            <template x-for="(_, index) in form.extraAsks" :key="index">
+              <div class="flex gap-2">
+                <input x-model="form.extraAsks[index]" class="flex-1 rounded-lg border border-gray-700 bg-[#1a1a1a] px-3 py-2 text-sm text-white focus:border-[#00B4D8] focus:outline-none" x-bind:placeholder="'Extra ask ' + (index + 1)" />
+                <button class="rounded border px-3 py-2 text-sm text-muted-foreground hover:text-foreground" x-on:click="removeAsk(index)">Remove</button>
+              </div>
+            </template>
+          </div>
+          <button class="mt-3 rounded border px-3 py-2 text-sm" x-on:click="addAsk()">Add ask</button>
+        </section>
       </div>
       <section x-show="deckOpen" class="fixed inset-0 z-50 flex flex-col bg-black text-white">
         <div class="flex shrink-0 items-center justify-between border-b border-gray-800 bg-[#0a0a0a] px-4 py-2">
