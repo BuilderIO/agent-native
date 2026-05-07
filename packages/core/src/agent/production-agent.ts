@@ -13,6 +13,7 @@ import type {
   AgentChatRequest,
   AgentChatEvent,
   AgentChatReference,
+  AgentChatStructuredMessage,
 } from "./types.js";
 import type {
   AgentEngine,
@@ -651,6 +652,81 @@ export function buildUserContentWithAttachments(opts: {
   });
 
   return userContent;
+}
+
+function structuredHistoryToEngineMessages(
+  history: AgentChatStructuredMessage[] | undefined,
+): EngineMessage[] | null {
+  if (!Array.isArray(history)) return null;
+
+  const messages: EngineMessage[] = [];
+  for (const message of history) {
+    if (
+      !message ||
+      (message.role !== "user" && message.role !== "assistant") ||
+      !Array.isArray(message.content)
+    ) {
+      continue;
+    }
+
+    const content: EngineContentPart[] = [];
+    for (const part of message.content) {
+      if (!part || typeof part !== "object") continue;
+      if (part.type === "text" && typeof part.text === "string") {
+        if (part.text.length > 0) {
+          content.push({ type: "text", text: part.text });
+        }
+        continue;
+      }
+
+      if (part.type === "tool-call" && message.role === "assistant") {
+        const id =
+          typeof part.id === "string"
+            ? part.id
+            : typeof part.toolCallId === "string"
+              ? part.toolCallId
+              : "";
+        const name =
+          typeof part.name === "string"
+            ? part.name
+            : typeof part.toolName === "string"
+              ? part.toolName
+              : "";
+        if (!id || !name) continue;
+        content.push({
+          type: "tool-call",
+          id,
+          name,
+          input: part.input ?? part.args ?? {},
+        });
+        continue;
+      }
+
+      if (part.type === "tool-result" && message.role === "user") {
+        if (
+          typeof part.toolCallId !== "string" ||
+          typeof part.content !== "string"
+        ) {
+          continue;
+        }
+        content.push({
+          type: "tool-result",
+          toolCallId: part.toolCallId,
+          ...(typeof part.toolName === "string"
+            ? { toolName: part.toolName }
+            : {}),
+          content: part.content,
+          ...(part.isError ? { isError: true } : {}),
+        });
+      }
+    }
+
+    if (content.length > 0) {
+      messages.push({ role: message.role, content });
+    }
+  }
+
+  return messages.length > 0 ? messages : null;
 }
 
 /** Build enriched message with file/skill/mention references */
@@ -1317,6 +1393,7 @@ export function createProductionAgentHandler(
     const {
       message,
       history = [],
+      structuredHistory,
       references = [],
       threadId,
       attachments,
@@ -1682,13 +1759,19 @@ export function createProductionAgentHandler(
       attachments,
     });
 
-    const messages: EngineMessage[] = [
-      ...history
+    const historyMessages =
+      structuredHistoryToEngineMessages(structuredHistory) ??
+      history
         .filter((m) => m.content.trim())
-        .map((m) => ({
-          role: m.role as "user" | "assistant",
-          content: [{ type: "text" as const, text: m.content }],
-        })),
+        .map(
+          (m): EngineMessage => ({
+            role: m.role as "user" | "assistant",
+            content: [{ type: "text" as const, text: m.content }],
+          }),
+        );
+
+    const messages: EngineMessage[] = [
+      ...historyMessages,
       { role: "user" as const, content: userContent },
     ];
 

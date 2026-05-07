@@ -499,6 +499,8 @@ export function createAgentChatAdapter(options?: {
       let lastSeq = -1;
       let currentMessageText = normalizeMentions(userMessageText);
       let currentHistory: AdapterHistoryMessage[] = history;
+      let currentStructuredHistory: AgentChatStructuredMessage[] =
+        structuredHistory;
       let includeAttachments = attachments.length > 0;
       let includeReferences = Boolean(runConfig?.custom?.references);
       let startupRecoveryAttempts = 0;
@@ -506,10 +508,14 @@ export function createAgentChatAdapter(options?: {
       let stalledTransientContinuationAttempts = 0;
       let totalTransientContinuationAttempts = 0;
       const continuationHistoryFragments: string[] = [];
+      const structuredContinuationFragments: AgentChatStructuredMessage[] = [];
       let visibleContinuationPrefix: ContentPart[] = [];
       let lastAutoContinueReason: string | null = null;
       const attemptedRunIds: string[] = [];
       let authRecoveryAttempted = false;
+      let continuationToolCallCounter = 0;
+      const nextContinuationToolCallId = () =>
+        `continuation_tc_${++continuationToolCallCounter}`;
 
       const connectionRecoveryDetails = (): string => {
         return [
@@ -732,12 +738,35 @@ export function createAgentChatAdapter(options?: {
               ? continuationHistoryFragments
               : [...continuationHistoryFragments, currentPartialHistory],
           );
+          const structuredPartialHistory = contentToStructuredMessages(
+            visibleContent,
+            nextContinuationToolCallId,
+          );
+          if (isTransient && structuredPartialHistory.length > 0) {
+            structuredContinuationFragments.push(...structuredPartialHistory);
+          }
+          const structuredCombinedHistory = isTransient
+            ? structuredContinuationFragments
+            : [
+                ...structuredContinuationFragments,
+                ...structuredPartialHistory,
+              ];
           currentHistory = [
             ...history,
             { role: "user", content: normalizeMentions(userMessageText) },
             ...(partialHistory
               ? [{ role: "assistant" as const, content: partialHistory }]
               : []),
+          ];
+          currentStructuredHistory = [
+            ...structuredHistory,
+            {
+              role: "user",
+              content: [
+                { type: "text", text: normalizeMentions(userMessageText) },
+              ],
+            },
+            ...structuredCombinedHistory,
           ];
           currentMessageText = autoContinueMessage(signal);
           includeAttachments = false;
@@ -764,6 +793,7 @@ export function createAgentChatAdapter(options?: {
               body: JSON.stringify({
                 message: currentMessageText,
                 history: currentHistory,
+                structuredHistory: currentStructuredHistory,
                 ...(threadId ? { threadId } : {}),
                 ...(requestMode ? { mode: requestMode } : {}),
                 ...(modelRef?.current ? { model: modelRef.current } : {}),
