@@ -964,13 +964,67 @@ export function App() {
     setCameraError(null);
 
     let cancelled = false;
+    const sessionUnlistens: Array<() => void> = [];
+    const trackSessionListen = (p: Promise<() => void>) => {
+      p.then((u) => {
+        if (cancelled) {
+          try {
+            u();
+          } catch {
+            // ignore
+          }
+          return;
+        }
+        sessionUnlistens.push(u);
+      }).catch(() => {
+        // ignore — best effort during window teardown
+      });
+    };
     // Dual-transport bookkeeping. We try WebRTC first; if it fails or
     // times out, we fall back to the canvas pump. Only one should be
     // active at a time — the ref below guarantees we never double-start.
     let webrtcHandle: BubbleWebrtcHandle | null = null;
     let stopPump: (() => void) | null = null;
     let fellBackToPump = false;
+    let recordingPumpActive = false;
+    let wantsRecordingPump = (
+      window as unknown as { clipsForceAlive?: boolean }
+    ).clipsForceAlive === true;
     let stream: MediaStream | null = null;
+
+    const startPump = (reason: string, fallback: boolean) => {
+      if (cancelled || stopPump || !stream) return;
+      if (fallback) fellBackToPump = true;
+      else recordingPumpActive = true;
+      console.log("[clips-popover] starting bubble canvas pump — %s", reason);
+      stopPump = startBubbleFramePump(stream);
+    };
+
+    const stopRecordingPump = (reason: string) => {
+      if (!recordingPumpActive || fellBackToPump) return;
+      console.log("[clips-popover] stopping recording bubble pump — %s", reason);
+      try {
+        stopPump?.();
+      } catch {
+        // ignore
+      }
+      stopPump = null;
+      recordingPumpActive = false;
+    };
+
+    trackSessionListen(
+      listen<{ active?: boolean; reason?: string }>(
+        "clips:bubble-recording-mode",
+        (event) => {
+          wantsRecordingPump = event.payload?.active === true;
+          if (wantsRecordingPump) {
+            startPump(event.payload?.reason ?? "recording-mode", false);
+          } else {
+            stopRecordingPump(event.payload?.reason ?? "recording-mode-ended");
+          }
+        },
+      ),
+    );
 
     console.log(
       "[clips-popover] bubble session start — acquiring camera + showing bubble",
@@ -1016,9 +1070,7 @@ export function App() {
           );
           webrtcHandle?.stop();
           webrtcHandle = null;
-          if (stream) {
-            stopPump = startBubbleFramePump(stream);
-          }
+          startPump(reason, true);
         };
         webrtcHandle = startBubbleWebrtc({
           stream: s,
@@ -1029,6 +1081,9 @@ export function App() {
           },
           onFailure: startCanvasFallback,
         });
+        if (wantsRecordingPump) {
+          startPump("recording-mode-latched", false);
+        }
       })
       .catch((err) => {
         if (cancelled) return;
@@ -1066,6 +1121,14 @@ export function App() {
         stopPump();
         stopPump = null;
       }
+      sessionUnlistens.forEach((u) => {
+        try {
+          u();
+        } catch {
+          // ignore
+        }
+      });
+      sessionUnlistens.length = 0;
       // Critical: if the recorder borrowed this stream, it now owns the
       // track lifecycle. Stopping tracks here would end them out from
       // under `MediaRecorder`, producing the laggy-bubble / dead-track
@@ -1243,6 +1306,10 @@ export function App() {
       // visibility=hidden on a pinhole-sized window.
       (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
         true;
+      emit("clips:bubble-recording-mode", {
+        active: true,
+        reason: "recording-start",
+      }).catch(() => {});
 
       const recordingPromise = startNativeRecording({
         serverUrl,
@@ -1291,6 +1358,10 @@ export function App() {
         // Clear the force-alive flag if it was latched before the failure.
         (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
           false;
+        emit("clips:bubble-recording-mode", {
+          active: false,
+          reason: "recording-start-failed",
+        }).catch(() => {});
         // Hand the stream back to the popover session. The recorder
         // never got far enough to take ownership of the tracks, so the
         // bubble-session effect must be allowed to stop them again on
@@ -1391,6 +1462,10 @@ export function App() {
             (
               window as unknown as { clipsForceAlive?: boolean }
             ).clipsForceAlive = false;
+            emit("clips:bubble-recording-mode", {
+              active: false,
+              reason: "recording-stop",
+            }).catch(() => {});
             // Recorder has stopped its tracks; next popover session can
             // acquire the camera cleanly again.
             bubbleStreamTransferredToRecorder.current = false;
@@ -1420,6 +1495,10 @@ export function App() {
             (
               window as unknown as { clipsForceAlive?: boolean }
             ).clipsForceAlive = false;
+            emit("clips:bubble-recording-mode", {
+              active: false,
+              reason: "recording-cancel",
+            }).catch(() => {});
             bubbleStreamTransferredToRecorder.current = false;
             bubbleStreamRef.current = null;
             recordingFlowGateRef.current = false;

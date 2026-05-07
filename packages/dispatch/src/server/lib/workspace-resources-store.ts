@@ -328,6 +328,10 @@ export async function grantWorkspaceResourcesToApp(input: {
       skipped.push({ resourceId, reason: "not-found" });
       continue;
     }
+    if (resource.scope === "all") {
+      skipped.push({ resourceId, reason: "already-all-apps" });
+      continue;
+    }
 
     const grant = await createResourceGrant(resourceId, input.appId);
     if (grant) {

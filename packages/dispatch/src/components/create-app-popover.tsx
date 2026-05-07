@@ -301,7 +301,7 @@ export function CreateAppFlow({
     }
   }
 
-  const submitWithSelectedKeys = () =>
+  const submitWithSelectedAccess = () =>
     submit(prompt);
 
   return (
@@ -495,7 +495,7 @@ export function CreateAppFlow({
             <Button
               type="button"
               size="sm"
-              onClick={submitWithSelectedKeys}
+              onClick={submitWithSelectedAccess}
               disabled={!prompt.trim() || isSubmitting}
             >
               {isSubmitting ? (

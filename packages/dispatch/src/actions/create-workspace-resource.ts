@@ -14,7 +14,7 @@ export default defineAction({
     path: z
       .string()
       .describe(
-        'Resource path, e.g. "skills/designer.md", "agents/researcher.md", or "remote-agents/researcher.json"',
+        'Resource path, e.g. "skills/designer.md", "agents/researcher.md", "context/gtm-messaging.md", or "remote-agents/researcher.json"',
       ),
     content: z
       .string()

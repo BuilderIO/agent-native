@@ -150,6 +150,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // Whether we've already applied the Infinity-duration work-around so we
     // don't seek to 1e10 on every loadedmetadata fire (autoplay + iOS replay).
     const durationProbedRef = useRef(false);
+    const initialVisibleFrameSeekedRef = useRef(false);
     // Whether we've already captured-and-uploaded a still-frame thumbnail for
     // this clip. Owner-only, once per player lifecycle, skipped if the row
     // already has a thumbnailUrl — see the capture effect below for why.
@@ -291,6 +292,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // player is reused for a different recording via React Router).
     useEffect(() => {
       thumbnailCapturedRef.current = false;
+      initialVisibleFrameSeekedRef.current = false;
     }, [recordingId, videoUrl]);
 
     // Opportunistically capture and upload a still-frame thumbnail for the
@@ -351,6 +353,32 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         console.warn("[clips] thumbnail capture failed", err);
       }
     }, [recordingId, role, thumbnailUrl]);
+
+    const seekInitialVisibleFrame = useCallback(
+      (v: HTMLVideoElement): boolean => {
+        if (initialVisibleFrameSeekedRef.current) return false;
+        if (autoPlay) return false;
+        if (startMs && startMs > 0) return false;
+        if (!Number.isFinite(v.duration) || v.duration < 0.8) return false;
+        if (v.currentTime > 0.05) return false;
+        const targetMs = Math.min(350, Math.max(120, v.duration * 100));
+        const visibleMs = clampSeek(
+          skipExcludedRange(targetMs, excludedRanges, resolvedDurationMs),
+          v,
+          resolvedDurationMs,
+        );
+        if (visibleMs <= 0) return false;
+        initialVisibleFrameSeekedRef.current = true;
+        try {
+          v.currentTime = visibleMs / 1000;
+          setCurrentMs(visibleMs);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      [autoPlay, excludedRanges, resolvedDurationMs, startMs],
+    );
 
     // Reset the "Preparing your clip…" overlay whenever the video source
     // changes, and start a 10s safety timeout so the overlay can never stick.
@@ -490,11 +518,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               setIsPlaying(false);
               onPause?.();
             }}
-            onLoadedData={() => {
+            onLoadedData={(e) => {
+              seekInitialVisibleFrame(e.currentTarget);
               setIsPreparing(false);
               captureThumbnail();
             }}
-            onCanPlay={() => {
+            onCanPlay={(e) => {
+              seekInitialVisibleFrame(e.currentTarget);
+              setIsPreparing(false);
+              captureThumbnail();
+            }}
+            onSeeked={() => {
               setIsPreparing(false);
               captureThumbnail();
             }}

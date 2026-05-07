@@ -6,6 +6,7 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconCode,
+  IconFileText,
   IconPlus,
   IconRefresh,
   IconTrash,
@@ -72,6 +73,13 @@ const KIND_CONFIG = {
     description:
       "Reusable agent profiles — specialist agents shared across apps",
   },
+  knowledge: {
+    label: "Knowledge",
+    icon: IconFileText,
+    pathPrefix: "context/",
+    description:
+      "Knowledge packs — reusable GTM, product, and domain context for apps",
+  },
 } as const;
 
 function AddResourceDialog() {
@@ -127,6 +135,7 @@ function AddResourceDialog() {
                   <SelectItem value="skill">Skill</SelectItem>
                   <SelectItem value="instruction">Instruction</SelectItem>
                   <SelectItem value="agent">Agent</SelectItem>
+                  <SelectItem value="knowledge">Knowledge pack</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -151,6 +160,8 @@ function AddResourceDialog() {
                   ? "Frontend Designer"
                   : kind === "agent"
                     ? "Research Specialist"
+                    : kind === "knowledge"
+                      ? "Core GTM Messaging"
                     : "Code Style Guide"
               }
               value={name}
@@ -167,7 +178,7 @@ function AddResourceDialog() {
             />
             <p className="text-xs text-muted-foreground">
               Resource path in target apps. Skills go in skills/, agents in
-              agents/.
+              agents/, knowledge packs in context/.
             </p>
           </div>
           <div className="space-y-2">
@@ -186,6 +197,8 @@ function AddResourceDialog() {
                   ? "---\nname: my-skill\ndescription: What this skill teaches\n---\n\n# My Skill\n\n..."
                   : kind === "agent"
                     ? "---\nname: Research Specialist\ndescription: Handles research tasks\n---\n\n# Instructions\n\n..."
+                    : kind === "knowledge"
+                      ? "# Core GTM Messaging\n\n## Positioning\n\n## ICP\n\n## Proof points\n\n## Source\n\n"
                     : "# Instructions\n\nBehavioral rules and guidance for agents across apps..."
               }
               value={content}
@@ -199,7 +212,11 @@ function AddResourceDialog() {
           <Button
             onClick={() =>
               create.mutate({
-                kind: kind as "skill" | "instruction" | "agent",
+                kind: kind as
+                  | "skill"
+                  | "instruction"
+                  | "agent"
+                  | "knowledge",
                 name,
                 description: description || undefined,
                 path:
@@ -504,6 +521,9 @@ export default function WorkspaceRoute() {
     (r: any) => r.kind === "instruction",
   );
   const agents = (resources || []).filter((r: any) => r.kind === "agent");
+  const knowledge = (resources || []).filter(
+    (r: any) => r.kind === "knowledge",
+  );
 
   function ResourceList({
     items,
@@ -535,7 +555,7 @@ export default function WorkspaceRoute() {
   return (
     <DispatchShell
       title="Workspace Resources"
-      description="Share skills, instructions, and agent profiles across workspace apps. Scope to all apps or grant per-app."
+      description="Share skills, instructions, agent profiles, and knowledge packs across workspace apps. Scope to all apps or grant per-app."
     >
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
@@ -570,6 +590,9 @@ export default function WorkspaceRoute() {
           <TabsTrigger value="agents">
             Agents {agents.length > 0 && `(${agents.length})`}
           </TabsTrigger>
+          <TabsTrigger value="knowledge">
+            Knowledge {knowledge.length > 0 && `(${knowledge.length})`}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="skills" className="mt-4">
@@ -590,6 +613,13 @@ export default function WorkspaceRoute() {
           <ResourceList
             items={agents}
             emptyText="No workspace agents yet. Add a reusable agent profile to share specialist agents across apps."
+          />
+        </TabsContent>
+
+        <TabsContent value="knowledge" className="mt-4">
+          <ResourceList
+            items={knowledge}
+            emptyText="No knowledge packs yet. Add GTM, product, or domain context that apps can reuse."
           />
         </TabsContent>
       </Tabs>

@@ -65,6 +65,7 @@ export function Bubble() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const firstFrameAtRef = useRef<number | null>(null);
+  const recordingModeRef = useRef(false);
   // Which transport delivered the most recent usable frame. Starts as
   // "none" — we flip to "webrtc" on ontrack, or "canvas" on the first
   // JPEG frame, whichever lands first.
@@ -151,6 +152,38 @@ export function Bubble() {
       console.warn("[bubble] close_bubble failed", err);
     }
   };
+
+  useEffect(() => {
+    let stopped = false;
+    let unlisten: (() => void) | null = null;
+    listen<{ active?: boolean }>("clips:bubble-recording-mode", (event) => {
+      if (stopped) return;
+      recordingModeRef.current = event.payload?.active === true;
+      if (!recordingModeRef.current && videoRef.current?.srcObject) {
+        setActivePath("webrtc");
+      }
+    })
+      .then((u) => {
+        if (stopped) {
+          try {
+            u();
+          } catch {
+            // ignore
+          }
+          return;
+        }
+        unlisten = u;
+      })
+      .catch(() => {});
+    return () => {
+      stopped = true;
+      try {
+        unlisten?.();
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
 
   // ---- WebRTC receiver ----------------------------------------------------
   // Sets up a fresh RTCPeerConnection on mount, emits `bubble-ready`
@@ -281,7 +314,9 @@ export function Bubble() {
           firstFrameAtRef.current = Date.now();
           console.log("[bubble] first webrtc track received");
         }
-        setActivePath("webrtc");
+        if (!recordingModeRef.current) {
+          setActivePath("webrtc");
+        }
       };
 
       try {
@@ -482,11 +517,11 @@ export function Bubble() {
           );
         }
 
-        // Flip the active path on first canvas frame — only if WebRTC
-        // hasn't already taken over. If WebRTC is live the canvas frames
-        // still arrive (the popover may send a few overlap frames during
-        // handover) but we ignore them for display.
-        setActivePath((prev) => (prev === "webrtc" ? prev : "canvas"));
+        // During full-screen recording WebRTC can remain "connected" while
+        // WebKit stops advancing frames. The popover starts the canvas pump
+        // explicitly for that phase, so any canvas frame is a better display
+        // source than a stale WebRTC frame.
+        setActivePath("canvas");
 
         if (dataUrl) {
           latestPending = { dataUrl, w, h };
