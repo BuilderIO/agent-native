@@ -119,9 +119,8 @@ function VisibilityRefresh() {
     const refresh = () => {
       if (document.visibilityState !== "visible") return;
       const now = Date.now();
-      if (now - lastRefresh.current < 1000) return;
+      if (now - lastRefresh.current < 60_000) return;
       lastRefresh.current = now;
-      markExternalEmailRefresh();
       qc.invalidateQueries({ queryKey: ["emails"] });
       qc.invalidateQueries({ queryKey: ["labels"] });
     };
@@ -164,6 +163,7 @@ function DbSyncSetup() {
           });
         }
         if (data.key === "refresh-signal" && !isOwnEvent) {
+          markExternalEmailRefresh();
           qc.invalidateQueries({ queryKey: ["emails"] });
           qc.invalidateQueries({ queryKey: ["email"] });
           qc.invalidateQueries({ queryKey: ["labels"] });

@@ -388,7 +388,7 @@ export function useThreadMessages(threadId: string | undefined) {
     refetch: () => {
       if (threadId) {
         invalidateCachedThread(threadId);
-        return ensureThread(threadId);
+        return ensureThread(threadId, placeholder?.[0]?.accountEmail);
       }
       return Promise.resolve(undefined);
     },

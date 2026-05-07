@@ -164,7 +164,12 @@ function isQuotaError(status: number, data: any): boolean {
 }
 
 function isQuotaErrorText(text: string | undefined): boolean {
-  return !!text && /\b(?:429|quota|rate limit|rateLimitExceeded)\b/i.test(text);
+  return (
+    !!text &&
+    /\b(?:429|quota|rate limit|rateLimitExceeded|userRateLimitExceeded)\b/i.test(
+      text,
+    )
+  );
 }
 
 function parseRetryAfterMs(headers: Headers): number | undefined {

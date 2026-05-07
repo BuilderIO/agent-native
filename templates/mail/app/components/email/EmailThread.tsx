@@ -389,8 +389,11 @@ export function EmailThread({
         if (nextIdx < 0 || nextIdx >= ids.length) return;
       }
       const nextThreadId = ids[nextIdx];
+      const nextThread = threads.find(
+        (t) => (t.latestMessage.threadId || t.latestMessage.id) === nextThreadId,
+      );
       setSelectedIds?.(new Set());
-      void ensureThread(nextThreadId);
+      void ensureThread(nextThreadId, nextThread?.latestMessage.accountEmail);
       onNavigateThread?.(nextThreadId);
       navigate(`/${view}/${nextThreadId}${routeSearchSuffix}`);
     },
@@ -401,6 +404,7 @@ export function EmailThread({
       routeSearchSuffix,
       setSelectedIds,
       onNavigateThread,
+      threads,
     ],
   );
 
@@ -440,23 +444,26 @@ export function EmailThread({
     ],
   );
 
-  // Prefetch a window of threads around the currently open one so j/k
-  // navigation feels instant. Window is ±5 — large enough to cover a burst
-  // of key presses in either direction without visible loading. The
-  // server-side token bucket paces requests under Gmail's per-user quota,
-  // and history-delta + push notifications keep the polling cost near zero,
-  // so we can be aggressive here without reintroducing the rate-limit wall
-  // that used to force the ±1 window.
+  // Prefetch only the currently open thread's closest siblings. That keeps
+  // j/k navigation smooth without spending a large Gmail quota burst in the
+  // background.
   useEffect(() => {
     if (emailIds.length === 0) return;
     const currentIdx = emailIds.findIndex((id) => id === threadId);
     const base = currentIdx >= 0 ? currentIdx : 0;
     const neighbors = emailIds.slice(
-      Math.max(0, base - 5),
-      Math.min(emailIds.length, base + 6),
+      Math.max(0, base - 1),
+      Math.min(emailIds.length, base + 2),
     );
-    warmThreads(neighbors);
-  }, [emailIds, threadId]);
+    warmThreads(
+      neighbors.map((id) => {
+        const thread = threads.find(
+          (t) => (t.latestMessage.threadId || t.latestMessage.id) === id,
+        );
+        return { id, accountEmail: thread?.latestMessage.accountEmail };
+      }),
+    );
+  }, [emailIds, threadId, threads]);
 
   const advanceOrGoBack = useCallback(() => {
     if (!threadId || emailIds.length === 0) {

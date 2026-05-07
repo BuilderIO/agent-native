@@ -2758,6 +2758,11 @@ function qbrExtension(): string {
           loading: false,
           error: '',
           deckOpen: false,
+          slide: 0,
+          showExportMenu: false,
+          exportLabel: '',
+          logoUrl: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1672146e7e56476c8dd86df8d630d5b7?format=webp&width=800&height=1200',
+          slides: ['Cover','Agenda','Goals','Q1 Performance','Q1 NBMs','Q2 Forecast','Territory Plan','Growth & Support','Thank You'],
           saved: [],
           hs: null,
           form: {
@@ -2807,6 +2812,7 @@ function qbrExtension(): string {
           async selectOwner(name) {
             this.owner = name;
             this.deckOpen = false;
+            this.slide = 0;
             this.form = this.emptyForm();
             await Promise.all([this.loadSaved(name), this.loadDeals()]);
           },
@@ -2859,8 +2865,42 @@ function qbrExtension(): string {
             if (Math.abs(n) >= 1000) return '$' + Math.round(n / 1000).toLocaleString() + 'k';
             return '$' + Math.round(n).toLocaleString();
           },
+          fullMoney(value) {
+            return '$' + Math.round(Number(value || 0)).toLocaleString();
+          },
+          q1Attainment() {
+            const target = Number(this.form.q1CommitAtWeek5 || 0);
+            const closed = Number(this.hs?.q1_closed_won_arr || 0);
+            return target ? Math.round((closed / target) * 100) + '%' : '—';
+          },
+          q2TargetDisplay() {
+            return this.form.q2Target ? this.form.q2Target : this.money(this.hs?.q2_pipeline_arr || 0);
+          },
+          q2Deals() {
+            return Array.isArray(this.hs?.top_deals) ? this.hs.top_deals.slice(0, 12) : [];
+          },
+          askList() {
+            return [this.form.ask1, this.form.ask2, this.form.ask3];
+          },
+          printDeck() {
+            this.showExportMenu = false;
+            window.print();
+          },
+          downloadHtml() {
+            this.showExportMenu = false;
+            const deck = document.querySelector('[data-qbr-deck-print]');
+            if (!deck) return;
+            const title = 'QBR_' + (this.owner || 'AE').replace(/[^a-z0-9]+/gi, '_') + '.html';
+            const html = '<!doctype html><html><head><meta charset="utf-8"><title>' + title + '</title><script src="https://cdn.tailwindcss.com"><\\/script><style>body{margin:0;background:#050505;color:white;font-family:Arial,sans-serif}.slide{width:1280px;height:720px;page-break-after:always;overflow:hidden}.slide:last-child{page-break-after:auto}@media print{@page{size:1280px 720px;margin:0}body{background:#050505}}</style></head><body>' + deck.innerHTML + '</body></html>';
+            const blob = new Blob([html], { type: 'text/html' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = title;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+          },
           addNbmRow() {
-            this.form.nbmRows.push({ id: String(Date.now()), accountName: '', contactNameTitle: '', products: '', weekNumber: '', currentStage: '', opportunityValue: '' });
+            this.form.nbmRows.push({ id: String(Date.now()), accountName: '', contactNameTitle: '', products: '', technicalPocIncluded: '', weekNumber: '', builderLeader: '', valuePyramid: '', preNbmDiscoCalls: '', meetingsSinceNBM: '', currentStage: '', opportunityValue: '' });
           }
         };
       }
@@ -2879,7 +2919,7 @@ function qbrExtension(): string {
             </select>
             <button class="rounded border px-3 py-2" x-bind:disabled="!owner || loading" x-on:click="loadDeals()">Refresh HubSpot</button>
             <button class="rounded border px-3 py-2" x-bind:disabled="!owner" x-on:click="save()">Save</button>
-            <button class="rounded bg-primary px-4 py-2 text-primary-foreground" x-bind:disabled="!owner" x-on:click="deckOpen = true">View Deck</button>
+            <button class="rounded bg-primary px-4 py-2 text-primary-foreground" x-bind:disabled="!owner" x-on:click="slide = 0; deckOpen = true">View Deck</button>
           </div>
         </div>
       </div>
@@ -2920,8 +2960,14 @@ function qbrExtension(): string {
                 <input x-model="row.accountName" class="rounded border px-3 py-2" placeholder="Account" />
                 <input x-model="row.contactNameTitle" class="rounded border px-3 py-2" placeholder="Contact / title" />
                 <input x-model="row.products" class="rounded border px-3 py-2" placeholder="Products" />
+                <input x-model="row.technicalPocIncluded" class="rounded border px-3 py-2" placeholder="Technical POC?" />
                 <input x-model="row.weekNumber" class="rounded border px-3 py-2" placeholder="Week" />
-                <input x-model="row.opportunityValue" class="rounded border px-3 py-2" placeholder="Value" />
+                <input x-model="row.builderLeader" class="rounded border px-3 py-2" placeholder="Builder leader" />
+                <select x-model="row.valuePyramid" class="rounded border px-3 py-2"><option value="">Value pyramid?</option><option>Yes</option><option>No</option></select>
+                <input x-model="row.preNbmDiscoCalls" class="rounded border px-3 py-2" placeholder="Pre-NBM disco calls" />
+                <input x-model="row.meetingsSinceNBM" class="rounded border px-3 py-2" placeholder="Meetings since NBM" />
+                <input x-model="row.currentStage" class="rounded border px-3 py-2" placeholder="Current stage" />
+                <input x-model="row.opportunityValue" class="rounded border px-3 py-2" placeholder="Current $ opportunity" />
               </div>
             </template>
           </div>
@@ -2936,23 +2982,79 @@ function qbrExtension(): string {
           </div>
         </section>
       </div>
-      <section x-show="deckOpen" class="space-y-3 rounded border p-4">
-        <div class="flex items-center justify-between">
-          <div><p class="text-xs uppercase tracking-wide text-muted-foreground">AE QBR Deck</p><h2 class="text-xl font-semibold" x-text="owner"></h2></div>
-          <button class="rounded border px-3 py-1.5 text-xs" x-on:click="deckOpen = false">Back to form</button>
+      <section x-show="deckOpen" class="fixed inset-0 z-50 flex flex-col bg-black text-white">
+        <div class="flex shrink-0 items-center justify-between border-b border-gray-800 bg-[#0a0a0a] px-4 py-2">
+          <button class="rounded px-3 py-1.5 text-sm text-gray-400 hover:bg-gray-900 hover:text-white" x-on:click="deckOpen = false">Exit</button>
+          <div class="flex max-w-[55%] gap-1 overflow-x-auto">
+            <template x-for="(label, i) in slides" :key="label">
+              <button class="whitespace-nowrap rounded px-2 py-1 text-xs" x-bind:class="slide === i ? 'bg-[#00B4D8] font-bold text-black' : 'text-gray-500 hover:text-gray-300'" x-on:click="slide = i"><span x-text="(i + 1) + '. ' + label"></span></button>
+            </template>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="relative">
+              <button class="rounded border border-gray-700 bg-[#1a1a1a] px-3 py-1.5 text-sm text-gray-300 hover:text-white" x-on:click="showExportMenu = !showExportMenu">Export</button>
+              <div x-show="showExportMenu" class="absolute right-0 top-full z-10 mt-1 w-52 overflow-hidden rounded-xl border border-gray-700 bg-[#1a1a1a] shadow-2xl">
+                <button class="block w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] hover:text-white" x-on:click="printDeck()"><span class="font-semibold">Save as PDF</span><span class="block text-xs text-gray-500">Browser print, landscape</span></button>
+                <button class="block w-full border-t border-gray-800 px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] hover:text-white" x-on:click="downloadHtml()"><span class="font-semibold">Download deck HTML</span><span class="block text-xs text-gray-500">Open/import as needed</span></button>
+              </div>
+            </div>
+            <span class="text-sm text-gray-500" x-text="(slide + 1) + ' / ' + slides.length"></span>
+          </div>
         </div>
-        <div class="grid gap-3 md:grid-cols-3">
-          <div class="rounded bg-muted p-3"><p class="text-xs text-muted-foreground">Q1 Closed Won</p><p class="font-semibold" x-text="money(hs?.q1_closed_won_arr || 0)"></p></div>
-          <div class="rounded bg-muted p-3"><p class="text-xs text-muted-foreground">Q2 Pipeline</p><p class="font-semibold" x-text="money(hs?.q2_pipeline_arr || 0)"></p></div>
-          <div class="rounded bg-muted p-3"><p class="text-xs text-muted-foreground">Q2 Target</p><p class="font-semibold" x-text="form.q2Target || 'Not set'"></p></div>
+        <div class="flex flex-1 items-center justify-center bg-[#050505] p-4">
+          <div class="relative w-full max-w-[calc((100vh-80px)*16/9)]" style="aspect-ratio:16/9">
+            <div class="absolute inset-0 overflow-hidden rounded-sm shadow-2xl">
+              <div class="slide relative h-full w-full bg-black" x-show="slide === 0">
+                <div class="absolute right-0 top-0 h-full w-2/3 opacity-10" style="background:linear-gradient(135deg, transparent 40%, #333 100%)"></div>
+                <div class="absolute right-[-5%] top-[10%] h-[80%] w-[45%] skew-x-[-5deg] bg-gradient-to-br from-[#222] to-[#444] opacity-20"></div>
+                <div class="absolute left-[5%] top-[6%] flex items-center gap-2"><img x-bind:src="logoUrl" class="h-9 w-9 object-contain" alt="Builder.io" /><span class="text-lg font-bold tracking-wide">builder.io</span></div>
+                <div class="relative z-10 flex h-full flex-col justify-center px-[5%]"><h1 class="text-6xl font-black leading-none tracking-tight">AE QBR Deck</h1><p class="mt-4 text-xl text-gray-400" x-text="owner || 'Select AE'"></p><p class="mt-1 text-lg text-gray-500">Q1 FY27 Review & Q2 FY27 Plan</p><p class="text-lg text-gray-500">May, 2026</p></div>
+                <div class="absolute right-[5%] top-[15%] flex h-[70%] w-[38%] flex-col justify-center rounded border border-[#2a2a2a] bg-[#111] px-[6%]"><p class="mb-3 text-xs font-bold uppercase tracking-[0.25em] text-gray-500">Review Period</p><p class="text-4xl font-black">Q1 FY27</p><p class="mt-2 text-sm text-gray-400">Feb 1 - Apr 30, 2026</p><div class="my-5 h-px w-full bg-gray-800"></div><p class="mb-3 text-xs font-bold uppercase tracking-[0.25em] text-gray-500">Planning Period</p><p class="text-4xl font-black">Q2 FY27</p><p class="mt-2 text-sm text-gray-400">May 1 - Jul 31, 2026</p></div>
+              </div>
+              <div class="slide flex h-full w-full flex-col justify-center bg-[#0d0d0d] px-[7%] py-[6%]" x-show="slide === 1">
+                <img x-bind:src="logoUrl" class="absolute right-[4%] top-[5%] h-9 w-9" alt="" /><h1 class="mb-8 text-5xl font-black">Agenda</h1>
+                <template x-for="item in [{n:'1',t:'Q1 / FY27 Lookback'},{n:'2',t:'Q2 Forecast & Deals'},{n:'3',t:'FY27 Territory Plan\\nQ2 PipeGen Plan'},{n:'4',t:'Asks of the Business'}]" :key="item.n"><div class="flex items-center gap-6 py-2"><span class="text-5xl font-black text-[#00B4D8]" x-text="item.n"></span><div class="flex-1 border-t border-gray-700"></div><span class="min-w-56 whitespace-pre-line text-right text-xl font-semibold" x-text="item.t"></span></div></template>
+              </div>
+              <div class="slide flex h-full w-full flex-col bg-[#0d0d0d] px-[6%] py-[5%]" x-show="slide === 2">
+                <img x-bind:src="logoUrl" class="absolute right-[4%] top-[5%] h-9 w-9" alt="" /><h1 class="mb-4 text-4xl font-black" x-text="'[' + (owner || 'AE Name') + ']'"></h1>
+                <div class="grid flex-1 grid-cols-2 gap-3">
+                  <div class="flex flex-col gap-3"><p class="text-xs font-bold uppercase tracking-wider text-[#00B4D8]">Look Back</p><div class="flex-1 rounded-lg border border-[#00B4D833] bg-[#1a1a1a] p-4"><p class="mb-2 text-xs font-bold uppercase tracking-wider text-[#00B4D8]">Q1 Goals - Did You Reach Them?</p><p class="whitespace-pre-line text-sm leading-relaxed" x-text="form.q1GoalsLookback || 'Not filled in yet'"></p></div><div class="flex-1 rounded-lg border border-[#00B4D833] bg-[#1a1a1a] p-4"><p class="mb-2 text-xs font-bold uppercase tracking-wider text-[#00B4D8]">Biggest Lesson from Q1</p><p class="whitespace-pre-line text-sm leading-relaxed" x-text="form.fy26GoalsLookback || 'Not filled in yet'"></p></div></div>
+                  <div class="flex flex-col gap-3"><p class="text-xs font-bold uppercase tracking-wider text-purple-400">Looking Ahead</p><div class="flex-1 rounded-lg border border-purple-400/30 bg-[#1a1a1a] p-4"><p class="mb-2 text-xs font-bold uppercase tracking-wider text-purple-400">Q2 SMART Goals</p><p class="whitespace-pre-line text-sm leading-relaxed" x-text="form.q2SmartGoals || 'Not filled in yet'"></p></div><div class="flex-1 rounded-lg border border-purple-400/30 bg-[#1a1a1a] p-4"><p class="mb-2 text-xs font-bold uppercase tracking-wider text-purple-400">Biggest Blocker for Q2 Success</p><p class="whitespace-pre-line text-sm leading-relaxed" x-text="form.fy27SmartGoals || 'Not filled in yet'"></p></div></div>
+                </div>
+              </div>
+              <div class="slide flex h-full w-full flex-col bg-[#0d0d0d] px-[5%] py-[4%]" x-show="slide === 3">
+                <img x-bind:src="logoUrl" class="absolute right-[4%] top-[5%] h-9 w-9" alt="" /><h1 class="mb-3 text-4xl font-black">Q1 Performance Summary</h1>
+                <div class="mb-3 overflow-hidden rounded-lg border border-gray-800"><table class="w-full text-xs"><thead><tr class="bg-[#1e1e2e]"><template x-for="m in ['Months in Role','S0s Created','NBMs Completed','Opps Advanced to S1+','Meetings / Week','Commit W5','Best Case W5','Revenue Closed']"><th class="border-r border-gray-700 px-2 py-2 text-left font-bold" x-text="m"></th></template></tr></thead><tbody><tr class="bg-[#141420]"><td class="border-r border-gray-800 px-2 py-3">-</td><td class="border-r border-gray-800 px-2 py-3" x-text="hs?.q1_s0_count || 0"></td><td class="border-r border-gray-800 px-2 py-3" x-text="hs?.q1_nbm_completed || 0"></td><td class="border-r border-gray-800 px-2 py-3" x-text="hs?.q2_pipeline_count || 0"></td><td class="border-r border-gray-800 px-2 py-3">-</td><td class="border-r border-gray-800 px-2 py-3" x-text="form.q1CommitAtWeek5 ? fullMoney(form.q1CommitAtWeek5) : '—'"></td><td class="border-r border-gray-800 px-2 py-3" x-text="form.q1BestCaseAtWeek5 ? fullMoney(form.q1BestCaseAtWeek5) : '—'"></td><td class="px-2 py-3"><p x-text="money(hs?.q1_closed_won_arr || 0)"></p><p class="mt-1 text-gray-400" x-text="'Q1 Attainment: ' + q1Attainment()"></p></td></tr></tbody></table></div>
+                <div class="flex-1 overflow-hidden rounded-lg border border-[#333] bg-[#1a1a1a] p-4"><p class="mb-2 font-bold">Q1 Analysis (what went well / less well)</p><p class="whitespace-pre-line text-sm text-gray-300" x-text="form.q1Analysis || 'Analysis not filled in yet'"></p></div>
+              </div>
+              <div class="slide flex h-full w-full flex-col bg-[#0d0d0d] px-[4%] py-[4%]" x-show="slide === 4">
+                <img x-bind:src="logoUrl" class="absolute right-[4%] top-[5%] h-9 w-9" alt="" /><h1 class="mb-3 text-4xl font-black">Q1 NBMs</h1>
+                <div class="flex-1 overflow-hidden rounded-lg border border-gray-700"><table class="h-full w-full text-[10px]"><thead><tr class="bg-[#1e1e1e]"><template x-for="col in ['Account Name','Primary NBM Contact','Products','Technical POC','Week #','Builder Leader','Value Pyramid','Pre-NBM Calls','Meetings Since','Current Stage','Current $']"><th class="border-r border-gray-700 px-2 py-2 text-left font-bold whitespace-pre-line" x-text="col"></th></template></tr></thead><tbody><template x-if="!form.nbmRows.length"><template x-for="i in 8"><tr class="odd:bg-[#111] even:bg-[#141414]"><template x-for="col in 11"><td class="border-r border-gray-800 px-2 py-2 text-gray-700">&nbsp;</td></template></tr></template></template><template x-for="(row, i) in form.nbmRows" :key="row.id"><tr class="odd:bg-[#111] even:bg-[#141414]"><td class="border-r border-gray-800 px-2 py-2" x-text="row.accountName"></td><td class="border-r border-gray-800 px-2 py-2 text-gray-300" x-text="row.contactNameTitle"></td><td class="border-r border-gray-800 px-2 py-2 text-gray-300" x-text="row.products"></td><td class="border-r border-gray-800 px-2 py-2 text-center text-gray-300" x-text="row.technicalPocIncluded"></td><td class="border-r border-gray-800 px-2 py-2 text-center text-gray-300" x-text="row.weekNumber"></td><td class="border-r border-gray-800 px-2 py-2 text-gray-300" x-text="row.builderLeader"></td><td class="border-r border-gray-800 px-2 py-2 text-center text-gray-300" x-text="row.valuePyramid"></td><td class="border-r border-gray-800 px-2 py-2 text-center text-gray-300" x-text="row.preNbmDiscoCalls"></td><td class="border-r border-gray-800 px-2 py-2 text-center text-gray-300" x-text="row.meetingsSinceNBM"></td><td class="border-r border-gray-800 px-2 py-2 text-gray-300" x-text="row.currentStage"></td><td class="px-2 py-2 text-right" x-text="row.opportunityValue ? fullMoney(row.opportunityValue) : 'none'"></td></tr></template></tbody></table></div>
+              </div>
+              <div class="slide flex h-full w-full flex-col bg-[#0d0d0d] px-[5%] py-[4%]" x-show="slide === 5">
+                <img x-bind:src="logoUrl" class="absolute right-[4%] top-[5%] h-9 w-9" alt="" /><h1 class="mb-[3%] text-4xl font-black">Q2 Forecast</h1>
+                <div class="grid flex-1 grid-cols-2 gap-[2%]"><div class="flex flex-col justify-between rounded-lg border border-[#2a2a4a] bg-[#111] px-[6%] py-[5%]"><template x-for="m in [{l:'Q1 Target (Actual)',v:form.q1CommitAtWeek5 ? fullMoney(form.q1CommitAtWeek5) : '—'},{l:'Q2 Quota',v:form.q2Target ? fullMoney(form.q2Target) : '—'},{l:'Q2 Target',v:q2TargetDisplay()},{l:'Q2 Qualified Pipeline',v:money(hs?.q2_pipeline_arr || 0)}]"><div class="flex items-baseline justify-between gap-2"><span class="text-gray-400" x-text="m.l"></span><span class="text-right font-bold" x-text="m.v"></span></div></template></div><div class="flex flex-col rounded-lg border border-[#00B4D833] bg-[#111] px-[6%] py-[5%]"><template x-if="!q2Deals().length"><div class="flex h-full items-center justify-center text-gray-600 italic">No Q2 deals found in HubSpot with Q2 close dates</div></template><template x-for="deal in q2Deals()" :key="deal.deal_name || deal.company_name"><div class="flex flex-1 items-center justify-between gap-2 border-b border-gray-800"><span class="truncate" x-text="deal.deal_name || deal.company_name"></span><span class="shrink-0 font-bold" x-text="money(deal.amount || 0)"></span></div></template></div></div>
+              </div>
+              <div class="slide flex h-full w-full flex-col items-center justify-center bg-[#0d0d0d] px-[8%] py-[6%]" x-show="slide === 6">
+                <img x-bind:src="logoUrl" class="absolute right-[4%] top-[5%] h-9 w-9" alt="" /><h1 class="mb-8 text-center text-4xl font-black">FY27 Territory Plan and Q2 PG Plan</h1><a x-show="form.territoryPlanLink" class="text-center text-xl text-[#00B4D8] underline" x-bind:href="form.territoryPlanLink" target="_blank" x-text="form.territoryPlanLink"></a><p x-show="!form.territoryPlanLink" class="text-xl italic text-gray-500">[Link to Territory / PG Plan Template]</p>
+              </div>
+              <div class="slide flex h-full w-full flex-col bg-[#0d0d0d] px-[8%] py-[8%]" x-show="slide === 7">
+                <img x-bind:src="logoUrl" class="absolute right-[4%] top-[5%] h-9 w-9" alt="" /><h1 class="mb-6 text-4xl font-black">Growth and Support</h1><p class="mb-6 text-xl font-bold">Top 3 asks of the business:</p><div class="flex flex-1 flex-col gap-5"><template x-for="(ask, i) in askList()" :key="i"><div class="flex flex-1 items-start gap-4"><span class="shrink-0 text-3xl font-black text-[#00B4D8]" x-text="(i + 1) + ')'"></span><p class="text-xl leading-relaxed" x-text="ask || 'Not filled in yet'"></p></div></template></div>
+              </div>
+              <div class="slide flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-[#050a1a] to-[#0a0a2e]" x-show="slide === 8">
+                <img x-bind:src="logoUrl" class="absolute right-[4%] top-[5%] h-10 w-10" alt="" /><div class="flex flex-col items-start"><h1 class="text-7xl font-black">Thank you</h1><div class="mt-2 h-[5px] w-[55%] rounded-full bg-[#00D4FF]"></div></div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="grid gap-3 md:grid-cols-2">
-          <div class="rounded border p-3"><p class="font-medium">Goals</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.q2SmartGoals || form.fy27SmartGoals || 'No goals saved yet.'"></p></div>
-          <div class="rounded border p-3"><p class="font-medium">Performance</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.q1Analysis || 'No analysis saved yet.'"></p></div>
-          <div class="rounded border p-3"><p class="font-medium">Territory</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.territoryPlanLink || 'No territory plan link saved yet.'"></p></div>
-          <div class="rounded border p-3"><p class="font-medium">Asks</p><ul class="mt-2 list-disc space-y-1 pl-5 text-sm"><template x-for="ask in [form.ask1, form.ask2, form.ask3].filter(Boolean)" :key="ask"><li x-text="ask"></li></template></ul></div>
+        <div class="flex shrink-0 items-center justify-center gap-6 border-t border-gray-800 bg-[#0a0a0a] py-2">
+          <button class="rounded px-3 py-1.5 text-sm text-gray-300 disabled:opacity-30" x-bind:disabled="slide === 0" x-on:click="slide = Math.max(0, slide - 1)">Prev</button>
+          <div class="flex gap-1"><template x-for="(_, i) in slides" :key="i"><button class="h-2 w-2 rounded-full" x-bind:class="slide === i ? 'bg-[#00B4D8]' : 'bg-gray-700'" x-on:click="slide = i"></button></template></div>
+          <button class="rounded px-3 py-1.5 text-sm text-gray-300 disabled:opacity-30" x-bind:disabled="slide === slides.length - 1" x-on:click="slide = Math.min(slides.length - 1, slide + 1)">Next</button>
         </div>
-        <div class="rounded border p-3"><p class="font-medium">NBM Plan</p><p class="mt-1 text-sm text-muted-foreground" x-text="form.nbmRows.length ? form.nbmRows.length + ' planned NBMs' : 'No NBM rows entered yet.'"></p></div>
+        <div data-qbr-deck-print class="hidden">
+          <template x-for="(_, i) in slides" :key="i"><div class="slide">Open the interactive extension and use browser print for the current deck.</div></template>
+        </div>
       </section>
     </div>`,
   );

@@ -211,7 +211,15 @@ function MailLoadingState({
 // and gate the manual button behind a 15s cooldown so a flurry of clicks
 // can't itself trip the rate limit.
 
-const RATE_LIMIT_RETRY_MS = 15_000;
+const RATE_LIMIT_RETRY_MS = 60_000;
+
+function getRateLimitRetryMs(message: string): number {
+  const match = message.match(/retry in\s+(\d+)s/i);
+  if (!match) return RATE_LIMIT_RETRY_MS;
+  const seconds = Number(match[1]);
+  if (!Number.isFinite(seconds) || seconds <= 0) return RATE_LIMIT_RETRY_MS;
+  return Math.min(Math.max(seconds * 1000, 15_000), 5 * 60_000);
+}
 
 function EmailErrorState({
   isQuotaError,
@@ -226,10 +234,16 @@ function EmailErrorState({
   onRetry: () => unknown;
   containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
+  const rateLimitRetryMs = isQuotaError ? getRateLimitRetryMs(message) : 0;
   const [cooldownRemaining, setCooldownRemaining] = useState(
-    isQuotaError ? RATE_LIMIT_RETRY_MS : 0,
+    rateLimitRetryMs,
   );
   const autoRetryFired = useRef(false);
+
+  useEffect(() => {
+    setCooldownRemaining(rateLimitRetryMs);
+    autoRetryFired.current = false;
+  }, [rateLimitRetryMs]);
 
   // Tick the cooldown countdown every second. Depend on the boolean so the
   // effect only re-runs when the cooldown starts or stops — not on every tick.
@@ -256,10 +270,10 @@ function EmailErrorState({
 
   const handleClick = useCallback(() => {
     if (cooldownRemaining > 0 || isFetching) return;
-    setCooldownRemaining(isQuotaError ? RATE_LIMIT_RETRY_MS : 0);
+    setCooldownRemaining(rateLimitRetryMs);
     autoRetryFired.current = true;
     void onRetry();
-  }, [cooldownRemaining, isFetching, isQuotaError, onRetry]);
+  }, [cooldownRemaining, isFetching, onRetry, rateLimitRetryMs]);
 
   const cooldownSeconds = Math.ceil(cooldownRemaining / 1000);
   const buttonDisabled = isFetching || cooldownRemaining > 0;
@@ -505,7 +519,7 @@ export function EmailList({
     // Enter on a single focused row is a single-thread action — clear any
     // in-progress multi-selection so shortcuts in detail view start fresh.
     setSelectedIds(new Set());
-    void ensureThread(targetThreadId);
+    void ensureThread(targetThreadId, thread.latestMessage.accountEmail);
     onNavigateThread?.(targetThreadId);
     navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
     if (thread.hasUnread) {
@@ -554,7 +568,7 @@ export function EmailList({
         // instant down the list.
         const nextTid =
           nextThread.latestMessage.threadId || nextThread.latestMessage.id;
-        void ensureThread(nextTid);
+        void ensureThread(nextTid, nextThread.latestMessage.accountEmail);
       } else {
         setFocusedId(null);
       }
@@ -876,32 +890,32 @@ export function EmailList({
     }
   }, [threads, focusedId, setFocusedId]);
 
-  // Warm the first 10 visible threads on list load. The server-side token
-  // bucket + history-delta sync gives us plenty of headroom to eagerly
-  // prefetch what the user is most likely to open next.
+  // Warm only the first few visible threads on list load. Direct clicks still
+  // fetch immediately, while background work stays below Gmail's quota.
   useEffect(() => {
     if (threads.length === 0) return;
-    const ids = threads
-      .slice(0, 10)
-      .map((t) => t.latestMessage.threadId || t.latestMessage.id);
-    warmThreads(ids);
+    warmThreads(
+      threads.slice(0, 3).map((t) => ({
+        id: t.latestMessage.threadId || t.latestMessage.id,
+        accountEmail: t.latestMessage.accountEmail,
+      })),
+    );
   }, [threads]);
 
-  // When focus moves (j/k, click, or swipe), prefetch a window around the
-  // focused row so the next open — or the next j — is instant. The
-  // server-side token bucket paces these requests, so we widen the window
-  // to cover a longer j-key burst without needing manual throttling here.
+  // When focus moves, prefetch the focused row and its closest neighbors only.
   useEffect(() => {
     if (!focusedId || threads.length === 0) return;
     const idx = threads.findIndex((t) => t.latestMessage.id === focusedId);
     if (idx === -1) return;
-    const windowIdx = [idx - 1, idx, idx + 1, idx + 2, idx + 3, idx + 4].filter(
+    const windowIdx = [idx - 1, idx, idx + 1].filter(
       (i) => i >= 0 && i < threads.length,
     );
-    const ids = windowIdx.map(
-      (i) => threads[i].latestMessage.threadId || threads[i].latestMessage.id,
+    warmThreads(
+      windowIdx.map((i) => ({
+        id: threads[i].latestMessage.threadId || threads[i].latestMessage.id,
+        accountEmail: threads[i].latestMessage.accountEmail,
+      })),
     );
-    warmThreads(ids);
   }, [focusedId, threads]);
 
   // Infinite scroll — fetch next page when the sentinel enters the viewport.
@@ -957,7 +971,7 @@ export function EmailList({
       onDraftOpen(email);
       return;
     }
-    void ensureThread(targetThreadId);
+    void ensureThread(targetThreadId, email.accountEmail);
     onNavigateThread?.(targetThreadId);
     navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
     if (thread.hasUnread) {
@@ -1394,9 +1408,6 @@ export function EmailList({
             }
             onHover={() => {
               setFocusedId(thread.latestMessage.id);
-              const targetThreadId =
-                thread.latestMessage.threadId || thread.latestMessage.id;
-              void ensureThread(targetThreadId);
             }}
             onSwipeArchive={() => handleSwipeArchive(thread)}
             onSwipeSnooze={() => handleSwipeSnooze(thread)}

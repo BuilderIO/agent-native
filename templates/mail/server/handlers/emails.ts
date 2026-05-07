@@ -578,6 +578,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
 export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const threadId = getRouterParam(event, "threadId") as string;
+  const { accountEmail } = getQuery(event) as { accountEmail?: string };
 
   // Cache hit: skip Gmail entirely. Survives prefetch → navigate within TTL,
   // and across sibling j/k navigation for the same thread.
@@ -590,10 +591,19 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
   if (await isConnected(email)) {
     try {
       const accountTokens = await getAccountTokens(email);
+      let candidateTokens = accountTokens;
+      if (accountEmail) {
+        const resolvedAccount = await resolveAccountEmail(accountEmail, email);
+        candidateTokens = accountTokens.filter(
+          (account) => account.email === resolvedAccount,
+        );
+      }
       const labelMap = await getCachedLabelMap(accountTokens);
 
-      // Search across all accounts for messages in this thread
-      for (const { email: acctEmail, accessToken } of accountTokens) {
+      // When the list row tells us which connected account owns the thread,
+      // fetch only that account. Otherwise fall back to scanning all accounts
+      // for older callers and copied URLs.
+      for (const { email: acctEmail, accessToken } of candidateTokens) {
         try {
           const threadRes = await gmailGetThread(accessToken, threadId, "full");
           const messages = (threadRes.messages || []).map((m: any) =>
@@ -621,7 +631,7 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
           return { error: error.message };
         }
       }
-      if (accountTokens.length > 0) {
+      if (candidateTokens.length > 0) {
         setResponseStatus(event, 404);
         return { error: "Thread not found in any account" };
       }
