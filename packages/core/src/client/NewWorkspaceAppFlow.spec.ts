@@ -191,10 +191,11 @@ describe("NewWorkspaceAppFlow", () => {
     expect(message).toContain("shared workspace database/hosting model");
     expect(message).toContain("not a feature request for the current app");
     expect(message).toContain("inside apps/starter");
-    expect(message).toContain("workspace app registry metadata");
-    expect(message).toContain(
-      "workspace-apps.json or .agent-native/workspace-apps.json",
-    );
+    expect(message).toContain("There is no separate workspace app registry");
+    expect(message).toContain("apps/qa-dashboard/package.json exists");
+    expect(message).toContain("Do not hardcode localhost");
+    expect(message).toContain("appBasePath()");
+    expect(message).toContain("Do not add lucide-react");
     expect(message).toContain("manifest/package/deploy metadata");
     expect(message).toContain("agent card/A2A metadata");
     expect(message).not.toContain("Builder.io");
