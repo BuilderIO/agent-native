@@ -117,7 +117,7 @@ export function onboardingProgressExtension(): string {
         return product === 'publish-academy' ? 'Publish Academy' : product === 'publish' ? 'Publish' : 'Fusion';
       },
       stripHtml(value) {
-        return String(value || '').replace(/<\/(p|div|li|h[1-6])>/gi, '\\n').replace(/<br\\s*\\/?>(\\s*)/gi, '\\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/\\s+\\n/g, '\\n').replace(/\\n{3,}/g, '\\n\\n').trim();
+        return String(value || '').replace(/<\/(p|div|li|h[1-6])>/gi, '\\n').replace(/<br\s*\/?>(\s*)/gi, '\\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/\s+\\n/g, '\\n').replace(/\\n{3,}/g, '\\n\\n').trim();
       },
       fmtDate(value) {
         if (!value) return '-';
@@ -498,8 +498,14 @@ export function strategicAccountsExtension(): string {
         }
       },
       parseStringConst(source, name) {
-        const match = String(source || '').match(new RegExp('export const ' + name + '\\\\s*=\\\\s*[\\\"\\\\']([^\\\"\\\\']+)[\\\"\\\\']'));
-        return match ? match[1] : '';
+        const line = String(source || '').split('\\n').find((entry) => entry.includes('export const ' + name));
+        if (!line) return '';
+        const value = line.slice(line.indexOf('=') + 1).trim();
+        const quoteCode = value.charCodeAt(0);
+        if (quoteCode !== 34 && quoteCode !== 39) return '';
+        const quote = String.fromCharCode(quoteCode);
+        const end = value.indexOf(quote, 1);
+        return end > 0 ? value.slice(1, end) : '';
       },
       parseArrayConst(source, name) {
         const text = String(source || '');
@@ -519,7 +525,11 @@ export function strategicAccountsExtension(): string {
             else if (ch === quote) quote = '';
             continue;
           }
-          if (ch === '\\'' || ch === '\\\"' || ch === '\`') {
+          if (
+            ch.charCodeAt(0) === 39 ||
+            ch.charCodeAt(0) === 34 ||
+            ch.charCodeAt(0) === 96
+          ) {
             quote = ch;
             continue;
           }
@@ -852,9 +862,13 @@ export function explorerExtension(): string {
         event.groupBy.splice(index, 1);
       },
       dateClause() {
-        if (this.config.dateRange === 'custom' && this.config.customDateStart && this.config.customDateEnd) return 'createdDate >= TIMESTAMP(\\'' + this.config.customDateStart + '\\') AND createdDate <= TIMESTAMP(\\'' + this.config.customDateEnd + '\\')';
+        const q = this.quote();
+        if (this.config.dateRange === 'custom' && this.config.customDateStart && this.config.customDateEnd) return 'createdDate >= TIMESTAMP(' + q + this.config.customDateStart + q + ') AND createdDate <= TIMESTAMP(' + q + this.config.customDateEnd + q + ')';
         const days = this.config.dateRange === '7d' ? 7 : this.config.dateRange === '14d' ? 14 : this.config.dateRange === '90d' ? 90 : 30;
         return 'createdDate >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL ' + days + ' DAY) AND createdDate <= CURRENT_TIMESTAMP()';
+      },
+      quote() {
+        return String.fromCharCode(39);
       },
       columnRef(property, alias) {
         const enriched = {
@@ -874,19 +888,21 @@ export function explorerExtension(): string {
         if (enriched[property]) return enriched[property];
         const top = ['event', 'name', 'url', 'type', 'kind', 'userId', 'organizationId', 'sessionId', 'browser', 'modelName', 'modelId', 'message'];
         const prefix = alias ? alias + '.' : '';
-        return top.includes(property) ? prefix + property : 'JSON_VALUE(' + prefix + 'data, \\'$.' + property + '\\')';
+        const q = this.quote();
+        return top.includes(property) ? prefix + property : 'JSON_VALUE(' + prefix + 'data, ' + q + '$.' + property + q + ')';
       },
       escapeSql(value) {
-        return String(value || '').replace(/'/g, '\\\\'');
+        return String(value || '').split(this.quote()).join('\\\\' + this.quote());
       },
       filterSql(filter, alias) {
         const col = this.columnRef(filter.property, alias);
-        if (filter.operator === '=') return col + ' = \\'' + this.escapeSql(filter.value) + '\\'';
-        if (filter.operator === '!=') return col + ' != \\'' + this.escapeSql(filter.value) + '\\'';
-        if (filter.operator === 'contains') return col + ' LIKE \\'%' + this.escapeSql(filter.value) + '%\\'';
-        if (filter.operator === 'not_contains') return col + ' NOT LIKE \\'%' + this.escapeSql(filter.value) + '%\\'';
-        if (filter.operator === 'is_set') return col + ' IS NOT NULL AND ' + col + ' != \\'' + '\\'';
-        return '(' + col + ' IS NULL OR ' + col + ' = \\'' + '\\')';
+        const q = this.quote();
+        if (filter.operator === '=') return col + ' = ' + q + this.escapeSql(filter.value) + q;
+        if (filter.operator === '!=') return col + ' != ' + q + this.escapeSql(filter.value) + q;
+        if (filter.operator === 'contains') return col + ' LIKE ' + q + '%' + this.escapeSql(filter.value) + '%' + q;
+        if (filter.operator === 'not_contains') return col + ' NOT LIKE ' + q + '%' + this.escapeSql(filter.value) + '%' + q;
+        if (filter.operator === 'is_set') return col + ' IS NOT NULL AND ' + col + ' != ' + q + q;
+        return '(' + col + ' IS NULL OR ' + col + ' = ' + q + q + ')';
       },
       needsJoin(event) {
         const props = event.filters.map((f) => f.property).concat(event.groupBy || []);
@@ -910,8 +926,9 @@ export function explorerExtension(): string {
         const isMetric = this.config.chartType === 'metric';
         const select = [];
         const group = [];
+        const q = this.quote();
         if (labelPrefix) {
-          select.push('\\'' + this.escapeSql(event.label || event.event) + '\\' AS event_label');
+          select.push(q + this.escapeSql(event.label || event.event) + q + ' AS event_label');
           group.push('event_label');
         }
         if (isTime) {
@@ -924,7 +941,7 @@ export function explorerExtension(): string {
           group.push(aliasName);
         }
         select.push('COUNT(*) AS count');
-        const where = [dateClause, (alias ? alias + '.' : '') + 'event = \\'' + this.escapeSql(event.event) + '\\''].concat((event.filters || []).map((f) => this.filterSql(f, alias))).join(' AND ');
+        const where = [dateClause, (alias ? alias + '.' : '') + 'event = ' + q + this.escapeSql(event.event) + q].concat((event.filters || []).map((f) => this.filterSql(f, alias))).join(' AND ');
         const sql = ['SELECT ' + select.join(', '), 'FROM builder-3b0a2.analytics.events_partitioned' + (alias ? ' ' + alias : '')].concat(this.joinSql(event)).concat(['WHERE ' + where]);
         if (group.length) sql.push('GROUP BY ' + group.join(', '));
         if (isTime) sql.push('ORDER BY date');
