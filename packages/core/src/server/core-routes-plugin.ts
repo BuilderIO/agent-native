@@ -1119,9 +1119,8 @@ export function createCoreRoutesPlugin(
           return { error: "unauthorized" };
         }
 
-        const { deleteBuilderCredentials } = await import(
-          "./credential-provider.js"
-        );
+        const { deleteBuilderCredentials } =
+          await import("./credential-provider.js");
 
         // Mirror the connect-side scope decision so disconnect undoes
         // exactly what connect wrote: owner/admin connections land at

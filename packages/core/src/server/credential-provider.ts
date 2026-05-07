@@ -176,9 +176,7 @@ export async function resolveHasBuilderPrivateKey(): Promise<boolean> {
  * Resolve where the effective Builder private key came from. Used by status
  * UIs so they can distinguish a deploy fallback from a user/org connection.
  */
-export async function resolveBuilderCredentialSource(): Promise<
-  BuilderCredentialSource | null
-> {
+export async function resolveBuilderCredentialSource(): Promise<BuilderCredentialSource | null> {
   const scoped = await resolveScopedBuilderCredential("BUILDER_PRIVATE_KEY");
   if (scoped) return scoped.source;
   return process.env.BUILDER_PRIVATE_KEY ? "env" : null;
@@ -383,11 +381,9 @@ export async function resolveSecret(key: string): Promise<string | null> {
 /**
  * True when a Builder private key is configured at the deployment level.
  *
- * This is the same check as `isBuilderEnvManaged()` (env-managed mode is
- * defined as "deploy-level BUILDER_PRIVATE_KEY is set"). Prefer
- * `isBuilderEnvManaged()` for new call sites — its name reflects what the
- * boolean means semantically. For "does this user have access to Builder
- * (env or per-user)?" use the async `resolveHasBuilderPrivateKey()`.
+ * This is the same env-only check as `isBuilderEnvManaged()`. For "does this
+ * request have access to Builder via user/org/env credentials?" use the async
+ * `resolveHasBuilderPrivateKey()`.
  */
 export function hasBuilderPrivateKey(): boolean {
   return !!process.env.BUILDER_PRIVATE_KEY;

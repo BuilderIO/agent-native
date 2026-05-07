@@ -167,11 +167,10 @@ function SettingsSelect({
 // click actually disconnects. Arm auto-reverts after 4s of idle so a user
 // who wandered off doesn't come back to a disconnect waiting for them.
 //
-// Hits /_agent-native/builder/disconnect which scrubs BUILDER_* keys from the
-// template `.env`, `process.env`, and the `persisted-env-vars` settings row.
-// On success we dispatch `agent-engine:configured-changed` so dependent cards
-// refresh inline (no hard reload — that was racing with nitro's env-runner
-// restart and hitting React Router's error boundary).
+// Hits /_agent-native/builder/disconnect which removes request-scoped
+// Builder credentials from app_secrets. Deployment env credentials are left
+// alone and remain as fallback. On success we dispatch
+// `agent-engine:configured-changed` so dependent cards refresh inline.
 function DisconnectBuilderButton() {
   const { status } = useBuilderStatus();
   const [phase, setPhase] = useState<"idle" | "armed" | "busy">("idle");
@@ -264,12 +263,10 @@ function DisconnectBuilderButton() {
     setPhase("idle");
   }, [clearArmedTimer]);
 
-  // Env-managed: Builder identity comes from the deploy-level
-  // BUILDER_PRIVATE_KEY. Disconnection is operator-controlled (rotate / unset
-  // the env var); the per-user disconnect endpoint refuses with 409. The
-  // early return MUST come after every hook above to satisfy rules-of-hooks
-  // (status?.envManaged transitions undefined → boolean as the fetch resolves).
-  if (status?.envManaged) return null;
+  // When only the deploy fallback is active there is nothing request-scoped
+  // for this button to remove. The early return MUST come after every hook
+  // above to satisfy rules-of-hooks.
+  if (status?.credentialSource === "env") return null;
 
   if (phase === "armed") {
     return (
@@ -383,9 +380,7 @@ function UseBuilderCard({
                 <IconExternalLink size={10} />
               </button>
             )}
-            {credentialSource !== "env" ? (
-              <DisconnectBuilderButton />
-            ) : null}
+            {credentialSource !== "env" ? <DisconnectBuilderButton /> : null}
           </div>
         ) : null}
       </div>
