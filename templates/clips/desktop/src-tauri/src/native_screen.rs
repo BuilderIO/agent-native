@@ -44,7 +44,9 @@ struct NativeFullscreenSession {
 }
 
 enum NativeFullscreenBackend {
-    Screencapture { child: Child },
+    Screencapture {
+        child: Child,
+    },
     #[cfg(target_os = "macos")]
     ScreenCaptureKit {
         stream: SCStream,
@@ -693,11 +695,7 @@ fn native_transcode_presets(
     }
 }
 
-fn transcode_with_avconvert(
-    source: &Path,
-    output: &Path,
-    preset: &str,
-) -> Result<(), String> {
+fn transcode_with_avconvert(source: &Path, output: &Path, preset: &str) -> Result<(), String> {
     let mut child = Command::new(AVCONVERT_PATH)
         .arg("--source")
         .arg(source)
