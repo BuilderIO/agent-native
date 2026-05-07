@@ -11,6 +11,7 @@ import {
   isElectron,
   getOrigin,
   getAppUrl,
+  resolveOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
   resolveOAuthOwner,
@@ -28,6 +29,8 @@ import {
   disconnect,
 } from "../lib/google-calendar.js";
 import { OAuthAccountOwnedByOtherUserError } from "@agent-native/core/oauth-tokens";
+
+const OAUTH_STATE_APP_ID = process.env.APP_NAME || "calendar";
 
 function googleOAuthErrorPayload(
   error: any,
@@ -92,9 +95,14 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   }
   try {
     const q = getQuery(event);
-    const redirectUri =
-      (q.redirect_uri as string) ||
-      getAppUrl(event, "/_agent-native/google/callback");
+    const redirectUri = resolveOAuthRedirectUri(event);
+    if (!redirectUri) {
+      setResponseStatus(event, 400);
+      return {
+        error: "invalid_redirect_uri",
+        message: "redirect_uri must stay on this app's _agent-native routes.",
+      };
+    }
     const session = await getSession(event);
     const owner = session?.email;
     const desktop =
@@ -107,7 +115,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       owner,
       desktop,
       addAccount: false,
-      app: "calendar",
+      app: OAUTH_STATE_APP_ID,
       flowId,
     });
     const url = getAuthUrl(undefined, redirectUri, state);
@@ -217,9 +225,14 @@ export const getGoogleAddAccountUrl = defineEventHandler(
     }
     try {
       const q = getQuery(event);
-      const redirectUri =
-        (q.redirect_uri as string) ||
-        getAppUrl(event, "/_agent-native/google/callback");
+      const redirectUri = resolveOAuthRedirectUri(event);
+      if (!redirectUri) {
+        setResponseStatus(event, 400);
+        return {
+          error: "invalid_redirect_uri",
+          message: "redirect_uri must stay on this app's _agent-native routes.",
+        };
+      }
       const desktop =
         isElectron(event) || q.desktop === "1" || q.desktop === "true";
       const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
@@ -228,7 +241,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         owner: session.email,
         desktop,
         addAccount: true,
-        app: "calendar",
+        app: OAUTH_STATE_APP_ID,
         flowId,
       });
       const url = getAuthUrl(undefined, redirectUri, state);

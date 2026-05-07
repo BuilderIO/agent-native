@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { agentNativePath, getCallbackOrigin } from "@agent-native/core/client";
+import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
 
 export interface ZoomAuthStatus {
   connected: boolean;
@@ -67,9 +67,7 @@ export function useConnectZoom() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      const redirectUri = `${getCallbackOrigin()}${agentNativePath(
-        "/_agent-native/zoom/callback",
-      )}`;
+      const redirectUri = oauthRedirectUri("/_agent-native/zoom/callback");
       const authPath = agentNativePath(
         `/_agent-native/zoom/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&redirect=1`,
       );

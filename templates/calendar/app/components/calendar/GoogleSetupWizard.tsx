@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
 
 interface EnvKeyStatus {
   key: string;
@@ -61,7 +61,10 @@ export function GoogleSetupWizard() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const redirectUri = `${typeof window !== "undefined" ? window.location.origin : ""}${agentNativePath("/_agent-native/google/callback")}`;
+  const redirectUri =
+    typeof window !== "undefined"
+      ? oauthRedirectUri("/_agent-native/google/callback")
+      : "";
 
   const fetchStatus = useCallback(async () => {
     try {

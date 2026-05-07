@@ -3092,9 +3092,13 @@ function csQbrExtension(): string {
           deckOpen: false,
           slide: 0,
           showExportMenu: false,
+          adoptionOpen: false,
+          pipelineOpen: false,
+          savedFlash: false,
           logoUrl: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1672146e7e56476c8dd86df8d630d5b7?format=webp&width=800&height=1200',
           slides: ['Cover','Q1 Lesson','Retention','Adoption','Expansion','Q2 Forecast','Asks','Thank You'],
           book: null,
+          deals: [],
           metrics: null,
           form: {
             q1LessonLearned: '',
