@@ -596,7 +596,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
               onOpenChange={onPopoverOpenChange}
             />
             <NotificationsBell />
-            <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
+            <AgentToggleButton />
           </div>
         </div>
         <div className="relative flex-1 min-h-0">

@@ -1903,15 +1903,17 @@ export function AgentToggleButton({ className }: { className?: string }) {
       <Tooltip>
         <TooltipTrigger asChild>
           <button
+            type="button"
+            aria-label="Toggle agent"
             onClick={() =>
               window.dispatchEvent(new Event("agent-panel:toggle"))
             }
             className={cn(
-              "ml-1.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+              "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               className,
             )}
           >
-            <AgentNativeIcon size={22} />
+            <AgentNativeIcon size={22} aria-hidden />
           </button>
         </TooltipTrigger>
         <TooltipContent>Toggle agent</TooltipContent>

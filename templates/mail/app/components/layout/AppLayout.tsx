@@ -1681,7 +1681,7 @@ function StandardLayout({ children }: AppLayoutProps) {
           <div className="flex shrink-0 items-center gap-2">
             {headerActions}
             <NotificationsBell />
-            <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
+            <AgentToggleButton />
           </div>
         </header>
       )}

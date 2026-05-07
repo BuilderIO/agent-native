@@ -14,8 +14,8 @@ import {
   IconMenu2,
 } from "@tabler/icons-react";
 import {
-  AgentNativeIcon,
   AgentSidebar,
+  AgentToggleButton,
   FeedbackButton,
   useSession,
 } from "@agent-native/core/client";
@@ -57,21 +57,7 @@ interface LibraryLayoutProps {
 }
 
 function ClipsAgentToggleButton() {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
-          className="ml-1.5 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-          aria-label="Toggle agent panel"
-        >
-          <AgentNativeIcon size={22} />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>Toggle agent</TooltipContent>
-    </Tooltip>
-  );
+  return <AgentToggleButton />;
 }
 
 export function LibraryLayout({ children }: LibraryLayoutProps) {

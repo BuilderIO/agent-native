@@ -1,5 +1,5 @@
-import { Navigate } from "react-router";
+import { Outlet } from "react-router";
 
-export default function PageIndexRedirect() {
-  return <Navigate to="/" replace />;
+export default function PageLayout() {
+  return <Outlet />;
 }

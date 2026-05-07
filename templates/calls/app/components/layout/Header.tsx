@@ -43,7 +43,7 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
+        <AgentToggleButton />
       </div>
     </header>
   );
