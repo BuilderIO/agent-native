@@ -10,6 +10,8 @@ type ExtensionKind =
   | "data"
   | "gcn"
   | "qbr"
+  | "cs-qbr"
+  | "discovery"
   | "engagement"
   | "dbt"
   | "query"
@@ -31,6 +33,16 @@ const SPECS: Record<string, ExtensionSpec> = {
     id: "qbr-deck-builder",
     title: "QBR Deck Builder",
     kind: "qbr",
+  },
+  "cs-qbr-deck-builder": {
+    id: "cs-qbr-deck-builder",
+    title: "CS QBR Deck Builder",
+    kind: "cs-qbr",
+  },
+  "discovery-coach": {
+    id: "discovery-coach",
+    title: "Discovery Coach",
+    kind: "discovery",
   },
   "gcn-prep": { id: "gcn-prep", title: "GCN Conference Prep", kind: "gcn" },
   "engagement-planner": {
@@ -550,10 +562,20 @@ async function verifyGcn(page: CdpPage, contextId: number) {
 async function verifyQbr(page: CdpPage, contextId: number) {
   const id = "codex-verify-qbr";
   await setField(page, contextId, "input", id);
-  await setField(page, contextId, "textarea", "Extension browser verification");
-  await clickButton(page, contextId, "Save QBR notes");
+  await setField(
+    page,
+    contextId,
+    "textarea[placeholder='Quarter goals']",
+    "Extension browser verification",
+  );
+  await clickButton(page, contextId, "Save form");
   const saved = await page.waitFor<{ data?: { owner?: string } }>(
     `extensionData.get('qbr-notes', ${jsString(id)}, { scope: 'org' })`,
+    contextId,
+  );
+  await clickButton(page, contextId, "Preview deck");
+  await page.waitFor<string>(
+    `document.body.innerText.includes('Sales QBR Preview') && document.body.innerText.includes(${jsString(id)})`,
     contextId,
   );
   await page.evaluate(
@@ -561,6 +583,132 @@ async function verifyQbr(page: CdpPage, contextId: number) {
     contextId,
   );
   return `saved owner=${saved.data?.owner ?? id}`;
+}
+
+async function verifyCsQbr(page: CdpPage, contextId: number) {
+  const testOwner = "Codex Verify CSM";
+  const seeded = await page.waitFor<{ data?: unknown }>(
+    `extensionData.get('cs-qbr-notes', 'Alex Beebe', { scope: 'org' })`,
+    contextId,
+  );
+  const ownerCount = await page.waitFor<number>(
+    `(() => { const select = document.querySelector('select'); return select && select.options.length > 1 ? select.options.length - 1 : 0; })()`,
+    contextId,
+    30_000,
+  );
+  const alexState = await page.evaluate<{
+    selected?: string;
+    accountCount?: number;
+    arr?: number;
+    error?: string;
+    loadedSeed?: boolean;
+  }>(
+    `(async () => {
+      const state = document.querySelector('[x-data]')?._x_dataStack?.[0];
+      if (!state) throw new Error('Missing CS QBR Alpine state');
+      await state.selectOwner('Alex Beebe');
+      return {
+        selected: state.selected,
+        accountCount: state.metrics?.accountCount ?? 0,
+        arr: state.metrics?.arr ?? 0,
+        error: state.error || '',
+        loadedSeed: state.form?.csmName === 'Alex Beebe'
+      };
+    })()`,
+    contextId,
+    60_000,
+  );
+  if (alexState.error && !alexState.loadedSeed) {
+    throw new Error(alexState.error);
+  }
+  await clickButton(page, contextId, "View Deck");
+  await page.waitFor<string>(
+    `document.body.innerText.includes('CS QBR Preview') && document.body.innerText.includes('Alex Beebe')`,
+    contextId,
+  );
+  await page.evaluate(
+    `(async () => {
+      const state = document.querySelector('[x-data]')?._x_dataStack?.[0];
+      if (!state) throw new Error('Missing CS QBR Alpine state');
+      state.selected = ${jsString(testOwner)};
+      state.deckOpen = false;
+      state.resetForm(${jsString(testOwner)});
+      state.book = { rows: [] };
+      state.computeMetrics();
+      return true;
+    })()`,
+    contextId,
+  );
+  await setField(
+    page,
+    contextId,
+    "textarea[placeholder='Q1 lesson learned']",
+    "CS QBR extension browser verification",
+  );
+  await setField(page, contextId, "input[placeholder='Ask 1']", "Verify deck");
+  await clickButton(page, contextId, "Save notes");
+  const saved = await page.waitFor<{ data?: { csmName?: string } }>(
+    `extensionData.get('cs-qbr-notes', ${jsString(testOwner)}, { scope: 'org' })`,
+    contextId,
+  );
+  await clickButton(page, contextId, "View Deck");
+  await page.waitFor<string>(
+    `document.body.innerText.includes(${jsString(testOwner)}) && document.body.innerText.includes('CS QBR extension browser verification')`,
+    contextId,
+  );
+  await page.evaluate(
+    `extensionData.remove('cs-qbr-notes', ${jsString(testOwner)}, { scope: 'org' })`,
+    contextId,
+  );
+  return `owners=${ownerCount}, alexSeed=${Boolean(seeded)}, alexAccounts=${alexState.accountCount ?? 0}, saved=${saved.data?.csmName ?? testOwner}`;
+}
+
+async function verifyDiscoveryCoach(page: CdpPage, contextId: number) {
+  const counts = await page.evaluate<{
+    stages: number;
+    pains: number;
+    wonSignals: number;
+    lostSignals: number;
+  }>(
+    `(() => {
+      const state = document.querySelector('[x-data]')?._x_dataStack?.[0];
+      if (!state) throw new Error('Missing Discovery Coach Alpine state');
+      return {
+        stages: state.stages?.length || 0,
+        pains: state.opPains?.length || 0,
+        wonSignals: state.wonSignals?.length || 0,
+        lostSignals: state.lostSignals?.length || 0
+      };
+    })()`,
+    contextId,
+  );
+  if (!counts.stages || !counts.pains || !counts.wonSignals) {
+    throw new Error(`Discovery data missing: ${JSON.stringify(counts)}`);
+  }
+  await clickButton(page, contextId, "Pain translation map");
+  await page.waitFor<string>(
+    `document.body.innerText.includes('Pain translation map')`,
+    contextId,
+  );
+  await clickButton(page, contextId, "Win/loss signals");
+  await page.waitFor<string>(
+    `document.body.innerText.includes('Won deals') && document.body.innerText.includes('Lost deals')`,
+    contextId,
+  );
+  await clickButton(page, contextId, "Operational pains");
+  await page.evaluate(
+    `(() => {
+      const state = document.querySelector('[x-data]')?._x_dataStack?.[0];
+      state.selectedPain = 0;
+      return true;
+    })()`,
+    contextId,
+  );
+  await page.waitFor<string>(
+    `document.body.innerText.includes('Listen for:')`,
+    contextId,
+  );
+  return `stages=${counts.stages}, pains=${counts.pains}, signals=${counts.wonSignals + counts.lostSignals}`;
 }
 
 async function verifyEngagement(page: CdpPage, contextId: number) {
@@ -684,17 +832,21 @@ async function verifyOne(page: CdpPage, spec: ExtensionSpec) {
         ? await verifyGcn(page, contextId)
         : spec.kind === "qbr"
           ? await verifyQbr(page, contextId)
-          : spec.kind === "engagement"
-            ? await verifyEngagement(page, contextId)
-            : spec.kind === "dbt"
-              ? await verifyDbt(page, contextId)
-              : spec.kind === "query"
-                ? await verifyQuery(page, contextId)
-                : spec.kind === "stripe"
-                  ? await verifyStripe(page, contextId)
-                  : spec.kind === "slack"
-                    ? await verifySlack(page, contextId)
-                    : await verifyAction(page, contextId, spec);
+          : spec.kind === "cs-qbr"
+            ? await verifyCsQbr(page, contextId)
+            : spec.kind === "discovery"
+              ? await verifyDiscoveryCoach(page, contextId)
+              : spec.kind === "engagement"
+                ? await verifyEngagement(page, contextId)
+                : spec.kind === "dbt"
+                  ? await verifyDbt(page, contextId)
+                  : spec.kind === "query"
+                    ? await verifyQuery(page, contextId)
+                    : spec.kind === "stripe"
+                      ? await verifyStripe(page, contextId)
+                      : spec.kind === "slack"
+                        ? await verifySlack(page, contextId)
+                        : await verifyAction(page, contextId, spec);
   const errors = await page.evaluate<string[]>(
     `window._extensionErrors || []`,
     contextId,

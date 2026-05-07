@@ -10,7 +10,6 @@ import {
   IconStarFilled,
   IconTrash,
   IconDots,
-  IconHelpCircle,
   IconPencil,
   IconGripVertical,
   IconTool,
@@ -404,81 +403,104 @@ export function ExtensionsSidebarSection() {
       <div className="relative min-w-0 py-2">
         <div
           className={cn(
-            "group/extensions-section flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
+            "group/extensions-section relative flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
             location.pathname.startsWith("/extensions")
               ? "text-sidebar-accent-foreground"
               : "text-muted-foreground hover:bg-sidebar-accent/50",
             extensionsOpen && sortedTools.length > 0 && "mb-1",
           )}
         >
-          <button
-            type="button"
-            onClick={toggleExtensionsOpen}
-            className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
-            aria-expanded={extensionsOpen}
-          >
-            <IconTool className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">Extensions</span>
-          </button>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <a
-                href="https://agent-native.com/docs/extensions"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 opacity-0 transition-all hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/extensions-section:opacity-100"
-                aria-label="Extensions documentation"
-              >
-                <IconHelpCircle className="h-3.5 w-3.5" />
-              </a>
-            </TooltipTrigger>
-            <TooltipContent>Extensions docs</TooltipContent>
-          </Tooltip>
-          <ExtensionSortMenu
-            value={sortModeState}
-            onChange={setExtensionSortMode}
-          />
-          <Popover open={showCreate} onOpenChange={setShowCreate}>
+          <Popover>
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground"
-                aria-label="New extension"
+                className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 pr-28 text-left"
+                aria-label="About extensions"
               >
-                <IconPlus className="h-3.5 w-3.5" />
+                <IconTool className="h-4 w-4 shrink-0" />
+                <span className="min-w-0 whitespace-nowrap">Extensions</span>
               </button>
             </PopoverTrigger>
             <PopoverContent
               side="right"
               align="start"
-              className="w-[420px] p-3"
+              className="w-72 space-y-3 p-3"
             >
-              <p className="px-1 pb-2 text-sm font-semibold text-foreground">
-                New extension
-              </p>
-              <PromptComposer
-                autoFocus
-                placeholder="Describe what you'd like to build..."
-                draftScope="extensions:sidebar-create"
-                onSubmit={handleCreate}
-              />
+              <div>
+                <p className="text-sm font-semibold text-foreground">
+                  Extensions
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  Build small sandboxed apps that can read app data, call
+                  actions, and save their own state.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Link
+                  to="/extensions"
+                  className="inline-flex h-8 items-center rounded-md border px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+                >
+                  Open extensions
+                </Link>
+                <a
+                  href="https://agent-native.com/docs/extensions"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-8 items-center rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  Learn more
+                </a>
+              </div>
             </PopoverContent>
           </Popover>
-          <button
-            type="button"
-            onClick={toggleExtensionsOpen}
-            className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground"
-            aria-label={
-              extensionsOpen ? "Collapse extensions" : "Expand extensions"
-            }
-          >
-            <IconChevronDown
-              className={cn(
-                "h-3.5 w-3.5 shrink-0 transition-transform",
-                !extensionsOpen && "-rotate-90",
-              )}
+          <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center">
+            <ExtensionSortMenu
+              value={sortModeState}
+              onChange={setExtensionSortMode}
             />
-          </button>
+            <Popover open={showCreate} onOpenChange={setShowCreate}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground"
+                  aria-label="New extension"
+                >
+                  <IconPlus className="h-3.5 w-3.5" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="right"
+                align="start"
+                className="w-[420px] p-3"
+              >
+                <p className="px-1 pb-2 text-sm font-semibold text-foreground">
+                  New extension
+                </p>
+                <PromptComposer
+                  autoFocus
+                  placeholder="Describe what you'd like to build..."
+                  draftScope="extensions:sidebar-create"
+                  onSubmit={handleCreate}
+                />
+              </PopoverContent>
+            </Popover>
+            <button
+              type="button"
+              onClick={toggleExtensionsOpen}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+              aria-label={
+                extensionsOpen ? "Collapse extensions" : "Expand extensions"
+              }
+              aria-expanded={extensionsOpen}
+            >
+              <IconChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 transition-transform",
+                  !extensionsOpen && "-rotate-90",
+                )}
+              />
+            </button>
+          </div>
         </div>
 
         {extensionsOpen &&
