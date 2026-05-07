@@ -45,6 +45,7 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   getCallbackOrigin,
   AgentSidebar,
@@ -1068,7 +1069,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           </Tooltip>
 
           {/* Account avatars — overlapping stack like Figma */}
-          {hasAccounts && (
+          {googleStatus.isLoading && (
+            <div className="flex items-center ml-1">
+              <Skeleton className="h-7 w-7 rounded-full ring-2 ring-card" />
+            </div>
+          )}
+          {googleStatusReady && hasAccounts && (
             <Popover
               open={accountPopoverOpen}
               onOpenChange={setAccountPopoverOpen}

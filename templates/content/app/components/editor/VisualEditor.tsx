@@ -5,6 +5,7 @@ import {
   Node,
   mergeAttributes,
 } from "@tiptap/react";
+import type { Extensions } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import type { Doc as YDoc } from "yjs";
@@ -55,6 +56,11 @@ import {
  */
 export const EmptyLineParagraph = Node.create({
   name: "paragraph",
+
+  // Match Tiptap's built-in paragraph priority so ProseMirror chooses a
+  // paragraph as the default filler for `block+` content. If recursive block
+  // containers come first, collaborative empty-doc creation can overflow.
+  priority: 1000,
 
   group: "block",
   content: "inline*",
@@ -390,6 +396,88 @@ interface VisualEditorProps {
   onComment?: (quotedText: string, offsetTop: number) => void;
 }
 
+interface VisualEditorExtensionOptions {
+  ydoc?: YDoc | null;
+  localAwareness?: Awareness | null;
+  user?: { name: string; color: string } | null;
+}
+
+export function createVisualEditorExtensions({
+  ydoc,
+  localAwareness,
+  user,
+}: VisualEditorExtensionOptions = {}): Extensions {
+  return [
+    StarterKit.configure({
+      heading: { levels: [1, 2, 3] },
+      codeBlock: false,
+      paragraph: false,
+      link: false,
+      horizontalRule: {},
+      dropcursor: { color: "hsl(243 75% 59%)", width: 2 },
+      // Disable built-in undo/redo when Collaboration is active (Yjs tracks undo)
+      ...(ydoc ? { undoRedo: false } : {}),
+    }),
+    EmptyLineParagraph,
+    CodeBlock,
+    Placeholder.configure({
+      placeholder: ({ node }) => {
+        if (node.type.name === "heading") {
+          const level = node.attrs.level;
+          if (level === 1) return "Heading 1";
+          if (level === 2) return "Heading 2";
+          return "Heading 3";
+        }
+        return "Type /generate to generate...";
+      },
+      showOnlyWhenEditable: true,
+      showOnlyCurrent: true,
+    }),
+    Link.configure({
+      openOnClick: false,
+      HTMLAttributes: { class: "notion-link" },
+    }),
+    TaskList.configure({
+      HTMLAttributes: { class: "notion-task-list" },
+    }),
+    TaskItem.configure({
+      nested: true,
+    }),
+    ImageNode.configure({
+      HTMLAttributes: { class: "notion-image" },
+    }),
+    CustomTable.configure({
+      resizable: false,
+      HTMLAttributes: { class: "notion-table" },
+    }),
+    TableRow,
+    TableHeader,
+    TableCell,
+    ...notionEditorExtensions,
+    DragHandle,
+    TypographyReplacements,
+    MarkdownPasteDetection,
+    SelectAllBlock,
+    NotionBlockIndent,
+    Markdown.configure({
+      html: true,
+      transformPastedText: true,
+      transformCopiedText: true,
+    }),
+    // Collaborative editing via Y.XmlFragment
+    ...(ydoc ? [Collaboration.configure({ document: ydoc })] : []),
+    // Multi-user cursor awareness (live cursor positions + names)
+    ...(localAwareness
+      ? [
+          CollaborationCaret.configure({
+            provider: { awareness: localAwareness },
+            user: user ?? { name: "Anonymous", color: "#999" },
+          }),
+        ]
+      : []),
+  ];
+}
+
 export function VisualEditor({
   documentId,
   content,
@@ -436,76 +524,13 @@ export function VisualEditor({
     };
   }, [localAwareness]);
 
+  const extensions = useMemo(
+    () => createVisualEditorExtensions({ ydoc, localAwareness, user }),
+    [ydoc, localAwareness, user?.name, user?.color],
+  );
+
   const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: { levels: [1, 2, 3] },
-        codeBlock: false,
-        paragraph: false,
-        link: false,
-        horizontalRule: {},
-        dropcursor: { color: "hsl(243 75% 59%)", width: 2 },
-        // Disable built-in history when Collaboration is active (Yjs tracks undo)
-        ...(ydoc ? { history: false } : {}),
-      }),
-      CodeBlock,
-      Placeholder.configure({
-        placeholder: ({ node }) => {
-          if (node.type.name === "heading") {
-            const level = node.attrs.level;
-            if (level === 1) return "Heading 1";
-            if (level === 2) return "Heading 2";
-            return "Heading 3";
-          }
-          return "Type /generate to generate...";
-        },
-        showOnlyWhenEditable: true,
-        showOnlyCurrent: true,
-      }),
-      Link.configure({
-        openOnClick: false,
-        HTMLAttributes: { class: "notion-link" },
-      }),
-      TaskList.configure({
-        HTMLAttributes: { class: "notion-task-list" },
-      }),
-      TaskItem.configure({
-        nested: true,
-      }),
-      ImageNode.configure({
-        HTMLAttributes: { class: "notion-image" },
-      }),
-      CustomTable.configure({
-        resizable: false,
-        HTMLAttributes: { class: "notion-table" },
-      }),
-      TableRow,
-      TableHeader,
-      TableCell,
-      ...notionEditorExtensions,
-      EmptyLineParagraph,
-      DragHandle,
-      TypographyReplacements,
-      MarkdownPasteDetection,
-      SelectAllBlock,
-      NotionBlockIndent,
-      Markdown.configure({
-        html: true,
-        transformPastedText: true,
-        transformCopiedText: true,
-      }),
-      // Collaborative editing via Y.XmlFragment
-      ...(ydoc ? [Collaboration.configure({ document: ydoc })] : []),
-      // Multi-user cursor awareness (live cursor positions + names)
-      ...(localAwareness
-        ? [
-            CollaborationCaret.configure({
-              provider: { awareness: localAwareness },
-              user: user ?? { name: "Anonymous", color: "#999" },
-            }),
-          ]
-        : []),
-    ],
+    extensions,
     content: parseNfmForEditor(content),
     editorProps: {
       attributes: {
