@@ -172,6 +172,23 @@ export function CreateEventPopover({
     setEndDate((current) => (current < nextDate ? nextDate : current));
   }
 
+  function handleDraftDescription() {
+    sendToAgentChat({
+      message: `Draft a concise calendar event description for "${title || "Untitled event"}".`,
+      context: `New event draft:
+Title: ${title || "(not set)"}
+Date: ${date}${endDate !== date ? ` to ${endDate}` : ""}
+Time: ${allDay ? "All day" : `${startTime} to ${endTime}`}
+Timezone: ${timezone}
+Location: ${location || "(none)"}
+Attendees: ${attendees.map((attendee) => attendee.email).join(", ") || "(none)"}
+Current description: ${description || "(empty)"}
+
+Write a short, useful meeting description. Keep it paste-ready and avoid adding facts that are not in the draft.`,
+      submit: true,
+    });
+  }
+
   useEffect(() => {
     if (timedOnlyStatus && allDay) setAllDay(false);
     if (eventType === "workingLocation") {
@@ -217,13 +234,18 @@ export function CreateEventPopover({
     allDayEnd.setDate(allDayEnd.getDate() + 1);
     const startISO = effectiveAllDay
       ? new Date(`${date}T00:00:00`).toISOString()
-      : new Date(`${date}T${startTime}:00`).toISOString();
+      : dateTimeInTimezoneToIso(date, startTime, timezone);
     const endISO = effectiveAllDay
       ? allDayEnd.toISOString()
-      : new Date(`${endDate}T${endTime}:00`).toISOString();
+      : dateTimeInTimezoneToIso(endDate, endTime, timezone);
 
     if (new Date(endISO).getTime() <= new Date(startISO).getTime()) {
       toast.error("End must be after start");
+      return;
+    }
+    const attachmentResult = validateAttachmentDrafts(attachments);
+    if (attachmentResult.error) {
+      toast.error(attachmentResult.error);
       return;
     }
 
@@ -234,17 +256,7 @@ export function CreateEventPopover({
       ...attendees,
       ...trailingAttendees,
     ]);
-    const reminderPatch =
-      reminder === "default"
-        ? {}
-        : reminder === "none"
-          ? { remindersUseDefault: false, reminders: [] }
-          : {
-              remindersUseDefault: false,
-              reminders: [
-                { method: "popup" as const, minutes: Number(reminder) },
-              ],
-            };
+    const reminderPatch = buildReminderPayload(reminderMode, reminders);
     const statusPatch =
       eventType === "default"
         ? {}
@@ -261,6 +273,8 @@ export function CreateEventPopover({
         description,
         start: startISO,
         end: endISO,
+        startTimeZone: effectiveAllDay ? undefined : timezone,
+        endTimeZone: effectiveAllDay ? undefined : timezone,
         location,
         allDay: effectiveAllDay,
         transparency:
@@ -274,6 +288,12 @@ export function CreateEventPopover({
         ...statusPatch,
         addGoogleMeet: videoProvider === "google_meet",
         addZoom: videoProvider === "zoom",
+        color: colorId ? getGoogleEventColorHex(colorId) : undefined,
+        colorId,
+        attachments:
+          attachmentResult.attachments.length > 0
+            ? attachmentResult.attachments
+            : undefined,
         attendees:
           finalAttendees.length > 0
             ? finalAttendees.map((attendee) => ({
@@ -281,7 +301,6 @@ export function CreateEventPopover({
                 displayName: attendee.displayName,
               }))
             : undefined,
-        color: undefined,
       },
       {
         onSuccess: (result) => {
@@ -393,9 +412,21 @@ export function CreateEventPopover({
           )}
 
           <div className="space-y-1.5">
-            <Label htmlFor="event-description" className="text-xs">
-              Description
-            </Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="event-description" className="text-xs">
+                Description
+              </Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground"
+                onClick={handleDraftDescription}
+              >
+                <IconMessage className="h-3 w-3" />
+                Ask AI
+              </Button>
+            </div>
             <Textarea
               id="event-description"
               value={description}
@@ -655,29 +686,46 @@ export function CreateEventPopover({
                 </div>
               </div>
 
+              {!allDay && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="event-timezone" className="text-xs">
+                    Timezone
+                  </Label>
+                  <TimezoneCombobox
+                    id="event-timezone"
+                    value={timezone}
+                    onChange={setTimezone}
+                  />
+                </div>
+              )}
+
               <div className="space-y-1.5">
-                <Label htmlFor="event-reminder" className="text-xs">
-                  Alert
-                </Label>
-                <Select
-                  value={reminder}
-                  onValueChange={(value) =>
-                    setReminder(value as ReminderOption)
-                  }
-                >
-                  <SelectTrigger id="event-reminder" className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="default">Calendar default</SelectItem>
-                    <SelectItem value="none">No alert</SelectItem>
-                    <SelectItem value="0">At start time</SelectItem>
-                    <SelectItem value="10">10 minutes before</SelectItem>
-                    <SelectItem value="30">30 minutes before</SelectItem>
-                    <SelectItem value="60">1 hour before</SelectItem>
-                    <SelectItem value="1440">1 day before</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label className="text-xs">Color</Label>
+                <EventColorSwatches
+                  value={colorId}
+                  onChange={setColorId}
+                  includeDefault
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs">Alerts</Label>
+                <ReminderControls
+                  idPrefix="event"
+                  mode={reminderMode}
+                  reminders={reminders}
+                  onModeChange={setReminderMode}
+                  onRemindersChange={setReminders}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs">Attachments</Label>
+                <AttachmentControls
+                  idPrefix="event"
+                  attachments={attachments}
+                  onChange={setAttachments}
+                />
               </div>
             </CollapsibleContent>
           </Collapsible>

@@ -17,6 +17,9 @@ import {
   IconAlignLeft,
   IconPlus,
   IconBrandZoom,
+  IconMessage,
+  IconPalette,
+  IconPaperclip,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -48,11 +51,32 @@ import {
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import { useUpdateEvent } from "@/hooks/use-events";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
+import { sendToAgentChat } from "@agent-native/core/client";
 import { toast } from "sonner";
 import {
   RenderedDescription,
   AutoGrowTextarea,
 } from "@/components/calendar/EventDescription";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
+import {
+  AttachmentControls,
+  EventColorSwatches,
+  ReminderControls,
+} from "@/components/calendar/EventOptionControls";
+import {
+  attachmentsToDrafts,
+  buildReminderPayload,
+  dateTimeInTimezoneToIso,
+  formatReminderText,
+  formatTimezoneLabel,
+  getLocalTimezone,
+  remindersToDraftState,
+  type AttachmentDraft,
+  type ReminderDraft,
+  type ReminderMode,
+  validateAttachmentDrafts,
+} from "@/lib/event-form-utils";
+import { getGoogleEventColorHex } from "@/lib/event-colors";
 
 function formatDuration(start: string, end: string): string {
   const totalMinutes = differenceInMinutes(parseISO(end), parseISO(start));
@@ -156,16 +180,6 @@ function MeetingLinkSkeleton({ provider }: { provider: "meet" | "zoom" }) {
       </span>
     </div>
   );
-}
-
-function formatReminderText(minutes: number): string {
-  if (minutes < 60) return `${minutes}min before`;
-  if (minutes < 1440) {
-    const h = Math.floor(minutes / 60);
-    return `${h}h before`;
-  }
-  const d = Math.floor(minutes / 1440);
-  return `${d}d before`;
 }
 
 type AvailabilityValue = "opaque" | "transparent";
@@ -323,6 +337,18 @@ export function EventDetailPopover({
   );
   const [editEndTime, setEditEndTime] = useState(() =>
     toTimeInputValue(event.end),
+  );
+  const [editTimezone, setEditTimezone] = useState(
+    event.startTimeZone || getLocalTimezone(),
+  );
+  const [editReminderMode, setEditReminderMode] = useState<ReminderMode>(
+    () => remindersToDraftState(event).mode,
+  );
+  const [editReminders, setEditReminders] = useState<ReminderDraft[]>(
+    () => remindersToDraftState(event).reminders,
+  );
+  const [editAttachments, setEditAttachments] = useState<AttachmentDraft[]>(
+    () => attachmentsToDrafts(event.attachments),
   );
   const [editMeetingLink, setEditMeetingLink] = useState("");
   const [pendingVideoProvider, setPendingVideoProvider] = useState<

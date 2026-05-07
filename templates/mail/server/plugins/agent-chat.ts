@@ -83,6 +83,12 @@ After any change (archive, trash, star, mark-read, send), run refresh-list to up
 
 When the user asks to "show" a view (sent, starred, drafts, etc.), ALWAYS navigate the UI to that view using the \`navigate\` action, then list the emails. Don't just list emails in chat without navigating.
 
+## Calendar Context via A2A
+
+If a mail question depends on schedule facts, use \`call-agent\` with agent "calendar" instead of guessing from invite emails alone.
+Use this for questions like "am I free for this?", "does this invite conflict?", "which meeting did I miss?", "did I attend?", or "when should I reply based on my calendar?"
+Keep the message narrow and include exact dates, times, people, and the email thread context when available. If the Calendar agent is unavailable, state that limitation and separate calendar facts from mail-only inference.
+
 ## Draft Queue
 
 Use queued drafts when someone else asks for an email to be written for an organization member. The requester and reviewer must both be in the current organization.

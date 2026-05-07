@@ -115,6 +115,16 @@ The user may have **multiple Google accounts connected** (e.g. personal and work
 - To see which accounts are connected, check the `accountEmail` field on returned emails
 - When the user says "search my work email" or "check my personal inbox", use `--account` to scope to the right account
 
+### Calendar Context via A2A
+
+When an email question depends on schedule context, use the Calendar agent through A2A instead of guessing from invite emails alone:
+
+```bash
+pnpm action call-agent --agent=calendar --message="Check whether I was available for the meeting discussed in thread <thread id> on <date/time>. Use calendar events and availability, then answer briefly."
+```
+
+Use this for questions like "which meeting did I miss?", "am I free for this?", "does this invite conflict?", "when should I reply based on my calendar?", or "did I attend the meeting they mention?". Keep the message narrow, include exact dates/times and thread context when available, and ask the Calendar agent to use its calendar actions such as `view-screen`, `list-events`, `search-events`, or `check-availability`. If the Calendar agent is unavailable, say so and make clear what you can infer from Mail only.
+
 ### Unread Counts
 
 For unread-count questions, use action counts instead of eyeballing the visible UI. `list-emails` and `search-emails` return one row per thread after grouping. In compact output, `isRead: false` / `hasUnread: true` means the thread has at least one unread message even if the latest message is read.
