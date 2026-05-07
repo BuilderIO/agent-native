@@ -5,10 +5,12 @@ import {
   appBasePath,
   appPath,
 } from "./api-path.js";
+import { oauthRedirectUri } from "./frame.js";
 
 describe("agentNativePath", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("leaves non-framework paths alone", () => {
@@ -36,6 +38,40 @@ describe("agentNativePath", () => {
     expect(appBasePath()).toBe("");
     expect(agentNativePath("/_agent-native/org/members")).toBe(
       "/_agent-native/org/members",
+    );
+  });
+});
+
+describe("oauthRedirectUri", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("uses the mounted callback path outside workspace mode", () => {
+    vi.stubGlobal("window", {
+      location: {
+        origin: "https://workspace.example",
+        pathname: "/calendar/_agent-native/google/auth-url",
+      },
+    });
+
+    expect(oauthRedirectUri("/_agent-native/google/callback")).toBe(
+      "https://workspace.example/calendar/_agent-native/google/callback",
+    );
+  });
+
+  it("uses the root callback relay in workspace mode", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubGlobal("window", {
+      location: {
+        origin: "https://workspace.example",
+        pathname: "/calendar/_agent-native/google/auth-url",
+      },
+    });
+
+    expect(oauthRedirectUri("/_agent-native/google/callback")).toBe(
+      "https://workspace.example/_agent-native/google/callback",
     );
   });
 });

@@ -3222,7 +3222,12 @@ function csQbrExtension(): string {
           async loadBook(name) {
             this.loadingBook = true; this.error = '';
             try {
-              this.book = await appAction('bigquery', { sql: this.bookSql(name) });
+              const [bookResult, dealResult] = await Promise.all([
+                appAction('bigquery', { sql: this.bookSql(name) }),
+                appAction('bigquery', { sql: this.dealSql(name) })
+              ]);
+              this.book = bookResult;
+              this.deals = dealResult.rows || [];
               this.computeMetrics();
             } catch (e) {
               this.error = e.message || String(e);

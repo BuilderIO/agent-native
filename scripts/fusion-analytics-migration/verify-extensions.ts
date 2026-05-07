@@ -803,6 +803,105 @@ async function verifyAePipeline(page: CdpPage, contextId: number) {
   return `rows=${state.rows}, managers=${state.managers}`;
 }
 
+type CsQbrEntryUiSummary = {
+  accountCount: number;
+  renewalItems: number;
+  adoptionItems: number;
+  pipelineItems: number;
+  missing?: string[];
+  textPreview?: string;
+};
+
+function csQbrEntryUiExpression(requireComplete: boolean) {
+  return `(() => {
+    const state = [...document.querySelectorAll('*')]
+      .map((el) => el._x_dataStack?.[0])
+      .find((candidate) => candidate && typeof candidate.selectOwner === 'function');
+    if (!state || state.loadingBook || !state.selected || state.deckOpen || !state.metrics) return null;
+
+    const text = (document.body.innerText || '').replace(/\\s+/g, ' ').trim();
+    const lower = text.toLowerCase();
+    const missing = [];
+    const includesAny = (phrases) => phrases.some((phrase) => lower.includes(phrase));
+    const expectText = (label, phrases) => {
+      if (!includesAny(phrases)) missing.push(label);
+    };
+    const itemNames = (items) => items
+      .map((item) => String(item?.company_name || item?.name || '').trim())
+      .filter(Boolean);
+    const expectTableOrEmpty = (label, items, emptyPhrases) => {
+      const names = itemNames(items);
+      const hasVisibleRow = names.some((name) => lower.includes(name.toLowerCase()));
+      if (names.length > 0 ? !hasVisibleRow : !includesAny(emptyPhrases)) {
+        missing.push(label);
+      }
+    };
+
+    const renewals = typeof state.renewalAccounts === 'function' ? state.renewalAccounts() : [];
+    const adoptions = typeof state.adoptionAccounts === 'function' ? state.adoptionAccounts() : [];
+    const pipeline = typeof state.expansionPipeline === 'function' ? state.expansionPipeline() : [];
+
+    expectText('Data Loaded', ['data loaded']);
+    expectText('Retention', ['retention']);
+    expectText('Product Adoption', ['product adoption']);
+    expectText('Expansion', ['expansion']);
+    expectText('Estimated Variable Compensation / Variable Comp', [
+      'estimated variable compensation',
+      'variable comp'
+    ]);
+    expectTableOrEmpty('renewal table or empty state', renewals, [
+      'no renewal',
+      'no renewals',
+      'none this quarter',
+      'no upcoming renewals'
+    ]);
+    expectTableOrEmpty('adoption table or empty state', adoptions, [
+      'no adoption',
+      'no product adoption',
+      'no utilization',
+      'no account data',
+      'no accounts to show'
+    ]);
+    expectTableOrEmpty('pipeline table or empty state', pipeline, [
+      'no open pipeline',
+      'no pipeline',
+      'no expansion pipeline',
+      'no pipeline data'
+    ]);
+
+    const summary = {
+      accountCount: state.metrics?.accountCount ?? 0,
+      renewalItems: renewals.length,
+      adoptionItems: adoptions.length,
+      pipelineItems: pipeline.length,
+      missing,
+      textPreview: text.slice(0, 500)
+    };
+    return ${requireComplete ? "missing.length ? null : summary" : "summary"};
+  })()`;
+}
+
+async function verifyCsQbrEntryUi(page: CdpPage, contextId: number) {
+  try {
+    return await page.waitFor<CsQbrEntryUiSummary>(
+      csQbrEntryUiExpression(true),
+      contextId,
+      20_000,
+    );
+  } catch (err) {
+    const summary = await page.evaluate<CsQbrEntryUiSummary | null>(
+      csQbrEntryUiExpression(false),
+      contextId,
+    );
+    if (summary?.missing?.length) {
+      throw new Error(
+        `CS QBR entry UI missing: ${summary.missing.join(", ")}. Visible text: ${summary.textPreview ?? ""}`,
+      );
+    }
+    throw err;
+  }
+}
+
 async function verifyCsQbr(page: CdpPage, contextId: number) {
   const testOwner = "Codex Verify CSM";
   const seeded = await page.waitFor<{ data?: unknown }>(
@@ -852,11 +951,49 @@ async function verifyCsQbr(page: CdpPage, contextId: number) {
   if (alexState.error && !alexState.loadedSeed) {
     throw new Error(alexState.error);
   }
+  const entryUi = await verifyCsQbrEntryUi(page, contextId);
   await clickButton(page, contextId, "View Deck");
-  await page.waitFor<string>(
+  await page.waitFor<{ slide?: number; slides?: number }>(
     `(() => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && Array.isArray(candidate.slides));
       const text = document.body.innerText.toLowerCase();
-      return text.includes('quarterly business review') && text.includes('alex beebe');
+      return state?.deckOpen && state.slide === 0 && text.includes('quarterly business review') && text.includes('alex beebe')
+        ? { slide: state.slide, slides: state.slides.length }
+        : null;
+    })()`,
+    contextId,
+  );
+  await clickButton(page, contextId, "Next");
+  await page.waitFor(
+    `(() => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && Array.isArray(candidate.slides));
+      const text = document.body.innerText.toLowerCase();
+      return state?.slide === 1 && text.includes('key lesson from q1');
+    })()`,
+    contextId,
+  );
+  await clickButton(page, contextId, "3. Retention");
+  await page.waitFor(
+    `(() => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && Array.isArray(candidate.slides));
+      const text = document.body.innerText.toLowerCase();
+      return state?.slide === 2 && text.includes('retention health') && text.includes('variable comp');
+    })()`,
+    contextId,
+  );
+  await clickButton(page, contextId, "Exit");
+  await page.waitFor(
+    `(() => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && Array.isArray(candidate.slides));
+      return state && !state.deckOpen;
     })()`,
     contextId,
   );
@@ -888,25 +1025,30 @@ async function verifyCsQbr(page: CdpPage, contextId: number) {
     contextId,
   );
   await clickButton(page, contextId, "View Deck");
-  await page.evaluate(
+  await page.waitFor(
     `(() => {
       const state = [...document.querySelectorAll('*')]
         .map((el) => el._x_dataStack?.[0])
         .find((candidate) => candidate && Array.isArray(candidate.slides));
-      if (state) state.slide = 1;
-      return true;
+      return state?.deckOpen && state.slide === 0;
     })()`,
     contextId,
   );
+  await clickButton(page, contextId, "Next");
   await page.waitFor<string>(
-    `document.body.innerText.includes('CS QBR extension browser verification')`,
+    `(() => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && Array.isArray(candidate.slides));
+      return state?.slide === 1 && document.body.innerText.includes('CS QBR extension browser verification');
+    })()`,
     contextId,
   );
   await page.evaluate(
     `extensionData.remove('cs-qbr-notes', ${jsString(testOwner)}, { scope: 'org' })`,
     contextId,
   );
-  return `owners=${ownerCount}, alexSeed=${Boolean(seeded)}, alexAccounts=${alexState.accountCount ?? 0}, saved=${saved.data?.csmName ?? testOwner}`;
+  return `owners=${ownerCount}, alexSeed=${Boolean(seeded)}, alexAccounts=${alexState.accountCount ?? 0}, entryRenewals=${entryUi.renewalItems}, entryAdoption=${entryUi.adoptionItems}, entryPipeline=${entryUi.pipelineItems}, saved=${saved.data?.csmName ?? testOwner}`;
 }
 
 async function verifyDiscoveryCoach(page: CdpPage, contextId: number) {
