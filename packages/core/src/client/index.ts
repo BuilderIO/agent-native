@@ -43,6 +43,7 @@ export {
   requestUserInfo,
   getFrameOrigin,
   getCallbackOrigin,
+  oauthRedirectUri,
   isInFrame,
   enterStyleEditing,
   enterTextEditing,

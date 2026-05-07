@@ -311,6 +311,7 @@ function SharePanel(
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("viewer");
   const [notifyPeople, setNotifyPeople] = useState(true);
+  const hasInviteEmail = email.trim().length > 0;
   const orgMembers = useOrgMembers();
   const datalistId = `share-autocomplete-${resourceType}-${resourceId}`;
 
@@ -549,15 +550,17 @@ function SharePanel(
             ) : null}
             <RoleSelect value={role} onChange={setRole} />
           </div>
-          <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={notifyPeople}
-              onChange={(e) => setNotifyPeople(e.target.checked)}
-              className="h-4 w-4 rounded border-input accent-primary"
-            />
-            Notify people
-          </label>
+          {hasInviteEmail ? (
+            <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={notifyPeople}
+                onChange={(e) => setNotifyPeople(e.target.checked)}
+                className="h-4 w-4 rounded border-input accent-primary"
+              />
+              Notify people
+            </label>
+          ) : null}
         </div>
       ) : null}
 

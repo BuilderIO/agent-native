@@ -394,6 +394,7 @@ function InviteTab({
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("viewer");
   const [notifyPeople, setNotifyPeople] = useState(true);
+  const hasInviteEmail = email.trim().length > 0;
 
   const data = sharesQuery.data;
   const shares = data?.shares ?? [];
@@ -463,13 +464,15 @@ function InviteTab({
               </SelectContent>
             </Select>
           </div>
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Checkbox
-              checked={notifyPeople}
-              onCheckedChange={(checked) => setNotifyPeople(checked === true)}
-            />
-            Notify people
-          </label>
+          {hasInviteEmail ? (
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Checkbox
+                checked={notifyPeople}
+                onCheckedChange={(checked) => setNotifyPeople(checked === true)}
+              />
+              Notify people
+            </label>
+          ) : null}
         </div>
       ) : null}
 

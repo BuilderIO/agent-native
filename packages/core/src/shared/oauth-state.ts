@@ -14,9 +14,22 @@ export function extractOAuthStateAppId(
     const dotIdx = state.lastIndexOf(".");
     if (dotIdx === -1) return undefined;
     const data = state.slice(0, dotIdx);
-    const parsed = JSON.parse(Buffer.from(data, "base64url").toString());
+    const parsed = JSON.parse(decodeBase64Url(data));
     return typeof parsed.app === "string" ? parsed.app : undefined;
   } catch {
     return undefined;
   }
+}
+
+function decodeBase64Url(value: string): string {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(
+    normalized.length + ((4 - (normalized.length % 4)) % 4),
+    "=",
+  );
+  const maybeBuffer = (globalThis as unknown as {
+    Buffer?: { from(input: string, encoding: string): { toString(): string } };
+  }).Buffer;
+  if (maybeBuffer) return maybeBuffer.from(padded, "base64").toString();
+  return atob(padded);
 }
