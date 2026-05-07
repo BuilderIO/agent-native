@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { attachToolSearch } from "./tool-search.js";
 import {
+  AGENT_INTERNAL_CONTINUE_PROMPT,
   buildUserContentWithAttachments,
   createPlanModeActionRegistry,
   isPlanModeToolCallAllowed,

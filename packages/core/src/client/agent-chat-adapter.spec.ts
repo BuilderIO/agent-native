@@ -604,6 +604,100 @@ describe("createAgentChatAdapter", () => {
     ]);
   });
 
+  it("preserves structured tool history when auto-continuing after a transient error", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: "tool_start", tool: "get-document", input: { id: "doc-1" } },
+          {
+            type: "tool_done",
+            tool: "get-document",
+            result: '{"id":"doc-1","title":"Offsite rambles"}',
+          },
+          { type: "text", text: "Now I have the document format." },
+          {
+            type: "error",
+            error: "Builder gateway timed out after 45s",
+            errorCode: "builder_gateway_timeout",
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "text", text: "finished" }, { type: "done" }]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-structured-continuation",
+      threadId: "thread-structured-continuation",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "make another doc like this" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const secondBody = JSON.parse(fetchSpy.mock.calls[1][1].body);
+    expect(secondBody.message).toContain("Continue from where you left off");
+    expect(JSON.stringify(secondBody.structuredHistory)).not.toContain(
+      "Tool: get-document",
+    );
+    expect(secondBody.structuredHistory).toEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "make another doc like this" }],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: expect.stringMatching(/^continuation_tc_/),
+            toolName: "get-document",
+            args: { id: "doc-1" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: expect.stringMatching(/^continuation_tc_/),
+            toolName: "get-document",
+            content: '{"id":"doc-1","title":"Offsite rambles"}',
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Now I have the document format." }],
+      },
+    ]);
+  });
+
   it("reconnects to an active run when the initial POST loses its response", async () => {
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
