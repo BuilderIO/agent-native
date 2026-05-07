@@ -2,11 +2,13 @@ import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentNativePath } from "@agent-native/core/client";
+import { rememberLastOpened } from "@/lib/last-opened";
 
 interface NavigationState {
   view: string;
   dashboardId?: string;
   analysisId?: string;
+  extensionId?: string;
 }
 
 export function useNavigationState() {
@@ -29,13 +31,26 @@ export function useNavigationState() {
       if (match) {
         state.dashboardId = match[1];
         localStorage.setItem("last-dashboard-id", match[1]);
+        rememberLastOpened("dashboard", match[1], path);
       }
     } else if (path === "/analyses") {
       state.view = "analyses";
     } else if (path.startsWith("/analyses/")) {
       state.view = "analyses";
       const match = path.match(/\/analyses\/(.+)/);
-      if (match) state.analysisId = match[1];
+      if (match) {
+        state.analysisId = match[1];
+        rememberLastOpened("analysis", match[1], path);
+      }
+    } else if (path === "/extensions") {
+      state.view = "extensions";
+    } else if (path.startsWith("/extensions/")) {
+      state.view = "extensions";
+      const match = path.match(/\/extensions\/([^/]+)/);
+      if (match && match[1] !== "new") {
+        state.extensionId = match[1];
+        rememberLastOpened("extension", match[1], path);
+      }
     } else if (path === "/data-sources") {
       state.view = "data-sources";
     } else if (path === "/data-dictionary") {
@@ -97,6 +112,10 @@ export function useNavigationState() {
       path = `/analyses/${cmd.analysisId}`;
     } else if (cmd.view === "analyses") {
       path = "/analyses";
+    } else if (cmd.view === "extensions" && cmd.extensionId) {
+      path = `/extensions/${cmd.extensionId}`;
+    } else if (cmd.view === "extensions") {
+      path = "/extensions";
     } else if (cmd.view === "data-sources") {
       path = "/data-sources";
     } else if (cmd.view === "data-dictionary") {

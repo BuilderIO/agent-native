@@ -2,11 +2,17 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router";
 import { Skeleton } from "@/components/ui/skeleton";
 import { dashboards } from "@/pages/adhoc/registry";
+import { getLastOpenedPath } from "@/lib/last-opened";
 
 export default function Index() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    const lastPath = getLastOpenedPath();
+    if (lastPath) {
+      navigate(lastPath, { replace: true });
+      return;
+    }
     const lastId = localStorage.getItem("last-dashboard-id");
     if (lastId) {
       navigate(`/adhoc/${lastId}`, { replace: true });

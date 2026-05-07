@@ -102,7 +102,7 @@ const TARGET_ROOT = path.resolve("templates", "analytics");
 const argv = process.argv.slice(2);
 const write = argv.includes("--write");
 const validateSql = argv.includes("--validate-sql");
-const REMOVED_LEGACY_IDS = ["fusion-developer-pain"];
+const REMOVED_LEGACY_IDS = ["fusion-developer-pain", "tech-partners"];
 
 const DATE_START = "{{dateStart}}";
 const DATE_END = "{{dateEnd}}";
@@ -2399,11 +2399,397 @@ function dbtExtension(): string {
 function qbrExtension(): string {
   return baseExtension(
     "QBR Deck Builder",
-    `<div x-data="{ owner: '', notes: '', deals: null, saved: [], async init() { this.saved = await extensionData.list('qbr-notes', { scope: 'org' }); }, async loadDeals() { this.deals = await appAction('hubspot-deals', {}); }, async save() { await extensionData.set('qbr-notes', this.owner || String(Date.now()), { owner: this.owner, notes: this.notes, updatedAt: new Date().toISOString() }, { scope: 'org' }); await this.init(); } }" x-init="init()" class="space-y-3">
-      <input x-model="owner" class="w-full rounded border px-3 py-2" placeholder="AE / owner name" />
-      <textarea x-model="notes" class="h-40 w-full rounded border p-3" placeholder="Goals, territory notes, forecast narrative"></textarea>
-      <div class="flex gap-2"><button class="rounded border px-3 py-2" x-on:click="save()">Save QBR notes</button><button class="rounded border px-3 py-2" x-on:click="loadDeals()">Load HubSpot deals</button></div>
-      <pre x-show="deals" class="max-h-96 overflow-auto rounded border bg-muted p-3 text-xs" x-text="JSON.stringify(deals, null, 2)"></pre>
+    `<script>
+      function salesQbr() {
+        return {
+          owner: '',
+          loading: false,
+          error: '',
+          deckOpen: false,
+          saved: [],
+          deals: null,
+          form: { goals: '', forecast: '', risks: '', asks: '' },
+          parse(row) {
+            if (!row || row.data == null) return null;
+            try {
+              const parsed = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+              return parsed && parsed.value && parsed.value.owner ? parsed.value : parsed;
+            } catch (_) {
+              return null;
+            }
+          },
+          async init() {
+            this.saved = await extensionData.list('qbr-notes', { scope: 'org' });
+          },
+          async loadSaved() {
+            const row = await extensionData.get('qbr-notes', this.owner, { scope: 'org' });
+            const data = this.parse(row);
+            if (data) this.form = { goals: data.goals || data.notes || '', forecast: data.forecast || '', risks: data.risks || '', asks: data.asks || '' };
+          },
+          dealSql() {
+            const owner = this.owner.replace(/'/g, "''");
+            return [
+              "SELECT deal_name, company_name, stage_name, pipeline_name, DATE(close_date) AS close_date, SAFE_CAST(amount AS FLOAT64) AS amount, COALESCE(hs_manual_forecast_category, 'Uncategorized') AS forecast_category",
+              "FROM \`builder-3b0a2.dbt_mart.dim_hs_deals\`",
+              "WHERE LOWER(COALESCE(sales_rep_owner_name, '')) = LOWER('" + owner + "')",
+              "  AND DATE(close_date) BETWEEN DATE('2026-05-01') AND DATE('2026-07-31')",
+              "ORDER BY amount DESC",
+              "LIMIT 100"
+            ].join("\\n");
+          },
+          async loadDeals() {
+            if (!this.owner.trim()) { this.error = 'Enter an AE owner name first.'; return; }
+            this.loading = true; this.error = '';
+            try {
+              await this.loadSaved();
+              this.deals = await appAction('bigquery', { sql: this.dealSql() });
+            } catch (e) {
+              this.error = e.message || String(e);
+            } finally {
+              this.loading = false;
+            }
+          },
+          async save() {
+            if (!this.owner.trim()) { this.error = 'Enter an AE owner name first.'; return; }
+            await extensionData.set('qbr-notes', this.owner, { owner: this.owner, ...this.form, updatedAt: new Date().toISOString() }, { scope: 'org' });
+            await this.init();
+          },
+          totalPipeline() {
+            return (this.deals?.rows || []).reduce((sum, row) => sum + Number(row.amount || 0), 0);
+          }
+        };
+      }
+    </script>
+    <div x-data="salesQbr()" x-init="init()" class="space-y-4">
+      <div class="flex flex-wrap gap-2">
+        <input x-model="owner" class="min-w-64 flex-1 rounded border px-3 py-2" placeholder="AE / owner name" />
+        <button class="rounded border px-3 py-2" x-on:click="loadDeals()">Load QBR data</button>
+        <button class="rounded border px-3 py-2" x-on:click="save()">Save form</button>
+        <button class="rounded bg-primary px-3 py-2 text-primary-foreground" x-on:click="deckOpen = true">Preview deck</button>
+      </div>
+      <p x-show="loading" class="text-muted-foreground">Loading HubSpot-backed QBR data...</p>
+      <p x-show="error" x-text="error" class="text-red-600"></p>
+      <div x-show="!deckOpen" class="grid gap-3 md:grid-cols-2">
+        <textarea x-model="form.goals" class="h-28 rounded border p-3" placeholder="Quarter goals"></textarea>
+        <textarea x-model="form.forecast" class="h-28 rounded border p-3" placeholder="Forecast narrative"></textarea>
+        <textarea x-model="form.risks" class="h-28 rounded border p-3" placeholder="Risks and blockers"></textarea>
+        <textarea x-model="form.asks" class="h-28 rounded border p-3" placeholder="Leadership asks"></textarea>
+      </div>
+      <section x-show="deals && !deckOpen" class="rounded border p-3">
+        <h2 class="font-medium">Pipeline loaded</h2>
+        <p class="text-sm text-muted-foreground"><span x-text="(deals?.rows || []).length"></span> deals · $<span x-text="Math.round(totalPipeline()).toLocaleString()"></span></p>
+        <pre class="mt-2 max-h-72 overflow-auto whitespace-pre-wrap text-xs" x-text="JSON.stringify(deals?.rows || [], null, 2)"></pre>
+      </section>
+      <section x-show="deckOpen" class="space-y-3 rounded border p-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-base font-semibold">Sales QBR Preview</h2>
+          <button class="rounded border px-3 py-1.5 text-xs" x-on:click="deckOpen = false">Back to form</button>
+        </div>
+        <div class="rounded bg-muted p-4">
+          <p class="text-xs uppercase text-muted-foreground">Owner</p>
+          <h3 class="text-xl font-semibold" x-text="owner || 'Unassigned owner'"></h3>
+          <p class="mt-2 text-sm">Pipeline: $<span x-text="Math.round(totalPipeline()).toLocaleString()"></span></p>
+        </div>
+        <div class="grid gap-3 md:grid-cols-2">
+          <div class="rounded border p-3"><p class="font-medium">Goals</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.goals || 'No goals saved yet.'"></p></div>
+          <div class="rounded border p-3"><p class="font-medium">Forecast</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.forecast || 'No forecast saved yet.'"></p></div>
+          <div class="rounded border p-3"><p class="font-medium">Risks</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.risks || 'No risks saved yet.'"></p></div>
+          <div class="rounded border p-3"><p class="font-medium">Asks</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.asks || 'No asks saved yet.'"></p></div>
+        </div>
+      </section>
+    </div>`,
+  );
+}
+
+function csQbrExtension(): string {
+  return baseExtension(
+    "CS QBR Deck Builder",
+    `<script>
+      function csQbrDeckBuilder() {
+        return {
+          owners: [],
+          selected: '',
+          loadingOwners: false,
+          loadingBook: false,
+          saving: false,
+          error: '',
+          deckOpen: false,
+          book: null,
+          metrics: null,
+          form: {
+            q1LessonLearned: '',
+            q2ChangeBecauseOfIt: '',
+            atRiskAccounts: '',
+            q2ChurnPrediction: '',
+            predictedRetentionArr: '',
+            laggardActionPlan: '',
+            q2AdoptionGoal: '',
+            predictedExpansionArr: '',
+            keyExpansionOpportunities: '',
+            ask1: '',
+            ask2: '',
+            ask3: '',
+            extraAsks: []
+          },
+          ownerSql: "SELECT DISTINCT csm_owner_name FROM \`builder-3b0a2.dbt_staging.hubspot_companies\` WHERE csm_owner_name IS NOT NULL AND TRIM(csm_owner_name) != '' AND csm_owner_name NOT IN ('Aaron Bhawan','Andrew Rohman','Daphne Ghesquiere','Hannah Schutt','Justin Plemel','Kashi Elyassi','Natasha Mattesi','Taylor Nielsen','Unassigned') ORDER BY csm_owner_name",
+          parse(row) {
+            if (!row || row.data == null) return null;
+            try {
+              const parsed = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+              return parsed && parsed.value && parsed.value.csmName ? parsed.value : parsed;
+            } catch (_) {
+              return null;
+            }
+          },
+          resetForm(name) {
+            this.form = {
+              csmName: name,
+              q1LessonLearned: '',
+              q2ChangeBecauseOfIt: '',
+              atRiskAccounts: '',
+              q2ChurnPrediction: '',
+              predictedRetentionArr: '',
+              laggardActionPlan: '',
+              q2AdoptionGoal: '',
+              predictedExpansionArr: '',
+              keyExpansionOpportunities: '',
+              ask1: '',
+              ask2: '',
+              ask3: '',
+              extraAsks: []
+            };
+          },
+          async init() {
+            await this.loadOwners();
+          },
+          async loadOwners() {
+            this.loadingOwners = true; this.error = '';
+            try {
+              const result = await appAction('bigquery', { sql: this.ownerSql });
+              this.owners = (result.rows || []).map((row) => row.csm_owner_name).filter(Boolean);
+            } catch (e) {
+              const seeded = await extensionData.list('cs-qbr-notes', { scope: 'org' });
+              this.owners = seeded.map((row) => row.id).filter(Boolean);
+              this.error = this.owners.length ? '' : (e.message || String(e));
+            } finally {
+              this.loadingOwners = false;
+            }
+          },
+          bookSql(name) {
+            const csm = name.replace(/'/g, "''");
+            return [
+              "WITH accounts AS (",
+              "  SELECT company_name, CAST(company_id AS STRING) AS company_id, COALESCE(root_org_id, '') AS root_org_id, COALESCE(SAFE_CAST(current_enterprise_arr AS FLOAT64), 0) AS arr, CAST(upcoming_renewal_date AS STRING) AS renewal_date, COALESCE(customer_stage, '') AS customer_stage, COALESCE(company_status, '') AS company_status, COALESCE(hs_csm_sentiment, '') AS sentiment, DATE_DIFF(CURRENT_DATE(), COALESCE(DATE(create_date), CURRENT_DATE()), DAY) AS account_age_days",
+              "  FROM \`builder-3b0a2.dbt_staging.hubspot_companies\`",
+              "  WHERE LOWER(TRIM(csm_owner_name)) = LOWER(TRIM('" + csm + "'))",
+              "    AND account_profile = 'Enterprise Active Customer'",
+              "    AND LOWER(COALESCE(customer_stage, '')) NOT IN ('churned', 'churn risk')",
+              "), seat_latest AS (",
+              "  SELECT root_org_id, contracted_user_seats, active_users_30d, ROUND(seat_utilization_30d * 100, 1) AS seat_util_pct",
+              "  FROM \`builder-3b0a2.dbt_analytics.enterprise_seat_utilization\`",
+              "  WHERE root_org_id IN (SELECT root_org_id FROM accounts WHERE root_org_id != '')",
+              "  QUALIFY ROW_NUMBER() OVER (PARTITION BY root_org_id ORDER BY date DESC) = 1",
+              "), credit_latest AS (",
+              "  SELECT root_org_id, contracted_ai_credits, ai_credits_used_30d, ROUND(ai_credit_utilization_30d * 100, 1) AS credit_util_pct",
+              "  FROM \`builder-3b0a2.dbt_analytics.enterprise_ai_credit_utilization\`",
+              "  WHERE root_org_id IN (SELECT root_org_id FROM accounts WHERE root_org_id != '')",
+              "  QUALIFY ROW_NUMBER() OVER (PARTITION BY root_org_id ORDER BY date DESC) = 1",
+              "), pipeline AS (",
+              "  SELECT CAST(company_id AS STRING) AS company_id, SUM(SAFE_CAST(amount AS FLOAT64)) AS open_pipeline_arr",
+              "  FROM \`builder-3b0a2.dbt_mart.dim_hs_deals\`",
+              "  WHERE CAST(company_id AS STRING) IN (SELECT company_id FROM accounts WHERE company_id IS NOT NULL)",
+              "    AND (LOWER(pipeline_name) LIKE '%expansion%' OR LOWER(pipeline_name) LIKE '%renewal%')",
+              "    AND COALESCE(is_closed_won, FALSE) = FALSE",
+              "    AND LOWER(COALESCE(stage_name, '')) NOT LIKE '%lost%'",
+              "    AND LOWER(COALESCE(stage_name, '')) NOT LIKE '%stall%'",
+              "  GROUP BY company_id",
+              ")",
+              "SELECT a.*, COALESCE(s.active_users_30d, 0) AS active_users_30d, COALESCE(s.contracted_user_seats, 0) AS contracted_user_seats, COALESCE(s.seat_util_pct, 0) AS seat_util_pct, COALESCE(c.ai_credits_used_30d, 0) AS ai_credits_used_30d, COALESCE(c.contracted_ai_credits, 0) AS contracted_ai_credits, COALESCE(c.credit_util_pct, 0) AS credit_util_pct, COALESCE(p.open_pipeline_arr, 0) AS open_pipeline_arr",
+              "FROM accounts a",
+              "LEFT JOIN seat_latest s USING (root_org_id)",
+              "LEFT JOIN credit_latest c USING (root_org_id)",
+              "LEFT JOIN pipeline p USING (company_id)",
+              "ORDER BY arr DESC"
+            ].join("\\n");
+          },
+          async selectOwner(name) {
+            this.selected = name;
+            this.resetForm(name);
+            this.deckOpen = false;
+            await Promise.all([this.loadSaved(name), this.loadBook(name)]);
+          },
+          async loadSaved(name) {
+            const row = await extensionData.get('cs-qbr-notes', name, { scope: 'org' });
+            const data = this.parse(row);
+            if (data) this.form = { ...this.form, ...data, csmName: name };
+          },
+          async loadBook(name) {
+            this.loadingBook = true; this.error = '';
+            try {
+              this.book = await appAction('bigquery', { sql: this.bookSql(name) });
+              this.computeMetrics();
+            } catch (e) {
+              this.error = e.message || String(e);
+            } finally {
+              this.loadingBook = false;
+            }
+          },
+          computeMetrics() {
+            const rows = this.book?.rows || [];
+            const sum = (key) => rows.reduce((total, row) => total + Number(row[key] || 0), 0);
+            const q2RenewalArr = rows.filter((row) => row.renewal_date >= '2026-05-01' && row.renewal_date <= '2026-07-31').reduce((total, row) => total + Number(row.arr || 0), 0);
+            const active = sum('active_users_30d');
+            const seats = sum('contracted_user_seats');
+            const creditsUsed = sum('ai_credits_used_30d');
+            const credits = sum('contracted_ai_credits');
+            this.metrics = {
+              accountCount: rows.length,
+              arr: sum('arr'),
+              q2RenewalArr,
+              bookSeatUtil: seats ? (active / seats) * 100 : 0,
+              bookCreditUtil: credits ? (creditsUsed / credits) * 100 : 0,
+              openPipelineArr: sum('open_pipeline_arr')
+            };
+          },
+          money(value) {
+            return '$' + Math.round(Number(value || 0)).toLocaleString();
+          },
+          pct(value) {
+            return Math.round(Number(value || 0)) + '%';
+          },
+          async save() {
+            if (!this.selected) return;
+            this.saving = true;
+            await extensionData.set('cs-qbr-notes', this.selected, { ...this.form, csmName: this.selected, savedAt: new Date().toISOString() }, { scope: 'org' });
+            this.saving = false;
+          },
+          addAsk() {
+            this.form.extraAsks.push('');
+          }
+        };
+      }
+    </script>
+    <div x-data="csQbrDeckBuilder()" x-init="init()" class="space-y-4">
+      <div class="flex flex-wrap items-center gap-2">
+        <select class="min-w-64 rounded border px-3 py-2" x-bind:disabled="loadingOwners" x-on:change="selectOwner($event.target.value)">
+          <option value="">Select CSM</option>
+          <template x-for="name in owners" :key="name"><option x-text="name" x-bind:value="name"></option></template>
+        </select>
+        <button class="rounded border px-3 py-2" x-bind:disabled="!selected || loadingBook" x-on:click="loadBook(selected)">Refresh book</button>
+        <button class="rounded border px-3 py-2" x-bind:disabled="!selected || saving" x-on:click="save()" x-text="saving ? 'Saving...' : 'Save notes'"></button>
+        <button class="rounded bg-primary px-3 py-2 text-primary-foreground" x-bind:disabled="!selected" x-on:click="deckOpen = true">View Deck</button>
+      </div>
+      <p x-show="loadingOwners || loadingBook" class="text-muted-foreground" x-text="loadingOwners ? 'Loading CSMs...' : 'Loading book data...'"></p>
+      <p x-show="error" x-text="error" class="text-red-600"></p>
+      <template x-if="selected && metrics">
+        <div class="grid gap-2 md:grid-cols-4">
+          <div class="rounded border p-3"><p class="text-xs text-muted-foreground">Book ARR</p><p class="text-lg font-semibold" x-text="money(metrics.arr)"></p></div>
+          <div class="rounded border p-3"><p class="text-xs text-muted-foreground">Q2 Renewals</p><p class="text-lg font-semibold" x-text="money(metrics.q2RenewalArr)"></p></div>
+          <div class="rounded border p-3"><p class="text-xs text-muted-foreground">Seat Utilization</p><p class="text-lg font-semibold" x-text="pct(metrics.bookSeatUtil)"></p></div>
+          <div class="rounded border p-3"><p class="text-xs text-muted-foreground">Open Pipeline</p><p class="text-lg font-semibold" x-text="money(metrics.openPipelineArr)"></p></div>
+        </div>
+      </template>
+      <div x-show="selected && !deckOpen" class="grid gap-3 md:grid-cols-2">
+        <textarea x-model="form.q1LessonLearned" class="h-24 rounded border p-3" placeholder="Q1 lesson learned"></textarea>
+        <textarea x-model="form.q2ChangeBecauseOfIt" class="h-24 rounded border p-3" placeholder="Q2 change because of it"></textarea>
+        <textarea x-model="form.atRiskAccounts" class="h-24 rounded border p-3" placeholder="At-risk accounts"></textarea>
+        <textarea x-model="form.q2ChurnPrediction" class="h-24 rounded border p-3" placeholder="Q2 churn prediction"></textarea>
+        <textarea x-model="form.laggardActionPlan" class="h-24 rounded border p-3" placeholder="Laggard adoption action plan"></textarea>
+        <textarea x-model="form.keyExpansionOpportunities" class="h-24 rounded border p-3" placeholder="Expansion action plan"></textarea>
+        <input x-model="form.predictedRetentionArr" class="rounded border px-3 py-2" placeholder="Predicted retained ARR" />
+        <input x-model="form.predictedExpansionArr" class="rounded border px-3 py-2" placeholder="Predicted expansion ARR" />
+        <input x-model="form.ask1" class="rounded border px-3 py-2" placeholder="Ask 1" />
+        <input x-model="form.ask2" class="rounded border px-3 py-2" placeholder="Ask 2" />
+        <input x-model="form.ask3" class="rounded border px-3 py-2" placeholder="Ask 3" />
+      </div>
+      <section x-show="deckOpen" class="space-y-3 rounded border p-4">
+        <div class="flex items-center justify-between">
+          <div><p class="text-xs uppercase text-muted-foreground">CS QBR Preview</p><h2 class="text-xl font-semibold" x-text="selected"></h2></div>
+          <button class="rounded border px-3 py-1.5 text-xs" x-on:click="deckOpen = false">Back to form</button>
+        </div>
+        <div class="grid gap-2 md:grid-cols-3">
+          <div class="rounded bg-muted p-3"><p class="text-xs text-muted-foreground">Retention</p><p class="font-semibold" x-text="form.predictedRetentionArr || money(metrics?.q2RenewalArr || 0)"></p></div>
+          <div class="rounded bg-muted p-3"><p class="text-xs text-muted-foreground">Adoption</p><p class="font-semibold" x-text="pct(metrics?.bookSeatUtil || 0) + ' seats / ' + pct(metrics?.bookCreditUtil || 0) + ' credits'"></p></div>
+          <div class="rounded bg-muted p-3"><p class="text-xs text-muted-foreground">Expansion</p><p class="font-semibold" x-text="form.predictedExpansionArr || money(metrics?.openPipelineArr || 0)"></p></div>
+        </div>
+        <div class="grid gap-3 md:grid-cols-2">
+          <div class="rounded border p-3"><p class="font-medium">Lookback</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.q1LessonLearned || 'No lesson entered.'"></p></div>
+          <div class="rounded border p-3"><p class="font-medium">Retention Plan</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.q2ChurnPrediction || form.atRiskAccounts || 'No retention plan entered.'"></p></div>
+          <div class="rounded border p-3"><p class="font-medium">Adoption Plan</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.laggardActionPlan || 'No adoption plan entered.'"></p></div>
+          <div class="rounded border p-3"><p class="font-medium">Expansion Plan</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.keyExpansionOpportunities || 'No expansion plan entered.'"></p></div>
+        </div>
+        <div class="rounded border p-3"><p class="font-medium">Asks</p><ul class="mt-2 list-disc space-y-1 pl-5 text-sm"><template x-for="ask in [form.ask1, form.ask2, form.ask3].filter(Boolean)" :key="ask"><li x-text="ask"></li></template></ul></div>
+      </section>
+    </div>`,
+  );
+}
+
+function discoveryCoachExtension(): string {
+  const rel = "client/pages/adhoc/discovery-coach/index.tsx";
+  const opPains = extractConstArrayLiteral(rel, "opPains");
+  const painMap = extractConstArrayLiteral(rel, "painMap");
+  const wonSignals = extractConstArrayLiteral(rel, "wonSignals");
+  const lostSignals = extractConstArrayLiteral(rel, "lostSignals");
+  const stages = extractConstArrayLiteral(rel, "stages");
+  return baseExtension(
+    "Discovery Coach",
+    `<script>
+      function discoveryCoach() {
+        return {
+          tab: 'discovery',
+          selectedPain: null,
+          opPains: ${opPains},
+          painMap: ${painMap},
+          wonSignals: ${wonSignals},
+          lostSignals: ${lostSignals},
+          stages: ${stages}
+        };
+      }
+    </script>
+    <div x-data="discoveryCoach()" class="space-y-4">
+      <div class="flex flex-wrap gap-2">
+        <button class="rounded border px-3 py-1.5 text-xs" x-bind:class="tab === 'discovery' && 'bg-primary text-primary-foreground'" x-on:click="tab = 'discovery'">Discovery sequence</button>
+        <button class="rounded border px-3 py-1.5 text-xs" x-bind:class="tab === 'painmap' && 'bg-primary text-primary-foreground'" x-on:click="tab = 'painmap'">Pain translation map</button>
+        <button class="rounded border px-3 py-1.5 text-xs" x-bind:class="tab === 'signals' && 'bg-primary text-primary-foreground'" x-on:click="tab = 'signals'">Win/loss signals</button>
+        <button class="rounded border px-3 py-1.5 text-xs" x-bind:class="tab === 'opains' && 'bg-primary text-primary-foreground'" x-on:click="tab = 'opains'">Operational pains</button>
+      </div>
+      <section x-show="tab === 'discovery'" class="space-y-3">
+        <template x-for="stage in stages" :key="stage.num">
+          <div class="rounded border p-3">
+            <div class="flex gap-3"><span class="flex h-7 w-7 items-center justify-center rounded bg-muted text-xs font-semibold" x-text="stage.num"></span><div><h2 class="font-medium" x-text="stage.title"></h2><p class="text-xs text-muted-foreground" x-text="stage.sub"></p></div></div>
+            <div class="mt-3 space-y-2 pl-10"><template x-for="item in stage.qs" :key="item.q"><div class="rounded bg-muted p-3 text-sm"><p x-text="'“' + item.q + '”'"></p><p class="mt-1 text-xs text-muted-foreground" x-text="item.signal"></p></div></template></div>
+          </div>
+        </template>
+      </section>
+      <section x-show="tab === 'painmap'" class="space-y-2">
+        <template x-for="row in painMap" :key="row.op">
+          <div class="grid gap-2 md:grid-cols-3">
+            <div class="rounded border p-3 text-sm" x-text="row.op"></div>
+            <div class="rounded border p-3 text-sm" x-text="row.biz"></div>
+            <div class="rounded border p-3 text-sm font-medium" x-text="row.who"></div>
+          </div>
+        </template>
+      </section>
+      <section x-show="tab === 'signals'" class="grid gap-3 md:grid-cols-2">
+        <div class="rounded border p-3"><h2 class="font-medium">Won deals</h2><ul class="mt-2 list-disc space-y-1 pl-5 text-sm"><template x-for="signal in wonSignals" :key="signal"><li x-text="signal"></li></template></ul></div>
+        <div class="rounded border p-3"><h2 class="font-medium">Lost deals</h2><ul class="mt-2 list-disc space-y-1 pl-5 text-sm"><template x-for="signal in lostSignals" :key="signal"><li x-text="signal"></li></template></ul></div>
+      </section>
+      <section x-show="tab === 'opains'" class="space-y-3">
+        <div class="grid gap-2 md:grid-cols-2">
+          <template x-for="(pain, index) in opPains" :key="pain.title">
+            <button class="rounded border p-3 text-left hover:bg-accent" x-on:click="selectedPain = selectedPain === index ? null : index">
+              <p class="font-medium" x-text="pain.title"></p>
+              <p class="text-xs text-muted-foreground" x-text="pain.count"></p>
+            </button>
+          </template>
+        </div>
+        <template x-if="selectedPain !== null">
+          <div class="rounded border bg-muted p-4">
+            <h2 class="font-medium" x-text="opPains[selectedPain].title"></h2>
+            <div class="mt-3 space-y-2"><template x-for="item in opPains[selectedPain].questions" :key="item.q"><div class="rounded bg-background p-3 text-sm"><p x-text="'“' + item.q + '”'"></p><p class="mt-1 text-xs text-muted-foreground" x-text="'Listen for: ' + item.listen"></p></div></template></div>
+          </div>
+        </template>
+      </section>
     </div>`,
   );
 }
@@ -2479,6 +2865,32 @@ async function validateDashboardSql(
     if (errors.length > 20) console.log(`... ${errors.length - 20} more`);
   } else {
     console.log("SQL validation passed for all generated BigQuery panels.");
+  }
+}
+
+async function pruneRemovedLegacyResources(db: Db) {
+  for (const id of REMOVED_LEGACY_IDS) {
+    await db.execute(`DELETE FROM dashboard_shares WHERE resource_id = ?`, [id]);
+    await db.execute(`DELETE FROM analysis_shares WHERE resource_id = ?`, [id]);
+    await db.execute(`DELETE FROM tool_shares WHERE resource_id = ?`, [id]);
+    await db.execute(`DELETE FROM tool_data WHERE tool_id = ?`, [id]);
+    const deletedDash = await db.execute(`DELETE FROM dashboards WHERE id = ?`, [
+      id,
+    ]);
+    const deletedAnalysis = await db.execute(
+      `DELETE FROM analyses WHERE id = ?`,
+      [id],
+    );
+    const deletedExtension = await db.execute(`DELETE FROM tools WHERE id = ?`, [
+      id,
+    ]);
+    const removed =
+      deletedDash.rowsAffected +
+      deletedAnalysis.rowsAffected +
+      deletedExtension.rowsAffected;
+    if (removed > 0) {
+      console.log(`Pruned removed Fusion resource ${id}.`);
+    }
   }
 }
 
