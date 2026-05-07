@@ -1,5 +1,12 @@
 # @agent-native/dispatch
 
+## 0.2.11
+
+### Patch Changes
+
+- 4caaa4f: Keep workspace app creation on same-origin gateway routes and stop child dev servers from advertising private ports.
+- 4caaa4f: Dispatch overview page polish.
+
 ## 0.2.10
 
 ### Patch Changes
