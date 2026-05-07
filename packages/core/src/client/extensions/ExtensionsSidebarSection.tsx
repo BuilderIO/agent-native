@@ -82,13 +82,114 @@ function saveFavorites(ids: Set<string>) {
   }
 }
 
+function getStoredBoolean(key: string, fallback: boolean): boolean {
+  if (typeof window === "undefined") return fallback;
+  const raw = window.localStorage.getItem(key);
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return fallback;
+}
+
+function setStoredBoolean(key: string, value: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, String(value));
+  } catch {
+    // localStorage unavailable — ignore
+  }
+}
+
+function getSortMode(): ExtensionSortMode {
+  if (typeof window === "undefined") return "most-used";
+  const raw = window.localStorage.getItem(EXTENSIONS_SORT_MODE_KEY);
+  if (raw === "alphabetical" || raw === "manual" || raw === "most-used") {
+    return raw;
+  }
+  return "most-used";
+}
+
+function setSortMode(mode: ExtensionSortMode): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(EXTENSIONS_SORT_MODE_KEY, mode);
+  } catch {
+    // localStorage unavailable — ignore
+  }
+}
+
+function sortByName<T extends { id: string; name: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const name = a.name.localeCompare(b.name);
+    return name !== 0 ? name : a.id.localeCompare(b.id);
+  });
+}
+
+function ExtensionSortMenu({
+  value,
+  onChange,
+}: {
+  value: ExtensionSortMode;
+  onChange: (value: ExtensionSortMode) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 opacity-0 transition-all hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/extensions-section:opacity-100"
+              aria-label="Extensions sort options"
+            >
+              <IconSettings className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Extensions sort</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent side="right" align="start" className="w-44">
+        <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={value}
+          onValueChange={(next) => {
+            if (
+              next === "most-used" ||
+              next === "alphabetical" ||
+              next === "manual"
+            ) {
+              onChange(next);
+            }
+          }}
+        >
+          <DropdownMenuRadioItem value="most-used">
+            Most used
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="alphabetical">
+            Alphabetical
+          </DropdownMenuRadioItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuRadioItem value="manual">
+            Manual order
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function ExtensionsSidebarSection() {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const popularity = useExtensionPopularity();
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(() =>
     typeof window !== "undefined" ? getFavorites() : new Set(),
   );
+  const [extensionsOpen, setExtensionsOpen] = useState(() =>
+    getStoredBoolean(EXTENSIONS_OPEN_KEY, true),
+  );
+  const [sortModeState, setSortModeState] =
+    useState<ExtensionSortMode>(getSortMode);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -118,6 +219,19 @@ export function ExtensionsSidebarSection() {
         next.add(id);
       }
       saveFavorites(next);
+      return next;
+    });
+  }, []);
+
+  const setExtensionSortMode = useCallback((mode: ExtensionSortMode) => {
+    setSortMode(mode);
+    setSortModeState(mode);
+  }, []);
+
+  const toggleExtensionsOpen = useCallback(() => {
+    setExtensionsOpen((current) => {
+      const next = !current;
+      setStoredBoolean(EXTENSIONS_OPEN_KEY, next);
       return next;
     });
   }, []);
@@ -206,16 +320,22 @@ export function ExtensionsSidebarSection() {
 
   const sortedTools = useMemo(() => {
     if (!extensions) return [];
-    const defaultSorted = [...extensions].sort((a, b) => {
+    if (sortModeState === "alphabetical") {
+      return sortByName(extensions);
+    }
+    const mostUsed = [...extensions].sort((a, b) => {
+      const aPop = extensionPopularityOf(popularity, a.id);
+      const bPop = extensionPopularityOf(popularity, b.id);
+      if (aPop !== bPop) return bPop - aPop;
       const aFav = favoriteIds.has(a.id) ? 0 : 1;
       const bFav = favoriteIds.has(b.id) ? 0 : 1;
       if (aFav !== bFav) return aFav - bFav;
       return a.name.localeCompare(b.name);
     });
-    return toolOrderState.length > 0
-      ? applyToolsOrder(defaultSorted, toolOrderState)
-      : defaultSorted;
-  }, [extensions, favoriteIds, toolOrderState]);
+    return sortModeState === "manual" && toolOrderState.length > 0
+      ? applyToolsOrder(mostUsed, toolOrderState)
+      : mostUsed;
+  }, [extensions, favoriteIds, popularity, sortModeState, toolOrderState]);
 
   const activeExtensionId = useMemo(
     () =>
@@ -262,8 +382,9 @@ export function ExtensionsSidebarSection() {
       next.splice(newIndex, 0, moved);
       setToolsOrder(next);
       setToolOrderState(next);
+      setExtensionSortMode("manual");
     },
-    [sortedTools],
+    [setExtensionSortMode, sortedTools],
   );
 
   const handleCreate = (text: string) => {
