@@ -213,13 +213,13 @@ export function FormFillPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-3 sm:p-4 py-8 sm:py-12 relative">
-      {!embedded && (
-        <div className="absolute top-4 right-4">
-          <ThemeToggle />
-        </div>
-      )}
+    <div className="min-h-screen bg-background flex items-center justify-center p-3 sm:p-4 py-8 sm:py-12">
       <div className="w-full max-w-2xl">
+        {!embedded && (
+          <div className="mb-3 flex justify-end">
+            <ThemeToggle className="h-8 w-8" />
+          </div>
+        )}
         {/* Form header */}
         <div className={embedded ? "mb-5" : "mb-6 sm:mb-8"}>
           <h1

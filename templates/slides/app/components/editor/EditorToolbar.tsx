@@ -27,6 +27,7 @@ import {
   IconMoon,
   IconDots,
   IconPalette,
+  IconLoader2,
 } from "@tabler/icons-react";
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
 import { useSaveState } from "@/context/DeckContext";
@@ -59,6 +60,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { toast } from "@/hooks/use-toast";
 interface EditorToolbarProps {
   deck: Deck;
   deckId: string;
@@ -251,6 +253,7 @@ export default function EditorToolbar({
   const [toolsOpen, setToolsOpen] = useState(false);
   const toolsRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
   const { setTheme, resolvedTheme } = useTheme();
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
@@ -269,6 +272,11 @@ export default function EditorToolbar({
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setImporting(true);
+    toast({
+      title: "Importing file",
+      description: `Reading ${file.name}...`,
+    });
     const formData = new FormData();
     formData.append("file", file);
     try {
@@ -277,18 +285,50 @@ export default function EditorToolbar({
         body: formData,
       });
       const uploadData = await uploadRes.json();
-      await fetch(agentNativePath("/_agent-native/actions/import-file"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filePath: uploadData.path || uploadData.url,
-          deckId,
-        }),
+      if (!uploadRes.ok) {
+        throw new Error(uploadData?.error || "Upload failed");
+      }
+      const uploaded = Array.isArray(uploadData) ? uploadData[0] : uploadData;
+      const filePath = uploaded?.path || uploaded?.url;
+      if (!filePath) throw new Error("Upload did not return a file path");
+
+      const importRes = await fetch(
+        agentNativePath("/_agent-native/actions/import-file"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filePath,
+            deckId,
+            format: "auto",
+            importIntoDeck: true,
+          }),
+        },
+      );
+      const importData = await importRes.json();
+      if (!importRes.ok || importData?.error) {
+        throw new Error(importData?.error || "Import failed");
+      }
+      toast({
+        title: "Import complete",
+        description: `${importData.slideCount ?? "File"} slide${
+          importData.slideCount === 1 ? "" : "s"
+        } imported from ${file.name}.`,
       });
     } catch (err) {
       console.error("Import failed:", err);
+      toast({
+        title: "Import failed",
+        description:
+          err instanceof Error
+            ? err.message
+            : "Something went wrong importing this file.",
+        variant: "destructive",
+      });
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
-    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   return (
@@ -844,7 +884,7 @@ graph TD
       {/* Present button — matches Share trigger height (h-9) */}
       <Link
         to={`/deck/${deckId}/present`}
-        className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-md bg-[#609FF8] hover:bg-[#7AB2FA] text-black text-sm font-medium transition-colors flex-shrink-0"
+        className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
       >
         <IconPlayerPlay className="w-3.5 h-3.5" />
         <span className="hidden sm:inline">Present</span>
@@ -877,9 +917,16 @@ graph TD
           <TooltipContent>More</TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
-            <IconUpload className="w-4 h-4 mr-2" />
-            Import file
+          <DropdownMenuItem
+            disabled={importing}
+            onSelect={() => fileInputRef.current?.click()}
+          >
+            {importing ? (
+              <IconLoader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <IconUpload className="w-4 h-4 mr-2" />
+            )}
+            {importing ? "Importing..." : "Import file"}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={onShowHistory}>
             <IconHistory className="w-4 h-4 mr-2" />

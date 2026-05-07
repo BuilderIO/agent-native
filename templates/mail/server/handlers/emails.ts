@@ -739,8 +739,34 @@ export const toggleStar = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
     isStarred?: boolean;
+    accountEmail?: string;
   };
-  const { isStarred } = body;
+  const { isStarred, accountEmail } = body;
+
+  if (await isConnected(email)) {
+    const acct = await resolveAccountEmail(accountEmail, email);
+    const accessToken = await getAccessToken(acct);
+    if (!accessToken) {
+      setResponseStatus(event, 401);
+      return { error: "No valid access token for account" };
+    }
+    try {
+      const id = getRouterParam(event, "id") as string;
+      const updated = (await gmailModifyMessage(
+        accessToken,
+        id,
+        isStarred ? ["STARRED"] : undefined,
+        isStarred ? undefined : ["STARRED"],
+      )) as { threadId?: string };
+      if (updated.threadId) invalidateThreadCache(email, updated.threadId);
+      return { id, threadId: updated.threadId, isStarred };
+    } catch (error: any) {
+      console.error("[toggleStar] Gmail error:", error.message);
+      setResponseStatus(event, 500);
+      return { error: error.message };
+    }
+  }
+
   const emails = await readEmails(email);
   const idx = emails.findIndex((e) => e.id === getRouterParam(event, "id"));
   if (idx === -1) {

@@ -77,7 +77,17 @@ interface RecentUsageMetric {
   costCents: number;
 }
 
+interface UsageBillingMode {
+  unit: "usd" | "builder-credits";
+  label: string;
+  shortLabel: string;
+  source: "estimated-provider-cost" | "builder-agent-credits";
+  hardCostMarginMultiplier?: number;
+  creditsPerUsd?: number;
+}
+
 interface DispatchUsageMetrics {
+  billing?: UsageBillingMode;
   sinceDays: number;
   access: {
     viewerEmail: string;
@@ -110,7 +120,37 @@ interface DispatchUsageMetrics {
 
 const RANGES = [7, 30, 90] as const;
 
-function formatCost(cents: number): string {
+const USD_BILLING: UsageBillingMode = {
+  unit: "usd",
+  label: "Estimated spend",
+  shortLabel: "Cost",
+  source: "estimated-provider-cost",
+};
+
+function displayAmountFromCostCents(
+  cents: number,
+  billing: UsageBillingMode,
+): number {
+  if (billing.unit !== "builder-credits") return cents;
+  const margin = billing.hardCostMarginMultiplier ?? 1.25;
+  const creditsPerUsd = billing.creditsPerUsd ?? 20;
+  const credits = (cents / 100) * margin * creditsPerUsd;
+  return credits <= 0 ? 0 : Math.ceil(credits * 1000) / 1000;
+}
+
+function formatCredits(credits: number): string {
+  if (!Number.isFinite(credits) || credits === 0) return "0 credits";
+  const maximumFractionDigits = credits < 1 ? 3 : credits < 10 ? 2 : 1;
+  const value = credits.toLocaleString(undefined, {
+    maximumFractionDigits,
+  });
+  return `${value} ${credits === 1 ? "credit" : "credits"}`;
+}
+
+function formatSpend(cents: number, billing: UsageBillingMode): string {
+  if (billing.unit === "builder-credits") {
+    return formatCredits(displayAmountFromCostCents(cents, billing));
+  }
   if (!Number.isFinite(cents) || cents === 0) return "$0.00";
   if (Math.abs(cents) < 1) return `${cents.toFixed(3)}¢`;
   if (Math.abs(cents) < 100) return `${cents.toFixed(2)}¢`;
@@ -150,8 +190,15 @@ function displayApp(value: string | null | undefined): string {
   return trimmed;
 }
 
-function maxCost(rows: Array<{ costCents: number }>): number {
-  return rows.reduce((max, row) => Math.max(max, row.costCents), 0);
+function maxSpend(
+  rows: Array<{ costCents: number }>,
+  billing: UsageBillingMode,
+): number {
+  return rows.reduce(
+    (max, row) =>
+      Math.max(max, displayAmountFromCostCents(row.costCents, billing)),
+    0,
+  );
 }
 
 function barWidth(value: number, max: number): string {
@@ -257,8 +304,14 @@ function LoadingMetrics() {
   );
 }
 
-function AppSpendRows({ rows }: { rows: UsageMetricBucket[] }) {
-  const max = maxCost(rows);
+function AppSpendRows({
+  rows,
+  billing,
+}: {
+  rows: UsageMetricBucket[];
+  billing: UsageBillingMode;
+}) {
+  const max = maxSpend(rows, billing);
   if (rows.length === 0) {
     return (
       <div className="rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground">
@@ -282,7 +335,7 @@ function AppSpendRows({ rows }: { rows: UsageMetricBucket[] }) {
             </div>
             <div className="shrink-0 text-right">
               <div className="font-medium tabular-nums text-foreground">
-                {formatCost(row.costCents)}
+                {formatSpend(row.costCents, billing)}
               </div>
               <div className="text-xs text-muted-foreground">
                 {formatNumber(row.calls)} calls
@@ -292,7 +345,12 @@ function AppSpendRows({ rows }: { rows: UsageMetricBucket[] }) {
           <div className="h-2 overflow-hidden rounded-full bg-muted">
             <div
               className="h-full rounded-full bg-foreground"
-              style={{ width: barWidth(row.costCents, max) }}
+              style={{
+                width: barWidth(
+                  displayAmountFromCostCents(row.costCents, billing),
+                  max,
+                ),
+              }}
             />
           </div>
         </div>
@@ -335,7 +393,13 @@ function DailyActivity({ rows }: { rows: DailyUsageMetric[] }) {
   );
 }
 
-function AppAccessTable({ rows }: { rows: AppAccessMetric[] }) {
+function AppAccessTable({
+  rows,
+  billing,
+}: {
+  rows: AppAccessMetric[];
+  billing: UsageBillingMode;
+}) {
   const visibleRows = rows.filter((row) => !row.isDispatch);
   if (visibleRows.length === 0) {
     return (
@@ -353,7 +417,9 @@ function AppAccessTable({ rows }: { rows: AppAccessMetric[] }) {
             <th className="px-2 py-2 font-medium">Access</th>
             <th className="px-2 py-2 text-right font-medium">Users</th>
             <th className="px-2 py-2 text-right font-medium">Chats</th>
-            <th className="px-2 py-2 text-right font-medium">Cost</th>
+            <th className="px-2 py-2 text-right font-medium">
+              {billing.shortLabel}
+            </th>
             <th className="px-2 py-2 text-right font-medium">Last activity</th>
           </tr>
         </thead>
@@ -385,7 +451,7 @@ function AppAccessTable({ rows }: { rows: AppAccessMetric[] }) {
                 {formatNumber(row.chatCalls)}
               </td>
               <td className="px-2 py-3 text-right tabular-nums">
-                {formatCost(row.costCents)}
+                {formatSpend(row.costCents, billing)}
               </td>
               <td className="px-2 py-3 text-right text-muted-foreground">
                 {timeAgo(row.lastActiveAt)}
@@ -398,7 +464,13 @@ function AppAccessTable({ rows }: { rows: AppAccessMetric[] }) {
   );
 }
 
-function UserTable({ rows }: { rows: UserUsageMetric[] }) {
+function UserTable({
+  rows,
+  billing,
+}: {
+  rows: UserUsageMetric[];
+  billing: UsageBillingMode;
+}) {
   if (rows.length === 0) {
     return (
       <div className="rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground">
@@ -417,7 +489,9 @@ function UserTable({ rows }: { rows: UserUsageMetric[] }) {
             <th className="px-2 py-2 text-right font-medium">Chats</th>
             <th className="px-2 py-2 text-right font-medium">Threads</th>
             <th className="px-2 py-2 text-right font-medium">Tokens</th>
-            <th className="px-2 py-2 text-right font-medium">Cost</th>
+            <th className="px-2 py-2 text-right font-medium">
+              {billing.shortLabel}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -447,7 +521,7 @@ function UserTable({ rows }: { rows: UserUsageMetric[] }) {
                 {formatTokens(row.inputTokens + row.outputTokens)}
               </td>
               <td className="px-2 py-3 text-right tabular-nums">
-                {formatCost(row.costCents)}
+                {formatSpend(row.costCents, billing)}
               </td>
             </tr>
           ))}
@@ -460,11 +534,13 @@ function UserTable({ rows }: { rows: UserUsageMetric[] }) {
 function CompactBreakdown({
   rows,
   empty,
+  billing,
 }: {
   rows: UsageMetricBucket[];
   empty: string;
+  billing: UsageBillingMode;
 }) {
-  const max = maxCost(rows);
+  const max = maxSpend(rows, billing);
   if (rows.length === 0) {
     return <div className="text-sm text-muted-foreground">{empty}</div>;
   }
@@ -477,13 +553,18 @@ function CompactBreakdown({
               {row.label}
             </span>
             <span className="shrink-0 tabular-nums text-muted-foreground">
-              {formatCost(row.costCents)}
+              {formatSpend(row.costCents, billing)}
             </span>
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-muted">
             <div
               className="h-full rounded-full bg-muted-foreground"
-              style={{ width: barWidth(row.costCents, max) }}
+              style={{
+                width: barWidth(
+                  displayAmountFromCostCents(row.costCents, billing),
+                  max,
+                ),
+              }}
             />
           </div>
         </div>
@@ -492,7 +573,13 @@ function CompactBreakdown({
   );
 }
 
-function RecentTable({ rows }: { rows: RecentUsageMetric[] }) {
+function RecentTable({
+  rows,
+  billing,
+}: {
+  rows: RecentUsageMetric[];
+  billing: UsageBillingMode;
+}) {
   if (rows.length === 0) {
     return (
       <div className="rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground">
@@ -510,7 +597,9 @@ function RecentTable({ rows }: { rows: RecentUsageMetric[] }) {
             <th className="px-2 py-2 font-medium">App</th>
             <th className="px-2 py-2 font-medium">Label</th>
             <th className="px-2 py-2 font-medium">Model</th>
-            <th className="px-2 py-2 text-right font-medium">Cost</th>
+            <th className="px-2 py-2 text-right font-medium">
+              {billing.shortLabel}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -534,7 +623,7 @@ function RecentTable({ rows }: { rows: RecentUsageMetric[] }) {
                 </div>
               </td>
               <td className="px-2 py-3 text-right tabular-nums">
-                {formatCost(row.costCents)}
+                {formatSpend(row.costCents, billing)}
               </td>
             </tr>
           ))}
@@ -552,6 +641,7 @@ export default function MetricsRoute() {
     { refetchInterval: 30_000 },
   );
   const metrics = data as DispatchUsageMetrics | undefined;
+  const billing = metrics?.billing ?? USD_BILLING;
   const totalTokens = useMemo(() => {
     if (!metrics) return 0;
     return (
@@ -565,7 +655,11 @@ export default function MetricsRoute() {
   return (
     <DispatchShell
       title="Metrics"
-      description="Workspace-wide LLM spend, chat volume, user activity, and app access."
+      description={
+        billing.unit === "builder-credits"
+          ? "Workspace-wide Builder.io credit spend, chat volume, user activity, and app access."
+          : "Workspace-wide LLM spend, chat volume, user activity, and app access."
+      }
     >
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -593,8 +687,8 @@ export default function MetricsRoute() {
           <>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
               <MetricCard
-                label="Estimated spend"
-                value={formatCost(metrics.totals.costCents)}
+                label={billing.label}
+                value={formatSpend(metrics.totals.costCents, billing)}
                 detail={`${formatTokens(totalTokens)} total tokens`}
                 icon={<IconCoin size={17} />}
               />
@@ -625,8 +719,15 @@ export default function MetricsRoute() {
             </div>
 
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
-              <Panel title="Spend By App" icon={<IconChartBar size={16} />}>
-                <AppSpendRows rows={metrics.byApp} />
+              <Panel
+                title={
+                  billing.unit === "builder-credits"
+                    ? "Credit Spend By App"
+                    : "Spend By App"
+                }
+                icon={<IconChartBar size={16} />}
+              >
+                <AppSpendRows rows={metrics.byApp} billing={billing} />
               </Panel>
               <Panel title="Daily Activity" icon={<IconClockHour4 size={16} />}>
                 <DailyActivity rows={metrics.daily} />
@@ -634,11 +735,11 @@ export default function MetricsRoute() {
             </div>
 
             <Panel title="Access By App" icon={<IconApps size={16} />}>
-              <AppAccessTable rows={metrics.appAccess} />
+              <AppAccessTable rows={metrics.appAccess} billing={billing} />
             </Panel>
 
             <Panel title="Users" icon={<IconUsersGroup size={16} />}>
-              <UserTable rows={metrics.byUser} />
+              <UserTable rows={metrics.byUser} billing={billing} />
             </Panel>
 
             <div className="grid gap-4 lg:grid-cols-2">
@@ -646,18 +747,20 @@ export default function MetricsRoute() {
                 <CompactBreakdown
                   rows={metrics.byModel}
                   empty="No model usage in this window."
+                  billing={billing}
                 />
               </Panel>
               <Panel title="Work Types" icon={<IconActivity size={16} />}>
                 <CompactBreakdown
                   rows={metrics.byLabel}
                   empty="No labeled usage in this window."
+                  billing={billing}
                 />
               </Panel>
             </div>
 
             <Panel title="Recent LLM Calls" icon={<IconActivity size={16} />}>
-              <RecentTable rows={metrics.recent} />
+              <RecentTable rows={metrics.recent} billing={billing} />
             </Panel>
           </>
         ) : null}

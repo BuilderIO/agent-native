@@ -538,7 +538,7 @@ async function findFilterTarget(
 
   const matches: Array<{ account: ConnectedAccount; filter: GmailFilter }> = [];
   for (const candidate of accounts) {
-    const res = await gmailListFilters(candidate.accessToken);
+    const res = (await gmailListFilters(candidate.accessToken)) ?? {};
     const found = (res.filter ?? []).find((filter) => filter.id === id);
     if (found) matches.push({ account: candidate, filter: found });
   }
@@ -572,7 +572,7 @@ export default defineAction({
 
       for (const account of selectedAccounts) {
         const labels = await loadLabelMap(account.accessToken);
-        const res = await gmailListFilters(account.accessToken);
+        const res = (await gmailListFilters(account.accessToken)) ?? {};
         accountResults.push({
           accountEmail: account.email,
           filters: (res.filter ?? []).map((filter) =>

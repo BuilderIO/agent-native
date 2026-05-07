@@ -29,6 +29,72 @@ interface EngineModelGroup {
   configured: boolean;
 }
 
+interface ModelSelection {
+  model: string;
+  engine?: string;
+  effort?: ReasoningEffort;
+}
+
+const MODEL_SELECTION_STORAGE_KEY = "agent-native:chat-models:selection";
+
+function readStoredModelSelection(key: string): ModelSelection | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as Partial<ModelSelection>;
+    if (typeof parsed.model !== "string" || !parsed.model.trim()) {
+      return undefined;
+    }
+    const selection: ModelSelection = {
+      model: parsed.model,
+      effort: isReasoningEffort(parsed.effort) ? parsed.effort : "auto",
+    };
+    if (typeof parsed.engine === "string") selection.engine = parsed.engine;
+    return selection;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeStoredModelSelection(key: string, selection: ModelSelection) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(selection));
+  } catch {}
+}
+
+function resolveModelSelection(
+  selection: ModelSelection | undefined,
+  groups: EngineModelGroup[],
+): ModelSelection | undefined {
+  if (!selection?.model) return undefined;
+  const preferredGroup = groups.find(
+    (group) =>
+      group.engine === selection.engine &&
+      group.models.includes(selection.model),
+  );
+  const fallbackGroup = groups.find((group) =>
+    group.models.includes(selection.model),
+  );
+  if (groups.length > 0 && !preferredGroup && !fallbackGroup) {
+    return undefined;
+  }
+  const engine =
+    preferredGroup?.engine ?? fallbackGroup?.engine ?? selection.engine;
+  if (!engine && groups.length > 0) return undefined;
+
+  const requestedEffort = selection.effort ?? "auto";
+  const effortOptions = getReasoningEffortOptionsForModel(selection.model);
+  const effort =
+    requestedEffort === "auto" || effortOptions.includes(requestedEffort)
+      ? requestedEffort
+      : "auto";
+  const resolved: ModelSelection = { model: selection.model, effort };
+  if (engine) resolved.engine = engine;
+  return resolved;
+}
+
 // ─── Skeleton Loader ─────────────────────────────────────────────────────────
 
 function ChatSkeleton({
@@ -336,6 +402,7 @@ export function MultiTabAssistantChat({
 
   // Namespace all localStorage keys by storageKey when provided (for per-app isolation in frame)
   const keyPrefix = storageKey ? `:${storageKey}` : "";
+  const modelSelectionKey = `${MODEL_SELECTION_STORAGE_KEY}${keyPrefix}`;
 
   // Track which tabs have been focused at least once (lazy mount for sub-agent tabs)
   const mountedTabsRef = useRef<Set<string>>(new Set());
@@ -355,43 +422,80 @@ export function MultiTabAssistantChat({
   );
   const [defaultModel, setDefaultModel] = useState(DEFAULT_MODEL);
   const threadModelRef = useRef<
-    Map<string, { model: string; engine: string; effort?: ReasoningEffort }>
+    Map<string, { model: string; engine?: string; effort?: ReasoningEffort }>
   >(new Map());
-  const [selectedModelForActiveThread, setSelectedModelForActiveThread] =
-    useState<string | undefined>(undefined);
-  const [selectedEffortForActiveThread, setSelectedEffortForActiveThread] =
-    useState<ReasoningEffort>("auto");
+  const [persistedModelSelection, setPersistedModelSelection] = useState<
+    ModelSelection | undefined
+  >(() => readStoredModelSelection(modelSelectionKey));
+  const [modelSelectionVersion, setModelSelectionVersion] = useState(0);
 
-  const activeThreadModel = selectedModelForActiveThread ?? defaultModel;
+  useEffect(() => {
+    setPersistedModelSelection(readStoredModelSelection(modelSelectionKey));
+  }, [modelSelectionKey]);
 
-  const handleModelChange = useCallback((model: string, engine: string) => {
-    const threadId = activeThreadIdRef.current;
-    if (!threadId) return;
-    const existing = threadModelRef.current.get(threadId);
-    const existingEffort = existing?.effort ?? "auto";
-    const effortOptions = getReasoningEffortOptionsForModel(model);
-    const effort =
-      existingEffort === "auto" || effortOptions.includes(existingEffort)
-        ? existingEffort
-        : "auto";
-    threadModelRef.current.set(threadId, { model, engine, effort });
-    setSelectedModelForActiveThread(model);
-    setSelectedEffortForActiveThread(effort);
+  const bumpModelSelectionVersion = useCallback(() => {
+    setModelSelectionVersion((version) => version + 1);
   }, []);
+
+  const resolveThreadModelSelection = useCallback(
+    (threadId: string) =>
+      resolveModelSelection(
+        threadModelRef.current.get(threadId) ?? persistedModelSelection,
+        availableModels,
+      ),
+    [availableModels, persistedModelSelection, modelSelectionVersion],
+  );
+
+  const persistModelSelection = useCallback(
+    (selection: ModelSelection) => {
+      setPersistedModelSelection(selection);
+      writeStoredModelSelection(modelSelectionKey, selection);
+    },
+    [modelSelectionKey],
+  );
+
+  const handleModelChange = useCallback(
+    (model: string, engine: string) => {
+      const threadId = activeThreadIdRef.current;
+      if (!threadId) return;
+      const existing = threadModelRef.current.get(threadId);
+      const existingEffort = existing?.effort ?? "auto";
+      const effortOptions = getReasoningEffortOptionsForModel(model);
+      const effort =
+        existingEffort === "auto" || effortOptions.includes(existingEffort)
+          ? existingEffort
+          : "auto";
+      const selection = { model, engine, effort };
+      threadModelRef.current.set(threadId, selection);
+      persistModelSelection(selection);
+      bumpModelSelectionVersion();
+    },
+    [bumpModelSelectionVersion, persistModelSelection],
+  );
 
   const handleEffortChange = useCallback(
     (effort: ReasoningEffort) => {
       const threadId = activeThreadIdRef.current;
       if (!threadId) return;
-      const existing = threadModelRef.current.get(threadId);
-      threadModelRef.current.set(threadId, {
-        model: existing?.model ?? defaultModel,
-        engine: existing?.engine ?? availableModels[0]?.engine ?? "",
-        effort,
-      });
-      setSelectedEffortForActiveThread(effort);
+      const existing = resolveThreadModelSelection(threadId);
+      const model = existing?.model ?? defaultModel;
+      const engine =
+        existing?.engine ??
+        availableModels.find((group) => group.models.includes(model))?.engine ??
+        availableModels[0]?.engine;
+      const selection: ModelSelection = { model, effort };
+      if (engine) selection.engine = engine;
+      threadModelRef.current.set(threadId, selection);
+      persistModelSelection(selection);
+      bumpModelSelectionVersion();
     },
-    [availableModels, defaultModel],
+    [
+      availableModels,
+      bumpModelSelectionVersion,
+      defaultModel,
+      persistModelSelection,
+      resolveThreadModelSelection,
+    ],
   );
 
   const refreshEngines = useCallback(() => {
@@ -668,16 +772,9 @@ export function MultiTabAssistantChat({
     }
   }, [isLoading, openTabIds, createThread]);
 
-  // Focus the composer and sync model state when switching tabs
+  // Focus the composer when switching tabs
   useEffect(() => {
     if (!activeThreadId) return;
-    // Sync model picker to this thread's override (or clear to default)
-    setSelectedModelForActiveThread(
-      threadModelRef.current.get(activeThreadId)?.model ?? undefined,
-    );
-    setSelectedEffortForActiveThread(
-      threadModelRef.current.get(activeThreadId)?.effort ?? "auto",
-    );
     // Small delay to ensure the tab is visible before focusing
     const t = setTimeout(() => {
       chatRefs.current.get(activeThreadId)?.focusComposer();
@@ -770,8 +867,7 @@ export function MultiTabAssistantChat({
               engine: matchedGroup.engine,
               effort: selectedEffort,
             });
-            setSelectedModelForActiveThread(model);
-            setSelectedEffortForActiveThread(selectedEffort);
+            bumpModelSelectionVersion();
           }
         }
 
@@ -802,7 +898,7 @@ export function MultiTabAssistantChat({
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [availableModels, createThread, switchThread]);
+  }, [availableModels, bumpModelSelectionVersion, createThread, switchThread]);
 
   // Process pending sends when refs mount
   useEffect(() => {
@@ -1409,49 +1505,52 @@ export function MultiTabAssistantChat({
             (tabId) =>
               tabId === activeThreadId || mountedTabsRef.current.has(tabId),
           )
-          .map((tabId) => (
-            <div
-              key={tabId}
-              className="flex-1 min-h-0"
-              style={{
-                display:
-                  contentHidden || tabId !== activeThreadId ? "none" : "flex",
-              }}
-            >
-              <AssistantChat
-                {...props}
-                ref={(handle) => {
-                  if (handle) {
-                    chatRefs.current.set(tabId, handle);
-                  } else {
-                    chatRefs.current.delete(tabId);
-                  }
+          .map((tabId) => {
+            const modelSelection = resolveThreadModelSelection(tabId);
+            return (
+              <div
+                key={tabId}
+                className="flex-1 min-h-0"
+                style={{
+                  display:
+                    contentHidden || tabId !== activeThreadId ? "none" : "flex",
                 }}
-                threadId={tabId}
-                tabId={tabId}
-                apiUrl={apiUrl}
-                isNewThread={newThreadIds.current.has(tabId)}
-                onMessageCountChange={(count) =>
-                  setMessageCounts((prev) =>
-                    prev[tabId] === count ? prev : { ...prev, [tabId]: count },
-                  )
-                }
-                onSaveThread={handleSaveThread}
-                onGenerateTitle={handleGenerateTitle}
-                onSlashCommand={handleSlashCommand}
-                selectedModel={threadModelRef.current.get(tabId)?.model}
-                selectedEngine={threadModelRef.current.get(tabId)?.engine}
-                selectedEffort={
-                  threadModelRef.current.get(tabId)?.effort ?? "auto"
-                }
-                defaultModel={defaultModel}
-                availableModels={availableModels}
-                onModelChange={handleModelChange}
-                onEffortChange={handleEffortChange}
-                onForkChat={() => handleForkChat(tabId)}
-              />
-            </div>
-          ))}
+              >
+                <AssistantChat
+                  {...props}
+                  ref={(handle) => {
+                    if (handle) {
+                      chatRefs.current.set(tabId, handle);
+                    } else {
+                      chatRefs.current.delete(tabId);
+                    }
+                  }}
+                  threadId={tabId}
+                  tabId={tabId}
+                  apiUrl={apiUrl}
+                  isNewThread={newThreadIds.current.has(tabId)}
+                  onMessageCountChange={(count) =>
+                    setMessageCounts((prev) =>
+                      prev[tabId] === count
+                        ? prev
+                        : { ...prev, [tabId]: count },
+                    )
+                  }
+                  onSaveThread={handleSaveThread}
+                  onGenerateTitle={handleGenerateTitle}
+                  onSlashCommand={handleSlashCommand}
+                  selectedModel={modelSelection?.model}
+                  selectedEngine={modelSelection?.engine}
+                  selectedEffort={modelSelection?.effort ?? "auto"}
+                  defaultModel={defaultModel}
+                  availableModels={availableModels}
+                  onModelChange={handleModelChange}
+                  onEffortChange={handleEffortChange}
+                  onForkChat={() => handleForkChat(tabId)}
+                />
+              </div>
+            );
+          })}
       </div>
     </div>
   );

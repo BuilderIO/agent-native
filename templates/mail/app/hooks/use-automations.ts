@@ -60,7 +60,27 @@ export function useUpdateAutomation() {
         method: "PATCH",
         body: JSON.stringify(data),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["automations"] }),
+    onMutate: async ({ id, ...data }) => {
+      await qc.cancelQueries({ queryKey: ["automations"] });
+      const previous = qc.getQueryData<AutomationRule[]>(["automations"]);
+      if (previous) {
+        qc.setQueryData<AutomationRule[]>(
+          ["automations"],
+          previous.map((rule) =>
+            rule.id === id
+              ? { ...rule, ...data, updatedAt: new Date().toISOString() }
+              : rule,
+          ),
+        );
+      }
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        qc.setQueryData(["automations"], context.previous);
+      }
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["automations"] }),
   });
 }
 

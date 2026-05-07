@@ -12,9 +12,9 @@ import {
   IconAppWindow,
   IconX,
   IconMenu2,
-  IconMessageDots,
 } from "@tabler/icons-react";
 import {
+  AgentNativeIcon,
   AgentSidebar,
   FeedbackButton,
   useSession,
@@ -66,7 +66,7 @@ function ClipsAgentToggleButton() {
           className="ml-1.5 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
           aria-label="Toggle agent panel"
         >
-          <IconMessageDots className="h-4 w-4" />
+          <AgentNativeIcon size={18} />
         </button>
       </TooltipTrigger>
       <TooltipContent>Toggle agent</TooltipContent>

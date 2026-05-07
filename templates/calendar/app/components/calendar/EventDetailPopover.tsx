@@ -252,10 +252,24 @@ function toDateInputValue(iso: string): string {
   return format(d, "yyyy-MM-dd");
 }
 
+function toAllDayEndDateInputValue(iso: string): string {
+  const d = parseISO(iso);
+  return format(new Date(d.getTime() - 1), "yyyy-MM-dd");
+}
+
 /** Convert ISO date string to local time input value (HH:mm) */
 function toTimeInputValue(iso: string): string {
   const d = parseISO(iso);
   return format(d, "HH:mm");
+}
+
+function formatEventDateRange(start: string, end: string, allDay?: boolean) {
+  const startDate = parseISO(start);
+  const endDate = parseISO(end);
+  const displayEndDate = allDay ? new Date(endDate.getTime() - 1) : endDate;
+  const startLabel = format(startDate, "EEE MMM d");
+  const endLabel = format(displayEndDate, "EEE MMM d");
+  return startLabel === endLabel ? startLabel : `${startLabel} - ${endLabel}`;
 }
 
 interface EventDetailPopoverProps {
@@ -299,6 +313,11 @@ export function EventDetailPopover({
   );
   const [editLocation, setEditLocation] = useState(event.location || "");
   const [editDate, setEditDate] = useState(() => toDateInputValue(event.start));
+  const [editEndDate, setEditEndDate] = useState(() =>
+    event.allDay
+      ? toAllDayEndDateInputValue(event.end)
+      : toDateInputValue(event.end),
+  );
   const [editStartTime, setEditStartTime] = useState(() =>
     toTimeInputValue(event.start),
   );
@@ -321,9 +340,21 @@ export function EventDetailPopover({
     setEditDescription(event.description || "");
     setEditLocation(event.location || "");
     setEditDate(toDateInputValue(event.start));
+    setEditEndDate(
+      event.allDay
+        ? toAllDayEndDateInputValue(event.end)
+        : toDateInputValue(event.end),
+    );
     setEditStartTime(toTimeInputValue(event.start));
     setEditEndTime(toTimeInputValue(event.end));
-  }, [event.id, event.description, event.location, event.start, event.end]);
+  }, [
+    event.id,
+    event.description,
+    event.location,
+    event.start,
+    event.end,
+    event.allDay,
+  ]);
 
   // When defaultOpen changes to true (new event created), open the popover
   useEffect(() => {
@@ -477,14 +508,25 @@ export function EventDetailPopover({
   }, [editLocation, event.location, saveField]);
 
   const handleSaveTime = useCallback(() => {
-    const newStart = new Date(`${editDate}T${editStartTime}:00`).toISOString();
-    const newEnd = new Date(`${editDate}T${editEndTime}:00`).toISOString();
+    const allDayEnd = new Date(`${editEndDate}T00:00:00`);
+    allDayEnd.setDate(allDayEnd.getDate() + 1);
+    const newStart = event.allDay
+      ? new Date(`${editDate}T00:00:00`).toISOString()
+      : new Date(`${editDate}T${editStartTime}:00`).toISOString();
+    const newEnd = event.allDay
+      ? allDayEnd.toISOString()
+      : new Date(`${editEndDate}T${editEndTime}:00`).toISOString();
+    if (new Date(newEnd).getTime() <= new Date(newStart).getTime()) {
+      toast.error("End must be after start");
+      return;
+    }
     if (newStart !== event.start || newEnd !== event.end) {
       saveField({ start: newStart, end: newEnd, allDay: event.allDay });
     }
     setEditingField(null);
   }, [
     editDate,
+    editEndDate,
     editStartTime,
     editEndTime,
     event.start,
@@ -766,12 +808,31 @@ export function EventDetailPopover({
                 <div className="flex items-start gap-3 py-1.5">
                   <IconClock className="mt-2 h-4 w-4 shrink-0 text-muted-foreground" />
                   <div className="flex-1 space-y-2">
-                    <input
-                      type="date"
-                      value={editDate}
-                      onChange={(e) => setEditDate(e.target.value)}
-                      className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
-                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="date"
+                        value={editDate}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setEditDate(next);
+                          setEditEndDate((current) =>
+                            current < next ? next : current,
+                          );
+                        }}
+                        className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
+                        aria-label="Start date"
+                      />
+                      <input
+                        type="date"
+                        min={editDate}
+                        value={editEndDate}
+                        onChange={(e) =>
+                          setEditEndDate(e.target.value || editDate)
+                        }
+                        className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
+                        aria-label="End date"
+                      />
+                    </div>
                     <div className="flex items-center gap-2">
                       <input
                         type="time"
@@ -796,6 +857,11 @@ export function EventDetailPopover({
                         className="h-6 text-xs"
                         onClick={() => {
                           setEditDate(toDateInputValue(event.start));
+                          setEditEndDate(
+                            event.allDay
+                              ? toAllDayEndDateInputValue(event.end)
+                              : toDateInputValue(event.end),
+                          );
                           setEditStartTime(toTimeInputValue(event.start));
                           setEditEndTime(toTimeInputValue(event.end));
                           setEditingField(null);
@@ -827,7 +893,11 @@ export function EventDetailPopover({
                       <div>
                         <span className="text-foreground">All day</span>
                         <span className="text-muted-foreground ml-2 text-xs">
-                          {format(parseISO(event.start), "EEE MMM d")}
+                          {formatEventDateRange(
+                            event.start,
+                            event.end,
+                            event.allDay,
+                          )}
                         </span>
                       </div>
                     ) : (
@@ -847,7 +917,7 @@ export function EventDetailPopover({
                           </span>
                         </div>
                         <div className="text-muted-foreground text-xs mt-0.5">
-                          {format(parseISO(event.start), "EEE MMM d")}
+                          {formatEventDateRange(event.start, event.end)}
                         </div>
                       </>
                     )}

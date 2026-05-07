@@ -47,6 +47,12 @@ type Visibility = "default" | "public" | "private" | "confidential";
 type ReminderOption = "default" | "none" | "0" | "10" | "30" | "60" | "1440";
 type WorkingLocationType = "homeOffice" | "officeLocation" | "customLocation";
 
+function addDaysToDateString(date: string, days: number) {
+  const next = new Date(`${date}T00:00:00`);
+  next.setDate(next.getDate() + days);
+  return format(next, "yyyy-MM-dd");
+}
+
 function uniqueAttendees(attendees: AttendeeRecipient[]) {
   const byEmail = new Map<string, AttendeeRecipient>();
   for (const attendee of attendees) {
@@ -84,6 +90,7 @@ export function CreateEventPopover({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [date, setDate] = useState(defaultDateStr);
+  const [endDate, setEndDate] = useState(defaultDateStr);
   const [startTime, setStartTime] = useState(defaultStart || "09:00");
   const [endTime, setEndTime] = useState(defaultEnd || "10:00");
   const [location, setLocation] = useState("");
@@ -111,7 +118,9 @@ export function CreateEventPopover({
     if (open) {
       setTitle("");
       setDescription("");
-      setDate(format(defaultDate || new Date(), "yyyy-MM-dd"));
+      const nextDate = format(defaultDate || new Date(), "yyyy-MM-dd");
+      setDate(nextDate);
+      setEndDate(nextDate);
       setStartTime(defaultStart || "09:00");
       setEndTime(defaultEnd || "10:00");
       setLocation("");
@@ -125,6 +134,11 @@ export function CreateEventPopover({
       setAttendees([]);
     }
   }, [open, defaultDate, defaultStart, defaultEnd]);
+
+  function handleDateChange(nextDate: string) {
+    setDate(nextDate);
+    setEndDate((current) => (current < nextDate ? nextDate : current));
+  }
 
   useEffect(() => {
     if (timedOnlyStatus && allDay) setAllDay(false);
@@ -167,14 +181,19 @@ export function CreateEventPopover({
     }
 
     const effectiveAllDay = allDay && !timedOnlyStatus;
-    const allDayEnd = new Date(`${date}T00:00:00`);
+    const allDayEnd = new Date(`${endDate}T00:00:00`);
     allDayEnd.setDate(allDayEnd.getDate() + 1);
     const startISO = effectiveAllDay
       ? new Date(`${date}T00:00:00`).toISOString()
       : new Date(`${date}T${startTime}:00`).toISOString();
     const endISO = effectiveAllDay
       ? allDayEnd.toISOString()
-      : new Date(`${date}T${endTime}:00`).toISOString();
+      : new Date(`${endDate}T${endTime}:00`).toISOString();
+
+    if (new Date(endISO).getTime() <= new Date(startISO).getTime()) {
+      toast.error("End must be after start");
+      return;
+    }
 
     // Pick up any unsubmitted typed email so users do not lose the final entry.
     const trailingAttendees =
@@ -269,7 +288,7 @@ export function CreateEventPopover({
       <PopoverContent
         align="end"
         sideOffset={8}
-        className="w-[calc(100vw-2rem)] p-4 sm:w-80"
+        className="max-h-[calc(100vh-4rem)] w-[calc(100vw-2rem)] overflow-y-auto p-4 sm:w-80"
         onInteractOutside={(event) => {
           const target = event.target as HTMLElement;
           if (target.closest("[data-attendee-autocomplete]")) {
@@ -355,17 +374,32 @@ export function CreateEventPopover({
             />
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="event-date" className="text-xs">
-              Date
-            </Label>
-            <Input
-              id="event-date"
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="h-8 text-sm"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="event-date" className="text-xs">
+                Start date
+              </Label>
+              <Input
+                id="event-date"
+                type="date"
+                value={date}
+                onChange={(e) => handleDateChange(e.target.value)}
+                className="h-8 text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="event-end-date" className="text-xs">
+                End date
+              </Label>
+              <Input
+                id="event-end-date"
+                type="date"
+                min={date}
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value || date)}
+                className="h-8 text-sm"
+              />
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
@@ -402,7 +436,13 @@ export function CreateEventPopover({
                   id="end-time"
                   type="time"
                   value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setEndTime(next);
+                    if (endDate === date && next <= startTime) {
+                      setEndDate(addDaysToDateString(date, 1));
+                    }
+                  }}
                   className="h-8 text-sm"
                 />
               </div>

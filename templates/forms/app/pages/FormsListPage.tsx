@@ -286,10 +286,12 @@ export function FormsListPage() {
                 }
               }}
             >
-              <div className="flex items-start justify-between mb-3">
+              <div className="flex items-start justify-between gap-2 mb-3 min-w-0">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 min-w-0">
-                    <h3 className="font-medium truncate">{form.title}</h3>
+                    <h3 className="font-medium truncate flex-1 min-w-0">
+                      {form.title}
+                    </h3>
                     <VisibilityBadge
                       visibility={(form as any).visibility}
                       className="shrink-0"
@@ -394,7 +396,7 @@ export function FormsListPage() {
                 </DropdownMenu>
               </div>
 
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <Badge
                   variant="outline"
                   className={cn(
@@ -404,11 +406,11 @@ export function FormsListPage() {
                 >
                   {form.status}
                 </Badge>
-                <div className="flex items-center gap-2 sm:gap-3 text-xs text-muted-foreground">
-                  <span className="whitespace-nowrap">
+                <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span className="block min-w-0 max-w-full truncate">
                     {form.responseCount ?? 0} responses
                   </span>
-                  <span className="whitespace-nowrap">
+                  <span className="block min-w-0 max-w-full truncate">
                     {isArchive && (form as any).deletedAt
                       ? `Deleted ${format(new Date((form as any).deletedAt), "MMM d")}`
                       : format(new Date(form.createdAt), "MMM d")}

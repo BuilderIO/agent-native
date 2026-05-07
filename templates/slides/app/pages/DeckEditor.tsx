@@ -407,10 +407,17 @@ export default function DeckEditor() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [deck, id, activeSlideId, deleteSlideWithUndo]);
 
-  // Resolve initial slide from URL param once deck is available.
-  // Always sets activeSlideId so collab docId is never null when a slide is showing.
+  // Resolve the active slide from URL/deck state. Imports replace slide IDs, so
+  // keep this valid after deck contents change instead of only on first load.
   useEffect(() => {
-    if (!deck || activeSlideId) return;
+    if (!deck) return;
+    if (deck.slides.length === 0) {
+      if (activeSlideId) setActiveSlideId(null);
+      return;
+    }
+    if (activeSlideId && deck.slides.some((s) => s.id === activeSlideId)) {
+      return;
+    }
     const slideParam = searchParams.get("slide");
     if (slideParam) {
       const idx = parseInt(slideParam, 10) - 1;
@@ -419,10 +426,7 @@ export default function DeckEditor() {
         return;
       }
     }
-    // No valid slide param — default to first slide
-    if (deck.slides.length > 0) {
-      setActiveSlideId(deck.slides[0].id);
-    }
+    setActiveSlideId(deck.slides[0].id);
   }, [deck, activeSlideId, searchParams]);
 
   // Sync active slide index to URL

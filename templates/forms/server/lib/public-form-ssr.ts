@@ -237,12 +237,13 @@ ${form.description ? `<meta name="description" content="${escapeHtml(form.descri
 </head>
 <body>
 <div class="page">
-  <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
-    <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-    <svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-  </button>
-
   <div class="container">
+    <div class="form-toolbar">
+      <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+        <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
     <div class="header">
       <h1>${escapeHtml(form.title)}</h1>
       ${form.description ? `<p class="desc">${escapeHtml(form.description)}</p>` : ""}
@@ -526,6 +527,7 @@ body{background:hsl(var(--bg));color:hsl(var(--fg));min-height:100vh;-webkit-fon
 
 .page{min-height:100vh;padding:48px 16px 80px;position:relative}
 .container{max-width:640px;margin:0 auto}
+.form-toolbar{display:flex;justify-content:flex-end;margin-bottom:12px}
 
 .header{margin-bottom:32px}
 .header h1{font-size:1.5rem;font-weight:600;line-height:1.3;letter-spacing:-0.01em}
@@ -571,7 +573,6 @@ select.fi option{background:hsl(var(--card));color:hsl(var(--fg))}
 .submit-btn:disabled{opacity:0.6;cursor:not-allowed}
 
 .theme-toggle{
-  position:absolute;top:16px;right:16px;
   background:none;border:1px solid hsl(var(--border));border-radius:var(--radius);
   width:36px;height:36px;display:flex;align-items:center;justify-content:center;
   cursor:pointer;color:hsl(var(--muted-fg));

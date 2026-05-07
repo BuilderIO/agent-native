@@ -48,7 +48,6 @@ import {
 } from "./components/ui/dropdown-menu.js";
 import {
   IconMessageCircle,
-  IconMessageDots,
   IconTerminal2,
   IconSettings,
   IconLayoutSidebarRightCollapse,
@@ -64,6 +63,7 @@ import {
   IconArrowsMaximize,
   IconArrowsMinimize,
 } from "@tabler/icons-react";
+import { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
 import { FeedbackButton } from "./FeedbackButton.js";
 import {
   MultiTabAssistantChat,
@@ -1911,7 +1911,7 @@ export function AgentToggleButton({ className }: { className?: string }) {
               className,
             )}
           >
-            <IconMessageDots size={16} />
+            <AgentNativeIcon size={18} />
           </button>
         </TooltipTrigger>
         <TooltipContent>Toggle agent</TooltipContent>

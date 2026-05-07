@@ -14,7 +14,6 @@ import { useActionMutation } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
-import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { cn } from "@/lib/utils";
 
 const EXAMPLES = [
@@ -74,7 +73,6 @@ export default function Examples() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const createMutation = useActionMutation("create-design");
-  const { generating } = useAgentGenerating();
 
   useSetPageTitle("Examples");
 
@@ -174,7 +172,6 @@ export default function Examples() {
                     variant="outline"
                     size="sm"
                     onClick={() => handleUsePrompt(example)}
-                    disabled={generating}
                     className="w-full cursor-pointer"
                   >
                     Use this prompt

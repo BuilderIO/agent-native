@@ -3,10 +3,25 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
-import { getUsageSummary } from "@agent-native/core/usage";
+import {
+  getUsageSummary,
+  usageBillingForEngine,
+  type UsageBillingMode,
+} from "@agent-native/core/usage";
+import {
+  detectEngineFromEnv,
+  detectEngineFromUserSecrets,
+  getAgentEngineEntry,
+  isAgentEngineSettingConfigured,
+  isStoredEngineUsable,
+  registerBuiltinEngines,
+} from "@agent-native/core/agent/engine";
+import { getSetting } from "@agent-native/core/settings";
 import { dispatchActions } from "@agent-native/dispatch/actions";
 
 const DAY_MS = 86_400_000;
+
+registerBuiltinEngines();
 
 interface UsageMetricBucket {
   key: string;
@@ -90,6 +105,7 @@ interface ChatStats {
 }
 
 export interface DispatchUsageMetrics {
+  billing: UsageBillingMode;
   sinceMs: number;
   sinceDays: number;
   generatedAt: number;
@@ -165,6 +181,30 @@ function isEnvAdmin(email: string): boolean {
     ...envEmails("WORKSPACE_OWNER_EMAIL"),
     ...envEmails("DISPATCH_DEFAULT_OWNER_EMAIL"),
   ].includes(normalized);
+}
+
+async function detectUsageEngineName(): Promise<string | null> {
+  try {
+    const stored = (await getSetting("agent-engine")) as {
+      engine?: string;
+    } | null;
+    if (isAgentEngineSettingConfigured(stored)) {
+      return (stored as { engine: string }).engine;
+    }
+    if (stored && typeof stored.engine === "string") {
+      const entry = getAgentEngineEntry(stored.engine);
+      if (entry && isStoredEngineUsable(stored, entry)) {
+        return stored.engine;
+      }
+    }
+
+    const detectedFromUser = await detectEngineFromUserSecrets();
+    if (detectedFromUser) return detectedFromUser.name;
+
+    return detectEngineFromEnv()?.name ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function queryRows<T extends Record<string, unknown>>(
@@ -327,6 +367,7 @@ export async function listDispatchUsageMetricsScoped(input: {
   const { viewerEmail, orgId, role } = await assertCanViewMetrics();
   const sinceDays = Math.max(1, Math.min(365, input.sinceDays ?? 30));
   const sinceMs = Date.now() - sinceDays * DAY_MS;
+  const billing = usageBillingForEngine(await detectUsageEngineName());
 
   await getUsageSummary({ ownerEmail: viewerEmail, sinceMs });
 
@@ -539,6 +580,7 @@ export async function listDispatchUsageMetricsScoped(input: {
   );
 
   return {
+    billing,
     sinceMs,
     sinceDays,
     generatedAt: Date.now(),

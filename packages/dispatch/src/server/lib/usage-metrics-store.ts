@@ -1,5 +1,18 @@
-import { getUsageSummary } from "@agent-native/core/usage";
+import {
+  getUsageSummary,
+  usageBillingForEngine,
+  type UsageBillingMode,
+} from "@agent-native/core/usage";
 import { getDbExec } from "@agent-native/core/db";
+import {
+  detectEngineFromEnv,
+  detectEngineFromUserSecrets,
+  getAgentEngineEntry,
+  isAgentEngineSettingConfigured,
+  isStoredEngineUsable,
+  registerBuiltinEngines,
+} from "@agent-native/core/agent/engine";
+import { getSetting } from "@agent-native/core/settings";
 import { currentOrgId, currentOwnerEmail } from "./dispatch-store.js";
 import {
   listWorkspaceApps,
@@ -7,6 +20,8 @@ import {
 } from "./app-creation-store.js";
 
 const DAY_MS = 86_400_000;
+
+registerBuiltinEngines();
 
 export interface UsageMetricBucket {
   key: string;
@@ -70,6 +85,7 @@ export interface RecentUsageMetric {
 }
 
 export interface DispatchUsageMetrics {
+  billing: UsageBillingMode;
   sinceMs: number;
   sinceDays: number;
   generatedAt: number;
@@ -157,6 +173,30 @@ function isEnvAdmin(email: string): boolean {
     ...envEmails("WORKSPACE_OWNER_EMAIL"),
     ...envEmails("DISPATCH_DEFAULT_OWNER_EMAIL"),
   ].includes(normalized);
+}
+
+async function detectUsageEngineName(): Promise<string | null> {
+  try {
+    const stored = (await getSetting("agent-engine")) as {
+      engine?: string;
+    } | null;
+    if (isAgentEngineSettingConfigured(stored)) {
+      return (stored as { engine: string }).engine;
+    }
+    if (stored && typeof stored.engine === "string") {
+      const entry = getAgentEngineEntry(stored.engine);
+      if (entry && isStoredEngineUsable(stored, entry)) {
+        return stored.engine;
+      }
+    }
+
+    const detectedFromUser = await detectEngineFromUserSecrets();
+    if (detectedFromUser) return detectedFromUser.name;
+
+    return detectEngineFromEnv()?.name ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function queryRows<T extends Record<string, unknown>>(
@@ -353,6 +393,7 @@ export async function listDispatchUsageMetrics(input: {
   const { viewerEmail, orgId, role } = await assertCanViewMetrics();
   const sinceDays = Math.max(1, Math.min(365, input.sinceDays ?? 30));
   const sinceMs = Date.now() - sinceDays * DAY_MS;
+  const billing = usageBillingForEngine(await detectUsageEngineName());
 
   // Initializes token_usage on fresh deployments before the read-only
   // aggregate queries below. The fake owner avoids changing visible data.
@@ -568,6 +609,7 @@ export async function listDispatchUsageMetrics(input: {
   );
 
   return {
+    billing,
     sinceMs,
     sinceDays,
     generatedAt: Date.now(),

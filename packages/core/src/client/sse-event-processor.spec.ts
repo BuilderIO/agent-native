@@ -131,6 +131,39 @@ describe("SSE event processor error classification", () => {
     );
   });
 
+  it("routes invalid token stream errors to auth handling", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    await drain(
+      readSSEStream(
+        eventStream([{ type: "error", error: "Invalid token" }]),
+        [],
+        { value: 0 },
+        "tab-invalid-token",
+      ),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:auth-error" }),
+    );
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:run-error" }),
+    );
+  });
+
   it("routes missing provider credentials to the setup gate", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });

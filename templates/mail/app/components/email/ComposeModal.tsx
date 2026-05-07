@@ -195,7 +195,7 @@ export function ComposeModal({
   const { allAccounts } = useAccountFilter();
   const editorRef = useRef<ComposeEditorHandle>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
-  const sendingRef = useRef(false);
+  const sendingIdsRef = useRef<Set<string>>(new Set());
 
   // Reset CC/BCC visibility and quote expansion when switching tabs
   useEffect(() => {
@@ -212,12 +212,13 @@ export function ComposeModal({
 
   const handleSend = async () => {
     if (!activeDraft || !activeId) return;
-    if (sendingRef.current) return;
+    if (sendingIdsRef.current.has(activeId)) return;
     if (!activeDraft.to.trim()) {
       toast.error("Please add at least one recipient");
       return;
     }
-    sendingRef.current = true;
+    sendingIdsRef.current.add(activeId);
+    const sendingId = activeId;
 
     // Snapshot draft data for potential undo
     const draftSnapshot = { ...activeDraft };
@@ -252,7 +253,7 @@ export function ComposeModal({
     const handleUndo = () => {
       if (cancelled) return;
       cancelled = true;
-      sendingRef.current = false;
+      sendingIdsRef.current.delete(sendingId);
       clearTimeout(sendTimer);
       clearTimeout(transitionTimer);
       toast.dismiss(toastId);
@@ -281,7 +282,7 @@ export function ComposeModal({
     // After 5s, actually send the email
     const sendTimer = setTimeout(() => {
       if (cancelled) return;
-      sendingRef.current = false;
+      sendingIdsRef.current.delete(sendingId);
       toast.dismiss(toastId);
       sendEmail.mutate(
         {

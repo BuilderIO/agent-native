@@ -58,6 +58,7 @@ import {
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import type { Alias, AutomationAction, AutomationRule } from "@shared/types";
 import { TeamPage } from "@agent-native/core/client/org";
+import { toast } from "sonner";
 import {
   Tooltip,
   TooltipContent,
@@ -1038,10 +1039,21 @@ function DraftingSection() {
     signature !== savedSignature || writingStyle !== savedWritingStyle;
 
   const handleSave = () => {
-    updateSettings.mutate({
-      signature: signature.trim(),
-      writingStyle: writingStyle.trim(),
-    });
+    updateSettings.mutate(
+      {
+        signature: signature.trim(),
+        writingStyle: writingStyle.trim(),
+      },
+      {
+        onSuccess: () => toast("Drafting settings saved."),
+        onError: (error) =>
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Failed to save drafting settings.",
+          ),
+      },
+    );
   };
 
   return (

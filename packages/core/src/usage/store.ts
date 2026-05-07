@@ -21,6 +21,54 @@ interface ModelPricing {
   cacheWrite: number;
 }
 
+export const BUILDER_AGENT_CREDIT_MARGIN_MULTIPLIER = 1.25;
+export const BUILDER_AGENT_CREDITS_PER_USD = 20;
+
+export type UsageBillingUnit = "usd" | "builder-credits";
+
+export interface UsageBillingMode {
+  unit: UsageBillingUnit;
+  label: string;
+  shortLabel: string;
+  source: "estimated-provider-cost" | "builder-agent-credits";
+  hardCostMarginMultiplier?: number;
+  creditsPerUsd?: number;
+}
+
+export const USD_USAGE_BILLING: UsageBillingMode = {
+  unit: "usd",
+  label: "Estimated spend",
+  shortLabel: "Cost",
+  source: "estimated-provider-cost",
+};
+
+export const BUILDER_CREDIT_USAGE_BILLING: UsageBillingMode = {
+  unit: "builder-credits",
+  label: "Builder.io credit spend",
+  shortLabel: "Credits",
+  source: "builder-agent-credits",
+  hardCostMarginMultiplier: BUILDER_AGENT_CREDIT_MARGIN_MULTIPLIER,
+  creditsPerUsd: BUILDER_AGENT_CREDITS_PER_USD,
+};
+
+export function usageBillingForEngine(
+  engineName: string | null | undefined,
+): UsageBillingMode {
+  return engineName === "builder"
+    ? BUILDER_CREDIT_USAGE_BILLING
+    : USD_USAGE_BILLING;
+}
+
+export function builderCreditsFromCostCents(cents: number): number {
+  if (!Number.isFinite(cents) || cents <= 0) return 0;
+  const dollars = cents / 100;
+  const credits =
+    dollars *
+    BUILDER_AGENT_CREDIT_MARGIN_MULTIPLIER *
+    BUILDER_AGENT_CREDITS_PER_USD;
+  return Math.ceil(credits * 1000) / 1000;
+}
+
 const PRICING: Array<{ match: RegExp; pricing: ModelPricing }> = [
   {
     match: /opus/i,
@@ -264,6 +312,7 @@ export interface UsageRecentEntry {
 }
 
 export interface UsageSummary {
+  billing?: UsageBillingMode;
   totalCents: number;
   totalCalls: number;
   totalInputTokens: number;
@@ -389,6 +438,7 @@ export async function getUsageSummary(
   }));
 
   return {
+    billing: USD_USAGE_BILLING,
     totalCents: Number(t.cents ?? 0) / 100,
     totalCalls: Number(t.calls ?? 0),
     totalInputTokens: Number(t.in_tok ?? 0),

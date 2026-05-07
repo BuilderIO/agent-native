@@ -54,11 +54,20 @@ export function openAgentSidebar() {
   window.dispatchEvent(new Event("agent-panel:open"));
 }
 
+export function focusAgentChat() {
+  window.dispatchEvent(
+    new CustomEvent("agent-panel:set-mode", {
+      detail: { mode: "chat" },
+    }),
+  );
+  openAgentSidebar();
+}
+
 /**
  * Sends a prompt to the agent and opens the sidebar
  */
 export function submitToAgent(message: string) {
-  openAgentSidebar();
+  focusAgentChat();
   sendToAgentChat({ message, submit: true });
 }
 
@@ -251,8 +260,11 @@ export function CommandMenu({
   }, [open, onOpenChange]);
 
   const handleSubmitToAgent = useCallback(() => {
-    if (!search.trim()) return;
     onOpenChange(false);
+    if (!search.trim()) {
+      focusAgentChat();
+      return;
+    }
     submitToAgent(search.trim());
   }, [search, onOpenChange]);
 

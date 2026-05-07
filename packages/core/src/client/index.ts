@@ -90,6 +90,7 @@ export {
   type AgentPanelProps,
   type AgentSidebarProps,
 } from "./AgentPanel.js";
+export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
 export { SettingsPanel, type SettingsPanelProps } from "./settings/index.js";
 // Deprecated — use AgentSidebar + AgentToggleButton instead
 export {

@@ -107,6 +107,7 @@ function PeopleTab({ onClose: _ }: { onClose: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const listRef = useRef<HTMLDivElement>(null);
+  const shouldScrollActiveResultRef = useRef(false);
 
   const { data: rawOverlayPeople } = useOverlayPeople();
   const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
@@ -156,8 +157,15 @@ function PeopleTab({ onClose: _ }: { onClose: () => void }) {
   }, [search]);
 
   useEffect(() => {
-    if (activeIndex < 0 || !listRef.current) return;
-    const items = listRef.current.querySelectorAll("[data-result]");
+    if (
+      activeIndex < 0 ||
+      !listRef.current ||
+      !shouldScrollActiveResultRef.current
+    ) {
+      return;
+    }
+    shouldScrollActiveResultRef.current = false;
+    const items = listRef.current.querySelectorAll("[data-selectable-result]");
     items[activeIndex]?.scrollIntoView({ block: "nearest" });
   }, [activeIndex]);
 
@@ -168,11 +176,13 @@ function PeopleTab({ onClose: _ }: { onClose: () => void }) {
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
+      shouldScrollActiveResultRef.current = true;
       setActiveIndex((i) => (i < selectableResults.length - 1 ? i + 1 : 0));
       return;
     }
     if (e.key === "ArrowUp") {
       e.preventDefault();
+      shouldScrollActiveResultRef.current = true;
       setActiveIndex((i) => (i > 0 ? i - 1 : selectableResults.length - 1));
       return;
     }
@@ -222,10 +232,14 @@ function PeopleTab({ onClose: _ }: { onClose: () => void }) {
               <button
                 key={person.email}
                 data-result
+                data-selectable-result={alreadyAdded ? undefined : ""}
                 disabled={alreadyAdded}
                 onClick={() => handleAdd(person.email, person.name)}
                 onMouseEnter={() => {
-                  if (!alreadyAdded) setActiveIndex(selectableIdx);
+                  if (!alreadyAdded) {
+                    shouldScrollActiveResultRef.current = false;
+                    setActiveIndex(selectableIdx);
+                  }
                 }}
                 className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm disabled:opacity-40 ${
                   isActive ? "bg-accent text-foreground" : "hover:bg-accent/50"

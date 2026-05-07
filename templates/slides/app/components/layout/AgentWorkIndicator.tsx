@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { IconLoader2, IconMessageCircle } from "@tabler/icons-react";
-import { openAgentSidebar } from "@agent-native/core/client";
+import { focusAgentChat } from "@agent-native/core/client";
 
 export function AgentWorkIndicator() {
   const [running, setRunning] = useState(false);
@@ -28,12 +28,12 @@ export function AgentWorkIndicator() {
         <button
           type="button"
           onClick={() => {
-            openAgentSidebar();
             window.dispatchEvent(
               new CustomEvent("agent-panel:set-mode", {
                 detail: { mode: "chat" },
               }),
             );
+            focusAgentChat();
           }}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
         >

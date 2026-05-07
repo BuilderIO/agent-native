@@ -121,6 +121,22 @@ function applyInlineStyleToHtml(
   }
 }
 
+function getBodyInlineStyles(content: string): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const body = doc.body;
+    if (!body) return {};
+    return {
+      backgroundColor: body.style.backgroundColor,
+      fontFamily: body.style.fontFamily,
+      fontSize: body.style.fontSize,
+    };
+  } catch {
+    return {};
+  }
+}
+
 function isDesignData(
   data: DesignData | string | undefined,
 ): data is DesignData {
@@ -158,7 +174,11 @@ export default function DesignEditor() {
   const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
   promptAnchorRef.current = generateBtnRef.current;
-  const { generating, submit: agentSubmit } = useAgentGenerating();
+  const {
+    generating,
+    submit: agentSubmit,
+    reset: resetAgentGenerating,
+  } = useAgentGenerating();
   const [hasPendingGeneration, setHasPendingGeneration] = useState(() => {
     if (typeof window === "undefined" || !id) return false;
     try {
@@ -362,6 +382,14 @@ export default function DesignEditor() {
 
   // Resolve the content to render: prefer collab content, fall back to DB
   const activeContent = collabContent ?? activeFile?.content ?? "";
+  const pageStyles = useMemo(
+    () => getBodyInlineStyles(activeContent),
+    [activeContent],
+  );
+
+  useEffect(() => {
+    if (files.length > 0) resetAgentGenerating();
+  }, [files.length, resetAgentGenerating]);
 
   // Parse design.data for agent-supplied tweaks. The agent writes a JSON blob
   // to designs.data containing { tweaks: TweakDefinition[], ... }; we surface
@@ -1032,6 +1060,7 @@ export default function DesignEditor() {
         {mode === "edit" && (
           <EditPanel
             selectedElement={selectedElement}
+            pageStyles={pageStyles}
             onStyleChange={handleStyleChange}
           />
         )}

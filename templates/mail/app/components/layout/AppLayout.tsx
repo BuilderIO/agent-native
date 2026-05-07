@@ -1004,7 +1004,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   <IconSearch className="h-4 w-4" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Search (/)</TooltipContent>
+              <TooltipContent>Search</TooltipContent>
             </Tooltip>
           )}
 

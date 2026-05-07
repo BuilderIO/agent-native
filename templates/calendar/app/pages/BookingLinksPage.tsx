@@ -649,6 +649,10 @@ export default function BookingLinksPage({
     const slug = slugify(input.slug);
     const duration = input.length;
     if (!title || !slug || !Number.isFinite(duration)) return;
+    if (duration < 5) {
+      toast.error("Duration must be at least 5 minutes.");
+      return;
+    }
     // Pre-generate an optimistic id so we can navigate instantly; the mutation
     // inserts the row into the list cache synchronously via onMutate.
     const optimisticId = `optimistic_${nanoid()}`;

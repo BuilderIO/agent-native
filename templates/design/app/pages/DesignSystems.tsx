@@ -79,6 +79,13 @@ export default function DesignSystems() {
 
   const designSystems = data?.designSystems ?? [];
 
+  const openSetupFromDesignSystem = useCallback(
+    (id: string) => {
+      navigate(`/design-systems/setup?source=${encodeURIComponent(id)}`);
+    },
+    [navigate],
+  );
+
   const handleSetDefault = useCallback(
     (id: string) => {
       // Optimistic update
@@ -195,7 +202,7 @@ export default function DesignSystems() {
                       className="group relative rounded-xl border border-border bg-card overflow-hidden"
                     >
                       <button
-                        onClick={() => navigate("/design-systems/setup")}
+                        onClick={() => openSetupFromDesignSystem(ds.id)}
                         className="block w-full text-left cursor-pointer"
                       >
                         {/* Color preview */}
@@ -224,7 +231,7 @@ export default function DesignSystems() {
                               <IconPalette className="w-8 h-8 text-muted-foreground/40" />
                             )}
                         </div>
-                        <div className="p-4">
+                        <div className="p-4 pb-3">
                           <div className="flex items-center gap-2 mb-1">
                             <h3 className="font-medium text-sm text-foreground/90 truncate flex-1">
                               {ds.title}
@@ -240,13 +247,13 @@ export default function DesignSystems() {
                               {parsed.typography.headingFont}
                             </div>
                           )}
-                          <VisibilityBadge
-                            visibility={ds.visibility}
-                            className="mt-2 text-[11px]"
-                          />
                         </div>
                       </button>
-                      <div className="absolute top-2 left-2 z-10">
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-4">
+                        <VisibilityBadge
+                          visibility={ds.visibility}
+                          className="text-[11px]"
+                        />
                         <ShareButton
                           resourceType="design-system"
                           resourceId={ds.id}

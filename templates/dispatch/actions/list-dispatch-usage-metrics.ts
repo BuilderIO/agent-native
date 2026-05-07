@@ -4,7 +4,7 @@ import { listDispatchUsageMetricsScoped } from "../server/lib/usage-metrics.js";
 
 export default defineAction({
   description:
-    "Get workspace-level LLM usage, estimated cost, users, app access, and recent activity metrics for Dispatch admins.",
+    "Get workspace-level LLM usage, spend or Builder.io credit spend, users, app access, and recent activity metrics for Dispatch admins.",
   schema: z.object({
     sinceDays: z.coerce
       .number()

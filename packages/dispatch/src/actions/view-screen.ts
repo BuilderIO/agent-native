@@ -58,6 +58,7 @@ export default defineAction({
       try {
         const metrics = await listDispatchUsageMetrics({ sinceDays: 30 });
         screen.usageMetrics = {
+          billing: metrics.billing,
           totals: metrics.totals,
           byApp: metrics.byApp.slice(0, 8),
           byUser: metrics.byUser.slice(0, 8),

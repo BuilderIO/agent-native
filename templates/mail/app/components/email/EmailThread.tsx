@@ -656,7 +656,12 @@ export function EmailThread({
 
   const handleStar = useCallback(() => {
     if (!email) return;
-    toggleStar.mutate({ id: email.id, isStarred: !email.isStarred });
+    toggleStar.mutate({
+      id: email.id,
+      isStarred: !email.isStarred,
+      accountEmail: email.accountEmail,
+      threadId: email.threadId || email.id,
+    });
   }, [email, toggleStar]);
 
   const { data: settings } = useSettings();

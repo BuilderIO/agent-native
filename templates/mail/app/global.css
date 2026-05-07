@@ -183,17 +183,40 @@
 /* Date/actions container on email rows — fixed width, no layout shift */
 .email-list-row .hover-actions {
   display: flex;
-  visibility: hidden;
   position: absolute;
-  right: 0;
+  right: 0.5rem;
   top: 0;
   bottom: 0;
   align-items: center;
-  padding-right: 0.75rem;
+  z-index: 2;
+  padding-left: 1rem;
+  opacity: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    to right,
+    hsl(var(--background) / 0),
+    hsl(var(--background)) 35%
+  );
+  transition: opacity 120ms ease;
 }
 .email-list-row.focused .hover-actions,
 .email-list-row:hover .hover-actions {
-  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+}
+.email-list-row.focused .hover-actions {
+  background: linear-gradient(
+    to right,
+    hsl(var(--accent) / 0),
+    hsl(var(--accent)) 35%
+  );
+}
+.email-list-row.selected .hover-actions {
+  background: linear-gradient(
+    to right,
+    hsl(var(--secondary) / 0),
+    hsl(var(--secondary)) 35%
+  );
 }
 .email-list-row.focused .row-time,
 .email-list-row:hover .row-time {

@@ -132,6 +132,7 @@ export function FeedbackButton({
     setSubmitting(false);
     setSubmitted(false);
     setError(null);
+    setSchema(null);
     if (target) {
       loadSchema(target)
         .then((s) => setSchema(s))
@@ -155,7 +156,7 @@ export function FeedbackButton({
   const submit = useCallback(
     async (e?: FormEvent) => {
       e?.preventDefault();
-      if (!target || !schema || submitting) return;
+      if (!target || submitting) return;
       const trimmed = value.trim();
       if (!trimmed) {
         setError("Please write something first");
@@ -164,14 +165,16 @@ export function FeedbackButton({
       setSubmitting(true);
       setError(null);
       try {
+        const resolvedSchema = schema ?? (await loadSchema(target));
+        if (!schema) setSchema(resolvedSchema);
         const submitterEmail = session?.email;
         const res = await fetch(
-          `${target.endpoint}/api/submit/${encodeURIComponent(schema.formId)}`,
+          `${target.endpoint}/api/submit/${encodeURIComponent(resolvedSchema.formId)}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              data: { [schema.fieldId]: trimmed },
+              data: { [resolvedSchema.fieldId]: trimmed },
               _t: openedAtRef.current,
               _hp: honeypot,
               ...(submitterEmail ? { _meta: { submitterEmail } } : {}),

@@ -114,6 +114,7 @@ function PendingCommentInput({
   onCancel: () => void;
 }) {
   const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const createComment = useCreateSlideComment();
 
@@ -124,14 +125,21 @@ function PendingCommentInput({
   const submit = async () => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    await createComment.mutateAsync({
-      deckId,
-      slideId,
-      content: trimmed,
-      quotedText: quotedText || undefined,
-    });
-    setText("");
-    onDone();
+    setError(null);
+    try {
+      await createComment.mutateAsync({
+        deckId,
+        slideId,
+        content: trimmed,
+        quotedText: quotedText || undefined,
+      });
+      setText("");
+      onDone();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not save this comment.",
+      );
+    }
   };
 
   return (
@@ -144,7 +152,10 @@ function PendingCommentInput({
       <textarea
         ref={textareaRef}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          if (error) setError(null);
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
           if (e.key === "Escape") onCancel();
@@ -153,14 +164,19 @@ function PendingCommentInput({
         rows={3}
         className="w-full bg-transparent text-foreground/90 text-[12px] px-3 py-2 outline-none resize-none placeholder:text-muted-foreground"
       />
+      {error && (
+        <div className="px-3 pb-1 text-[11px] text-destructive">{error}</div>
+      )}
       <div className="flex justify-end gap-1.5 px-3 pb-2">
         <button
+          type="button"
           onClick={onCancel}
           className="text-[11px] text-muted-foreground hover:text-foreground/80 px-2 py-1 rounded"
         >
           Cancel
         </button>
         <button
+          type="button"
           onClick={submit}
           disabled={!text.trim() || createComment.isPending}
           className="text-[11px] bg-[#609FF8] text-black font-medium px-2.5 py-1 rounded disabled:opacity-40 hover:bg-[#7AB2FA]"
@@ -185,6 +201,7 @@ function ReplyInput({
   onDone: () => void;
 }) {
   const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const createComment = useCreateSlideComment();
 
@@ -195,14 +212,21 @@ function ReplyInput({
   const submit = async () => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    await createComment.mutateAsync({
-      deckId,
-      slideId,
-      threadId,
-      content: trimmed,
-    });
-    setText("");
-    onDone();
+    setError(null);
+    try {
+      await createComment.mutateAsync({
+        deckId,
+        slideId,
+        threadId,
+        content: trimmed,
+      });
+      setText("");
+      onDone();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not save this reply.",
+      );
+    }
   };
 
   return (
@@ -210,7 +234,10 @@ function ReplyInput({
       <textarea
         ref={textareaRef}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          if (error) setError(null);
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
           if (e.key === "Escape") onDone();
@@ -219,14 +246,19 @@ function ReplyInput({
         rows={2}
         className="w-full bg-transparent text-foreground/90 text-[12px] px-3 py-2 outline-none resize-none placeholder:text-muted-foreground"
       />
+      {error && (
+        <div className="px-3 pb-1 text-[11px] text-destructive">{error}</div>
+      )}
       <div className="flex justify-end gap-1.5 px-3 pb-2">
         <button
+          type="button"
           onClick={onDone}
           className="text-[11px] text-muted-foreground hover:text-foreground/80 px-2 py-1 rounded"
         >
           Cancel
         </button>
         <button
+          type="button"
           onClick={submit}
           disabled={!text.trim() || createComment.isPending}
           className="text-[11px] bg-[#609FF8] text-black font-medium px-2.5 py-1 rounded disabled:opacity-40 hover:bg-[#7AB2FA]"

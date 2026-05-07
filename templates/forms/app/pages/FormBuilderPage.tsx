@@ -365,6 +365,10 @@ export function FormBuilderPage() {
   }
 
   function copyShareLink() {
+    if (form.status !== "published") {
+      toast.info("Publish this form before copying its public link");
+      return;
+    }
     if (isLocal) {
       setShowCloudUpgrade(true);
       return;
@@ -443,6 +447,7 @@ export function FormBuilderPage() {
                 size="icon"
                 className="h-8 w-8"
                 onClick={copyShareLink}
+                disabled={form.status !== "published"}
               >
                 {copied ? (
                   <IconCheck className="h-4 w-4" />
@@ -451,7 +456,13 @@ export function FormBuilderPage() {
                 )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{copied ? "Copied!" : "Share"}</TooltipContent>
+            <TooltipContent>
+              {form.status === "published"
+                ? copied
+                  ? "Copied!"
+                  : "Copy public link"
+                : "Publish to copy public link"}
+            </TooltipContent>
           </Tooltip>
 
           <ShareButton

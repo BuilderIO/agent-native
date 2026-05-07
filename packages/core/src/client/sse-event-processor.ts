@@ -137,6 +137,8 @@ function isAuthFailureText(message: string, errorCode?: string): boolean {
     msg.includes("authentication required") ||
     msg.includes("unauthorized") ||
     msg.includes("not authenticated") ||
+    msg.includes("invalid token") ||
+    msg.includes("invalid or expired token") ||
     msg.includes("session expired")
   );
 }

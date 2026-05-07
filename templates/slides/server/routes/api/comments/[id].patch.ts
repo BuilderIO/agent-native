@@ -56,8 +56,8 @@ export default defineEventHandler(async (event) => {
       if (resolved === true) {
         // Resolve the entire thread, but only within the authorized deck.
         await client.execute({
-          sql: `UPDATE slide_comments SET resolved = 1, updated_at = ${nowExpr} WHERE deck_id = ? AND thread_id = ?`,
-          args: [comment.deck_id, comment.thread_id],
+          sql: `UPDATE slide_comments SET resolved = ?, updated_at = ${nowExpr} WHERE deck_id = ? AND thread_id = ?`,
+          args: [isPostgres() ? true : 1, comment.deck_id, comment.thread_id],
         });
       } else if (content !== undefined) {
         await client.execute({

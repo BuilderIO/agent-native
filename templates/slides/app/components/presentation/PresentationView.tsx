@@ -161,8 +161,29 @@ export default function PresentationView({
   startIndex = 0,
   aspectRatio,
 }: PresentationViewProps) {
-  const [currentIndex, setCurrentIndex] = useState(
-    Math.min(startIndex, slides.length - 1),
+  const safeSlides = useMemo(
+    () =>
+      (Array.isArray(slides) ? slides : [])
+        .filter(Boolean)
+        .map((slide, index) => ({
+          ...slide,
+          id: slide.id || `slide-${index}`,
+          content: typeof slide.content === "string" ? slide.content : "",
+          notes: slide.notes || "",
+          layout: slide.layout || "blank",
+        })),
+    [slides],
+  );
+  const clampIndex = useCallback(
+    (index: number) => {
+      if (safeSlides.length === 0) return 0;
+      const safeIndex = Number.isFinite(index) ? index : 0;
+      return Math.max(0, Math.min(safeIndex, safeSlides.length - 1));
+    },
+    [safeSlides.length],
+  );
+  const [currentIndex, setCurrentIndex] = useState(() =>
+    clampIndex(startIndex),
   );
   const [prevIndex, setPrevIndex] = useState<number | null>(null);
   const [direction, setDirection] = useState<"next" | "prev">("next");
@@ -176,13 +197,24 @@ export default function PresentationView({
 
   const isShared = deckId.startsWith("__shared__/");
 
-  const currentSlide = slides[currentIndex];
+  useEffect(() => {
+    setCurrentIndex((prev) => clampIndex(prev));
+    setPrevIndex((prev) =>
+      prev !== null && prev >= safeSlides.length ? null : prev,
+    );
+  }, [clampIndex, safeSlides.length]);
+
+  useEffect(() => {
+    setCurrentIndex(clampIndex(startIndex));
+  }, [clampIndex, startIndex]);
+
+  const currentSlide = safeSlides[currentIndex];
   const animSteps = currentSlide ? getAnimationSteps(currentSlide) : null;
   const maxSteps = animSteps ? animSteps.length : 0;
 
   const startTransition = useCallback(
     (newIndex: number, dir: "next" | "prev") => {
-      const incoming = slides[newIndex];
+      const incoming = safeSlides[newIndex];
       const t = incoming?.transition;
       // Going backward → fully revealed; forward → start at 0
       const incomingSteps = incoming ? getAnimationSteps(incoming) : null;
@@ -206,7 +238,7 @@ export default function PresentationView({
         setAnimating(false);
       }, 400);
     },
-    [currentIndex, slides],
+    [currentIndex, safeSlides],
   );
 
   const goNext = useCallback(() => {
@@ -216,14 +248,14 @@ export default function PresentationView({
       setCurrentStep((prev) => prev + 1);
       return;
     }
-    if (currentIndex >= slides.length - 1) return;
+    if (currentIndex >= safeSlides.length - 1) return;
     startTransition(currentIndex + 1, "next");
   }, [
     animating,
     maxSteps,
     currentStep,
     currentIndex,
-    slides.length,
+    safeSlides.length,
     startTransition,
   ]);
 
@@ -372,7 +404,19 @@ export default function PresentationView({
     };
   }, [currentSlide, animSteps, currentStep]);
 
-  if (!currentSlide) return null;
+  if (!currentSlide) {
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black text-white">
+        <button
+          type="button"
+          onClick={exit}
+          className="rounded-lg bg-white/10 px-4 py-3 text-sm text-white transition-colors hover:bg-white/20"
+        >
+          No slides to present
+        </button>
+      </div>
+    );
+  }
 
   const enterClass = animating
     ? getEnterClass(currentSlide.transition, direction)
@@ -400,14 +444,14 @@ export default function PresentationView({
       }}
     >
       {/* Exiting slide — rendered only during transition */}
-      {animating && prevIndex !== null && (
+      {animating && prevIndex !== null && safeSlides[prevIndex] && (
         <div
-          key={slides[prevIndex].id + "-exit"}
+          key={safeSlides[prevIndex].id + "-exit"}
           className={`absolute inset-0 z-10 ${exitClass}`}
           style={{ willChange: "transform, opacity" }}
         >
           <SlideRenderer
-            slide={slides[prevIndex]}
+            slide={safeSlides[prevIndex]}
             thumbnail={false}
             aspectRatio={aspectRatio}
           />
@@ -437,7 +481,7 @@ export default function PresentationView({
       >
         <div className="flex items-center justify-between px-4 sm:px-6 py-4 bg-gradient-to-t from-black/80 to-transparent">
           <span className="text-sm text-white/50 font-mono">
-            {currentIndex + 1} / {slides.length}
+            {currentIndex + 1} / {safeSlides.length}
           </span>
 
           <div className="flex items-center gap-2">
@@ -452,7 +496,7 @@ export default function PresentationView({
             <button
               onClick={goNext}
               disabled={
-                currentIndex === slides.length - 1 &&
+                currentIndex === safeSlides.length - 1 &&
                 (maxSteps === 0 || currentStep >= maxSteps)
               }
               className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
@@ -476,7 +520,7 @@ export default function PresentationView({
           <div
             className="h-full bg-[#609FF8]"
             style={{
-              width: `${((currentIndex + 1) / slides.length) * 100}%`,
+              width: `${((currentIndex + 1) / safeSlides.length) * 100}%`,
               transition: "width 0.3s",
             }}
           />

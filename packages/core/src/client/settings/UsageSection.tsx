@@ -31,7 +31,17 @@ interface UsageRecentEntry {
   cents: number;
 }
 
+interface UsageBillingMode {
+  unit: "usd" | "builder-credits";
+  label: string;
+  shortLabel: string;
+  source: "estimated-provider-cost" | "builder-agent-credits";
+  hardCostMarginMultiplier?: number;
+  creditsPerUsd?: number;
+}
+
 interface UsageSummary {
+  billing?: UsageBillingMode;
   totalCents: number;
   totalCalls: number;
   totalInputTokens: number;
@@ -53,7 +63,37 @@ const RANGES = [
   { value: 90, label: "90d" },
 ];
 
-function formatCost(cents: number): string {
+const USD_BILLING: UsageBillingMode = {
+  unit: "usd",
+  label: "Estimated spend",
+  shortLabel: "Cost",
+  source: "estimated-provider-cost",
+};
+
+function displayAmountFromCostCents(
+  cents: number,
+  billing: UsageBillingMode,
+): number {
+  if (billing.unit !== "builder-credits") return cents;
+  const margin = billing.hardCostMarginMultiplier ?? 1.25;
+  const creditsPerUsd = billing.creditsPerUsd ?? 20;
+  const credits = (cents / 100) * margin * creditsPerUsd;
+  return credits <= 0 ? 0 : Math.ceil(credits * 1000) / 1000;
+}
+
+function formatCredits(credits: number): string {
+  if (!Number.isFinite(credits) || credits === 0) return "0 credits";
+  const maximumFractionDigits = credits < 1 ? 3 : credits < 10 ? 2 : 1;
+  const value = credits.toLocaleString(undefined, {
+    maximumFractionDigits,
+  });
+  return `${value} ${credits === 1 ? "credit" : "credits"}`;
+}
+
+function formatSpend(cents: number, billing: UsageBillingMode): string {
+  if (billing.unit === "builder-credits") {
+    return formatCredits(displayAmountFromCostCents(cents, billing));
+  }
   // Sub-cent values (e.g. a single LLM call at $0.0045 = 0.45¢) — keep
   // three decimals so tiny calls don't round to 0.00¢. The prior impl
   // multiplied by 100 in this branch, overstating small costs 100×.
@@ -71,16 +111,21 @@ function formatTokens(n: number): string {
 function BucketBars({
   buckets,
   emptyMessage,
+  billing,
 }: {
   buckets: UsageBucket[];
   emptyMessage: string;
+  billing: UsageBillingMode;
 }) {
   if (buckets.length === 0) {
     return (
       <p className="text-[10px] text-muted-foreground py-1.5">{emptyMessage}</p>
     );
   }
-  const max = Math.max(...buckets.map((b) => b.cents), 0.0001);
+  const max = Math.max(
+    ...buckets.map((b) => displayAmountFromCostCents(b.cents, billing)),
+    0.0001,
+  );
   return (
     <div className="space-y-1">
       {buckets.map((b) => (
@@ -93,7 +138,7 @@ function BucketBars({
               {b.key || "(none)"}
             </span>
             <span className="shrink-0 text-muted-foreground tabular-nums">
-              {formatCost(b.cents)}
+              {formatSpend(b.cents, billing)}
               <span className="ml-1 opacity-60">
                 · {formatTokens(b.inputTokens + b.outputTokens)} tok
               </span>
@@ -102,7 +147,9 @@ function BucketBars({
           <div className="h-1 rounded-full bg-accent/40 overflow-hidden">
             <div
               className="h-full bg-foreground/70"
-              style={{ width: `${(b.cents / max) * 100}%` }}
+              style={{
+                width: `${(displayAmountFromCostCents(b.cents, billing) / max) * 100}%`,
+              }}
             />
           </div>
         </div>
@@ -111,17 +158,31 @@ function BucketBars({
   );
 }
 
-function DailySparkline({ days }: { days: DailyBucket[] }) {
+function DailySparkline({
+  days,
+  billing,
+}: {
+  days: DailyBucket[];
+  billing: UsageBillingMode;
+}) {
   if (days.length === 0) return null;
-  const max = Math.max(...days.map((d) => d.cents), 0.0001);
+  const max = Math.max(
+    ...days.map((d) => displayAmountFromCostCents(d.cents, billing)),
+    0.0001,
+  );
   return (
     <div className="flex items-end gap-[2px] h-8 pt-2">
       {days.map((d) => (
         <div
           key={d.date}
           className="flex-1 bg-foreground/60 rounded-sm min-h-[1px]"
-          style={{ height: `${Math.max(2, (d.cents / max) * 100)}%` }}
-          title={`${d.date}: ${formatCost(d.cents)} (${d.calls} calls)`}
+          style={{
+            height: `${Math.max(
+              2,
+              (displayAmountFromCostCents(d.cents, billing) / max) * 100,
+            )}%`,
+          }}
+          title={`${d.date}: ${formatSpend(d.cents, billing)} (${d.calls} calls)`}
         />
       ))}
     </div>
@@ -133,6 +194,7 @@ export function UsageSection() {
   const [data, setData] = useState<UsageSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const billing = data?.billing ?? USD_BILLING;
 
   const load = async (rangeDays: number) => {
     setLoading(true);
@@ -198,10 +260,12 @@ export function UsageSection() {
             <div className="flex items-baseline justify-between">
               <div>
                 <div className="text-[10px] text-muted-foreground">
-                  Total spend
+                  {billing.unit === "builder-credits"
+                    ? "Builder.io credit spend"
+                    : "Total spend"}
                 </div>
                 <div className="text-[18px] font-semibold tabular-nums">
-                  {formatCost(data.totalCents)}
+                  {formatSpend(data.totalCents, billing)}
                 </div>
               </div>
               <div className="text-right">
@@ -219,7 +283,7 @@ export function UsageSection() {
                 )}
               </div>
             </div>
-            <DailySparkline days={data.byDay} />
+            <DailySparkline days={data.byDay} billing={billing} />
           </div>
 
           {/* By label */}
@@ -230,6 +294,7 @@ export function UsageSection() {
             <BucketBars
               buckets={data.byLabel}
               emptyMessage="No labeled calls yet."
+              billing={billing}
             />
           </div>
 
@@ -241,6 +306,7 @@ export function UsageSection() {
             <BucketBars
               buckets={data.byModel}
               emptyMessage="No calls recorded."
+              billing={billing}
             />
           </div>
 
@@ -250,7 +316,11 @@ export function UsageSection() {
               <div className="text-[10px] font-medium text-foreground mb-1">
                 By app
               </div>
-              <BucketBars buckets={data.byApp} emptyMessage="" />
+              <BucketBars
+                buckets={data.byApp}
+                emptyMessage=""
+                billing={billing}
+              />
             </div>
           )}
 
@@ -281,7 +351,7 @@ export function UsageSection() {
                       </div>
                     </div>
                     <div className="shrink-0 text-right tabular-nums text-muted-foreground">
-                      {formatCost(r.cents)}
+                      {formatSpend(r.cents, billing)}
                     </div>
                   </div>
                 ))}
@@ -289,11 +359,19 @@ export function UsageSection() {
             </details>
           )}
 
-          <p className="text-[10px] text-muted-foreground">
-            Spend is estimated from published Anthropic pricing and your own
-            recorded token counts. Cached input is priced at ~10% of regular
-            input.
-          </p>
+          {billing.unit === "builder-credits" ? (
+            <p className="text-[10px] text-muted-foreground">
+              Builder.io credits are estimated from hard token cost, a{" "}
+              {billing.hardCostMarginMultiplier ?? 1.25}x margin, and{" "}
+              {billing.creditsPerUsd ?? 20} credits per dollar.
+            </p>
+          ) : (
+            <p className="text-[10px] text-muted-foreground">
+              Spend is estimated from published Anthropic pricing and your own
+              recorded token counts. Cached input is priced at ~10% of regular
+              input.
+            </p>
+          )}
         </>
       )}
     </div>

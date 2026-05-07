@@ -433,13 +433,13 @@ export const EmailListItem = memo(function EmailListItem({
         )}
 
         {/* Selection / unread / account dot */}
-        <div className="relative -ml-2 mr-1 flex h-full w-10 shrink-0 items-center justify-center">
+        <div className="relative mr-2 flex h-full w-5 shrink-0 items-center justify-center">
           <button
             type="button"
             aria-label={isMultiSelected ? "Deselect email" : "Select email"}
             onClick={onToggleMultiSelect}
             className={cn(
-              "absolute inset-y-0 left-0 flex w-10 items-center justify-center rounded text-muted-foreground transition-opacity hover:text-foreground",
+              "absolute inset-y-0 left-1/2 flex w-6 -translate-x-1/2 items-center justify-center rounded text-muted-foreground transition-opacity hover:text-foreground",
               isMultiSelected
                 ? "opacity-100"
                 : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",

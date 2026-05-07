@@ -909,7 +909,11 @@ export default function SlideEditor({
               />
             </div>
           ) : (
-            <div className="h-full flex items-center justify-center p-2 sm:p-4 md:p-8 bg-muted">
+            <div
+              className={`h-full flex items-center justify-center p-2 sm:p-4 md:p-8 bg-muted ${
+                drawMode ? "pb-24 sm:pb-28" : ""
+              }`}
+            >
               <div
                 ref={containerRef}
                 data-main-slide-canvas="true"

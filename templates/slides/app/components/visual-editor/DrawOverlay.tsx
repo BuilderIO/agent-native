@@ -305,7 +305,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
       {/* Bottom toolbar */}
       <div
         data-draw-toolbar
-        className="absolute bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-popover px-3 py-2 shadow-2xl"
+        className="absolute left-1/2 top-full z-40 mt-3 flex max-w-[min(calc(100vw-2rem),44rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-xl border border-border bg-popover px-3 py-2 shadow-2xl"
       >
         {/* Color picker */}
         <div className="flex gap-1">
@@ -414,7 +414,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
             if (e.key === "Escape") onClose();
           }}
           placeholder="Tell the agent what to do…"
-          className="h-7 w-56 border-border bg-background text-xs"
+          className="h-7 w-48 border-border bg-background text-xs sm:w-56"
         />
 
         {/* Send */}
