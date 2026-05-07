@@ -1,5 +1,13 @@
 # @agent-native/dispatch
 
+## 0.2.10
+
+### Patch Changes
+
+- e076977: Tighten Dispatch sidebar footer ordering and scroll behavior.
+- e076977: Make generated workspace apps preserve their mounted base path and keep Dispatch app links on the active workspace gateway origin.
+- e076977: Support stable root OAuth callbacks for path-mounted workspace apps and clarify new-app prompts.
+
 ## 0.2.9
 
 ### Patch Changes

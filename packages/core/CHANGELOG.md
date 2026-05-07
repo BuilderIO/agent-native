@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.12.11
+
+### Patch Changes
+
+- e076977: Hide the share dialog notification checkbox until an email invite is entered.
+- e076977: Match the share popover and trigger surfaces to app sidebar backgrounds.
+- e076977: Surface tool-input progress in agent chat and recover from stale reconnect streams.
+- e076977: Make generated workspace apps preserve their mounted base path and keep Dispatch app links on the active workspace gateway origin.
+- e076977: Support stable root OAuth callbacks for path-mounted workspace apps and clarify new-app prompts.
+
 ## 0.12.10
 
 ### Patch Changes
