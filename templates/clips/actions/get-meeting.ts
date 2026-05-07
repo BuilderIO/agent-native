@@ -7,6 +7,11 @@ import { z } from "zod";
 import { and, eq, isNull } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
+import {
+  calendarEventToMeetingView,
+  fetchLiveCalendarEventFromId,
+  parseCalendarMeetingId,
+} from "../server/lib/calendar-event-meetings.js";
 
 interface Bullet {
   text: string;
@@ -47,6 +52,24 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
+    if (parseCalendarMeetingId(args.id)) {
+      const live = await fetchLiveCalendarEventFromId(args.id);
+      if (!live) return { meeting: null };
+      const meeting = calendarEventToMeetingView(live);
+      if (!meeting) return { meeting: null };
+      return {
+        meeting: {
+          ...meeting,
+          bulletsJson: [],
+          actionItemsJson: [],
+        },
+        participants: meeting.participants ?? [],
+        actionItems: [],
+        recording: null,
+        transcript: null,
+      };
+    }
+
     const access = await resolveAccess("meeting", args.id);
     if (!access) return { meeting: null };
 
