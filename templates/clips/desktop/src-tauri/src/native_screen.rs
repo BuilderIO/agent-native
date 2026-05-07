@@ -260,6 +260,9 @@ fn start_screencapturekit_recording(
         let _ = std::fs::remove_file(&path);
         return Err(format!("capture start failed: {err:?}"));
     }
+    eprintln!(
+        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ 60fps, microphone={include_audio}"
+    );
 
     let (fallback_width, fallback_height) = primary_monitor_size(app);
     Ok(NativeFullscreenSession {
@@ -318,6 +321,7 @@ fn start_screencapture_recording(
             "screencapture exited before recording started ({status}). Check Screen Recording and Microphone permissions for Clips."
         ));
     }
+    eprintln!("[clips-tray] screencapture recording started");
 
     Ok(NativeFullscreenSession {
         backend: NativeFullscreenBackend::Screencapture { child },
