@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.12.12
+
+### Patch Changes
+
+- 4caaa4f: Keep workspace app creation on same-origin gateway routes and stop child dev servers from advertising private ports.
+- 4caaa4f: Give the extensions empty state more breathing room.
+
 ## 0.12.11
 
 ### Patch Changes
