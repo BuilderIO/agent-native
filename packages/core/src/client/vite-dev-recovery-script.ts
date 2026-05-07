@@ -195,7 +195,18 @@ export function getViteDevRecoveryScript(): string {
 }
 
 export function shouldInlineViteDevRecoveryScript(): boolean {
-  return (
-    typeof process !== "undefined" && process.env?.NODE_ENV !== "production"
-  );
+  const viteEnv = (
+    import.meta as ImportMeta & {
+      env?: { DEV?: boolean; PROD?: boolean };
+    }
+  ).env;
+  if (viteEnv?.PROD === true) return false;
+  if (viteEnv?.DEV === true) return true;
+  if (
+    typeof process !== "undefined" &&
+    process.env?.NODE_ENV === "production"
+  ) {
+    return false;
+  }
+  return true;
 }
