@@ -32,7 +32,9 @@ describe("image uploads", () => {
       }),
     );
     const body = fetchMock.mock.calls[0]?.[1]?.body as FormData;
-    expect(body.get("file")).toBe(file);
+    const uploadedFile = body.get("file") as File;
+    expect(uploadedFile.name).toBe("diagram.png");
+    expect(uploadedFile.type).toBe("image/png");
   });
 
   it("points users to Builder.io when file storage is not configured", async () => {
