@@ -14,6 +14,10 @@ import {
   type VideoStorageStatus,
 } from "@/hooks/use-video-storage-status";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  captureVideoThumbnailBlob,
+  uploadRecordingThumbnail,
+} from "@/lib/thumbnail-capture";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
 // and cannot be bundled for the browser).
@@ -112,29 +116,13 @@ function captureThumbnailFromPreview(
   video: HTMLVideoElement | null,
   recordingId: string,
 ): void {
-  if (!video || !video.videoWidth || !video.videoHeight) return;
-  try {
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) return;
-        fetch(`${appBasePath()}/api/recordings/${recordingId}/thumbnail`, {
-          method: "POST",
-          headers: { "Content-Type": blob.type || "image/jpeg" },
-          body: blob,
-        }).catch(() => {});
-      },
-      "image/jpeg",
-      0.85,
-    );
-  } catch {
-    // best effort — the player has a backfill path if this misses.
-  }
+  void captureVideoThumbnailBlob(video)
+    .then((blob) =>
+      blob ? uploadRecordingThumbnail(recordingId, blob) : null,
+    )
+    .catch(() => {
+      // best effort — the player has a backfill path if this misses.
+    });
 }
 
 interface PendingRecording {
