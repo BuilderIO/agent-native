@@ -19,7 +19,7 @@ import {
   FeedbackButton,
   useSession,
 } from "@agent-native/core/client";
-import { RequireActiveOrg } from "@agent-native/core/client/org";
+import { OrgSwitcher, RequireActiveOrg } from "@agent-native/core/client/org";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,7 +42,6 @@ import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import { usePrefetchVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import { FolderTree, type FolderNode } from "./folder-tree";
 import { SearchBar } from "./search-bar";
-import { OrganizationSwitcher } from "./organization-switcher";
 import { PageHeaderSlotProvider } from "./page-header";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { toast } from "sonner";
@@ -196,10 +195,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               )}
             >
               <div className="px-3 py-3">
-                <OrganizationSwitcher />
-              </div>
-
-              <div className="px-3">
                 <Button
                   className="w-full gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
                   size="sm"
@@ -324,8 +319,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                 <ExtensionsSidebarSection />
               </div>
 
-              <div className="border-t border-border px-3 py-2">
+              <div className="space-y-2 border-t border-border px-3 py-2">
                 <FeedbackButton />
+                <OrgSwitcher />
               </div>
             </aside>
 

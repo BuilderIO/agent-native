@@ -14,7 +14,11 @@ import {
 } from "@tabler/icons-react";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import { AgentSidebar, appPath } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  FeedbackButton,
+  appPath,
+} from "@agent-native/core/client";
 import { ThemeToggle } from "./ThemeToggle";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
@@ -77,9 +81,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </span>
             Scheduling
           </Link>
-          <div className="mx-1 mb-3">
-            <OrgSwitcher />
-          </div>
           <nav className="flex flex-1 flex-col gap-0.5">
             {NAV.map((item) => {
               const Icon = item.icon;
@@ -105,11 +106,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <div className="border-t border-border/60 mx-1 pt-1">
             <ExtensionsSidebarSection />
           </div>
+          <div className="mx-1 border-t border-border/60 py-1">
+            <FeedbackButton />
+          </div>
           <div className="mt-auto border-t border-border/60 pt-2">
             <div className="flex items-center justify-between px-1">
               <span className="text-xs text-muted-foreground">Theme</span>
               <ThemeToggle />
             </div>
+          </div>
+          <div className="mx-1 border-t border-border/60 pt-2">
+            <OrgSwitcher />
           </div>
         </aside>
         <AgentSidebar

@@ -21,11 +21,13 @@ import {
 import { useTheme } from "next-themes";
 import {
   AgentNativeIcon,
+  FeedbackButton,
   useActionQuery,
   useActionMutation,
   useSession,
 } from "@agent-native/core/client";
 import { openAgentSidebar } from "@agent-native/core/client";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -510,6 +512,10 @@ function SidebarFooter() {
 
   return (
     <div className="border-t border-border p-2">
+      <div className="mb-2">
+        <FeedbackButton />
+      </div>
+
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -563,6 +569,10 @@ function SidebarFooter() {
           <AgentNativeIcon className="h-3.5 w-3.5" />
           Agent
         </button>
+      </div>
+
+      <div className="mt-2">
+        <OrgSwitcher />
       </div>
     </div>
   );

@@ -243,6 +243,8 @@ type CdpMessage = {
   error?: { message?: string };
 };
 
+const OOPIF_CONTEXT = -1;
+
 class CdpPage {
   private nextId = 1;
   private pending = new Map<
@@ -251,8 +253,13 @@ class CdpPage {
   >();
   private events: CdpMessage[] = [];
   private contextsByFrame = new Map<string, number>();
+  private childPages: CdpPage[] = [];
+  private oopifPage: CdpPage | null = null;
 
-  constructor(private ws: WebSocket) {
+  constructor(
+    private ws: WebSocket,
+    private debugPort?: number,
+  ) {
     ws.addEventListener("message", (event) => {
       const message = JSON.parse(String(event.data)) as CdpMessage;
       if (message.id) {
@@ -323,14 +330,18 @@ class CdpPage {
     contextId?: number,
     timeoutMs = 20_000,
   ): Promise<T> {
-    const result = await this.send("Runtime.evaluate", {
+    if (contextId === OOPIF_CONTEXT && this.oopifPage) {
+      return this.oopifPage.evaluate<T>(expression, undefined, timeoutMs);
+    }
+    const params: JsonObject = {
       expression,
-      contextId,
       awaitPromise: true,
       returnByValue: true,
       userGesture: true,
       timeout: timeoutMs,
-    });
+    };
+    if (typeof contextId === "number") params.contextId = contextId;
+    const result = await this.send("Runtime.evaluate", params);
     if (result.exceptionDetails) {
       const details = result.exceptionDetails as {
         text?: string;
@@ -404,9 +415,68 @@ class CdpPage {
           };
         }
       }
+      const iframeTarget = await this.findIframeTarget(extensionId);
+      if (iframeTarget?.webSocketDebuggerUrl) {
+        this.oopifPage = await CdpPage.connect(
+          iframeTarget.webSocketDebuggerUrl,
+        );
+        this.childPages.push(this.oopifPage);
+        await this.oopifPage.send("Runtime.enable");
+        await this.oopifPage.send("Network.enable");
+        return {
+          frameId: iframeTarget.id,
+          contextId: OOPIF_CONTEXT,
+          url: iframeTarget.url,
+        };
+      }
       await delay(150);
     }
     throw new Error(`Timed out waiting for ${extensionId} iframe context`);
+  }
+
+  private async findIframeTarget(extensionId: string): Promise<
+    | {
+        id: string;
+        type: string;
+        url: string;
+        webSocketDebuggerUrl?: string;
+      }
+    | undefined
+  > {
+    if (!this.debugPort) return undefined;
+    const targets = (await fetch(
+      `http://127.0.0.1:${this.debugPort}/json/list`,
+    ).then((res) => res.json())) as Array<{
+      id: string;
+      type: string;
+      url: string;
+      webSocketDebuggerUrl?: string;
+    }>;
+    return targets.find(
+      (target) =>
+        target.type === "iframe" &&
+        target.url.includes(`/_agent-native/extensions/${extensionId}/render`),
+    );
+  }
+
+  static async connect(wsUrl: string) {
+    const ws = new WebSocket(wsUrl);
+    await new Promise<void>((resolve, reject) => {
+      ws.addEventListener("open", () => resolve(), { once: true });
+      ws.addEventListener(
+        "error",
+        () => reject(new Error("Failed to connect to Chrome CDP")),
+        { once: true },
+      );
+    });
+    return new CdpPage(ws);
+  }
+
+  close() {
+    for (const child of this.childPages) child.close();
+    try {
+      this.ws.close();
+    } catch {}
   }
 }
 
@@ -447,7 +517,7 @@ async function launchPage() {
     );
   });
 
-  const page = new CdpPage(ws);
+  const page = new CdpPage(ws, port);
   await page.send("Page.enable");
   await page.send("Runtime.enable");
   await page.send("Network.enable");
@@ -455,9 +525,7 @@ async function launchPage() {
   return {
     page,
     async close() {
-      try {
-        ws.close();
-      } catch {}
+      page.close();
       chrome.kill();
       await waitForExit(chrome);
       await fs.rm(userDataDir, { recursive: true, force: true });
