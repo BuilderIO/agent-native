@@ -2,6 +2,7 @@ export type ImageLibrarySummary = {
   id: string;
   title: string;
   description?: string | null;
+  customInstructions?: string | null;
   referenceCount?: number | null;
   generatedCount?: number | null;
   coverAsset?: { thumbnailUrl?: string | null } | null;

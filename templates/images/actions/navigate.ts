@@ -4,10 +4,10 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "Navigate the Images UI. Views: libraries, library, image, audit, settings. Use libraryId or assetId where appropriate.",
+    "Navigate the Images UI. Views: create, libraries, library, image, audit, settings. Use libraryId or assetId where appropriate.",
   schema: z.object({
     view: z
-      .enum(["libraries", "library", "image", "audit", "settings"])
+      .enum(["create", "libraries", "library", "image", "audit", "settings"])
       .optional(),
     libraryId: z.string().optional(),
     assetId: z.string().optional(),

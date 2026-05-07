@@ -24,16 +24,22 @@ export function CreateLibraryDialog({
   const createLibrary = useActionMutation("create-library");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [customInstructions, setCustomInstructions] = useState("");
 
   function submit() {
     if (!title.trim()) return;
     createLibrary.mutate(
-      { title: title.trim(), description: description.trim() || undefined },
+      {
+        title: title.trim(),
+        description: description.trim() || undefined,
+        customInstructions: customInstructions.trim() || undefined,
+      },
       {
         onSuccess: (library: any) => {
           onOpenChange(false);
           setTitle("");
           setDescription("");
+          setCustomInstructions("");
           onCreated?.(library);
         },
       },
@@ -63,6 +69,16 @@ export function CreateLibraryDialog({
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               placeholder="Dark editorial illustrations, product UI fragments, restrained palette."
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="library-instructions">Custom instructions</Label>
+            <Textarea
+              id="library-instructions"
+              value={customInstructions}
+              onChange={(event) => setCustomInstructions(event.target.value)}
+              placeholder="Always keep product UI legible, avoid literal text unless requested, prefer quiet editorial compositions."
+              className="min-h-24"
             />
           </div>
         </div>
