@@ -1,5 +1,18 @@
 # @agent-native/core
 
+## 0.12.6
+
+### Patch Changes
+
+- 471bf1e: Treat invalid chat session tokens as auth failures and make empty command-menu AI prompts open chat.
+- 471bf1e: Show Builder.io LLM usage as agent credit spend when Builder is the active provider.
+- 471bf1e: Harden agent chat auth and gateway recovery paths.
+- 471bf1e: Keep programmatic new-tab chat sends on the requested thread id so UI callers can track run state.
+- 471bf1e: Allow the feedback popover's first submit click to load the form schema before sending.
+- 471bf1e: Persist the agent chat model selection across page refreshes.
+- 471bf1e: Allow notification bells to show clearer empty-state copy.
+- 471bf1e: Add optional share notification controls and direct resource links for sharing emails.
+
 ## 0.12.5
 
 ### Patch Changes
