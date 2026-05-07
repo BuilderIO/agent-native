@@ -21,11 +21,10 @@ import {
   IconShieldCheck,
   type IconProps,
 } from "@tabler/icons-react";
-import { AppKeysPopover } from "@/components/app-keys-popover";
 import { CreateAppPopover } from "@/components/create-app-popover";
 import { DispatchShell } from "@/components/dispatch-shell";
+import { WorkspaceAppCard } from "@/components/workspace-app-card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -34,6 +33,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { submitOverviewPrompt } from "@/lib/overview-chat";
+import type { WorkspaceAppSummary } from "@/lib/workspace-apps";
 
 interface IntegrationStatus {
   platform: string;
@@ -66,28 +66,6 @@ const ZERO_TASK_QUEUE_STATS: TaskQueueStats = {
   oldest_pending_age_seconds: 0,
   recent_failures: [],
 };
-
-interface WorkspaceAppSummary {
-  id: string;
-  name: string;
-  description?: string;
-  path: string;
-  url?: string | null;
-  isDispatch: boolean;
-  status?: "ready" | "pending";
-  statusLabel?: string;
-  builderUrl?: string | null;
-  branchName?: string | null;
-}
-
-function workspaceAppHref(app: WorkspaceAppSummary): string | null {
-  if (app.status === "pending") return app.builderUrl || null;
-  return app.path || app.url || null;
-}
-
-function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
-  return app.status === "pending" && !!app.builderUrl;
-}
 
 const HOME_CHAT_SUGGESTIONS = [
   "Create a lightweight customer onboarding app",
@@ -186,66 +164,9 @@ function WorkspaceAppsSection({
           ? Array.from({ length: 6 }).map((_, index) => (
               <AppCardSkeleton key={index} />
             ))
-          : visibleApps.map((app) => {
-              const href = workspaceAppHref(app);
-              // Pending Builder branches live on a different host (Builder
-              // editor URL); open those in a new tab. Ready workspace apps
-              // navigate the current window so this works inside the
-              // Builder webview, where new tabs would try to open in the
-              // host browser and break the embedded session.
-              const openInNewTab = isPendingBuilderHref(app);
-              return (
-                <a
-                  key={app.id}
-                  href={href ?? undefined}
-                  target={openInNewTab ? "_blank" : undefined}
-                  rel={openInNewTab ? "noreferrer" : undefined}
-                  aria-disabled={!href}
-                  className="group min-h-32 rounded-lg border bg-card p-4 transition hover:border-foreground/30 aria-disabled:pointer-events-none aria-disabled:opacity-60"
-                >
-                  <div className="flex h-full items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <h3 className="truncate text-sm font-semibold text-foreground">
-                          {app.name}
-                        </h3>
-                        {app.status === "pending" ? (
-                          <Badge
-                            variant="outline"
-                            className="shrink-0 gap-1 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                          >
-                            <IconClockHour4 size={12} />
-                            Building
-                          </Badge>
-                        ) : null}
-                      </div>
-                      <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                        {app.path}
-                      </p>
-                      {app.status === "pending" && app.branchName ? (
-                        <p className="mt-1 truncate text-xs text-muted-foreground">
-                          Branch: {app.branchName}
-                        </p>
-                      ) : null}
-                      {app.description ? (
-                        <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                          {app.description}
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      {app.status === "ready" ? (
-                        <AppKeysPopover appId={app.id} appName={app.name} />
-                      ) : null}
-                      <IconArrowUpRight
-                        size={16}
-                        className="text-muted-foreground transition group-hover:text-foreground"
-                      />
-                    </div>
-                  </div>
-                </a>
-              );
-            })}
+          : visibleApps.map((app) => (
+              <WorkspaceAppCard key={app.id} app={app} className="min-h-32" />
+            ))}
 
         {!showSkeletons ? <CreateAppPopover /> : null}
       </div>

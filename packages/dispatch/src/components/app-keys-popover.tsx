@@ -54,9 +54,9 @@ export function AppKeysPopover({
             type="button"
             aria-label={`Manage keys for ${appName}`}
             onClick={(event) => {
-              // Card itself is an <a>; stop the link from navigating when the
-              // user clicks the cog inside it.
-              event.preventDefault();
+              // Keep parent card click handlers from also firing. Do not
+              // preventDefault here: Radix uses the same click to open the
+              // popover trigger.
               event.stopPropagation();
             }}
             className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-transparent text-muted-foreground/70 hover:border-border hover:bg-accent/40 hover:text-foreground"

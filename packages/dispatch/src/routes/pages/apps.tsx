@@ -1,37 +1,10 @@
 import { useActionQuery } from "@agent-native/core/client";
-import {
-  IconArrowUpRight,
-  IconApps,
-  IconClockHour4,
-  IconPlus,
-} from "@tabler/icons-react";
-import { AppKeysPopover } from "@/components/app-keys-popover";
+import { IconApps, IconPlus } from "@tabler/icons-react";
 import { CreateAppPopover } from "@/components/create-app-popover";
 import { DispatchShell } from "@/components/dispatch-shell";
-import { Badge } from "@/components/ui/badge";
+import { WorkspaceAppCard } from "@/components/workspace-app-card";
 import { Button } from "@/components/ui/button";
-
-interface WorkspaceAppSummary {
-  id: string;
-  name: string;
-  description?: string;
-  path: string;
-  url?: string | null;
-  isDispatch: boolean;
-  status?: "ready" | "pending";
-  statusLabel?: string;
-  builderUrl?: string | null;
-  branchName?: string | null;
-}
-
-function workspaceAppHref(app: WorkspaceAppSummary): string | null {
-  if (app.status === "pending") return app.builderUrl || null;
-  return app.path || app.url || null;
-}
-
-function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
-  return app.status === "pending" && !!app.builderUrl;
-}
+import type { WorkspaceAppSummary } from "@/lib/workspace-apps";
 
 export function meta() {
   return [{ title: "Apps — Dispatch" }];
@@ -94,65 +67,9 @@ export default function AppsRoute() {
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {typedApps.map((app) => {
-              const href = workspaceAppHref(app);
-              // Pending Builder branches live on a different host; open
-              // those in a new tab. Ready workspace apps stay in-window
-              // so the cards work inside the Builder webview, where new
-              // tabs would escape to the host browser.
-              const openInNewTab = isPendingBuilderHref(app);
-              return (
-                <a
-                  key={app.id}
-                  href={href ?? undefined}
-                  target={openInNewTab ? "_blank" : undefined}
-                  rel={openInNewTab ? "noreferrer" : undefined}
-                  aria-disabled={!href}
-                  className="group rounded-lg border bg-card p-4 transition hover:border-foreground/30 aria-disabled:pointer-events-none aria-disabled:opacity-60"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <h3 className="truncate text-sm font-semibold text-foreground">
-                          {app.name}
-                        </h3>
-                        {app.status === "pending" ? (
-                          <Badge
-                            variant="outline"
-                            className="shrink-0 gap-1 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                          >
-                            <IconClockHour4 size={12} />
-                            Building
-                          </Badge>
-                        ) : null}
-                      </div>
-                      <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                        {app.path}
-                      </p>
-                      {app.status === "pending" && app.branchName ? (
-                        <p className="mt-1 truncate text-xs text-muted-foreground">
-                          Branch: {app.branchName}
-                        </p>
-                      ) : null}
-                      {app.description ? (
-                        <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                          {app.description}
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      {app.status === "ready" ? (
-                        <AppKeysPopover appId={app.id} appName={app.name} />
-                      ) : null}
-                      <IconArrowUpRight
-                        size={16}
-                        className="text-muted-foreground transition group-hover:text-foreground"
-                      />
-                    </div>
-                  </div>
-                </a>
-              );
-            })}
+            {typedApps.map((app) => (
+              <WorkspaceAppCard key={app.id} app={app} />
+            ))}
 
             <CreateAppPopover />
           </div>

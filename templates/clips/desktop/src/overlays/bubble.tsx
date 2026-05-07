@@ -8,7 +8,7 @@ type BubbleSize = "small" | "medium";
 /**
  * Draggable, circular camera bubble — a PURE RENDERER.
  *
- * # Why we don't call getUserMedia here
+ * # Why we usually don't call getUserMedia here
  *
  * Tauri v2's macOS backend runs every webview window inside a single
  * WebKit process. WebKit enforces a documented single-page
@@ -21,9 +21,10 @@ type BubbleSize = "small" | "medium";
  * destroy-and-respawn dances — none held up reliably because the
  * underlying behavior is intentional in WebKit.
  *
- * The robust fix is architectural: the POPOVER owns the camera (it
- * also owns the display-capture session, so "same page" applies), and
- * streams video to this overlay. Two transport paths are supported:
+ * The robust fix for browser/window capture is architectural: the POPOVER
+ * owns the camera (it also owns the display-capture session, so "same page"
+ * applies), and streams video to this overlay. Two transport paths are
+ * supported:
  *
  *   1. **WebRTC loopback (preferred)** — the popover runs an
  *      `RTCPeerConnection`, adds the camera video track, creates an
@@ -45,6 +46,11 @@ type BubbleSize = "small" | "medium";
  * stops trying and the popover starts the canvas pump instead, at
  * which point the canvas path takes over seamlessly.
  *
+ * Full-screen capture is the exception. It uses native macOS capture instead
+ * of WebKit `getDisplayMedia`, so the bubble can own a local camera stream
+ * directly. That avoids the hidden-popover relay during recording and keeps
+ * the face bubble live at native camera quality.
+ *
  * # Hover controls (Loom-style)
  *
  * On pointerenter, a small horizontal pill fades in under the bubble
@@ -65,6 +71,8 @@ export function Bubble() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const firstFrameAtRef = useRef<number | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const localCameraIdRef = useRef<string | null>(null);
   const recordingModeRef = useRef(false);
   // Which transport delivered the most recent usable frame. Starts as
   // "none" — we flip to "webrtc" on ontrack, or "canvas" on the first
@@ -185,6 +193,122 @@ export function Bubble() {
     };
   }, []);
 
+  // ---- local camera receiver (native full-screen capture path) ------------
+  useEffect(() => {
+    let stopped = false;
+    let startUnlisten: (() => void) | null = null;
+    let stopUnlisten: (() => void) | null = null;
+
+    const stopLocalCamera = () => {
+      const stream = localStreamRef.current;
+      localStreamRef.current = null;
+      localCameraIdRef.current = null;
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+
+      const videoEl = videoRef.current;
+      if (videoEl && (!stream || videoEl.srcObject === stream)) {
+        try {
+          videoEl.pause();
+        } catch {
+          // ignore
+        }
+        videoEl.srcObject = null;
+      }
+    };
+
+    listen<{ cameraId?: string | null }>(
+      "clips:bubble-start-local-camera",
+      async (event) => {
+        if (stopped) return;
+        const cameraId = event.payload?.cameraId?.trim() || null;
+        if (localStreamRef.current && localCameraIdRef.current === cameraId) {
+          return;
+        }
+
+        stopLocalCamera();
+
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: cameraId ? { deviceId: { exact: cameraId } } : true,
+            audio: false,
+          });
+          if (stopped) {
+            stream.getTracks().forEach((track) => track.stop());
+            return;
+          }
+
+          const videoEl = videoRef.current;
+          if (!videoEl) {
+            stream.getTracks().forEach((track) => track.stop());
+            return;
+          }
+
+          localStreamRef.current = stream;
+          localCameraIdRef.current = cameraId;
+          videoEl.srcObject = stream;
+          await videoEl.play().catch((err) => {
+            console.warn("[bubble] local camera video.play() rejected", err);
+          });
+          if (firstFrameAtRef.current == null) {
+            firstFrameAtRef.current = Date.now();
+            console.log("[bubble] local camera started");
+          }
+          setActivePath("webrtc");
+        } catch (err) {
+          console.warn("[bubble] local camera failed", err);
+          stopLocalCamera();
+        }
+      },
+    )
+      .then((u) => {
+        if (stopped) {
+          try {
+            u();
+          } catch {
+            // ignore
+          }
+        } else {
+          startUnlisten = u;
+        }
+      })
+      .catch(() => {});
+
+    listen("clips:bubble-stop-local-camera", () => {
+      if (stopped) return;
+      stopLocalCamera();
+      setActivePath("none");
+    })
+      .then((u) => {
+        if (stopped) {
+          try {
+            u();
+          } catch {
+            // ignore
+          }
+        } else {
+          stopUnlisten = u;
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      stopped = true;
+      try {
+        startUnlisten?.();
+      } catch {
+        // ignore
+      }
+      try {
+        stopUnlisten?.();
+      } catch {
+        // ignore
+      }
+      stopLocalCamera();
+    };
+  }, []);
+
   // ---- WebRTC receiver ----------------------------------------------------
   // Sets up a fresh RTCPeerConnection on mount, emits `bubble-ready`
   // so the popover knows to start the handshake, and renegotiates on
@@ -299,6 +423,7 @@ export function Bubble() {
 
       localPc.ontrack = (ev) => {
         if (stopped) return;
+        if (localStreamRef.current) return;
         const videoEl = videoRef.current;
         if (!videoEl) return;
         const incomingStream = ev.streams[0];
@@ -507,6 +632,7 @@ export function Bubble() {
         h: number;
       }>("clips:bubble-frame", async (ev) => {
         if (stopped) return;
+        if (localStreamRef.current) return;
         const { dataUrl, bytes, w, h } = ev.payload;
 
         if (firstFrameAtRef.current == null) {
