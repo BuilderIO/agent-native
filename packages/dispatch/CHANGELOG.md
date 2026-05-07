@@ -1,5 +1,12 @@
 # @agent-native/dispatch
 
+## 0.2.13
+
+### Patch Changes
+
+- b07f933: Fix workspace app card links and key popover triggers.
+- b07f933: Clarify workspace app creation instructions to reuse hosted first-party apps as A2A neighbors instead of cloning or nesting templates.
+
 ## 0.2.12
 
 ### Patch Changes

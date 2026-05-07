@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.12.15
+
+### Patch Changes
+
+- b07f933: Export the Builder agent engine for template media pipelines.
+- b07f933: Clarify workspace app creation instructions to reuse hosted first-party apps as A2A neighbors instead of cloning or nesting templates.
+- b07f933: Make extension removal handle shared extensions and refresh installed widgets cleanly.
+
 ## 0.12.14
 
 ### Patch Changes
