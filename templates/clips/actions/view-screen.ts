@@ -283,6 +283,7 @@ async function fetchMeetingDetail(meetingId: string) {
       and(
         eq(schema.meetings.id, meetingId),
         accessFilter(schema.meetings, schema.meetingShares),
+        isNull(schema.meetings.trashedAt),
       ),
     )
     .limit(1);

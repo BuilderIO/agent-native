@@ -54,7 +54,9 @@ export default defineAction({
     const [row] = await db
       .select()
       .from(schema.meetings)
-      .where(and(eq(schema.meetings.id, args.id), isNull(schema.meetings.trashedAt)))
+      .where(
+        and(eq(schema.meetings.id, args.id), isNull(schema.meetings.trashedAt)),
+      )
       .limit(1);
     if (!row) return { meeting: null };
 
