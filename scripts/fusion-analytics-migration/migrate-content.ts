@@ -1506,18 +1506,18 @@ function makeMarketingFunnelAlias(marketing: Record<string, any>) {
 function eastEmeaTeamCte(): string {
   return `team AS (
   SELECT * FROM UNNEST([
-    STRUCT('Erin Buckelew' AS owner_name, 0.0 AS closed_won_quota, 0.0 AS pipeline_target, 2.5 AS coverage_goal, ['erin buckelew'] AS owner_keys),
-    STRUCT('Andrew Bishop' AS owner_name, 325000.0 AS closed_won_quota, 975000.0 AS pipeline_target, 2.5 AS coverage_goal, ['andrew bishop'] AS owner_keys),
-    STRUCT('Julia Shkrabova' AS owner_name, 225000.0 AS closed_won_quota, 675000.0 AS pipeline_target, 2.5 AS coverage_goal, ['julia shkrabova'] AS owner_keys),
-    STRUCT('Nina Abbasi-Beard' AS owner_name, 0.0 AS closed_won_quota, 0.0 AS pipeline_target, 2.5 AS coverage_goal, ['nina@builder.io', 'nina abbasi-beard'] AS owner_keys)
+    STRUCT('Erin Buckelew' AS owner_name, 0.0 AS closed_won_quota, 0.0 AS pipeline_target, 2.5 AS coverage_goal, 'erin buckelew' AS owner_key),
+    STRUCT('Andrew Bishop' AS owner_name, 325000.0 AS closed_won_quota, 975000.0 AS pipeline_target, 2.5 AS coverage_goal, 'andrew bishop' AS owner_key),
+    STRUCT('Julia Shkrabova' AS owner_name, 225000.0 AS closed_won_quota, 675000.0 AS pipeline_target, 2.5 AS coverage_goal, 'julia shkrabova' AS owner_key),
+    STRUCT('Nina Abbasi-Beard' AS owner_name, 0.0 AS closed_won_quota, 0.0 AS pipeline_target, 2.5 AS coverage_goal, 'nina@builder.io' AS owner_key),
+    STRUCT('Nina Abbasi-Beard' AS owner_name, 0.0 AS closed_won_quota, 0.0 AS pipeline_target, 2.5 AS coverage_goal, 'nina abbasi-beard' AS owner_key)
   ])
 )`;
 }
 
 function eastEmeaDashboard(): DashboardMigration {
   const teamCte = eastEmeaTeamCte();
-  const teamJoin =
-    "EXISTS (SELECT 1 FROM UNNEST(t.owner_keys) key WHERE LOWER(COALESCE(d.sales_rep_owner_name, '')) = key)";
+  const teamJoin = "LOWER(COALESCE(d.sales_rep_owner_name, '')) = t.owner_key";
   return dashboard(
     "east-emea",
     "East-EMEA Weekly",
@@ -1540,9 +1540,9 @@ SELECT
   ) AS qtd_attainment,
   COUNTIF(d.is_closed_won AND DATE(d.close_date) BETWEEN DATE('2026-02-01') AND CURRENT_DATE()) AS closed_won_ytd_count,
   COALESCE(SUM(IF(d.is_closed_won AND DATE(d.close_date) BETWEEN DATE('2026-02-01') AND CURRENT_DATE(), SAFE_CAST(d.amount AS FLOAT64), 0)), 0) AS closed_won_ytd_amount,
-  COUNTIF(NOT COALESCE(d.is_deal_closed, FALSE)) AS open_pipeline_count,
-  COALESCE(SUM(IF(NOT COALESCE(d.is_deal_closed, FALSE), SAFE_CAST(d.amount AS FLOAT64), 0)), 0) AS open_pipeline_amount,
-  SAFE_DIVIDE(COALESCE(SUM(IF(NOT COALESCE(d.is_deal_closed, FALSE), SAFE_CAST(d.amount AS FLOAT64), 0)), 0), NULLIF(t.closed_won_quota, 0)) AS pipeline_coverage,
+  COUNTIF(d.deal_id IS NOT NULL AND NOT COALESCE(d.is_deal_closed, FALSE)) AS open_pipeline_count,
+  COALESCE(SUM(IF(d.deal_id IS NOT NULL AND NOT COALESCE(d.is_deal_closed, FALSE), SAFE_CAST(d.amount AS FLOAT64), 0)), 0) AS open_pipeline_amount,
+  SAFE_DIVIDE(COALESCE(SUM(IF(d.deal_id IS NOT NULL AND NOT COALESCE(d.is_deal_closed, FALSE), SAFE_CAST(d.amount AS FLOAT64), 0)), 0), NULLIF(t.closed_won_quota, 0)) AS pipeline_coverage,
   COUNTIF(d.nbm_meeting_booked_date BETWEEN DATE('2026-05-01') AND DATE('2026-07-31')) AS nbm_scheduled,
   COUNTIF(d.nbm_meeting_complete_date BETWEEN DATE('2026-05-01') AND DATE('2026-07-31')) AS nbm_completed
 FROM team t

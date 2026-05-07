@@ -32,7 +32,6 @@ import {
   getHiddenDashboards,
   getDashboardOrder,
   setDashboardOrder,
-  type DashboardMeta,
   type DashboardSubview,
 } from "@/pages/adhoc/registry";
 
