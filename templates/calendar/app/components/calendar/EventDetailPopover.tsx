@@ -1230,7 +1230,9 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                         size="sm"
                         className="h-6 text-xs"
                         onClick={() => {
-                          setEditAttachments(attachmentsToDrafts(event.attachments));
+                          setEditAttachments(
+                            attachmentsToDrafts(event.attachments),
+                          );
                           setEditingField(null);
                         }}
                       >
@@ -1274,7 +1276,9 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                       type="button"
                       className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                       onClick={() => {
-                        setEditAttachments(attachmentsToDrafts(event.attachments));
+                        setEditAttachments(
+                          attachmentsToDrafts(event.attachments),
+                        );
                         setEditingField("attachments");
                       }}
                     >

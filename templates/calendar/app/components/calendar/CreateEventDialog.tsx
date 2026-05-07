@@ -119,8 +119,7 @@ export function CreateEventPopover({
   const [visibility, setVisibility] = useState<Visibility>("default");
   const [timezone, setTimezone] = useState(getLocalTimezone());
   const [colorId, setColorId] = useState<string | undefined>();
-  const [reminderMode, setReminderMode] =
-    useState<ReminderMode>("default");
+  const [reminderMode, setReminderMode] = useState<ReminderMode>("default");
   const [reminders, setReminders] = useState<ReminderDraft[]>(() => [
     createReminderDraft(),
   ]);

@@ -242,38 +242,44 @@ function MeetingsHeader({
           </Button>
         </div>
       </PageHeader>
-      <div className="flex flex-col gap-4 mb-6">
-        <p className="text-sm text-muted-foreground">
-          Upcoming and past meetings with live transcripts and AI notes.
-        </p>
-        {showDesktopCta && (
-          <NavLink
-            to="/download"
-            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground w-fit"
-          >
-            <IconAppWindow className="h-3.5 w-3.5" />
-            Get the Clips desktop app to record meetings
-          </NavLink>
-        )}
-        <div className="relative max-w-sm">
-          <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="Search by title or attendee…"
-            className="pl-8 pr-8 h-9 text-sm"
-          />
-          {query && (
-            <button
-              type="button"
-              onClick={() => onQueryChange("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
-              aria-label="Clear search"
-            >
-              <IconX className="h-3.5 w-3.5" />
-            </button>
-          )}
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1 space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Upcoming and past meetings with live transcripts and AI notes.
+          </p>
+          <div className="relative max-w-sm">
+            <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => onQueryChange(e.target.value)}
+              placeholder="Search by title or attendee…"
+              className="pl-8 pr-8 h-9 text-sm"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => onQueryChange("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                aria-label="Clear search"
+              >
+                <IconX className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
+        {showDesktopCta && (
+          <Button
+            asChild
+            size="sm"
+            variant="secondary"
+            className="h-8 w-fit shrink-0 gap-1.5 cursor-pointer"
+          >
+            <NavLink to="/download">
+              <IconAppWindow className="h-4 w-4" />
+              Get desktop app
+            </NavLink>
+          </Button>
+        )}
       </div>
     </>
   );

@@ -37,10 +37,9 @@ export function createReminderDraft(
   return { id: makeId("reminder"), method, minutes };
 }
 
-export function remindersToDraftState(event: Pick<
-  CalendarEvent,
-  "reminders" | "remindersUseDefault"
->): {
+export function remindersToDraftState(
+  event: Pick<CalendarEvent, "reminders" | "remindersUseDefault">,
+): {
   mode: ReminderMode;
   reminders: ReminderDraft[];
 } {
@@ -92,7 +91,8 @@ export function createAttachmentDraft(): AttachmentDraft {
 export function attachmentsToDrafts(
   attachments: CalendarEvent["attachments"] | undefined,
 ): AttachmentDraft[] {
-  if (!attachments || attachments.length === 0) return [createAttachmentDraft()];
+  if (!attachments || attachments.length === 0)
+    return [createAttachmentDraft()];
   return attachments.map((attachment) => ({
     id: makeId("attachment"),
     fileUrl: attachment.fileUrl,
@@ -110,9 +110,7 @@ function safeAttachmentTitle(fileUrl: string, title: string): string {
   }
 }
 
-export function validateAttachmentDrafts(
-  drafts: AttachmentDraft[],
-): {
+export function validateAttachmentDrafts(drafts: AttachmentDraft[]): {
   attachments: CalendarEvent["attachments"];
   error?: string;
 } {
@@ -128,7 +126,10 @@ export function validateAttachmentDrafts(
       return { attachments, error: "Attachment needs a valid URL." };
     }
     if (url.protocol !== "http:" && url.protocol !== "https:") {
-      return { attachments, error: "Attachment URL must start with http or https." };
+      return {
+        attachments,
+        error: "Attachment URL must start with http or https.",
+      };
     }
     attachments.push({
       fileUrl: url.toString(),

@@ -720,9 +720,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                       ) : (
                         <IconChevronRight className="h-3 w-3" />
                       )}
-                      <span className="min-w-0 flex-1 text-left">
-                        People
-                      </span>
+                      <span className="min-w-0 flex-1 text-left">People</span>
                       <span className="text-[10px]">
                         {overlayPeople.length}
                       </span>

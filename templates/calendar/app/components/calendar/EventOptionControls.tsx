@@ -41,7 +41,10 @@ export function ReminderControls({
 
   return (
     <div className="space-y-2">
-      <Select value={mode} onValueChange={(value) => onModeChange(value as ReminderMode)}>
+      <Select
+        value={mode}
+        onValueChange={(value) => onModeChange(value as ReminderMode)}
+      >
         <SelectTrigger id={`${idPrefix}-alerts`} className="h-8 text-sm">
           <SelectValue />
         </SelectTrigger>
@@ -179,9 +182,7 @@ export function AttachmentControls({
               className="h-8 w-8 shrink-0 text-muted-foreground"
               onClick={() =>
                 onChange(
-                  activeAttachments.filter(
-                    (item) => item.id !== attachment.id,
-                  ),
+                  activeAttachments.filter((item) => item.id !== attachment.id),
                 )
               }
               aria-label={`Remove attachment ${index + 1}`}
@@ -207,7 +208,9 @@ export function AttachmentControls({
         size="sm"
         className="h-7 px-1.5 text-xs text-muted-foreground"
         disabled={activeAttachments.length >= MAX_EVENT_ATTACHMENTS}
-        onClick={() => onChange([...activeAttachments, createAttachmentDraft()])}
+        onClick={() =>
+          onChange([...activeAttachments, createAttachmentDraft()])
+        }
       >
         <IconPlus className="mr-1 h-3.5 w-3.5" />
         Add attachment
@@ -244,9 +247,7 @@ export function EventColorSwatches({
               "relative flex h-5 w-5 items-center justify-center rounded-full border border-border",
               option.id === "default" && "bg-background",
             )}
-            style={
-              option.color ? { backgroundColor: option.color } : undefined
-            }
+            style={option.color ? { backgroundColor: option.color } : undefined}
             aria-label={`Set event color to ${option.label}`}
           >
             {selected && (
