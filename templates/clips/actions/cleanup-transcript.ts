@@ -28,6 +28,7 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import {
   resolveBuilderAuthHeader,
+  resolveBuilderCredential,
   resolveSecret,
   FeatureNotConfiguredError,
 } from "@agent-native/core/server";
@@ -37,7 +38,7 @@ import {
 // (which isn't re-exported from the package's public surface yet).
 const BUILDER_GATEWAY_BASE_URL =
   process.env.BUILDER_GATEWAY_BASE_URL ||
-  "https://api.builder.io/codegen/gateway/v1";
+  "https://api.builder.io/agent-native/gateway/v1";
 
 // Builder gateway maps this to Gemini 3.1 Flash-Lite (see transcribe-voice.ts:52).
 const BUILDER_MODEL = "gemini-3-1-flash-lite";
@@ -106,11 +107,15 @@ export default defineAction({
     const wantJson = args.task === "summary";
 
     // 1) Builder gateway (preferred — uses Builder.io Connect credentials).
-    const builderAuth = await resolveBuilderAuthHeader();
-    if (builderAuth) {
+    const [builderAuth, builderPublicKey] = await Promise.all([
+      resolveBuilderAuthHeader(),
+      resolveBuilderCredential("BUILDER_PUBLIC_KEY"),
+    ]);
+    if (builderAuth && builderPublicKey) {
       try {
         const text = await callBuilderGateway({
           authHeader: builderAuth,
+          publicKey: builderPublicKey,
           prompt,
           wantJson,
         });
@@ -149,32 +154,39 @@ async function resolveUserGeminiKey(): Promise<string | null> {
 
 async function callBuilderGateway({
   authHeader,
+  publicKey,
   prompt,
   wantJson,
 }: {
   authHeader: string;
+  publicKey: string;
   prompt: { system: string; user: string };
   wantJson: boolean;
 }): Promise<string> {
   const base = BUILDER_GATEWAY_BASE_URL.replace(/\/+$/, "");
-  const url = `${base}/chat/completions`;
+  const url = new URL("messages", `${base}/`);
+  url.searchParams.set("apiKey", publicKey);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
   try {
-    const res = await fetch(url, {
+    const res = await fetch(url.toString(), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: authHeader,
+        "x-builder-api-key": publicKey,
       },
       body: JSON.stringify({
         model: BUILDER_MODEL,
+        system: prompt.system,
         messages: [
-          { role: "system", content: prompt.system },
-          { role: "user", content: prompt.user },
+          {
+            role: "user",
+            content: [{ type: "text", text: prompt.user }],
+          },
         ],
+        max_tokens: wantJson ? 4096 : 1024,
         temperature: 0,
-        ...(wantJson ? { response_format: { type: "json_object" } } : {}),
       }),
       signal: controller.signal,
     });
@@ -185,13 +197,76 @@ async function callBuilderGateway({
       }
       throw new Error(`Builder gateway ${res.status}: ${body.slice(0, 300)}`);
     }
-    const data = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    return data.choices?.[0]?.message?.content?.trim() ?? "";
+    return await readBuilderJsonlText(res);
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function readBuilderJsonlText(res: Response): Promise<string> {
+  const contentType = res.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const data = (await res.json().catch(() => null)) as {
+      content?: Array<{ type?: string; text?: string }>;
+      choices?: Array<{ message?: { content?: string } }>;
+    } | null;
+    return (
+      data?.content
+        ?.filter((part) => part.type === "text" && part.text)
+        .map((part) => part.text)
+        .join("")
+        .trim() ??
+      data?.choices?.[0]?.message?.content?.trim() ??
+      ""
+    );
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let streamedText = "";
+  let finalText = "";
+
+  const processLine = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    let event: any;
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      return;
+    }
+    if (event.type === "text-delta" && typeof event.text === "string") {
+      streamedText += event.text;
+      return;
+    }
+    if (event.type === "assistant-content" && Array.isArray(event.parts)) {
+      finalText = event.parts
+        .filter((part: any) => part?.type === "text")
+        .map((part: any) => part.text ?? "")
+        .join("")
+        .trim();
+      return;
+    }
+    if (event.type === "stop" && event.reason === "error") {
+      throw new Error(
+        event.error ?? event.message ?? "Builder gateway returned an error",
+      );
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() ?? "";
+    for (const line of lines) processLine(line);
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) processLine(buffer);
+  return (finalText || streamedText).trim();
 }
 
 async function callGeminiByok({

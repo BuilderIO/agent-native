@@ -519,14 +519,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               onPause?.();
             }}
             onLoadedData={(e) => {
-              seekInitialVisibleFrame(e.currentTarget);
+              const didSeek = seekInitialVisibleFrame(e.currentTarget);
               setIsPreparing(false);
-              captureThumbnail();
+              if (!didSeek) captureThumbnail();
             }}
             onCanPlay={(e) => {
-              seekInitialVisibleFrame(e.currentTarget);
+              const didSeek = seekInitialVisibleFrame(e.currentTarget);
               setIsPreparing(false);
-              captureThumbnail();
+              if (!didSeek) captureThumbnail();
             }}
             onSeeked={() => {
               setIsPreparing(false);

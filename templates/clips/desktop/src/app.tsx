@@ -987,9 +987,9 @@ export function App() {
     let stopPump: (() => void) | null = null;
     let fellBackToPump = false;
     let recordingPumpActive = false;
-    let wantsRecordingPump = (
-      window as unknown as { clipsForceAlive?: boolean }
-    ).clipsForceAlive === true;
+    let wantsRecordingPump =
+      (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive ===
+      true;
     let stream: MediaStream | null = null;
 
     const startPump = (reason: string, fallback: boolean) => {
@@ -1002,7 +1002,10 @@ export function App() {
 
     const stopRecordingPump = (reason: string) => {
       if (!recordingPumpActive || fellBackToPump) return;
-      console.log("[clips-popover] stopping recording bubble pump — %s", reason);
+      console.log(
+        "[clips-popover] stopping recording bubble pump — %s",
+        reason,
+      );
       try {
         stopPump?.();
       } catch {

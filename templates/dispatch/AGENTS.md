@@ -115,14 +115,16 @@ export const dispatchExtensions = {
 - `approve-vault-request`: approve a request, creating the secret and grant (admin only)
 - `deny-vault-request`: deny a pending request (admin only)
 
-### Workspace Resources (shared skills, instructions, agents)
+### Workspace Resources (shared skills, instructions, agents, knowledge packs)
 
-- `list-workspace-resources`: list all workspace skills, instructions, and agent profiles
-- `create-workspace-resource`: create a new workspace resource (skill, instruction, or agent)
+- `list-workspace-resources`: list all workspace skills, instructions, agent profiles, and knowledge packs
+- `list-workspace-resource-options`: list lightweight workspace resources for picker flows without returning full content
+- `create-workspace-resource`: create a new workspace resource (skill, instruction, agent, or knowledge pack). Put knowledge packs under `context/<slug>.md`.
 - `update-workspace-resource`: update a resource's name, description, content, or scope
 - `delete-workspace-resource`: delete a resource and revoke all grants
 - `list-workspace-resource-grants`: list which apps have access to which resources
 - `create-workspace-resource-grant`: grant an app access to a resource
+- `grant-workspace-resources-to-app`: grant several selected workspace resources or knowledge packs to an app
 - `revoke-workspace-resource-grant`: revoke an app's access to a resource
 - `sync-workspace-resources-to-app`: push applicable resources to an app
 - `sync-workspace-resources-to-all`: push resources to all discovered apps
@@ -159,6 +161,7 @@ export const dispatchExtensions = {
 - If `start-workspace-app-creation` returns `mode: "builder"`, send the Builder branch URL back to the user; Builder is responsible for creating the separate workspace app under `apps/<app-id>` and mounting it at `/<app-id>`. If it returns `mode: "local-agent"`, continue by using the returned prompt to create the app locally under `apps/<app-id>`, mounted at `/<app-id>`, using the workspace shared database. If it returns `mode: "coming-soon"` or `mode: "builder-unavailable"`, ask them to connect/configure Builder or set a Builder project for app creation.
 - Local new app scaffolding should use the CLI from the workspace root: `pnpm exec agent-native create <app-id> --template=<template>`. The workspace dev gateway auto-detects new `apps/<app-id>` directories and starts their dev servers without a restart.
 - When creating workspace skills or agents, use proper YAML frontmatter (name, description fields).
+- Use workspace knowledge packs for reusable product, GTM, positioning, persona, competitive, and customer context. Store them as markdown resources under `context/<slug>.md`, grant them during app creation when relevant, and sync them to apps before asking the target app agent to use them.
 - After creating or updating workspace resources, offer to sync them to apps with `sync-workspace-resources-to-app` or `sync-workspace-resources-to-all`.
 - When CC'd on an email, only reply if your input is clearly requested or you have something actionable to add. Don't insert yourself into every CC'd thread.
 - For email replies, write in proper email format with a greeting and sign-off. Use rich HTML formatting — tables, lists, links, and bold are all supported.

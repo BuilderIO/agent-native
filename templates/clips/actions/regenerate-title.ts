@@ -52,6 +52,67 @@ function cleanGeneratedTitle(raw: string | null | undefined): string | null {
   return title.slice(0, 80);
 }
 
+const TITLE_STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "but",
+  "by",
+  "for",
+  "from",
+  "i",
+  "in",
+  "is",
+  "it",
+  "of",
+  "on",
+  "or",
+  "so",
+  "that",
+  "the",
+  "this",
+  "to",
+  "we",
+  "with",
+  "you",
+]);
+
+function titleCaseWord(word: string): string {
+  const lower = word.toLowerCase();
+  if (TITLE_STOPWORDS.has(lower)) return lower;
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
+
+function fallbackTitleFromTranscript(text: string): string | null {
+  const normalized = text
+    .replace(/\[[^\]]+\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return null;
+  const chunks = normalized
+    .split(/(?<=[.!?])\s+|(?:\s+-\s+)|(?:\s+—\s+)/)
+    .map((chunk) =>
+      chunk
+        .replace(/^(ok|okay|yeah|yep|so|um|uh|alright|all right)[,\s]+/i, "")
+        .trim(),
+    )
+    .filter(Boolean);
+  const words = chunks
+    .slice(0, 3)
+    .join(" ")
+    .split(/\s+/)
+    .map((word) => word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}'-]+$/gu, ""))
+    .filter(Boolean)
+    .slice(0, 9);
+  if (words.length < 2) return null;
+  const title = words.map(titleCaseWord).join(" ");
+  return cleanGeneratedTitle(title);
+}
+
 function buildTitleContext({
   currentTitle,
   agentsContext,
@@ -69,7 +130,7 @@ function buildTitleContext({
 
 export default defineAction({
   description:
-    "Regenerate this recording's title from its transcript using the Gemini 3.1 Flash-Lite cleanup/title path, falling back to the agent chat bridge when unavailable.",
+    "Regenerate this recording's title from its transcript using the configured cleanup/title path, falling back to a local transcript title when unavailable.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     transcriptText: z
@@ -167,9 +228,41 @@ export default defineAction({
       }
     } catch (err) {
       console.warn(
-        `[clips] Gemini title generation failed for ${args.recordingId}; falling back to agent bridge:`,
+        `[clips] AI title generation failed for ${args.recordingId}; falling back to local title:`,
         (err as Error).message,
       );
+    }
+
+    const fallbackTitle = fallbackTitleFromTranscript(transcriptText);
+    if (fallbackTitle) {
+      const [fresh] = await db
+        .select({ title: schema.recordings.title })
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, args.recordingId))
+        .limit(1);
+
+      if (!fresh) throw new Error(`Recording not found: ${args.recordingId}`);
+
+      if (isDefaultTitle(fresh.title) || fresh.title === rec.title) {
+        await db
+          .update(schema.recordings)
+          .set({
+            title: fallbackTitle,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(schema.recordings.id, args.recordingId));
+        await writeAppState("refresh-signal", { ts: Date.now() });
+
+        console.log(
+          `Regenerated title for ${args.recordingId} via local fallback: ${fallbackTitle}`,
+        );
+        return {
+          updated: true,
+          recordingId: args.recordingId,
+          title: fallbackTitle,
+          provider: "local",
+        };
+      }
     }
 
     const request = {

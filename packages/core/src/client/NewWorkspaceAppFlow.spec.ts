@@ -64,6 +64,17 @@ const vaultSecrets = [
   },
 ];
 
+const workspaceResources = [
+  {
+    id: "resource-gtm",
+    kind: "knowledge",
+    name: "Core GTM Messaging",
+    description: "Positioning and proof points",
+    path: "context/core-gtm-messaging.md",
+    scope: "selected",
+  },
+];
+
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -109,6 +120,9 @@ describe("NewWorkspaceAppFlow", () => {
       if (url.includes("list-vault-secret-options")) {
         return jsonResponse(vaultSecrets);
       }
+      if (url.includes("list-workspace-resource-options")) {
+        return jsonResponse(workspaceResources);
+      }
       if (url.includes("start-workspace-app-creation")) {
         return jsonResponse({
           mode: "builder",
@@ -133,7 +147,7 @@ describe("NewWorkspaceAppFlow", () => {
     vi.unstubAllGlobals();
   });
 
-  async function renderAndSelectSecret() {
+  async function renderAndSelectAccess() {
     await act(async () => {
       root.render(
         React.createElement(NewWorkspaceAppFlow, { dispatchBasePath: null }),
@@ -144,6 +158,9 @@ describe("NewWorkspaceAppFlow", () => {
       await vi.waitFor(() =>
         expect(container.textContent).toContain("OPENAI_API_KEY"),
       );
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain("Core GTM Messaging"),
+      );
     });
 
     changeValue(
@@ -153,6 +170,9 @@ describe("NewWorkspaceAppFlow", () => {
 
     act(() => {
       findButton(container, "OPENAI_API_KEY").click();
+    });
+    act(() => {
+      findButton(container, "Core GTM Messaging").click();
     });
 
     await act(async () => {
@@ -170,7 +190,7 @@ describe("NewWorkspaceAppFlow", () => {
 
   it("sends Builder-frame requested key grants in the prompt without marking grants active", async () => {
     frameState.inBuilderFrame = true;
-    await renderAndSelectSecret();
+    await renderAndSelectAccess();
     await submitForm();
 
     expect(sendToAgentChatMock).toHaveBeenCalledTimes(1);
@@ -183,7 +203,16 @@ describe("NewWorkspaceAppFlow", () => {
       "Requested Dispatch vault key grants for this app: OPENAI_API_KEY",
     );
     expect(message).toContain(
+      "Requested Dispatch workspace resources for this app:",
+    );
+    expect(message).toContain(
+      "- Core GTM Messaging (knowledge, context/core-gtm-messaging.md)",
+    );
+    expect(message).toContain(
       "After the app exists, grant the selected Dispatch vault keys",
+    );
+    expect(message).toContain(
+      "After the app exists, grant the selected Dispatch workspace resources",
     );
     expect(message).toContain(
       "Treat these as requested grants, not active grants before creation succeeds.",
@@ -208,7 +237,7 @@ describe("NewWorkspaceAppFlow", () => {
 
   it("sends local chat requested key grants in the prompt without marking grants active", async () => {
     devState.isDevMode = true;
-    await renderAndSelectSecret();
+    await renderAndSelectAccess();
     await submitForm();
 
     expect(sendToAgentChatMock).toHaveBeenCalledTimes(1);
@@ -221,6 +250,9 @@ describe("NewWorkspaceAppFlow", () => {
     expect(payload.message).toContain(
       "Requested Dispatch vault key grants for this app: OPENAI_API_KEY",
     );
+    expect(payload.message).toContain(
+      "- Core GTM Messaging (knowledge, context/core-gtm-messaging.md)",
+    );
     expect(payload.message).toContain("App readiness requirements");
     expect(
       fetchSpy.mock.calls.some(([url]) =>
@@ -230,7 +262,7 @@ describe("NewWorkspaceAppFlow", () => {
   });
 
   it("passes selected key ids to the server action as a pending request", async () => {
-    await renderAndSelectSecret();
+    await renderAndSelectAccess();
     await submitForm();
 
     const startCall = fetchSpy.mock.calls.find(([url]) =>
@@ -239,6 +271,7 @@ describe("NewWorkspaceAppFlow", () => {
     expect(startCall).toBeTruthy();
     const body = JSON.parse((startCall?.[1] as RequestInit).body as string);
     expect(body.secretIds).toEqual(["secret-openai"]);
+    expect(body.resourceIds).toEqual(["resource-gtm"]);
     expect(body).not.toHaveProperty("preparedPrompt");
     expect(
       fetchSpy.mock.calls.some(([url]) =>
