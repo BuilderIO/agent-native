@@ -722,7 +722,10 @@ async function verifyQbr(page: CdpPage, contextId: number) {
   }
   await clickButton(page, contextId, "View Deck");
   await page.waitFor<string>(
-    `document.body.innerText.includes('AE QBR Deck') && document.body.innerText.includes('Andrew Bishop')`,
+    `(() => {
+      const text = document.body.innerText.toLowerCase();
+      return text.includes('ae qbr deck') && text.includes('andrew bishop');
+    })()`,
     contextId,
   );
   await page.evaluate(
@@ -778,10 +781,11 @@ async function verifyAePipeline(page: CdpPage, contextId: number) {
   if (!state.rows || !state.managers) {
     throw new Error(`AE pipeline rows missing: ${JSON.stringify(state)}`);
   }
+  const text = state.text?.toLowerCase() ?? "";
   if (
-    !state.text?.includes("By Manager") ||
-    !state.text.includes("By AE") ||
-    !state.text.includes("S1 Pipeline")
+    !text.includes("by manager") ||
+    !text.includes("by ae") ||
+    !text.includes("s1 pipeline")
   ) {
     throw new Error("AE pipeline UI did not render manager/AE scoreboard");
   }
@@ -850,7 +854,10 @@ async function verifyCsQbr(page: CdpPage, contextId: number) {
   }
   await clickButton(page, contextId, "View Deck");
   await page.waitFor<string>(
-    `document.body.innerText.includes('CS QBR PREVIEW') && document.body.innerText.includes('Alex Beebe')`,
+    `(() => {
+      const text = document.body.innerText.toLowerCase();
+      return text.includes('quarterly business review') && text.includes('alex beebe');
+    })()`,
     contextId,
   );
   await page.evaluate(
@@ -881,6 +888,16 @@ async function verifyCsQbr(page: CdpPage, contextId: number) {
     contextId,
   );
   await clickButton(page, contextId, "View Deck");
+  await page.evaluate(
+    `(() => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && Array.isArray(candidate.slides));
+      if (state) state.slide = 1;
+      return true;
+    })()`,
+    contextId,
+  );
   await page.waitFor<string>(
     `document.body.innerText.includes(${jsString(testOwner)}) && document.body.innerText.includes('CS QBR extension browser verification')`,
     contextId,

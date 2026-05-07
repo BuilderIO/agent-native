@@ -51,7 +51,15 @@ export function createExtensionsHandler() {
     const pathname = (event.url?.pathname || "")
       .replace(/^\/+/, "")
       .replace(/\/+$/, "");
-    const parts = pathname ? pathname.split("/") : [];
+    const parts = pathname
+      ? pathname.split("/").map((part) => {
+          try {
+            return decodeURIComponent(part);
+          } catch {
+            return part;
+          }
+        })
+      : [];
 
     const session = await getSession(event).catch(() => null);
     if (!session?.email) {

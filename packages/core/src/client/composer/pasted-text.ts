@@ -1,9 +1,8 @@
-// Pastes longer than this turn into a `Pasted text` attachment chip instead of
-// being dumped into the editor. Mirrors Claude.ai / Claude Code's UX: anything
-// that would visually drown the prompt becomes a clickable chip the user can
-// remove or preview.
-const PASTED_TEXT_MIN_CHARS = 1000;
-const PASTED_TEXT_MIN_LINES = 6;
+// Page-sized pastes turn into a `Pasted text` attachment chip instead of being
+// dumped into the editor. Short paragraphs and everyday lists should stay
+// inline so the composer still feels like a normal text field.
+const PASTED_TEXT_MIN_CHARS = 3200;
+const PASTED_TEXT_MIN_LINES = 24;
 
 const PASTED_TEXT_FILENAME_PREFIX = "pasted-text-";
 
