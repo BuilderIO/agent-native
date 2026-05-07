@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { FieldRenderer } from "@/components/builder/FieldRenderer";
 import { FieldPropertiesPanel } from "@/components/builder/FieldPropertiesPanel";
+import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
 import { useForm, useUpdateForm } from "@/hooks/use-forms";
 import { useFormResponses } from "@/hooks/use-responses";
 import { useDbStatus } from "@/hooks/use-db-status";
@@ -117,6 +118,10 @@ export function FormBuilderPage() {
   const [agentPrompt, setAgentPrompt] = useState("");
   const agentPromptRef = useRef<HTMLTextAreaElement>(null);
   const { send, codeRequiredDialog } = useSendToAgentChat();
+  const promptRun = useAgentPromptRun({
+    staleMessage:
+      "Form edit is taking longer than expected. You can try again.",
+  });
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">(
     "idle",
   );
@@ -336,10 +341,12 @@ export function FormBuilderPage() {
   }
 
   function submitAgentPrompt() {
-    if (!agentPrompt.trim()) return;
+    const trimmed = agentPrompt.trim();
+    if (!trimmed || promptRun.isActivePrompt(trimmed)) return;
     const context = `Current form:\nTitle: ${form.title}\nDescription: ${form.description || "None"}\nFields: ${JSON.stringify(fields, null, 2)}`;
-    const result = send({ message: agentPrompt.trim(), context, submit: true });
+    const result = send({ message: trimmed, context, submit: true });
     if (result === null) return;
+    promptRun.trackRun(trimmed, result);
     setAgentPopoverOpen(false);
     setAgentPrompt("");
   }
@@ -825,7 +832,9 @@ function BuilderContent({
                     size="icon"
                     className="h-7 w-7"
                     onClick={onSubmitAgent}
-                    disabled={!agentPrompt.trim()}
+                    disabled={
+                      !agentPrompt.trim() || promptRun.isActivePrompt(agentPrompt)
+                    }
                     aria-label="Send prompt"
                   >
                     <IconArrowUp className="h-3.5 w-3.5" />

@@ -96,7 +96,7 @@ Use `--reminders '[{"method":"popup","minutes":10},{"method":"email","minutes":1
 
 Use `--colorId 1..11` for a Google Calendar event color. Use `update-calendar-visual-preferences` for broad app display rules instead of per-event Google color.
 
-Use `--attachments '[{"fileUrl":"https://drive.google.com/...","title":"Agenda"}]'` to attach Drive files or HTTPS file links. Google Calendar supports up to 25 attachments per event.
+Use `--attachments '[{"fileUrl":"https://drive.google.com/...","title":"Agenda"}]'` to attach Drive files, HTTPS file links, or files uploaded through the app's file upload storage. Google Calendar supports up to 25 attachments per event.
 
 The event is created directly on Google Calendar. Google Calendar must be connected first.
 

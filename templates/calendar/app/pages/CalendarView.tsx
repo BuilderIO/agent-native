@@ -95,6 +95,7 @@ export default function CalendarView() {
     sidebarEvent,
     setSidebarEvent,
     focusedEvent,
+    setFocusedEvent,
     hiddenCalendars,
   } = useCalendarContext();
   const { prefs: viewPrefs, update: setViewPrefs } = useViewPreferences();

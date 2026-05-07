@@ -182,7 +182,9 @@ export default function DesignEditor() {
     setHasPendingGeneration(false);
     if (!staleToastShownRef.current) {
       staleToastShownRef.current = true;
-      toast.info("Generation is taking longer than expected. You can try again.");
+      toast.info(
+        "Generation is taking longer than expected. You can try again.",
+      );
     }
   }, [id]);
   const handleGenerationComplete = useCallback(() => {

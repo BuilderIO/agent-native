@@ -1,7 +1,6 @@
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 
-export const PENDING_GENERATION_STALE_MS = 2 * 60 * 1000;
-export const PENDING_GENERATION_TTL_MS = 10 * 60 * 1000;
+export const PENDING_GENERATION_STALE_MS = 120_000;
 
 export interface PendingGeneration {
   prompt?: string;
@@ -19,13 +18,20 @@ export function pendingGenerationKey(id: string): string {
 
 export function writePendingGeneration(
   id: string,
-  pending: Omit<PendingGeneration, "createdAt">,
+  pending: PendingGeneration,
 ): void {
   if (typeof window === "undefined") return;
-  window.sessionStorage.setItem(
-    pendingGenerationKey(id),
-    JSON.stringify({ ...pending, createdAt: Date.now() }),
-  );
+  try {
+    window.sessionStorage.setItem(
+      pendingGenerationKey(id),
+      JSON.stringify({
+        ...pending,
+        createdAt: pending.createdAt ?? Date.now(),
+      }),
+    );
+  } catch {
+    // Storage may be unavailable; generation can still continue via chat.
+  }
 }
 
 export function patchPendingGeneration(
@@ -34,16 +40,16 @@ export function patchPendingGeneration(
 ): void {
   if (typeof window === "undefined" || !id) return;
   const current = readPendingGeneration(id, { allowUntimestamped: true });
-  if (!current) return;
-  window.sessionStorage.setItem(
-    pendingGenerationKey(id),
-    JSON.stringify({ ...current, ...patch }),
-  );
+  writePendingGeneration(id, { ...(current ?? {}), ...patch });
 }
 
 export function clearPendingGeneration(id: string | undefined): void {
   if (typeof window === "undefined" || !id) return;
-  window.sessionStorage.removeItem(pendingGenerationKey(id));
+  try {
+    window.sessionStorage.removeItem(pendingGenerationKey(id));
+  } catch {
+    // Storage may be unavailable.
+  }
 }
 
 export function readPendingGeneration(
@@ -56,14 +62,14 @@ export function readPendingGeneration(
     const raw = window.sessionStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PendingGeneration;
-    const createdAt =
-      typeof parsed.createdAt === "number" ? parsed.createdAt : null;
-    const stale =
-      createdAt != null && Date.now() - createdAt > PENDING_GENERATION_TTL_MS;
-    if (stale || (createdAt == null && !options.allowUntimestamped)) {
+    if (!parsed || typeof parsed !== "object") {
       window.sessionStorage.removeItem(key);
       return null;
     }
+    const hasTimestamp =
+      typeof parsed.createdAt === "number" ||
+      typeof parsed.startedAt === "number";
+    if (!hasTimestamp && !options.allowUntimestamped) return null;
     if (options.consume) {
       window.sessionStorage.removeItem(key);
     }
@@ -76,15 +82,22 @@ export function readPendingGeneration(
 
 export function isPendingGenerationStale(
   pending: PendingGeneration | null,
+  now = Date.now(),
 ): boolean {
   if (!pending) return false;
   const timestamp = pending.startedAt ?? pending.createdAt;
   return (
     typeof timestamp === "number" &&
-    Date.now() - timestamp > PENDING_GENERATION_STALE_MS
+    now - timestamp > PENDING_GENERATION_STALE_MS
   );
 }
 
 export function hasFreshPendingGeneration(id: string | undefined): boolean {
-  return !!readPendingGeneration(id);
+  const pending = readPendingGeneration(id);
+  if (!pending) return false;
+  if (isPendingGenerationStale(pending)) {
+    clearPendingGeneration(id);
+    return false;
+  }
+  return true;
 }
