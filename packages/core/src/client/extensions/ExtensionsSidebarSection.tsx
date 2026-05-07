@@ -137,7 +137,7 @@ function ExtensionSortMenu({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 opacity-0 transition-all hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/extensions-section:opacity-100"
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 opacity-0 transition-all hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/extensions-section:opacity-100"
               aria-label="Extensions sort options"
             >
               <IconSettings className="h-3.5 w-3.5" />
@@ -400,10 +400,10 @@ export function ExtensionsSidebarSection() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="relative min-w-0 py-2">
+      <div className="relative min-w-0 py-1">
         <div
           className={cn(
-            "group/extensions-section relative flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
+            "group/extensions-section relative flex w-full min-w-0 items-center rounded-md text-sm font-medium transition-all hover:text-primary",
             location.pathname.startsWith("/extensions")
               ? "text-sidebar-accent-foreground"
               : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -414,7 +414,7 @@ export function ExtensionsSidebarSection() {
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 pr-28 text-left"
+                className="flex min-w-0 flex-1 items-center gap-3 px-3 py-1.5 pr-24 text-left"
                 aria-label="About extensions"
               >
                 <IconTool className="h-4 w-4 shrink-0" />
@@ -462,7 +462,7 @@ export function ExtensionsSidebarSection() {
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground"
+                  className="inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground"
                   aria-label="New extension"
                 >
                   <IconPlus className="h-3.5 w-3.5" />
@@ -487,7 +487,7 @@ export function ExtensionsSidebarSection() {
             <button
               type="button"
               onClick={toggleExtensionsOpen}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground"
               aria-label={
                 extensionsOpen ? "Collapse extensions" : "Expand extensions"
               }
@@ -505,7 +505,7 @@ export function ExtensionsSidebarSection() {
 
         {extensionsOpen &&
           (isLoading ? (
-            <div className="min-w-0 space-y-0.5 px-1">
+            <div className="min-w-0 space-y-0.5 px-0.5">
               {[1, 2, 3].map((i) => (
                 <div
                   key={i}
@@ -519,7 +519,7 @@ export function ExtensionsSidebarSection() {
               ))}
             </div>
           ) : sortedTools.length === 0 ? null : (
-            <div className="min-w-0 space-y-0.5 px-1">
+            <div className="min-w-0 space-y-0.5 px-0.5">
               {visibleTools.map((extension) => {
                 const isActive =
                   location.pathname === `/extensions/${extension.id}` ||
