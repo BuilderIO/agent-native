@@ -40,7 +40,9 @@ relative workspace links like `/<app-name>` and never hardcode `localhost`,
 redirects, or navigation; the active workspace gateway/browser origin owns the
 port. React Router apps must preserve `APP_BASE_PATH` / `VITE_APP_BASE_PATH` in
 `app/entry.client.tsx` via `appBasePath()` so the app hydrates correctly when
-mounted at `/<app-name>`.
+mounted at `/<app-name>`. Use the framework/template UI stack for standard UI:
+shadcn/ui components and `@tabler/icons-react`. Do not add `lucide-react` or
+another icon library.
 
 In local development, run
 `pnpm exec agent-native create <app-name> --template=<template>` from the

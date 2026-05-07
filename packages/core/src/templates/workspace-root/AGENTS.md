@@ -38,6 +38,8 @@ in `apps/<app>/AGENTS.md`; shared cross-app behavior belongs in
 - React Router apps must preserve `APP_BASE_PATH` / `VITE_APP_BASE_PATH` in
   `app/entry.client.tsx` via `appBasePath()` so the app hydrates correctly
   when mounted at `/<app-id>`.
+- Use the framework/template UI stack for standard UI: shadcn/ui components and
+  `@tabler/icons-react`. Do not add `lucide-react` or another icon library.
 - In local development, scaffold the app from the workspace root with
   `pnpm exec agent-native create <app-id> --template=<template>`. In production
   Dispatch posts the request to Builder branch creation; the Builder branch
