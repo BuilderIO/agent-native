@@ -13,6 +13,7 @@ import type {
   AgentChatRequest,
   AgentChatEvent,
   AgentChatReference,
+  AgentChatStructuredMessage,
 } from "./types.js";
 import type {
   AgentEngine,
@@ -653,6 +654,81 @@ export function buildUserContentWithAttachments(opts: {
   return userContent;
 }
 
+export function structuredHistoryToEngineMessages(
+  history: AgentChatStructuredMessage[] | undefined,
+): EngineMessage[] | null {
+  if (!Array.isArray(history)) return null;
+
+  const messages: EngineMessage[] = [];
+  for (const message of history) {
+    if (
+      !message ||
+      (message.role !== "user" && message.role !== "assistant") ||
+      !Array.isArray(message.content)
+    ) {
+      continue;
+    }
+
+    const content: EngineContentPart[] = [];
+    for (const part of message.content) {
+      if (!part || typeof part !== "object") continue;
+      if (part.type === "text" && typeof part.text === "string") {
+        if (part.text.length > 0) {
+          content.push({ type: "text", text: part.text });
+        }
+        continue;
+      }
+
+      if (part.type === "tool-call" && message.role === "assistant") {
+        const id =
+          typeof part.id === "string"
+            ? part.id
+            : typeof part.toolCallId === "string"
+              ? part.toolCallId
+              : "";
+        const name =
+          typeof part.name === "string"
+            ? part.name
+            : typeof part.toolName === "string"
+              ? part.toolName
+              : "";
+        if (!id || !name) continue;
+        content.push({
+          type: "tool-call",
+          id,
+          name,
+          input: part.input ?? part.args ?? {},
+        });
+        continue;
+      }
+
+      if (part.type === "tool-result" && message.role === "user") {
+        if (
+          typeof part.toolCallId !== "string" ||
+          typeof part.content !== "string"
+        ) {
+          continue;
+        }
+        content.push({
+          type: "tool-result",
+          toolCallId: part.toolCallId,
+          ...(typeof part.toolName === "string"
+            ? { toolName: part.toolName }
+            : {}),
+          content: part.content,
+          ...(part.isError ? { isError: true } : {}),
+        });
+      }
+    }
+
+    if (content.length > 0) {
+      messages.push({ role: message.role, content });
+    }
+  }
+
+  return messages.length > 0 ? messages : null;
+}
+
 /** Build enriched message with file/skill/mention references */
 function enrichMessage(
   message: string,
@@ -791,6 +867,60 @@ export function appendAgentLoopContinuation(
   });
 }
 
+function textFromEngineMessage(message: EngineMessage): string {
+  return message.content
+    .filter(
+      (part): part is import("./engine/types.js").EngineTextPart =>
+        part.type === "text",
+    )
+    .map((part) => part.text)
+    .join("\n");
+}
+
+function isInternalContinuationTurn(messages: EngineMessage[]): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role !== "user") continue;
+    return textFromEngineMessage(message).startsWith(
+      AGENT_INTERNAL_CONTINUE_PROMPT,
+    );
+  }
+  return false;
+}
+
+function seedReadOnlyToolResultsFromHistory(
+  messages: EngineMessage[],
+  actions: Record<string, ActionEntry>,
+): Map<string, string> {
+  const cache = new Map<string, string>();
+  if (!isInternalContinuationTurn(messages)) return cache;
+
+  const pendingToolCalls = new Map<string, { name: string; input: unknown }>();
+  for (const message of messages) {
+    if (message.role === "assistant") {
+      for (const part of message.content) {
+        if (part.type !== "tool-call") continue;
+        const entry = actions[part.name];
+        if (entry?.readOnly !== true) continue;
+        pendingToolCalls.set(part.id, {
+          name: part.name,
+          input: part.input,
+        });
+      }
+      continue;
+    }
+
+    for (const part of message.content) {
+      if (part.type !== "tool-result") continue;
+      const call = pendingToolCalls.get(part.toolCallId);
+      if (!call) continue;
+      cache.set(toolCallCacheKey(call.name, call.input), part.content);
+    }
+  }
+
+  return cache;
+}
+
 /**
  * Convert ActionEntry registry to EngineTool array.
  */
@@ -839,6 +969,24 @@ function stringifyToolInput(input: unknown): string {
   } catch {
     return String(input);
   }
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+  const obj = value as Record<string, unknown>;
+  return `{${Object.keys(obj)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`)
+    .join(",")}}`;
+}
+
+function toolCallCacheKey(toolName: string, input: unknown): string {
+  return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input))}`;
 }
 
 function normalizeToolCallInputForHistory(
@@ -914,6 +1062,11 @@ export async function runAgentLoop(opts: {
     runCtx.toolCalls = toolCallHistory;
     runCtx.toolResults = toolResultHistory;
   }
+  const readOnlyToolResultCache = seedReadOnlyToolResultsFromHistory(
+    messages,
+    actions,
+  );
+  const duplicateReadOnlyToolCalls = new Map<string, number>();
   let finalGuardRetries = 0;
   let iterations = 0;
   while (true) {
@@ -1111,6 +1264,40 @@ export async function runAgentLoop(opts: {
         };
       }
 
+      const cacheKey =
+        actionEntry.readOnly === true
+          ? toolCallCacheKey(toolCall.name, toolCall.input)
+          : null;
+      if (cacheKey && readOnlyToolResultCache.has(cacheKey)) {
+        const repeats = (duplicateReadOnlyToolCalls.get(cacheKey) ?? 0) + 1;
+        duplicateReadOnlyToolCalls.set(cacheKey, repeats);
+        const previousResult = readOnlyToolResultCache.get(cacheKey) ?? "";
+        const result =
+          `Skipped duplicate read-only call to ${toolCall.name}: identical input already ran in this turn. ` +
+          `Use the previous result already in the conversation instead of calling this tool again.\n\n` +
+          `Previous result:\n${previousResult}`;
+        send({
+          type: "tool_start",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, string>,
+        });
+        send({ type: "tool_done", tool: toolCall.name, result });
+        recordToolResult(result, false);
+        if (repeats >= 3) {
+          requestedActionStop ??= {
+            message:
+              "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
+            errorCode: "duplicate_read_only_tool",
+          };
+        }
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          content: result,
+        };
+      }
+
       send({
         type: "tool_start",
         tool: toolCall.name,
@@ -1212,6 +1399,14 @@ export async function runAgentLoop(opts: {
 
       send({ type: "tool_done", tool: toolCall.name, result });
       recordToolResult(result, isError);
+      if (!isError) {
+        if (cacheKey) {
+          readOnlyToolResultCache.set(cacheKey, result);
+        } else {
+          readOnlyToolResultCache.clear();
+          duplicateReadOnlyToolCalls.clear();
+        }
+      }
       return {
         type: "tool-result" as const,
         toolCallId: toolCall.id,
@@ -1317,6 +1512,7 @@ export function createProductionAgentHandler(
     const {
       message,
       history = [],
+      structuredHistory,
       references = [],
       threadId,
       attachments,
@@ -1682,13 +1878,19 @@ export function createProductionAgentHandler(
       attachments,
     });
 
-    const messages: EngineMessage[] = [
-      ...history
+    const historyMessages =
+      structuredHistoryToEngineMessages(structuredHistory) ??
+      history
         .filter((m) => m.content.trim())
-        .map((m) => ({
-          role: m.role as "user" | "assistant",
-          content: [{ type: "text" as const, text: m.content }],
-        })),
+        .map(
+          (m): EngineMessage => ({
+            role: m.role as "user" | "assistant",
+            content: [{ type: "text" as const, text: m.content }],
+          }),
+        );
+
+    const messages: EngineMessage[] = [
+      ...historyMessages,
       { role: "user" as const, content: userContent },
     ];
 

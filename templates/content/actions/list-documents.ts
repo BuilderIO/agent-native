@@ -5,8 +5,15 @@ import { parseDocumentFavorite } from "../server/lib/documents.js";
 import { accessFilter } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+function contentPreview(content: string, maxLength = 180) {
+  const compact = content.replace(/\s+/g, " ").trim();
+  if (compact.length <= maxLength) return compact;
+  return `${compact.slice(0, maxLength).trimEnd()}...`;
+}
+
 export default defineAction({
-  description: "List all documents ordered by position.",
+  description:
+    "List document metadata ordered by position. Does not return full document bodies; use get-document for one document's content.",
   schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
@@ -21,7 +28,8 @@ export default defineAction({
       id: d.id,
       parentId: d.parentId,
       title: d.title,
-      content: d.content,
+      contentPreview: contentPreview(d.content),
+      contentLength: d.content.length,
       icon: d.icon,
       position: d.position,
       isFavorite: parseDocumentFavorite(d.isFavorite),

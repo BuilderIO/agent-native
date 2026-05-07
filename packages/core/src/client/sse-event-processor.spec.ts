@@ -162,7 +162,7 @@ describe("SSE event processor error classification", () => {
     vi.unstubAllGlobals();
   });
 
-  it("routes authentication failures to auth handling", async () => {
+  it("routes stream authentication failures to run-error handling", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
     vi.stubGlobal(
@@ -188,14 +188,23 @@ describe("SSE event processor error classification", () => {
     );
 
     expect(dispatchEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agent-chat:auth-error" }),
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: {
+          message: "Authentication required",
+          tabId: "tab-auth",
+        },
+      }),
     );
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:missing-api-key" }),
     );
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:auth-error" }),
+    );
   });
 
-  it("routes invalid token stream errors to auth handling", async () => {
+  it("routes invalid token stream errors to run-error handling", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
     vi.stubGlobal(
@@ -213,7 +222,13 @@ describe("SSE event processor error classification", () => {
 
     await drain(
       readSSEStream(
-        eventStream([{ type: "error", error: "Invalid token" }]),
+        eventStream([
+          {
+            type: "error",
+            error: "Invalid token",
+            errorCode: "authentication_error",
+          },
+        ]),
         [],
         { value: 0 },
         "tab-invalid-token",
@@ -221,14 +236,14 @@ describe("SSE event processor error classification", () => {
     );
 
     expect(dispatchEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agent-chat:auth-error" }),
+      expect.objectContaining({ type: "agent-chat:run-error" }),
     );
     expect(dispatchEvent).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agent-chat:run-error" }),
+      expect.objectContaining({ type: "agent-chat:auth-error" }),
     );
   });
 
-  it("routes http auth error codes to auth handling even with generic text", async () => {
+  it("routes http auth error codes inside streams to run-error handling", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
     vi.stubGlobal(
@@ -256,14 +271,21 @@ describe("SSE event processor error classification", () => {
     );
 
     expect(dispatchEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agent-chat:auth-error" }),
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: {
+          message: "Forbidden",
+          errorCode: "http_403",
+          tabId: "tab-http-403",
+        },
+      }),
     );
     expect(dispatchEvent).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agent-chat:run-error" }),
+      expect.objectContaining({ type: "agent-chat:auth-error" }),
     );
   });
 
-  it("routes http_403 stream errors to auth handling before retry recovery", async () => {
+  it("routes recoverable http_403 stream errors to run-error handling", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
     vi.stubGlobal(
@@ -296,10 +318,18 @@ describe("SSE event processor error classification", () => {
     );
 
     expect(dispatchEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agent-chat:auth-error" }),
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: {
+          message: "Forbidden",
+          errorCode: "http_403",
+          recoverable: true,
+          tabId: "tab-http-403",
+        },
+      }),
     );
     expect(dispatchEvent).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agent-chat:run-error" }),
+      expect.objectContaining({ type: "agent-chat:auth-error" }),
     );
   });
 

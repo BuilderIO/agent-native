@@ -880,8 +880,9 @@ export function TiptapComposer({
           return true;
         }
 
-        // Large text pastes turn into a `Pasted text` attachment chip so the
-        // prompt stays readable. Matches Claude.ai / Claude Code's UX.
+        // Page-sized text pastes turn into a `Pasted text` attachment chip so
+        // the prompt stays readable while normal paragraphs and lists stay
+        // inline.
         if (shouldConvertPasteToAttachment(pastedText)) {
           event.preventDefault();
           void composerRuntime

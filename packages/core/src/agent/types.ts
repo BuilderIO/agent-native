@@ -24,6 +24,30 @@ export interface AgentMessage {
   content: string;
 }
 
+export type AgentChatStructuredContentPart =
+  | { type: "text"; text: string }
+  | {
+      type: "tool-call";
+      id?: string;
+      toolCallId?: string;
+      name?: string;
+      toolName?: string;
+      input?: unknown;
+      args?: unknown;
+    }
+  | {
+      type: "tool-result";
+      toolCallId: string;
+      toolName?: string;
+      content: string;
+      isError?: boolean;
+    };
+
+export interface AgentChatStructuredMessage {
+  role: "user" | "assistant";
+  content: AgentChatStructuredContentPart[];
+}
+
 export interface AgentChatReference {
   type: "file" | "skill" | "mention" | "agent" | "custom-agent";
   path: string;
@@ -64,6 +88,12 @@ export interface AgentChatAttachment {
 export interface AgentChatRequest {
   message: string;
   history?: AgentMessage[];
+  /**
+   * Provider-neutral transcript used for run recovery. Unlike `history`,
+   * this preserves assistant tool calls and matching tool results so
+   * continuation turns do not re-run completed read-only tools.
+   */
+  structuredHistory?: AgentChatStructuredMessage[];
   references?: AgentChatReference[];
   threadId?: string;
   attachments?: AgentChatAttachment[];

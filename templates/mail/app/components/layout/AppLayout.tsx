@@ -19,6 +19,7 @@ import {
   useReportSpam,
   useBlockSender,
   useMuteThread,
+  markExternalEmailRefresh,
 } from "@/hooks/use-emails";
 import {
   useGoogleAuthStatus,
@@ -1090,6 +1091,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 onClick={() => {
                   if (inboxIsFetching) return;
                   setIsManuallyRefreshing(true);
+                  markExternalEmailRefresh();
                   qc.invalidateQueries({ queryKey: ["emails"] });
                   qc.invalidateQueries({ queryKey: ["labels"] });
                   window.setTimeout(() => setIsManuallyRefreshing(false), 800);
