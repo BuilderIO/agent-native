@@ -74,6 +74,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { useCalendarContext } from "./AppLayout";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { OrgSwitcher } from "@agent-native/core/client/org";
@@ -560,6 +565,20 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const removeExternal = useRemoveExternalCalendar();
   const updateExternalColor = useUpdateExternalCalendarColor();
   const isConnected = googleStatus.data?.connected ?? false;
+  const [peopleGroupOpen, setPeopleGroupOpen] = useState(
+    () => overlayPeople.length <= 2,
+  );
+  const [feedsGroupOpen, setFeedsGroupOpen] = useState(
+    () => externalCalendars.length <= 2,
+  );
+
+  useEffect(() => {
+    if (overlayPeople.length <= 2) setPeopleGroupOpen(true);
+  }, [overlayPeople.length]);
+
+  useEffect(() => {
+    if (externalCalendars.length <= 2) setFeedsGroupOpen(true);
+  }, [externalCalendars.length]);
 
   return (
     <>

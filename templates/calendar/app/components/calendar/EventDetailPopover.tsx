@@ -1482,60 +1482,80 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                 <div className="mx-4 my-2 border-t border-border/50" />
                 <div className="px-4 py-1.5">
                   <div className="grid grid-cols-3 gap-2">
-                    <Select
-                      value={availabilityValue}
-                      onValueChange={(value) =>
-                        handleAvailabilityChange(value as AvailabilityValue)
-                      }
-                      disabled={updateEvent.isPending}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="opaque">Busy</SelectItem>
-                        <SelectItem value="transparent">Free</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={visibilityValue}
-                      onValueChange={(value) =>
-                        handleVisibilityChange(value as VisibilityValue)
-                      }
-                      disabled={updateEvent.isPending}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="default">Default</SelectItem>
-                        <SelectItem value="public">Public</SelectItem>
-                        <SelectItem value="private">Private</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={reminderValue}
-                      onValueChange={(value) =>
-                        handleReminderChange(value as ReminderValue)
-                      }
-                      disabled={updateEvent.isPending}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="default">Default alert</SelectItem>
-                        <SelectItem value="none">No alert</SelectItem>
-                        <SelectItem value="0">At start</SelectItem>
-                        <SelectItem value="10">10 min</SelectItem>
-                        <SelectItem value="30">30 min</SelectItem>
-                        <SelectItem value="60">1 hour</SelectItem>
-                        <SelectItem value="1440">1 day</SelectItem>
-                        <SelectItem value="custom" disabled>
-                          Custom alert
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-muted-foreground">
+                        Show as
+                      </span>
+                      <Select
+                        value={availabilityValue}
+                        onValueChange={(value) =>
+                          handleAvailabilityChange(value as AvailabilityValue)
+                        }
+                        disabled={updateEvent.isPending}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="opaque">Busy</SelectItem>
+                          <SelectItem value="transparent">Free</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-muted-foreground">
+                        Visibility
+                      </span>
+                      <Select
+                        value={visibilityValue}
+                        onValueChange={(value) =>
+                          handleVisibilityChange(value as VisibilityValue)
+                        }
+                        disabled={updateEvent.isPending}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">Default</SelectItem>
+                          <SelectItem value="public">Public</SelectItem>
+                          <SelectItem value="private">Private</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-muted-foreground">
+                        Alerts
+                      </span>
+                      <Select
+                        value={reminderValue}
+                        onValueChange={(value) =>
+                          handleReminderChange(value as ReminderValue)
+                        }
+                        disabled={updateEvent.isPending}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">Default</SelectItem>
+                          <SelectItem value="none">None</SelectItem>
+                          <SelectItem value="0">At start</SelectItem>
+                          <SelectItem value="10">10 min</SelectItem>
+                          <SelectItem value="30">30 min</SelectItem>
+                          <SelectItem value="60">1 hour</SelectItem>
+                          <SelectItem value="1440">1 day</SelectItem>
+                          <SelectItem value="custom">Custom...</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex items-center gap-3">
+                    <IconPalette className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <EventColorSwatches
+                      value={event.colorId}
+                      onChange={handleColorChange}
+                    />
                   </div>
                 </div>
               </>
