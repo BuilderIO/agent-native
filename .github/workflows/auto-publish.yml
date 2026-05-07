@@ -106,6 +106,21 @@ jobs:
           # both npm and pnpm read NPM_CONFIG_PROVENANCE.
           NPM_CONFIG_PROVENANCE: "true"
 
+      - name: Generate Builder workspace app token
+        if: |
+          steps.changesets.outputs.published == 'true' &&
+          (
+            contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
+            contains(steps.changesets.outputs.publishedPackages, '@agent-native/dispatch')
+          )
+        uses: actions/create-github-app-token@v1
+        id: builder-workspace-token
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+          owner: BuilderIO
+          repositories: builder-agent-native-workspace
+
       - name: Trigger Builder workspace package update
         if: |
           steps.changesets.outputs.published == 'true' &&
@@ -113,9 +128,8 @@ jobs:
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/dispatch')
           )
-        continue-on-error: true
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.builder-workspace-token.outputs.token }}
           PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
         run: |
           gh api repos/BuilderIO/builder-agent-native-workspace/dispatches \

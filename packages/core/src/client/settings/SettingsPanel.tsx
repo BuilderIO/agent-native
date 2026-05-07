@@ -323,6 +323,7 @@ function UseBuilderCard({
   connected,
   orgName,
   envManaged,
+  credentialSource,
   label = "Connect Builder.io",
   subtitle = "Free credits to start — no API key needed.",
   dim,
@@ -332,6 +333,7 @@ function UseBuilderCard({
   connected: boolean;
   orgName?: string;
   envManaged?: boolean;
+  credentialSource?: "user" | "org" | "env";
   label?: string;
   subtitle?: string;
   dim?: boolean;
@@ -359,24 +361,31 @@ function UseBuilderCard({
         )}
         {envManaged ? (
           <p className="text-[10px] text-muted-foreground mt-1">
-            Managed by deployment — applied to all users of this app.
+            {credentialSource === "env"
+              ? "Deployment fallback is available. Connect your own account to override it."
+              : "Using your connected Builder account. Deployment fallback is still available."}
           </p>
-        ) : (
-          <div className="flex items-center gap-2 mt-2.5">
-            {connectUrl && (
-              <a
-                href={connectUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
-              >
-                Reconnect
-                <IconExternalLink size={10} />
-              </a>
-            )}
+        ) : null}
+        <div className="flex items-center gap-2 mt-2.5">
+          {connectUrl && (
+            <button
+              type="button"
+              onClick={builderFlow.start}
+              disabled={builderFlow.connecting}
+              className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40 disabled:opacity-60"
+            >
+              {builderFlow.connecting
+                ? "Connecting..."
+                : credentialSource === "env"
+                  ? "Connect account"
+                  : "Reconnect"}
+              <IconExternalLink size={10} />
+            </button>
+          )}
+          {credentialSource !== "env" ? (
             <DisconnectBuilderButton />
-          </div>
-        )}
+          ) : null}
+        </div>
       </div>
     );
   }
@@ -849,6 +858,7 @@ function LLMSectionInner({
             connected={connected}
             orgName={orgName}
             envManaged={envManaged}
+            credentialSource={credentialSource}
             label="Connect Builder.io"
           />
           {!connected && (
@@ -1636,6 +1646,7 @@ export function SettingsPanel({
   const connectUrl = builder?.connectUrl;
   const orgName = builder?.orgName;
   const envManaged = !!builder?.envManaged;
+  const credentialSource = builder?.credentialSource;
   const builderBranchesAvailable = !!builder?.builderEnabled;
   const builderFlow = useBuilderConnectFlow({ popupUrl: connectUrl });
 
@@ -1727,6 +1738,7 @@ export function SettingsPanel({
         connected={connected}
         orgName={orgName}
         envManaged={envManaged}
+        credentialSource={credentialSource}
         open={openSection === "llm"}
         onToggle={() => toggle("llm")}
       />
@@ -1786,6 +1798,7 @@ export function SettingsPanel({
             connected={connected}
             orgName={orgName}
             envManaged={envManaged}
+            credentialSource={credentialSource}
           />
           <ManualSetupCard
             hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
@@ -1811,6 +1824,7 @@ export function SettingsPanel({
             connected={connected}
             orgName={orgName}
             envManaged={envManaged}
+            credentialSource={credentialSource}
           />
           <ManualSetupCard
             hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, or any Postgres/SQLite database."
@@ -1836,6 +1850,7 @@ export function SettingsPanel({
             connected={connected}
             orgName={orgName}
             envManaged={envManaged}
+            credentialSource={credentialSource}
           />
           <ManualSetupCard
             hint="Without a provider, files are stored as base64 in your database. Fine for dev, not recommended for production."
@@ -1861,6 +1876,7 @@ export function SettingsPanel({
             connected={connected}
             orgName={orgName}
             envManaged={envManaged}
+            credentialSource={credentialSource}
           />
           <ManualSetupCard
             hint="Configure Better Auth with BETTER_AUTH_SECRET and optional Google/GitHub OAuth providers."
@@ -1891,6 +1907,7 @@ export function SettingsPanel({
           connected={connected}
           orgName={orgName}
           envManaged={envManaged}
+          credentialSource={credentialSource}
         />
       </SettingsSection>
 
@@ -1909,6 +1926,7 @@ export function SettingsPanel({
             connected={connected}
             orgName={orgName}
             envManaged={envManaged}
+            credentialSource={credentialSource}
           />
         </SettingsSection>
       )}
