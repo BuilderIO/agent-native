@@ -33,6 +33,15 @@ Do not implement a new app by adding a route, page, component, or file to
 `apps/starter` or another existing app unless the user explicitly asks to modify
 that existing app.
 
+Workspace apps are discovered from `apps/<app-name>/package.json`. There is no
+separate workspace app registry to edit for Dispatch to list the app. Use
+relative workspace links like `/<app-name>` and never hardcode `localhost`,
+`127.0.0.1`, `8080`, `8100`, or any dev port in app cards, instructions,
+redirects, or navigation; the active workspace gateway/browser origin owns the
+port. React Router apps must preserve `APP_BASE_PATH` / `VITE_APP_BASE_PATH` in
+`app/entry.client.tsx` via `appBasePath()` so the app hydrates correctly when
+mounted at `/<app-name>`.
+
 In local development, run
 `pnpm exec agent-native create <app-name> --template=<template>` from the
 workspace root. In production, Dispatch posts new-app requests to Builder

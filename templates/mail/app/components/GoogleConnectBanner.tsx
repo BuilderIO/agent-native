@@ -13,7 +13,11 @@ import {
   IconLogout,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
-import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  isInBuilderFrame,
+  oauthRedirectUri,
+} from "@agent-native/core/client";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
@@ -96,7 +100,11 @@ export function GoogleConnectBanner({
   const accounts = googleStatus.data?.accounts ?? [];
   const hasAccounts = accounts.length > 0;
 
-  const isElectron = useMemo(() => /Electron/i.test(navigator.userAgent), []);
+  const isBuilderFrame = useMemo(() => isInBuilderFrame(), []);
+  const useDesktopAuth = useMemo(
+    () => /AgentNativeDesktop/i.test(navigator.userAgent) && !isBuilderFrame,
+    [isBuilderFrame],
+  );
   const desktopPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const addAccountPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
@@ -257,12 +265,14 @@ export function GoogleConnectBanner({
       typeof (window as any).ReactNativeWebView !== "undefined";
     if (isNativeWebView) {
       window.location.href = addAccountUrl.data.url;
+    } else if (isBuilderFrame) {
+      window.location.href = addAccountUrl.data.url;
     } else {
       window.open(addAccountUrl.data.url, "_blank");
     }
     setWantAddAccount(false);
 
-    if (isNativeWebView) return;
+    if (isNativeWebView || isBuilderFrame) return;
 
     const prevCount = accounts.length;
     if (addAccountPollRef.current) clearInterval(addAccountPollRef.current);
@@ -284,11 +294,11 @@ export function GoogleConnectBanner({
     // accounts.length is captured into prevCount above; including it in deps
     // would tear down and recreate the interval whenever the count changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wantAddAccount, addAccountUrl.data]);
+  }, [wantAddAccount, addAccountUrl.data, isBuilderFrame]);
 
   function handleConnect() {
     setDesktopAuthIssue(null);
-    if (isElectron) {
+    if (useDesktopAuth) {
       signInViaDesktopBrowser();
       return;
     }
@@ -300,7 +310,7 @@ export function GoogleConnectBanner({
   }
 
   function handleAddAccount() {
-    if (isElectron) {
+    if (useDesktopAuth) {
       signInViaDesktopBrowser(true);
       return;
     }
