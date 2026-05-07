@@ -245,11 +245,16 @@ async function readBuilderJsonlText(res: Response): Promise<string> {
       return;
     }
     if (event.type === "assistant-content" && Array.isArray(event.parts)) {
-      finalText = event.parts
+      const candidate = event.parts
         .filter((part: any) => part?.type === "text")
         .map((part: any) => part.text ?? "")
         .join("")
         .trim();
+      // Only adopt assistant-content when it carries real text — otherwise
+      // an event with zero text parts overwrites streamedText with "" and
+      // we'd lose the streamed content on the `(finalText || streamedText)`
+      // fall-through.
+      if (candidate) finalText = candidate;
       return;
     }
     if (event.type === "stop" && event.reason === "error") {
