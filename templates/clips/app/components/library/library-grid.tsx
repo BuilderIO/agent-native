@@ -11,7 +11,7 @@ import {
   type RecordingSummary,
 } from "@/hooks/use-library";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
-import { sendToAgentChat } from "@agent-native/core/client";
+import { sendToAgentChat, useSession } from "@agent-native/core/client";
 import { RecordingCard } from "./recording-card";
 import { EmptyState } from "./empty-state";
 import { SortMenu, type SortKey } from "./sort-menu";
@@ -88,6 +88,8 @@ export function LibraryGrid({
 
   const { data, isLoading } = useRecordings(args);
   const recordings = data?.recordings ?? [];
+  const { session } = useSession();
+  const currentUserEmail = session?.email?.toLowerCase();
 
   const trashRecording = useTrashRecording();
   const archiveRecording = useArchiveRecording();
@@ -271,7 +273,16 @@ export function LibraryGrid({
                   selectionMode={selectionMode}
                   onToggleSelect={toggleSelect}
                   onShare={(rec) => setSharingRec(rec)}
-                  onRename={openRenameDialog}
+                  canRenameTitle={
+                    !!currentUserEmail &&
+                    r.ownerEmail.toLowerCase() === currentUserEmail
+                  }
+                  onRename={
+                    currentUserEmail &&
+                    r.ownerEmail.toLowerCase() === currentUserEmail
+                      ? openRenameDialog
+                      : undefined
+                  }
                   onMove={(rec) => {
                     sendToAgentChat({
                       message: `Move the clip "${rec.title}" (id: ${rec.id}) to a folder. Ask me which folder to move it to, or list available folders.`,

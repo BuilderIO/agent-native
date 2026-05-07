@@ -18,10 +18,10 @@ import {
   agentNativePath,
 } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { isDefaultTitle, useAutoTitleBridge } from "@/hooks/use-auto-title";
+import { EditableRecordingTitle } from "@/components/editable-recording-title";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -475,18 +475,16 @@ export default function RecordingPage() {
             <IconArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex-1 min-w-0">
-            {showTitleSkeleton ? (
-              // Placeholder while the agent drafts a title. The
-              // useAutoTitleBridge in `_app.tsx` queues the delegation the
-              // moment the transcript is ready; polling then swaps the
-              // skeleton for the real title.
-              <Skeleton
-                aria-label="Generating title"
-                className="h-4 w-56 max-w-full"
-              />
-            ) : (
-              <h1 className="text-sm font-medium truncate">{visibleTitle}</h1>
-            )}
+            <EditableRecordingTitle
+              recordingId={recording.id}
+              title={recording.title}
+              canEdit={canEdit}
+              displayTitle={visibleTitle}
+              showPendingSkeleton={showTitleSkeleton}
+              className="text-sm font-medium"
+              inputClassName="h-7 text-sm font-medium"
+              skeletonClassName="h-4 w-56 max-w-full"
+            />
             <p className="text-xs text-muted-foreground truncate">
               {recording.ownerEmail}
               {recording.visibility !== "private" ? (
@@ -687,16 +685,16 @@ export default function RecordingPage() {
                       </span>
                     </NavLink>
                   ) : null}
-                  {showTitleSkeleton ? (
-                    <Skeleton
-                      aria-label="Generating title"
-                      className="h-5 w-72 max-w-full"
-                    />
-                  ) : (
-                    <h2 className="text-base font-semibold truncate">
-                      {visibleTitle}
-                    </h2>
-                  )}
+                  <EditableRecordingTitle
+                    recordingId={recording.id}
+                    title={recording.title}
+                    canEdit={canEdit}
+                    displayTitle={visibleTitle}
+                    showPendingSkeleton={showTitleSkeleton}
+                    className="text-base font-semibold"
+                    inputClassName="h-8 text-base font-semibold"
+                    skeletonClassName="h-5 w-72 max-w-full"
+                  />
                   {recording.description ? (
                     <p className="text-sm text-muted-foreground line-clamp-2">
                       {recording.description}
