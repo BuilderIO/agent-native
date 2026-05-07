@@ -826,11 +826,27 @@ function isFrameworkOAuthCallbackPath(pathname: string): boolean {
   );
 }
 
+function getRequestPathAndSearch(event: H3Event): {
+  rawPath: string;
+  search: string;
+} {
+  const mountedPathname = (event as any).context?._mountedPathname;
+  if (typeof mountedPathname === "string" && mountedPathname) {
+    return { rawPath: mountedPathname, search: event.url?.search || "" };
+  }
+  const url = event.node?.req?.url ?? event.path ?? "/";
+  const queryStart = url.indexOf("?");
+  return {
+    rawPath: queryStart >= 0 ? url.slice(0, queryStart) : url,
+    search: queryStart >= 0 ? url.slice(queryStart) : "",
+  };
+}
+
 function workspaceOAuthCallbackRelayResponse(
-  rawPath: string,
-  normalizedPath: string,
-  search: string,
+  event: H3Event,
 ): Response | undefined {
+  const { rawPath, search } = getRequestPathAndSearch(event);
+  const normalizedPath = stripAppBasePath(rawPath);
   const basePath = getAppBasePath();
   if (
     !basePath ||
@@ -842,9 +858,9 @@ function workspaceOAuthCallbackRelayResponse(
     return undefined;
   }
 
-  const state = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search).get(
-    "state",
-  );
+  const state = new URLSearchParams(
+    search.startsWith("?") ? search.slice(1) : search,
+  ).get("state");
   const appId = extractOAuthStateAppId(state);
   if (
     !appId ||
@@ -873,11 +889,7 @@ function createAuthGuardFn(): (
     const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
     const p = stripAppBasePath(rawPath);
     const normalizedUrl = queryStart >= 0 ? `${p}${url.slice(queryStart)}` : p;
-    const callbackRelay = workspaceOAuthCallbackRelayResponse(
-      rawPath,
-      p,
-      queryStart >= 0 ? url.slice(queryStart) : "",
-    );
+    const callbackRelay = workspaceOAuthCallbackRelayResponse(event);
     if (callbackRelay) return callbackRelay;
 
     // Emit CORS headers on every request the guard sees so that even
@@ -1638,6 +1650,8 @@ async function mountBetterAuthRoutes(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
+        const callbackRelay = workspaceOAuthCallbackRelayResponse(event);
+        if (callbackRelay) return callbackRelay;
         try {
           const query = getQuery(event);
           const code = query.code as string;

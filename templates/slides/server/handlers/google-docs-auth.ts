@@ -26,6 +26,8 @@ import {
   listGoogleDocsAccounts,
 } from "../lib/google-docs-oauth.js";
 
+const OAUTH_STATE_APP_ID = process.env.APP_NAME || "slides";
+
 function permissionMessage(error: unknown): string {
   const message =
     error instanceof Error ? error.message : String(error || "Unknown error");
@@ -89,7 +91,7 @@ export const getGoogleDocsAuthUrlHandler = defineEventHandler(
         owner,
         desktop,
         addAccount: true,
-        app: "slides-google-docs",
+        app: OAUTH_STATE_APP_ID,
         returnUrl,
         flowId,
       });

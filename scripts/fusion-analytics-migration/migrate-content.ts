@@ -3178,22 +3178,33 @@ function csQbrExtension(): string {
               "  FROM \`builder-3b0a2.dbt_analytics.enterprise_ai_credit_utilization\`",
               "  WHERE root_org_id IN (SELECT root_org_id FROM accounts WHERE root_org_id != '')",
               "  QUALIFY ROW_NUMBER() OVER (PARTITION BY root_org_id ORDER BY date DESC) = 1",
-              "), pipeline AS (",
-              "  SELECT CAST(company_id AS STRING) AS company_id, SUM(SAFE_CAST(amount AS FLOAT64)) AS open_pipeline_arr",
-              "  FROM \`builder-3b0a2.dbt_mart.dim_hs_deals\`",
-              "  WHERE CAST(company_id AS STRING) IN (SELECT company_id FROM accounts WHERE company_id IS NOT NULL)",
-              "    AND (LOWER(pipeline_name) LIKE '%expansion%' OR LOWER(pipeline_name) LIKE '%renewal%')",
-              "    AND COALESCE(is_closed_won, FALSE) = FALSE",
-              "    AND LOWER(COALESCE(stage_name, '')) NOT LIKE '%lost%'",
-              "    AND LOWER(COALESCE(stage_name, '')) NOT LIKE '%stall%'",
-              "  GROUP BY company_id",
               ")",
-              "SELECT a.*, COALESCE(s.active_users_30d, 0) AS active_users_30d, COALESCE(s.contracted_user_seats, 0) AS contracted_user_seats, COALESCE(s.seat_util_pct, 0) AS seat_util_pct, COALESCE(c.ai_credits_used_30d, 0) AS ai_credits_used_30d, COALESCE(c.contracted_ai_credits, 0) AS contracted_ai_credits, COALESCE(c.credit_util_pct, 0) AS credit_util_pct, COALESCE(p.open_pipeline_arr, 0) AS open_pipeline_arr",
+              "SELECT a.*, COALESCE(s.active_users_30d, 0) AS active_users_30d, COALESCE(s.contracted_user_seats, 0) AS contracted_user_seats, COALESCE(s.seat_util_pct, 0) AS seat_util_pct, COALESCE(c.ai_credits_used_30d, 0) AS ai_credits_used_30d, COALESCE(c.contracted_ai_credits, 0) AS contracted_ai_credits, COALESCE(c.credit_util_pct, 0) AS credit_util_pct",
               "FROM accounts a",
               "LEFT JOIN seat_latest s USING (root_org_id)",
               "LEFT JOIN credit_latest c USING (root_org_id)",
-              "LEFT JOIN pipeline p USING (company_id)",
               "ORDER BY arr DESC"
+            ].join("\\n");
+          },
+          dealSql(name) {
+            const csm = name.replace(/'/g, "''");
+            return [
+              "WITH accounts AS (",
+              "  SELECT CAST(company_id AS STRING) AS company_id, company_name",
+              "  FROM \`builder-3b0a2.dbt_staging.hubspot_companies\`",
+              "  WHERE LOWER(TRIM(csm_owner_name)) = LOWER(TRIM('" + csm + "'))",
+              "    AND account_profile = 'Enterprise Active Customer'",
+              "    AND LOWER(COALESCE(customer_stage, '')) NOT IN ('churned', 'churn risk')",
+              ")",
+              "SELECT COALESCE(a.company_name, 'Unknown') AS account, COALESCE(d.pipeline_name, 'Deal') AS pipeline_name, COALESCE(d.stage_name, '') AS stage, CAST(d.close_date AS STRING) AS close_date, COALESCE(SAFE_CAST(d.amount AS FLOAT64), 0) AS net_new_arr",
+              "FROM \`builder-3b0a2.dbt_mart.dim_hs_deals\` d",
+              "JOIN accounts a ON CAST(d.company_id AS STRING) = a.company_id",
+              "WHERE (LOWER(d.pipeline_name) LIKE '%expansion%' OR LOWER(d.pipeline_name) LIKE '%renewal%')",
+              "  AND COALESCE(d.is_closed_won, FALSE) = FALSE",
+              "  AND LOWER(COALESCE(d.stage_name, '')) NOT LIKE '%lost%'",
+              "  AND LOWER(COALESCE(d.stage_name, '')) NOT LIKE '%stall%'",
+              "ORDER BY net_new_arr DESC",
+              "LIMIT 200"
             ].join("\\n");
           },
           async selectOwner(name) {
