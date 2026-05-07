@@ -192,7 +192,7 @@ describe("NewWorkspaceAppFlow", () => {
     expect(message).toContain("not a feature request for the current app");
     expect(message).toContain("inside apps/starter");
     expect(message).toContain("There is no separate workspace app registry");
-    expect(message).toContain("apps/qa-dashboard/package.json exists");
+    expect(message).toContain("apps/quality/package.json exists");
     expect(message).toContain("Do not hardcode localhost");
     expect(message).toContain("appBasePath()");
     expect(message).toContain("Do not add lucide-react");
