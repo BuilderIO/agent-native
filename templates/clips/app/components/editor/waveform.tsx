@@ -19,6 +19,8 @@ export interface WaveformProps {
   excludedRanges?: Array<{ startMs: number; endMs: number }>;
   /** Optional selection range (original time) highlighted in brand color. */
   selectionRange?: { startMs: number; endMs: number } | null;
+  /** Transcript-backed activity ranges used when browser audio decoding fails. */
+  activityRanges?: Array<{ startMs: number; endMs: number }>;
   /** Click handler — returns the original ms at the click position. */
   onSeek?: (originalMs: number) => void;
   /** Called on scroll so the parent can sync ruler / chapter markers. */
@@ -57,6 +59,7 @@ export function Waveform({
   durationMs,
   excludedRanges,
   selectionRange,
+  activityRanges = [],
   onSeek,
   onScroll,
   className,
@@ -85,39 +88,68 @@ export function Waveform({
     ctx.fillStyle = getWaveBg();
     ctx.fillRect(0, 0, totalWidth, height);
 
-    if (!peaks || peaks.bucketCount === 0) {
-      ctx.fillStyle = "rgba(148,163,184,0.45)";
-      ctx.font = "12px Inter, sans-serif";
-      ctx.fillText("No audio available for this recording", 12, height / 2 + 4);
-      return;
-    }
+    const hasPeaks =
+      peaks?.bucketCount &&
+      peaks.peaks.some((value) => Math.abs(value) > 0.0001);
 
-    // Map each x pixel to a bucket range. Use max abs so silent gaps stay visible.
-    const mid = height / 2;
-    ctx.strokeStyle = getWaveColor();
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    const bucketsPerPx = peaks.bucketCount / totalWidth;
-    for (let x = 0; x < totalWidth; x++) {
-      const startBucket = Math.floor(x * bucketsPerPx);
-      const endBucket = Math.max(
-        startBucket + 1,
-        Math.floor((x + 1) * bucketsPerPx),
-      );
-      let min = 0;
-      let max = 0;
-      for (let b = startBucket; b < endBucket && b < peaks.bucketCount; b++) {
-        const lo = peaks.peaks[b * 2];
-        const hi = peaks.peaks[b * 2 + 1];
-        if (lo < min) min = lo;
-        if (hi > max) max = hi;
+    if (hasPeaks) {
+      // Map each x pixel to a bucket range. Use max abs so silent gaps stay visible.
+      const mid = height / 2;
+      ctx.strokeStyle = getWaveColor();
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      const bucketsPerPx = peaks.bucketCount / totalWidth;
+      for (let x = 0; x < totalWidth; x++) {
+        const startBucket = Math.floor(x * bucketsPerPx);
+        const endBucket = Math.max(
+          startBucket + 1,
+          Math.floor((x + 1) * bucketsPerPx),
+        );
+        let min = 0;
+        let max = 0;
+        for (let b = startBucket; b < endBucket && b < peaks.bucketCount; b++) {
+          const lo = peaks.peaks[b * 2];
+          const hi = peaks.peaks[b * 2 + 1];
+          if (lo < min) min = lo;
+          if (hi > max) max = hi;
+        }
+        const topY = mid + min * mid * 0.95;
+        const botY = mid + max * mid * 0.95;
+        ctx.moveTo(x + 0.5, topY);
+        ctx.lineTo(x + 0.5, botY);
       }
-      const topY = mid + min * mid * 0.95;
-      const botY = mid + max * mid * 0.95;
-      ctx.moveTo(x + 0.5, topY);
-      ctx.lineTo(x + 0.5, botY);
+      ctx.stroke();
+    } else {
+      const mid = height / 2;
+      ctx.strokeStyle = getBrandColorAlpha(0.2);
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 6]);
+      ctx.beginPath();
+      ctx.moveTo(0, mid);
+      ctx.lineTo(totalWidth, mid);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      if (activityRanges.length) {
+        const blockHeight = Math.max(18, Math.min(32, height * 0.32));
+        const top = mid - blockHeight / 2;
+        ctx.fillStyle = getBrandColorAlpha(0.24);
+        for (const range of activityRanges) {
+          const xStart =
+            (Math.max(0, range.startMs) / Math.max(durationMs, 1)) *
+            totalWidth;
+          const xEnd =
+            (Math.min(durationMs, range.endMs) / Math.max(durationMs, 1)) *
+            totalWidth;
+          ctx.fillRect(
+            xStart,
+            top,
+            Math.max(2, xEnd - xStart),
+            blockHeight,
+          );
+        }
+      }
     }
-    ctx.stroke();
 
     // Excluded ranges — dimmed striped overlay
     if (excludedRanges?.length) {
@@ -158,7 +190,15 @@ export function Waveform({
       ctx.lineWidth = 1;
       ctx.strokeRect(xStart + 0.5, 0.5, xEnd - xStart - 1, height - 1);
     }
-  }, [peaks, totalWidth, height, excludedRanges, selectionRange, durationMs]);
+  }, [
+    peaks,
+    totalWidth,
+    height,
+    excludedRanges,
+    selectionRange,
+    durationMs,
+    activityRanges,
+  ]);
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!onSeek) return;

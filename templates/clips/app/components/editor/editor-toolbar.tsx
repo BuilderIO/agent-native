@@ -1,9 +1,8 @@
 import { useState } from "react";
 import {
   IconArrowBackUp,
-  IconArrowForwardUp,
   IconChevronDown,
-  IconDots,
+  IconCut,
   IconZoomIn,
   IconZoomOut,
   IconPlayerPlay,
@@ -25,6 +24,10 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -49,7 +52,6 @@ import {
   formatMs,
   type EditsJson,
 } from "@/lib/timestamp-mapping";
-import { SplitButton } from "./split-button";
 import {
   Tooltip,
   TooltipContent,
@@ -97,6 +99,7 @@ export function EditorToolbar({
   const undo = useActionMutation("undo-edit" as any);
   const clear = useActionMutation("clear-edits" as any);
   const trim = useActionMutation("trim-recording" as any);
+  const split = useActionMutation("split-recording" as any);
 
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(
@@ -178,6 +181,18 @@ export function EditorToolbar({
     }
   };
 
+  const handleSplit = async () => {
+    try {
+      await split.mutateAsync({
+        recordingId,
+        atMs: Math.round(playheadMs),
+      } as any);
+      toast.success("Split added");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Split failed");
+    }
+  };
+
   const runExport = async () => {
     if (!video.videoUrl) {
       toast.error("Video not ready yet");
@@ -246,26 +261,20 @@ export function EditorToolbar({
         </TooltipTrigger>
         <TooltipContent>Undo (Cmd/Ctrl+Z)</TooltipContent>
       </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button size="sm" variant="ghost" disabled>
-            <IconArrowForwardUp className="w-4 h-4 opacity-40" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          Redo (not supported — there is no redo stack)
-        </TooltipContent>
-      </Tooltip>
-
-      <Separator orientation="vertical" className="h-6 mx-1" />
+      <Separator orientation="vertical" className="mx-1 h-6" />
 
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button size="sm" variant="ghost" onClick={onPlayPause}>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8"
+            onClick={onPlayPause}
+          >
             {playing ? (
-              <IconPlayerPause className="w-4 h-4" />
+              <IconPlayerPause className="h-4 w-4" />
             ) : (
-              <IconPlayerPlay className="w-4 h-4" />
+              <IconPlayerPlay className="h-4 w-4" />
             )}
           </Button>
         </TooltipTrigger>
@@ -282,35 +291,46 @@ export function EditorToolbar({
         )}
       </div>
 
-      <Separator orientation="vertical" className="h-6 mx-1" />
-
-      <SplitButton recordingId={recordingId} playheadMs={playheadMs} />
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={handleTrimSelection}
-            disabled={!selectionRange || trim.isPending}
-          >
-            <IconScissors className="w-4 h-4 mr-1" />
-            Cut
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Cut selection</TooltipContent>
-      </Tooltip>
+      {selectionRange ? (
+        <>
+          <Separator orientation="vertical" className="mx-1 h-6" />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={handleTrimSelection}
+                disabled={trim.isPending}
+              >
+                <IconScissors className="mr-1 h-4 w-4" />
+                Cut selection
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Cut selected range</TooltipContent>
+          </Tooltip>
+        </>
+      ) : null}
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button size="sm" variant="ghost" className="gap-1">
-            Trim
-            <IconChevronDown className="h-3.5 w-3.5" />
+          <Button
+            size="sm"
+            variant={chaptersOpen ? "secondary" : "ghost"}
+            className="gap-1.5"
+          >
+            <IconScissors className="h-4 w-4" />
+            Edit
+            <IconChevronDown className="h-3.5 w-3.5 opacity-70" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-56">
-          <DropdownMenuLabel>Trim to playhead</DropdownMenuLabel>
+        <DropdownMenuContent align="start" className="w-64">
+          <DropdownMenuLabel>Playhead edits</DropdownMenuLabel>
           <DropdownMenuSeparator />
+          <DropdownMenuItem disabled={split.isPending} onSelect={handleSplit}>
+            <IconCut className="mr-2 h-4 w-4" />
+            Split at playhead
+            <DropdownMenuShortcut>S</DropdownMenuShortcut>
+          </DropdownMenuItem>
           <DropdownMenuItem
             disabled={trim.isPending || playheadMs < 500}
             onSelect={handleTrimStart}
@@ -325,48 +345,49 @@ export function EditorToolbar({
             <IconScissors className="mr-2 h-4 w-4" />
             Cut after playhead
           </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <Separator orientation="vertical" className="h-6 mx-1" />
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            size="sm"
-            variant={chaptersOpen ? "secondary" : "ghost"}
-            onClick={onOpenChapters}
-          >
-            <IconBookmarks className="w-4 h-4 mr-1" />
-            Chapters
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Show chapters</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button size="sm" variant="ghost" onClick={onOpenThumbnailPicker}>
-            <IconPhotoEdit className="w-4 h-4 mr-1" />
-            Thumbnail
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Edit thumbnail</TooltipContent>
-      </Tooltip>
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button size="sm" variant="ghost" aria-label="More edit actions">
-            <IconDots className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-52">
-          <DropdownMenuLabel>More edits</DropdownMenuLabel>
           <DropdownMenuSeparator />
+          <DropdownMenuLabel>Panels</DropdownMenuLabel>
+          <DropdownMenuItem onSelect={onOpenChapters}>
+            <IconBookmarks className="mr-2 h-4 w-4" />
+            {chaptersOpen ? "Hide chapters" : "Show chapters"}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onOpenThumbnailPicker}>
+            <IconPhotoEdit className="mr-2 h-4 w-4" />
+            Thumbnail
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={onOpenStitch}>
             <IconPuzzle className="mr-2 h-4 w-4" />
             Stitch clips
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <IconZoomIn className="mr-2 h-4 w-4" />
+              Zoom
+              <span className="ml-auto text-xs text-muted-foreground">
+                {zoom}x
+              </span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-44">
+              <DropdownMenuItem
+                disabled={zoom <= 1}
+                onSelect={() => onZoomChange(Math.max(1, zoom - 5))}
+              >
+                <IconZoomOut className="mr-2 h-4 w-4" />
+                Zoom out
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onZoomChange(1)}>
+                Fit to width
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={zoom >= 50}
+                onSelect={() => onZoomChange(Math.min(50, zoom + 5))}
+              >
+                <IconZoomIn className="mr-2 h-4 w-4" />
+                Zoom in
+              </DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => setClearOpen(true)}>
             <IconTrash className="mr-2 h-4 w-4" />
@@ -377,42 +398,7 @@ export function EditorToolbar({
 
       <div className="min-w-3 flex-1" />
 
-      {/* Zoom — slider on md+, compact +/- buttons on mobile */}
-      <div className="hidden w-32 shrink-0 items-center gap-1.5 md:flex">
-        <IconZoomOut className="w-3.5 h-3.5 text-muted-foreground" />
-        <Slider
-          min={1}
-          max={50}
-          step={1}
-          value={[zoom]}
-          onValueChange={([v]) => onZoomChange(v)}
-        />
-        <IconZoomIn className="w-3.5 h-3.5 text-muted-foreground" />
-      </div>
-      <div className="flex shrink-0 items-center gap-0.5 md:hidden">
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-7 w-7"
-          aria-label="Zoom out"
-          onClick={() => onZoomChange(Math.max(1, zoom - 5))}
-          disabled={zoom <= 1}
-        >
-          <IconZoomOut className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-7 w-7"
-          aria-label="Zoom in"
-          onClick={() => onZoomChange(Math.min(50, zoom + 5))}
-          disabled={zoom >= 50}
-        >
-          <IconZoomIn className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-
-      <Separator orientation="vertical" className="h-6 mx-1" />
+      <Separator orientation="vertical" className="mx-1 h-6" />
 
       <Button
         size="sm"

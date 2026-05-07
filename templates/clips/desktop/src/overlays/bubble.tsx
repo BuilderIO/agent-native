@@ -112,9 +112,7 @@ export function Bubble() {
   const firstFrameAtRef = useRef<number | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const localCameraIdRef = useRef<string | null>(null);
-  const localDrawTimerRef = useRef<ReturnType<typeof setInterval> | null>(
-    null,
-  );
+  const localDrawTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingModeRef = useRef(false);
   // Which transport delivered the most recent usable frame. Starts as
   // "none" — we flip to "webrtc" on ontrack, or "canvas" on the first
@@ -362,7 +360,10 @@ export function Bubble() {
               height: { ideal: 720 },
             })
             .catch((err) => {
-              console.warn("[bubble] local camera applyConstraints failed", err);
+              console.warn(
+                "[bubble] local camera applyConstraints failed",
+                err,
+              );
             });
           videoEl.srcObject = stream;
           await videoEl.play().catch((err) => {
