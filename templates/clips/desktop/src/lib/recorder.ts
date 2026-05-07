@@ -20,7 +20,7 @@
  * never even needs the popover focused. This is what makes the UX feel
  * native instead of "app-in-a-tab".
  *
- * ## Camera bubble architecture (popover owns the full session)
+ * ## Camera bubble architecture
  *
  * WebKit enforces a single-page capture-exclusion policy: when one page
  * calls `getDisplayMedia`/`getUserMedia`, WebKit MUTES all capture sources
@@ -31,20 +31,21 @@
  * `readyState="live"` but frames would stop arriving — WebKit's documented
  * behavior, not fixable with retry loops.
  *
- * Fix: the POPOVER owns the camera for the entire session — both before
- * recording (so the user sees their face in the bubble the moment they
- * open the popover) and during recording. A session-long effect in
- * `app.tsx` calls `getUserMedia`, invokes `show_bubble`, and runs the
- * frame pump (see `bubble-pump.ts`). When the user clicks Start
- * Recording, the live `MediaStream` is handed to `startNativeRecording`
- * via `preAcquiredCameraStream` so the recorder reuses it for
- * MediaRecorder instead of calling `getUserMedia` a second time (which
- * was the source of the "bubble goes black" bug — the 2nd acquire
- * silently mutes the 1st under WebKit's capture-exclusion policy).
+ * Fix for browser/window capture: the POPOVER owns the camera for the entire
+ * session — both before recording (so the user sees their face in the bubble
+ * the moment they open the popover) and during recording. A session-long
+ * effect in `app.tsx` calls `getUserMedia`, invokes `show_bubble`, and runs
+ * the relay (see `bubble-pump.ts`). When the user clicks Start Recording, the
+ * live `MediaStream` is handed to `startNativeRecording` via
+ * `preAcquiredCameraStream` so the recorder reuses it for MediaRecorder
+ * instead of calling `getUserMedia` a second time.
  *
- * The recorder does NOT start its own frame pump — the popover's pump
- * keeps running throughout recording. This means a single pump instance
- * survives the preview → recording transition with no handoff.
+ * Native full-screen capture is different: Rust records the screen directly,
+ * not through WebKit `getDisplayMedia`, so the bubble overlay can own its own
+ * local camera stream and the native screen recording captures that overlay.
+ *
+ * The recorder does NOT start its own frame pump — the app-level bubble
+ * session owns whichever display path is appropriate.
  */
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";

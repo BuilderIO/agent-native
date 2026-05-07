@@ -22,7 +22,10 @@ import {
   updateExtension,
   updateExtensionContent,
   deleteExtension,
+  hideExtension,
+  unhideExtension,
   ensureExtensionsTables,
+  type ExtensionRow,
 } from "./store.js";
 import { buildExtensionHtml, EXTENSION_IFRAME_CSP } from "./html-shell.js";
 import { getThemeVars } from "./theme.js";
@@ -44,6 +47,7 @@ import {
   isBlockedExtensionUrlWithDns,
 } from "./url-safety.js";
 import { ForbiddenError, resolveAccess } from "../sharing/access.js";
+import type { ShareRole } from "../sharing/schema.js";
 
 export function createExtensionsHandler() {
   return defineEventHandler(async (event: H3Event) => {
@@ -140,7 +144,8 @@ async function dispatch(
 
   // GET / — list
   if (method === "GET" && parts.length === 0) {
-    return listExtensions();
+    const rows = await listExtensions();
+    return Promise.all(rows.map((row) => extensionResponse(row)));
   }
 
   // POST / — create
@@ -200,12 +205,35 @@ async function dispatch(
 
   // GET /:id
   if (method === "GET" && parts.length === 1) {
-    const extension = await getExtension(parts[0]);
-    if (!extension) {
+    const access = await resolveAccess("extension", parts[0]);
+    if (!access) {
       setResponseStatus(event, 404);
       return { error: "Extension not found" };
     }
-    return extension;
+    return extensionResponse(access.resource as ExtensionRow, access.role);
+  }
+
+  // POST /:id/hide — remove from the current user's Extensions list/sidebar
+  // without deleting the underlying extension for teammates or shared slots.
+  if (method === "POST" && parts.length === 2 && parts[1] === "hide") {
+    const ok = await hideExtension(parts[0]);
+    if (!ok) {
+      setResponseStatus(event, 404);
+      return { error: "Extension not found" };
+    }
+    recordChange({ source: "action", type: "change" });
+    return { ok: true, hidden: true };
+  }
+
+  // POST /:id/unhide — restore an extension hidden by the current user.
+  if (method === "POST" && parts.length === 2 && parts[1] === "unhide") {
+    const ok = await unhideExtension(parts[0]);
+    if (!ok) {
+      setResponseStatus(event, 404);
+      return { error: "Extension not found" };
+    }
+    recordChange({ source: "action", type: "change" });
+    return { ok: true, hidden: false };
   }
 
   // PUT /:id
@@ -253,6 +281,25 @@ async function dispatch(
 
   setResponseStatus(event, 404);
   return { error: "Not found" };
+}
+
+async function extensionResponse(
+  row: ExtensionRow,
+  role?: "owner" | ShareRole | null,
+) {
+  const resolvedRole =
+    role ??
+    (await resolveAccess("extension", row.id)
+      .then((access) => access?.role ?? null)
+      .catch(() => null));
+  return {
+    ...row,
+    role: resolvedRole,
+    canEdit: resolvedRole
+      ? ["owner", "admin", "editor"].includes(resolvedRole)
+      : false,
+    canDelete: resolvedRole ? ["owner", "admin"].includes(resolvedRole) : false,
+  };
 }
 
 async function handleExtensionDataList(

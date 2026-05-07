@@ -43,11 +43,10 @@
  *
  * So we picked the defensible combination:
  *
- * 1. **Aggressive recording downshift** (Option B) — 6 FPS / 112×112 /
- *    JPEG q=0.45 during recording. ~0.63% of the per-frame pixel budget
- *    we started at (256² @ 20 FPS). Self-view of yourself in a talking-
- *    head PiP is extremely forgiving — nobody's counting your pore
- *    detail in the corner of their own screen.
+ * 1. **Recording relay kept readable** — full-screen capture now uses the
+ *    bubble's local camera path, but window capture can still need this
+ *    fallback. Keep recording frames at retina-small-bubble resolution so the
+ *    user's face does not turn blocky.
  * 2. **Chunk-upload yielding** (new) — the recorder sets
  *    `window.clipsChunkBusy = true` while a chunk upload is in flight;
  *    the pump skips ticks while that flag is set. With MediaRecorder
@@ -80,37 +79,35 @@ import { emit } from "@tauri-apps/api/event";
 /**
  * Preview (pre-record) vs recording tuning. During recording the popover
  * is also running MediaRecorder + chunked fetch uploads on this same main
- * thread, so we downshift everything pump-related to leave headroom.
+ * thread, so we pace pump work and skip during hot upload windows.
  * The `window.clipsForceAlive` flag is set by the recording-start path
  * (see `app.tsx`) and serves double duty as our "recording active?"
  * signal — no extra wiring needed.
  *
- * 15 FPS preview / 6 FPS recording:
+ * 15 FPS preview / 12 FPS recording:
  * - Preview feels like a live camera.
- * - Recording is a talking-head PiP of yourself. 6 FPS sustains the
- *   "this is a live camera feed, not a static image" perception while
- *   halving per-frame work vs the previous 10 FPS.
+ * - Recording should still look recognizably live when this fallback is used.
+ *   Full-screen capture now uses the bubble's local camera path, but window
+ *   capture can still hit this relay.
  *
- * 192px preview / 112px recording:
+ * 192px preview / 192px recording:
  * - Small bubble CSS size is ~96 logical px = 192 physical on retina.
- *   112 is 58% of that — the bubble circle + mild upscale hide the loss
- *   and the pixel-count win is large (~34% fewer pixels vs 144, ~66%
- *   fewer vs 192).
+ *   Staying at 192 avoids the visibly pixelated recording bubble users were
+ *   seeing when the relay was downshifted.
  *
- * JPEG quality 0.6 preview / 0.45 recording — self-view is forgiving,
- * and the smaller frame size means even q=0.45 artifacts are already
- * sub-pixel after the browser scales up for display.
+ * JPEG quality 0.6 preview / 0.72 recording — the recording path favors a
+ * clean face bubble over marginal IPC savings.
  */
 const BUBBLE_PREVIEW_FPS = 15;
-const BUBBLE_RECORDING_FPS = 6;
+const BUBBLE_RECORDING_FPS = 12;
 const BUBBLE_PREVIEW_FRAME_INTERVAL_MS = Math.round(1000 / BUBBLE_PREVIEW_FPS);
 const BUBBLE_RECORDING_FRAME_INTERVAL_MS = Math.round(
   1000 / BUBBLE_RECORDING_FPS,
 );
 const BUBBLE_PREVIEW_FRAME_SIZE = 192;
-const BUBBLE_RECORDING_FRAME_SIZE = 112;
+const BUBBLE_RECORDING_FRAME_SIZE = 192;
 const BUBBLE_PREVIEW_JPEG_QUALITY = 0.6;
-const BUBBLE_RECORDING_JPEG_QUALITY = 0.45;
+const BUBBLE_RECORDING_JPEG_QUALITY = 0.72;
 
 type VideoWithRvfc = HTMLVideoElement & {
   requestVideoFrameCallback?: (cb: () => void) => number;
@@ -187,7 +184,7 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
     // anyway when the window loses significant on-screen area. Setting the
     // force-alive flag from the recording-start path bypasses the check so
     // the bubble stays live. The same flag also serves as our "recording
-    // active?" signal so we can downshift FPS / size / quality.
+    // active?" signal so we can tune FPS / size / quality.
     const w = window as unknown as {
       clipsForceAlive?: boolean;
       clipsChunkBusy?: boolean;

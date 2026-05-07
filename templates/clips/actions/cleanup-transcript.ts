@@ -13,9 +13,9 @@
  *   - Meetings finalize (task='summary' → summary + bullets + action items)
  *
  * Provider routing:
- *   1. resolveBuilderCredential('BUILDER_PRIVATE_KEY') → Builder gateway
- *      with model `gemini-3-1-flash-lite` (matches existing convention in
- *      `transcribe-voice.ts:52`).
+ *   1. Builder.io Connect credentials → Builder engine with model
+ *      `gemini-3-1-flash-lite` (matches existing convention in
+ *      `transcribe-voice.ts`).
  *   2. Fallback: user GEMINI_API_KEY direct to Google's generativelanguage
  *      API.
  *   3. Otherwise → throw FeatureNotConfiguredError.
@@ -27,18 +27,11 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import {
-  resolveBuilderAuthHeader,
-  resolveBuilderCredential,
+  resolveBuilderCredentials,
   resolveSecret,
   FeatureNotConfiguredError,
 } from "@agent-native/core/server";
-
-// Builder public LLM gateway base URL. Override via BUILDER_GATEWAY_BASE_URL.
-// Mirrors `getBuilderGatewayBaseUrl()` in @agent-native/core/server/credential-provider
-// (which isn't re-exported from the package's public surface yet).
-const BUILDER_GATEWAY_BASE_URL =
-  process.env.BUILDER_GATEWAY_BASE_URL ||
-  "https://api.builder.io/agent-native/gateway/v1";
+import { createBuilderEngine } from "@agent-native/core/agent/engine";
 
 // Builder gateway maps this to Gemini 3.1 Flash-Lite (see transcribe-voice.ts:52).
 const BUILDER_MODEL = "gemini-3-1-flash-lite";
@@ -107,26 +100,32 @@ export default defineAction({
     const wantJson = args.task === "summary";
 
     // 1) Builder gateway (preferred — uses Builder.io Connect credentials).
-    const [builderAuth, builderPublicKey] = await Promise.all([
-      resolveBuilderAuthHeader(),
-      resolveBuilderCredential("BUILDER_PUBLIC_KEY"),
-    ]);
-    if (builderAuth && builderPublicKey) {
+    const builderCreds = await resolveBuilderCredentials();
+    const builderConfigured = Boolean(
+      builderCreds.privateKey && builderCreds.publicKey,
+    );
+    const builderPartiallyConfigured = Boolean(
+      builderCreds.privateKey || builderCreds.publicKey,
+    );
+    let builderReturnedEmpty = false;
+    let builderFailureMessage: string | null = null;
+
+    if (builderConfigured) {
       try {
         const text = await callBuilderGateway({
-          authHeader: builderAuth,
-          publicKey: builderPublicKey,
           prompt,
           wantJson,
         });
         if (text.trim()) {
           return shapeResult(args.task, text, "builder");
         }
+        builderReturnedEmpty = true;
         console.warn("[cleanup-transcript] Builder path returned empty text");
       } catch (err) {
         // Fall through to BYOK only when Builder is misconfigured / unavailable.
         // Hard errors (e.g. credits exhausted) still surface to the caller.
         const message = (err as Error)?.message ?? String(err);
+        builderFailureMessage = message;
         if (message.includes("credits exhausted")) throw err;
         console.warn("[cleanup-transcript] Builder path failed:", message);
       }
@@ -143,10 +142,11 @@ export default defineAction({
       return shapeResult(args.task, text, "gemini-byok");
     }
 
-    throw new FeatureNotConfiguredError({
-      requiredCredential: "BUILDER_PRIVATE_KEY or GEMINI_API_KEY",
-      message:
-        "Transcript cleanup requires either Builder.io Connect or a user-supplied GEMINI_API_KEY. Connect Builder.io in Settings or paste a Gemini key.",
+    throw buildCleanupConfigurationError({
+      builderConfigured,
+      builderPartiallyConfigured,
+      builderReturnedEmpty,
+      builderFailureMessage,
     });
   },
 });
@@ -156,125 +156,92 @@ async function resolveUserGeminiKey(): Promise<string | null> {
 }
 
 async function callBuilderGateway({
-  authHeader,
-  publicKey,
   prompt,
   wantJson,
 }: {
-  authHeader: string;
-  publicKey: string;
   prompt: { system: string; user: string };
   wantJson: boolean;
 }): Promise<string> {
-  const base = BUILDER_GATEWAY_BASE_URL.replace(/\/+$/, "");
-  const url = new URL("messages", `${base}/`);
-  url.searchParams.set("apiKey", publicKey);
+  const engine = createBuilderEngine();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
+  let streamedText = "";
+  let finalText = "";
+  let terminalError: string | undefined;
+
   try {
-    const res = await fetch(url.toString(), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: authHeader,
-        "x-builder-api-key": publicKey,
-      },
-      body: JSON.stringify({
-        model: BUILDER_MODEL,
-        system: prompt.system,
-        messages: [
-          {
-            role: "user",
-            content: [{ type: "text", text: prompt.user }],
-          },
-        ],
-        max_tokens: wantJson ? 4096 : 1024,
-        temperature: 0,
-      }),
-      signal: controller.signal,
+    const events = engine.stream({
+      model: BUILDER_MODEL,
+      systemPrompt: prompt.system,
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: prompt.user }],
+        },
+      ],
+      tools: [],
+      abortSignal: controller.signal,
+      maxOutputTokens: wantJson ? 4096 : 1024,
+      temperature: 0,
     });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      if (res.status === 402) {
-        throw new Error(`Builder credits exhausted: ${body.slice(0, 200)}`);
+    for await (const event of events) {
+      if (event.type === "text-delta") streamedText += event.text;
+      if (event.type === "assistant-content") {
+        finalText = event.parts
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("")
+          .trim();
       }
-      throw new Error(`Builder gateway ${res.status}: ${body.slice(0, 300)}`);
+      if (event.type === "stop" && event.reason === "error") {
+        terminalError =
+          event.error ??
+          (event.errorCode
+            ? `Builder gateway returned ${event.errorCode}`
+            : "Builder gateway returned an error");
+      }
     }
-    return await readBuilderJsonlText(res);
   } finally {
     clearTimeout(timeout);
   }
+
+  if (terminalError) throw new Error(terminalError);
+  return (finalText || streamedText).trim();
 }
 
-async function readBuilderJsonlText(res: Response): Promise<string> {
-  const contentType = res.headers.get("content-type") ?? "";
-  if (contentType.includes("application/json")) {
-    const data = (await res.json().catch(() => null)) as {
-      content?: Array<{ type?: string; text?: string }>;
-      choices?: Array<{ message?: { content?: string } }>;
-    } | null;
-    return (
-      data?.content
-        ?.filter((part) => part.type === "text" && part.text)
-        .map((part) => part.text)
-        .join("")
-        .trim() ??
-      data?.choices?.[0]?.message?.content?.trim() ??
-      ""
-    );
+function buildCleanupConfigurationError({
+  builderConfigured,
+  builderPartiallyConfigured,
+  builderReturnedEmpty,
+  builderFailureMessage,
+}: {
+  builderConfigured: boolean;
+  builderPartiallyConfigured: boolean;
+  builderReturnedEmpty: boolean;
+  builderFailureMessage: string | null;
+}): FeatureNotConfiguredError {
+  let message =
+    "Transcript cleanup needs Builder.io Connect or a fallback AI key.";
+
+  if (builderConfigured && builderReturnedEmpty) {
+    message =
+      "Builder.io is connected, but the cleanup/title service returned no text. Native transcript was kept; retry or add a fallback AI key.";
+  } else if (builderConfigured && builderFailureMessage) {
+    const detail =
+      builderFailureMessage.length > 240
+        ? `${builderFailureMessage.slice(0, 240)}...`
+        : builderFailureMessage;
+    message = `Builder.io is connected, but the cleanup/title service failed: ${detail}`;
+  } else if (builderPartiallyConfigured) {
+    message =
+      "Builder.io Connect is incomplete. Reconnect Builder.io in Settings or add a fallback AI key.";
   }
 
-  const reader = res.body?.getReader();
-  if (!reader) return "";
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let streamedText = "";
-  let finalText = "";
-
-  const processLine = (line: string) => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-    let event: any;
-    try {
-      event = JSON.parse(trimmed);
-    } catch {
-      return;
-    }
-    if (event.type === "text-delta" && typeof event.text === "string") {
-      streamedText += event.text;
-      return;
-    }
-    if (event.type === "assistant-content" && Array.isArray(event.parts)) {
-      const candidate = event.parts
-        .filter((part: any) => part?.type === "text")
-        .map((part: any) => part.text ?? "")
-        .join("")
-        .trim();
-      // Only adopt assistant-content when it carries real text — otherwise
-      // an event with zero text parts overwrites streamedText with "" and
-      // we'd lose the streamed content on the `(finalText || streamedText)`
-      // fall-through.
-      if (candidate) finalText = candidate;
-      return;
-    }
-    if (event.type === "stop" && event.reason === "error") {
-      throw new Error(
-        event.error ?? event.message ?? "Builder gateway returned an error",
-      );
-    }
-  };
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split(/\r?\n/);
-    buffer = lines.pop() ?? "";
-    for (const line of lines) processLine(line);
-  }
-  buffer += decoder.decode();
-  if (buffer.trim()) processLine(buffer);
-  return (finalText || streamedText).trim();
+  return new FeatureNotConfiguredError({
+    requiredCredential:
+      "BUILDER_PRIVATE_KEY and BUILDER_PUBLIC_KEY, or GEMINI_API_KEY",
+    message,
+  });
 }
 
 async function callGeminiByok({

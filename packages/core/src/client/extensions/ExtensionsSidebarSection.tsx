@@ -47,12 +47,17 @@ import {
   extensionPopularityOf,
   useExtensionPopularity,
 } from "./extension-popularity.js";
+import {
+  deleteOrHideExtension,
+  invalidateExtensionRemoval,
+} from "./delete-extension.js";
 
 interface Extension {
   id: string;
   name: string;
   description?: string;
   icon?: string;
+  canDelete?: boolean;
 }
 
 const FAVORITES_KEY = "extensions-favorites";
@@ -236,22 +241,16 @@ export function ExtensionsSidebarSection() {
   }, []);
 
   const handleDelete = useCallback(
-    async (extensionId: string) => {
+    async (extension: Extension) => {
+      const extensionId = extension.id;
       setMenuOpenId(null);
       const prev = queryClient.getQueryData<Extension[]>(["extensions"]);
       queryClient.setQueryData<Extension[]>(["extensions"], (old) =>
         (old ?? []).filter((t) => t.id !== extensionId),
       );
       try {
-        const res = await fetch(
-          agentNativePath(`/_agent-native/extensions/${extensionId}`),
-          {
-            method: "DELETE",
-          },
-        );
-        if (!res.ok) throw new Error("Delete failed");
-        queryClient.removeQueries({ queryKey: ["extension", extensionId] });
-        queryClient.invalidateQueries({ queryKey: ["extensions"] });
+        await deleteOrHideExtension(extension);
+        invalidateExtensionRemoval(queryClient, extensionId);
         setFavoriteIds((prev) => {
           const next = new Set(prev);
           next.delete(extensionId);
@@ -668,11 +667,13 @@ export function ExtensionsSidebarSection() {
                             Rename
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onSelect={() => handleDelete(extension.id)}
+                            onSelect={() => handleDelete(extension)}
                             className="text-destructive focus:text-destructive"
                           >
                             <IconTrash className="h-3.5 w-3.5" />
-                            Delete
+                            {extension.canDelete === false
+                              ? "Remove from my list"
+                              : "Delete"}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

@@ -878,24 +878,24 @@ export function App() {
 
   // ---- camera bubble session ---------------------------------------------
   // The bubble overlay (small circular PiP in the bottom-left of the screen
-  // showing the user's face) is owned by the popover for the ENTIRE camera
-  // session — not just during recording. That's a hard requirement of
-  // WebKit's single-page capture-exclusion policy (see `recorder.ts` and
-  // `bubble-pump.ts` headers for the full story): if two webviews in the
-  // same process try to hold capture hardware, WebKit silently mutes one
-  // of them. The only webview that can reliably hold the camera is this
-  // popover, so this popover is where the MediaStream lives and where the
-  // frame pump runs.
+  // showing the user's face) uses two paths. Browser/window capture keeps the
+  // camera in this popover for the entire session because WebKit can mute
+  // capture tracks across same-process webviews. Native full-screen capture
+  // does not use WebKit display capture, so the bubble window can own its own
+  // local camera stream and avoid the hidden-popover relay during recording.
   //
   // Lifecycle:
   //   - Popover visible + camera mode + cameraOn → acquire camera, call
-  //     show_bubble, start frame pump. User sees their face in the
-  //     bottom-left corner.
+  //     show_bubble, then either start the WebRTC/canvas relay
+  //     (window/browser capture) or tell the bubble to start its local camera
+  //     (native full-screen capture). User sees their face in the bottom-left
+  //     corner.
   //   - User clicks Start Recording → popover hides, recording begins.
   //     `isRecording` becomes true, so this effect's deps still say
   //     "active" — the stream + bubble + pump keep running. The recorder
   //     just borrows the video track for MediaRecorder (see
-  //     `preAcquiredCameraStream` in recorder.ts).
+  //     `preAcquiredCameraStream` in recorder.ts). Full-screen mode leaves
+  //     the bubble's local camera stream alone.
   //   - Recording stops → `isRecording` flips back to false, popover
   //     usually hides too, so the effect cleans up: stop tracks, hide
   //     overlays (which closes the bubble window).
@@ -910,6 +910,7 @@ export function App() {
   // symptoms). Reset to false once the recording is fully torn down.
   const bubbleStreamTransferredToRecorder = useRef(false);
   const wantsCamera = mode !== "screen" && cameraOn;
+  const bubbleUsesLocalCamera = source === "full-screen";
   // Ref mirror of `isRecording || recordingFlowActive` so cleanup (which
   // captures the dep-snapshot value) can still see the CURRENT flow state
   // at the moment it actually runs. Without this, if `recordingFlowActive`
@@ -964,74 +965,101 @@ export function App() {
     setCameraError(null);
 
     let cancelled = false;
-    const sessionUnlistens: Array<() => void> = [];
-    const trackSessionListen = (p: Promise<() => void>) => {
-      p.then((u) => {
-        if (cancelled) {
-          try {
-            u();
-          } catch {
-            // ignore
-          }
-          return;
-        }
-        sessionUnlistens.push(u);
-      }).catch(() => {
-        // ignore — best effort during window teardown
-      });
-    };
     // Dual-transport bookkeeping. We try WebRTC first; if it fails or
     // times out, we fall back to the canvas pump. Only one should be
     // active at a time — the ref below guarantees we never double-start.
     let webrtcHandle: BubbleWebrtcHandle | null = null;
     let stopPump: (() => void) | null = null;
     let fellBackToPump = false;
-    let recordingPumpActive = false;
-    let wantsRecordingPump =
-      (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive ===
-      true;
     let stream: MediaStream | null = null;
 
-    const startPump = (reason: string, fallback: boolean) => {
+    const startPump = (reason: string) => {
       if (cancelled || stopPump || !stream) return;
-      if (fallback) fellBackToPump = true;
-      else recordingPumpActive = true;
+      fellBackToPump = true;
       console.log("[clips-popover] starting bubble canvas pump — %s", reason);
       stopPump = startBubbleFramePump(stream);
     };
 
-    const stopRecordingPump = (reason: string) => {
-      if (!recordingPumpActive || fellBackToPump) return;
-      console.log(
-        "[clips-popover] stopping recording bubble pump — %s",
-        reason,
-      );
-      try {
-        stopPump?.();
-      } catch {
-        // ignore
-      }
-      stopPump = null;
-      recordingPumpActive = false;
-    };
-
-    trackSessionListen(
-      listen<{ active?: boolean; reason?: string }>(
-        "clips:bubble-recording-mode",
-        (event) => {
-          wantsRecordingPump = event.payload?.active === true;
-          if (wantsRecordingPump) {
-            startPump(event.payload?.reason ?? "recording-mode", false);
-          } else {
-            stopRecordingPump(event.payload?.reason ?? "recording-mode-ended");
-          }
-        },
-      ),
-    );
-
     console.log(
       "[clips-popover] bubble session start — acquiring camera + showing bubble",
     );
+
+    if (bubbleUsesLocalCamera) {
+      const localStartTimers: Array<ReturnType<typeof setTimeout>> = [];
+      let localReadyUnlisten: (() => void) | null = null;
+      const emitLocalCameraStart = (reason: string) => {
+        if (cancelled) return;
+        console.log(
+          "[clips-popover] starting local bubble camera — %s",
+          reason,
+        );
+        emit("clips:bubble-start-local-camera", {
+          cameraId: cameraId || null,
+        }).catch((err) => {
+          if (!cancelled) {
+            console.warn(
+              "[clips-popover] emit local bubble camera start failed:",
+              err,
+            );
+          }
+        });
+      };
+
+      listen("clips:bubble-ready", () => emitLocalCameraStart("ready"))
+        .then((u) => {
+          if (cancelled) {
+            try {
+              u();
+            } catch {
+              // ignore
+            }
+          } else {
+            localReadyUnlisten = u;
+          }
+        })
+        .catch(() => {});
+
+      invoke("show_bubble")
+        .then(() => {
+          // The bubble's React listener may mount just after the Rust window
+          // reports as shown. Send a few idempotent starts; the bubble ignores
+          // repeats for the same camera but this avoids a first-show race.
+          for (const delay of [100, 500, 1000]) {
+            localStartTimers.push(
+              setTimeout(
+                () => emitLocalCameraStart(`show-bubble+${delay}ms`),
+                delay,
+              ),
+            );
+          }
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            console.error("[clips-popover] local bubble start failed:", err);
+            setCameraError(`Camera unavailable: ${err?.message ?? err}`);
+          }
+        });
+
+      return () => {
+        cancelled = true;
+        for (const timer of localStartTimers) clearTimeout(timer);
+        try {
+          localReadyUnlisten?.();
+        } catch {
+          // ignore
+        }
+        emit("clips:bubble-stop-local-camera", {}).catch(() => {});
+        const recordingInFlight = recordingFlowGateRef.current;
+        console.log(
+          "[clips-popover] local bubble session end — recordingInFlight=%o",
+          recordingInFlight,
+        );
+        if (!recordingInFlight) {
+          invoke("hide_overlays").catch(() => {});
+        }
+      };
+    }
+
     navigator.mediaDevices
       .getUserMedia({
         video: cameraId ? { deviceId: { exact: cameraId } } : true,
@@ -1073,7 +1101,7 @@ export function App() {
           );
           webrtcHandle?.stop();
           webrtcHandle = null;
-          startPump(reason, true);
+          startPump(reason);
         };
         webrtcHandle = startBubbleWebrtc({
           stream: s,
@@ -1084,9 +1112,6 @@ export function App() {
           },
           onFailure: startCanvasFallback,
         });
-        if (wantsRecordingPump) {
-          startPump("recording-mode-latched", false);
-        }
       })
       .catch((err) => {
         if (cancelled) return;
@@ -1124,14 +1149,6 @@ export function App() {
         stopPump();
         stopPump = null;
       }
-      sessionUnlistens.forEach((u) => {
-        try {
-          u();
-        } catch {
-          // ignore
-        }
-      });
-      sessionUnlistens.length = 0;
       // Critical: if the recorder borrowed this stream, it now owns the
       // track lifecycle. Stopping tracks here would end them out from
       // under `MediaRecorder`, producing the laggy-bubble / dead-track
@@ -1158,7 +1175,7 @@ export function App() {
         invoke("hide_overlays").catch(() => {});
       }
     };
-  }, [bubbleActive, cameraId]);
+  }, [bubbleActive, bubbleUsesLocalCamera, cameraId]);
 
   // ---- auto-size popover to content --------------------------------------
   // The Tauri window is fixed-size via tauri.conf.json, but our content
@@ -1268,7 +1285,9 @@ export function App() {
     // effect's deps still include `isRecording`, so the stream + bubble
     // + pump stay alive for the entire recording.
     const preAcquiredCameraStream =
-      mode !== "screen" && cameraOn ? bubbleStreamRef.current : null;
+      mode !== "screen" && cameraOn && !bubbleUsesLocalCamera
+        ? bubbleStreamRef.current
+        : null;
     // Flip the ownership flag BEFORE kicking off the recorder. Any
     // bubble-session cleanup that fires after this point must leave the
     // tracks alone — the recorder now owns them. Cleared in the stop /
@@ -1309,10 +1328,6 @@ export function App() {
       // visibility=hidden on a pinhole-sized window.
       (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
         true;
-      emit("clips:bubble-recording-mode", {
-        active: true,
-        reason: "recording-start",
-      }).catch(() => {});
 
       const recordingPromise = startNativeRecording({
         serverUrl,
@@ -1361,10 +1376,6 @@ export function App() {
         // Clear the force-alive flag if it was latched before the failure.
         (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
           false;
-        emit("clips:bubble-recording-mode", {
-          active: false,
-          reason: "recording-start-failed",
-        }).catch(() => {});
         // Hand the stream back to the popover session. The recorder
         // never got far enough to take ownership of the tracks, so the
         // bubble-session effect must be allowed to stop them again on
@@ -1465,10 +1476,6 @@ export function App() {
             (
               window as unknown as { clipsForceAlive?: boolean }
             ).clipsForceAlive = false;
-            emit("clips:bubble-recording-mode", {
-              active: false,
-              reason: "recording-stop",
-            }).catch(() => {});
             // Recorder has stopped its tracks; next popover session can
             // acquire the camera cleanly again.
             bubbleStreamTransferredToRecorder.current = false;
@@ -1498,10 +1505,6 @@ export function App() {
             (
               window as unknown as { clipsForceAlive?: boolean }
             ).clipsForceAlive = false;
-            emit("clips:bubble-recording-mode", {
-              active: false,
-              reason: "recording-cancel",
-            }).catch(() => {});
             bubbleStreamTransferredToRecorder.current = false;
             bubbleStreamRef.current = null;
             recordingFlowGateRef.current = false;

@@ -192,6 +192,13 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         </div>
       ) : null}
 
+      {cleanup?.status === "failed" ? (
+        <div className="mx-3 mt-3 rounded-md border border-border bg-accent/30 px-3 py-2 text-xs text-muted-foreground flex items-start gap-2">
+          <IconBolt className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span>{friendlyCleanupFailure(cleanup.failureReason)}</span>
+        </div>
+      ) : null}
+
       <div className="flex-1 overflow-y-auto">
         {filtered.length === 0 ? (
           <div className="p-4 text-sm text-muted-foreground">
@@ -324,6 +331,27 @@ function friendlyTranscriptFailure(reason: string | null | undefined): string {
     return "No speech was captured locally, and backup transcription is not set up.";
   }
   return reason;
+}
+
+function friendlyCleanupFailure(reason: string | null | undefined): string {
+  if (!reason) return "Cleanup could not finish. Native transcript was kept.";
+  const normalized = reason.toLowerCase();
+  if (
+    normalized.includes("is connected, but") ||
+    normalized.includes("returned no text") ||
+    normalized.includes("service failed")
+  ) {
+    return "Cleanup could not finish even though Builder.io is connected. Native transcript was kept.";
+  }
+  if (
+    normalized.includes("incomplete") ||
+    normalized.includes("connect builder") ||
+    normalized.includes("not configured") ||
+    normalized.includes("api key")
+  ) {
+    return "Cleanup is paused. Connect Builder.io in Settings to enable it.";
+  }
+  return "Cleanup could not finish. Native transcript was kept.";
 }
 
 /**

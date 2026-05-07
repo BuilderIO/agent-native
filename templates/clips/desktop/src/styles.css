@@ -1581,16 +1581,34 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .bubble-video {
+  position: absolute;
+  inset: 0;
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
   border-radius: 50%;
   transform: scaleX(-1); /* Mirror — feels more natural for selfie view. */
+  will-change: transform, opacity;
+  backface-visibility: hidden;
   /* CRITICAL: clicks MUST pass through the canvas to the
      `data-tauri-drag-region` parent. Without this, the canvas swallows
      mousedown and the bubble can't be dragged — cursor shows the grab
      affordance but the window never moves. */
   pointer-events: none;
+}
+
+.bubble-wrapper[data-path="canvas"] .bubble-root {
+  animation: bubble-compositor-heartbeat 1s steps(60) infinite;
+}
+
+@keyframes bubble-compositor-heartbeat {
+  from {
+    transform: translateZ(0);
+  }
+  to {
+    transform: translateZ(0);
+  }
 }
 
 .bubble-error {

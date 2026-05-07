@@ -24,7 +24,7 @@ export function onboardingProgressExtension(): string {
       activeTab: 'fusion',
       onboardingOnly: true,
       selectedOrgId: null,
-      sort: { key: 'customer', dir: 'asc' },
+      sort: null,
       allRows: [],
       rows: [],
       byId: {},
@@ -66,14 +66,25 @@ export function onboardingProgressExtension(): string {
         for (const row of snapshotRows) rowsByOrg[row.orgId] = this.normalizeSnapshotRow(row);
         for (const [key, value] of Object.entries(byId)) {
           if (!key.startsWith('account-bundle:') || !value || !value.orgId) continue;
-          rowsByOrg[value.orgId] = Object.assign({}, rowsByOrg[value.orgId] || {}, this.normalizeBundleRow(value));
+          if (!rowsByOrg[value.orgId]) continue;
+          const enriched = this.normalizeBundleRow(value);
+          rowsByOrg[value.orgId] = Object.assign({}, enriched, rowsByOrg[value.orgId], {
+            pctDelta: enriched.pctDelta,
+            product_usage: enriched.product_usage,
+            contract_usage: enriched.contract_usage,
+            riskSignals: enriched.riskSignals,
+            bucket: enriched.bucket,
+            bucketReasons: enriched.bucketReasons,
+            academyUrl: enriched.academyUrl,
+            bundle: value
+          });
         }
         for (const [key, value] of Object.entries(byId)) {
           if (!key.startsWith('account-analysis:') || !value) continue;
           const orgId = key.split(':')[1];
           if (rowsByOrg[orgId]) rowsByOrg[orgId].analysis = value;
         }
-        return Object.values(rowsByOrg).sort((a, b) => a.name.localeCompare(b.name));
+        return Object.values(rowsByOrg).sort((a, b) => Number(b.daysSinceKickoff ?? -1) - Number(a.daysSinceKickoff ?? -1));
       },
       normalizeSnapshotRow(row) {
         const product = this.productKey(row.product);
@@ -140,15 +151,30 @@ export function onboardingProgressExtension(): string {
         if (pct >= 40) return 'bg-yellow-600';
         return 'bg-red-600';
       },
+      sentimentClass(value) {
+        const v = String(value || '').toLowerCase();
+        if (v.includes('healthy')) return 'bg-emerald-500/15 text-emerald-700';
+        if (v.includes('risk') || v.includes('radar')) return 'bg-yellow-500/15 text-yellow-700';
+        if (v.includes('churn')) return 'bg-red-500/15 text-red-700';
+        return 'bg-muted text-muted-foreground';
+      },
+      isActiveOnboarding(row) {
+        const stage = String(row.onboardingStage || '').toLowerCase();
+        if (!stage) return false;
+        if (['live', 'post-implementation', 'post_implementation', 'churned', 'paused', 'other'].includes(stage)) return false;
+        return ['onboarding', 'in_onboarding', 'in-onboarding', 'kickoff'].includes(stage);
+      },
+      activeRows() {
+        return this.allRows.filter((r) => this.isActiveOnboarding(r));
+      },
       visibleRows() {
         let rows = this.allRows;
         if (this.activeTab !== 'analytics') rows = rows.filter((r) => r.product === this.activeTab);
-        if (this.activeTab !== 'analytics' && this.onboardingOnly) {
-          rows = rows.filter((r) => String(r.customerStage || r.onboardingStage || 'onboarding').toLowerCase().includes('onboarding'));
-        }
+        if (this.activeTab !== 'analytics' && this.onboardingOnly) rows = rows.filter((r) => this.isActiveOnboarding(r));
         return this.sorted(rows);
       },
       sorted(rows) {
+        if (!this.sort) return rows.slice();
         const key = this.sort.key;
         const dir = this.sort.dir === 'asc' ? 1 : -1;
         const value = (row) => {
@@ -168,27 +194,52 @@ export function onboardingProgressExtension(): string {
         });
       },
       setSort(key) {
-        if (this.sort.key !== key) this.sort = { key, dir: 'asc' };
+        if (!this.sort || this.sort.key !== key) this.sort = { key, dir: 'asc' };
         else if (this.sort.dir === 'asc') this.sort.dir = 'desc';
-        else this.sort = { key, dir: 'asc' };
+        else this.sort = null;
       },
       tabCount(tab) {
-        if (tab === 'analytics') return this.allRows.filter((r) => String(r.customerStage || r.onboardingStage || 'onboarding').toLowerCase().includes('onboarding')).length;
-        return this.allRows.filter((r) => r.product === tab && (!this.onboardingOnly || String(r.customerStage || r.onboardingStage || 'onboarding').toLowerCase().includes('onboarding'))).length;
+        if (tab === 'analytics') return this.activeRows().length;
+        return this.allRows.filter((r) => r.product === tab && (!this.onboardingOnly || this.isActiveOnboarding(r))).length;
       },
       selected() {
         const rows = this.visibleRows();
         return rows.find((r) => r.orgId === this.selectedOrgId) || rows[0] || null;
       },
       analyticsRows() {
-        return this.allRows.filter((r) => String(r.customerStage || r.onboardingStage || 'onboarding').toLowerCase().includes('onboarding'));
+        return this.activeRows();
       },
       avg(values) {
         const nums = values.map(Number).filter((v) => Number.isFinite(v));
-        return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
+        return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
+      },
+      median(values) {
+        const nums = values.map(Number).filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+        if (!nums.length) return null;
+        const mid = Math.floor(nums.length / 2);
+        return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+      },
+      fmtMetric(value, suffix) {
+        return value == null ? '-' : Math.round(value) + suffix;
       },
       bucket(rows, key, buckets) {
-        return buckets.map((b) => ({ label: b.label, count: rows.filter((r) => Number(r[key] || 0) >= b.min && Number(r[key] || 0) <= b.max).length }));
+        return buckets.map((b) => {
+          const matched = rows.filter((r) => Number(r[key] || 0) >= b.min && Number(r[key] || 0) <= b.max);
+          return { label: b.label, count: matched.length, customers: matched.map((r) => r.name) };
+        });
+      },
+      bucketWidth(bucket, buckets) {
+        const max = Math.max(1, ...buckets.map((b) => b.count));
+        return Math.max(3, Math.round((bucket.count / max) * 100));
+      },
+      atRiskRows() {
+        return this.analyticsRows().filter((r) => Number(r.daysSinceKickoff || 0) > 90 && Number(r.pctComplete || 0) < 50);
+      },
+      nearCompleteRows() {
+        return this.analyticsRows().filter((r) => Number(r.pctComplete || 0) >= 80).sort((a, b) => Number(b.pctComplete || 0) - Number(a.pctComplete || 0));
+      },
+      noKickoffRows() {
+        return this.analyticsRows().filter((r) => !r.kickoffDate);
       },
       diffFor(row) {
         const orgs = Array.isArray(this.byId['latest-diff']?.orgs) ? this.byId['latest-diff'].orgs : [];
@@ -196,7 +247,33 @@ export function onboardingProgressExtension(): string {
       },
       crossrefFor(row) {
         const orgs = this.byId.crossref?.orgs || {};
-        return orgs[row.orgId] || orgs[row.name] || null;
+        const direct = orgs[row.orgId] || orgs[row.name];
+        if (direct) return direct;
+        const domain = String(row.domain || '').toLowerCase();
+        const name = String(row.name || '').toLowerCase();
+        return Object.values(orgs).find((o) => (domain && String(o.domain || '').toLowerCase() === domain) || (name && String(o.name || '').toLowerCase() === name)) || null;
+      },
+      fmtTs(value) {
+        if (!value) return '-';
+        const d = new Date(value);
+        return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      },
+      isClosedRisk(value) {
+        return /\[\s*(done|closed)\s*\]/i.test(String(value || ''));
+      },
+      visibleRisks(row) {
+        return (row.identifiedRisks || []).filter((risk) => !this.isClosedRisk(risk));
+      },
+      riskTicket(value) {
+        const text = String(value || '');
+        const url = (text.match(/https?:\/\/\S+/i) || [])[0];
+        if (url) return { label: text.replace(url, '').trim() || url, url };
+        const key = (text.match(/\b[A-Z][A-Z0-9]+-\d+\b/) || [])[0];
+        if (key) return { label: text, url: 'https://builder-io.atlassian.net/browse/' + key };
+        return null;
+      },
+      sortWorkshops(row) {
+        return (row.workshopHistory || []).slice().sort((a, b) => String(b.date || b.startedAt || '').localeCompare(String(a.date || a.startedAt || '')));
       }
     }" x-init="init()" class="space-y-4">
       <p class="text-xs text-muted-foreground">Customers in onboarding status from migrated Academy snapshots, account bundles, weekly diffs, and Gong/Slack cross-reference data.</p>
@@ -225,21 +302,30 @@ export function onboardingProgressExtension(): string {
             <div class="space-y-4">
               <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
                 <div class="rounded-lg border bg-card p-4"><div class="text-xs uppercase text-muted-foreground">Active Onboardings</div><div class="mt-1 text-2xl font-semibold" x-text="analyticsRows().length"></div><div class="text-xs text-muted-foreground" x-text="tabCount('fusion') + ' Fusion / ' + tabCount('publish') + ' Publish / ' + tabCount('publish-academy') + ' Academy'"></div></div>
-                <div class="rounded-lg border bg-card p-4"><div class="text-xs uppercase text-muted-foreground">Avg Completion</div><div class="mt-1 text-2xl font-semibold" x-text="Math.round(avg(analyticsRows().map((r) => r.pctComplete))) + '%'"></div><div class="text-xs text-muted-foreground">Goal or plan progress</div></div>
-                <div class="rounded-lg border bg-card p-4"><div class="text-xs uppercase text-muted-foreground">Avg Days In</div><div class="mt-1 text-2xl font-semibold" x-text="Math.round(avg(analyticsRows().map((r) => r.daysSinceKickoff))) + 'd'"></div><div class="text-xs text-muted-foreground">Since kickoff</div></div>
-                <div class="rounded-lg border bg-card p-4"><div class="text-xs uppercase text-muted-foreground">At Risk</div><div class="mt-1 text-2xl font-semibold" x-text="analyticsRows().filter((r) => Number(r.daysSinceKickoff || 0) > 90 && Number(r.pctComplete || 0) < 50).length"></div><div class="text-xs text-muted-foreground">Over 90d and under 50%</div></div>
+                <div class="rounded-lg border bg-card p-4"><div class="text-xs uppercase text-muted-foreground">Avg / Median Completion</div><div class="mt-1 text-2xl font-semibold" x-text="fmtMetric(avg(analyticsRows().map((r) => r.pctComplete)), '%')"></div><div class="text-xs text-muted-foreground" x-text="'Median ' + fmtMetric(median(analyticsRows().map((r) => r.pctComplete)), '%')"></div></div>
+                <div class="rounded-lg border bg-card p-4"><div class="text-xs uppercase text-muted-foreground">Avg / Median Days In</div><div class="mt-1 text-2xl font-semibold" x-text="fmtMetric(avg(analyticsRows().map((r) => r.daysSinceKickoff)), 'd')"></div><div class="text-xs text-muted-foreground" x-text="'Median ' + fmtMetric(median(analyticsRows().map((r) => r.daysSinceKickoff)), 'd')"></div></div>
+                <div class="rounded-lg border bg-card p-4"><div class="text-xs uppercase text-muted-foreground">At Risk</div><div class="mt-1 text-2xl font-semibold" x-text="atRiskRows().length"></div><div class="text-xs text-muted-foreground" x-text="'&gt;90d in and &lt;50% complete / ' + noKickoffRows().length + ' missing kickoff'"></div></div>
               </div>
               <div class="grid gap-4 lg:grid-cols-2">
                 <div class="rounded-lg border bg-card p-4">
-                  <div class="mb-3 font-medium">Completion % spread</div>
+                  <div class="mb-3"><div class="font-medium">Completion % spread</div><div class="text-xs text-muted-foreground">How far along customers are. Customer names mirror the legacy chart tooltip.</div></div>
                   <template x-for="b in bucket(analyticsRows(), 'pctComplete', [{ label: '0-20%', min: 0, max: 20 }, { label: '21-40%', min: 21, max: 40 }, { label: '41-60%', min: 41, max: 60 }, { label: '61-80%', min: 61, max: 80 }, { label: '81-100%', min: 81, max: 100 }])" :key="b.label">
-                    <div class="mb-2 grid grid-cols-[70px_1fr_32px] items-center gap-2 text-xs"><span x-text="b.label"></span><div class="h-2 rounded bg-muted"><div class="h-2 rounded bg-blue-500" :style="'width:' + Math.min(100, b.count * 12) + '%'"></div></div><span class="text-right tabular-nums" x-text="b.count"></span></div>
+                    <div class="mb-3 text-xs"><div class="grid grid-cols-[70px_1fr_32px] items-center gap-2"><span x-text="b.label"></span><div class="h-2 rounded bg-muted"><div class="h-2 rounded bg-blue-500" :style="'width:' + bucketWidth(b, bucket(analyticsRows(), 'pctComplete', [{ label: '0-20%', min: 0, max: 20 }, { label: '21-40%', min: 21, max: 40 }, { label: '41-60%', min: 41, max: 60 }, { label: '61-80%', min: 61, max: 80 }, { label: '81-100%', min: 81, max: 100 }])) + '%'"></div></div><span class="text-right tabular-nums" x-text="b.count"></span></div><div x-show="b.customers.length" class="mt-1 truncate text-[11px] text-muted-foreground" x-text="b.customers.slice(0, 8).join(', ') + (b.customers.length > 8 ? ' +' + (b.customers.length - 8) + ' more' : '')"></div></div>
                   </template>
                 </div>
                 <div class="rounded-lg border bg-card p-4">
-                  <div class="mb-3 font-medium">Days since kickoff</div>
+                  <div class="mb-3"><div class="font-medium">Days since kickoff</div><div class="text-xs text-muted-foreground">Length of onboarding so far. Older buckets are more likely stalled.</div></div>
                   <template x-for="b in bucket(analyticsRows(), 'daysSinceKickoff', [{ label: '0-30d', min: 0, max: 30 }, { label: '31-60d', min: 31, max: 60 }, { label: '61-90d', min: 61, max: 90 }, { label: '91-120d', min: 91, max: 120 }, { label: '120d+', min: 121, max: 9999 }])" :key="b.label">
-                    <div class="mb-2 grid grid-cols-[70px_1fr_32px] items-center gap-2 text-xs"><span x-text="b.label"></span><div class="h-2 rounded bg-muted"><div class="h-2 rounded bg-amber-500" :style="'width:' + Math.min(100, b.count * 12) + '%'"></div></div><span class="text-right tabular-nums" x-text="b.count"></span></div>
+                    <div class="mb-3 text-xs"><div class="grid grid-cols-[70px_1fr_32px] items-center gap-2"><span x-text="b.label"></span><div class="h-2 rounded bg-muted"><div class="h-2 rounded bg-amber-500" :style="'width:' + bucketWidth(b, bucket(analyticsRows(), 'daysSinceKickoff', [{ label: '0-30d', min: 0, max: 30 }, { label: '31-60d', min: 31, max: 60 }, { label: '61-90d', min: 61, max: 90 }, { label: '91-120d', min: 91, max: 120 }, { label: '120d+', min: 121, max: 9999 }])) + '%'"></div></div><span class="text-right tabular-nums" x-text="b.count"></span></div><div x-show="b.customers.length" class="mt-1 truncate text-[11px] text-muted-foreground" x-text="b.customers.slice(0, 8).join(', ') + (b.customers.length > 8 ? ' +' + (b.customers.length - 8) + ' more' : '')"></div></div>
+                  </template>
+                </div>
+              </div>
+              <div x-show="nearCompleteRows().length" class="rounded-lg border bg-card p-4">
+                <div class="mb-2 font-medium" x-text="'Near complete (' + nearCompleteRows().length + ')'"></div>
+                <div class="mb-2 text-xs text-muted-foreground">Customers at or above 80% completion, good candidates to graduate from onboarding.</div>
+                <div class="flex flex-wrap gap-1.5">
+                  <template x-for="row in nearCompleteRows()" :key="row.orgId">
+                    <button type="button" class="rounded-full border px-2 py-1 text-xs hover:bg-muted" x-on:click="activeTab = row.product; selectedOrgId = row.orgId" x-text="row.name + ' ' + Number(row.pctComplete || 0) + '%'"></button>
                   </template>
                 </div>
               </div>
@@ -287,13 +373,18 @@ export function onboardingProgressExtension(): string {
                         <p class="mt-1 text-xs text-muted-foreground" x-text="(selected().domain ? selected().domain + ' / ' : '') + 'Owner: ' + (selected().ownerName || '-') + ' / Kickoff: ' + fmtDate(selected().kickoffDate) + ' / ' + (selected().daysSinceKickoff ?? '?') + ' days in'"></p>
                         <div class="mt-2 flex flex-wrap gap-1.5">
                           <span class="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground" x-text="selected().accountStatus || 'status unknown'"></span>
-                          <span class="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground" x-text="selected().csmSentiment || 'sentiment unknown'"></span>
+                          <span class="rounded px-1.5 py-0.5 text-[10px]" :class="sentimentClass(selected().csmSentiment)" x-text="selected().csmSentiment || 'sentiment unknown'"></span>
+                          <span class="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground" x-show="selected().onboardingStage" x-text="'stage: ' + selected().onboardingStage"></span>
                           <span class="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground" x-text="(selected().activeUserCount || 0) + ' active users'"></span>
                         </div>
+                        <p class="mt-1 font-mono text-[10px] text-muted-foreground" x-text="'orgId: ' + selected().orgId"></p>
                       </div>
-                      <a x-show="selected().academyUrl" :href="selected().academyUrl" target="_blank" rel="noreferrer" class="text-xs text-primary hover:underline">Academy</a>
+                      <a :href="selected().academyUrl || 'https://academy.builder.io'" target="_blank" rel="noreferrer" class="shrink-0 text-xs text-primary hover:underline">Open in Academy</a>
                     </div>
-                    <div x-show="selected().statusNote" class="mt-3 rounded-md bg-muted/40 p-3 text-sm whitespace-pre-wrap" x-text="stripHtml(selected().statusNote || '')"></div>
+                    <div x-show="selected().statusNote" class="mt-3 rounded-md bg-muted/40 p-3 text-sm">
+                      <div class="mb-1 text-xs text-muted-foreground">Status note</div>
+                      <p class="whitespace-pre-wrap leading-relaxed" x-text="stripHtml(selected().statusNote || '')"></p>
+                    </div>
                   </section>
                   <section class="rounded-lg border p-4">
                     <h3 class="mb-3 text-sm font-semibold">Goals <span class="font-normal text-muted-foreground" x-text="'(' + (selected().goalsCompleted || selected().goals?.filter((g) => g.completed).length || 0) + '/' + (selected().goalsTotal || selected().goals?.length || 0) + ')'"></span></h3>
@@ -304,34 +395,78 @@ export function onboardingProgressExtension(): string {
                       </template>
                     </ul>
                   </section>
-                  <section class="rounded-lg border p-4" x-show="(selected().blockers || []).length || (selected().identifiedRisks || []).length || (selected().riskSignals || []).length">
+                  <section class="rounded-lg border p-4" x-show="(selected().blockers || []).length || visibleRisks(selected()).length || (selected().riskSignals || []).length">
                     <h3 class="mb-3 text-sm font-semibold">Risks and blockers</h3>
-                    <template x-for="label in ['blockers', 'identifiedRisks', 'riskSignals']" :key="label">
-                      <div x-show="(selected()[label] || []).length" class="mb-3">
-                        <div class="mb-1 text-xs capitalize text-muted-foreground" x-text="label.replace(/([A-Z])/g, ' $1')"></div>
-                        <ul class="list-disc space-y-1 pl-5 text-sm"><template x-for="item in selected()[label]" :key="String(item)"><li x-text="String(item)"></li></template></ul>
+                    <div x-show="(selected().blockers || []).length" class="mb-3">
+                      <div class="mb-1 text-xs text-muted-foreground">Blockers</div>
+                      <ul class="list-disc space-y-1 pl-5 text-sm"><template x-for="item in (selected().blockers || [])" :key="String(item)"><li x-text="String(item)"></li></template></ul>
+                    </div>
+                    <div x-show="visibleRisks(selected()).length" class="mb-3">
+                      <div class="mb-1 text-xs text-muted-foreground" x-text="'Identified risks (' + visibleRisks(selected()).length + ')'"></div>
+                      <ul class="space-y-1 text-sm">
+                        <template x-for="item in visibleRisks(selected())" :key="String(item)">
+                          <li class="flex items-start gap-2">
+                            <span class="mt-0.5 text-yellow-600">-</span>
+                            <template x-if="riskTicket(item)">
+                              <a :href="riskTicket(item).url" target="_blank" rel="noreferrer" class="break-words text-primary hover:underline" x-text="riskTicket(item).label"></a>
+                            </template>
+                            <template x-if="!riskTicket(item)"><span class="break-words" x-text="String(item)"></span></template>
+                          </li>
+                        </template>
+                      </ul>
+                    </div>
+                    <div x-show="(selected().riskSignals || []).length">
+                      <div class="mb-1 text-xs text-muted-foreground">Risk signals</div>
+                      <div class="space-y-1 text-sm">
+                        <template x-for="signal in (selected().riskSignals || [])" :key="String(signal)">
+                          <div class="rounded bg-muted/40 px-2 py-1" x-text="typeof signal === 'string' ? signal : JSON.stringify(signal)"></div>
+                        </template>
                       </div>
-                    </template>
+                    </div>
                   </section>
                   <section class="rounded-lg border p-4" x-show="(selected().workshopHistory || []).length">
                     <h3 class="mb-3 text-sm font-semibold">Workshops</h3>
-                    <ul class="space-y-2"><template x-for="workshop in (selected().workshopHistory || [])" :key="workshop.id || workshop.name || workshop.date"><li class="flex justify-between gap-3 text-sm"><span class="font-medium" x-text="workshop.name || workshop.title || 'Workshop'"></span><span class="text-xs text-muted-foreground" x-text="fmtDate(workshop.date || workshop.startedAt)"></span></li></template></ul>
+                    <ul class="space-y-2"><template x-for="workshop in sortWorkshops(selected())" :key="workshop.id || workshop.name || workshop.date"><li class="flex justify-between gap-3 text-sm"><div class="min-w-0"><div class="truncate font-medium" x-text="workshop.name || workshop.title || 'Workshop'"></div><div class="text-xs text-muted-foreground" x-text="fmtDate(workshop.date || workshop.startedAt)"></div></div><a x-show="workshop.gongRecording" :href="workshop.gongRecording" target="_blank" rel="noreferrer" class="shrink-0 text-xs text-primary hover:underline">Gong</a></li></template></ul>
                   </section>
                   <section class="rounded-lg border p-4" x-show="(selected().planProgress || []).length">
                     <h3 class="mb-3 text-sm font-semibold">Plan progress</h3>
                     <template x-for="plan in (selected().planProgress || [])" :key="plan.planKey || plan.planName">
-                      <div class="mb-2 text-sm"><div class="flex justify-between gap-2"><span x-text="plan.planName || plan.planKey"></span><span class="text-xs text-muted-foreground" x-text="(plan.progressPercent || 0) + '% / ' + (plan.completedCheckpointCount || 0) + ' checkpoints'"></span></div><div class="mt-1 h-1.5 rounded-full bg-muted"><div class="h-full rounded-full bg-primary" :style="'width:' + Math.min(100, Number(plan.progressPercent || 0)) + '%'"></div></div></div>
+                      <div class="mb-2 text-sm"><div class="flex justify-between gap-2"><span class="font-medium" x-text="plan.planName || plan.planKey"></span><span class="text-xs text-muted-foreground" x-text="(plan.progressPercent || 0) + '% / ' + (plan.completedCheckpointCount || 0) + ' checkpoints'"></span></div><div class="mt-1 h-1.5 rounded-full bg-muted"><div class="h-full rounded-full bg-primary" :style="'width:' + Math.min(100, Number(plan.progressPercent || 0)) + '%'"></div></div><div class="mt-1 text-[10px] text-muted-foreground" x-text="'Last activity: ' + fmtDate(plan.lastActivityAt) + (plan.canBookNextSession ? ' / ready for next session' : '')"></div></div>
                     </template>
                   </section>
                   <section class="rounded-lg border p-4">
                     <div class="mb-3 flex items-baseline justify-between"><h3 class="text-sm font-semibold">What changed</h3><span class="text-xs text-muted-foreground" x-text="(byId['latest-diff']?.from || '') + (byId['latest-diff']?.to ? ' -> ' + byId['latest-diff'].to : '')"></span></div>
-                    <template x-if="diffFor(selected())"><pre class="max-h-48 overflow-auto whitespace-pre-wrap text-xs" x-text="JSON.stringify(diffFor(selected()), null, 2)"></pre></template>
+                    <template x-if="diffFor(selected())">
+                      <ul class="space-y-2 text-sm">
+                        <li x-show="diffFor(selected()).kickoffDate?.changed"><span class="text-muted-foreground">Kickoff:</span> <span class="text-muted-foreground line-through" x-text="diffFor(selected()).kickoffDate?.previous || '-'"></span> <span>-></span> <span class="font-medium" x-text="diffFor(selected()).kickoffDate?.current || '-'"></span></li>
+                        <li x-show="diffFor(selected()).percentComplete && diffFor(selected()).percentComplete.delta !== 0"><span class="text-muted-foreground">Progress:</span> <span x-text="diffFor(selected()).percentComplete?.previous + '%'"></span> <span>-></span> <span x-text="diffFor(selected()).percentComplete?.current + '%'"></span> <span :class="diffFor(selected()).percentComplete?.delta > 0 ? 'text-emerald-600' : 'text-red-600'" x-text="'(' + (diffFor(selected()).percentComplete?.delta > 0 ? '+' : '') + diffFor(selected()).percentComplete?.delta + ')'"></span></li>
+                        <li x-show="diffFor(selected()).statusNote?.changed"><div class="mb-0.5 text-xs text-muted-foreground">Status note updated:</div><div class="text-xs italic text-muted-foreground line-through" x-text="stripHtml(diffFor(selected()).statusNote?.previous || '-')"></div><div class="text-xs" x-text="stripHtml(diffFor(selected()).statusNote?.current || '-')"></div></li>
+                        <li x-show="(diffFor(selected()).goals?.completed || []).length"><div class="text-xs text-emerald-600">Completed this week:</div><ul class="ml-3 list-disc text-xs"><template x-for="goal in (diffFor(selected()).goals?.completed || [])" :key="goal.id"><li x-text="goal.title"></li></template></ul></li>
+                        <li x-show="(diffFor(selected()).goals?.added || []).length"><div class="text-xs text-blue-600">New goals:</div><ul class="ml-3 list-disc text-xs"><template x-for="goal in (diffFor(selected()).goals?.added || [])" :key="goal.id"><li x-text="goal.title"></li></template></ul></li>
+                        <li x-show="(diffFor(selected()).goals?.stillOpen || []).length"><div class="text-xs text-yellow-600">Still open:</div><ul class="ml-3 list-disc text-xs"><template x-for="goal in (diffFor(selected()).goals?.stillOpen || [])" :key="goal.id"><li><span x-text="goal.title"></span> <span class="text-muted-foreground" x-show="goal.ageDays != null" x-text="'(' + goal.ageDays + 'd)'"></span></li></template></ul></li>
+                      </ul>
+                    </template>
                     <p x-show="!diffFor(selected())" class="text-xs text-muted-foreground">No changes for this customer in the latest snapshot.</p>
                   </section>
                   <section class="rounded-lg border p-4">
                     <h3 class="mb-3 text-sm font-semibold">Recent activity (Gong and Slack)</h3>
-                    <template x-if="crossrefFor(selected())"><pre class="max-h-48 overflow-auto whitespace-pre-wrap text-xs" x-text="JSON.stringify(crossrefFor(selected()), null, 2)"></pre></template>
-                    <p x-show="!crossrefFor(selected())" class="text-xs text-muted-foreground">No migrated cross-reference data found for this account.</p>
+                    <p x-show="!crossrefFor(selected()) || (!(crossrefFor(selected()).gong || []).length && !(crossrefFor(selected()).slack || []).length)" class="text-xs text-muted-foreground">No migrated cross-reference data found for this account.</p>
+                    <div x-show="(crossrefFor(selected())?.gong || []).length" class="mb-4">
+                      <div class="mb-2 text-xs text-muted-foreground">Gong calls (last 7d)</div>
+                      <ul class="space-y-1.5 text-sm">
+                        <template x-for="call in (crossrefFor(selected())?.gong || [])" :key="call.callId || call.url || call.title">
+                          <li class="flex items-start gap-2"><span class="shrink-0 text-xs tabular-nums text-muted-foreground" x-text="fmtTs(call.date)"></span><span class="flex-1" x-text="call.title"></span><a x-show="call.url" :href="call.url" target="_blank" rel="noreferrer" class="text-xs text-primary hover:underline">Open</a></li>
+                        </template>
+                      </ul>
+                    </div>
+                    <div x-show="(crossrefFor(selected())?.slack || []).length">
+                      <div class="mb-2 text-xs text-muted-foreground">Slack mentions (last 7d)</div>
+                      <ul class="space-y-2 text-xs">
+                        <template x-for="msg in (crossrefFor(selected())?.slack || []).slice(0, 10)" :key="msg.ts || msg.permalink || msg.text">
+                          <li><div class="flex items-center gap-2 text-muted-foreground"><span x-text="'#' + msg.channel"></span><span>/</span><span x-text="fmtTs(msg.ts)"></span><span x-show="msg.user" x-text="'/ ' + msg.user"></span><a x-show="msg.permalink" :href="msg.permalink" target="_blank" rel="noreferrer" class="ml-auto text-primary hover:underline">Open</a></div><div class="mt-0.5 text-foreground" x-text="msg.text"></div></li>
+                        </template>
+                      </ul>
+                    </div>
                   </section>
                 </aside>
               </template>

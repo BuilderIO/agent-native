@@ -24,9 +24,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Skeleton } from "@/components/ui/skeleton";
 import type { RecordingSummary } from "@/hooks/use-library";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
+import { EditableRecordingTitle } from "@/components/editable-recording-title";
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -82,6 +82,7 @@ interface RecordingCardProps {
   onRename?: (rec: RecordingSummary) => void;
   onArchive?: (rec: RecordingSummary) => void;
   onTrash?: (rec: RecordingSummary) => void;
+  canRenameTitle?: boolean;
 }
 
 export function RecordingCard({
@@ -94,6 +95,7 @@ export function RecordingCard({
   onRename,
   onArchive,
   onTrash,
+  canRenameTitle = false,
 }: RecordingCardProps) {
   const navigate = useNavigate();
   const [hovered, setHovered] = useState(false);
@@ -254,20 +256,20 @@ export function RecordingCard({
       <div className="flex-1 p-3 space-y-2">
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1 text-sm font-medium text-foreground line-clamp-1">
-              {isDefaultTitle(recording.title) ? (
-                // Placeholder while the agent drafts a title from the
-                // transcript. `useAutoTitleBridge` kicks this off and the
-                // polling layer swaps the skeleton for the real title the
-                // moment `update-recording` lands.
-                <Skeleton
-                  aria-label="Generating title"
-                  className="h-3.5 w-3/4"
-                />
-              ) : (
-                <span className="truncate">{recording.title}</span>
-              )}
-            </div>
+            <EditableRecordingTitle
+              recordingId={recording.id}
+              title={recording.title}
+              canEdit={canRenameTitle}
+              displayTitle={
+                isDefaultTitle(recording.title)
+                  ? "Untitled Clip"
+                  : recording.title
+              }
+              showPendingSkeleton={isDefaultTitle(recording.title)}
+              className="text-sm font-medium text-foreground"
+              inputClassName="h-7 text-sm font-medium"
+              skeletonClassName="h-3.5 w-3/4"
+            />
             <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <PrivacyIcon
                 visibility={recording.visibility}
@@ -302,10 +304,14 @@ export function RecordingCard({
               <DropdownMenuItem onSelect={() => onMove?.(recording)}>
                 <IconFolder className="h-4 w-4 mr-2" /> Move to folder
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => onRename?.(recording)}>
-                <IconEdit className="h-4 w-4 mr-2" /> Rename
-              </DropdownMenuItem>
+              {onRename ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => onRename(recording)}>
+                    <IconEdit className="h-4 w-4 mr-2" /> Rename
+                  </DropdownMenuItem>
+                </>
+              ) : null}
               <DropdownMenuSeparator />
               {recording.archivedAt ? (
                 <DropdownMenuItem onSelect={() => onArchive?.(recording)}>

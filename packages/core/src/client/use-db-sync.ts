@@ -134,6 +134,9 @@ export function useDbSync(
             queryClient.invalidateQueries({ queryKey: ["action"] });
             queryClient.invalidateQueries({ queryKey: ["extension"] });
             queryClient.invalidateQueries({ queryKey: ["extensions"] });
+            queryClient.invalidateQueries({ queryKey: ["extension-slots"] });
+            queryClient.invalidateQueries({ queryKey: ["slot-installs"] });
+            queryClient.invalidateQueries({ queryKey: ["slot-available"] });
             queryClient.invalidateQueries({ queryKey: ["tool"] });
             queryClient.invalidateQueries({ queryKey: ["tools"] });
           }

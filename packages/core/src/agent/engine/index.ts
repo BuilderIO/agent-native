@@ -32,6 +32,13 @@ export {
 } from "./registry.js";
 
 export {
+  createBuilderEngine,
+  BUILDER_DEFAULT_MODEL,
+  BUILDER_SUPPORTED_MODELS,
+  BUILDER_CAPABILITIES,
+} from "./builder-engine.js";
+
+export {
   createAnthropicEngine,
   ANTHROPIC_DEFAULT_MODEL,
   ANTHROPIC_SUPPORTED_MODELS,
