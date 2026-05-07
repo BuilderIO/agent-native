@@ -28,6 +28,13 @@ export default defineAction({
       .max(100)
       .optional()
       .describe("Dispatch vault secret IDs to grant to the app"),
+    resourceIds: z
+      .array(z.string())
+      .max(100)
+      .optional()
+      .describe(
+        "Dispatch workspace resource IDs or knowledge packs to grant to the app",
+      ),
   }),
   run: async (args) => startWorkspaceAppCreation(args),
 });

@@ -13,6 +13,7 @@ import denyVaultRequest from "./deny-vault-request.js";
 import getAppCreationSettings from "./get-app-creation-settings.js";
 import getDispatchSettings from "./get-dispatch-settings.js";
 import getWorkspaceInfo from "./get-workspace-info.js";
+import grantWorkspaceResourcesToApp from "./grant-workspace-resources-to-app.js";
 import grantVaultSecretsToApp from "./grant-vault-secrets-to-app.js";
 import listConnectedAgents from "./list-connected-agents.js";
 import listDestinations from "./list-destinations.js";
@@ -28,6 +29,7 @@ import listVaultRequests from "./list-vault-requests.js";
 import listVaultSecretOptions from "./list-vault-secret-options.js";
 import listVaultSecrets from "./list-vault-secrets.js";
 import listWorkspaceApps from "./list-workspace-apps.js";
+import listWorkspaceResourceOptions from "./list-workspace-resource-options.js";
 import listWorkspaceResourceGrants from "./list-workspace-resource-grants.js";
 import listWorkspaceResources from "./list-workspace-resources.js";
 import navigate from "./navigate.js";
@@ -68,6 +70,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "get-app-creation-settings": getAppCreationSettings,
   "get-dispatch-settings": getDispatchSettings,
   "get-workspace-info": getWorkspaceInfo,
+  "grant-workspace-resources-to-app": grantWorkspaceResourcesToApp,
   "grant-vault-secrets-to-app": grantVaultSecretsToApp,
   "list-connected-agents": listConnectedAgents,
   "list-destinations": listDestinations,
@@ -83,6 +86,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-vault-secret-options": listVaultSecretOptions,
   "list-vault-secrets": listVaultSecrets,
   "list-workspace-apps": listWorkspaceApps,
+  "list-workspace-resource-options": listWorkspaceResourceOptions,
   "list-workspace-resource-grants": listWorkspaceResourceGrants,
   "list-workspace-resources": listWorkspaceResources,
   navigate: navigate,

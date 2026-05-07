@@ -1,10 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { listWorkspaceResources } from "../server/lib/workspace-resources-store.js";
+import { listWorkspaceResourceOptions } from "../server/lib/workspace-resources-store.js";
 
 export default defineAction({
   description:
-    "List all workspace-wide resources (skills, instructions, agents, and knowledge packs) that can be shared across apps.",
+    "List lightweight workspace resource options for selectors, without returning full content.",
   schema: z.object({
     kind: z
       .enum(["skill", "instruction", "agent", "knowledge"])
@@ -12,5 +12,5 @@ export default defineAction({
       .describe("Filter by resource kind"),
   }),
   http: { method: "GET" },
-  run: async (args) => listWorkspaceResources(args),
+  run: async (args) => listWorkspaceResourceOptions(args),
 });
