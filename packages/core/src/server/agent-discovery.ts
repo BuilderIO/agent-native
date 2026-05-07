@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { TEMPLATES, visibleTemplates } from "../cli/templates-meta.js";
+import { TEMPLATES } from "../cli/templates-meta.js";
 
 export interface DiscoveredAgent {
   id: string;
@@ -27,7 +27,9 @@ interface AgentEntry {
  * without depending on @agent-native/shared-app-config at runtime.
  */
 const BUILTIN_AGENTS: AgentEntry[] = visibleTemplates()
-  .filter((template) => !!template.prodUrl)
+const BUILTIN_AGENTS: AgentEntry[] = TEMPLATES.filter(
+  (template) => (!template.hidden || template.defaultAgent) && !!template.prodUrl,
+)
   .map((template) => ({
     id: template.name,
     name: template.label,
@@ -39,9 +41,9 @@ const BUILTIN_AGENTS: AgentEntry[] = visibleTemplates()
   }));
 
 const HIDDEN_FIRST_PARTY_AGENT_IDS = new Set(
-  TEMPLATES.filter((template) => template.hidden && template.prodUrl).map(
-    (template) => template.name,
-  ),
+  TEMPLATES.filter(
+    (template) => template.hidden && !template.defaultAgent && template.prodUrl,
+  ).map((template) => template.name),
 );
 
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";

@@ -242,9 +242,7 @@ export default function LibraryPage() {
             ) : (
               <div className="flex min-h-[260px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center">
                 <IconMessageCircle className="h-10 w-10 text-muted-foreground" />
-                <h3 className="mt-4 text-base font-semibold">
-                  No runs yet
-                </h3>
+                <h3 className="mt-4 text-base font-semibold">No runs yet</h3>
                 <p className="mt-2 max-w-md text-sm text-muted-foreground">
                   Generate from this library to capture prompt, output,
                   references, and settings.
@@ -358,7 +356,9 @@ function RunCard({
       ? run.referenceAssetIds
       : [];
   const outputIds = Array.isArray(run.output?.assetIds)
-    ? run.output.assetIds.filter((id: unknown): id is string => typeof id === "string")
+    ? run.output.assetIds.filter(
+        (id: unknown): id is string => typeof id === "string",
+      )
     : run.output?.assetId
       ? [run.output.assetId]
       : [];
@@ -375,7 +375,9 @@ function RunCard({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={run.status === "completed" ? "secondary" : "outline"}>
+            <Badge
+              variant={run.status === "completed" ? "secondary" : "outline"}
+            >
               {run.status}
             </Badge>
             <span className="text-xs text-muted-foreground">

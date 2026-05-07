@@ -1394,6 +1394,7 @@ ORDER BY period, sentiment, model_used`,
 
   const marketingAlias = makeMarketingFunnelAlias(marketing);
   dashboards.push(marketingAlias);
+  dashboards.push(eastEmeaDashboard());
 
   const gaSeed = readSeedDashboard("google-analytics");
   if (gaSeed) {
@@ -1466,6 +1467,132 @@ function makeMarketingFunnelAlias(marketing: Record<string, any>) {
         { chartType: "heatmap" },
       ),
     ],
+  );
+}
+
+function eastEmeaTeamCte(): string {
+  return `team AS (
+  SELECT * FROM UNNEST([
+    STRUCT('Erin Buckelew' AS owner_name, 0.0 AS closed_won_quota, 0.0 AS pipeline_target, 2.5 AS coverage_goal, ['erin buckelew'] AS owner_keys),
+    STRUCT('Andrew Bishop' AS owner_name, 325000.0 AS closed_won_quota, 975000.0 AS pipeline_target, 2.5 AS coverage_goal, ['andrew bishop'] AS owner_keys),
+    STRUCT('Julia Shkrabova' AS owner_name, 225000.0 AS closed_won_quota, 675000.0 AS pipeline_target, 2.5 AS coverage_goal, ['julia shkrabova'] AS owner_keys),
+    STRUCT('Nina Abbasi-Beard' AS owner_name, 0.0 AS closed_won_quota, 0.0 AS pipeline_target, 2.5 AS coverage_goal, ['nina@builder.io', 'nina abbasi-beard'] AS owner_keys)
+  ])
+)`;
+}
+
+function eastEmeaDashboard(): DashboardMigration {
+  const teamCte = eastEmeaTeamCte();
+  const teamJoin =
+    "EXISTS (SELECT 1 FROM UNNEST(t.owner_keys) key WHERE LOWER(COALESCE(d.sales_rep_owner_name, '')) = key)";
+  return dashboard(
+    "east-emea",
+    "East-EMEA Weekly",
+    "East-EMEA Q2 FY2027 weekly scorecard migrated from the latest Fusion dashboard into SQL panels.",
+    "client/pages/adhoc/east-emea/**",
+    [
+      panel(
+        "team-scorecard",
+        "Team Scorecard",
+        `WITH ${teamCte}
+SELECT
+  t.owner_name,
+  t.closed_won_quota,
+  t.pipeline_target,
+  COUNTIF(d.is_closed_won AND DATE(d.close_date) BETWEEN DATE('2026-05-01') AND LEAST(CURRENT_DATE(), DATE('2026-07-31'))) AS closed_won_qtd_count,
+  COALESCE(SUM(IF(d.is_closed_won AND DATE(d.close_date) BETWEEN DATE('2026-05-01') AND LEAST(CURRENT_DATE(), DATE('2026-07-31')), SAFE_CAST(d.amount AS FLOAT64), 0)), 0) AS closed_won_qtd_amount,
+  SAFE_DIVIDE(
+    COALESCE(SUM(IF(d.is_closed_won AND DATE(d.close_date) BETWEEN DATE('2026-05-01') AND LEAST(CURRENT_DATE(), DATE('2026-07-31')), SAFE_CAST(d.amount AS FLOAT64), 0)), 0),
+    NULLIF(t.closed_won_quota, 0)
+  ) AS qtd_attainment,
+  COUNTIF(d.is_closed_won AND DATE(d.close_date) BETWEEN DATE('2026-02-01') AND CURRENT_DATE()) AS closed_won_ytd_count,
+  COALESCE(SUM(IF(d.is_closed_won AND DATE(d.close_date) BETWEEN DATE('2026-02-01') AND CURRENT_DATE(), SAFE_CAST(d.amount AS FLOAT64), 0)), 0) AS closed_won_ytd_amount,
+  COUNTIF(NOT COALESCE(d.is_deal_closed, FALSE)) AS open_pipeline_count,
+  COALESCE(SUM(IF(NOT COALESCE(d.is_deal_closed, FALSE), SAFE_CAST(d.amount AS FLOAT64), 0)), 0) AS open_pipeline_amount,
+  SAFE_DIVIDE(COALESCE(SUM(IF(NOT COALESCE(d.is_deal_closed, FALSE), SAFE_CAST(d.amount AS FLOAT64), 0)), 0), NULLIF(t.closed_won_quota, 0)) AS pipeline_coverage,
+  COUNTIF(d.nbm_meeting_booked_date BETWEEN DATE('2026-05-01') AND DATE('2026-07-31')) AS nbm_scheduled,
+  COUNTIF(d.nbm_meeting_complete_date BETWEEN DATE('2026-05-01') AND DATE('2026-07-31')) AS nbm_completed
+FROM team t
+LEFT JOIN \`builder-3b0a2.dbt_mart.dim_hs_deals\` d
+  ON ${teamJoin}
+GROUP BY t.owner_name, t.closed_won_quota, t.pipeline_target, t.coverage_goal
+ORDER BY
+  CASE t.owner_name
+    WHEN 'Erin Buckelew' THEN 1
+    WHEN 'Andrew Bishop' THEN 2
+    WHEN 'Julia Shkrabova' THEN 3
+    WHEN 'Nina Abbasi-Beard' THEN 4
+    ELSE 99
+  END`,
+      ),
+      panel(
+        "current-month-deals",
+        "Current Month Deals",
+        `WITH ${teamCte}
+SELECT
+  CAST(d.deal_id AS STRING) AS deal_id,
+  d.deal_name,
+  t.owner_name,
+  DATE(d.close_date) AS close_date,
+  d.stage_name,
+  COALESCE(d.hs_manual_forecast_category, 'Uncategorized') AS forecast_category,
+  SAFE_CAST(d.amount AS FLOAT64) AS amount,
+  d.pipeline_name
+FROM team t
+JOIN \`builder-3b0a2.dbt_mart.dim_hs_deals\` d
+  ON ${teamJoin}
+WHERE NOT COALESCE(d.is_deal_closed, FALSE)
+  AND DATE(d.close_date) BETWEEN DATE_TRUNC(CURRENT_DATE(), MONTH) AND LAST_DAY(CURRENT_DATE())
+  AND NOT STARTS_WITH(LOWER(COALESCE(d.stage_name, '')), 's0')
+ORDER BY close_date ASC, amount DESC
+LIMIT 200`,
+      ),
+      panel(
+        "next-month-deals",
+        "Next Month Deals",
+        `WITH ${teamCte}
+SELECT
+  CAST(d.deal_id AS STRING) AS deal_id,
+  d.deal_name,
+  t.owner_name,
+  DATE(d.close_date) AS close_date,
+  d.stage_name,
+  COALESCE(d.hs_manual_forecast_category, 'Uncategorized') AS forecast_category,
+  SAFE_CAST(d.amount AS FLOAT64) AS amount,
+  d.pipeline_name
+FROM team t
+JOIN \`builder-3b0a2.dbt_mart.dim_hs_deals\` d
+  ON ${teamJoin}
+WHERE NOT COALESCE(d.is_deal_closed, FALSE)
+  AND DATE(d.close_date) BETWEEN DATE_ADD(DATE_TRUNC(CURRENT_DATE(), MONTH), INTERVAL 1 MONTH) AND LAST_DAY(DATE_ADD(CURRENT_DATE(), INTERVAL 1 MONTH))
+  AND NOT STARTS_WITH(LOWER(COALESCE(d.stage_name, '')), 's0')
+ORDER BY close_date ASC, amount DESC
+LIMIT 200`,
+      ),
+      panel(
+        "stage-zero-deals",
+        "Stage 0 Deals This Quarter",
+        `WITH ${teamCte}
+SELECT
+  CAST(d.deal_id AS STRING) AS deal_id,
+  d.deal_name,
+  t.owner_name,
+  DATE(d.close_date) AS close_date,
+  d.stage_name,
+  COALESCE(d.hs_manual_forecast_category, 'Uncategorized') AS forecast_category,
+  SAFE_CAST(d.amount AS FLOAT64) AS amount,
+  d.pipeline_name
+FROM team t
+JOIN \`builder-3b0a2.dbt_mart.dim_hs_deals\` d
+  ON ${teamJoin}
+WHERE NOT COALESCE(d.is_deal_closed, FALSE)
+  AND DATE(d.close_date) BETWEEN DATE('2026-05-01') AND DATE('2026-07-31')
+  AND STARTS_WITH(LOWER(COALESCE(d.stage_name, '')), 's0')
+ORDER BY close_date ASC, amount DESC
+LIMIT 200`,
+      ),
+    ],
+    [],
   );
 }
 
@@ -1641,6 +1768,15 @@ function buildAnalyses(): AnalysisMigration[] {
         "Comprehensive closed-lost Fusion analysis with loss themes, stage progression, and re-engagement opportunities.",
       author: "brent@builder.io",
       sourcePath: "client/pages/adhoc/fusion-closed-lost-analysis.tsx",
+      dataSources: ["hubspot", "gong", "slack"],
+    },
+    {
+      id: "fusion-closed-won-analysis",
+      name: "Fusion Closed Won Analysis",
+      description:
+        "Analysis of Fusion new-business deals closed won since January 1, 2026, including win themes, Gong transcript evidence, buyer personas, and deal intelligence.",
+      author: "brent@builder.io",
+      sourcePath: "client/pages/adhoc/fusion-closed-won-analysis.tsx",
       dataSources: ["hubspot", "gong", "slack"],
     },
     {
