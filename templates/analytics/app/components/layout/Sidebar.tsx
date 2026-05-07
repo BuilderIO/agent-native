@@ -6,7 +6,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  IconFlask,
+  IconChartBar,
   IconLogout,
   IconChevronDown,
   IconSun,
@@ -32,7 +32,6 @@ import {
   getHiddenDashboards,
   getDashboardOrder,
   setDashboardOrder,
-  type DashboardMeta,
   type DashboardSubview,
 } from "@/pages/adhoc/registry";
 
@@ -57,6 +56,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -79,6 +82,12 @@ import {
 import { usePopularity, popularityOf } from "@/lib/item-popularity";
 
 const SIDEBAR_PREVIEW_COUNT = 5;
+const DASHBOARD_SORT_MODE_KEY = "dashboard-sort-mode";
+const ANALYSIS_SORT_MODE_KEY = "analysis-sort-mode";
+const DASHBOARDS_OPEN_KEY = "analytics-sidebar-dashboards-open";
+const ANALYSES_OPEN_KEY = "analytics-sidebar-analyses-open";
+
+type SidebarSortMode = "most-used" | "alphabetical" | "manual";
 
 import {
   DndContext,
@@ -104,6 +113,48 @@ const bottomItems = [
   { icon: IconInfoCircle, label: "About", href: "/about" },
 ];
 
+function getStoredBoolean(key: string, fallback: boolean): boolean {
+  if (typeof window === "undefined") return fallback;
+  const raw = window.localStorage.getItem(key);
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return fallback;
+}
+
+function setStoredBoolean(key: string, value: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, String(value));
+  } catch {
+    // localStorage unavailable — ignore, section state is best-effort.
+  }
+}
+
+function getStoredSortMode(key: string): SidebarSortMode {
+  if (typeof window === "undefined") return "most-used";
+  const raw = window.localStorage.getItem(key);
+  if (raw === "alphabetical" || raw === "manual" || raw === "most-used") {
+    return raw;
+  }
+  return "most-used";
+}
+
+function setStoredSortMode(key: string, value: SidebarSortMode): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // localStorage unavailable — ignore, sort mode is best-effort.
+  }
+}
+
+function sortByName<T extends { id: string; name: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const name = a.name.localeCompare(b.name);
+    return name !== 0 ? name : a.id.localeCompare(b.id);
+  });
+}
+
 function applyOrder<T extends { id: string }>(
   items: T[],
   savedOrder: string[],
@@ -123,6 +174,61 @@ function applyOrder<T extends { id: string }>(
     ordered.push(item);
   }
   return ordered;
+}
+
+function SidebarSectionSortMenu({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: SidebarSortMode;
+  onChange: (value: SidebarSortMode) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 opacity-0 transition-all hover:bg-sidebar-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/section:opacity-100"
+              aria-label={`${label} sort options`}
+            >
+              <IconSettings className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{`${label} sort`}</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent side="right" align="start" className="w-44">
+        <DropdownMenuLabel className="text-xs">Sort by</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={value}
+          onValueChange={(next) => {
+            if (
+              next === "most-used" ||
+              next === "alphabetical" ||
+              next === "manual"
+            ) {
+              onChange(next);
+            }
+          }}
+        >
+          <DropdownMenuRadioItem value="most-used">
+            Most used
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="alphabetical">
+            Alphabetical
+          </DropdownMenuRadioItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuRadioItem value="manual">
+            Manual order
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 // --- Shared sortable row (used by both dashboards and analyses) ---
@@ -634,10 +740,18 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const queryClient = useQueryClient();
   const { resolvedTheme, setTheme } = useTheme();
 
-  const [dashOpen, setDashOpen] = useState(true);
+  const [dashOpen, setDashOpen] = useState(() =>
+    getStoredBoolean(DASHBOARDS_OPEN_KEY, true),
+  );
   const [dashShowAll, setDashShowAll] = useState(false);
-  const [analysesOpen, setAnalysesOpen] = useState(true);
+  const [analysesOpen, setAnalysesOpen] = useState(() =>
+    getStoredBoolean(ANALYSES_OPEN_KEY, true),
+  );
   const [analysesShowAll, setAnalysesShowAll] = useState(false);
+  const [dashboardSortMode, setDashboardSortModeState] =
+    useState<SidebarSortMode>(() => getStoredSortMode(DASHBOARD_SORT_MODE_KEY));
+  const [analysisSortMode, setAnalysisSortModeState] =
+    useState<SidebarSortMode>(() => getStoredSortMode(ANALYSIS_SORT_MODE_KEY));
   const popularity = usePopularity();
 
   const light = resolvedTheme === "light";
@@ -699,6 +813,32 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     [favoriteIds, saveFavorites],
   );
 
+  const setDashboardSortMode = useCallback((mode: SidebarSortMode) => {
+    setStoredSortMode(DASHBOARD_SORT_MODE_KEY, mode);
+    setDashboardSortModeState(mode);
+  }, []);
+
+  const setAnalysisSortMode = useCallback((mode: SidebarSortMode) => {
+    setStoredSortMode(ANALYSIS_SORT_MODE_KEY, mode);
+    setAnalysisSortModeState(mode);
+  }, []);
+
+  const toggleDashOpen = useCallback(() => {
+    setDashOpen((current) => {
+      const next = !current;
+      setStoredBoolean(DASHBOARDS_OPEN_KEY, next);
+      return next;
+    });
+  }, []);
+
+  const toggleAnalysesOpen = useCallback(() => {
+    setAnalysesOpen((current) => {
+      const next = !current;
+      setStoredBoolean(ANALYSES_OPEN_KEY, next);
+      return next;
+    });
+  }, []);
+
   const { data: sqlDashboards = [], isLoading: sqlDashboardsLoading } =
     useQuery({
       queryKey: ["sql-dashboards-sidebar"],
@@ -713,19 +853,28 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   });
 
   const sortedAnalyses = useMemo(() => {
-    if (analysisOrderState.length === 0) {
-      return [...analysesList].sort((a, b) => {
-        const aFav = favoriteIds.has(`analysis:${a.id}`) ? 0 : 1;
-        const bFav = favoriteIds.has(`analysis:${b.id}`) ? 0 : 1;
-        if (aFav !== bFav) return aFav - bFav;
-        const aPop = popularityOf(popularity, "analysis", a.id);
-        const bPop = popularityOf(popularity, "analysis", b.id);
-        if (aPop !== bPop) return bPop - aPop;
-        return a.name.localeCompare(b.name);
-      });
+    if (analysisSortMode === "alphabetical") {
+      return sortByName(analysesList);
     }
-    return applyOrder(analysesList, analysisOrderState);
-  }, [analysesList, favoriteIds, popularity, analysisOrderState]);
+    if (analysisSortMode === "manual" && analysisOrderState.length > 0) {
+      return applyOrder(analysesList, analysisOrderState);
+    }
+    return [...analysesList].sort((a, b) => {
+      const aPop = popularityOf(popularity, "analysis", a.id);
+      const bPop = popularityOf(popularity, "analysis", b.id);
+      if (aPop !== bPop) return bPop - aPop;
+      const aFav = favoriteIds.has(`analysis:${a.id}`) ? 0 : 1;
+      const bFav = favoriteIds.has(`analysis:${b.id}`) ? 0 : 1;
+      if (aFav !== bFav) return aFav - bFav;
+      return a.name.localeCompare(b.name);
+    });
+  }, [
+    analysesList,
+    analysisSortMode,
+    analysisOrderState,
+    popularity,
+    favoriteIds,
+  ]);
 
   const displayedAnalyses = useMemo(
     () =>
@@ -761,23 +910,26 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       source: "sql",
     }));
     const all = [...staticItems, ...sqlItems];
-    // If no custom order yet, sort favorites first, then by popularity, then alpha.
-    if (dashboardOrderState.length === 0) {
-      return all.sort((a, b) => {
-        const aFav = favoriteIds.has(a.id) ? 0 : 1;
-        const bFav = favoriteIds.has(b.id) ? 0 : 1;
-        if (aFav !== bFav) return aFav - bFav;
-        const aPop = popularityOf(popularity, "dashboard", a.id);
-        const bPop = popularityOf(popularity, "dashboard", b.id);
-        if (aPop !== bPop) return bPop - aPop;
-        return a.name.localeCompare(b.name);
-      });
+    if (dashboardSortMode === "alphabetical") {
+      return sortByName(all);
     }
-    return applyOrder(all, dashboardOrderState);
+    if (dashboardSortMode === "manual" && dashboardOrderState.length > 0) {
+      return applyOrder(all, dashboardOrderState);
+    }
+    return [...all].sort((a, b) => {
+      const aPop = popularityOf(popularity, "dashboard", a.id);
+      const bPop = popularityOf(popularity, "dashboard", b.id);
+      if (aPop !== bPop) return bPop - aPop;
+      const aFav = favoriteIds.has(a.id) ? 0 : 1;
+      const bFav = favoriteIds.has(b.id) ? 0 : 1;
+      if (aFav !== bFav) return aFav - bFav;
+      return a.name.localeCompare(b.name);
+    });
   }, [
     hiddenIds,
     staticDashboardRenames,
     favoriteIds,
+    dashboardSortMode,
     dashboardOrderState,
     sqlDashboards,
     popularity,
@@ -947,6 +1099,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     (event: DragEndEvent) => {
       const { active, over } = event;
       if (!over || active.id === over.id) return;
+      setDashboardSortMode("manual");
       setDashboardOrderState((prev) => {
         const ids = prev.length > 0 ? prev : visibleDashboards.map((d) => d.id);
         const oldIndex = ids.indexOf(active.id as string);
@@ -957,13 +1110,14 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         return newOrder;
       });
     },
-    [visibleDashboards],
+    [setDashboardSortMode, visibleDashboards],
   );
 
   const handleAnalysisDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event;
       if (!over || active.id === over.id) return;
+      setAnalysisSortMode("manual");
       setAnalysisOrderState((prev) => {
         const ids = prev.length > 0 ? prev : sortedAnalyses.map((a) => a.id);
         const oldIndex = ids.indexOf(active.id as string);
@@ -974,7 +1128,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         return newOrder;
       });
     },
-    [sortedAnalyses],
+    [setAnalysisSortMode, sortedAnalyses],
   );
 
   const handleResizeStart = useCallback(
@@ -1074,24 +1228,44 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           </Link>
 
           {/* Dashboards section */}
-          <button
-            onClick={() => setDashOpen(!dashOpen)}
+          <div
             className={cn(
-              "flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary text-left",
+              "group/section flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
               isAdhocActive
                 ? "text-sidebar-accent-foreground"
                 : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
-            <IconFlask className="h-4 w-4 shrink-0" />
-            <span className="flex-1 min-w-0 truncate">Dashboards</span>
-            <IconChevronDown
-              className={cn(
-                "h-3.5 w-3.5 shrink-0 transition-transform",
-                !dashOpen && "-rotate-90",
-              )}
+            <button
+              type="button"
+              onClick={toggleDashOpen}
+              className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
+              aria-expanded={dashOpen}
+            >
+              <IconChartBar className="h-4 w-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">Dashboards</span>
+            </button>
+            <SidebarSectionSortMenu
+              label="Dashboards"
+              value={dashboardSortMode}
+              onChange={setDashboardSortMode}
             />
-          </button>
+            <button
+              type="button"
+              onClick={toggleDashOpen}
+              className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
+              aria-label={
+                dashOpen ? "Collapse dashboards" : "Expand dashboards"
+              }
+            >
+              <IconChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 transition-transform",
+                  !dashOpen && "-rotate-90",
+                )}
+              />
+            </button>
+          </div>
 
           {dashOpen && (
             <DndContext
@@ -1148,24 +1322,44 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           )}
 
           {/* Analyses section */}
-          <button
-            onClick={() => setAnalysesOpen(!analysesOpen)}
+          <div
             className={cn(
-              "flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary text-left",
+              "group/section flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
               location.pathname.startsWith("/analyses")
                 ? "text-sidebar-accent-foreground"
                 : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
-            <IconReportAnalytics className="h-4 w-4 shrink-0" />
-            <span className="flex-1 min-w-0 truncate">Analyses</span>
-            <IconChevronDown
-              className={cn(
-                "h-3.5 w-3.5 shrink-0 transition-transform",
-                !analysesOpen && "-rotate-90",
-              )}
+            <button
+              type="button"
+              onClick={toggleAnalysesOpen}
+              className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
+              aria-expanded={analysesOpen}
+            >
+              <IconReportAnalytics className="h-4 w-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">Analyses</span>
+            </button>
+            <SidebarSectionSortMenu
+              label="Analyses"
+              value={analysisSortMode}
+              onChange={setAnalysisSortMode}
             />
-          </button>
+            <button
+              type="button"
+              onClick={toggleAnalysesOpen}
+              className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
+              aria-label={
+                analysesOpen ? "Collapse analyses" : "Expand analyses"
+              }
+            >
+              <IconChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 transition-transform",
+                  !analysesOpen && "-rotate-90",
+                )}
+              />
+            </button>
+          </div>
 
           {analysesOpen && (
             <DndContext

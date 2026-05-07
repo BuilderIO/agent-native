@@ -17,6 +17,7 @@ import {
   IconPencil,
   IconArrowUp,
   IconInfoCircle,
+  IconPhoto,
 } from "@tabler/icons-react";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 
 interface SlashCommandMenuProps {
   editor: Editor;
@@ -267,6 +269,8 @@ export function SlashCommandMenu({
   } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const slashPosRef = useRef<number | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const imageInsertPosRef = useRef<number | null>(null);
 
   // Generate prompt popover state
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -290,9 +294,19 @@ export function SlashCommandMenu({
     },
   };
 
+  const imageCommand: CommandItem = {
+    title: "Image",
+    description: "Upload image",
+    icon: IconPhoto,
+    action: (editor) => {
+      imageInsertPosRef.current = editor.state.selection.from;
+      imageInputRef.current?.click();
+    },
+  };
+
   const allCommands = isTurnInto
     ? turnIntoCommands
-    : [generateCommand, ...commands];
+    : [generateCommand, imageCommand, ...commands];
 
   const filteredCommands = allCommands.filter(
     (cmd) =>
@@ -312,6 +326,42 @@ export function SlashCommandMenu({
       message: generatePrompt.trim(),
       context: `The user is asking you to generate content for their document (id: ${documentId}). Use the update-document action to write the generated markdown content. Do NOT use db-exec or raw SQL — use \`update-document --id ${documentId} --content "..."\` (and \`--title\` if appropriate).${content ? `\n\nCurrent document content:\n${content}` : "\n\nThe document is currently empty."}`,
     });
+  }
+
+  async function handleImageFilePicked(
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+
+    const toastId = toast.loading("Uploading image...");
+    try {
+      const src = await uploadImageFile(file);
+      const imageBlock = {
+        type: "image",
+        attrs: { src, alt: file.name },
+      };
+      const insertPos = imageInsertPosRef.current;
+      imageInsertPosRef.current = null;
+
+      if (insertPos !== null) {
+        editor
+          .chain()
+          .focus()
+          .insertContentAt(
+            Math.min(insertPos, editor.state.doc.content.size),
+            imageBlock,
+          )
+          .run();
+      } else {
+        editor.chain().focus().insertContent(imageBlock).run();
+      }
+      toast.success("Image added", { id: toastId });
+    } catch (error) {
+      imageInsertPosRef.current = null;
+      toast.error(imageUploadErrorMessage(error), { id: toastId });
+    }
   }
 
   const executeCommand = useCallback(
@@ -422,6 +472,16 @@ export function SlashCommandMenu({
 
   return (
     <>
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={handleImageFilePicked}
+      />
+
       {/* Slash command menu */}
       {isOpen && position && filteredCommands.length > 0 && (
         <div

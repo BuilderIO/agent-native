@@ -16,11 +16,13 @@ const DEFAULT_APPS = [
   "dispatch",
   "forms",
   "design",
+  "images",
 ];
 
 const ORG_NAME = "Builder.io";
 const ORG_DOMAIN = "builder.io";
 const OWNER_EMAIL = "steve@builder.io";
+const OWNER_NAME = "Steve Sewell";
 const ORG_ID_BASE = "builder_io";
 const coreRequire = createRequire(path.resolve("packages/core/package.json"));
 
@@ -53,6 +55,7 @@ interface EnsureResult {
   memberCreated: boolean;
   memberPromoted: boolean;
   betterAuthOrgCreated: boolean;
+  betterAuthUserCreated: boolean;
   betterAuthMemberCreated: boolean;
   betterAuthMemberPromoted: boolean;
   betterAuthUserMissing: boolean;
@@ -700,6 +703,7 @@ async function ensureBuilderOrg(
     memberCreated,
     memberPromoted,
     betterAuthOrgCreated: betterAuth.orgCreated,
+    betterAuthUserCreated: betterAuth.userCreated,
     betterAuthMemberCreated: betterAuth.memberCreated,
     betterAuthMemberPromoted: betterAuth.memberPromoted,
     betterAuthUserMissing: betterAuth.userMissing,
@@ -728,6 +732,7 @@ async function ensureBetterAuthOrg(
   orgCreated: boolean;
   memberCreated: boolean;
   memberPromoted: boolean;
+  userCreated: boolean;
   userMissing: boolean;
 }> {
   let orgCreated = false;
@@ -769,14 +774,43 @@ async function ensureBetterAuthOrg(
       }
     }
 
-    const user = await db.execute(
+    let user = await db.execute(
       `SELECT id FROM "user" WHERE LOWER(email) = ? LIMIT 1`,
       [OWNER_EMAIL],
     );
-    const userId = user.rows[0]?.id ? String(user.rows[0].id) : null;
+    let userId = user.rows[0]?.id ? String(user.rows[0].id) : null;
     if (!userId) {
       userMissing = true;
-      return { orgCreated, memberCreated, memberPromoted, userMissing };
+      if (!shouldWrite) {
+        return {
+          orgCreated,
+          memberCreated,
+          memberPromoted,
+          userCreated: false,
+          userMissing,
+        };
+      }
+      userId = randomId();
+      if (db.dialect === "postgres") {
+        await db.execute(
+          `INSERT INTO "user"
+             (id, name, email, email_verified, image, created_at, updated_at)
+           VALUES (?, ?, ?, TRUE, NULL, NOW(), NOW())`,
+          [userId, OWNER_NAME, OWNER_EMAIL],
+        );
+      } else {
+        await db.execute(
+          `INSERT INTO "user"
+             (id, name, email, email_verified, image, created_at, updated_at)
+           VALUES (?, ?, ?, 1, NULL, ?, ?)`,
+          [userId, OWNER_NAME, OWNER_EMAIL, now, now],
+        );
+      }
+      user = await db.execute(
+        `SELECT id FROM "user" WHERE LOWER(email) = ? LIMIT 1`,
+        [OWNER_EMAIL],
+      );
+      userId = user.rows[0]?.id ? String(user.rows[0].id) : userId;
     }
 
     const member = await db.execute(
@@ -830,7 +864,13 @@ async function ensureBetterAuthOrg(
     throw new Error(`better-auth org sync failed: ${formatError(error)}`);
   }
 
-  return { orgCreated, memberCreated, memberPromoted, userMissing };
+  return {
+    orgCreated,
+    memberCreated,
+    memberPromoted,
+    userCreated: userMissing && shouldWrite,
+    userMissing: userMissing && !shouldWrite,
+  };
 }
 
 async function availableBetterAuthSlug(db: Db, orgId: string): Promise<string> {
@@ -1063,8 +1103,13 @@ function printResult(result: EnsureResult, didWrite: boolean): void {
         ? `${OWNER_EMAIL} promoted to owner`
         : `${OWNER_EMAIL} already owner`,
     result.betterAuthOrgCreated ? "better-auth org created" : null,
+    result.betterAuthUserCreated
+      ? "better-auth user created"
+      : result.betterAuthUserMissing
+        ? "better-auth user missing"
+        : null,
     result.betterAuthUserMissing
-      ? "better-auth user missing"
+      ? null
       : result.betterAuthMemberCreated
         ? "better-auth member added"
         : result.betterAuthMemberPromoted

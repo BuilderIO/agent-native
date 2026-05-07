@@ -83,10 +83,16 @@ export default defineAction({
 
     // Parent run, if this was a refinement. The parent assetId is stored
     // in the run's metadata `sourceAssetId` field.
-    const meta = parseJson<{ sourceAssetId?: string; slotId?: string }>(
-      run.metadata,
-      {},
-    );
+    const meta = parseJson<{
+      sourceAssetId?: string;
+      slotId?: string;
+      settingsUsed?: Record<string, unknown>;
+      assetId?: string;
+      outputAssetIds?: string[];
+      provider?: string;
+      providerGenerationId?: string;
+      creditsCharged?: number;
+    }>(run.metadata, {});
     let parentRun = null as null | {
       runId: string;
       prompt: string;
@@ -140,6 +146,19 @@ export default defineAction({
         userPrompt: run.prompt,
         compiledPrompt: run.compiledPrompt,
         referenceAssetIds: referenceIds,
+        settingsUsed: meta.settingsUsed ?? {
+          model: run.model,
+          aspectRatio: run.aspectRatio,
+          imageSize: run.imageSize,
+          groundingMode: run.groundingMode,
+        },
+        output: {
+          assetId: meta.assetId ?? null,
+          assetIds: meta.outputAssetIds ?? (meta.assetId ? [meta.assetId] : []),
+          provider: meta.provider ?? null,
+          providerGenerationId: meta.providerGenerationId ?? null,
+          creditsCharged: meta.creditsCharged ?? null,
+        },
         status: run.status,
         errorMessage: run.error,
         createdAt: run.createdAt,

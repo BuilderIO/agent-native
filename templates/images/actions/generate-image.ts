@@ -16,6 +16,7 @@ import { createAssetFromBuffer } from "../server/lib/assets.js";
 import { compositeLogo } from "../server/lib/image-processing.js";
 import {
   compilePrompt,
+  DEFAULT_GENERATION_REFERENCE_LIMIT,
   generateWithManagedImageProvider,
   selectReferences,
 } from "../server/lib/generation.js";
@@ -42,6 +43,12 @@ export default defineAction({
     imageSize: z.enum(IMAGE_SIZES).default("2K"),
     model: z.enum(IMAGE_MODELS).default("gemini-3.1-flash-image-preview"),
     categories: z.array(z.enum(IMAGE_CATEGORIES)).optional(),
+    referenceAssetIds: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Exact reference assets to use. When omitted, the server samples a small relevant subset from the latest library references.",
+      ),
     includeLogo: z.coerce.boolean().default(false),
     slotId: z.string().optional(),
     sourceAssetId: z.string().optional(),
@@ -73,6 +80,9 @@ export default defineAction({
           .where(eq(schema.imageCollections.id, args.collectionId))
           .limit(1)
       : [null];
+    if (collection && collection.libraryId !== args.libraryId) {
+      throw new Error("Collection does not belong to this image library.");
+    }
     const styleBrief = {
       ...parseJson<StyleBrief>(library.styleBrief, {}),
       ...parseJson<StyleBrief>(collection?.styleBrief, {}),
@@ -81,13 +91,15 @@ export default defineAction({
       libraryId: args.libraryId,
       collectionId: args.collectionId,
       categories: args.categories,
+      referenceAssetIds: args.referenceAssetIds,
       sourceAssetId: args.sourceAssetId,
-      limit: 12,
+      limit: DEFAULT_GENERATION_REFERENCE_LIMIT,
     });
     const category = args.categories?.[0] ?? collection?.category;
     const compiledPrompt = compilePrompt({
       libraryTitle: library.title,
       styleBrief,
+      customInstructions: library.customInstructions,
       prompt: args.prompt,
       referenceCount: references.length,
       includeLogo: args.includeLogo,
@@ -99,6 +111,33 @@ export default defineAction({
     // by owner / org without re-resolving who triggered the run later.
     const ownerEmail = getRequestUserEmail() ?? null;
     const orgId = getRequestOrgId() ?? null;
+    const referenceSelection = {
+      mode: args.referenceAssetIds?.length ? "explicit" : "sampled-latest",
+      limit: args.referenceAssetIds?.length
+        ? args.referenceAssetIds.length
+        : DEFAULT_GENERATION_REFERENCE_LIMIT,
+      requestedAssetIds: args.referenceAssetIds ?? [],
+      selectedAssetIds: references.map((ref) => ref.id),
+      sourceAssetId: args.sourceAssetId,
+    };
+    const settingsUsed = {
+      model: args.model,
+      aspectRatio: args.aspectRatio,
+      imageSize: args.imageSize,
+      groundingMode: args.groundingMode,
+      includeLogo: args.includeLogo,
+      categories: args.categories ?? [],
+      collectionId: args.collectionId ?? null,
+      customInstructions: library.customInstructions ?? "",
+    };
+    const baseMetadata = {
+      slotId: args.slotId,
+      sourceAssetId: args.sourceAssetId,
+      includeLogo: args.includeLogo,
+      categories: args.categories ?? [],
+      referenceSelection,
+      settingsUsed,
+    };
     await db.insert(schema.imageGenerationRuns).values({
       id: runId,
       libraryId: args.libraryId,
@@ -115,10 +154,7 @@ export default defineAction({
       callerAppId: args.callerAppId ?? null,
       ownerEmail,
       orgId,
-      metadata: stringifyJson({
-        slotId: args.slotId,
-        sourceAssetId: args.sourceAssetId,
-      }),
+      metadata: stringifyJson(baseMetadata),
       createdAt: now,
     });
 
@@ -194,11 +230,15 @@ export default defineAction({
           status: "completed",
           completedAt: nowIso(),
           metadata: stringifyJson({
+            ...baseMetadata,
             assetId: asset.id,
+            outputAssetIds: [asset.id],
             slotId,
             sourceAssetId: args.sourceAssetId,
             includeLogo: args.includeLogo,
             categories: args.categories ?? [],
+            referenceSelection,
+            settingsUsed,
             provider: generated.provider,
             providerGenerationId: generated.providerGenerationId,
             creditsCharged: generated.creditsCharged,

@@ -5,7 +5,7 @@ import {
   getBuiltinAgents,
   shouldIncludeRemoteAgentManifest,
 } from "./agent-discovery.js";
-import { visibleTemplates } from "../cli/templates-meta.js";
+import { TEMPLATES } from "../cli/templates-meta.js";
 
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourceListAccessibleMock = vi.hoisted(() => vi.fn());
@@ -37,10 +37,13 @@ describe("agent discovery", () => {
     restoreEnv("APP_URL", previousAppUrl);
   });
 
-  it("derives built-in connected agents from visible production templates", () => {
-    const expected = visibleTemplates()
-      .filter((template) => template.prodUrl && template.name !== "dispatch")
-      .map((template) => template.name);
+  it("derives built-in connected agents from public and default-agent production templates", () => {
+    const expected = TEMPLATES.filter(
+      (template) =>
+        (!template.hidden || template.defaultAgent) &&
+        template.prodUrl &&
+        template.name !== "dispatch",
+    ).map((template) => template.name);
 
     expect(getBuiltinAgents("dispatch").map((agent) => agent.id)).toEqual(
       expected,
@@ -52,6 +55,7 @@ describe("agent discovery", () => {
 
     expect(ids).toContain("clips");
     expect(ids).toContain("design");
+    expect(ids).toContain("images");
     expect(ids).not.toContain("issues");
     expect(ids).not.toContain("recruiting");
     expect(ids).not.toContain("calls");
@@ -64,6 +68,9 @@ describe("agent discovery", () => {
     expect(
       shouldIncludeRemoteAgentManifest({ id: "dispatch" }, "dispatch"),
     ).toBe(false);
+    expect(shouldIncludeRemoteAgentManifest({ id: "images" }, "dispatch")).toBe(
+      true,
+    );
     expect(shouldIncludeRemoteAgentManifest({ id: "issues" }, "dispatch")).toBe(
       false,
     );

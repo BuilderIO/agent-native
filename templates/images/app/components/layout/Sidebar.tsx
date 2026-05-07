@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
 import {
   IconPhoto,
+  IconLibraryPhoto,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -13,6 +14,7 @@ import {
   appPath,
   useActionQuery,
 } from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   Tooltip,
@@ -22,6 +24,7 @@ import {
 
 const baseNavItems = [
   { icon: IconPhoto, label: "Create", href: "/" },
+  { icon: IconLibraryPhoto, label: "Libraries", href: "/libraries" },
   { icon: IconSettings, label: "Settings", href: "/settings" },
 ];
 
@@ -119,10 +122,12 @@ export function Sidebar() {
           const Icon = item.icon;
           const isActive =
             item.href === "/"
-              ? location.pathname === "/" ||
-                location.pathname.startsWith("/library/") ||
-                location.pathname.startsWith("/image/")
-              : location.pathname.startsWith(item.href);
+              ? location.pathname === "/"
+              : item.href === "/libraries"
+                ? location.pathname === "/libraries" ||
+                  location.pathname.startsWith("/library/") ||
+                  location.pathname.startsWith("/image/")
+                : location.pathname.startsWith(item.href);
           const link = (
             <Link
               key={item.href}
@@ -153,6 +158,9 @@ export function Sidebar() {
 
       {!collapsed && (
         <>
+          <div className="border-t border-border px-2 py-2">
+            <ExtensionsSidebarSection />
+          </div>
           <div className="border-t border-border px-3 py-2 space-y-2">
             <FeedbackButton />
             <OrgSwitcher />

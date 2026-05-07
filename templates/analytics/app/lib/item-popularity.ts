@@ -18,7 +18,7 @@ const KEY_PREFIX = "item-popularity:v1:";
 const CHANGE_EVENT = "item-popularity-change";
 const ANONYMOUS_SCOPE = "anonymous:none";
 
-export type ItemType = "dashboard" | "analysis";
+export type ItemType = "dashboard" | "analysis" | "extension";
 export type Popularity = Record<string, number>;
 
 let currentScope = ANONYMOUS_SCOPE;

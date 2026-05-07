@@ -6,6 +6,7 @@ import { getIdToken } from "@/lib/auth";
 import { dashboardComponents } from "./registry";
 import BlankDashboard from "./BlankDashboard";
 import { appApiPath } from "@agent-native/core/client";
+import { incrementItemView } from "@/lib/item-popularity";
 
 const SqlDashboardPage = lazy(() => import("./sql-dashboard"));
 
@@ -60,7 +61,8 @@ export default function AdhocRouter() {
 
   useEffect(() => {
     localStorage.setItem("last-dashboard-id", id);
-  }, [id]);
+    if (Component) incrementItemView("dashboard", id);
+  }, [Component, id]);
 
   // Code-based dashboards take priority
   if (Component) {

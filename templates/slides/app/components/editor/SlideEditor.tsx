@@ -137,9 +137,29 @@ function findSmartBlock(
   return null;
 }
 
-/** Strip data-builder-id attributes from an HTML string */
+/** Strip renderer/editor-only attributes from an HTML string before saving */
 function stripBuilderIds(html: string): string {
-  return html.replace(/\s*data-builder-id="[^"]*"/g, "");
+  let cleaned = html;
+  if (typeof DOMParser !== "undefined") {
+    const doc = new DOMParser().parseFromString(
+      `<div data-strip-root>${html}</div>`,
+      "text/html",
+    );
+    for (const wrapper of Array.from(
+      doc.querySelectorAll("[data-fmd-autofit-content]"),
+    )) {
+      const parent = wrapper.parentNode;
+      if (!parent) continue;
+      while (wrapper.firstChild) {
+        parent.insertBefore(wrapper.firstChild, wrapper);
+      }
+      parent.removeChild(wrapper);
+    }
+    cleaned =
+      doc.querySelector("[data-strip-root]")?.innerHTML ?? doc.body.innerHTML;
+  }
+
+  return cleaned.replace(/\s*data-builder-id="[^"]*"/g, "");
 }
 
 interface SlideEditorProps {

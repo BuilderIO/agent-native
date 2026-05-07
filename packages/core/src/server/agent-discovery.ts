@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { TEMPLATES, visibleTemplates } from "../cli/templates-meta.js";
+import { TEMPLATES } from "../cli/templates-meta.js";
 
 export interface DiscoveredAgent {
   id: string;
@@ -23,25 +23,26 @@ interface AgentEntry {
 
 /**
  * Built-in agent registry. Derive this from the published CLI metadata so
- * connected-agent discovery stays aligned with the public template allow-list
+ * connected-agent discovery stays aligned with first-party template metadata
  * without depending on @agent-native/shared-app-config at runtime.
  */
-const BUILTIN_AGENTS: AgentEntry[] = visibleTemplates()
-  .filter((template) => !!template.prodUrl)
-  .map((template) => ({
-    id: template.name,
-    name: template.label,
-    description: template.description ?? template.hint,
-    url: template.prodUrl!,
-    devUrl: `http://localhost:${template.devPort}`,
-    devPort: template.devPort,
-    color: template.color,
-  }));
+const BUILTIN_AGENTS: AgentEntry[] = TEMPLATES.filter(
+  (template) =>
+    (!template.hidden || template.defaultAgent) && !!template.prodUrl,
+).map((template) => ({
+  id: template.name,
+  name: template.label,
+  description: template.description ?? template.hint,
+  url: template.prodUrl!,
+  devUrl: `http://localhost:${template.devPort}`,
+  devPort: template.devPort,
+  color: template.color,
+}));
 
 const HIDDEN_FIRST_PARTY_AGENT_IDS = new Set(
-  TEMPLATES.filter((template) => template.hidden && template.prodUrl).map(
-    (template) => template.name,
-  ),
+  TEMPLATES.filter(
+    (template) => template.hidden && !template.defaultAgent && template.prodUrl,
+  ).map((template) => template.name),
 );
 
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";

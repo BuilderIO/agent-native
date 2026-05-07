@@ -40,6 +40,8 @@ export interface TemplateMeta {
   defaultMode?: "dev" | "prod";
   /** Hide from pickers but still scaffoldable via explicit --template */
   hidden?: boolean;
+  /** Include as a built-in connected A2A agent even when hidden from pickers */
+  defaultAgent?: boolean;
   /** Always scaffold without prompting (e.g. starter as fallback) */
   alwaysAvailable?: boolean;
   /** Internal workspace packages this template depends on (e.g. "scheduling") */
@@ -218,6 +220,7 @@ export const TEMPLATES: TemplateMeta[] = [
     prodUrl: "https://images.agent-native.com",
     defaultMode: "prod",
     hidden: true,
+    defaultAgent: true,
   },
   {
     name: "calls",

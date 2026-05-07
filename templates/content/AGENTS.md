@@ -119,6 +119,17 @@ cd templates/content && pnpm action <name> [args]
 | `list-comments` | `--documentId <id>`                                            | List all comment threads |
 | `add-comment`   | `--documentId <id> --content <text> [--threadId] [--parentId]` | Add a comment or reply   |
 
+### Image Blocks
+
+Documents support image blocks as markdown images: `![alt text](https://...)`.
+The UI uploads local image files through the framework
+`/_agent-native/file-upload` endpoint, with Builder.io as the recommended
+storage path. If image upload fails because storage is not configured, tell the
+user to connect Builder.io in Settings -> File uploads. Agents can add images
+that already have a hosted URL by using `edit-document` or `update-document` to
+insert markdown image syntax. Do not embed base64 image data in document
+content.
+
 ### Sharing
 
 Documents are **private by default** — only the creator can see them. To grant access to others, change the visibility or add explicit share grants. These actions are auto-mounted framework-wide:

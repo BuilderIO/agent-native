@@ -13,6 +13,7 @@ import {
   IconMessageCircle,
   IconPhoto,
   IconPhotoPlus,
+  IconRefresh,
   IconUpload,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ import {
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
+import { getLibraryCustomInstructions } from "@/lib/libraries";
 import {
   IMAGE_CATEGORIES,
   ASPECT_RATIOS,
@@ -47,6 +49,7 @@ export default function LibraryPage() {
   const { data } = useActionQuery("get-library", { id: libraryId }) as any;
   const updateLibrary = useActionMutation("update-library");
   const saveGenerated = useActionMutation("save-generated-image");
+  const rerunGeneration = useActionMutation("rerun-generation-run");
   const extractPalette = useActionMutation("extract-palette-from-references");
   const { data: variants } = useVariantState();
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -59,6 +62,7 @@ export default function LibraryPage() {
   const generated = assets.filter((asset) => asset.role === "generated");
   const saved = generated.filter((asset) => asset.status === "saved");
   const candidates = generated.filter((asset) => asset.status === "candidate");
+  const customInstructions = getLibraryCustomInstructions(library);
 
   const pendingVariants =
     variants?.libraryId === libraryId ? (variants.slots ?? []) : [];
@@ -88,6 +92,9 @@ export default function LibraryPage() {
       `References: ${references.length}`,
       `Saved images: ${saved.length}`,
       `Style brief: ${JSON.stringify(library.styleBrief ?? {})}`,
+      customInstructions
+        ? `Custom instructions: ${customInstructions}`
+        : "Custom instructions: none",
       "",
       "Use the Images actions. Generate candidates, show previews, ask for feedback, and refine by assetId until the user is happy.",
     ].join("\n");
@@ -216,30 +223,32 @@ export default function LibraryPage() {
           </TabsContent>
 
           <TabsContent value="runs">
-            <div className="rounded-lg border border-border">
-              {(data?.runs ?? []).map((run: any) => (
-                <div
-                  key={run.id}
-                  className="flex items-start justify-between gap-4 border-b border-border p-4 last:border-b-0"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">
-                      {run.prompt}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {run.model} · {run.aspectRatio} · {run.status}
-                    </div>
-                  </div>
-                  <Badge
-                    variant={
-                      run.status === "completed" ? "secondary" : "outline"
+            {(data?.runs ?? []).length ? (
+              <div className="space-y-3">
+                {(data?.runs ?? []).map((run: any) => (
+                  <RunCard
+                    key={run.id}
+                    run={run}
+                    rerunning={rerunGeneration.isPending}
+                    onRerun={() =>
+                      rerunGeneration.mutate({
+                        runId: run.id,
+                        source: "ui",
+                      })
                     }
-                  >
-                    {run.status}
-                  </Badge>
-                </div>
-              ))}
-            </div>
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="flex min-h-[260px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center">
+                <IconMessageCircle className="h-10 w-10 text-muted-foreground" />
+                <h3 className="mt-4 text-base font-semibold">No runs yet</h3>
+                <p className="mt-2 max-w-md text-sm text-muted-foreground">
+                  Generate from this library to capture prompt, output,
+                  references, and settings.
+                </p>
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="settings">
@@ -258,6 +267,19 @@ export default function LibraryPage() {
                     })
                   }
                   className="min-h-40"
+                />
+                <Separator />
+                <Label>Custom instructions</Label>
+                <Textarea
+                  defaultValue={customInstructions ?? ""}
+                  onBlur={(event) =>
+                    updateLibrary.mutate({
+                      id: library.id,
+                      customInstructions: event.target.value,
+                    })
+                  }
+                  placeholder="Preferences the agent should apply whenever it uses this library."
+                  className="min-h-28"
                 />
                 <Separator />
                 <div className="flex items-center justify-between">
@@ -309,6 +331,175 @@ type GenerateOptions = {
   category: string;
   includeLogo: boolean;
 };
+
+function RunCard({
+  run,
+  onRerun,
+  rerunning,
+}: {
+  run: any;
+  onRerun: () => void;
+  rerunning?: boolean;
+}) {
+  const settings = (run.settingsUsed ?? {}) as Record<string, unknown>;
+  const referenceSelection = (run.referenceSelection ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const selectedReferenceIds = Array.isArray(
+    referenceSelection.selectedAssetIds,
+  )
+    ? referenceSelection.selectedAssetIds.filter(
+        (id): id is string => typeof id === "string",
+      )
+    : Array.isArray(run.referenceAssetIds)
+      ? run.referenceAssetIds
+      : [];
+  const outputIds = Array.isArray(run.output?.assetIds)
+    ? run.output.assetIds.filter(
+        (id: unknown): id is string => typeof id === "string",
+      )
+    : run.output?.assetId
+      ? [run.output.assetId]
+      : [];
+  const provider = run.output?.provider || run.metadata?.provider;
+  const prompt = run.originalPrompt || run.prompt || "";
+  const categories = Array.isArray(settings.categories)
+    ? settings.categories.filter(
+        (category): category is string => typeof category === "string",
+      )
+    : [];
+
+  return (
+    <article className="rounded-lg border border-border bg-card p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              variant={run.status === "completed" ? "secondary" : "outline"}
+            >
+              {run.status}
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              {run.model} · {run.aspectRatio} · {run.imageSize}
+            </span>
+          </div>
+          <div>
+            <div className="text-xs font-medium text-muted-foreground">
+              Prompt
+            </div>
+            <p className="mt-1 line-clamp-3 text-sm leading-relaxed text-foreground">
+              {prompt}
+            </p>
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0 gap-2"
+          disabled={rerunning}
+          onClick={onRerun}
+        >
+          <IconRefresh className="h-4 w-4" />
+          Rerun latest
+        </Button>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <RunFact label="Model" value={String(settings.model ?? run.model)} />
+        <RunFact
+          label="Aspect"
+          value={String(settings.aspectRatio ?? run.aspectRatio)}
+        />
+        <RunFact
+          label="Size"
+          value={String(settings.imageSize ?? run.imageSize)}
+        />
+        <RunFact
+          label="Refs"
+          value={`${selectedReferenceIds.length} ${String(referenceSelection.mode ?? "selected")}`}
+        />
+        <RunFact
+          label="Grounding"
+          value={String(settings.groundingMode ?? run.groundingMode)}
+        />
+        <RunFact
+          label="Categories"
+          value={categories.length ? categories.join(", ") : "auto"}
+        />
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        <div className="rounded-md border bg-muted/20 p-3">
+          <div className="text-xs font-medium text-muted-foreground">
+            Output
+          </div>
+          {outputIds.length ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {outputIds.map((assetId) => (
+                <Button
+                  key={assetId}
+                  asChild
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-xs"
+                >
+                  <Link to={`/image/${assetId}`}>{shortId(assetId)}</Link>
+                </Button>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {run.error || "No output captured yet."}
+            </p>
+          )}
+          {provider ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Provider: {String(provider)}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="rounded-md border bg-muted/20 p-3">
+          <div className="text-xs font-medium text-muted-foreground">
+            References
+          </div>
+          <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+            {selectedReferenceIds.length
+              ? selectedReferenceIds.map(shortId).join(", ")
+              : "None selected"}
+          </p>
+        </div>
+      </div>
+
+      {run.compiledPrompt ? (
+        <details className="mt-3 rounded-md border bg-background">
+          <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-muted-foreground">
+            Compiled prompt
+          </summary>
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap border-t px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+            {run.compiledPrompt}
+          </pre>
+        </details>
+      ) : null}
+    </article>
+  );
+}
+
+function RunFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border bg-muted/20 px-3 py-2">
+      <div className="text-[11px] font-medium uppercase text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-1 truncate text-xs text-foreground">{value}</div>
+    </div>
+  );
+}
+
+function shortId(id: string) {
+  return id.length > 12 ? `${id.slice(0, 6)}...${id.slice(-4)}` : id;
+}
 
 function GeneratePopover({
   open,

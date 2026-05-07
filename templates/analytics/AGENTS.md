@@ -108,7 +108,7 @@ Ephemeral UI state is stored in the SQL `application_state` table. The UI syncs 
 }
 ```
 
-Views: `overview`, `adhoc` (with `dashboardId`), `analyses` (with optional `analysisId`), `data-dictionary`, `data-sources`, `settings`.
+Views: `overview`, `adhoc` (with `dashboardId`), `analyses` (with optional `analysisId`), `extensions` (with optional `extensionId`), `data-dictionary`, `data-sources`, `settings`.
 
 **Do NOT write to `navigation`** — it is overwritten by the UI. Use `navigate` to control the UI.
 
@@ -238,10 +238,10 @@ cd templates/analytics && pnpm action <name> [args]
 
 ### Context & Navigation
 
-| Action        | Args                                                     | Purpose                    |
-| ------------- | -------------------------------------------------------- | -------------------------- |
-| `view-screen` |                                                          | See what the user sees now |
-| `navigate`    | `--view <name> [--dashboardId <id>] [--analysisId <id>]` | Navigate the UI            |
+| Action        | Args                                                                          | Purpose                    |
+| ------------- | ----------------------------------------------------------------------------- | -------------------------- |
+| `view-screen` |                                                                               | See what the user sees now |
+| `navigate`    | `--view <name> [--dashboardId <id>] [--analysisId <id>] [--extensionId <id>]` | Navigate the UI            |
 
 ### Data Dictionary
 

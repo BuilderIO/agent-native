@@ -8,11 +8,12 @@ import { ASPECT_RATIOS, IMAGE_MODELS, IMAGE_SIZES } from "../shared/api.js";
 
 export default defineAction({
   description:
-    "Update an image library's title, description, style brief, model defaults, cover, or canonical logo.",
+    "Update an image library's title, description, custom instructions, style brief, model defaults, cover, or canonical logo.",
   schema: z.object({
     id: z.string(),
     title: z.string().optional(),
     description: z.string().nullable().optional(),
+    customInstructions: z.string().nullable().optional(),
     styleBrief: z.record(z.string(), z.unknown()).optional(),
     settings: z
       .object({
@@ -29,6 +30,7 @@ export default defineAction({
     title,
     description,
     styleBrief,
+    customInstructions,
     settings,
     coverAssetId,
     canonicalLogoAssetId,
@@ -37,6 +39,9 @@ export default defineAction({
     const updates: Record<string, unknown> = { updatedAt: nowIso() };
     if (title !== undefined) updates.title = title;
     if (description !== undefined) updates.description = description;
+    if (customInstructions !== undefined) {
+      updates.customInstructions = customInstructions ?? "";
+    }
     if (styleBrief !== undefined)
       updates.styleBrief = stringifyJson(styleBrief);
     if (settings !== undefined) updates.settings = stringifyJson(settings);

@@ -663,11 +663,6 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           })}
         </nav>
 
-        {/* Org switcher */}
-        <div className="border-t border-border px-3 py-2">
-          <OrgSwitcher reserveSpace />
-        </div>
-
         <div className="border-t border-border px-1.5 py-1.5">
           <ExtensionsSidebarSection />
         </div>
@@ -919,6 +914,11 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             </TooltipContent>
           </Tooltip>
           <ThemeToggle />
+        </div>
+
+        {/* Org switcher */}
+        <div className="border-t border-border px-3 py-2">
+          <OrgSwitcher reserveSpace />
         </div>
       </aside>
     </>

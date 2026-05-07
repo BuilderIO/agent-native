@@ -5,6 +5,7 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   requireLibrary,
   serializeAsset,
+  serializeGenerationRun,
   serializeLibrary,
 } from "./_helpers.js";
 
@@ -39,7 +40,7 @@ export default defineAction({
       library: serializeLibrary(library),
       collections,
       assets: assets.map(serializeAsset),
-      runs,
+      runs: runs.map(serializeGenerationRun),
     };
   },
 });

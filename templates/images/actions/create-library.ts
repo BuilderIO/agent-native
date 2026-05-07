@@ -15,6 +15,10 @@ export default defineAction({
   schema: z.object({
     title: z.string().min(1).describe("Library name"),
     description: z.string().optional().describe("Optional library description"),
+    customInstructions: z
+      .string()
+      .optional()
+      .describe("Optional custom generation instructions for this library"),
     styleDescription: z
       .string()
       .optional()
@@ -24,7 +28,13 @@ export default defineAction({
       .optional()
       .describe("Optional brand palette as hex colors"),
   }),
-  run: async ({ title, description, styleDescription, palette }) => {
+  run: async ({
+    title,
+    description,
+    customInstructions,
+    styleDescription,
+    palette,
+  }) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
     const now = nowIso();
@@ -32,6 +42,7 @@ export default defineAction({
       id: nanoid(),
       title,
       description: description ?? null,
+      customInstructions: customInstructions ?? "",
       styleBrief: stringifyJson({
         description: styleDescription ?? "",
         palette: palette ?? [],

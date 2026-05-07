@@ -6,8 +6,8 @@ import {
   appPath,
   useActionQuery,
 } from "@agent-native/core/client";
-import { InvitationBanner } from "@agent-native/core/client/org";
-import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import {
   IconArrowUpRight,
   IconApps,
@@ -311,8 +311,12 @@ export function NavContent({
       </nav>
 
       <div className="border-t px-2 py-2">
-        <ToolsSidebarSection />
+        <ExtensionsSidebarSection />
+      </div>
+
+      <div className="space-y-2 border-t px-3 py-2">
         <FeedbackButton />
+        <OrgSwitcher />
       </div>
     </>
   );

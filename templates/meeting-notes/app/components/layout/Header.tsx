@@ -10,7 +10,12 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import { AgentToggleButton, appPath } from "@agent-native/core/client";
+import {
+  AgentToggleButton,
+  FeedbackButton,
+  appPath,
+} from "@agent-native/core/client";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitles: Record<string, string> = {
@@ -70,7 +75,7 @@ export function Header() {
             className="fixed inset-0 z-40 bg-black/40"
             onClick={() => setMenuOpen(false)}
           />
-          <div className="fixed inset-y-0 left-0 z-50 w-64 overflow-y-auto border-r border-border bg-background shadow-xl">
+          <div className="fixed inset-y-0 left-0 z-50 flex w-64 flex-col overflow-hidden border-r border-border bg-background shadow-xl">
             <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
               <div className="flex items-center gap-2">
                 <img
@@ -97,7 +102,7 @@ export function Header() {
                 <IconX className="h-4 w-4" />
               </button>
             </div>
-            <nav className="border-b border-border p-3" aria-label="Main">
+            <nav className="flex-1 overflow-y-auto p-3" aria-label="Main">
               <div className="space-y-1">
                 {navItems.map((item) => {
                   const active =
@@ -124,8 +129,12 @@ export function Header() {
                 })}
               </div>
             </nav>
-            <div className="p-3">
+            <div className="border-t border-border px-2 py-2">
               <ExtensionsSidebarSection />
+            </div>
+            <div className="space-y-2 border-t border-border px-3 py-2">
+              <FeedbackButton />
+              <OrgSwitcher />
             </div>
           </div>
         </>

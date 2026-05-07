@@ -1,5 +1,6 @@
-import { appPath } from "@agent-native/core/client";
+import { FeedbackButton, appPath } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 
 export function Sidebar() {
   return (
@@ -23,6 +24,10 @@ export function Sidebar() {
       </div>
       <div className="flex-1 overflow-y-auto px-2 py-3">
         <ExtensionsSidebarSection />
+      </div>
+      <div className="space-y-2 border-t border-border px-3 py-2">
+        <FeedbackButton />
+        <OrgSwitcher />
       </div>
     </aside>
   );

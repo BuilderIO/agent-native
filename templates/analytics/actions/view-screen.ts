@@ -59,6 +59,11 @@ export default defineAction({
       if (nav?.analysisId) {
         screen.analysisId = nav.analysisId;
       }
+    } else if (nav?.view === "extensions") {
+      screen.page = "extensions";
+      if (nav?.extensionId) {
+        screen.extensionId = nav.extensionId;
+      }
     } else if (nav?.view === "overview" || nav?.view === "home" || !nav?.view) {
       screen.page = "overview";
     } else if (nav?.view === "query") {

@@ -8,9 +8,14 @@ function navigationFromPath(pathname: string) {
   if (library) return { view: "library", libraryId: library[1] };
   const image = pathname.match(/^\/image\/([^/]+)/);
   if (image) return { view: "image", assetId: image[1] };
+  if (pathname === "/") return { view: "create" };
+  if (pathname === "/libraries") return { view: "libraries" };
+  if (pathname === "/extensions") return { view: "extensions" };
+  const extension = pathname.match(/^\/extensions\/([^/]+)/);
+  if (extension) return { view: "extensions", extensionId: extension[1] };
   if (pathname === "/audit") return { view: "audit" };
   if (pathname === "/settings") return { view: "settings" };
-  return { view: "libraries" };
+  return { view: "create" };
 }
 
 function pathFromCommand(command: any): string | null {
@@ -24,7 +29,12 @@ function pathFromCommand(command: any): string | null {
   }
   if (command.view === "audit") return "/audit";
   if (command.view === "settings") return "/settings";
-  if (command.view === "libraries") return "/";
+  if (command.view === "create") return "/";
+  if (command.view === "libraries") return "/libraries";
+  if (command.view === "extensions" && command.extensionId) {
+    return `/extensions/${command.extensionId}`;
+  }
+  if (command.view === "extensions") return "/extensions";
   return null;
 }
 
