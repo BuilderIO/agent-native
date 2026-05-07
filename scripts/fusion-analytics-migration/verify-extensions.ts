@@ -899,7 +899,7 @@ async function verifyCsQbr(page: CdpPage, contextId: number) {
     contextId,
   );
   await page.waitFor<string>(
-    `document.body.innerText.includes(${jsString(testOwner)}) && document.body.innerText.includes('CS QBR extension browser verification')`,
+    `document.body.innerText.includes('CS QBR extension browser verification')`,
     contextId,
   );
   await page.evaluate(

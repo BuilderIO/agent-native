@@ -12,6 +12,10 @@ import {
 import { agentNativePath } from "./api-path.js";
 import { normalizeChatError } from "./error-format.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import type {
+  AgentChatStructuredContentPart,
+  AgentChatStructuredMessage,
+} from "../agent/types.js";
 
 type AdapterHistoryMessage = {
   role: "user" | "assistant";
@@ -56,6 +60,143 @@ function contentToContinuationHistory(content: ContentPart[]): string {
     chunks.push(toolSummary);
   }
   return truncateForContinuation(chunks.join("\n\n"), 40_000).trim();
+}
+
+function messageTextFromContent(
+  content: readonly { type: string; text?: string }[],
+): string {
+  return content
+    .filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => normalizeMentions(p.text))
+    .join("\n");
+}
+
+function isToolCallContentPart(
+  part: unknown,
+): part is Extract<ContentPart, { type: "tool-call" }> {
+  return Boolean(part && typeof part === "object" && (part as any).type === "tool-call");
+}
+
+function toolResultContent(result: unknown): string {
+  if (typeof result === "string") return result;
+  try {
+    return JSON.stringify(result);
+  } catch {
+    return String(result ?? "");
+  }
+}
+
+function contentToStructuredMessages(
+  content: readonly ContentPart[],
+  nextToolCallId: () => string,
+): AgentChatStructuredMessage[] {
+  const messages: AgentChatStructuredMessage[] = [];
+  let assistantParts: AgentChatStructuredContentPart[] = [];
+  let pendingToolResults: AgentChatStructuredContentPart[] = [];
+
+  const flushToolTurn = () => {
+    if (pendingToolResults.length === 0) return;
+    if (assistantParts.length > 0) {
+      messages.push({ role: "assistant", content: assistantParts });
+    }
+    messages.push({ role: "user", content: pendingToolResults });
+    assistantParts = [];
+    pendingToolResults = [];
+  };
+
+  for (const part of content) {
+    if (part.type === "text") {
+      if (pendingToolResults.length > 0) flushToolTurn();
+      if (part.text.trim()) {
+        assistantParts.push({ type: "text", text: part.text });
+      }
+      continue;
+    }
+
+    if (isToolCallContentPart(part)) {
+      const toolCallId = nextToolCallId();
+      assistantParts.push({
+        type: "tool-call",
+        toolCallId,
+        toolName: part.toolName,
+        args: part.args ?? {},
+      });
+      if (part.result !== undefined) {
+        pendingToolResults.push({
+          type: "tool-result",
+          toolCallId,
+          toolName: part.toolName,
+          content: toolResultContent(part.result),
+        });
+      }
+    }
+  }
+
+  flushToolTurn();
+  if (assistantParts.length > 0) {
+    messages.push({ role: "assistant", content: assistantParts });
+  }
+  return messages;
+}
+
+function assistantUiMessagesToStructuredHistory(
+  messages: readonly {
+    role: string;
+    content: readonly any[];
+  }[],
+): AgentChatStructuredMessage[] {
+  let nextId = 0;
+  const nextToolCallId = () => `history_tc_${++nextId}`;
+  const structured: AgentChatStructuredMessage[] = [];
+
+  for (const message of messages) {
+    if (message.role === "user") {
+      const text = messageTextFromContent(message.content);
+      if (text.trim()) {
+        structured.push({
+          role: "user",
+          content: [{ type: "text", text }],
+        });
+      }
+      continue;
+    }
+
+    if (message.role !== "assistant") continue;
+    const content: ContentPart[] = [];
+    for (const part of message.content) {
+      if (part?.type === "text" && typeof part.text === "string") {
+        content.push({ type: "text", text: part.text });
+        continue;
+      }
+      if (part?.type === "tool-call") {
+        content.push({
+          type: "tool-call",
+          toolCallId:
+            typeof part.toolCallId === "string" ? part.toolCallId : "",
+          toolName:
+            typeof part.toolName === "string"
+              ? part.toolName
+              : typeof part.toolName === "undefined"
+                ? "unknown"
+                : String(part.toolName),
+          argsText:
+            typeof part.argsText === "string"
+              ? part.argsText
+              : JSON.stringify(part.args ?? {}),
+          args:
+            part.args && typeof part.args === "object" && !Array.isArray(part.args)
+              ? part.args
+              : {},
+          ...(part.result !== undefined
+            ? { result: toolResultContent(part.result) }
+            : {}),
+        });
+      }
+    }
+    structured.push(...contentToStructuredMessages(content, nextToolCallId));
+  }
+
+  return structured;
 }
 
 function combineContinuationHistory(fragments: string[]): string {
@@ -332,19 +473,16 @@ export function createAgentChatAdapter(options?: {
           ? rawMessageText
           : "Use the attached context.";
 
-      const history = messages
-        .slice(0, -1) // exclude the latest user message
+      const priorMessages = messages.slice(0, -1); // exclude latest user message
+      const history = priorMessages
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({
           role: m.role as "user" | "assistant",
-          content: m.content
-            .filter(
-              (p): p is { type: "text"; text: string } => p.type === "text",
-            )
-            .map((p) => p.text.replace(/@\[([^\]|]+)\|[^\]]+\]/g, "@$1"))
-            .join("\n"),
+          content: messageTextFromContent(m.content),
         }))
         .filter((m) => m.content.trim());
+      const structuredHistory =
+        assistantUiMessagesToStructuredHistory(priorMessages);
 
       // Signal that generation is starting
       if (typeof window !== "undefined") {
