@@ -11,6 +11,7 @@ registerShareableResource({
   sharesTable: schema.designShares,
   displayName: "Design",
   titleColumn: "title",
+  getResourcePath: (design) => `/design/${design.id}`,
   getDb,
 });
 
@@ -20,5 +21,6 @@ registerShareableResource({
   sharesTable: schema.designSystemShares,
   displayName: "Design System",
   titleColumn: "title",
+  getResourcePath: (designSystem) => `/design-systems?designSystemId=${designSystem.id}`,
   getDb,
 });

@@ -27,7 +27,7 @@ export function AgentNativeIcon({
       xmlns="http://www.w3.org/2000/svg"
       width={size}
       height={size}
-      viewBox="0 0 114 114"
+      viewBox="-19 -19 152 152"
       fill="none"
       className={className}
       {...rest}

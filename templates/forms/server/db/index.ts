@@ -11,5 +11,6 @@ registerShareableResource({
   sharesTable: schema.formShares,
   displayName: "Form",
   titleColumn: "title",
+  getResourcePath: (form) => `/forms/${form.id}`,
   getDb,
 });

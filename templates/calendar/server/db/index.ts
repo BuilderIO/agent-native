@@ -11,5 +11,6 @@ registerShareableResource({
   sharesTable: schema.bookingLinkShares,
   displayName: "Booking link",
   titleColumn: "title",
+  getResourcePath: (bookingLink) => `/booking-links/${bookingLink.id}`,
   getDb,
 });
