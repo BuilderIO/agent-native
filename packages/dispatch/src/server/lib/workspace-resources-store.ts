@@ -54,7 +54,11 @@ function orgFilter<T extends { ownerEmail: any; orgId: any }>(table: T) {
 
 // ─── Workspace Resources CRUD ──────────────────────────────────
 
-export type WorkspaceResourceKind = "skill" | "instruction" | "agent";
+export type WorkspaceResourceKind =
+  | "skill"
+  | "instruction"
+  | "agent"
+  | "knowledge";
 export type WorkspaceResourceScope = "all" | "selected";
 
 export interface WorkspaceResourceInput {
@@ -64,6 +68,16 @@ export interface WorkspaceResourceInput {
   path: string;
   content: string;
   scope: WorkspaceResourceScope;
+}
+
+export interface WorkspaceResourceOption {
+  id: string;
+  kind: WorkspaceResourceKind;
+  name: string;
+  description: string | null;
+  path: string;
+  scope: WorkspaceResourceScope;
+  updatedAt: number;
 }
 
 export async function listWorkspaceResources(filter?: { kind?: string }) {
@@ -77,6 +91,21 @@ export async function listWorkspaceResources(filter?: { kind?: string }) {
     .from(schema.workspaceResources)
     .where(and(...conditions))
     .orderBy(desc(schema.workspaceResources.updatedAt));
+}
+
+export async function listWorkspaceResourceOptions(filter?: {
+  kind?: string;
+}): Promise<WorkspaceResourceOption[]> {
+  const resources = await listWorkspaceResources(filter);
+  return resources.map((resource) => ({
+    id: resource.id,
+    kind: resource.kind as WorkspaceResourceKind,
+    name: resource.name,
+    description: resource.description,
+    path: resource.path,
+    scope: resource.scope as WorkspaceResourceScope,
+    updatedAt: resource.updatedAt,
+  }));
 }
 
 export async function getWorkspaceResource(
@@ -248,6 +277,13 @@ export async function createResourceGrant(resourceId: string, appId: string) {
   const resource = await getWorkspaceResource(resourceId, ctx);
   if (!resource) throw new Error("Workspace resource not found");
 
+  const activeExisting = (await listResourceGrants({ resourceId, appId })).find(
+    (grant) => grant.status === "active",
+  );
+  if (activeExisting) {
+    return activeExisting;
+  }
+
   const timestamp = now();
   const grantId = id();
   const actor = currentOwnerEmail();
@@ -272,6 +308,38 @@ export async function createResourceGrant(resourceId: string, appId: string) {
   });
 
   return getResourceGrant(grantId);
+}
+
+export async function grantWorkspaceResourcesToApp(input: {
+  appId: string;
+  resourceIds: string[];
+}) {
+  const uniqueResourceIds = [...new Set(input.resourceIds.filter(Boolean))];
+  if (uniqueResourceIds.length === 0) {
+    return { appId: input.appId, granted: [], skipped: [] };
+  }
+
+  const granted: Array<{ id: string; resourceId: string; appId: string }> = [];
+  const skipped: Array<{ resourceId: string; reason: string }> = [];
+
+  for (const resourceId of uniqueResourceIds) {
+    const resource = await getWorkspaceResource(resourceId).catch(() => null);
+    if (!resource) {
+      skipped.push({ resourceId, reason: "not-found" });
+      continue;
+    }
+
+    const grant = await createResourceGrant(resourceId, input.appId);
+    if (grant) {
+      granted.push({
+        id: grant.id,
+        resourceId: grant.resourceId,
+        appId: grant.appId,
+      });
+    }
+  }
+
+  return { appId: input.appId, granted, skipped };
 }
 
 export async function revokeResourceGrant(
@@ -433,12 +501,14 @@ export async function listWorkspaceResourcesOverview() {
   const skills = resources.filter((r) => r.kind === "skill");
   const instructions = resources.filter((r) => r.kind === "instruction");
   const agents = resources.filter((r) => r.kind === "agent");
+  const knowledge = resources.filter((r) => r.kind === "knowledge");
   const activeGrants = grants.filter((g) => g.status === "active");
 
   return {
     skillCount: skills.length,
     instructionCount: instructions.length,
     agentCount: agents.length,
+    knowledgeCount: knowledge.length,
     totalResources: resources.length,
     activeGrantCount: activeGrants.length,
   };

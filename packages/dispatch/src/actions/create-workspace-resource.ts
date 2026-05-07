@@ -4,11 +4,11 @@ import { createWorkspaceResource } from "../server/lib/workspace-resources-store
 
 export default defineAction({
   description:
-    'Create a workspace-wide skill, instruction, or agent profile. Set scope to "all" to push to every app, or "selected" to grant per-app.',
+    'Create a workspace-wide skill, instruction, agent profile, or knowledge pack. Set scope to "all" to push to every app, or "selected" to grant per-app.',
   schema: z.object({
     kind: z
-      .enum(["skill", "instruction", "agent"])
-      .describe("Resource kind: skill, instruction, or agent"),
+      .enum(["skill", "instruction", "agent", "knowledge"])
+      .describe("Resource kind: skill, instruction, agent, or knowledge"),
     name: z.string().describe("Human-readable name"),
     description: z.string().optional().describe("Short description"),
     path: z
