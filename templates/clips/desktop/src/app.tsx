@@ -35,7 +35,7 @@ interface RecordingSummary {
 }
 
 type CaptureMode = "screen" | "screen-camera" | "camera";
-type CaptureSource = "full-screen" | "window" | "tab" | "custom";
+type CaptureSource = "full-screen" | "window";
 
 const STORAGE_KEY = "clips:server-url";
 const MODE_KEY = "clips:last-mode";
@@ -91,6 +91,10 @@ function saveString(key: string, value: string): void {
   } catch {
     // non-fatal
   }
+}
+
+function normalizeCaptureSource(value: string): CaptureSource {
+  return value === "window" ? "window" : "full-screen";
 }
 
 type FetchInput = Parameters<typeof fetch>[0];
@@ -375,8 +379,8 @@ export function App() {
   const [mode, setMode] = useState<CaptureMode>(
     () => loadString(MODE_KEY, "screen-camera") as CaptureMode,
   );
-  const [source, setSource] = useState<CaptureSource>(
-    () => loadString(SOURCE_KEY, "full-screen") as CaptureSource,
+  const [source, setSource] = useState<CaptureSource>(() =>
+    normalizeCaptureSource(loadString(SOURCE_KEY, "full-screen")),
   );
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
@@ -1169,6 +1173,7 @@ export function App() {
     console.log("[clips-popover] startRecording clicked", {
       serverUrl,
       mode,
+      source,
       cameraOn,
       micOn,
     });
@@ -1236,8 +1241,11 @@ export function App() {
       const recordingPromise = startNativeRecording({
         serverUrl,
         mode,
+        source,
         cameraId,
         micId,
+        authToken: loadDesktopAuthToken(serverUrl),
+        cookie: typeof document !== "undefined" ? document.cookie || "" : "",
         cameraOn,
         micOn,
         preAcquiredCameraStream,
@@ -1860,8 +1868,6 @@ function SourceRow({
   const labels: Record<CaptureSource, string> = {
     "full-screen": "Full screen",
     window: "Window",
-    tab: "Browser tab",
-    custom: "Custom area",
   };
   return (
     <label className="row">

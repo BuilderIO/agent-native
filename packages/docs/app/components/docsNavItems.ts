@@ -70,12 +70,11 @@ export const NAV_SECTIONS: NavSection[] = [
     // enforces this — adding a slug here that isn't in the allow-list will
     // fail the build.
     items: [
-      { label: "Mail", to: "/templates/mail" as const },
       { label: "Calendar", to: "/templates/calendar" as const },
       { label: "Content", to: "/templates/content" as const },
       { label: "Slides", to: "/templates/slides" as const },
-      { label: "Video", to: "/templates/video" as const },
       { label: "Analytics", to: "/templates/analytics" as const },
+      { label: "Mail", to: "/templates/mail" as const },
       { label: "Clips", to: "/templates/clips" as const },
       { label: "Design", to: "/templates/design" as const },
       { label: "Dispatch", to: "/templates/dispatch" as const },

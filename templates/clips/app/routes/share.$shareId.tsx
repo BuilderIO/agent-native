@@ -56,6 +56,29 @@ function pageTitle(title: string | null | undefined): string {
     : "Clip recording · Clips";
 }
 
+function displayRecordingTitle(title: string | null | undefined): string {
+  return hasGeneratedTitle(title) ? (title ?? "").trim() : "Untitled Clip";
+}
+
+function shouldShowGeneratedTitleSkeleton(
+  recording: { title: string | null | undefined; createdAt?: string | null },
+  transcriptStatus?: string,
+): boolean {
+  if (!isDefaultTitle(recording.title)) return false;
+  if (transcriptStatus === "failed") return false;
+
+  const createdAtMs = Date.parse(recording.createdAt ?? "");
+  if (
+    Number.isFinite(createdAtMs) &&
+    Date.now() - createdAtMs > 2 * 60 * 1000 &&
+    transcriptStatus !== "pending"
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 function metaDescription(recording: SharePageMetaRecording | null): string {
   const description = recording?.description?.trim();
   if (description) return description.slice(0, 160);
@@ -182,6 +205,12 @@ export default function ShareRoute() {
   const ctas = dataQ.data?.data?.ctas ?? [];
   const firstCta = ctas[0] ?? null;
   const viewerCanEdit = Boolean(dataQ.data?.data?.viewer?.canEdit);
+  const showTitleSkeleton = recording
+    ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus)
+    : false;
+  const visibleTitle = recording
+    ? displayRecordingTitle(recording.title)
+    : "Untitled Clip";
 
   useEffect(() => {
     if (!recording) return;
@@ -334,7 +363,9 @@ export default function ShareRoute() {
             <StorageSetupCard
               title="Connect storage to finish saving"
               description="If this is your clip, connect Builder.io here and this page will check again."
-              onConfigured={() => dataQ.refetch()}
+              onConfigured={() => {
+                void dataQ.refetch();
+              }}
             />
           </div>
         ) : null}
@@ -425,13 +456,13 @@ export default function ShareRoute() {
 
           <div className="flex items-start gap-3">
             <div className="flex-1 min-w-0">
-              {isDefaultTitle(recording.title) ? (
+              {showTitleSkeleton ? (
                 <Skeleton
                   aria-label="Generating title"
                   className="h-7 w-80 max-w-full"
                 />
               ) : (
-                <h1 className="text-xl font-semibold">{recording.title}</h1>
+                <h1 className="text-xl font-semibold">{visibleTitle}</h1>
               )}
               {recording.description ? (
                 <p className="text-sm text-foreground/70 mt-1 whitespace-pre-wrap">

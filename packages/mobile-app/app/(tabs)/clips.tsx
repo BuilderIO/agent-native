@@ -1,9 +1,9 @@
 import { SafeAreaView, StyleSheet } from "react-native";
 import AppWebView from "@/components/AppWebView";
-import { DEFAULT_APPS } from "@agent-native/shared-app-config";
+import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
 import { getAppUrl } from "@/lib/get-app-url";
 
-const clips = DEFAULT_APPS.find((a) => a.id === "clips")!;
+const clips = TEMPLATE_APPS.find((a) => a.id === "clips")!;
 
 export default function ClipsTab() {
   return (

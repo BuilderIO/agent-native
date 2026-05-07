@@ -26,15 +26,19 @@ function BuilderBMark({ className }: { className?: string }) {
 }
 
 export interface StorageSetupCardProps {
-  onConfigured: () => void;
+  onConfigured: () => void | Promise<void>;
   title?: string;
   description?: string;
+  connectDescription?: string;
+  connectedDescription?: string;
 }
 
 export function StorageSetupCard({
   onConfigured,
   title = "Set up video storage",
   description = "Connect a storage provider to start recording clips.",
+  connectDescription = "One-click setup — also unlocks LLM and browser automation.",
+  connectedDescription = "You're all set. Starting recorder...",
 }: StorageSetupCardProps) {
   const [connecting, setConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -96,7 +100,7 @@ export function StorageSetupCard({
           stop();
           setConnecting(false);
           setConnected(true);
-          setTimeout(() => onConfigured(), 800);
+          setTimeout(() => void onConfigured(), 800);
         } else if (Date.now() - start > timeoutMs) {
           stop();
           setConnecting(false);
@@ -160,9 +164,7 @@ export function StorageSetupCard({
             )}
           </div>
           <span className="mt-0.5 block text-xs text-muted-foreground">
-            {connected
-              ? "You're all set. Starting recorder..."
-              : "One-click setup — also unlocks LLM and browser automation."}
+            {connected ? connectedDescription : connectDescription}
           </span>
         </div>
       </button>

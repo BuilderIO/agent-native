@@ -408,6 +408,17 @@ export function getBuilderGatewayBaseUrl(): string {
   );
 }
 
+/**
+ * Base URL for Builder-managed image generation.
+ * Override via BUILDER_IMAGE_GENERATION_BASE_URL for staging / testing.
+ */
+export function getBuilderImageGenerationBaseUrl(): string {
+  return (
+    process.env.BUILDER_IMAGE_GENERATION_BASE_URL ||
+    "https://api.builder.io/agent-native/images/v1"
+  );
+}
+
 /** Authorization header value for Builder-proxied calls (env-only). */
 export function getBuilderAuthHeader(): string | null {
   const key = process.env.BUILDER_PRIVATE_KEY;

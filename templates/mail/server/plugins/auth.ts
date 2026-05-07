@@ -33,6 +33,13 @@ export default createAuthPlugin({
       "Autonomous triage, archiving, and follow-ups",
     ],
   },
+  googleSignInNotice: {
+    host: "mail.agent-native.com",
+    title: "Google may show warnings for hosted Mail",
+    body: "The production Mail app asks Google for Gmail permissions on the shared agent-native.com OAuth client, so Google may show warning screens you need to click through. Other Agent-Native templates and self-hosted Mail apps with your own Google OAuth client do not have this hosted-app warning.",
+    continueLabel: "Continue to Google",
+    cancelLabel: "Not now",
+  },
   // Gmail Pub/Sub push notifications POST here from Google's servers — no
   // user session. The handler itself verifies the OIDC token when
   // GMAIL_PUSH_AUDIENCE is configured.

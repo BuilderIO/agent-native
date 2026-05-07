@@ -39,6 +39,16 @@ export interface ShareButtonProps {
   onOpenChange?: (open: boolean) => void;
   /** Optional public/share URL shown as a copyable link in the popover. */
   shareUrl?: string;
+  /** Optional label for the copyable link section. */
+  shareUrlLabel?: string;
+  /** Optional helper text for the copyable link section. */
+  shareUrlDescription?: ReactNode;
+  /** Optional template-specific copy for the visibility picker. */
+  visibilityCopy?: Partial<
+    Record<Visibility, { label?: string; description?: string }>
+  >;
+  /** Optional note rendered between general access and the copyable link. */
+  accessNote?: ReactNode;
 }
 
 type Visibility = "private" | "org" | "public";
@@ -96,6 +106,19 @@ const VIS_META: Record<
     Icon: IconWorld,
   },
 };
+
+function visibilityMeta(
+  visibility: Visibility,
+  copy?: ShareButtonProps["visibilityCopy"],
+): (typeof VIS_META)[Visibility] {
+  const base = VIS_META[visibility];
+  const override = copy?.[visibility];
+  return {
+    ...base,
+    label: override?.label ?? base.label,
+    description: override?.description ?? base.description,
+  };
+}
 
 const ROLE_OPTIONS: Array<{ value: Role; label: string; description: string }> =
   [
@@ -320,7 +343,7 @@ function SharePanel(
   const visibility: Visibility =
     visibilityOverride ?? (data?.visibility as Visibility | null) ?? "private";
   const canManage = data?.role === "owner" || data?.role === "admin";
-  const meta = VIS_META[visibility];
+  const meta = visibilityMeta(visibility, props.visibilityCopy);
 
   const serverShares = data?.shares ?? [];
   const shares: Share[] = [
@@ -615,6 +638,7 @@ function SharePanel(
             value={visibility}
             onChange={handleVisibility}
             disabled={!canManage}
+            visibilityCopy={props.visibilityCopy}
           />
           <div className="mt-0.5 text-xs text-muted-foreground">
             {meta.description}
@@ -622,7 +646,19 @@ function SharePanel(
         </div>
       </div>
 
-      {props.shareUrl ? <CopyLinkField value={props.shareUrl} /> : null}
+      {props.accessNote ? (
+        <div className="mb-4 rounded-md border border-border bg-muted/35 p-3 text-xs text-muted-foreground">
+          {props.accessNote}
+        </div>
+      ) : null}
+
+      {props.shareUrl ? (
+        <CopyLinkField
+          value={props.shareUrl}
+          label={props.shareUrlLabel}
+          description={props.shareUrlDescription}
+        />
+      ) : null}
 
       <div className="mt-2 flex justify-end">
         <button type="button" onClick={onClose} className={BUTTON_PRIMARY_SM}>
@@ -633,7 +669,15 @@ function SharePanel(
   );
 }
 
-function CopyLinkField({ value }: { value: string }) {
+function CopyLinkField({
+  value,
+  label = "Share link",
+  description,
+}: {
+  value: string;
+  label?: string;
+  description?: ReactNode;
+}) {
   const [copied, setCopied] = useState(false);
   const resetRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -656,7 +700,10 @@ function CopyLinkField({ value }: { value: string }) {
 
   return (
     <div className="mb-4">
-      <div className="mb-2 text-sm font-semibold">Share link</div>
+      <div className="mb-2 text-sm font-semibold">{label}</div>
+      {description ? (
+        <div className="mb-2 text-xs text-muted-foreground">{description}</div>
+      ) : null}
       <div className="flex min-w-0 items-center gap-2">
         <input
           readOnly
@@ -774,8 +821,9 @@ function VisibilitySelect(props: {
   value: Visibility;
   onChange: (v: Visibility) => void;
   disabled?: boolean;
+  visibilityCopy?: ShareButtonProps["visibilityCopy"];
 }) {
-  const current = VIS_META[props.value];
+  const current = visibilityMeta(props.value, props.visibilityCopy);
   return (
     <Select.Root
       value={props.value}
@@ -804,8 +852,9 @@ function VisibilitySelect(props: {
             <SelectItems
               items={(Object.keys(VIS_META) as Visibility[]).map((k) => ({
                 value: k,
-                label: VIS_META[k].label,
-                description: VIS_META[k].description,
+                label: visibilityMeta(k, props.visibilityCopy).label,
+                description: visibilityMeta(k, props.visibilityCopy)
+                  .description,
               }))}
             />
           </Select.Viewport>

@@ -1,9 +1,9 @@
 import { SafeAreaView, StyleSheet } from "react-native";
 import AppWebView from "@/components/AppWebView";
-import { DEFAULT_APPS } from "@agent-native/shared-app-config";
+import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
 import { getAppUrl } from "@/lib/get-app-url";
 
-const starter = DEFAULT_APPS.find((a) => a.id === "starter")!;
+const starter = TEMPLATE_APPS.find((a) => a.id === "starter")!;
 
 export default function StarterTab() {
   return (

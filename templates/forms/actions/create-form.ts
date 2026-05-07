@@ -102,6 +102,7 @@ export default defineAction({
         return e;
       })(),
       orgId: getRequestOrgId(),
+      visibility: "private",
     });
 
     const [row] = await db

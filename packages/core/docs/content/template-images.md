@@ -13,6 +13,7 @@ Use it when your team needs reusable visual direction instead of one-off generic
 
 - **Create image libraries.** Group reference images, canonical logos, style notes, palettes, and generated output by brand, campaign, product, or image category.
 - **Generate through chat.** The home composer and library Generate controls send the prompt to the agent with `sendToAgentChat()`, so users can inspect variants, give feedback, and iterate.
+- **Use Builder-managed generation when enabled.** The Builder-managed path is wired behind `BUILDER_IMAGE_GENERATION_ENABLED=true`; until that backend is deployed, a Gemini API key is the manual fallback.
 - **Upload references.** Add image examples from the library UI or the prompt composer attachment button, then tag them as hero, landing, product, logo, diagram, style-only, or other.
 - **Keep a generation audit log.** Every run records prompts, model, aspect ratio, references, source asset, lineage, generated assets, status, errors, and timestamps for later design review.
 - **Preserve logo accuracy.** The agent can generate a placeholder area and the server composites the uploaded canonical logo onto the final image instead of relying on the image model to redraw it.
@@ -22,7 +23,7 @@ Use it when your team needs reusable visual direction instead of one-off generic
 
 Most AI image tools treat brand consistency as a prompt-writing problem. Images treats it as application state: references, collections, style briefs, run history, and saved assets live in SQL, while image bytes live in object storage or the local file-upload fallback during development.
 
-Because generation is an action and a chat workflow, the UI and the agent share the same operations. A user can start from the big prompt box, a library detail page, another app's chat, or an A2A request from Slides, and the same audit and lineage model is preserved.
+Because generation is an action and a chat workflow, the UI and the agent share the same operations. A user can start from the big prompt box, a library detail page, another app's chat, or an A2A request from Slides, and the same audit and lineage model is preserved. Once enabled, the provider path prefers Builder-managed image generation so teams do not need to paste model-provider keys into every app.
 
 ## For Developers
 

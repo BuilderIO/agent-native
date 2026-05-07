@@ -4,11 +4,11 @@ registerRequiredSecret({
   key: "GEMINI_API_KEY",
   label: "Gemini API Key",
   description:
-    "Required for AI image generation with Nano Banana 2 / Gemini image models.",
+    "Optional manual fallback for image generation when Builder-managed generation is not connected.",
   docsUrl: "https://aistudio.google.com/apikey",
   scope: "user",
   kind: "api-key",
-  required: true,
+  required: false,
   validator: async (value) => {
     if (!value || value.length < 20) {
       return { ok: false, error: "Key looks too short." };

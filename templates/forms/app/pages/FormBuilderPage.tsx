@@ -23,7 +23,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -114,6 +113,10 @@ export function FormBuilderPage() {
   const [copied, setCopied] = useState(false);
   const { isLocal } = useDbStatus();
   const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
+  const publishedFormUrl =
+    form?.status === "published" && typeof window !== "undefined"
+      ? `${window.location.origin}${appPath(`/f/${form.slug}`)}`
+      : undefined;
   const [agentPopoverOpen, setAgentPopoverOpen] = useState(false);
   const [agentPrompt, setAgentPrompt] = useState("");
   const agentPromptRef = useRef<HTMLTextAreaElement>(null);
@@ -485,10 +488,42 @@ export function FormBuilderPage() {
                   resourceType="form"
                   resourceId={form.id}
                   resourceTitle={form.title}
+                  shareUrl={publishedFormUrl}
+                  shareUrlLabel="Public response link"
+                  shareUrlDescription="Respondents use this link to submit the published form."
+                  visibilityCopy={{
+                    private: {
+                      description:
+                        "Only invited people can open this form in the builder",
+                    },
+                    org: {
+                      description:
+                        "Anyone in your organization can open this form in the builder",
+                    },
+                    public: {
+                      label: "Public builder access",
+                      description:
+                        "Anyone with the builder link can view this form's setup",
+                    },
+                  }}
+                  accessNote={
+                    <div className="flex gap-2">
+                      <IconGlobe className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <div className="space-y-1">
+                        <div className="font-medium text-foreground">
+                          Publishing and sharing are separate.
+                        </div>
+                        <div>
+                          Publish controls the respondent page. Share controls
+                          who can view or edit this form in the builder.
+                        </div>
+                      </div>
+                    </div>
+                  }
                 />
               </span>
             </TooltipTrigger>
-            <TooltipContent>Manage access and sharing settings</TooltipContent>
+            <TooltipContent>Manage builder access</TooltipContent>
           </Tooltip>
 
           <Button size="sm" className="text-xs" onClick={handleTogglePublish}>
@@ -965,20 +1000,20 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
           Export CSV
         </Button>
       </div>
-      <ScrollArea className="flex-1">
-        <div className="min-w-max">
-          <table className="w-full text-sm">
+      <div className="flex-1 min-w-0 overflow-auto overscroll-x-contain">
+        <div className="w-max min-w-full">
+          <table className="min-w-full text-sm whitespace-nowrap">
             <thead>
               <tr className="border-b border-border bg-muted/30">
                 <th
                   scope="col"
-                  className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                  className="min-w-16 px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
                 >
                   #
                 </th>
                 <th
                   scope="col"
-                  className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                  className="min-w-36 px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
                 >
                   Submitted
                 </th>
@@ -986,7 +1021,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                   <th
                     key={f.id}
                     scope="col"
-                    className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                    className="min-w-40 px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
                   >
                     {f.label}
                   </th>
@@ -1002,7 +1037,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                   <td className="px-4 py-2.5 text-xs text-muted-foreground">
                     {total - idx}
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                  <td className="min-w-36 px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
                     {format(new Date(response.submittedAt), "MMM d, h:mm a")}
                   </td>
                   {fields.map((f) => {
@@ -1018,7 +1053,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                     return (
                       <td
                         key={f.id}
-                        className="px-4 py-2.5 text-xs max-w-[200px] truncate"
+                        className="min-w-40 max-w-[220px] truncate px-4 py-2.5 text-xs"
                         title={display}
                       >
                         {display}
@@ -1030,7 +1065,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
             </tbody>
           </table>
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }

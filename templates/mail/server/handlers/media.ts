@@ -52,13 +52,13 @@ export const uploadMedia = defineEventHandler(async (event: H3Event) => {
   }
 
   try {
-    const body = await readRawBody(event);
-    if (!body || !body.length) {
+    const body = await readRawBody(event, false);
+    if (!body || !body.byteLength) {
       setResponseStatus(event, 400);
       return { error: "No file data" };
     }
 
-    if (body.length > MAX_UPLOAD_BYTES) {
+    if (body.byteLength > MAX_UPLOAD_BYTES) {
       setResponseStatus(event, 413);
       return { error: "File too large (max 10 MB)" };
     }
@@ -74,7 +74,7 @@ export const uploadMedia = defineEventHandler(async (event: H3Event) => {
       filename: id,
       originalName,
       mimeType,
-      size: body.length,
+      size: body.byteLength,
     };
 
     try {

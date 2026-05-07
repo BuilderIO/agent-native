@@ -7,7 +7,7 @@
  * the agent to do it, etc.).
  */
 
-export type OnboardingMethodBadge = "recommended" | "beta" | "free";
+export type OnboardingMethodBadge = "recommended" | "beta" | "free" | "soon";
 
 /** Fields for a form-style onboarding method (key/value env-var entry). */
 export interface OnboardingFormField {
@@ -24,6 +24,10 @@ export interface OnboardingMethodBase {
   badge?: OnboardingMethodBadge;
   /** Highlight as the primary CTA for this step. */
   primary?: boolean;
+  /** Render this method as visible but unavailable. */
+  disabled?: boolean;
+  /** Button text when disabled. Defaults to "Coming soon". */
+  disabledLabel?: string;
 }
 
 export type OnboardingMethod =
@@ -41,9 +45,9 @@ export type OnboardingMethod =
   | (OnboardingMethodBase & {
       kind: "builder-cli-auth";
       payload: {
-        // "llm" (managed gateway) and "browser" (browser automation) are
-        // live; "google" may land later.
-        scope: "llm" | "browser";
+        // "llm" (managed gateway), "browser" (browser automation), and
+        // "image-generation" are live; "google" may land later.
+        scope: "llm" | "browser" | "image-generation";
       };
     })
   | (OnboardingMethodBase & {

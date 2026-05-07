@@ -16,7 +16,7 @@ import { createAssetFromBuffer } from "../server/lib/assets.js";
 import { compositeLogo } from "../server/lib/image-processing.js";
 import {
   compilePrompt,
-  generateWithGemini,
+  generateWithManagedImageProvider,
   selectReferences,
 } from "../server/lib/generation.js";
 import { getObject } from "../server/lib/storage.js";
@@ -133,7 +133,7 @@ export default defineAction({
     });
 
     try {
-      const generated = await generateWithGemini({
+      const generated = await generateWithManagedImageProvider({
         prompt: args.prompt,
         compiledPrompt,
         references,
@@ -141,6 +141,11 @@ export default defineAction({
         aspectRatio: args.aspectRatio,
         imageSize: args.imageSize,
         groundingMode: args.groundingMode,
+        runId,
+        libraryId: args.libraryId,
+        collectionId: args.collectionId ?? null,
+        source: args.source,
+        callerAppId: args.callerAppId,
       });
       let image = generated.image;
       let mimeType = generated.mimeType;
@@ -177,6 +182,9 @@ export default defineAction({
           sourceAssetId: args.sourceAssetId,
           includeLogo: args.includeLogo,
           generated: true,
+          sourceUrl: generated.sourceUrl,
+          providerGenerationId: generated.providerGenerationId,
+          creditsCharged: generated.creditsCharged,
         },
         category: category as any,
       });
@@ -192,6 +200,8 @@ export default defineAction({
             includeLogo: args.includeLogo,
             categories: args.categories ?? [],
             provider: generated.provider,
+            providerGenerationId: generated.providerGenerationId,
+            creditsCharged: generated.creditsCharged,
           }),
         })
         .where(eq(schema.imageGenerationRuns.id, runId));

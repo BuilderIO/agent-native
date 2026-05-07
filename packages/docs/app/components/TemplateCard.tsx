@@ -7,18 +7,6 @@ export { trackEvent };
 
 export const templates = [
   {
-    name: "Mail",
-    slug: "mail",
-    replaces: "Replaces or augments Superhuman, Gmail",
-    cliCommand: "npx @agent-native/core create my-mail-app --template mail",
-    demoUrl: "https://mail.agent-native.com",
-    description:
-      "Superhuman-style email client with keyboard shortcuts, AI triage, multi-account support, and email automations. Own your inbox workflow.",
-    color: "#0ea5e9",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800",
-  },
-  {
     name: "Calendar",
     slug: "calendar",
     replaces: "Replaces or augments Google Calendar, Calendly",
@@ -82,6 +70,18 @@ export const templates = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800",
   },
   {
+    name: "Mail",
+    slug: "mail",
+    replaces: "Replaces or augments Superhuman, Gmail",
+    cliCommand: "npx @agent-native/core create my-mail-app --template mail",
+    demoUrl: "https://mail.agent-native.com",
+    description:
+      "Superhuman-style email client with keyboard shortcuts, AI triage, multi-account support, and email automations. Own your inbox workflow.",
+    color: "#0ea5e9",
+    screenshot:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800",
+  },
+  {
     name: "Forms",
     slug: "forms",
     replaces: "Replaces or augments Typeform, Google Forms",
@@ -141,6 +141,10 @@ export const templates = [
 ];
 
 export type Template = (typeof templates)[number];
+
+export const featuredTemplates = templates.filter(
+  (template) => template.slug !== "video",
+);
 
 function CliPopover({
   template,

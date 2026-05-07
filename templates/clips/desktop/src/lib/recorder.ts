@@ -51,12 +51,16 @@ import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 export type CaptureMode = "screen" | "screen-camera" | "camera";
+export type CaptureSource = "full-screen" | "window";
 
 export interface StartParams {
   serverUrl: string; // e.g. http://localhost:8080
   mode: CaptureMode;
+  source?: CaptureSource;
   cameraId?: string;
   micId?: string;
+  authToken?: string;
+  cookie?: string;
   micOn: boolean;
   cameraOn: boolean;
   /**
@@ -137,6 +141,18 @@ async function createRecording(
 interface NativeTranscriptCapture {
   stop(): Promise<string>;
   cancel(): Promise<void>;
+}
+
+interface RecordingStartCue {
+  play(): void;
+  cleanup(): void;
+}
+
+interface NativeFullscreenUploadResult {
+  recordingId: string;
+  durationMs: number;
+  width?: number;
+  height?: number;
 }
 
 async function startNativeTranscriptCapture(): Promise<NativeTranscriptCapture | null> {
@@ -318,6 +334,26 @@ async function uploadChunk(url: string, blob: Blob): Promise<void> {
   console.log("[clips-recorder] chunk ok:", res.status, blob.size, "bytes");
 }
 
+async function abortRecordingUpload(
+  serverUrl: string,
+  recordingId: string,
+  reason: string,
+): Promise<void> {
+  try {
+    await fetch(
+      `${serverUrl.replace(/\/+$/, "")}/api/uploads/${recordingId}/abort`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ reason }),
+      },
+    );
+  } catch (err) {
+    console.warn("[clips-recorder] abort upload failed:", err);
+  }
+}
+
 async function waitForEvent(name: string, timeoutMs = 15_000): Promise<void> {
   return new Promise((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -365,6 +401,228 @@ async function waitForEvent(name: string, timeoutMs = 15_000): Promise<void> {
       reject(new Error(`timeout waiting for ${name}`));
     }, timeoutMs);
   });
+}
+
+async function startNativeFullscreenRecording(
+  params: StartParams,
+  wantsCamera: boolean,
+  wantsAudio: boolean,
+  recordingStartCue: RecordingStartCue,
+): Promise<RecorderHandle> {
+  console.log("[clips-recorder] using native full-screen capture");
+  const streamCleanups: Array<() => void> = [recordingStartCue.cleanup];
+  let id = "";
+  let nativeTranscriptCapture: NativeTranscriptCapture | null = null;
+
+  try {
+    await invoke("park_popover_offscreen").catch(() => {});
+    emit("clips:popover-visible", false).catch(() => {});
+
+    nativeTranscriptCapture = wantsAudio
+      ? await startNativeTranscriptCapture()
+      : null;
+
+    console.log("[clips-recorder] invoking show_countdown + createRecording");
+    const countdownPromise = (async () => {
+      try {
+        await invoke("show_countdown");
+      } catch (err) {
+        console.error("[clips-recorder] show_countdown failed:", err);
+      }
+      try {
+        await waitForEvent("clips:countdown-done", 4000);
+      } catch {
+        console.warn("[clips-recorder] countdown timed out — proceeding");
+      }
+    })();
+    console.time("[clips-recorder] createRecording duration");
+    const recordingPromise = createRecording(
+      params.serverUrl,
+      wantsCamera,
+      wantsAudio,
+    ).finally(() => {
+      console.timeEnd("[clips-recorder] createRecording duration");
+    });
+    const [, createRes] = await Promise.all([
+      countdownPromise,
+      recordingPromise,
+    ]);
+    id = createRes.id;
+
+    await invoke("native_fullscreen_recording_start", {
+      recordingId: id,
+      includeAudio: wantsAudio,
+    });
+  } catch (err) {
+    await nativeTranscriptCapture?.cancel().catch(() => {});
+    streamCleanups.forEach((cleanup) => cleanup());
+    if (id) {
+      await abortRecordingUpload(
+        params.serverUrl,
+        id,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+    throw err;
+  }
+
+  const startedAt = Date.now();
+  let stopped = false;
+  let stopPromise: Promise<{ recordingId: string; viewUrl: string }> | null =
+    null;
+  let cancelPromise: Promise<void> | null = null;
+  let stateUnlistens: UnlistenFn[] = [];
+  let tickHandle: ReturnType<typeof setInterval> | null = null;
+
+  function emitState() {
+    emit("clips:recorder-state", {
+      paused: false,
+      elapsedMs: Date.now() - startedAt,
+    }).catch(() => {});
+  }
+
+  const handle: RecorderHandle = {
+    async stop() {
+      if (stopPromise) return stopPromise;
+      if (stopped) return { recordingId: id, viewUrl: `/r/${id}` };
+      stopPromise = (async () => {
+        stopped = true;
+        console.log("[clips-recorder] native full-screen stop requested");
+        if (tickHandle) {
+          clearInterval(tickHandle);
+          tickHandle = null;
+        }
+        stateUnlistens.forEach((u) => u());
+        stateUnlistens = [];
+
+        let uploadResult: NativeFullscreenUploadResult | null = null;
+        try {
+          const nativeTranscript = await nativeTranscriptCapture
+            ?.stop()
+            .catch((err) => {
+              console.warn(
+                "[clips-recorder] native transcript stop failed:",
+                err,
+              );
+              return "";
+            });
+          if (nativeTranscript) {
+            await saveNativeTranscript(params.serverUrl, id, nativeTranscript);
+          }
+
+          const chromeCmd = wantsCamera
+            ? "hide_recording_chrome"
+            : "hide_overlays";
+          await invoke(chromeCmd).catch((err) =>
+            console.error(`[clips-recorder] ${chromeCmd} failed:`, err),
+          );
+
+          invoke("show_finalizing").catch((err) =>
+            console.error("[clips-recorder] show_finalizing failed:", err),
+          );
+
+          try {
+            uploadResult = await invoke<NativeFullscreenUploadResult>(
+              "native_fullscreen_recording_stop_and_upload",
+              {
+                serverUrl: params.serverUrl,
+                recordingId: id,
+                authToken: params.authToken ?? "",
+                cookie: params.cookie ?? "",
+                hasAudio: wantsAudio,
+                hasCamera: wantsCamera,
+              },
+            );
+          } catch (err) {
+            await abortRecordingUpload(
+              params.serverUrl,
+              id,
+              err instanceof Error ? err.message : String(err),
+            );
+            throw err;
+          }
+
+          const viewUrl = `/r/${id}`;
+          try {
+            await openExternal(
+              `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
+            );
+          } catch (err) {
+            console.error("[clips-recorder] openExternal failed:", err);
+          }
+          return {
+            recordingId: uploadResult.recordingId,
+            viewUrl,
+          };
+        } finally {
+          streamCleanups.forEach((cleanup) => cleanup());
+          invoke("hide_finalizing").catch((err) =>
+            console.error("[clips-recorder] hide_finalizing failed:", err),
+          );
+        }
+      })();
+      return stopPromise;
+    },
+
+    async cancel() {
+      if (cancelPromise) return cancelPromise;
+      if (stopped) return;
+      cancelPromise = (async () => {
+        stopped = true;
+        if (tickHandle) {
+          clearInterval(tickHandle);
+          tickHandle = null;
+        }
+        stateUnlistens.forEach((u) => u());
+        stateUnlistens = [];
+        await nativeTranscriptCapture?.cancel().catch(() => {});
+        await invoke("native_fullscreen_recording_cancel").catch((err) =>
+          console.warn(
+            "[clips-recorder] native fullscreen cancel failed:",
+            err,
+          ),
+        );
+        streamCleanups.forEach((cleanup) => cleanup());
+        await invoke("hide_overlays").catch(() => {});
+        if (id) {
+          await abortRecordingUpload(
+            params.serverUrl,
+            id,
+            "Recording cancelled by user",
+          );
+        }
+      })();
+      return cancelPromise;
+    },
+  };
+
+  const toolbarUnlistens = await Promise.all([
+    listen("clips:recorder-pause", () => {
+      emitState();
+    }),
+    listen("clips:recorder-resume", () => {
+      emitState();
+    }),
+    listen("clips:recorder-stop", () => {
+      console.log("[clips-recorder] native stop event received");
+      handle.stop().catch((err) => {
+        console.error("[clips-recorder] native handle.stop() threw:", err);
+      });
+    }),
+    listen("clips:recorder-cancel", () => {
+      console.log("[clips-recorder] native cancel event received");
+      handle.cancel().catch((err) => {
+        console.error("[clips-recorder] native handle.cancel() threw:", err);
+      });
+    }),
+  ]);
+  stateUnlistens = toolbarUnlistens;
+  tickHandle = setInterval(emitState, 500);
+  recordingStartCue.play();
+  emit("clips:toolbar-enabled", true).catch(() => {});
+  emitState();
+
+  return handle;
 }
 
 function createSyntheticScreenStream(): {
@@ -444,11 +702,6 @@ function createSyntheticAudioStream(): {
     console.warn("[clips-recorder] synthetic audio unavailable:", err);
     return null;
   }
-}
-
-interface RecordingStartCue {
-  play(): void;
-  cleanup(): void;
 }
 
 const noopRecordingStartCue: RecordingStartCue = {
@@ -550,13 +803,24 @@ async function startNativeRecordingInner(
   const wantsCamera = params.mode !== "screen" && params.cameraOn;
   const wantsAudio = params.micOn;
   const recordingStartCue = createRecordingStartCue();
+  const captureSource = params.source ?? "window";
   console.log("[clips-recorder] startNativeRecording", {
     serverUrl: params.serverUrl,
     mode: params.mode,
+    source: captureSource,
     wantsScreen,
     wantsCamera,
     wantsAudio,
   });
+
+  if (wantsScreen && captureSource === "full-screen") {
+    return startNativeFullscreenRecording(
+      params,
+      wantsCamera,
+      wantsAudio,
+      recordingStartCue,
+    );
+  }
 
   // 1. Acquire streams BEFORE the countdown so the user gets the permission
   //    prompts out of the way while the popover is still focused.
@@ -594,8 +858,10 @@ async function startNativeRecordingInner(
           import.meta.env.DEV &&
           localStorage.getItem("clips:dev-real-capture") !== "1";
         if (!useSynthetic) {
+          const displaySurface =
+            captureSource === "window" ? "window" : "monitor";
           return navigator.mediaDevices.getDisplayMedia({
-            video: { frameRate: 30 },
+            video: { frameRate: 30, displaySurface },
             audio: true,
           });
         }

@@ -265,12 +265,17 @@ function StepMethods({
 }) {
   const formMethods = methods.filter(isFormMethod);
 
-  if (step.id === "llm") {
+  if (step.id === "llm" || step.id === "image-generation") {
     return (
-      <LlmMethodGroup
+      <ManagedProviderMethodGroup
         methods={methods}
         formMethods={formMethods}
         stepId={step.id}
+        secondaryLabel={
+          step.id === "image-generation"
+            ? "Add a Gemini API key"
+            : "Add your own provider key"
+        }
         onCompleted={onCompleted}
         onMarkManualComplete={onMarkManualComplete}
       />
@@ -305,16 +310,18 @@ function StepMethods({
   );
 }
 
-function LlmMethodGroup({
+function ManagedProviderMethodGroup({
   methods,
   formMethods,
   stepId,
+  secondaryLabel,
   onCompleted,
   onMarkManualComplete,
 }: {
   methods: OnboardingMethod[];
   formMethods: FormOnboardingMethod[];
   stepId: string;
+  secondaryLabel: string;
   onCompleted: () => Promise<void>;
   onMarkManualComplete: () => void;
 }) {
@@ -347,7 +354,7 @@ function LlmMethodGroup({
           >
             <span style={styles.secondaryToggleLeft}>
               <IconKey size={13} aria-hidden />
-              <span>Add your own provider key</span>
+              <span>{secondaryLabel}</span>
             </span>
             <span style={styles.chevron}>
               {showKeyForm ? (
@@ -480,6 +487,19 @@ function MethodBody({
   onCompleted: () => Promise<void>;
   onMarkManualComplete: () => void;
 }) {
+  if (method.disabled) {
+    return (
+      <button
+        type="button"
+        disabled
+        style={buttonDisabled(method.primary)}
+        aria-disabled="true"
+      >
+        {method.disabledLabel ?? "Coming soon"}
+      </button>
+    );
+  }
+
   switch (method.kind) {
     case "link":
       return (
@@ -693,13 +713,24 @@ function buttonPrimary(primary: boolean | undefined): React.CSSProperties {
   };
 }
 
+function buttonDisabled(primary: boolean | undefined): React.CSSProperties {
+  return {
+    ...buttonPrimary(primary),
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: primary ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.04)",
+    color: "rgba(255,255,255,0.5)",
+    cursor: "not-allowed",
+  };
+}
+
 function badgeStyle(
-  kind: "recommended" | "beta" | "free",
+  kind: "recommended" | "beta" | "free" | "soon",
 ): React.CSSProperties {
   const palette = {
     recommended: { bg: "rgba(59,130,246,0.15)", fg: "#60a5fa" },
     beta: { bg: "rgba(168,85,247,0.15)", fg: "#c084fc" },
     free: { bg: "rgba(34,197,94,0.15)", fg: "#4ade80" },
+    soon: { bg: "rgba(148,163,184,0.15)", fg: "#cbd5e1" },
   }[kind];
   return {
     marginLeft: 6,

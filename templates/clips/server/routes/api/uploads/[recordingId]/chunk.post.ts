@@ -224,9 +224,16 @@ export default defineEventHandler(async (event: H3Event) => {
           recordingId,
           videoUrl: (result as any)?.videoUrl,
         });
+        const waitingForStorage =
+          (result as any)?.status === "waiting_storage" ||
+          (result as any)?.storageSetupRequired === true;
+        if (waitingForStorage) {
+          setResponseStatus(event, 202);
+        }
         return {
           ok: true,
-          finalized: true,
+          finalized: !waitingForStorage,
+          waitingForStorage,
           ...result,
         };
       } catch (err) {

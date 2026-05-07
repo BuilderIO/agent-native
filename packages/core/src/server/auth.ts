@@ -178,6 +178,17 @@ export interface AuthOptions {
     features?: string[];
   };
   /**
+   * Optional host-scoped notice shown before the built-in Google sign-in
+   * redirects to Google.
+   */
+  googleSignInNotice?: {
+    host?: string;
+    title: string;
+    body: string;
+    continueLabel?: string;
+    cancelLabel?: string;
+  };
+  /**
    * Additional Better Auth configuration (social providers, plugins, etc.)
    */
   betterAuth?: BetterAuthConfig;
@@ -2139,6 +2150,7 @@ async function mountBetterAuthRoutes(
     getOnboardingHtml({
       googleOnly: options.googleOnly,
       marketing: options.marketing,
+      googleSignInNotice: options.googleSignInNotice,
     });
   _authGuardConfig = { loginHtml, publicPaths };
   const guardFn = createAuthGuardFn();
@@ -2390,12 +2402,18 @@ export async function autoMountAuth(
       customGetSession = options.getSession;
     }
     if (_authGuardConfig) {
-      if (options.googleOnly || options.loginHtml || options.marketing) {
+      if (
+        options.googleOnly ||
+        options.loginHtml ||
+        options.marketing ||
+        options.googleSignInNotice
+      ) {
         _authGuardConfig.loginHtml =
           options.loginHtml ??
           getOnboardingHtml({
             googleOnly: options.googleOnly,
             marketing: options.marketing,
+            googleSignInNotice: options.googleSignInNotice,
           });
       }
       if (options.publicPaths) {
@@ -2505,6 +2523,7 @@ export async function autoMountAuth(
       getOnboardingHtml({
         googleOnly: options.googleOnly,
         marketing: options.marketing,
+        googleSignInNotice: options.googleSignInNotice,
       });
     _authGuardConfig = { loginHtml, publicPaths };
     const guardFn = createAuthGuardFn();

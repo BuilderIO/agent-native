@@ -527,113 +527,122 @@ export const EmailListItem = memo(function EmailListItem({
           </span>
         </div>
 
-        {/* Time — right aligned, hidden on hover */}
-        <span className="row-time shrink-0 ml-3 text-xs sm:text-[12px] text-muted-foreground tabular-nums">
-          {formatEmailDate(email.date)}
-        </span>
+        <div className="row-action-rail">
+          {/* Time — right aligned, hidden when row actions are visible */}
+          <span className="row-time text-xs text-muted-foreground tabular-nums sm:text-[12px]">
+            {formatEmailDate(email.date)}
+          </span>
 
-        {/* Hover actions — overlay on top of time */}
-        <div className="hover-actions items-center gap-0.5">
-          {onToggleRead && (
+          {/* Hover actions live in a reserved rail so they never cover text. */}
+          <div className="hover-actions gap-0.5">
+            {onToggleRead && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={onToggleRead}
+                    className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    {isUnread ? (
+                      <IconMailOpened className="h-3.5 w-3.5" />
+                    ) : (
+                      <IconMail className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {isUnread ? "Mark read" : "Mark unread"}
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {onArchive && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={onArchive}
+                    className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400"
+                  >
+                    <IconArchive className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Archive</TooltipContent>
+              </Tooltip>
+            )}
+            {onSnooze && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={onSnooze}
+                    className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400"
+                  >
+                    <IconClock className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Snooze</TooltipContent>
+              </Tooltip>
+            )}
+            {onSendNow && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={onSendNow}
+                    className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    <IconSend className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Send now</TooltipContent>
+              </Tooltip>
+            )}
+            {onCancelSchedule && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={onCancelSchedule}
+                    className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    <IconX className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Cancel scheduled send</TooltipContent>
+              </Tooltip>
+            )}
+            {onTrash && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={onTrash}
+                    className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    <IconTrash className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Move to Trash</TooltipContent>
+              </Tooltip>
+            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
-                  onClick={onToggleRead}
-                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                >
-                  {isUnread ? (
-                    <IconMailOpened className="h-3.5 w-3.5" />
-                  ) : (
-                    <IconMail className="h-3.5 w-3.5" />
+                  type="button"
+                  onClick={onStar}
+                  className={cn(
+                    "flex h-6 w-6 items-center justify-center rounded transition-colors",
+                    isStarred
+                      ? "text-amber-400"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent",
                   )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {isUnread ? "Mark read" : "Mark unread"}
-              </TooltipContent>
-            </Tooltip>
-          )}
-          {onArchive && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={onArchive}
-                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400"
                 >
-                  <IconArchive className="h-3.5 w-3.5" />
+                  <IconStarFilled className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Archive</TooltipContent>
+              <TooltipContent>{isStarred ? "Unpin" : "Pin"}</TooltipContent>
             </Tooltip>
-          )}
-          {onSnooze && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={onSnooze}
-                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400"
-                >
-                  <IconClock className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Snooze</TooltipContent>
-            </Tooltip>
-          )}
-          {onSendNow && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={onSendNow}
-                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                >
-                  <IconSend className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Send now</TooltipContent>
-            </Tooltip>
-          )}
-          {onCancelSchedule && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={onCancelSchedule}
-                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                >
-                  <IconX className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Cancel scheduled send</TooltipContent>
-            </Tooltip>
-          )}
-          {onTrash && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={onTrash}
-                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                >
-                  <IconTrash className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Move to Trash</TooltipContent>
-            </Tooltip>
-          )}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={onStar}
-                className={cn(
-                  "flex h-6 w-6 items-center justify-center rounded transition-colors",
-                  isStarred
-                    ? "text-amber-400"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent",
-                )}
-              >
-                <IconStarFilled className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Pin</TooltipContent>
-          </Tooltip>
+          </div>
         </div>
       </div>
     </div>

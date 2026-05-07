@@ -6,12 +6,11 @@ import { useApps } from "../../lib/use-apps";
 const TAB_TO_APP_ID: Record<string, string> = {
   index: "mail",
   calendar: "calendar",
-  slides: "slides",
   content: "content",
-  analytics: "analytics",
-  videos: "videos",
-  forms: "forms",
+  slides: "slides",
   clips: "clips",
+  analytics: "analytics",
+  forms: "forms",
   design: "design",
   dispatch: "dispatch",
   starter: "starter",
@@ -31,6 +30,7 @@ export default function TabLayout() {
 
   return (
     <Tabs
+      initialRouteName="calendar"
       screenOptions={{
         tabBarStyle: {
           backgroundColor: "#111111",
@@ -44,17 +44,6 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen
-        name="index"
-        options={{
-          title: "Mail",
-          headerShown: false,
-          href: hrefFor("index"),
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="mail" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="calendar"
         options={{
           title: "Calendar",
@@ -62,17 +51,6 @@ export default function TabLayout() {
           href: hrefFor("calendar"),
           tabBarIcon: ({ color, size }) => (
             <Feather name="calendar" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="slides"
-        options={{
-          title: "Slides",
-          headerShown: false,
-          href: hrefFor("slides"),
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="airplay" size={size} color={color} />
           ),
         }}
       />
@@ -88,35 +66,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="analytics"
+        name="slides"
         options={{
-          title: "Analytics",
+          title: "Slides",
           headerShown: false,
-          href: hrefFor("analytics"),
+          href: hrefFor("slides"),
           tabBarIcon: ({ color, size }) => (
-            <Feather name="bar-chart-2" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="videos"
-        options={{
-          title: "Video",
-          headerShown: false,
-          href: hrefFor("videos"),
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="film" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="forms"
-        options={{
-          title: "Forms",
-          headerShown: false,
-          href: hrefFor("forms"),
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="clipboard" size={size} color={color} />
+            <Feather name="airplay" size={size} color={color} />
           ),
         }}
       />
@@ -132,13 +88,24 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="design"
+        name="analytics"
         options={{
-          title: "Design",
+          title: "Analytics",
           headerShown: false,
-          href: hrefFor("design"),
+          href: hrefFor("analytics"),
           tabBarIcon: ({ color, size }) => (
-            <Feather name="edit-2" size={size} color={color} />
+            <Feather name="bar-chart-2" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: "Mail",
+          headerShown: false,
+          href: hrefFor("index"),
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="mail" size={size} color={color} />
           ),
         }}
       />
@@ -154,6 +121,28 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="forms"
+        options={{
+          title: "Forms",
+          headerShown: false,
+          href: hrefFor("forms"),
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="clipboard" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="design"
+        options={{
+          title: "Design",
+          headerShown: false,
+          href: hrefFor("design"),
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="edit-2" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="starter"
         options={{
           title: "Starter",
@@ -161,6 +150,17 @@ export default function TabLayout() {
           href: hrefFor("starter"),
           tabBarIcon: ({ color, size }) => (
             <Feather name="code" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="videos"
+        options={{
+          title: "Video",
+          headerShown: false,
+          href: null,
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="film" size={size} color={color} />
           ),
         }}
       />

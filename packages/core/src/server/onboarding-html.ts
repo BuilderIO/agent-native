@@ -57,6 +57,18 @@ export interface OnboardingHtmlOptions {
     description?: string;
     features?: string[];
   };
+  /**
+   * Optional preflight copy shown before redirecting through Google sign-in.
+   * Use this when a hosted app needs to warn about provider-specific consent
+   * screens while leaving self-hosted deployments untouched.
+   */
+  googleSignInNotice?: {
+    host?: string;
+    title: string;
+    body: string;
+    continueLabel?: string;
+    cancelLabel?: string;
+  };
 }
 
 export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
@@ -75,6 +87,26 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  const googleSignInNotice = opts.googleSignInNotice;
+  const googleNoticeHtml =
+    showGoogle && googleSignInNotice
+      ? `
+  <div
+    class="google-preflight"
+    id="google-preflight"
+    data-host="${esc(googleSignInNotice.host ?? "")}"
+    role="dialog"
+    aria-labelledby="google-preflight-title"
+    aria-describedby="google-preflight-copy"
+  >
+    <p class="google-preflight-title" id="google-preflight-title">${esc(googleSignInNotice.title)}</p>
+    <p class="google-preflight-copy" id="google-preflight-copy">${esc(googleSignInNotice.body)}</p>
+    <div class="google-preflight-actions">
+      <button type="button" class="btn-primary" id="google-preflight-continue" onclick="__anAcceptGoogleNotice()">${esc(googleSignInNotice.continueLabel ?? "Continue")}</button>
+      <button type="button" class="btn-secondary" onclick="__anHideGoogleNotice()">${esc(googleSignInNotice.cancelLabel ?? "Cancel")}</button>
+    </div>
+  </div>`
+      : "";
 
   const marketingStyles = hasMarketing
     ? `
@@ -609,6 +641,38 @@ ${
   .btn-google svg { width: 18px; height: 18px; flex-shrink: 0; }
   .google-error { margin-top: 0.5rem; font-size: 0.8125rem; color: #f87171; display: none; }
   .google-error.show { display: block; }
+  .google-preflight {
+    display: none;
+    margin-top: 0.75rem;
+    padding: 0.875rem;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.05);
+    box-shadow: 0 14px 36px rgba(0,0,0,0.28);
+  }
+  .google-preflight.show { display: block; }
+  .google-preflight-title {
+    margin-bottom: 0.375rem;
+    color: #fff;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  .google-preflight-copy {
+    color: #b4b4b8;
+    font-size: 0.75rem;
+    line-height: 1.55;
+  }
+  .google-preflight-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.875rem;
+  }
+  .google-preflight-actions .btn-primary,
+  .google-preflight-actions .btn-secondary {
+    flex: 1;
+    width: auto;
+    margin-top: 0;
+  }
   .local-note {
     display: none;
     max-width: 400px;
@@ -648,6 +712,7 @@ ${
     Sign in with Google
   </button>
   <p class="google-error" id="google-err"></p>
+${googleNoticeHtml}
 ${googleOnly ? "" : `\n  <div class="divider" id="auth-divider">or</div>\n`}
 `
     : googleOnly
@@ -1203,6 +1268,13 @@ ${
   showGoogle
     ? `
     async function signInWithGoogle() {
+    if (__anShouldShowGoogleNotice()) {
+      __anShowGoogleNotice();
+      return;
+    }
+    return __anStartGoogleSignIn();
+  }
+    async function __anStartGoogleSignIn() {
     var btn = document.getElementById('google-btn');
     var err = document.getElementById('google-err');
     btn.disabled = true;
@@ -1227,6 +1299,35 @@ ${
     }
   }`
     : ""
+}
+${
+  googleSignInNotice
+    ? `
+  window.__anGoogleNoticeAccepted = false;
+  function __anShouldShowGoogleNotice() {
+    var notice = document.getElementById('google-preflight');
+    if (!notice || window.__anGoogleNoticeAccepted) return false;
+    var host = notice.getAttribute('data-host');
+    return !host || window.location.hostname === host;
+  }
+  function __anShowGoogleNotice() {
+    var notice = document.getElementById('google-preflight');
+    if (!notice) return;
+    notice.classList.add('show');
+    var continueBtn = document.getElementById('google-preflight-continue');
+    if (continueBtn) continueBtn.focus();
+  }
+  function __anHideGoogleNotice() {
+    var notice = document.getElementById('google-preflight');
+    if (notice) notice.classList.remove('show');
+  }
+  function __anAcceptGoogleNotice() {
+    window.__anGoogleNoticeAccepted = true;
+    __anHideGoogleNotice();
+    __anStartGoogleSignIn();
+  }`
+    : `
+  function __anShouldShowGoogleNotice() { return false; }`
 }
 ${starfieldScript}
 </script>

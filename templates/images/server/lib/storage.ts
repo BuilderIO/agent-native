@@ -1,132 +1,149 @@
+/**
+ * Storage layer for the Images template.
+ *
+ * Routes through the framework's `uploadFile()` provider chain so the same
+ * code path works whether the deploy uses Builder.io managed storage,
+ * S3-compatible object storage (registered via `s3FileUploadProvider`), or
+ * the local-fs fallback in dev.
+ *
+ * The "key" returned by `putObject` is opaque to callers — it's a URL when
+ * uploaded via a real provider, or a relative path (`local:<file>`) when
+ * we fall back to local fs in dev. `getObject` and `getPresignedObjectUrl`
+ * dispatch on the shape of the key so all existing callers keep working
+ * without changes.
+ */
+
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
-  GetObjectCommand,
-  PutObjectCommand,
-  S3Client,
-} from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-
-interface StorageConfig {
-  bucket: string;
-  region: string;
-  endpoint?: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  publicBaseUrl?: string;
-}
+  uploadFile,
+  getActiveFileUploadProvider,
+} from "@agent-native/core/file-upload";
+import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
 
 export interface StoredObject {
+  /** Opaque storage handle. URL when uploaded via a real provider, or
+   *  `local:<relative-path>` when falling back to local fs in dev. */
   key: string;
+  /** Public URL when available (always set for URL keys). */
   url?: string;
 }
 
 const LOCAL_ROOT = path.join(process.cwd(), "data", "images-objects");
+const LOCAL_PREFIX = "local:";
 
-function readConfig(): StorageConfig | null {
-  const bucket = process.env.IMAGES_STORAGE_BUCKET || process.env.S3_BUCKET;
-  const accessKeyId =
-    process.env.IMAGES_STORAGE_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID;
-  const secretAccessKey =
-    process.env.IMAGES_STORAGE_SECRET_ACCESS_KEY ||
-    process.env.S3_SECRET_ACCESS_KEY;
-  if (!bucket || !accessKeyId || !secretAccessKey) return null;
-  return {
-    bucket,
-    region:
-      process.env.IMAGES_STORAGE_REGION || process.env.S3_REGION || "auto",
-    endpoint: process.env.IMAGES_STORAGE_ENDPOINT || process.env.S3_ENDPOINT,
-    accessKeyId,
-    secretAccessKey,
-    publicBaseUrl:
-      process.env.IMAGES_STORAGE_PUBLIC_BASE_URL ||
-      process.env.S3_PUBLIC_BASE_URL ||
-      undefined,
-  };
+function isUrlKey(key: string): boolean {
+  return key.startsWith("http://") || key.startsWith("https://");
 }
 
-export function isObjectStorageConfigured(): boolean {
-  return readConfig() !== null;
+function isLocalKey(key: string): boolean {
+  return key.startsWith(LOCAL_PREFIX);
 }
 
-function s3Client(config: StorageConfig): S3Client {
-  return new S3Client({
-    region: config.region,
-    endpoint: config.endpoint,
-    forcePathStyle: !!config.endpoint,
-    credentials: {
-      accessKeyId: config.accessKeyId,
-      secretAccessKey: config.secretAccessKey,
-    },
-  });
+function localKeyToPath(key: string): string {
+  return path.join(LOCAL_ROOT, key.slice(LOCAL_PREFIX.length));
 }
 
+/**
+ * True if a real upload provider is registered (S3 or Builder.io), or if the
+ * Builder.io credential is resolvable per-request. Used by the onboarding
+ * step's `isComplete` check.
+ */
+export async function isObjectStorageConfigured(): Promise<boolean> {
+  const active = getActiveFileUploadProvider();
+  if (active && active.id !== "sql") return true;
+  try {
+    if (await resolveHasBuilderPrivateKey()) return true;
+  } catch {
+    /* fall through */
+  }
+  return Boolean(process.env.BUILDER_PRIVATE_KEY);
+}
+
+/** Synchronous variant for hot-path checks (env-only signal). */
+export function isObjectStorageConfiguredSync(): boolean {
+  const active = getActiveFileUploadProvider();
+  if (active && active.id !== "sql") return true;
+  return Boolean(process.env.BUILDER_PRIVATE_KEY);
+}
+
+/**
+ * Upload an object. The `key` argument is now a filename hint for the provider
+ * (used for extension + dedup) — the real storage location is determined by
+ * the active provider and returned in the `key` field of the result.
+ */
 export async function putObject(input: {
   key: string;
   body: Uint8Array | Buffer;
   contentType: string;
 }): Promise<StoredObject> {
-  const config = readConfig();
-  if (config) {
-    const client = s3Client(config);
-    await client.send(
-      new PutObjectCommand({
-        Bucket: config.bucket,
-        Key: input.key,
-        Body: input.body,
-        ContentType: input.contentType,
-      }),
-    );
-    return {
-      key: input.key,
-      url: config.publicBaseUrl
-        ? `${config.publicBaseUrl.replace(/\/$/, "")}/${input.key}`
-        : undefined,
-    };
+  const filename = input.key.split("/").pop() || "object";
+  // Buffer extends Uint8Array, so a single cast covers both inputs.
+  const data: Uint8Array = input.body;
+
+  // Try the framework provider chain first (S3 → Builder.io → SQL fallback).
+  const result = await uploadFile({
+    data,
+    filename,
+    mimeType: input.contentType,
+  }).catch(() => null);
+
+  if (result?.url) {
+    return { key: result.url, url: result.url };
   }
 
+  // Local fs fallback for dev (no provider configured).
   if (process.env.NODE_ENV === "production") {
     throw new Error(
-      "Image object storage is not configured. Set the IMAGES_STORAGE_* secrets before generating or uploading images.",
+      "Image storage is not configured. Connect Builder.io in onboarding, set BUILDER_PRIVATE_KEY, or fill in the IMAGES_STORAGE_* secrets.",
     );
   }
-
-  const file = path.join(LOCAL_ROOT, input.key);
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, input.body);
-  return { key: input.key };
+  const localPath = path.join(LOCAL_ROOT, input.key);
+  await fs.mkdir(path.dirname(localPath), { recursive: true });
+  await fs.writeFile(localPath, input.body);
+  return { key: `${LOCAL_PREFIX}${input.key}` };
 }
 
+/** Read raw bytes from a stored object. Handles URL keys, local-fs keys, and
+ *  legacy bare S3-style keys (deprecated — kept so old dev DBs still read). */
 export async function getObject(key: string): Promise<Buffer> {
-  const config = readConfig();
-  if (config) {
-    const client = s3Client(config);
-    const res = await client.send(
-      new GetObjectCommand({ Bucket: config.bucket, Key: key }),
-    );
-    const chunks: Uint8Array[] = [];
-    for await (const chunk of res.Body as AsyncIterable<Uint8Array>) {
-      chunks.push(chunk);
+  if (isUrlKey(key)) {
+    const res = await fetch(key);
+    if (!res.ok) {
+      throw new Error(
+        `getObject: provider URL fetch failed (${res.status}) — ${key.slice(0, 80)}`,
+      );
     }
-    return Buffer.concat(chunks);
+    return Buffer.from(await res.arrayBuffer());
   }
-  return fs.readFile(path.join(LOCAL_ROOT, key));
+  if (isLocalKey(key)) {
+    return fs.readFile(localKeyToPath(key));
+  }
+  // Legacy: bare path key from the old direct-S3 path. Try local fs in dev.
+  const legacyLocal = path.join(LOCAL_ROOT, key);
+  return fs.readFile(legacyLocal);
 }
 
+/**
+ * Return a URL the caller can hand out for the object.
+ *
+ * - URL keys (the new normal): returned as-is. The provider's URL is already
+ *   the canonical public/CDN URL; the `expiresIn` argument is honored only
+ *   advisorily for the `expiresAt` we report — the URL itself doesn't time
+ *   out unless the provider issued a presigned URL.
+ * - Local-fs keys (dev): returns null so callers know to stream bytes
+ *   through their own endpoint (which already exists for assets).
+ * - Legacy bare keys: returns null (no presign path here anymore).
+ */
 export async function getPresignedObjectUrl(
   key: string,
   expiresIn = 60 * 30,
 ): Promise<{ url: string; expiresAt: string } | null> {
-  const config = readConfig();
-  if (!config) return null;
-  const client = s3Client(config);
-  const url = await getSignedUrl(
-    client,
-    new GetObjectCommand({ Bucket: config.bucket, Key: key }),
-    { expiresIn },
-  );
-  return {
-    url,
-    expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
-  };
+  if (isUrlKey(key)) {
+    return {
+      url: key,
+      expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
+    };
+  }
+  return null;
 }

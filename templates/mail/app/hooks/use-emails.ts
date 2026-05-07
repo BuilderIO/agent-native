@@ -824,22 +824,38 @@ export function useSendEmail() {
       const threadId = result.threadId || context?.threadId;
       if (!threadId || !context?.optimisticMessage) return;
 
-      const current = getCachedThread(threadId) ?? [];
+      const sourceThreadId = context.threadId;
+      const current =
+        getCachedThread(threadId) ??
+        (sourceThreadId !== threadId
+          ? getCachedThread(sourceThreadId)
+          : undefined) ??
+        [];
+      const replacement = {
+        ...context.optimisticMessage,
+        id: result.id || context.optimisticMessage.id,
+        threadId,
+        labelIds: result.labelIds?.map((id) => id.toLowerCase()) || ["sent"],
+      };
+      const hasOptimistic = current.some(
+        (message) => message.id === context.optimisticMessage.id,
+      );
       setCachedThread(
         threadId,
-        current.map((message) =>
-          message.id === context.optimisticMessage.id
-            ? {
-                ...message,
-                id: result.id || message.id,
-                threadId,
-                labelIds: result.labelIds?.map((id) => id.toLowerCase()) || [
-                  "sent",
-                ],
-              }
-            : message,
+        (hasOptimistic
+          ? current.map((message) =>
+              message.id === context.optimisticMessage.id
+                ? replacement
+                : message,
+            )
+          : [...current, replacement]
+        ).sort(
+          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
         ),
       );
+      if (sourceThreadId !== threadId) {
+        invalidateCachedThread(sourceThreadId);
+      }
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["emails"] });

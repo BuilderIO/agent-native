@@ -50,18 +50,6 @@ export interface TemplateMeta {
 
 export const TEMPLATES: TemplateMeta[] = [
   {
-    name: "mail",
-    label: "Mail",
-    hint: "Agent-native Superhuman — email client with keyboard shortcuts and AI triage",
-    icon: "Mail",
-    color: "#3B82F6",
-    colorRgb: "59 130 246",
-    devPort: 8085,
-    prodUrl: "https://mail.agent-native.com",
-    defaultMode: "prod",
-    core: true,
-  },
-  {
     name: "calendar",
     label: "Calendar",
     hint: "Agent-native Google Calendar — manage events, sync, and public booking",
@@ -108,7 +96,6 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8087,
     prodUrl: "https://videos.agent-native.com",
     defaultMode: "prod",
-    core: true,
   },
   {
     name: "analytics",
@@ -119,6 +106,18 @@ export const TEMPLATES: TemplateMeta[] = [
     colorRgb: "245 158 11",
     devPort: 8088,
     prodUrl: "https://analytics.agent-native.com",
+    defaultMode: "prod",
+    core: true,
+  },
+  {
+    name: "mail",
+    label: "Mail",
+    hint: "Agent-native Superhuman — email client with keyboard shortcuts and AI triage",
+    icon: "Mail",
+    color: "#3B82F6",
+    colorRgb: "59 130 246",
+    devPort: 8085,
+    prodUrl: "https://mail.agent-native.com",
     defaultMode: "prod",
     core: true,
   },
@@ -218,7 +217,6 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8100,
     prodUrl: "https://images.agent-native.com",
     defaultMode: "prod",
-    core: true,
     hidden: true,
   },
   {

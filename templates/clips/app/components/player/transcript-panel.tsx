@@ -299,6 +299,18 @@ function isTranscriptionSetupNeeded(
   );
 }
 
+function isConnectedBuilderRetryable(
+  reason: string | null | undefined,
+): boolean {
+  if (!reason) return false;
+  const r = reason.toLowerCase();
+  return (
+    r.includes("no transcription provider configured") ||
+    r.includes("connect builder") ||
+    r.includes("no transcription provider")
+  );
+}
+
 /**
  * Inline card shown when transcription needs a provider set up.
  *
@@ -329,6 +341,12 @@ function TranscriptSetupCard({
     text: string;
   } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoRetryRef = useRef(false);
+  const onRetryRef = useRef(onRetry);
+
+  useEffect(() => {
+    onRetryRef.current = onRetry;
+  }, [onRetry]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -348,6 +366,14 @@ function TranscriptSetupCard({
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!builderConfigured || autoRetryRef.current) return;
+    if (!isConnectedBuilderRetryable(failureReason)) return;
+    autoRetryRef.current = true;
+    const handle = window.setTimeout(() => onRetryRef.current?.(), 250);
+    return () => window.clearTimeout(handle);
+  }, [builderConfigured, failureReason]);
 
   const handleConnect = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -488,10 +514,23 @@ function TranscriptSetupCard({
               </div>
             </div>
             {builderConfigured ? (
-              <span className="flex items-center gap-1 text-[10px] text-green-600 shrink-0 mt-0.5">
-                <IconCheck className="h-3 w-3" />
-                Connected
-              </span>
+              <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
+                <span className="flex items-center gap-1 text-[10px] text-green-600">
+                  <IconCheck className="h-3 w-3" />
+                  Connected
+                </span>
+                {onRetry ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onRetry()}
+                    className="h-7 px-2 text-[11px]"
+                  >
+                    Retry
+                  </Button>
+                ) : null}
+              </div>
             ) : (
               <button
                 type="button"

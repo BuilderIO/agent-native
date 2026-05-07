@@ -252,14 +252,14 @@ export function ResponsesPage() {
           </p>
         </div>
       ) : (
-        <div className="flex-1 overflow-auto">
-          <div className="min-w-max">
-            <table className="w-full text-sm whitespace-nowrap">
+        <div className="flex-1 min-w-0 overflow-auto overscroll-x-contain">
+          <div className="w-max min-w-full">
+            <table className="min-w-full text-sm whitespace-nowrap">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   <th
                     scope="col"
-                    className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                    className="min-w-16 px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
                   >
                     #
                   </th>
@@ -289,7 +289,7 @@ export function ResponsesPage() {
                     <td className="px-4 py-2.5 text-xs text-muted-foreground">
                       {filteredSorted.length - idx}
                     </td>
-                    <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                    <td className="min-w-36 px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
                       {format(new Date(response.submittedAt), "MMM d, h:mm a")}
                     </td>
                     {fields.map((f) => {
@@ -301,7 +301,7 @@ export function ResponsesPage() {
                       return (
                         <td
                           key={f.id}
-                          className="px-4 py-2.5 text-xs max-w-[200px] truncate"
+                          className="min-w-40 max-w-[220px] truncate px-4 py-2.5 text-xs"
                           title={display}
                         >
                           {display}
@@ -334,7 +334,7 @@ function SortableHeader(props: {
   return (
     <th
       scope="col"
-      className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+      className="min-w-40 px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
     >
       <button
         type="button"

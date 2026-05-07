@@ -95,6 +95,8 @@ export interface RecorderStartResult {
 
 export interface RecorderFinalizeResult {
   videoUrl: string | null;
+  status?: string;
+  waitingForStorage?: boolean;
   durationMs: number;
   width: number;
   height: number;
@@ -654,13 +656,18 @@ export class RecorderEngine {
       // Always release hardware resources, even if the final upload failed.
       this.cleanupTracks();
       // Drop the in-memory chunks now that they're either uploaded or no
-      // longer recoverable from this engine (a finalize failure surfaces
-      // through the thrown error path, not by retrying the chunks).
+      // longer needed by this engine. If storage was missing, the server keeps
+      // its uploaded chunk scratch-space and the player page resumes finalize
+      // after the user connects Builder.io/S3.
       this.localChunks = [];
     }
 
     return {
       videoUrl: (result?.videoUrl as string | undefined) ?? null,
+      status: result?.status as string | undefined,
+      waitingForStorage:
+        result?.waitingForStorage === true ||
+        result?.status === "waiting_storage",
       durationMs,
       width: dimensions.width,
       height: dimensions.height,

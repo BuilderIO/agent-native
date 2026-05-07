@@ -201,6 +201,7 @@ export {
   hasBuilderPrivateKey,
   isBuilderEnvManaged,
   getBuilderProxyOrigin,
+  getBuilderImageGenerationBaseUrl,
   getBuilderAuthHeader,
   resolveBuilderPrivateKey,
   resolveBuilderAuthHeader,
