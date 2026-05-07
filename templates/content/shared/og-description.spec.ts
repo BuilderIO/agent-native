@@ -60,9 +60,7 @@ Quarterly Launch Plan
         "This document walks through positioning, release timing, enablement, and customer follow-up for the launch.",
     });
 
-    expect(description).toBe(
-      "This document walks through positioning, release...",
-    );
+    expect(description).toBe("This document walks through positioning...");
     expect(description.length).toBeLessThanOrEqual(48);
   });
 });
