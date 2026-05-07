@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.2.7
+
+### Patch Changes
+
+- 471bf1e: Show Builder.io LLM usage as agent credit spend when Builder is the active provider.
+
 ## 0.2.6
 
 ### Patch Changes
