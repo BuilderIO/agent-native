@@ -111,7 +111,9 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
   // Surface the setup card when transcription failed due to a provider
   // configuration issue — missing key, quota error, rejected key, etc.
   // Builder connection is the recommended fix in all these cases.
-  const needsSetup = isTranscriptionSetupNeeded(failureReason);
+  const noSpeechFailure = isNoSpeechTranscriptFailure(failureReason);
+  const needsSetup =
+    !noSpeechFailure && isTranscriptionSetupNeeded(failureReason);
 
   if (status === "failed" && needsSetup) {
     return (
@@ -130,6 +132,26 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
             continues in the background.
           </p>
         </div>
+      </div>
+    );
+  }
+
+  if (status === "failed" && noSpeechFailure) {
+    return (
+      <div className="p-4 space-y-3">
+        <div>
+          <p className="text-sm font-medium">No speech detected</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            We did not catch any speech in this recording. If that was
+            intentional, you are all set. If not, check your microphone and
+            speech permissions, then retry transcription.
+          </p>
+        </div>
+        {onRetry ? (
+          <Button size="sm" variant="outline" onClick={onRetry}>
+            Retry
+          </Button>
+        ) : null}
       </div>
     );
   }
@@ -309,6 +331,18 @@ function isConnectedBuilderRetryable(
     r.includes("no transcription provider configured") ||
     r.includes("connect builder") ||
     r.includes("no transcription provider")
+  );
+}
+
+function isNoSpeechTranscriptFailure(
+  reason: string | null | undefined,
+): boolean {
+  if (!reason) return false;
+  const normalized = reason.toLowerCase();
+  return (
+    normalized.includes("no speech") ||
+    normalized.includes("no native transcript was captured") ||
+    normalized.includes("no transcript was captured by native speech")
   );
 }
 
