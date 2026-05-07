@@ -855,19 +855,28 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   });
 
   const sortedAnalyses = useMemo(() => {
-    if (analysisOrderState.length === 0) {
-      return [...analysesList].sort((a, b) => {
-        const aFav = favoriteIds.has(`analysis:${a.id}`) ? 0 : 1;
-        const bFav = favoriteIds.has(`analysis:${b.id}`) ? 0 : 1;
-        if (aFav !== bFav) return aFav - bFav;
+    if (analysisSortMode === "alphabetical") {
+      return sortByName(analysesList);
+    }
+    if (analysisSortMode === "manual" && analysisOrderState.length > 0) {
+      return applyOrder(analysesList, analysisOrderState);
+    }
+    return [...analysesList].sort((a, b) => {
         const aPop = popularityOf(popularity, "analysis", a.id);
         const bPop = popularityOf(popularity, "analysis", b.id);
         if (aPop !== bPop) return bPop - aPop;
+      const aFav = favoriteIds.has(`analysis:${a.id}`) ? 0 : 1;
+      const bFav = favoriteIds.has(`analysis:${b.id}`) ? 0 : 1;
+      if (aFav !== bFav) return aFav - bFav;
         return a.name.localeCompare(b.name);
       });
-    }
-    return applyOrder(analysesList, analysisOrderState);
-  }, [analysesList, favoriteIds, popularity, analysisOrderState]);
+  }, [
+    analysesList,
+    analysisSortMode,
+    analysisOrderState,
+    popularity,
+    favoriteIds,
+  ]);
 
   const displayedAnalyses = useMemo(
     () =>
@@ -903,23 +912,26 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       source: "sql",
     }));
     const all = [...staticItems, ...sqlItems];
-    // If no custom order yet, sort favorites first, then by popularity, then alpha.
-    if (dashboardOrderState.length === 0) {
-      return all.sort((a, b) => {
-        const aFav = favoriteIds.has(a.id) ? 0 : 1;
-        const bFav = favoriteIds.has(b.id) ? 0 : 1;
-        if (aFav !== bFav) return aFav - bFav;
+    if (dashboardSortMode === "alphabetical") {
+      return sortByName(all);
+    }
+    if (dashboardSortMode === "manual" && dashboardOrderState.length > 0) {
+      return applyOrder(all, dashboardOrderState);
+    }
+    return [...all].sort((a, b) => {
         const aPop = popularityOf(popularity, "dashboard", a.id);
         const bPop = popularityOf(popularity, "dashboard", b.id);
         if (aPop !== bPop) return bPop - aPop;
+      const aFav = favoriteIds.has(a.id) ? 0 : 1;
+      const bFav = favoriteIds.has(b.id) ? 0 : 1;
+      if (aFav !== bFav) return aFav - bFav;
         return a.name.localeCompare(b.name);
       });
-    }
-    return applyOrder(all, dashboardOrderState);
   }, [
     hiddenIds,
     staticDashboardRenames,
     favoriteIds,
+    dashboardSortMode,
     dashboardOrderState,
     sqlDashboards,
     popularity,
@@ -1089,6 +1101,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     (event: DragEndEvent) => {
       const { active, over } = event;
       if (!over || active.id === over.id) return;
+      setDashboardSortMode("manual");
       setDashboardOrderState((prev) => {
         const ids = prev.length > 0 ? prev : visibleDashboards.map((d) => d.id);
         const oldIndex = ids.indexOf(active.id as string);
@@ -1099,13 +1112,14 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         return newOrder;
       });
     },
-    [visibleDashboards],
+    [setDashboardSortMode, visibleDashboards],
   );
 
   const handleAnalysisDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event;
       if (!over || active.id === over.id) return;
+      setAnalysisSortMode("manual");
       setAnalysisOrderState((prev) => {
         const ids = prev.length > 0 ? prev : sortedAnalyses.map((a) => a.id);
         const oldIndex = ids.indexOf(active.id as string);
@@ -1116,7 +1130,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         return newOrder;
       });
     },
-    [sortedAnalyses],
+    [setAnalysisSortMode, sortedAnalyses],
   );
 
   const handleResizeStart = useCallback(
@@ -1216,24 +1230,42 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           </Link>
 
           {/* Dashboards section */}
-          <button
-            onClick={() => setDashOpen(!dashOpen)}
+          <div
             className={cn(
-              "flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary text-left",
+              "group/section flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
               isAdhocActive
                 ? "text-sidebar-accent-foreground"
                 : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
-            <IconFlask className="h-4 w-4 shrink-0" />
-            <span className="flex-1 min-w-0 truncate">Dashboards</span>
-            <IconChevronDown
-              className={cn(
-                "h-3.5 w-3.5 shrink-0 transition-transform",
-                !dashOpen && "-rotate-90",
-              )}
+            <button
+              type="button"
+              onClick={toggleDashOpen}
+              className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
+              aria-expanded={dashOpen}
+            >
+              <IconChartBar className="h-4 w-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">Dashboards</span>
+            </button>
+            <SidebarSectionSortMenu
+              label="Dashboards"
+              value={dashboardSortMode}
+              onChange={setDashboardSortMode}
             />
-          </button>
+            <button
+              type="button"
+              onClick={toggleDashOpen}
+              className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
+              aria-label={dashOpen ? "Collapse dashboards" : "Expand dashboards"}
+            >
+              <IconChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 transition-transform",
+                  !dashOpen && "-rotate-90",
+                )}
+              />
+            </button>
+          </div>
 
           {dashOpen && (
             <DndContext
@@ -1290,24 +1322,42 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           )}
 
           {/* Analyses section */}
-          <button
-            onClick={() => setAnalysesOpen(!analysesOpen)}
+          <div
             className={cn(
-              "flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary text-left",
+              "group/section flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
               location.pathname.startsWith("/analyses")
                 ? "text-sidebar-accent-foreground"
                 : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
-            <IconReportAnalytics className="h-4 w-4 shrink-0" />
-            <span className="flex-1 min-w-0 truncate">Analyses</span>
-            <IconChevronDown
-              className={cn(
-                "h-3.5 w-3.5 shrink-0 transition-transform",
-                !analysesOpen && "-rotate-90",
-              )}
+            <button
+              type="button"
+              onClick={toggleAnalysesOpen}
+              className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
+              aria-expanded={analysesOpen}
+            >
+              <IconReportAnalytics className="h-4 w-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">Analyses</span>
+            </button>
+            <SidebarSectionSortMenu
+              label="Analyses"
+              value={analysisSortMode}
+              onChange={setAnalysisSortMode}
             />
-          </button>
+            <button
+              type="button"
+              onClick={toggleAnalysesOpen}
+              className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
+              aria-label={analysesOpen ? "Collapse analyses" : "Expand analyses"}
+            >
+              <IconChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 transition-transform",
+                  !analysesOpen && "-rotate-90",
+                )}
+              />
+            </button>
+          </div>
 
           {analysesOpen && (
             <DndContext

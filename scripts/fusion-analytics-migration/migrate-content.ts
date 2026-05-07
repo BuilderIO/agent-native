@@ -2157,11 +2157,53 @@ function buildExtensions(): ExtensionMigration[] {
           "data/onboarding/latest-diff.json",
         ),
         jsonData("onboarding", "crossref", "data/onboarding/crossref.json"),
+        jsonData("onboarding", "owners", "data/onboarding/owners.json"),
         jsonData(
           "onboarding",
           "product-metrics",
           "data/onboarding/product-metrics.json",
         ),
+        jsonData(
+          "onboarding",
+          "previous-product-metrics",
+          "data/onboarding/previous-product-metrics.json",
+        ),
+        jsonData(
+          "onboarding",
+          "previous-snapshot",
+          "data/onboarding/previous-snapshot.json",
+        ),
+        jsonData(
+          "onboarding",
+          "summary-cache",
+          "data/onboarding/summary-cache.json",
+        ),
+        jsonData(
+          "onboarding",
+          "usage-cache",
+          "data/onboarding/usage-cache.json",
+        ),
+        jsonData(
+          "onboarding",
+          "contract-usage",
+          "data/onboarding/contract-usage.json",
+        ),
+        rawData(
+          "onboarding",
+          "latest-weekly-digest",
+          "data/onboarding/latest-weekly-digest.md",
+        ),
+        ...jsonDirectoryData(
+          "onboarding",
+          "account-bundle",
+          "data/onboarding/account-bundles",
+        ),
+        ...jsonDirectoryData(
+          "onboarding",
+          "account-analysis",
+          "data/onboarding/account-analysis",
+        ),
+        ...rawDirectoryData("onboarding", "bundle-md", "data/onboarding/bundles"),
       ],
     ),
     extension(
@@ -2284,6 +2326,38 @@ function rawData(collection: string, itemId: string, rel: string) {
       sha256: hashStrings([raw]),
     },
   };
+}
+
+function jsonDirectoryData(collection: string, prefix: string, relDir: string) {
+  const abs = path.resolve(LEGACY_ROOT, relDir);
+  if (!fs.existsSync(abs)) return [];
+  return fs
+    .readdirSync(abs)
+    .filter((file) => file.endsWith(".json"))
+    .sort()
+    .map((file) =>
+      jsonData(
+        collection,
+        `${prefix}:${file.replace(/\.json$/, "")}`,
+        `${relDir}/${file}`,
+      ),
+    );
+}
+
+function rawDirectoryData(collection: string, prefix: string, relDir: string) {
+  const abs = path.resolve(LEGACY_ROOT, relDir);
+  if (!fs.existsSync(abs)) return [];
+  return fs
+    .readdirSync(abs)
+    .filter((file) => file.endsWith(".md"))
+    .sort()
+    .map((file) =>
+      rawData(
+        collection,
+        `${prefix}:${file.replace(/\.md$/, "")}`,
+        `${relDir}/${file}`,
+      ),
+    );
 }
 
 function baseExtension(title: string, body: string): string {
