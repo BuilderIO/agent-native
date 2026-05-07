@@ -377,7 +377,7 @@ export function EditorToolbar({
 
       <div className="min-w-3 flex-1" />
 
-      {/* Zoom slider */}
+      {/* Zoom — slider on md+, compact +/- buttons on mobile */}
       <div className="hidden w-32 shrink-0 items-center gap-1.5 md:flex">
         <IconZoomOut className="w-3.5 h-3.5 text-muted-foreground" />
         <Slider
@@ -388,6 +388,28 @@ export function EditorToolbar({
           onValueChange={([v]) => onZoomChange(v)}
         />
         <IconZoomIn className="w-3.5 h-3.5 text-muted-foreground" />
+      </div>
+      <div className="flex shrink-0 items-center gap-0.5 md:hidden">
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7"
+          aria-label="Zoom out"
+          onClick={() => onZoomChange(Math.max(1, zoom - 5))}
+          disabled={zoom <= 1}
+        >
+          <IconZoomOut className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7"
+          aria-label="Zoom in"
+          onClick={() => onZoomChange(Math.min(50, zoom + 5))}
+          disabled={zoom >= 50}
+        >
+          <IconZoomIn className="h-3.5 w-3.5" />
+        </Button>
       </div>
 
       <Separator orientation="vertical" className="h-6 mx-1" />

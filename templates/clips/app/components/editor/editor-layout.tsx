@@ -374,7 +374,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
       >
         <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
           {/* Row 1: video */}
-          <div className="flex min-h-[220px] min-w-0 flex-1 items-center justify-center overflow-hidden bg-black p-4">
+          <div className="flex min-h-0 min-w-0 flex-1 basis-[220px] items-center justify-center overflow-hidden bg-black p-4">
             {videoUrl ? (
               <video
                 ref={videoRef}
