@@ -7,13 +7,13 @@ import { registerRequiredSecret } from "@agent-native/core/secrets";
 // run in a separate Vite SSR module graph and write to a different Map.
 
 // ── Transcription secrets (optional) ──────────────────────────────────
-// Native web/macOS speech is the primary transcript source. These cloud
-// providers are optional fallbacks when native transcription is unavailable.
+// Native web/macOS speech is the primary transcript source. Gemini is used
+// for cleanup and titles after native text exists; Groq is the only BYOK
+// speech-to-text fallback when native transcription is unavailable.
 //
-// We support three BYOK providers:
+// We support two BYOK providers:
 //   1. Gemini — recommended for fast LLM cleanup in the desktop tray.
 //   2. Groq `whisper-large-v3-turbo` — fast speech-to-text fallback.
-//   3. OpenAI `whisper-1` — final speech-to-text fallback.
 //
 // Neither is strictly required — videos still upload and play back without
 // cloud transcription.
@@ -169,35 +169,4 @@ registerRequiredSecret({
   scope: "workspace",
   kind: "api-key",
   required: false,
-});
-
-registerRequiredSecret({
-  key: "OPENAI_API_KEY",
-  label: "OpenAI API Key",
-  description:
-    "Fallback speech-to-text via OpenAI. Builder Gemini Flash-Lite is preferred when connected; OpenAI is used only if Builder/native and Groq are unavailable.",
-  docsUrl: "https://platform.openai.com/api-keys",
-  scope: "user",
-  kind: "api-key",
-  required: false,
-  validator: async (value) => {
-    if (!value) return true;
-    if (typeof value !== "string" || value.length < 20) {
-      return { ok: false, error: "Key looks too short." };
-    }
-    try {
-      const res = await fetch("https://api.openai.com/v1/models", {
-        headers: { Authorization: `Bearer ${value}` },
-      });
-      if (res.ok) return true;
-      if (res.status === 401)
-        return { ok: false, error: "OpenAI rejected this key (401)." };
-      return { ok: false, error: `OpenAI returned ${res.status}.` };
-    } catch (err: any) {
-      return {
-        ok: false,
-        error: `Could not reach OpenAI: ${err?.message ?? err}`,
-      };
-    }
-  },
 });

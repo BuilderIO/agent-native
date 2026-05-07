@@ -21,11 +21,11 @@ import {
 } from "@agent-native/core/server";
 import { isObjectStorageConfigured } from "../lib/storage.js";
 import { s3FileUploadProvider } from "../lib/s3-upload-provider.js";
+import { isBuilderImageGenerationEnabled } from "../lib/generation.js";
 
 const basePlugin = createOnboardingPlugin();
 
-const builderImageGenerationEnabled =
-  process.env.BUILDER_IMAGE_GENERATION_ENABLED === "true";
+const builderImageGenerationEnabled = isBuilderImageGenerationEnabled();
 
 export default async (nitroApp: any): Promise<void> => {
   await basePlugin(nitroApp);
@@ -50,11 +50,11 @@ export default async (nitroApp: any): Promise<void> => {
         label: "Connect Builder.io",
         description: builderImageGenerationEnabled
           ? "Recommended one-click setup. Uses Builder credits and keeps provider keys out of this app."
-          : "Coming soon. Use a Gemini key for image generation until the Builder-managed API is deployed.",
+          : "Disabled by BUILDER_IMAGE_GENERATION_ENABLED=false. Use a Gemini key for this deployment.",
         primary: true,
-        badge: builderImageGenerationEnabled ? "recommended" : "soon",
+        badge: builderImageGenerationEnabled ? "recommended" : undefined,
         disabled: !builderImageGenerationEnabled,
-        disabledLabel: "Coming soon",
+        disabledLabel: "Disabled",
         payload: { scope: "image-generation" },
       },
       {

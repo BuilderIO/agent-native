@@ -15,6 +15,9 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import regenerateTitle from "./regenerate-title.js";
+
+const DEFAULT_TITLE = "Untitled recording";
 
 function nativeSegmentsJson(fullText: string): string {
   return JSON.stringify([
@@ -24,6 +27,11 @@ function nativeSegmentsJson(fullText: string): string {
       text: fullText.trim(),
     },
   ]);
+}
+
+function isDefaultTitle(title: string | null | undefined): boolean {
+  const trimmed = (title ?? "").trim();
+  return !trimmed || trimmed === DEFAULT_TITLE;
 }
 
 export default defineAction({
@@ -115,11 +123,30 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
+    const [rec] = await db
+      .select({ title: schema.recordings.title })
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, args.recordingId))
+      .limit(1);
+
+    const titleQueued = !!(rec && isDefaultTitle(rec.title));
+    if (titleQueued) {
+      void regenerateTitle
+        .run({ recordingId: args.recordingId })
+        .catch((err) => {
+          console.warn(
+            `[clips] native transcript title generation skipped for ${args.recordingId}:`,
+            (err as Error)?.message ?? String(err),
+          );
+        });
+    }
+
     return {
       recordingId: args.recordingId,
       status: "ready" as const,
       provider: args.source ?? "web-speech",
       chars: args.fullText.trim().length,
+      titleQueued,
     };
   },
 });

@@ -1596,9 +1596,6 @@ importers:
       isbot:
         specifier: ^5
         version: 5.1.37
-      openai:
-        specifier: ^6.34.0
-        version: 6.34.0(ws@8.20.0)(zod@4.3.6)
       postgres:
         specifier: ^3.4.9
         version: 3.4.9

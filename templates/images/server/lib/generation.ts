@@ -71,8 +71,8 @@ export async function isGeminiImageGenerationConfigured(): Promise<boolean> {
   return !!(await resolveSecret("GEMINI_API_KEY").catch(() => null));
 }
 
-function isBuilderImageGenerationEnabled(): boolean {
-  return process.env.BUILDER_IMAGE_GENERATION_ENABLED === "true";
+export function isBuilderImageGenerationEnabled(): boolean {
+  return process.env.BUILDER_IMAGE_GENERATION_ENABLED !== "false";
 }
 
 function isRetryableProviderError(err: unknown): boolean {
@@ -223,7 +223,7 @@ export async function generateWithManagedImageProvider(
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
-        "Builder-managed image generation is coming soon. Add a Gemini API key in Settings to generate images for now.",
+        "Builder-managed image generation is disabled for this deployment. Add a Gemini API key in Settings, or enable Builder-managed generation.",
     });
   }
 

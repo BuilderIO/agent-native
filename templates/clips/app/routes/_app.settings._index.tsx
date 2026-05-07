@@ -26,6 +26,7 @@ interface ClipsUserSettings {
   defaultPlaybackSpeed?: string;
   emailNotifications?: boolean;
   displayName?: string;
+  transcriptCleanupEnabled?: boolean;
 }
 
 async function loadSettings(): Promise<ClipsUserSettings> {
@@ -67,6 +68,8 @@ export default function SettingsIndexRoute() {
   const [defaultSpeed, setDefaultSpeed] = useState("1.2");
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [displayName, setDisplayName] = useState("");
+  const [transcriptCleanupEnabled, setTranscriptCleanupEnabled] =
+    useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,6 +78,7 @@ export default function SettingsIndexRoute() {
       setDefaultSpeed(v.defaultPlaybackSpeed ?? "1.2");
       setEmailNotifications(v.emailNotifications ?? true);
       setDisplayName(v.displayName ?? "");
+      setTranscriptCleanupEnabled(v.transcriptCleanupEnabled !== false);
       setLoading(false);
     });
     return () => {
@@ -89,6 +93,7 @@ export default function SettingsIndexRoute() {
         defaultPlaybackSpeed: defaultSpeed,
         emailNotifications,
         displayName: displayName.trim() || undefined,
+        transcriptCleanupEnabled,
       });
       toast.success("Settings saved");
     } catch (err) {
@@ -161,6 +166,31 @@ export default function SettingsIndexRoute() {
               <p className="text-xs text-muted-foreground">
                 Applied automatically when you open a recording.
               </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Transcript</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label htmlFor="transcript-cleanup" className="cursor-pointer">
+                  Background cleanup
+                </Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Show the native transcript immediately, then polish it with
+                  Gemini 3.1 Flash-Lite when available.
+                </p>
+              </div>
+              <Switch
+                id="transcript-cleanup"
+                checked={transcriptCleanupEnabled}
+                onCheckedChange={setTranscriptCleanupEnabled}
+                disabled={loading}
+              />
             </div>
           </CardContent>
         </Card>
