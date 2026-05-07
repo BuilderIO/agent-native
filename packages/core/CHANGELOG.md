@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.12.13
+
+### Patch Changes
+
+- b1595cc: Allow Builder Connect to override deploy-level Builder credentials with request-scoped credentials.
+- b1595cc: Improve Builder transcription error detail and remove OpenAI-specific fallback guidance.
+
 ## 0.12.12
 
 ### Patch Changes
