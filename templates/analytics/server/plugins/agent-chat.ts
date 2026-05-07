@@ -49,7 +49,7 @@ function looksLikeAnalyticsDataRequest(text: string): boolean {
   ) {
     return false;
   }
-  return /\b(analy[sz]e|analysis|dashboard|panel|metric|metrics|count|total|trend|breakdown|conversion|funnel|revenue|traffic|pageviews?|signups?|events?|users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|messages?|mentions?|sentiment|themes?|objections?)\b/.test(
+  return /\b(analy[sz]e|analysis|dashboard|panel|metric|metrics|count|total|trend|breakdown|conversion|funnel|revenue|traffic|pageviews?|signups?|events?|users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|messages?|sentiment|themes?|objections?)\b/.test(
     lower,
   );
 }
