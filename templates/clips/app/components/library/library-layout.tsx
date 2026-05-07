@@ -66,7 +66,7 @@ function ClipsAgentToggleButton() {
           className="ml-1.5 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
           aria-label="Toggle agent panel"
         >
-          <AgentNativeIcon size={18} />
+          <AgentNativeIcon size={22} />
         </button>
       </TooltipTrigger>
       <TooltipContent>Toggle agent</TooltipContent>

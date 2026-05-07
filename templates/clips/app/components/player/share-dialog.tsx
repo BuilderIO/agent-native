@@ -24,6 +24,7 @@ import {
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -234,7 +235,11 @@ function ShareRecordingContent({
         </TabsContent>
 
         <TabsContent value="invite" className="mt-3">
-          <InviteTab recordingId={recordingId} sharesQuery={sharesQuery} />
+          <InviteTab
+            recordingId={recordingId}
+            resourceUrl={absoluteAppUrl(`/r/${recordingId}`)}
+            sharesQuery={sharesQuery}
+          />
         </TabsContent>
 
         <TabsContent value="embed" className="mt-3">
@@ -376,9 +381,11 @@ function LinkTab({
 
 function InviteTab({
   recordingId,
+  resourceUrl,
   sharesQuery,
 }: {
   recordingId: string;
+  resourceUrl: string;
   sharesQuery: ReturnType<typeof useActionQuery<SharesResponse>>;
 }) {
   const share = useActionMutation("share-resource");
@@ -386,6 +393,7 @@ function InviteTab({
 
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("viewer");
+  const [notifyPeople, setNotifyPeople] = useState(true);
 
   const data = sharesQuery.data;
   const shares = data?.shares ?? [];
@@ -402,6 +410,8 @@ function InviteTab({
         principalType: "user",
         principalId: trimmed,
         role,
+        notify: notifyPeople,
+        resourceUrl,
       },
       {
         onSuccess: () => {
@@ -427,30 +437,39 @@ function InviteTab({
   return (
     <div className="space-y-3">
       {canManage ? (
-        <div className="flex items-stretch gap-2">
-          <Input
-            type="email"
-            placeholder="Add people by email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleAdd();
-            }}
-            autoComplete="off"
-            className="flex-1 h-9"
-          />
-          <Select value={role} onValueChange={(v) => setRole(v as Role)}>
-            <SelectTrigger className="h-9 w-[110px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {ROLE_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="space-y-2">
+          <div className="flex items-stretch gap-2">
+            <Input
+              type="email"
+              placeholder="Add people by email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleAdd();
+              }}
+              autoComplete="off"
+              className="flex-1 h-9"
+            />
+            <Select value={role} onValueChange={(v) => setRole(v as Role)}>
+              <SelectTrigger className="h-9 w-[110px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ROLE_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Checkbox
+              checked={notifyPeople}
+              onCheckedChange={(checked) => setNotifyPeople(checked === true)}
+            />
+            Notify people
+          </label>
         </div>
       ) : null}
 

@@ -1911,7 +1911,7 @@ export function AgentToggleButton({ className }: { className?: string }) {
               className,
             )}
           >
-            <AgentNativeIcon size={18} />
+            <AgentNativeIcon size={22} />
           </button>
         </TooltipTrigger>
         <TooltipContent>Toggle agent</TooltipContent>
