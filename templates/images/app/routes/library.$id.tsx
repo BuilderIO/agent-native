@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
+import { getLibraryCustomInstructions } from "@/lib/libraries";
 import {
   IMAGE_CATEGORIES,
   ASPECT_RATIOS,
@@ -59,6 +60,7 @@ export default function LibraryPage() {
   const generated = assets.filter((asset) => asset.role === "generated");
   const saved = generated.filter((asset) => asset.status === "saved");
   const candidates = generated.filter((asset) => asset.status === "candidate");
+  const customInstructions = getLibraryCustomInstructions(library);
 
   const pendingVariants =
     variants?.libraryId === libraryId ? (variants.slots ?? []) : [];
@@ -88,6 +90,9 @@ export default function LibraryPage() {
       `References: ${references.length}`,
       `Saved images: ${saved.length}`,
       `Style brief: ${JSON.stringify(library.styleBrief ?? {})}`,
+      customInstructions
+        ? `Custom instructions: ${customInstructions}`
+        : "Custom instructions: none",
       "",
       "Use the Images actions. Generate candidates, show previews, ask for feedback, and refine by assetId until the user is happy.",
     ].join("\n");
@@ -258,6 +263,22 @@ export default function LibraryPage() {
                     })
                   }
                   className="min-h-40"
+                />
+                <Separator />
+                <Label>Custom instructions</Label>
+                <Textarea
+                  defaultValue={customInstructions ?? ""}
+                  onBlur={(event) =>
+                    updateLibrary.mutate({
+                      id: library.id,
+                      styleBrief: {
+                        ...library.styleBrief,
+                        customInstructions: event.target.value,
+                      },
+                    })
+                  }
+                  placeholder="Preferences the agent should apply whenever it uses this library."
+                  className="min-h-28"
                 />
                 <Separator />
                 <div className="flex items-center justify-between">

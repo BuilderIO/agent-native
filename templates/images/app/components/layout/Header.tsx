@@ -4,7 +4,8 @@ import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { AgentToggleButton } from "@agent-native/core/client";
 
 const pageTitles: Record<string, string> = {
-  "/": "Libraries",
+  "/": "Create",
+  "/libraries": "Libraries",
   "/settings": "Settings",
 };
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
 import {
   IconPhoto,
+  IconLibraryPhoto,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -22,6 +23,7 @@ import {
 
 const baseNavItems = [
   { icon: IconPhoto, label: "Create", href: "/" },
+  { icon: IconLibraryPhoto, label: "Libraries", href: "/libraries" },
   { icon: IconSettings, label: "Settings", href: "/settings" },
 ];
 
@@ -119,10 +121,12 @@ export function Sidebar() {
           const Icon = item.icon;
           const isActive =
             item.href === "/"
-              ? location.pathname === "/" ||
-                location.pathname.startsWith("/library/") ||
-                location.pathname.startsWith("/image/")
-              : location.pathname.startsWith(item.href);
+              ? location.pathname === "/"
+              : item.href === "/libraries"
+                ? location.pathname === "/libraries" ||
+                  location.pathname.startsWith("/library/") ||
+                  location.pathname.startsWith("/image/")
+                : location.pathname.startsWith(item.href);
           const link = (
             <Link
               key={item.href}

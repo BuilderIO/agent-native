@@ -47,7 +47,9 @@ export function PageShell({
   );
 
   return (
-    <div className={cn("mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6", className)}>
+    <div
+      className={cn("mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6", className)}
+    >
       {children}
     </div>
   );

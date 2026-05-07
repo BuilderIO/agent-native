@@ -29,10 +29,7 @@ export function LibraryCard({
   const body = (
     <>
       <div
-        className={cn(
-          "bg-muted",
-          compact ? "aspect-[16/8]" : "aspect-[16/9]",
-        )}
+        className={cn("bg-muted", compact ? "aspect-[16/8]" : "aspect-[16/9]")}
       >
         {library.coverAsset?.thumbnailUrl ? (
           <img
