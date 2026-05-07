@@ -4,14 +4,14 @@ description: Monitor a PR, fix feedback and CI failures until fully green for 30
 user_invocable: true
 ---
 
-Monitor PR #$ARGUMENTS in the current repo. Fix CI failures and review feedback until everything is green and no new feedback arrives for 30 minutes.
+Monitor PR #$ARGUMENTS in the current repo. Fix CI failures and human or bot review feedback until everything is green and no new feedback arrives for 30 minutes.
 
 **If no PR number is given**, auto-detect it: get the current branch (`git branch --show-current`), find the open PR for it (`gh pr list --head <branch> --state open --json number --limit 1`). If no open PR exists, check recent merged/closed PRs. Only ask the user if no PR can be found.
 
 ## Setup
 
 1. Start a `/loop 1m` that checks for new feedback and CI status every minute
-2. Track when the last actionable item (new feedback or CI fix) occurred
+2. Track when the last actionable item (new human/bot feedback or CI fix) occurred
 3. After 30 minutes of no new actionable items with GitHub Actions CI green, cancel the loop and report "All clear"
 
 ## Each tick
@@ -36,9 +36,10 @@ This ensures every tick starts with a clean, fully-pushed working tree. Never sk
 
 **Then proceed with PR checks:**
 
-1. Check for new review comments from bots:
+1. Check for new review comments and review summaries from humans and bots:
    ```bash
-   gh api repos/{owner}/{repo}/pulls/$ARGUMENTS/comments --jq '.[] | select(.user.type == "Bot") | select(.created_at > "<30min_ago>") | {id, path: .path, body: .body[0:300]}'
+   gh api repos/{owner}/{repo}/pulls/$ARGUMENTS/comments --jq '.[] | select(.created_at > "<30min_ago>") | {id, user: .user.login, type: .user.type, path: .path, body: .body[0:300]}'
+   gh api repos/{owner}/{repo}/pulls/$ARGUMENTS/reviews --jq '.[] | select(.submitted_at > "<30min_ago>") | select(.body != null and .body != "") | {id, user: .user.login, type: .user.type, state, body: .body[0:1000]}'
    ```
 
 2. Check CI status:
@@ -46,11 +47,12 @@ This ensures every tick starts with a clean, fully-pushed working tree. Never sk
    gh pr checks $ARGUMENTS
    ```
 
-3. **If new bot comments with real bugs** (confidence >= 75):
+3. **If new human or bot feedback includes real bugs or requested changes**:
    - Read the relevant files
    - Fix the issues
    - Run `pnpm run prep` to verify locally
    - Commit and push
+   - Reply inline to each addressed inline comment, or post a PR comment summarizing addressed items when the feedback was in a review body
    - Reset the 30-min timer
 
 4. **If GitHub Actions CI is failing** (lint, test, typecheck, build):
@@ -79,12 +81,13 @@ This ensures every tick starts with a clean, fully-pushed working tree. Never sk
 
 ## Responding to feedback
 
-**Every comment must get an inline reply** — either a fix or an explanation of why you're skipping it.
+**Every human or bot comment must get a reply** — either a fix or an explanation of why you're skipping it.
 
 - If you fix it: commit, push, AND reply inline confirming the fix. Fixing code marks the comment as "outdated" in GitHub's UI, but the user needs to see the reply to know you addressed it — don't rely on the outdated status alone.
-- If you skip it: reply to the comment via `gh api repos/{owner}/{repo}/pulls/323/comments/{id}/replies -f body="..."` explaining why (pre-existing, false positive, not practical, etc.)
+- If you skip it: reply to the comment via `gh api repos/{owner}/{repo}/pulls/$ARGUMENTS/comments/{id}/replies -f body="..."` explaining why (pre-existing, false positive, not practical, etc.)
 - If the issue is real but you didn't introduce it: fix it anyway and reply. Real bugs should be fixed regardless of who wrote the code.
-- **Never silently ignore a comment** — every single one must have a reply so the user can verify everything was addressed.
+- If feedback appears in a review summary/body rather than an inline thread: fix the items you agree with, then post a top-level PR comment referencing the review and listing what was fixed; explicitly mention any items you skipped or disagreed with and why.
+- **Never silently ignore a human or bot comment** — every single one must have a reply so the user can verify everything was addressed.
 
 ## Evaluating feedback — be skeptical
 
@@ -111,7 +114,7 @@ When the user does ask to merge, all of these must be true **simultaneously for 
 1. **No local uncommitted changes** — `git status --short` must be empty
 2. **No unpushed commits** — `git log --oneline origin/<branch>..HEAD` must be empty
 3. **All GitHub Actions CI green** — Build, Lint, Test, Typecheck, Scaffold E2E, Guard
-4. **All review comments addressed** — every bot comment has a fix or a reply
+4. **All review comments addressed** — every human/bot inline comment and review-body item has a fix or a reply
 5. **No merge conflicts** — `gh pr view --json mergeable --jq '.mergeable'` must be `MERGEABLE`
 
 The 10-minute soak timer **resets to zero** whenever you push anything, CI fails, a new review comment arrives, merge conflicts appear, or local changes are found and committed.
