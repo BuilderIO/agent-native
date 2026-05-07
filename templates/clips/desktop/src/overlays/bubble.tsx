@@ -4,6 +4,45 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 type BubbleSize = "small" | "medium";
+const LOCAL_CAMERA_TARGET_FPS = 30;
+const LOCAL_CAMERA_MIN_FPS = 24;
+const LOCAL_CAMERA_MIN_CANVAS_PX = 360;
+
+function buildLocalCameraConstraints(
+  cameraId: string | null,
+  strictFps: boolean,
+): MediaStreamConstraints {
+  const video: MediaTrackConstraints = {
+    width: { ideal: 1280 },
+    height: { ideal: 720 },
+    frameRate: strictFps
+      ? {
+          min: LOCAL_CAMERA_MIN_FPS,
+          ideal: LOCAL_CAMERA_TARGET_FPS,
+          max: 60,
+        }
+      : { ideal: LOCAL_CAMERA_TARGET_FPS, max: 60 },
+  };
+  if (cameraId) {
+    video.deviceId = { exact: cameraId };
+  }
+  return { video, audio: false };
+}
+
+async function getLocalCameraStream(
+  cameraId: string | null,
+): Promise<MediaStream> {
+  try {
+    return await navigator.mediaDevices.getUserMedia(
+      buildLocalCameraConstraints(cameraId, true),
+    );
+  } catch (err) {
+    console.warn("[bubble] strict local camera constraints failed", err);
+    return await navigator.mediaDevices.getUserMedia(
+      buildLocalCameraConstraints(cameraId, false),
+    );
+  }
+}
 
 /**
  * Draggable, circular camera bubble — a PURE RENDERER.
@@ -73,6 +112,9 @@ export function Bubble() {
   const firstFrameAtRef = useRef<number | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const localCameraIdRef = useRef<string | null>(null);
+  const localDrawTimerRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
   const recordingModeRef = useRef(false);
   // Which transport delivered the most recent usable frame. Starts as
   // "none" — we flip to "webrtc" on ontrack, or "canvas" on the first
@@ -80,6 +122,7 @@ export function Bubble() {
   const [activePath, setActivePath] = useState<"none" | "webrtc" | "canvas">(
     "none",
   );
+  const [localCameraActive, setLocalCameraActive] = useState(false);
   // Small is the default bubble size — matches the Rust-side default in
   // `load_bubble_size_name`. On mount we `invoke("load_bubble_size")` to
   // read the persisted choice and override this if the user previously
@@ -198,11 +241,77 @@ export function Bubble() {
     let stopped = false;
     let startUnlisten: (() => void) | null = null;
     let stopUnlisten: (() => void) | null = null;
+    let renderedFrames = 0;
+    let lastFpsLogAt = 0;
+
+    const stopLocalCanvasRenderer = () => {
+      if (localDrawTimerRef.current) {
+        clearInterval(localDrawTimerRef.current);
+        localDrawTimerRef.current = null;
+      }
+    };
+
+    const clearLocalCanvas = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      ctx?.clearRect(0, 0, canvas.width, canvas.height);
+    };
+
+    const drawLocalCameraFrame = (stream: MediaStream) => {
+      if (stopped || localStreamRef.current !== stream) return;
+      const videoEl = videoRef.current;
+      const canvas = canvasRef.current;
+      if (!videoEl || !canvas) return;
+      if (videoEl.readyState < 2 || videoEl.videoWidth === 0) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      const canvasSize = Math.max(
+        LOCAL_CAMERA_MIN_CANVAS_PX,
+        Math.round(Math.max(rect.width, rect.height, 1) * dpr),
+      );
+      if (canvas.width !== canvasSize) canvas.width = canvasSize;
+      if (canvas.height !== canvasSize) canvas.height = canvasSize;
+
+      const ctx = canvas.getContext("2d", { willReadFrequently: false });
+      if (!ctx) return;
+
+      const vw = videoEl.videoWidth;
+      const vh = videoEl.videoHeight;
+      const side = Math.min(vw, vh);
+      const sx = (vw - side) / 2;
+      const sy = (vh - side) / 2;
+      ctx.drawImage(videoEl, sx, sy, side, side, 0, 0, canvasSize, canvasSize);
+
+      renderedFrames += 1;
+      const now = performance.now();
+      if (!lastFpsLogAt) lastFpsLogAt = now;
+      if (now - lastFpsLogAt >= 3000) {
+        const fps = Math.round((renderedFrames * 1000) / (now - lastFpsLogAt));
+        renderedFrames = 0;
+        lastFpsLogAt = now;
+        console.log("[bubble] local camera canvas fps =", fps);
+      }
+    };
+
+    const startLocalCanvasRenderer = (stream: MediaStream) => {
+      stopLocalCanvasRenderer();
+      renderedFrames = 0;
+      lastFpsLogAt = performance.now();
+      drawLocalCameraFrame(stream);
+      localDrawTimerRef.current = setInterval(
+        () => drawLocalCameraFrame(stream),
+        Math.round(1000 / LOCAL_CAMERA_TARGET_FPS),
+      );
+    };
 
     const stopLocalCamera = () => {
+      stopLocalCanvasRenderer();
       const stream = localStreamRef.current;
       localStreamRef.current = null;
       localCameraIdRef.current = null;
+      setLocalCameraActive(false);
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
       }
@@ -216,6 +325,7 @@ export function Bubble() {
         }
         videoEl.srcObject = null;
       }
+      clearLocalCanvas();
     };
 
     listen<{ cameraId?: string | null }>(
@@ -230,10 +340,7 @@ export function Bubble() {
         stopLocalCamera();
 
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: cameraId ? { deviceId: { exact: cameraId } } : true,
-            audio: false,
-          });
+          const stream = await getLocalCameraStream(cameraId);
           if (stopped) {
             stream.getTracks().forEach((track) => track.stop());
             return;
@@ -247,15 +354,30 @@ export function Bubble() {
 
           localStreamRef.current = stream;
           localCameraIdRef.current = cameraId;
+          const track = stream.getVideoTracks()[0];
+          track
+            ?.applyConstraints({
+              frameRate: { ideal: LOCAL_CAMERA_TARGET_FPS, max: 60 },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            })
+            .catch((err) => {
+              console.warn("[bubble] local camera applyConstraints failed", err);
+            });
           videoEl.srcObject = stream;
           await videoEl.play().catch((err) => {
             console.warn("[bubble] local camera video.play() rejected", err);
           });
+          setLocalCameraActive(true);
+          startLocalCanvasRenderer(stream);
           if (firstFrameAtRef.current == null) {
             firstFrameAtRef.current = Date.now();
-            console.log("[bubble] local camera started");
+            console.log(
+              "[bubble] local camera started",
+              track?.getSettings?.() ?? {},
+            );
           }
-          setActivePath("webrtc");
+          setActivePath("canvas");
         } catch (err) {
           console.warn("[bubble] local camera failed", err);
           stopLocalCamera();
