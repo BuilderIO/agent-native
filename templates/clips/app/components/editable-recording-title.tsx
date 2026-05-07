@@ -80,11 +80,13 @@ export function EditableRecordingTitle({
 }: EditableRecordingTitleProps) {
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
+  const skipBlurCommitRef = useRef(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title ?? "");
 
   const titleForInput = isDefaultTitle(title) ? "" : (title ?? "");
-  const visibleTitle = displayTitle ?? titleForInput.trim() ?? "Untitled Clip";
+  const visibleTitle =
+    displayTitle ?? (titleForInput.trim() || "Untitled Clip");
 
   const updateTitle = useActionMutation<
     any,
@@ -139,7 +141,8 @@ export function EditableRecordingTitle({
     setEditing(true);
   }
 
-  function cancelEditing() {
+  function cancelEditing(skipBlurCommit = false) {
+    if (skipBlurCommit) skipBlurCommitRef.current = true;
     setDraft(titleForInput);
     setEditing(false);
   }
@@ -182,14 +185,21 @@ export function EditableRecordingTitle({
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
+            skipBlurCommitRef.current = true;
             commitTitle();
           }
           if (event.key === "Escape") {
             event.preventDefault();
-            cancelEditing();
+            cancelEditing(true);
           }
         }}
-        onBlur={commitTitle}
+        onBlur={() => {
+          if (skipBlurCommitRef.current) {
+            skipBlurCommitRef.current = false;
+            return;
+          }
+          commitTitle();
+        }}
         placeholder="Clip title"
         className={cn("h-8 w-full min-w-0", inputClassName)}
         disabled={updateTitle.isPending}

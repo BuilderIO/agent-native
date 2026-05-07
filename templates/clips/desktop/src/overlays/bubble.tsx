@@ -4,9 +4,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 type BubbleSize = "small" | "medium";
-const LOCAL_CAMERA_TARGET_FPS = 30;
-const LOCAL_CAMERA_MIN_FPS = 24;
-const LOCAL_CAMERA_MIN_CANVAS_PX = 360;
+const LOCAL_CAMERA_TARGET_FPS = 60;
+const LOCAL_CAMERA_MIN_FPS = 30;
+const LOCAL_CAMERA_FALLBACK_FPS = 30;
+const LOCAL_CAMERA_MIN_CANVAS_PX = 640;
 
 function buildLocalCameraConstraints(
   cameraId: string | null,
@@ -112,6 +113,7 @@ export function Bubble() {
   const firstFrameAtRef = useRef<number | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const localCameraIdRef = useRef<string | null>(null);
+  const localVideoFrameCallbackRef = useRef<number | null>(null);
   const localDrawTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingModeRef = useRef(false);
   // Which transport delivered the most recent usable frame. Starts as
@@ -243,6 +245,14 @@ export function Bubble() {
     let lastFpsLogAt = 0;
 
     const stopLocalCanvasRenderer = () => {
+      const videoEl = videoRef.current;
+      if (
+        localVideoFrameCallbackRef.current != null &&
+        videoEl?.cancelVideoFrameCallback
+      ) {
+        videoEl.cancelVideoFrameCallback(localVideoFrameCallbackRef.current);
+      }
+      localVideoFrameCallbackRef.current = null;
       if (localDrawTimerRef.current) {
         clearInterval(localDrawTimerRef.current);
         localDrawTimerRef.current = null;
@@ -298,9 +308,28 @@ export function Bubble() {
       renderedFrames = 0;
       lastFpsLogAt = performance.now();
       drawLocalCameraFrame(stream);
+
+      const scheduleVideoFrame = () => {
+        if (stopped || localStreamRef.current !== stream) return;
+        const videoEl = videoRef.current;
+        if (!videoEl?.requestVideoFrameCallback) return;
+        localVideoFrameCallbackRef.current = videoEl.requestVideoFrameCallback(
+          () => {
+            localVideoFrameCallbackRef.current = null;
+            drawLocalCameraFrame(stream);
+            scheduleVideoFrame();
+          },
+        );
+      };
+
+      if (videoRef.current?.requestVideoFrameCallback) {
+        scheduleVideoFrame();
+        return;
+      }
+
       localDrawTimerRef.current = setInterval(
         () => drawLocalCameraFrame(stream),
-        Math.round(1000 / LOCAL_CAMERA_TARGET_FPS),
+        Math.round(1000 / LOCAL_CAMERA_FALLBACK_FPS),
       );
     };
 
@@ -353,6 +382,13 @@ export function Bubble() {
           localStreamRef.current = stream;
           localCameraIdRef.current = cameraId;
           const track = stream.getVideoTracks()[0];
+          if (track && "contentHint" in track) {
+            try {
+              track.contentHint = "motion";
+            } catch {
+              // ignore
+            }
+          }
           track
             ?.applyConstraints({
               frameRate: { ideal: LOCAL_CAMERA_TARGET_FPS, max: 60 },
