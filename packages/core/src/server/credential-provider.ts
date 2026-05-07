@@ -71,37 +71,25 @@ export function readDeployCredentialEnv(key: string): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// Builder credential resolution — two mutually-exclusive deployment modes:
+// Builder credential resolution:
 //
-//   1. **Single-tenant / env-managed.** When BUILDER_PRIVATE_KEY is set at
-//      the deployment level, it is THE Builder identity for every user of
-//      this deploy. The operator setting the env explicitly opts in to
-//      "everyone shares one Builder space" — same shape as DATABASE_URL or
-//      BETTER_AUTH_SECRET. The UI hides the per-user connect/disconnect
-//      flow when env-managed (see `isBuilderEnvManaged`).
+//   1. **Request-scoped credentials.** A signed-in user can connect Builder
+//      through the CLI-auth flow. Owner/admin connections land at org scope;
+//      member/no-org connections land at user scope.
 //
-//   2. **Multi-tenant / per-user OAuth.** When the env is unset, each user
-//      OAuth-connects their own Builder via the cli-auth flow. Their keys
-//      land in `app_secrets` (scope=user, scopeId=email) via the callback
-//      handler. They can disconnect via the settings panel.
+//   2. **Deployment fallback.** BUILDER_PRIVATE_KEY in env still makes local
+//      and single-tenant deploys work out of the box, but it no longer blocks
+//      per-user connect. Request-scoped credentials win whenever present.
 //
-// To run multi-tenant SaaS: leave the env unset. Setting BUILDER_PRIVATE_KEY
-// on a multi-tenant deploy will silently route every authenticated user
-// through the env-key owner's Builder identity — that was the KVesta Space
-// cross-tenant attribution leak (2026-04). The mode is binary: env-set
-// means single-tenant intent.
+// To run multi-tenant SaaS: prefer leaving BUILDER_PRIVATE_KEY unset unless a
+// shared fallback identity is intentional.
 // ---------------------------------------------------------------------------
 
-export async function resolveBuilderCredential(
-  key: string,
-): Promise<string | null> {
-  // Env-managed mode wins when set: deploy-level Builder identity for
-  // every user. Per-user app_secrets (left over from a previous OAuth
-  // connection or a mode switch) are intentionally ignored — the
-  // operator's deploy-level config is authoritative.
-  const envValue = readDeployCredentialEnv(key);
-  if (envValue) return envValue;
+type BuilderCredentialSource = "user" | "org" | "env";
 
+async function resolveScopedBuilderCredential(
+  key: string,
+): Promise<{ value: string; source: "user" | "org" } | null> {
   const email = getRequestUserEmail();
   if (!email) return null;
 
@@ -115,7 +103,7 @@ export async function resolveBuilderCredential(
       scope: "user",
       scopeId: email,
     });
-    if (userSecret) return userSecret.value;
+    if (userSecret) return { value: userSecret.value, source: "user" };
 
     // 2. Per-org shared credential: when one teammate connects Builder
     //    as an owner/admin we write the OAuth result at org scope so
@@ -129,7 +117,7 @@ export async function resolveBuilderCredential(
         scope: "org",
         scopeId: orgId,
       });
-      if (orgSecret) return orgSecret.value;
+      if (orgSecret) return { value: orgSecret.value, source: "org" };
     }
   } catch {
     // Secrets table not ready — treat as missing.
@@ -138,11 +126,22 @@ export async function resolveBuilderCredential(
 }
 
 /**
- * True when `BUILDER_PRIVATE_KEY` is set at the deployment level — every
- * user of this deploy shares the operator's Builder identity, and per-user
- * connect/disconnect is disabled. UIs read this via `/builder/status` to
- * swap the "Connect Builder" prompts for a read-only "managed by deployment"
- * chip and to suppress the disconnect button.
+ * Resolve a Builder credential for the current request. User/org credentials
+ * win; deployment env is only a fallback. This lets local/root .env keys keep
+ * a template working while still allowing users to connect their own Builder
+ * account from Settings or onboarding.
+ */
+export async function resolveBuilderCredential(
+  key: string,
+): Promise<string | null> {
+  const scoped = await resolveScopedBuilderCredential(key);
+  if (scoped) return scoped.value;
+  return readDeployCredentialEnv(key) ?? null;
+}
+
+/**
+ * True when `BUILDER_PRIVATE_KEY` is set at the deployment level. This means
+ * a deploy-level fallback exists; it does not prevent per-user connect.
  */
 export function isBuilderEnvManaged(): boolean {
   return !!process.env.BUILDER_PRIVATE_KEY;
@@ -173,6 +172,18 @@ export async function resolveBuilderAuthHeader(): Promise<string | null> {
  */
 export async function resolveHasBuilderPrivateKey(): Promise<boolean> {
   return !!(await resolveBuilderPrivateKey());
+}
+
+/**
+ * Resolve where the effective Builder private key came from. Used by status
+ * UIs so they can distinguish a deploy fallback from a user/org connection.
+ */
+export async function resolveBuilderCredentialSource(): Promise<
+  BuilderCredentialSource | null
+> {
+  const scoped = await resolveScopedBuilderCredential("BUILDER_PRIVATE_KEY");
+  if (scoped) return scoped.source;
+  return process.env.BUILDER_PRIVATE_KEY ? "env" : null;
 }
 
 /**
