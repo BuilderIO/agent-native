@@ -56,6 +56,7 @@ export interface OnboardingHtmlOptions {
     tagline: string;
     description?: string;
     features?: string[];
+    runLocalCommand?: string;
   };
   /**
    * Optional preflight copy shown before redirecting through Google sign-in.
@@ -65,7 +66,7 @@ export interface OnboardingHtmlOptions {
   googleSignInNotice?: {
     host?: string;
     title: string;
-    body: string;
+    body: string | string[];
     continueLabel?: string;
     cancelLabel?: string;
   };
@@ -80,6 +81,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
 
   const marketing = opts.marketing;
   const hasMarketing = !!marketing;
+  const runLocalCommand = marketing?.runLocalCommand?.trim();
   const brandMarkSrc = withAppBasePath("/agent-native-icon-dark.svg");
   const esc = (s: string) =>
     s
@@ -88,6 +90,18 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
   const googleSignInNotice = opts.googleSignInNotice;
+  const googleNoticeBodyHtml = googleSignInNotice
+    ? (Array.isArray(googleSignInNotice.body)
+        ? googleSignInNotice.body
+        : [googleSignInNotice.body]
+      )
+        .filter((body) => body.trim().length > 0)
+        .map(
+          (body, index) =>
+            `<p class="google-preflight-copy"${index === 0 ? ' id="google-preflight-copy"' : ""}>${esc(body)}</p>`,
+        )
+        .join("\n")
+    : "";
   const googleNoticeHtml =
     showGoogle && googleSignInNotice
       ? `
@@ -100,7 +114,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     aria-describedby="google-preflight-copy"
   >
     <p class="google-preflight-title" id="google-preflight-title">${esc(googleSignInNotice.title)}</p>
-    <p class="google-preflight-copy" id="google-preflight-copy">${esc(googleSignInNotice.body)}</p>
+${googleNoticeBodyHtml}
     <div class="google-preflight-actions">
       <button type="button" class="btn-primary" id="google-preflight-continue" onclick="__anAcceptGoogleNotice()">${esc(googleSignInNotice.continueLabel ?? "Continue")}</button>
       <button type="button" class="btn-secondary" onclick="__anHideGoogleNotice()">${esc(googleSignInNotice.cancelLabel ?? "Cancel")}</button>
@@ -196,13 +210,68 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     display: inline-flex;
     align-items: center;
     gap: 0.375rem;
-    margin-top: 2rem;
     font-size: 0.8125rem;
     color: #71717a;
     text-decoration: none;
   }
   .oss-link:hover { color: #a1a1aa; }
   .oss-link svg { width: 15px; height: 15px; flex-shrink: 0; }
+  .marketing-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 2rem;
+  }
+  .run-local-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.25rem;
+    padding: 0.5rem 0.875rem;
+    background: rgba(255,255,255,0.08);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 8px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .run-local-button:hover {
+    background: rgba(255,255,255,0.12);
+    border-color: rgba(255,255,255,0.24);
+  }
+  .run-local-panel {
+    max-width: 480px;
+    margin-top: 0.75rem;
+    padding: 0.75rem;
+    background: rgba(20,20,20,0.86);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px;
+    box-shadow: 0 14px 36px rgba(0,0,0,0.28);
+  }
+  .run-local-panel[hidden] { display: none; }
+  .run-local-panel code {
+    display: block;
+    overflow-x: auto;
+    padding-bottom: 0.125rem;
+    color: #e5e5e5;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    white-space: nowrap;
+  }
+  .copy-run-local {
+    margin-top: 0.625rem;
+    padding: 0.375rem 0.625rem;
+    background: transparent;
+    color: #a1a1aa;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px;
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+  .copy-run-local:hover { color: #fff; border-color: rgba(255,255,255,0.22); }
   .form-panel {
     flex: 0 0 440px;
     display: flex;
@@ -240,10 +309,20 @@ ${marketing!.description ? `      <p class="app-desc">${esc(marketing!.descripti
         marketing!.features?.length
           ? `      <ul class="feature-list">\n${marketing!.features.map((f) => `        <li>${esc(f)}</li>`).join("\n")}\n      </ul>\n`
           : ""
-      }      <a class="oss-link" href="https://github.com/BuilderIO/agent-native" target="_blank" rel="noreferrer">
+      }      <div class="marketing-actions">
+${runLocalCommand ? `        <button type="button" class="run-local-button" id="run-local-button" aria-expanded="false" aria-controls="run-local-panel" onclick="__anToggleRunLocalCommand()">Run Locally</button>\n` : ""}        <a class="oss-link" href="https://github.com/BuilderIO/agent-native" target="_blank" rel="noreferrer">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 00-1.3-3.2 4.2 4.2 0 00-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 00-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 00-.1 3.2A4.6 4.6 0 004 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg>
         Open source
       </a>
+      </div>
+${
+  runLocalCommand
+    ? `      <div class="run-local-panel" id="run-local-panel" hidden data-command="${esc(runLocalCommand)}">
+        <code>${esc(runLocalCommand)}</code>
+        <button type="button" class="copy-run-local" id="copy-run-local" onclick="__anCopyRunLocalCommand()">Copy command</button>
+      </div>\n`
+    : ""
+}
     </div>
   </div>
   <div class="form-panel">`
@@ -662,6 +741,7 @@ ${
     font-size: 0.75rem;
     line-height: 1.55;
   }
+  .google-preflight-copy + .google-preflight-copy { margin-top: 0.5rem; }
   .google-preflight-actions {
     display: flex;
     gap: 0.5rem;
@@ -1330,6 +1410,37 @@ ${
   function __anShouldShowGoogleNotice() { return false; }`
 }
 ${starfieldScript}
+${
+  runLocalCommand
+    ? `
+  function __anToggleRunLocalCommand() {
+    var panel = document.getElementById('run-local-panel');
+    var button = document.getElementById('run-local-button');
+    if (!panel || !button) return;
+    var nextOpen = panel.hasAttribute('hidden');
+    if (nextOpen) {
+      panel.removeAttribute('hidden');
+    } else {
+      panel.setAttribute('hidden', '');
+    }
+    button.setAttribute('aria-expanded', String(nextOpen));
+  }
+  function __anCopyRunLocalCommand() {
+    var panel = document.getElementById('run-local-panel');
+    var button = document.getElementById('copy-run-local');
+    if (!panel || !button) return;
+    var command = panel.getAttribute('data-command') || '';
+    var original = button.textContent || 'Copy command';
+    function markCopied() {
+      button.textContent = 'Copied';
+      setTimeout(function() { button.textContent = original; }, 1600);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(command).then(markCopied).catch(function() {});
+    }
+  }`
+    : ""
+}
 </script>
 </body>
 </html>`;
