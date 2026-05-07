@@ -244,12 +244,12 @@ Start / stop / pause are **UI gestures** — there is no server action. MediaRec
 
 ### Sharing (framework-wide, auto-mounted)
 
-| Action                    | Args                                                                                                                               | Purpose                              |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| Action                    | Args                                                                                                                                                                          | Purpose                              |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
 | `share-resource`          | `--resourceType recording --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin --notify true\|false --resourceUrl /r/<id>` | Grant a user or org access           |
-| `unshare-resource`        | `--resourceType recording --resourceId <id> --principalType user\|org --principalId <value>`                                       | Revoke a share grant                 |
-| `list-resource-shares`    | `--resourceType recording --resourceId <id>`                                                                                       | Show current visibility + all grants |
-| `set-resource-visibility` | `--resourceType recording --resourceId <id> --visibility private\|org\|public`                                                     | Change coarse visibility             |
+| `unshare-resource`        | `--resourceType recording --resourceId <id> --principalType user\|org --principalId <value>`                                                                                  | Revoke a share grant                 |
+| `list-resource-shares`    | `--resourceType recording --resourceId <id>`                                                                                                                                  | Show current visibility + all grants |
+| `set-resource-visibility` | `--resourceType recording --resourceId <id> --visibility private\|org\|public`                                                                                                | Change coarse visibility             |
 
 Password + `expiresAt` are **additions** stored directly on the recording row — they compose with the framework share grants. See the `video-sharing` skill.
 

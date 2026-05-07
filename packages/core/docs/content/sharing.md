@@ -91,12 +91,12 @@ For lists, drop a `<VisibilityBadge visibility={row.visibility} />` next to each
 
 The framework auto-mounts these actions in every template — the agent calls them as tools, the UI calls them as HTTP endpoints:
 
-| Action                    | What it does                                                                                  |
-| ------------------------- | --------------------------------------------------------------------------------------------- |
+| Action                    | What it does                                                                                   |
+| ------------------------- | ---------------------------------------------------------------------------------------------- |
 | `share-resource`          | Grant a user or org access at a specific role. Optional `notify` controls email notifications. |
-| `unshare-resource`        | Revoke access for a user or org.                                                              |
-| `list-resource-shares`    | Show current visibility plus all explicit grants.                                             |
-| `set-resource-visibility` | Change to `private`, `org`, or `public`.                                                      |
+| `unshare-resource`        | Revoke access for a user or org.                                                               |
+| `list-resource-shares`    | Show current visibility plus all explicit grants.                                              |
+| `set-resource-visibility` | Change to `private`, `org`, or `public`.                                                       |
 
 Tell the agent "share this design with the marketing team as editors" and it calls `share-resource` against the same endpoint the UI uses. The result shows up in the share dialog the next render.
 

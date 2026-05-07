@@ -123,12 +123,12 @@ cd templates/content && pnpm action <name> [args]
 
 Documents are **private by default** — only the creator can see them. To grant access to others, change the visibility or add explicit share grants. These actions are auto-mounted framework-wide:
 
-| Action                    | Args                                                                                                                              | Purpose                                  |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Action                    | Args                                                                                                                                                                            | Purpose                                  |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | `share-resource`          | `--resourceType document --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin --notify true\|false --resourceUrl /page/<id>` | Grant a user or org access to a document |
-| `unshare-resource`        | `--resourceType document --resourceId <id> --principalType user\|org --principalId <email-or-orgId>`                              | Revoke a share grant                     |
-| `list-resource-shares`    | `--resourceType document --resourceId <id>`                                                                                       | Show current visibility + all grants     |
-| `set-resource-visibility` | `--resourceType document --resourceId <id> --visibility private\|org\|public`                                                     | Change coarse visibility                 |
+| `unshare-resource`        | `--resourceType document --resourceId <id> --principalType user\|org --principalId <email-or-orgId>`                                                                            | Revoke a share grant                     |
+| `list-resource-shares`    | `--resourceType document --resourceId <id>`                                                                                                                                     | Show current visibility + all grants     |
+| `set-resource-visibility` | `--resourceType document --resourceId <id> --visibility private\|org\|public`                                                                                                   | Change coarse visibility                 |
 
 Read (`get-document`, `list-documents`, `search-documents`) admits rows the current user owns, has been shared on, or that match the resource's visibility. Write (`update-document`, `edit-document`) requires `editor` role or above; `delete-document` requires `admin` (owners always satisfy). See the `sharing` skill for the full model.
 
