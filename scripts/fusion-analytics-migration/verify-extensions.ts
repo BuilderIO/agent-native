@@ -838,6 +838,13 @@ async function verifyGcn(page: CdpPage, contextId: number) {
 
 async function verifyQbr(page: CdpPage, contextId: number) {
   const id = "Codex Verify AE";
+  await page.waitFor(
+    `(() => [...document.querySelectorAll('*')]
+      .map((el) => el._x_dataStack?.[0])
+      .some((candidate) => candidate && typeof candidate.selectOwner === 'function'))()`,
+    contextId,
+    90_000,
+  );
   const selected = await page.evaluate<{
     owner?: string;
     hasHubspot?: boolean;
@@ -874,6 +881,13 @@ async function verifyQbr(page: CdpPage, contextId: number) {
       return text.includes('ae qbr deck') && text.includes('andrew bishop');
     })()`,
     contextId,
+  );
+  await page.waitFor(
+    `(() => [...document.querySelectorAll('*')]
+      .map((el) => el._x_dataStack?.[0])
+      .some((candidate) => candidate && typeof candidate.save === 'function'))()`,
+    contextId,
+    90_000,
   );
   await page.evaluate(
     `(async () => {
@@ -1064,6 +1078,13 @@ async function verifyCsQbr(page: CdpPage, contextId: number) {
     contextId,
     30_000,
   );
+  await page.waitFor(
+    `(() => [...document.querySelectorAll('*')]
+      .map((el) => el._x_dataStack?.[0])
+      .some((candidate) => candidate && typeof candidate.selectOwner === 'function'))()`,
+    contextId,
+    90_000,
+  );
   const alexState = await page.evaluate<{
     selected?: string;
     accountCount?: number;
@@ -1203,6 +1224,13 @@ async function verifyCsQbr(page: CdpPage, contextId: number) {
 }
 
 async function verifyDiscoveryCoach(page: CdpPage, contextId: number) {
+  await page.waitFor(
+    `(() => [...document.querySelectorAll('*')]
+      .map((el) => el._x_dataStack?.[0])
+      .some((candidate) => candidate && candidate.opPains && candidate.stages))()`,
+    contextId,
+    90_000,
+  );
   const counts = await page.evaluate<{
     stages: number;
     pains: number;
@@ -1258,6 +1286,13 @@ async function verifyDiscoveryCoach(page: CdpPage, contextId: number) {
 async function verifyEngagement(page: CdpPage, contextId: number) {
   const id = "codex-verify-engagement-root";
   const company = "Codex Verify Co";
+  await page.waitFor(
+    `(() => [...document.querySelectorAll('*')]
+      .map((el) => el._x_dataStack?.[0])
+      .some((candidate) => candidate && typeof candidate.generateStrategy === 'function'))()`,
+    contextId,
+    90_000,
+  );
   const prompt = await page.evaluate<string>(
     `(async () => {
       const state = [...document.querySelectorAll('*')]
@@ -1334,6 +1369,13 @@ async function verifyDbt(page: CdpPage, contextId: number) {
 }
 
 async function verifyQuery(page: CdpPage, contextId: number) {
+  await page.waitFor(
+    `(() => [...document.querySelectorAll('*')]
+      .map((el) => el._x_dataStack?.[0])
+      .some((candidate) => candidate && typeof candidate.run === 'function' && Array.isArray(candidate.history)))()`,
+    contextId,
+    90_000,
+  );
   const output = await page.evaluate<{
     error?: string;
     rowCount?: number;
@@ -1379,6 +1421,13 @@ async function verifyQuery(page: CdpPage, contextId: number) {
 }
 
 async function verifyStripe(page: CdpPage, contextId: number) {
+  await page.waitFor(
+    `(() => [...document.querySelectorAll('*')]
+      .map((el) => el._x_dataStack?.[0])
+      .some((candidate) => candidate && typeof candidate.run === 'function' && typeof candidate.activeSubscriptions === 'function'))()`,
+    contextId,
+    90_000,
+  );
   const state = await page.evaluate<{
     submittedSearch?: string;
     hasSections?: boolean;
