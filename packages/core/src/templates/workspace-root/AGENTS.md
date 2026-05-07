@@ -29,6 +29,19 @@ in `apps/<app>/AGENTS.md`; shared cross-app behavior belongs in
 - Do not satisfy a new-app request by adding a route, page, component, or file
   to `apps/starter` or another existing app unless the user explicitly asks to
   modify that existing app.
+- Treat first-party apps such as Mail, Calendar, Analytics, and Dispatch as
+  existing hosted/connected neighbors available through links and A2A/default
+  connected agents. For example, Mail, Calendar, and Analytics already exist at
+  `https://mail.agent-native.com`, `https://calendar.agent-native.com`, and
+  `https://analytics.agent-native.com`.
+- If a new app needs to use Mail, Calendar, Analytics, or similar first-party
+  data/agents, build only the genuinely new workflow and delegate/link to those
+  existing apps. Do not create wrapper apps, child apps, nested template copies,
+  or cloned Mail/Calendar/Analytics implementations inside the new app just to
+  provide access.
+- Only create a first-party app copy when the user explicitly asks for a
+  customized fork/copy of that app. Otherwise prefer the hosted/shared app so
+  base template improvements continue to flow automatically.
 - Workspace apps are discovered from `apps/<app-id>/package.json`. There is no
   separate workspace app registry to edit for Dispatch to list the app.
 - Use relative workspace links like `/<app-id>`. Never hardcode

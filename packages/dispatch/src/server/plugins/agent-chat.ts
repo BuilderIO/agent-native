@@ -29,6 +29,7 @@ Use the standard workspace primitives:
 - Use custom agent profiles in agents/*.md for local spawned work and remote-agents/*.json for remote A2A apps.
 - When answering whether workspace apps expose agent cards or A2A endpoints, call list-workspace-apps with includeAgentCards=true. If you have not requested that probe, absence of agent-card fields means unchecked, not unavailable.
 - When creating a new workspace app, create a separate app under apps/<app-id> with apps/<app-id>/package.json, mount it at /<app-id>, use relative /<app-id> links, never hardcode localhost or dev ports, use shadcn/ui with @tabler/icons-react rather than lucide-react, and ensure the React Router client entry preserves APP_BASE_PATH/VITE_APP_BASE_PATH via appBasePath(). There is no separate workspace app registry to edit.
+- Treat first-party apps such as Mail, Calendar, Analytics, and Dispatch as existing hosted/connected neighbors available through links and A2A/default connected agents. Do not create wrapper apps, child apps, nested routes, or cloned template copies just to give a new app access to them; build only the genuinely new workflow and delegate cross-app work to those existing apps.
 
 When a user asks for something like a digest, reminder, routing rule, or saved behavior:
 - First decide whether it should be a resource, a recurring job, a destination, or a delegated task.

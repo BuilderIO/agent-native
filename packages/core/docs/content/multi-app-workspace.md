@@ -31,6 +31,8 @@ Anything every app in your org should agree on can live in `packages/shared`:
 
 Each individual app becomes _just a set of screens_ — routes, dashboards, views, domain-specific actions. Framework defaults cover the rest until you add a real workspace customization.
 
+That same boundary applies when your app wants to use another first-party app. A new workspace dashboard that needs email, calendar, and analytics context should use the existing Mail, Calendar, and Analytics apps as connected neighbors over links or A2A. It should not clone those templates, create a wrapper app that nests them, or scaffold child apps inside itself just to get access to their data or agents. For example, the hosted first-party apps already live at [mail.agent-native.com](https://mail.agent-native.com), [calendar.agent-native.com](https://calendar.agent-native.com), and [analytics.agent-native.com](https://analytics.agent-native.com). Fork or scaffold a copy only when you explicitly want to customize that app; otherwise, using the hosted/shared app keeps base template improvements flowing automatically.
+
 ## Getting started {#getting-started}
 
 Workspace is the default shape of an agent-native project. Scaffold one with:
