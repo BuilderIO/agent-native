@@ -307,7 +307,7 @@ export function PreRecordPanel({
   }, [busy]);
 
   return (
-    <div className="mx-auto w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
+    <div className="mx-auto w-full max-w-md overflow-hidden rounded-2xl border border-border bg-muted/20 shadow-lg">
       <div className="space-y-4 p-6">
         <div>
           <h2 className="text-lg font-semibold">New recording</h2>

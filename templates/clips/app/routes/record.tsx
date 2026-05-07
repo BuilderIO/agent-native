@@ -1,12 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Link, useNavigate } from "react-router";
-import {
-  IconAppWindow,
-  IconArrowLeft,
-  IconDownload,
-  IconVideo,
-} from "@tabler/icons-react";
+import { IconArrowLeft, IconVideo } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { agentNativePath, appBasePath } from "@agent-native/core/client";
 import { RequireActiveOrg } from "@agent-native/core/client/org";
@@ -150,7 +145,7 @@ interface PendingRecording {
 
 function PreRecordPanelSkeleton() {
   return (
-    <div className="mx-auto w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
+    <div className="mx-auto w-full max-w-md overflow-hidden rounded-2xl border border-border bg-muted/20 shadow-lg">
       <div className="space-y-4 p-6">
         <div className="space-y-2">
           <Skeleton className="h-5 w-40" />
@@ -188,29 +183,22 @@ function PreRecordPanelSkeleton() {
 
 function DesktopRecorderCallout() {
   return (
-    <aside className="w-full rounded-xl border border-border bg-muted/20 p-4">
-      <div className="flex items-start gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-background text-muted-foreground">
-          <IconAppWindow className="h-4 w-4" />
+    <aside className="w-full p-1">
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-foreground">
+          Get the desktop app
         </div>
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-foreground">Desktop app</div>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            More seamless for repeat recordings: menu-bar launch, global
-            shortcuts, and fewer browser prompts.
-          </p>
-        </div>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          Menu-bar launch and global shortcuts make repeat recordings smoother.
+        </p>
       </div>
       <Button
         asChild
         variant="outline"
         size="sm"
-        className="mt-4 w-full gap-1.5 bg-background/70"
+        className="mt-3 w-full bg-background/70"
       >
-        <Link to="/download">
-          <IconDownload className="h-3.5 w-3.5" />
-          Download
-        </Link>
+        <Link to="/download">Download</Link>
       </Button>
     </aside>
   );

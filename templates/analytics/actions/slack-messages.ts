@@ -40,7 +40,7 @@ function enrichMessages(messages: SlackMessage[]): SlackMessage[] {
 
 export default defineAction({
   description:
-    "Query the analytics app's configured Slack workspace: team info, channels, channel history, multi-channel history, or message search.",
+    "Query the analytics app's configured Slack workspace: team info, channels, channel history, multi-channel history, or message search. Slack messages returned by this action are real source evidence; you may count mentions, code themes, classify sentiment, and summarize qualitative patterns from them while stating the sample size.",
   schema: z.object({
     mode: z
       .enum(["team", "channels", "history", "multi-history", "search"])
