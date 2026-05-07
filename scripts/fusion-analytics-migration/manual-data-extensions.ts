@@ -395,34 +395,78 @@ export function onboardingProgressExtension(): string {
                       </template>
                     </ul>
                   </section>
-                  <section class="rounded-lg border p-4" x-show="(selected().blockers || []).length || (selected().identifiedRisks || []).length || (selected().riskSignals || []).length">
+                  <section class="rounded-lg border p-4" x-show="(selected().blockers || []).length || visibleRisks(selected()).length || (selected().riskSignals || []).length">
                     <h3 class="mb-3 text-sm font-semibold">Risks and blockers</h3>
-                    <template x-for="label in ['blockers', 'identifiedRisks', 'riskSignals']" :key="label">
-                      <div x-show="(selected()[label] || []).length" class="mb-3">
-                        <div class="mb-1 text-xs capitalize text-muted-foreground" x-text="label.replace(/([A-Z])/g, ' $1')"></div>
-                        <ul class="list-disc space-y-1 pl-5 text-sm"><template x-for="item in selected()[label]" :key="String(item)"><li x-text="String(item)"></li></template></ul>
+                    <div x-show="(selected().blockers || []).length" class="mb-3">
+                      <div class="mb-1 text-xs text-muted-foreground">Blockers</div>
+                      <ul class="list-disc space-y-1 pl-5 text-sm"><template x-for="item in (selected().blockers || [])" :key="String(item)"><li x-text="String(item)"></li></template></ul>
+                    </div>
+                    <div x-show="visibleRisks(selected()).length" class="mb-3">
+                      <div class="mb-1 text-xs text-muted-foreground" x-text="'Identified risks (' + visibleRisks(selected()).length + ')'"></div>
+                      <ul class="space-y-1 text-sm">
+                        <template x-for="item in visibleRisks(selected())" :key="String(item)">
+                          <li class="flex items-start gap-2">
+                            <span class="mt-0.5 text-yellow-600">-</span>
+                            <template x-if="riskTicket(item)">
+                              <a :href="riskTicket(item).url" target="_blank" rel="noreferrer" class="break-words text-primary hover:underline" x-text="riskTicket(item).label"></a>
+                            </template>
+                            <template x-if="!riskTicket(item)"><span class="break-words" x-text="String(item)"></span></template>
+                          </li>
+                        </template>
+                      </ul>
+                    </div>
+                    <div x-show="(selected().riskSignals || []).length">
+                      <div class="mb-1 text-xs text-muted-foreground">Risk signals</div>
+                      <div class="space-y-1 text-sm">
+                        <template x-for="signal in (selected().riskSignals || [])" :key="String(signal)">
+                          <div class="rounded bg-muted/40 px-2 py-1" x-text="typeof signal === 'string' ? signal : JSON.stringify(signal)"></div>
+                        </template>
                       </div>
-                    </template>
+                    </div>
                   </section>
                   <section class="rounded-lg border p-4" x-show="(selected().workshopHistory || []).length">
                     <h3 class="mb-3 text-sm font-semibold">Workshops</h3>
-                    <ul class="space-y-2"><template x-for="workshop in (selected().workshopHistory || [])" :key="workshop.id || workshop.name || workshop.date"><li class="flex justify-between gap-3 text-sm"><span class="font-medium" x-text="workshop.name || workshop.title || 'Workshop'"></span><span class="text-xs text-muted-foreground" x-text="fmtDate(workshop.date || workshop.startedAt)"></span></li></template></ul>
+                    <ul class="space-y-2"><template x-for="workshop in sortWorkshops(selected())" :key="workshop.id || workshop.name || workshop.date"><li class="flex justify-between gap-3 text-sm"><div class="min-w-0"><div class="truncate font-medium" x-text="workshop.name || workshop.title || 'Workshop'"></div><div class="text-xs text-muted-foreground" x-text="fmtDate(workshop.date || workshop.startedAt)"></div></div><a x-show="workshop.gongRecording" :href="workshop.gongRecording" target="_blank" rel="noreferrer" class="shrink-0 text-xs text-primary hover:underline">Gong</a></li></template></ul>
                   </section>
                   <section class="rounded-lg border p-4" x-show="(selected().planProgress || []).length">
                     <h3 class="mb-3 text-sm font-semibold">Plan progress</h3>
                     <template x-for="plan in (selected().planProgress || [])" :key="plan.planKey || plan.planName">
-                      <div class="mb-2 text-sm"><div class="flex justify-between gap-2"><span x-text="plan.planName || plan.planKey"></span><span class="text-xs text-muted-foreground" x-text="(plan.progressPercent || 0) + '% / ' + (plan.completedCheckpointCount || 0) + ' checkpoints'"></span></div><div class="mt-1 h-1.5 rounded-full bg-muted"><div class="h-full rounded-full bg-primary" :style="'width:' + Math.min(100, Number(plan.progressPercent || 0)) + '%'"></div></div></div>
+                      <div class="mb-2 text-sm"><div class="flex justify-between gap-2"><span class="font-medium" x-text="plan.planName || plan.planKey"></span><span class="text-xs text-muted-foreground" x-text="(plan.progressPercent || 0) + '% / ' + (plan.completedCheckpointCount || 0) + ' checkpoints'"></span></div><div class="mt-1 h-1.5 rounded-full bg-muted"><div class="h-full rounded-full bg-primary" :style="'width:' + Math.min(100, Number(plan.progressPercent || 0)) + '%'"></div></div><div class="mt-1 text-[10px] text-muted-foreground" x-text="'Last activity: ' + fmtDate(plan.lastActivityAt) + (plan.canBookNextSession ? ' / ready for next session' : '')"></div></div>
                     </template>
                   </section>
                   <section class="rounded-lg border p-4">
                     <div class="mb-3 flex items-baseline justify-between"><h3 class="text-sm font-semibold">What changed</h3><span class="text-xs text-muted-foreground" x-text="(byId['latest-diff']?.from || '') + (byId['latest-diff']?.to ? ' -> ' + byId['latest-diff'].to : '')"></span></div>
-                    <template x-if="diffFor(selected())"><pre class="max-h-48 overflow-auto whitespace-pre-wrap text-xs" x-text="JSON.stringify(diffFor(selected()), null, 2)"></pre></template>
+                    <template x-if="diffFor(selected())">
+                      <ul class="space-y-2 text-sm">
+                        <li x-show="diffFor(selected()).kickoffDate?.changed"><span class="text-muted-foreground">Kickoff:</span> <span class="text-muted-foreground line-through" x-text="diffFor(selected()).kickoffDate?.previous || '-'"></span> <span>-></span> <span class="font-medium" x-text="diffFor(selected()).kickoffDate?.current || '-'"></span></li>
+                        <li x-show="diffFor(selected()).percentComplete && diffFor(selected()).percentComplete.delta !== 0"><span class="text-muted-foreground">Progress:</span> <span x-text="diffFor(selected()).percentComplete?.previous + '%'"></span> <span>-></span> <span x-text="diffFor(selected()).percentComplete?.current + '%'"></span> <span :class="diffFor(selected()).percentComplete?.delta > 0 ? 'text-emerald-600' : 'text-red-600'" x-text="'(' + (diffFor(selected()).percentComplete?.delta > 0 ? '+' : '') + diffFor(selected()).percentComplete?.delta + ')'"></span></li>
+                        <li x-show="diffFor(selected()).statusNote?.changed"><div class="mb-0.5 text-xs text-muted-foreground">Status note updated:</div><div class="text-xs italic text-muted-foreground line-through" x-text="stripHtml(diffFor(selected()).statusNote?.previous || '-')"></div><div class="text-xs" x-text="stripHtml(diffFor(selected()).statusNote?.current || '-')"></div></li>
+                        <li x-show="(diffFor(selected()).goals?.completed || []).length"><div class="text-xs text-emerald-600">Completed this week:</div><ul class="ml-3 list-disc text-xs"><template x-for="goal in diffFor(selected()).goals.completed" :key="goal.id"><li x-text="goal.title"></li></template></ul></li>
+                        <li x-show="(diffFor(selected()).goals?.added || []).length"><div class="text-xs text-blue-600">New goals:</div><ul class="ml-3 list-disc text-xs"><template x-for="goal in diffFor(selected()).goals.added" :key="goal.id"><li x-text="goal.title"></li></template></ul></li>
+                        <li x-show="(diffFor(selected()).goals?.stillOpen || []).length"><div class="text-xs text-yellow-600">Still open:</div><ul class="ml-3 list-disc text-xs"><template x-for="goal in diffFor(selected()).goals.stillOpen" :key="goal.id"><li><span x-text="goal.title"></span> <span class="text-muted-foreground" x-show="goal.ageDays != null" x-text="'(' + goal.ageDays + 'd)'"></span></li></template></ul></li>
+                      </ul>
+                    </template>
                     <p x-show="!diffFor(selected())" class="text-xs text-muted-foreground">No changes for this customer in the latest snapshot.</p>
                   </section>
                   <section class="rounded-lg border p-4">
                     <h3 class="mb-3 text-sm font-semibold">Recent activity (Gong and Slack)</h3>
-                    <template x-if="crossrefFor(selected())"><pre class="max-h-48 overflow-auto whitespace-pre-wrap text-xs" x-text="JSON.stringify(crossrefFor(selected()), null, 2)"></pre></template>
-                    <p x-show="!crossrefFor(selected())" class="text-xs text-muted-foreground">No migrated cross-reference data found for this account.</p>
+                    <p x-show="!crossrefFor(selected()) || (!(crossrefFor(selected()).gong || []).length && !(crossrefFor(selected()).slack || []).length)" class="text-xs text-muted-foreground">No migrated cross-reference data found for this account.</p>
+                    <div x-show="(crossrefFor(selected())?.gong || []).length" class="mb-4">
+                      <div class="mb-2 text-xs text-muted-foreground">Gong calls (last 7d)</div>
+                      <ul class="space-y-1.5 text-sm">
+                        <template x-for="call in (crossrefFor(selected())?.gong || [])" :key="call.callId || call.url || call.title">
+                          <li class="flex items-start gap-2"><span class="shrink-0 text-xs tabular-nums text-muted-foreground" x-text="fmtTs(call.date)"></span><span class="flex-1" x-text="call.title"></span><a x-show="call.url" :href="call.url" target="_blank" rel="noreferrer" class="text-xs text-primary hover:underline">Open</a></li>
+                        </template>
+                      </ul>
+                    </div>
+                    <div x-show="(crossrefFor(selected())?.slack || []).length">
+                      <div class="mb-2 text-xs text-muted-foreground">Slack mentions (last 7d)</div>
+                      <ul class="space-y-2 text-xs">
+                        <template x-for="msg in (crossrefFor(selected())?.slack || []).slice(0, 10)" :key="msg.ts || msg.permalink || msg.text">
+                          <li><div class="flex items-center gap-2 text-muted-foreground"><span x-text="'#' + msg.channel"></span><span>/</span><span x-text="fmtTs(msg.ts)"></span><span x-show="msg.user" x-text="'/ ' + msg.user"></span><a x-show="msg.permalink" :href="msg.permalink" target="_blank" rel="noreferrer" class="ml-auto text-primary hover:underline">Open</a></div><div class="mt-0.5 text-foreground" x-text="msg.text"></div></li>
+                        </template>
+                      </ul>
+                    </div>
                   </section>
                 </aside>
               </template>
