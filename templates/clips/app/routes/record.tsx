@@ -18,6 +18,11 @@ import {
   captureVideoThumbnailBlob,
   uploadRecordingThumbnail,
 } from "@/lib/thumbnail-capture";
+import {
+  buildCaptureTitle,
+  defaultRecordingTitle,
+  inferWindowTitleFromDisplayStream,
+} from "@/lib/recording-title";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
 // and cannot be bundled for the browser).
@@ -404,6 +409,11 @@ export default function RecordRoute() {
           await engine.cancel().catch(() => {});
           return;
         }
+        const captureTitle = buildCaptureTitle({
+          windowTitle: inferWindowTitleFromDisplayStream(ps),
+          displaySurface: opts.displaySurface,
+          mode: opts.mode,
+        });
 
         const wantsMic = opts.micDeviceId !== NO_MIC_DEVICE_ID;
         if (wantsMic && liveTranscription.supported) {
@@ -430,7 +440,10 @@ export default function RecordRoute() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              title: "Untitled recording",
+              title: captureTitle.title,
+              titleSource: captureTitle.titleSource,
+              sourceAppName: captureTitle.sourceAppName,
+              sourceWindowTitle: captureTitle.sourceWindowTitle,
               hasCamera: opts.mode !== "screen",
               hasAudio: wantsMic,
               visibility: "public",
@@ -606,7 +619,9 @@ export default function RecordRoute() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              title: file.name.replace(/\.[^/.]+$/, "") || "Untitled recording",
+              title:
+                file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle(),
+              titleSource: "upload",
               hasCamera: false,
               hasAudio: true,
               width: meta.width,
