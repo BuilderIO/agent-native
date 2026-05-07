@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   IconArrowUpRight,
+  IconBook,
   IconCheck,
   IconChevronDown,
+  IconFileText,
   IconKey,
 } from "@tabler/icons-react";
 import { agentNativePath, appBasePath } from "./api-path.js";
@@ -18,6 +20,16 @@ export interface VaultSecretOption {
   credentialKey: string;
   provider?: string | null;
   description?: string | null;
+}
+
+export interface WorkspaceResourceOption {
+  id: string;
+  kind: "skill" | "instruction" | "agent" | "knowledge";
+  name: string;
+  description?: string | null;
+  path: string;
+  scope: "all" | "selected";
+  updatedAt?: number;
 }
 
 export interface NewWorkspaceAppFlowProps {
@@ -72,11 +84,20 @@ function buildNewWorkspaceAppPrompt(input: {
   appId: string;
   prompt: string;
   selectedKeys: string[];
+  selectedResources: WorkspaceResourceOption[];
 }): string {
   const keyList = input.selectedKeys.join(", ");
   const grantRequest = keyList
     ? `Requested Dispatch vault key grants for this app: ${keyList}`
     : `Requested Dispatch vault key grants for this app: none`;
+  const resourceList = input.selectedResources.length
+    ? input.selectedResources
+        .map(
+          (resource) =>
+            `- ${resource.name} (${resource.kind}, ${resource.path})`,
+        )
+        .join("\n")
+    : "none";
 
   return [
     `Create a new agent-native app in this workspace.`,
@@ -85,6 +106,7 @@ function buildNewWorkspaceAppPrompt(input: {
     `Suggested app name: ${input.appId} (you may adjust the slug if it conflicts)`,
     `User prompt: ${input.prompt.trim()}`,
     grantRequest,
+    `Requested Dispatch workspace resources for this app:\n${resourceList}`,
     ``,
     `Pick a starter template that fits the user's prompt — analytics, calendar, content, design, dispatch, forms, mail, slides, clips, or starter when none of the others fit.`,
     `Use the workspace app layout: create it under apps/${input.appId}, mount it at /${input.appId}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
@@ -96,6 +118,9 @@ function buildNewWorkspaceAppPrompt(input: {
     keyList
       ? `After the app exists, grant the selected Dispatch vault keys to appId "${input.appId}" and sync them once the app server is available. Treat these as requested grants, not active grants before creation succeeds.`
       : `Do not grant any Dispatch vault keys unless the user asks later.`,
+    input.selectedResources.length
+      ? `After the app exists, grant the selected Dispatch workspace resources to appId "${input.appId}" and sync them once the app server is available. Add a short note to apps/${input.appId}/AGENTS.md telling the app agent to read relevant shared resources under context/ or the selected resource paths before doing GTM/domain work.`
+      : `Do not grant any Dispatch workspace resources unless the user asks later.`,
     ``,
     `App readiness requirements before handing off:`,
     `- Ensure apps/${input.appId}/package.json exists with displayName/name metadata so Dispatch and the workspace gateway discover it from the filesystem. There is no separate workspace app registry to edit.`,
@@ -112,8 +137,11 @@ export function NewWorkspaceAppFlow({
   dispatchBasePath,
 }: NewWorkspaceAppFlowProps) {
   const [selectedSecretIds, setSelectedSecretIds] = useState<string[]>([]);
+  const [selectedResourceIds, setSelectedResourceIds] = useState<string[]>([]);
   const [secrets, setSecrets] = useState<VaultSecretOption[]>([]);
+  const [resources, setResources] = useState<WorkspaceResourceOption[]>([]);
   const [secretsError, setSecretsError] = useState<string | null>(null);
+  const [resourcesError, setResourcesError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [branchUrl, setBranchUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -126,11 +154,16 @@ export function NewWorkspaceAppFlow({
 
   useEffect(() => {
     let cancelled = false;
-    const url = actionUrl(
+    const secretsUrl = actionUrl(
       effectiveDispatchBasePath,
       "list-vault-secret-options",
     );
-    fetchJson(url)
+    const resourcesUrl = actionUrl(
+      effectiveDispatchBasePath,
+      "list-workspace-resource-options",
+    );
+
+    fetchJson(secretsUrl)
       .then((data) => {
         if (cancelled) return;
         setSecrets(Array.isArray(data) ? data : []);
@@ -141,6 +174,21 @@ export function NewWorkspaceAppFlow({
         setSecrets([]);
         setSecretsError(err?.message || "Could not load Dispatch keys");
       });
+
+    fetchJson(resourcesUrl)
+      .then((data) => {
+        if (cancelled) return;
+        setResources(Array.isArray(data) ? data : []);
+        setResourcesError(null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setResources([]);
+        setResourcesError(
+          err?.message || "Could not load Dispatch resources",
+        );
+      });
+
     return () => {
       cancelled = true;
     };
@@ -150,10 +198,19 @@ export function NewWorkspaceAppFlow({
     () => secrets.filter((secret) => selectedSecretIds.includes(secret.id)),
     [secrets, selectedSecretIds],
   );
+  const selectedResources = useMemo(
+    () =>
+      resources.filter((resource) => selectedResourceIds.includes(resource.id)),
+    [resources, selectedResourceIds],
+  );
   const selectedSecretLabel =
     selectedSecretIds.length === 0
       ? "No keys selected"
       : `${selectedSecretIds.length} key${selectedSecretIds.length === 1 ? "" : "s"} selected`;
+  const selectedResourceLabel =
+    selectedResourceIds.length === 0
+      ? "No resources selected"
+      : `${selectedResourceIds.length} resource${selectedResourceIds.length === 1 ? "" : "s"} selected`;
 
   async function submit(rawPrompt: string) {
     const prompt = rawPrompt.trim();
@@ -169,6 +226,7 @@ export function NewWorkspaceAppFlow({
       appId,
       prompt,
       selectedKeys: selectedSecrets.map((s) => s.credentialKey),
+      selectedResources,
     });
     setIsSubmitting(true);
     setStatusMessage(null);
@@ -191,6 +249,7 @@ export function NewWorkspaceAppFlow({
               prompt,
               appId,
               secretIds: selectedSecretIds,
+              resourceIds: selectedResourceIds,
             }),
           },
         );
@@ -213,6 +272,14 @@ export function NewWorkspaceAppFlow({
 
   function toggleSecret(id: string) {
     setSelectedSecretIds((current) =>
+      current.includes(id)
+        ? current.filter((existing) => existing !== id)
+        : [...current, id],
+    );
+  }
+
+  function toggleResource(id: string) {
+    setSelectedResourceIds((current) =>
       current.includes(id)
         ? current.filter((existing) => existing !== id)
         : [...current, id],
@@ -250,7 +317,7 @@ export function NewWorkspaceAppFlow({
           ) : null}
         </div>
 
-        <aside className="rounded-lg border border-border bg-card">
+        <aside className="overflow-hidden rounded-lg border border-border bg-card">
           <div className="border-b border-border px-4 py-3">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-sm font-medium">
@@ -262,7 +329,7 @@ export function NewWorkspaceAppFlow({
               </span>
             </div>
           </div>
-          <div className="max-h-[440px] space-y-2 overflow-y-auto p-3">
+          <div className="max-h-[220px] space-y-2 overflow-y-auto p-3">
             {secretsError ? (
               <p className="rounded-md border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
                 {secretsError}
@@ -319,6 +386,90 @@ export function NewWorkspaceAppFlow({
                           Provider: {secret.provider || "Not specified"}
                         </div>
                         <div className="truncate">Name: {secret.name}</div>
+                      </div>
+                    </details>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="border-y border-border px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <IconBook className="h-4 w-4" />
+                Resource packs
+              </div>
+              <span className="shrink-0 rounded border border-border bg-background/40 px-2 py-0.5 text-[11px] text-muted-foreground">
+                {selectedResourceLabel}
+              </span>
+            </div>
+          </div>
+          <div className="max-h-[220px] space-y-2 overflow-y-auto p-3">
+            {resourcesError ? (
+              <p className="rounded-md border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
+                {resourcesError}
+              </p>
+            ) : resources.length === 0 ? (
+              <p className="rounded-md border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
+                No Dispatch resource packs found yet.
+              </p>
+            ) : (
+              resources.map((resource) => {
+                const selected = selectedResourceIds.includes(resource.id);
+                return (
+                  <div
+                    key={resource.id}
+                    className={`group rounded-md border text-sm transition ${
+                      selected
+                        ? "border-primary/45 bg-primary/5 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.08)]"
+                        : "border-border bg-background/25 text-foreground hover:border-muted-foreground/40 hover:bg-accent/35"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => toggleResource(resource.id)}
+                      className="flex w-full cursor-pointer items-start gap-3 rounded-md px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                    >
+                      <span
+                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition ${
+                          selected
+                            ? "border-primary/60 bg-primary/10 text-primary"
+                            : "border-muted-foreground/35 text-transparent group-hover:border-muted-foreground/60"
+                        }`}
+                      >
+                        {selected ? <IconCheck className="h-3 w-3" /> : null}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <IconFileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+                          <span className="block truncate font-medium">
+                            {resource.name}
+                          </span>
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground/70">
+                          {resource.kind} · {resource.path}
+                        </span>
+                      </span>
+                    </button>
+                    <details className="group/details border-t border-border/60 px-3 py-1.5 text-xs text-muted-foreground/75 open:bg-background/10">
+                      <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] hover:text-muted-foreground [&::-webkit-details-marker]:hidden">
+                        <IconChevronDown className="h-3 w-3 transition-transform group-open/details:rotate-180" />
+                        Details
+                      </summary>
+                      <div className="mt-1.5 space-y-1 pb-0.5 pl-4">
+                        <div className="truncate">
+                          Scope:{" "}
+                          {resource.scope === "all"
+                            ? "All apps"
+                            : "Selected apps"}
+                        </div>
+                        {resource.description ? (
+                          <div className="line-clamp-2">
+                            {resource.description}
+                          </div>
+                        ) : null}
                       </div>
                     </details>
                   </div>
