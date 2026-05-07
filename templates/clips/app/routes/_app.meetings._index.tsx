@@ -11,18 +11,39 @@ import {
   IconExternalLink,
   IconKey,
   IconLoader2,
+  IconPlugConnected,
+  IconPlugOff,
   IconRefresh,
   IconSearch,
+  IconSettings,
   IconX,
 } from "@tabler/icons-react";
 import { agentNativePath, useActionQuery } from "@agent-native/core/client";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   MeetingCard,
@@ -59,7 +80,7 @@ interface SyncCalendarsResult {
   errors?: Array<{ accountId: string; error: string }>;
 }
 
-type CalendarIssueKind = "reauth" | "sync-error" | "not-synced";
+type CalendarIssueKind = "reauth" | "sync-error" | "not-synced" | "empty-feed";
 
 interface CalendarIssue {
   kind: CalendarIssueKind;
@@ -97,6 +118,67 @@ async function requestCalendarSync(): Promise<SyncCalendarsResult> {
     throw new Error(parsed.error || `Sync failed (${r.status})`);
   }
   return unwrapActionResult<SyncCalendarsResult>(payload) ?? {};
+}
+
+async function requestDisconnectCalendar(accountId: string): Promise<void> {
+  const r = await fetch(
+    agentNativePath("/_agent-native/actions/disconnect-calendar"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: accountId }),
+    },
+  );
+  if (!r.ok) {
+    const text = await r.text().catch(() => "");
+    let parsed: { error?: string } = {};
+    try {
+      parsed = text ? JSON.parse(text) : {};
+    } catch {
+      // Keep status fallback below.
+    }
+    throw new Error(parsed.error || `Disconnect failed (${r.status})`);
+  }
+}
+
+async function startCalendarOAuth(onClosed?: () => void): Promise<void> {
+  const r = await fetch(
+    agentNativePath("/_agent-native/actions/connect-calendar?provider=google"),
+  );
+  const text = await r.text();
+  let data: {
+    url?: string;
+    error?: string;
+    result?: { url?: string };
+  } = {};
+  try {
+    data = JSON.parse(text);
+  } catch {
+    // Keep the fallback below.
+  }
+  if (!r.ok) throw new Error(data.error || `Failed (${r.status})`);
+  const url = data.result?.url ?? data.url;
+  if (!url) throw new Error("No OAuth URL returned");
+  const popupUrl = new URL(url, window.location.origin).toString();
+  const popup = window.open(
+    popupUrl,
+    "clips-calendar-oauth",
+    "width=600,height=700",
+  );
+  if (!popup) {
+    throw new Error(
+      "Popup blocked — please allow popups for this site and try again.",
+    );
+  }
+  await new Promise<void>((resolve) => {
+    const interval = window.setInterval(() => {
+      if (popup.closed) {
+        window.clearInterval(interval);
+        onClosed?.();
+        resolve();
+      }
+    }, 500);
+  });
 }
 
 function cleanCalendarError(message?: string | null): string | null {
@@ -167,6 +249,22 @@ function getCalendarIssue(
     };
   }
 
+  const connectedAccount =
+    meetingCount === 0
+      ? (accounts.find((a) => a.status === "connected") ?? accounts[0])
+      : null;
+  if (connectedAccount) {
+    const label = calendarAccountLabel(connectedAccount);
+    return {
+      kind: "empty-feed",
+      account: connectedAccount,
+      title: "No synced calendar meetings",
+      description: `Clips is connected to ${label}, but no Google Calendar events have appeared here yet.`,
+      detail:
+        "Sync again, or reconnect the calendar if Google Calendar has upcoming events that Clips should show.",
+    };
+  }
+
   return null;
 }
 
@@ -231,48 +329,8 @@ function CalendarConnectionAction({
   const handleConnect = () => {
     setError(null);
     setPending(true);
-    fetch(
-      agentNativePath(
-        "/_agent-native/actions/connect-calendar?provider=google",
-      ),
-    )
-      .then(async (r) => {
-        const text = await r.text();
-        let data: {
-          url?: string;
-          error?: string;
-          result?: { url?: string };
-        } = {};
-        try {
-          data = JSON.parse(text);
-        } catch {
-          /* fall through */
-        }
-        if (!r.ok) throw new Error(data.error || `Failed (${r.status})`);
-        const url = data.result?.url ?? data.url;
-        if (!url) throw new Error("No OAuth URL returned");
-        const popupUrl = new URL(url, window.location.origin).toString();
-        // Open without `noopener` so we can poll `popup.closed`. The OAuth
-        // callback page calls `window.close()` on success — once it does,
-        // we trigger the parent to refetch accounts and run sync-calendars.
-        const popup = window.open(
-          popupUrl,
-          "clips-calendar-oauth",
-          "width=600,height=700",
-        );
-        if (!popup) {
-          throw new Error(
-            "Popup blocked — please allow popups for this site and try again.",
-          );
-        }
-        const interval = window.setInterval(() => {
-          if (popup.closed) {
-            window.clearInterval(interval);
-            setPending(false);
-            void onConnected?.();
-          }
-        }, 500);
-      })
+    startCalendarOAuth(() => void onConnected?.())
+      .then(() => setPending(false))
       .catch((e: Error) => {
         setError(e.message);
         setPending(false);
@@ -354,6 +412,181 @@ function ConnectCalendarEmptyState({
   );
 }
 
+function CalendarAccountMenu({
+  accounts,
+  onRetrySync,
+  retryPending,
+  onConnected,
+  onDisconnected,
+}: {
+  accounts: CalendarAccount[];
+  onRetrySync: () => void;
+  retryPending: boolean;
+  onConnected?: () => void;
+  onDisconnected?: () => void;
+}) {
+  const [connectPending, setConnectPending] = useState(false);
+  const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
+  const [disconnectTarget, setDisconnectTarget] =
+    useState<CalendarAccount | null>(null);
+
+  const primaryAccount = accounts[0] ?? null;
+  const statusText =
+    primaryAccount?.status === "needs-reauth"
+      ? "Needs reconnect"
+      : primaryAccount?.lastSyncError
+        ? "Sync issue"
+        : primaryAccount
+          ? "Connected"
+          : "Not connected";
+
+  const handleReconnect = () => {
+    setConnectPending(true);
+    startCalendarOAuth(() => void onConnected?.())
+      .then(() => {
+        setConnectPending(false);
+      })
+      .catch((err: Error) => {
+        setConnectPending(false);
+        toast.error(err.message);
+      });
+  };
+
+  const handleDisconnect = async () => {
+    if (!disconnectTarget) return;
+    setDisconnectingId(disconnectTarget.id);
+    try {
+      await requestDisconnectCalendar(disconnectTarget.id);
+      toast.success("Calendar disconnected");
+      setDisconnectTarget(null);
+      onDisconnected?.();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't disconnect calendar",
+      );
+    } finally {
+      setDisconnectingId(null);
+    }
+  };
+
+  return (
+    <AlertDialog
+      open={!!disconnectTarget}
+      onOpenChange={(open) => {
+        if (!open && !disconnectingId) setDisconnectTarget(null);
+      }}
+    >
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 shrink-0 gap-1.5 cursor-pointer"
+            aria-label="Calendar settings"
+          >
+            <IconSettings className="h-4 w-4" />
+            Calendar
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-72">
+          <DropdownMenuLabel className="flex items-center gap-2">
+            {primaryAccount ? (
+              <IconPlugConnected className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <IconPlugOff className="h-4 w-4 text-muted-foreground" />
+            )}
+            Google Calendar
+          </DropdownMenuLabel>
+          <div className="px-2 pb-1 text-xs text-muted-foreground">
+            {primaryAccount ? (
+              <>
+                <div className="truncate">
+                  {calendarAccountLabel(primaryAccount)}
+                </div>
+                <div>{statusText}</div>
+              </>
+            ) : (
+              "Connect Google Calendar to populate meetings."
+            )}
+          </div>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              onRetrySync();
+            }}
+            disabled={!primaryAccount || retryPending}
+          >
+            <IconRefresh
+              className={`mr-2 h-4 w-4 ${retryPending ? "animate-spin" : ""}`}
+            />
+            {retryPending ? "Syncing calendar..." : "Sync now"}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              handleReconnect();
+            }}
+            disabled={connectPending}
+          >
+            {connectPending ? (
+              <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <IconExternalLink className="mr-2 h-4 w-4" />
+            )}
+            {primaryAccount ? "Reconnect calendar" : "Connect calendar"}
+          </DropdownMenuItem>
+          {accounts.length > 0 && (
+            <>
+              <DropdownMenuSeparator />
+              {accounts.map((account) => (
+                <DropdownMenuItem
+                  key={account.id}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setDisconnectTarget(account);
+                  }}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <IconPlugOff className="mr-2 h-4 w-4" />
+                  Disconnect {calendarAccountLabel(account)}
+                </DropdownMenuItem>
+              ))}
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Disconnect Google Calendar?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Clips will stop syncing meetings from{" "}
+            {disconnectTarget
+              ? calendarAccountLabel(disconnectTarget)
+              : "this account"}
+            . You can reconnect it again from the Meetings page.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={!!disconnectingId}>
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(event) => {
+              event.preventDefault();
+              void handleDisconnect();
+            }}
+            disabled={!!disconnectingId}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            {disconnectingId ? "Disconnecting..." : "Disconnect"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 function CalendarConnectionIssue({
   issue,
   onRetrySync,
@@ -418,15 +651,23 @@ function CalendarConnectionIssue({
 }
 
 function MeetingsHeader({
-  onAddManual,
   query,
   onQueryChange,
   showDesktopCta,
+  calendarAccounts,
+  onRetrySync,
+  retryPending,
+  onConnected,
+  onDisconnected,
 }: {
-  onAddManual: () => void;
   query: string;
   onQueryChange: (next: string) => void;
   showDesktopCta: boolean;
+  calendarAccounts: CalendarAccount[];
+  onRetrySync: () => void;
+  retryPending: boolean;
+  onConnected?: () => void;
+  onDisconnected?: () => void;
 }) {
   return (
     <>
@@ -435,15 +676,13 @@ function MeetingsHeader({
           Meetings
         </h1>
         <div className="ml-auto flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={onAddManual}
-            className="gap-1.5 cursor-pointer shrink-0 h-8"
-          >
-            <IconCalendarPlus className="h-4 w-4" />
-            New meeting
-          </Button>
+          <CalendarAccountMenu
+            accounts={calendarAccounts}
+            onRetrySync={onRetrySync}
+            retryPending={retryPending}
+            onConnected={onConnected}
+            onDisconnected={onDisconnected}
+          />
         </div>
       </PageHeader>
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -594,6 +833,15 @@ export default function MeetingsIndexRoute() {
     void runCalendarSync({ showSuccessToast: true });
   }, [runCalendarSync]);
 
+  const handleCalendarDisconnected = useCallback(() => {
+    queryClient.invalidateQueries({
+      queryKey: ["action", "list-meetings"],
+    });
+    queryClient.invalidateQueries({
+      queryKey: ["action", "list-calendar-accounts"],
+    });
+  }, [queryClient]);
+
   const isLoading = accounts.isLoading || meetingsQuery.isLoading;
 
   const calendarLoadError = accounts.isError
@@ -651,26 +899,6 @@ export default function MeetingsIndexRoute() {
     return { upcoming, past };
   }, [meetings, debouncedQuery]);
 
-  const handleAddManual = () => {
-    fetch("/_agent-native/actions/create-meeting", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: "Untitled meeting",
-        scheduledStart: new Date().toISOString(),
-        source: "adhoc",
-      }),
-    })
-      .then((r) => r.json())
-      .then((data: { meeting?: { id?: string }; id?: string } | null) => {
-        const id = data?.meeting?.id ?? data?.id;
-        if (id && typeof window !== "undefined") {
-          window.location.assign(`/meetings/${id}`);
-        }
-      })
-      .catch(() => toast.error("Couldn't create meeting"));
-  };
-
   if (isLoading) {
     return (
       <>
@@ -715,10 +943,14 @@ export default function MeetingsIndexRoute() {
     return (
       <div className="p-6 w-full">
         <MeetingsHeader
-          onAddManual={handleAddManual}
           query={query}
           onQueryChange={setQuery}
           showDesktopCta={showDesktopCta}
+          calendarAccounts={calendarAccounts}
+          onRetrySync={handleRetryCalendarSync}
+          retryPending={syncPending}
+          onConnected={handleCalendarConnected}
+          onDisconnected={handleCalendarDisconnected}
         />
         <ConnectCalendarEmptyState onConnected={handleCalendarConnected} />
       </div>
@@ -730,10 +962,14 @@ export default function MeetingsIndexRoute() {
   return (
     <div className="p-6 max-w-6xl mx-auto w-full">
       <MeetingsHeader
-        onAddManual={handleAddManual}
         query={query}
         onQueryChange={setQuery}
         showDesktopCta={showDesktopCta}
+        calendarAccounts={calendarAccounts}
+        onRetrySync={handleRetryCalendarSync}
+        retryPending={syncPending}
+        onConnected={handleCalendarConnected}
+        onDisconnected={handleCalendarDisconnected}
       />
 
       {calendarIssue && meetings.length > 0 && (
