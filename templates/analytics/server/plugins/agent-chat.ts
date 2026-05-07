@@ -49,7 +49,7 @@ function looksLikeAnalyticsDataRequest(text: string): boolean {
   ) {
     return false;
   }
-  return /\b(analy[sz]e|analysis|dashboard|panel|metric|metrics|count|total|trend|breakdown|conversion|funnel|revenue|traffic|pageviews?|signups?|events?|users?|sessions?|retention|churn|pipeline|deals?)\b/.test(
+  return /\b(analy[sz]e|analysis|dashboard|panel|metric|metrics|count|total|trend|breakdown|conversion|funnel|revenue|traffic|pageviews?|signups?|events?|users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|messages?|mentions?|sentiment|themes?|objections?)\b/.test(
     lower,
   );
 }
@@ -61,9 +61,9 @@ function realDataFinalGuard(context: AgentLoopFinalResponseGuardContext) {
 
   return {
     retryMessage:
-      "This analytics request requires real data before the answer can be final. Run at least one data-source query action now (for example `query-agent-native-analytics`, `bigquery`, `ga4-report`, `hubspot-deals`, `sentry`, or the relevant provider action). `data-source-status`, `list-data-dictionary`, `update-dashboard`, `save-analysis`, and `generate-chart` do not count as real data queries. If no source can answer, call the most relevant source action and report its exact unavailable/error result instead of inventing data.",
+      "This analytics request requires real evidence before the answer can be final. Run at least one data-source action now (for example `query-agent-native-analytics`, `bigquery`, `ga4-report`, `hubspot-deals`, `gong-calls`, `slack-messages`, `sentry`, or the relevant provider action). Structured tables and unstructured records such as Gong calls/transcripts and Slack messages both count as real evidence. `data-source-status`, `list-data-dictionary`, `update-dashboard`, `save-analysis`, and `generate-chart` do not count. If no source can answer, call the most relevant source action and report its exact unavailable/error result instead of inventing data.",
     fallbackMessage:
-      "I stopped before finalizing because this analytics request requires a real data-source query, and no data-source query action ran. I won't invent analytics results.",
+      "I stopped before finalizing because this analytics request requires real source evidence, and no data-source action ran. I won't invent analytics results.",
   };
 }
 
@@ -122,7 +122,8 @@ export default createAgentChatPlugin({
       "<data-source-guidance>\n" +
       "Use configured data sources and actions only. Call `data-source-status` when you need to know which providers are connected, and treat provider actions as unavailable for analysis if they return missing credentials, permission, syntax, quota, or network errors. " +
       "If a provider action fails, stop using that provider for the turn, surface the actual error, and wait for the user to choose whether to fix SQL, use another source, or retry. Do not loop through more queries after a failed provider call. " +
-      "For ordinary ad-hoc data questions, answer the explicit question after the first relevant successful query instead of continuing into suggested follow-up investigations. " +
+      "For ordinary ad-hoc data questions, answer the explicit question after the first relevant successful query or bounded evidence batch instead of continuing into suggested follow-up investigations. " +
+      "Unstructured source records are valid analytics evidence: Gong calls/transcripts, Slack messages, tickets, and similar text records may be coded for themes, mention counts, sentiment, objections, and qualitative patterns as long as the answer states the inspected sample size and does not imply unsupported statistical certainty. " +
       "For schema questions, prefer data-dictionary entries and configured warehouse schemas over assumptions. " +
       "Never substitute fabricated numbers for a failed query or unavailable provider.\n" +
       "</data-source-guidance>";

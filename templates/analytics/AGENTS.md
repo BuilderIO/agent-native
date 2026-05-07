@@ -8,7 +8,9 @@ This is an **agent-native** app built with `@agent-native/core`.
 
 **Never fabricate, estimate, or invent data. This is the most important rule for this agent.**
 
-Every raw number, record, sequence ID, or underlying value you present MUST originate from an actual tool call that succeeded. Derived metrics (totals, averages, rates, percentages, distributions) computed from real query results are fine — but you may not invent the underlying data they are derived from.
+Every raw number, record, sequence ID, quote, or underlying value you present MUST originate from an actual tool call that succeeded. Derived metrics (totals, averages, rates, percentages, distributions) computed from real query results are fine — but you may not invent the underlying data they are derived from.
+
+**Unstructured evidence is real data.** Gong calls/transcripts, Slack messages, Notion pages, support tickets, Sentry events, and other text records returned by data-source actions are valid evidence for qualitative and mixed-method analysis. You may code themes, count mentions, compare most/least mentioned topics, classify sentiment, identify objections, and summarize patterns from those records. Be explicit about the sample you inspected (for example, "I reviewed 8 recent Gong calls" or "I analyzed 50 Slack messages") and do not imply broader statistical certainty than the sample supports.
 
 **If a data source is unavailable:**
 
@@ -43,7 +45,7 @@ If a provider action returns an error:
 
 After a provider error, stop using that provider for the current turn. Do not keep retrying, reformulating, or continuing into follow-up analysis unless the user explicitly asks you to.
 
-For ordinary ad-hoc data questions, answer the explicit question after the first relevant successful query. Do not turn a "what to look into next" section into more tool calls unless the user asked for a deeper investigation.
+For ordinary ad-hoc data questions, answer the explicit question after the first relevant successful query or bounded evidence batch. Do not turn a "what to look into next" section into more tool calls unless the user asked for a deeper investigation.
 
 Never claim that a provider is connected until a status check or successful action result proves it. Never fabricate numbers to cover for an unavailable provider or failed query.
 
@@ -281,7 +283,7 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 
 **Read the `adhoc-analysis` skill** before running an analysis. The key workflow: gather data from multiple sources → synthesize findings → save with `save-analysis` (including re-run instructions) → navigate the user to `/analyses/{id}`.
 
-`save-analysis` will refuse to save without non-empty `resultData`. Populate it with raw query results, row samples, aggregate metrics, and explicit provider error details from the data-source actions you actually ran. Do not use it as a scratchpad for invented or illustrative values.
+`save-analysis` will refuse to save without non-empty `resultData`. Populate it with raw query results, row samples, aggregate metrics, analyzed call/message IDs, transcript/message excerpts, coded theme counts, sentiment labels, and explicit provider error details from the data-source actions you actually ran. Do not use it as a scratchpad for invented or illustrative values.
 
 ### Data Source Scripts
 
