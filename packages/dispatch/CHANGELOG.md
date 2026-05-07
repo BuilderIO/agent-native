@@ -1,5 +1,12 @@
 # @agent-native/dispatch
 
+## 0.2.9
+
+### Patch Changes
+
+- 7a849c3: Dispatch integrations plugin polish.
+- 7a849c3: Show the shared organization switcher in the Dispatch sidebar footer.
+
 ## 0.2.8
 
 ### Patch Changes
