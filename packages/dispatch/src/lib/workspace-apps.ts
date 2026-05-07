@@ -13,7 +13,7 @@ export interface WorkspaceAppSummary {
 
 export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
   if (app.status === "pending") return app.builderUrl || null;
-  return app.url || app.path || null;
+  return app.path || app.url || null;
 }
 
 export function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
