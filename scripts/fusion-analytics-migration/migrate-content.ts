@@ -3073,6 +3073,10 @@ function csQbrExtension(): string {
           saving: false,
           error: '',
           deckOpen: false,
+          slide: 0,
+          showExportMenu: false,
+          logoUrl: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1672146e7e56476c8dd86df8d630d5b7?format=webp&width=800&height=1200',
+          slides: ['Cover','Q1 Lesson','Retention','Adoption','Expansion','Q2 Forecast','Asks','Thank You'],
           book: null,
           metrics: null,
           form: {
@@ -3175,6 +3179,7 @@ function csQbrExtension(): string {
             this.selected = name;
             this.resetForm(name);
             this.deckOpen = false;
+            this.slide = 0;
             await Promise.all([this.loadSaved(name), this.loadBook(name)]);
           },
           async loadSaved(name) {
@@ -3216,6 +3221,61 @@ function csQbrExtension(): string {
           pct(value) {
             return Math.round(Number(value || 0)) + '%';
           },
+          rows() {
+            return this.book?.rows || [];
+          },
+          topAccounts(limit = 6) {
+            return this.rows().slice(0, limit);
+          },
+          renewalAccounts() {
+            return this.rows().filter((row) => row.renewal_date >= '2026-05-01' && row.renewal_date <= '2026-07-31').slice(0, 6);
+          },
+          adoptionAccounts() {
+            return this.rows().slice(0, 18).map((row) => {
+              const seat = Number(row.seat_util_pct || 0);
+              const credit = Number(row.credit_util_pct || 0);
+              return { name: row.company_name, pct: Math.max(seat, credit), seat, credit };
+            });
+          },
+          expansionPipeline() {
+            return this.rows().filter((row) => Number(row.open_pipeline_arr || 0) > 0).slice(0, 8);
+          },
+          retentionAchievement() {
+            const raw = Number(String(this.form.predictedRetentionArr || '').replace(/[^0-9.]/g, ''));
+            const due = Number(this.metrics?.q2RenewalArr || 0);
+            return due ? Math.round((raw / due) * 100) : 0;
+          },
+          expansionAchievement() {
+            const raw = Number(String(this.form.predictedExpansionArr || '').replace(/[^0-9.]/g, ''));
+            const pipeline = Number(this.metrics?.openPipelineArr || 0);
+            return pipeline ? Math.round((raw / pipeline) * 100) : 0;
+          },
+          achievementColor(value) {
+            const pct = Number(value || 0);
+            if (pct >= 100) return '#4ade80';
+            if (pct >= 75) return '#facc15';
+            return '#f87171';
+          },
+          askList() {
+            return [this.form.ask1, this.form.ask2, this.form.ask3];
+          },
+          printDeck() {
+            this.showExportMenu = false;
+            window.print();
+          },
+          downloadHtml() {
+            this.showExportMenu = false;
+            const deck = document.querySelector('[data-cs-qbr-deck-print]');
+            if (!deck) return;
+            const title = 'CS_QBR_' + (this.selected || 'CSM').replace(/[^a-z0-9]+/gi, '_') + '.html';
+            const html = '<!doctype html><html><head><meta charset="utf-8"><title>' + title + '</title><script src="https://cdn.tailwindcss.com"><\\/script><style>body{margin:0;background:#050505;color:white;font-family:Arial,sans-serif}.slide{width:1280px;height:720px;page-break-after:always;overflow:hidden}.slide:last-child{page-break-after:auto}@media print{@page{size:1280px 720px;margin:0}body{background:#050505}}</style></head><body>' + deck.innerHTML + '</body></html>';
+            const blob = new Blob([html], { type: 'text/html' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = title;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+          },
           async save() {
             if (!this.selected) return;
             this.saving = true;
@@ -3236,7 +3296,7 @@ function csQbrExtension(): string {
         </select>
         <button class="rounded border px-3 py-2" x-bind:disabled="!selected || loadingBook" x-on:click="loadBook(selected)">Refresh book</button>
         <button class="rounded border px-3 py-2" x-bind:disabled="!selected || saving" x-on:click="save()" x-text="saving ? 'Saving...' : 'Save notes'"></button>
-        <button class="rounded bg-primary px-3 py-2 text-primary-foreground" x-bind:disabled="!selected" x-on:click="deckOpen = true">View Deck</button>
+        <button class="rounded bg-primary px-3 py-2 text-primary-foreground" x-bind:disabled="!selected" x-on:click="slide = 0; deckOpen = true">View Deck</button>
       </div>
       <p x-show="loadingOwners || loadingBook" class="text-muted-foreground" x-text="loadingOwners ? 'Loading CSMs...' : 'Loading book data...'"></p>
       <p x-show="error" x-text="error" class="text-red-600"></p>
@@ -3261,23 +3321,70 @@ function csQbrExtension(): string {
         <input x-model="form.ask2" class="rounded border px-3 py-2" placeholder="Ask 2" />
         <input x-model="form.ask3" class="rounded border px-3 py-2" placeholder="Ask 3" />
       </div>
-      <section x-show="deckOpen" class="space-y-3 rounded border p-4">
-        <div class="flex items-center justify-between">
-          <div><p class="text-xs uppercase text-muted-foreground">CS QBR Preview</p><h2 class="text-xl font-semibold" x-text="selected"></h2></div>
-          <button class="rounded border px-3 py-1.5 text-xs" x-on:click="deckOpen = false">Back to form</button>
+      <section x-show="deckOpen" class="fixed inset-0 z-50 flex flex-col bg-black text-white">
+        <div class="flex shrink-0 items-center justify-between border-b border-gray-800 bg-[#0a0a0a] px-4 py-2">
+          <button class="rounded px-3 py-1.5 text-sm text-gray-400 hover:bg-gray-900 hover:text-white" x-on:click="deckOpen = false">Exit</button>
+          <div class="flex max-w-[55%] gap-1 overflow-x-auto">
+            <template x-for="(label, i) in slides" :key="label"><button class="whitespace-nowrap rounded px-2 py-1 text-xs" x-bind:class="slide === i ? 'bg-[#00B4D8] font-bold text-black' : 'text-gray-500 hover:text-gray-300'" x-on:click="slide = i"><span x-text="(i + 1) + '. ' + label"></span></button></template>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="relative">
+              <button class="rounded border border-gray-700 bg-[#1a1a1a] px-3 py-1.5 text-sm text-gray-300 hover:text-white" x-on:click="showExportMenu = !showExportMenu">Export</button>
+              <div x-show="showExportMenu" class="absolute right-0 top-full z-10 mt-1 w-52 overflow-hidden rounded-xl border border-gray-700 bg-[#1a1a1a] shadow-2xl">
+                <button class="block w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] hover:text-white" x-on:click="printDeck()"><span class="font-semibold">Save as PDF</span><span class="block text-xs text-gray-500">Browser print, landscape</span></button>
+                <button class="block w-full border-t border-gray-800 px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] hover:text-white" x-on:click="downloadHtml()"><span class="font-semibold">Download deck HTML</span><span class="block text-xs text-gray-500">Open/import as needed</span></button>
+              </div>
+            </div>
+            <span class="text-sm text-gray-500" x-text="(slide + 1) + ' / ' + slides.length"></span>
+          </div>
         </div>
-        <div class="grid gap-2 md:grid-cols-3">
-          <div class="rounded bg-muted p-3"><p class="text-xs text-muted-foreground">Retention</p><p class="font-semibold" x-text="form.predictedRetentionArr || money(metrics?.q2RenewalArr || 0)"></p></div>
-          <div class="rounded bg-muted p-3"><p class="text-xs text-muted-foreground">Adoption</p><p class="font-semibold" x-text="pct(metrics?.bookSeatUtil || 0) + ' seats / ' + pct(metrics?.bookCreditUtil || 0) + ' credits'"></p></div>
-          <div class="rounded bg-muted p-3"><p class="text-xs text-muted-foreground">Expansion</p><p class="font-semibold" x-text="form.predictedExpansionArr || money(metrics?.openPipelineArr || 0)"></p></div>
+        <div class="flex flex-1 items-center justify-center bg-[#050505] p-4">
+          <div class="relative w-full max-w-[calc((100vh-80px)*16/9)]" style="aspect-ratio:16/9">
+            <div class="absolute inset-0 overflow-hidden rounded-sm shadow-2xl">
+              <div class="slide relative h-full w-full overflow-hidden bg-black" x-show="slide === 0">
+                <div class="absolute right-0 top-0 h-full w-2/3 opacity-10" style="background:linear-gradient(135deg, transparent 40%, #0d3060 100%)"></div>
+                <div class="absolute right-[-5%] top-[10%] h-[80%] w-[45%] skew-x-[-5deg] bg-gradient-to-br from-[#0d2040] to-[#1a3a60] opacity-20"></div>
+                <div class="absolute left-[5%] top-[6%] flex items-center gap-2"><img x-bind:src="logoUrl" class="h-9 w-9 object-contain" alt="Builder.io" /><span class="text-lg font-bold tracking-wide">builder.io</span></div>
+                <div class="relative z-10 flex h-full flex-col justify-center px-[5%]"><p class="mb-3 text-xs font-bold uppercase tracking-[0.3em] text-[#00B4D8]">Customer Success</p><h1 class="text-6xl font-black leading-none tracking-tight">Quarterly Business Review</h1><p class="mt-4 text-xl font-semibold text-gray-300" x-text="selected || 'Select CSM'"></p><p class="mt-1 text-base text-gray-500">Q2 FY27 (May-Jul 2026)</p></div>
+              </div>
+              <div class="slide flex h-full w-full flex-col overflow-hidden bg-[#0a0a0a] px-[8%] py-[7%]" x-show="slide === 1">
+                <img x-bind:src="logoUrl" class="absolute right-[4%] top-[5%] h-9 w-9" alt="" /><p class="mb-2 text-xs font-bold uppercase tracking-[0.3em] text-[#00B4D8]">01 - Q1 Lookback</p><h2 class="mb-8 text-4xl font-black">Key Lesson from Q1</h2>
+                <div class="flex flex-1 gap-6"><div class="flex flex-1 flex-col rounded-xl border border-[#1e1e2e] bg-[#111] p-6"><p class="mb-4 text-xs font-bold uppercase tracking-wider text-yellow-400">Biggest Lesson</p><p class="flex-1 text-lg leading-relaxed text-gray-200" x-text="form.q1LessonLearned || 'Not yet filled in...'"></p></div><div class="flex flex-1 flex-col rounded-xl border border-[#1a3a1a] bg-[#0d1a0d] p-6"><p class="mb-4 text-xs font-bold uppercase tracking-wider text-green-400">What is Different in Q2</p><p class="flex-1 text-lg leading-relaxed text-gray-200" x-text="form.q2ChangeBecauseOfIt || 'Not yet filled in...'"></p></div></div>
+              </div>
+              <div class="slide flex h-full w-full flex-col overflow-hidden bg-[#0a0a0a] px-[6%] py-[5%]" x-show="slide === 2">
+                <img x-bind:src="logoUrl" class="absolute right-[4%] top-[5%] h-9 w-9" alt="" /><p class="mb-1 text-xs font-bold uppercase tracking-[0.3em] text-[#00B4D8]">02 - Retention</p><div class="mb-4 flex items-end justify-between"><h2 class="text-3xl font-black">Retention Health</h2><div class="text-right"><p class="text-xs text-gray-500">Q2 Renewals</p><p class="text-2xl font-black" x-text="money(metrics?.q2RenewalArr || 0)"></p></div></div>
+                <div class="flex flex-1 gap-4"><div class="flex flex-1 flex-col rounded-lg border border-[#1a2a40] bg-[#0d1520] p-4"><p class="mb-3 text-xs font-bold uppercase tracking-wider text-blue-400">Up for Renewal This Quarter</p><template x-if="!renewalAccounts().length"><p class="text-sm italic text-gray-600">None this quarter</p></template><div class="flex flex-col gap-1.5 overflow-hidden"><template x-for="acct in renewalAccounts()" :key="acct.company_id"><div class="flex justify-between text-sm"><span class="truncate text-gray-300" x-text="acct.company_name"></span><span class="shrink-0 font-semibold" x-text="money(acct.arr)"></span></div></template></div></div><div class="flex flex-1 flex-col rounded-lg border border-[#3a1a1a] bg-[#1a0d0d] p-4"><p class="mb-2 text-xs font-bold uppercase tracking-wider text-red-400">Retention Plan</p><p class="text-sm leading-relaxed text-gray-300" x-text="form.atRiskAccounts || form.q2ChurnPrediction || 'Not yet filled in...'"></p></div></div><p class="mt-3 text-xs text-gray-600">Team target: <=12% churn - 40% of variable comp - excludes Shopify ARR</p>
+              </div>
+              <div class="slide flex h-full w-full flex-col overflow-hidden bg-[#0a0a0a] px-[6%] py-[5%]" x-show="slide === 3">
+                <img x-bind:src="logoUrl" class="absolute right-[4%] top-[5%] h-9 w-9" alt="" /><p class="mb-1 text-xs font-bold uppercase tracking-[0.3em] text-[#00B4D8]">03 - Product Adoption</p><div class="mb-4 flex items-end justify-between"><h2 class="text-3xl font-black">Adoption Health</h2><div class="text-right"><p class="text-xs text-gray-500">Book Utilization</p><p class="text-2xl font-black" x-text="pct(metrics?.bookSeatUtil || 0)"></p></div></div>
+                <div class="flex flex-1 gap-4"><div class="flex flex-1 flex-col rounded-lg border border-[#1a2a40] bg-[#0d1520] p-4"><p class="mb-3 text-xs font-bold uppercase tracking-wider text-blue-400">Utilization by Account</p><div class="relative flex flex-1 items-end gap-px"><div class="absolute left-0 right-0 z-10 border-t border-dashed border-gray-600" style="bottom:50%"></div><template x-for="acct in adoptionAccounts()" :key="acct.name"><div class="flex h-full flex-1 flex-col justify-end"><div class="w-full rounded-t-sm" x-bind:style="'height:' + Math.max(2, Math.min(100, acct.pct)) + '%; background:' + (acct.pct >= 50 ? '#4ade80' : acct.pct >= 30 ? '#facc15' : '#f87171')"></div></div></template></div></div><div class="flex flex-1 flex-col rounded-lg border border-[#1a3a1a] bg-[#0d1a0d] p-4"><p class="mb-2 text-xs font-bold uppercase tracking-wider text-green-400">Laggard Action Plan</p><p class="text-sm leading-relaxed text-gray-300" x-text="form.laggardActionPlan || 'Not yet filled in...'"></p></div></div><p class="mt-3 text-xs text-gray-600">Goal: >=50% contracted seat/credit utilization - 30% of variable comp</p>
+              </div>
+              <div class="slide flex h-full w-full flex-col overflow-hidden bg-[#0a0a0a] px-[6%] py-[5%]" x-show="slide === 4">
+                <img x-bind:src="logoUrl" class="absolute right-[4%] top-[5%] h-9 w-9" alt="" /><p class="mb-1 text-xs font-bold uppercase tracking-[0.3em] text-[#00B4D8]">04 - Expansion</p><div class="mb-3 flex items-end justify-between"><h2 class="text-3xl font-black">Expansion Performance</h2><div class="rounded-lg border px-4 py-2 text-sm font-bold" x-bind:style="'background:' + achievementColor(expansionAchievement()) + '18; border-color:' + achievementColor(expansionAchievement()) + '44; color:' + achievementColor(expansionAchievement())"><span x-text="expansionAchievement() + '% target achievement'"></span></div></div>
+                <div class="mb-4"><div class="mb-1 flex justify-between text-sm"><span class="text-gray-400">Predicted Expansion</span><span class="text-gray-400"><strong class="text-white" x-text="form.predictedExpansionArr || money(metrics?.openPipelineArr || 0)"></strong></span></div><div class="h-2 w-full overflow-hidden rounded-full bg-gray-800"><div class="h-full rounded-full" x-bind:style="'width:' + Math.min(100, expansionAchievement()) + '%; background:' + achievementColor(expansionAchievement())"></div></div></div>
+                <div class="flex flex-1 gap-4"><div class="flex flex-1 flex-col rounded-lg border border-[#1a2a40] bg-[#0d1520] p-4"><p class="mb-3 text-xs font-bold uppercase tracking-wider text-yellow-400">Open Pipeline</p><template x-if="!expansionPipeline().length"><p class="text-sm italic text-gray-600">No open pipeline</p></template><template x-for="acct in expansionPipeline()" :key="acct.company_id"><div class="flex justify-between text-sm"><span class="truncate text-gray-400" x-text="acct.company_name"></span><span class="shrink-0 font-bold text-yellow-400" x-text="money(acct.open_pipeline_arr)"></span></div></template></div><div class="flex flex-1 flex-col rounded-lg border border-[#1a3a1a] bg-[#0d1a0d] p-4"><p class="mb-2 text-xs font-bold uppercase tracking-wider text-green-400">Expansion Action Plan</p><p class="text-sm leading-relaxed text-gray-300" x-text="form.keyExpansionOpportunities || 'Not yet filled in...'"></p></div></div><p class="mt-3 text-xs text-gray-600">30% of variable comp - includes uplift ARR</p>
+              </div>
+              <div class="slide flex h-full w-full flex-col overflow-hidden bg-[#0a0a0a] px-[6%] py-[5%]" x-show="slide === 5">
+                <img x-bind:src="logoUrl" class="absolute right-[4%] top-[5%] h-9 w-9" alt="" /><p class="mb-1 text-xs font-bold uppercase tracking-[0.3em] text-[#00B4D8]">05 - Q2 Forecast</p><h2 class="mb-5 text-3xl font-black">Q2 Predictions</h2>
+                <div class="flex flex-1 gap-4"><template x-for="card in [{i:'Retention',w:'40%',t:'Retention',l:'Predicted Retention',v:form.predictedRetentionArr || money(metrics?.q2RenewalArr || 0),a:retentionAchievement(),c:'#60a5fa'},{i:'Adoption',w:'30%',t:'Adoption',l:'Predicted Utilization',v:pct(metrics?.bookSeatUtil || 0),a:Math.round(metrics?.bookSeatUtil || 0),c:'#4ade80'},{i:'Expansion',w:'30%',t:'Expansion',l:'Predicted Expansion',v:form.predictedExpansionArr || money(metrics?.openPipelineArr || 0),a:expansionAchievement(),c:'#f59e0b'}]" :key="card.i"><div class="flex flex-1 flex-col rounded-xl border-t-4 bg-[#111] p-6" x-bind:style="'border-color:' + card.c"><p class="mb-1 text-xs font-bold uppercase tracking-wider" x-bind:style="'color:' + card.c" x-text="card.i + ' - ' + card.w + ' of variable'"></p><h3 class="text-2xl font-black" x-text="card.t"></h3><div class="flex flex-1 flex-col items-center justify-center text-center"><p class="mb-2 text-xs uppercase tracking-widest text-gray-500" x-text="card.l"></p><p class="mb-4 text-4xl font-black" x-bind:style="'color:' + card.c" x-text="card.v"></p><p class="rounded-lg border px-3 py-1.5 text-xs font-bold" x-bind:style="'background:' + achievementColor(card.a) + '18; border-color:' + achievementColor(card.a) + '44; color:' + achievementColor(card.a)" x-text="card.a + '% target achievement'"></p></div></div></template></div>
+              </div>
+              <div class="slide flex h-full w-full flex-col overflow-hidden bg-[#0a0a0a] px-[8%] py-[7%]" x-show="slide === 6">
+                <img x-bind:src="logoUrl" class="absolute right-[4%] top-[5%] h-9 w-9" alt="" /><p class="mb-2 text-xs font-bold uppercase tracking-[0.3em] text-[#00B4D8]">06 - Asks</p><h2 class="mb-8 text-4xl font-black">Asks of the Business</h2><div class="flex flex-1 flex-col justify-center gap-5"><template x-for="(ask, i) in askList()" :key="i"><div class="flex items-start gap-5 rounded-xl border border-[#1e1e2e] bg-[#111] px-6 py-5"><div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#00B4D8] text-lg font-black text-black" x-text="i + 1"></div><p class="flex-1 pt-1 text-lg leading-relaxed text-gray-200" x-text="ask || ('Ask #' + (i + 1) + ' not yet filled in...')"></p></div></template></div>
+              </div>
+              <div class="slide flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-[#050a1a] to-[#0a0a2e]" x-show="slide === 7">
+                <img x-bind:src="logoUrl" class="absolute right-[4%] top-[5%] h-10 w-10" alt="" /><div class="flex flex-col items-start"><h1 class="text-7xl font-black">Thank you</h1><div class="mt-2 h-[5px] w-[55%] rounded-full bg-[#00B4D8]"></div><p class="mt-6 text-lg text-gray-500">Questions & discussion</p></div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="grid gap-3 md:grid-cols-2">
-          <div class="rounded border p-3"><p class="font-medium">Lookback</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.q1LessonLearned || 'No lesson entered.'"></p></div>
-          <div class="rounded border p-3"><p class="font-medium">Retention Plan</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.q2ChurnPrediction || form.atRiskAccounts || 'No retention plan entered.'"></p></div>
-          <div class="rounded border p-3"><p class="font-medium">Adoption Plan</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.laggardActionPlan || 'No adoption plan entered.'"></p></div>
-          <div class="rounded border p-3"><p class="font-medium">Expansion Plan</p><p class="mt-1 whitespace-pre-wrap text-sm" x-text="form.keyExpansionOpportunities || 'No expansion plan entered.'"></p></div>
+        <div class="flex shrink-0 items-center justify-center gap-6 border-t border-gray-800 bg-[#0a0a0a] py-2">
+          <button class="rounded px-3 py-1.5 text-sm text-gray-300 disabled:opacity-30" x-bind:disabled="slide === 0" x-on:click="slide = Math.max(0, slide - 1)">Prev</button>
+          <div class="flex gap-1"><template x-for="(_, i) in slides" :key="i"><button class="h-2 w-2 rounded-full" x-bind:class="slide === i ? 'bg-[#00B4D8]' : 'bg-gray-700'" x-on:click="slide = i"></button></template></div>
+          <button class="rounded px-3 py-1.5 text-sm text-gray-300 disabled:opacity-30" x-bind:disabled="slide === slides.length - 1" x-on:click="slide = Math.min(slides.length - 1, slide + 1)">Next</button>
         </div>
-        <div class="rounded border p-3"><p class="font-medium">Asks</p><ul class="mt-2 list-disc space-y-1 pl-5 text-sm"><template x-for="ask in [form.ask1, form.ask2, form.ask3].filter(Boolean)" :key="ask"><li x-text="ask"></li></template></ul></div>
+        <div data-cs-qbr-deck-print class="hidden">
+          <template x-for="(_, i) in slides" :key="i"><div class="slide">Open the interactive extension and use browser print for the current deck.</div></template>
+        </div>
       </section>
     </div>`,
   );
