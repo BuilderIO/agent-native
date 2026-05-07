@@ -311,7 +311,7 @@ export function Bubble() {
       const stream = localStreamRef.current;
       localStreamRef.current = null;
       localCameraIdRef.current = null;
-      setLocalCameraActive(false);
+      if (!stopped) setLocalCameraActive(false);
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
       }
@@ -944,7 +944,13 @@ export function Bubble() {
           autoPlay
           playsInline
           muted
-          style={activePath === "canvas" ? { display: "none" } : undefined}
+          style={
+            activePath === "canvas"
+              ? localCameraActive
+                ? { opacity: 0.001 }
+                : { display: "none" }
+              : undefined
+          }
         />
         <canvas
           ref={canvasRef}
