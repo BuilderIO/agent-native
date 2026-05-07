@@ -8,8 +8,25 @@ function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }
 
+function makeSnippet(content: string, query: string, radius = 120) {
+  const compact = content.replace(/\s+/g, " ").trim();
+  if (!compact) return "";
+  const index = compact.toLowerCase().indexOf(query.toLowerCase());
+  if (index < 0) {
+    return compact.length <= radius * 2
+      ? compact
+      : `${compact.slice(0, radius * 2).trimEnd()}...`;
+  }
+  const start = Math.max(0, index - radius);
+  const end = Math.min(compact.length, index + query.length + radius);
+  return `${start > 0 ? "..." : ""}${compact.slice(start, end).trim()}${
+    end < compact.length ? "..." : ""
+  }`;
+}
+
 export default defineAction({
-  description: "Search documents by title and content.",
+  description:
+    "Search documents by title and content. Returns metadata and snippets; use get-document for full content.",
   schema: z.object({
     query: z.string().describe("Search text"),
     limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -46,6 +63,16 @@ export default defineAction({
     }
 
     console.log(`Found ${docs.length} document(s) matching "${query}"`);
-    return { documents: docs };
+    return {
+      documents: docs.map((doc) => ({
+        id: doc.id,
+        parentId: doc.parentId,
+        title: doc.title,
+        icon: doc.icon,
+        snippet: makeSnippet(doc.content, query),
+        contentLength: doc.content.length,
+        updatedAt: doc.updatedAt,
+      })),
+    };
   },
 });

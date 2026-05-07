@@ -654,7 +654,7 @@ export function buildUserContentWithAttachments(opts: {
   return userContent;
 }
 
-function structuredHistoryToEngineMessages(
+export function structuredHistoryToEngineMessages(
   history: AgentChatStructuredMessage[] | undefined,
 ): EngineMessage[] | null {
   if (!Array.isArray(history)) return null;

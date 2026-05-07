@@ -6,13 +6,13 @@ This is an **agent-native** app built with `@agent-native/core`.
 
 **Core philosophy:** The agent and UI have full parity. Everything the user can see, the agent can see via `view-screen`. Everything the user can do, the agent can do via actions. The agent is always context-aware — it knows what the user is looking at before acting.
 
-**Context is automatic** — the current screen state (navigation, open document, document tree) is included with every message as a `<current-screen>` block. You don't need to call `view-screen` before every action. Use `view-screen` only when you need a refreshed snapshot mid-conversation.
+**Context is automatic** — the current screen state (navigation, open document, document tree) is included with every message as a `<current-screen>` block. You don't need to call `view-screen` before every action. Use `view-screen` only when you need a refreshed snapshot mid-conversation. If `<current-screen>` already includes the open document and tree, do not call `get-document`, `list-documents`, or `view-screen` just to re-read the same context; answer or edit from the context you already have unless the user asks for a different document or explicitly needs a fresh read.
 
 ## Resources
 
 Resources are SQL-backed persistent files for notes, learnings, and context.
 
-**At the start of every conversation, read these resources (both personal and shared scopes):**
+**At the start of a new thread, read these resources once if they are not already present in chat history (both personal and shared scopes):**
 
 1. **`AGENTS.md`** — contains user-specific context like contacts, nicknames, and preferences. Read both `--scope personal` and `--scope shared`.
 2. **`LEARNINGS.md`** — user preferences, corrections, and patterns from past interactions. Read both `--scope personal` and `--scope shared`.
@@ -21,10 +21,14 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 | Action            | Args                                                        | Purpose                 |
 | ----------------- | ----------------------------------------------------------- | ----------------------- |
-| `resource-read`   | `--path <path> [--scope personal\|shared]`                  | Read a resource         |
-| `resource-write`  | `--path <path> --content <text> [--scope personal\|shared]` | Write/update a resource |
-| `resource-list`   | `[--prefix <path>] [--scope personal\|shared\|all]`         | List resources          |
-| `resource-delete` | `--path <path> [--scope personal\|shared]`                  | Delete a resource       |
+In chat, use the `resources` tool (`action: list`, `read`, `write`, or `delete`) rather than repeatedly calling legacy `resource-*` names. Do not re-read `AGENTS.md` or `LEARNINGS.md` during continuation/retry turns if their contents are already in the conversation.
+
+| Action      | Args                                                        | Purpose                 |
+| ----------- | ----------------------------------------------------------- | ----------------------- |
+| `resources` | `action=read path=<path> [scope=personal\|shared]`          | Read a resource         |
+| `resources` | `action=write path=<path> content=<text> [scope=personal\|shared]` | Write/update a resource |
+| `resources` | `action=list [prefix=<path>] [scope=personal\|shared\|all]` | List resources          |
+| `resources` | `action=delete path=<path> [scope=personal\|shared]`        | Delete a resource       |
 
 ## Skills
 
@@ -91,8 +95,8 @@ cd templates/content && pnpm action <name> [args]
 
 | Action             | Args                                               | Purpose                                          |
 | ------------------ | -------------------------------------------------- | ------------------------------------------------ |
-| `list-documents`   | `[--format json]`                                  | List all documents as tree                       |
-| `search-documents` | `--query <text> [--format json]`                   | Search by title and content                      |
+| `list-documents`   | `[--format json]`                                  | List document metadata/tree; no full bodies      |
+| `search-documents` | `--query <text> [--format json]`                   | Search by title/content and return snippets      |
 | `get-document`     | `--id <id> [--format json]`                        | Get a single document with content               |
 | `create-document`  | `--title <text> [--content] [--parentId] [--icon]` | Create a new document                            |
 | `edit-document`    | `--id <id> --find <text> --replace <text>`         | Surgical text edit (preferred for modifications) |

@@ -6,6 +6,7 @@ import {
   createPlanModeActionRegistry,
   isPlanModeToolCallAllowed,
   runAgentLoop,
+  structuredHistoryToEngineMessages,
   type ActionEntry,
   type AgentLoopFinalResponseGuardContext,
 } from "./production-agent.js";
@@ -142,6 +143,58 @@ describe("buildUserContentWithAttachments", () => {
         ],
       }),
     ).toEqual([{ type: "text", text: "Can you read this SVG?" }]);
+  });
+
+  it("normalizes structured chat history with tool calls and results", () => {
+    expect(
+      structuredHistoryToEngineMessages([
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "tc_1",
+              toolName: "get-document",
+              args: { id: "doc-1" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "tc_1",
+              toolName: "get-document",
+              content: '{"title":"Offsite rambles"}',
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "tc_1",
+            name: "get-document",
+            input: { id: "doc-1" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "tc_1",
+            toolName: "get-document",
+            content: '{"title":"Offsite rambles"}',
+          },
+        ],
+      },
+    ]);
   });
 
   it("builds a plan-mode registry with only read-only tools", async () => {
@@ -345,6 +398,196 @@ describe("runAgentLoop", () => {
     });
 
     expect(maxActive).toBe(2);
+  });
+
+  it("does not re-run identical read-only tools already present in continuation history", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "tool-repeat",
+                name: "get-document",
+                input: { id: "doc-1" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "answered from history" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const readAction = vi.fn(async () => "fresh document");
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "summarize this doc" }],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "tool-original",
+              name: "get-document",
+              input: { id: "doc-1" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "tool-original",
+              toolName: "get-document",
+              content: '{"id":"doc-1","title":"Offsite rambles"}',
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: {
+        "get-document": {
+          ...actionEntry({ readOnly: true }),
+          run: readAction,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(readAction).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-document",
+        result: expect.stringContaining("Skipped duplicate read-only call"),
+      }),
+    );
+    expect(events).toContainEqual({ type: "text", text: "answered from history" });
+  });
+
+  it("still runs identical read-only tools on a fresh user turn", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls > 1) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "fresh answer" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "tool-repeat",
+              name: "get-document",
+              input: { id: "doc-1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const readAction = vi.fn(async () => "fresh document");
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "tool-original",
+              name: "get-document",
+              input: { id: "doc-1" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "tool-original",
+              toolName: "get-document",
+              content: "old result",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: "read it again" }],
+        },
+      ],
+      actions: {
+        "get-document": {
+          ...actionEntry({ readOnly: true }),
+          run: readAction,
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(readAction).toHaveBeenCalledTimes(1);
   });
 
   it("exposes completed tool results on the active request run context", async () => {
