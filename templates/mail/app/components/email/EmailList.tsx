@@ -234,9 +234,7 @@ function MailLoadingState({
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/30 bg-background/70 px-4">
         <Spinner className="h-3.5 w-3.5 text-muted-foreground" />
         <div className="min-w-0">
-          <p className="text-xs font-medium text-foreground/80">
-            Loading mail
-          </p>
+          <p className="text-xs font-medium text-foreground/80">Loading mail</p>
           <p className="text-[11px] text-muted-foreground">
             Checking connected accounts and latest messages
           </p>

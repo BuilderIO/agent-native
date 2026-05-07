@@ -543,6 +543,7 @@ export function FormBuilderPage() {
           agentPopoverOpen={agentPopoverOpen}
           agentPrompt={agentPrompt}
           agentPromptRef={agentPromptRef}
+          promptRun={promptRun}
           onTitleChange={(v) => {
             setLocalTitle(v);
             save({ id: form.id, title: v });
@@ -627,6 +628,7 @@ function BuilderContent({
   agentPopoverOpen,
   agentPrompt,
   agentPromptRef,
+  promptRun,
   onTitleChange,
   onDescriptionChange,
   onSelectField,
@@ -653,6 +655,7 @@ function BuilderContent({
   agentPopoverOpen: boolean;
   agentPrompt: string;
   agentPromptRef: React.RefObject<HTMLTextAreaElement | null>;
+  promptRun: ReturnType<typeof useAgentPromptRun>;
   onTitleChange: (v: string) => void;
   onDescriptionChange: (v: string) => void;
   onSelectField: (id: string | null) => void;
@@ -833,7 +836,8 @@ function BuilderContent({
                     className="h-7 w-7"
                     onClick={onSubmitAgent}
                     disabled={
-                      !agentPrompt.trim() || promptRun.isActivePrompt(agentPrompt)
+                      !agentPrompt.trim() ||
+                      promptRun.isActivePrompt(agentPrompt)
                     }
                     aria-label="Send prompt"
                   >

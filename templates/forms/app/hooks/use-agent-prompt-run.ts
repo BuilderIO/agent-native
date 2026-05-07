@@ -7,9 +7,7 @@ interface UseAgentPromptRunOptions {
   staleMessage: string;
 }
 
-export function useAgentPromptRun({
-  staleMessage,
-}: UseAgentPromptRunOptions) {
+export function useAgentPromptRun({ staleMessage }: UseAgentPromptRunOptions) {
   const [activePrompt, setActivePrompt] = useState<string | null>(null);
   const activePromptRef = useRef<string | null>(null);
   const activeTabIdRef = useRef<string | null>(null);
@@ -67,8 +65,7 @@ export function useAgentPromptRun({
       const detail = (e as CustomEvent).detail;
       if (typeof detail?.isRunning !== "boolean") return;
 
-      const eventTabId =
-        typeof detail.tabId === "string" ? detail.tabId : null;
+      const eventTabId = typeof detail.tabId === "string" ? detail.tabId : null;
       if (eventTabId && eventTabId !== activeTabIdRef.current) return;
 
       if (detail.isRunning) {
