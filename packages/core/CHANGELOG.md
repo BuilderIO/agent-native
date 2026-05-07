@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.12.8
+
+### Patch Changes
+
+- fdf8cfc: Align the agent sidebar toggle button with standard top-bar icon controls.
+
 ## 0.12.7
 
 ### Patch Changes
