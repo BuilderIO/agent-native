@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.2.12
+
+### Patch Changes
+
+- 5115f28: Add Dispatch knowledge packs to workspace resources and let new-app flows grant them alongside vault keys.
+
 ## 0.2.11
 
 ### Patch Changes

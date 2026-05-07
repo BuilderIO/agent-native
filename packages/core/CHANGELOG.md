@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.12.14
+
+### Patch Changes
+
+- 5115f28: Add Dispatch knowledge packs to workspace resources and let new-app flows grant them alongside vault keys.
+- 5115f28: Add an optional run-local command CTA to auth marketing pages.
+- 5115f28: Retry workspace app dev servers after early launch failures during local app creation.
+
 ## 0.12.13
 
 ### Patch Changes
