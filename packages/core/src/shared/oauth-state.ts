@@ -27,9 +27,13 @@ function decodeBase64Url(value: string): string {
     normalized.length + ((4 - (normalized.length % 4)) % 4),
     "=",
   );
-  const maybeBuffer = (globalThis as unknown as {
-    Buffer?: { from(input: string, encoding: string): { toString(): string } };
-  }).Buffer;
+  const maybeBuffer = (
+    globalThis as unknown as {
+      Buffer?: {
+        from(input: string, encoding: string): { toString(): string };
+      };
+    }
+  ).Buffer;
   if (maybeBuffer) return maybeBuffer.from(padded, "base64").toString();
   return atob(padded);
 }

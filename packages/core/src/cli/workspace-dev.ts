@@ -139,8 +139,7 @@ function firstPathSegment(url: string | undefined): string | null {
 }
 
 function appForRequest(req: http.IncomingMessage): WorkspaceApp | null {
-  const params = new URL(req.url || "/", "http://workspace.local")
-    .searchParams;
+  const params = new URL(req.url || "/", "http://workspace.local").searchParams;
   const explicit = params.get("_app");
   if (explicit && appById.has(explicit)) return appById.get(explicit) ?? null;
 
