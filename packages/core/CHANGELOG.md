@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.12.10
+
+### Patch Changes
+
+- f0776fc: Decode extension route path segments so extensionData removal works for item IDs with spaces.
+- f0776fc: Keep short pasted text inline in the agent composer and only convert page-sized pastes to attachments.
+- f0776fc: Keep agent chat auth prompts scoped to the originating chat and surface streamed provider auth errors as run errors.
+- f0776fc: Preserve structured tool history across agent chat recovery turns and suppress duplicate read-only calls during continuations.
+
 ## 0.12.9
 
 ### Patch Changes
