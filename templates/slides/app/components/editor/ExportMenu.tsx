@@ -73,34 +73,35 @@ export function ExportMenu({
     }
   };
 
+  const fetchPptxExport = async () => {
+    const res = await fetch(`${appBasePath()}/api/exports/pptx`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deckId }),
+    });
+    if (!res.ok) {
+      throw new Error(
+        await readErrorMessage(res, "Could not generate PPTX file."),
+      );
+    }
+    return {
+      blob: await res.blob(),
+      filename: filenameFromDisposition(res.headers.get("content-disposition")),
+    };
+  };
+
   const handleExportPptx = async () => {
     try {
-      const res = await fetch(`${appBasePath()}/api/exports/pptx`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deckId }),
-      });
-      if (!res.ok) {
-        toast({
-          title: "Export failed",
-          description: await readErrorMessage(
-            res,
-            "Could not generate PPTX file.",
-          ),
-          variant: "destructive",
-        });
-        return;
-      }
-      const blob = await res.blob();
-      triggerBlobDownload(
-        blob,
-        filenameFromDisposition(res.headers.get("content-disposition")),
-      );
+      const { blob, filename } = await fetchPptxExport();
+      triggerBlobDownload(blob, filename);
     } catch (err) {
       console.error("Export failed:", err);
       toast({
         title: "Export failed",
-        description: "Something went wrong exporting as PPTX.",
+        description:
+          err instanceof Error
+            ? err.message
+            : "Something went wrong exporting as PPTX.",
         variant: "destructive",
       });
     }
@@ -108,30 +109,9 @@ export function ExportMenu({
 
   const handleExportGoogleSlides = async () => {
     try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/actions/export-google-slides"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ deckId }),
-        },
-      );
-      const data = await res.json();
-      if (!data.filename) {
-        toast({
-          title: "Export failed",
-          description: data.error || "Could not generate Google Slides export.",
-          variant: "destructive",
-        });
-        return;
-      }
-      // Always download the .pptx — Google Slides' direct-import URL needs
-      // an unauthenticated public file URL, which our /api/exports route
-      // (per-user gated) intentionally is not. Open the importer in a new
-      // tab as a convenience so the user can drop the file straight in.
-      triggerDownload(data.filename);
+      const { blob, filename } = await fetchPptxExport();
+      triggerBlobDownload(blob, filename);
       const importerUrl =
-        data.googleSlidesImportDialogUrl ||
         "https://docs.google.com/presentation/u/0/?usp=import";
       window.open(importerUrl, "_blank", "noopener,noreferrer");
       toast({
@@ -143,7 +123,10 @@ export function ExportMenu({
       console.error("Export failed:", err);
       toast({
         title: "Export failed",
-        description: "Something went wrong exporting to Google Slides.",
+        description:
+          err instanceof Error
+            ? err.message
+            : "Something went wrong exporting to Google Slides.",
         variant: "destructive",
       });
     }

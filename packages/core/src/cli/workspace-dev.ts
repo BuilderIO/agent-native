@@ -333,6 +333,41 @@ function probePort(port: number, timeoutMs = 1_000): Promise<boolean> {
   });
 }
 
+function firstHeaderValue(
+  value: string | string[] | number | undefined,
+): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  if (value === undefined) return undefined;
+  return String(value);
+}
+
+function forwardedProto(req: http.IncomingMessage): string {
+  return (
+    firstHeaderValue(req.headers["x-forwarded-proto"]) ||
+    ((req.socket as { encrypted?: boolean }).encrypted ? "https" : "http")
+  );
+}
+
+function forwardedHost(req: http.IncomingMessage): string {
+  return (
+    firstHeaderValue(req.headers["x-forwarded-host"]) ||
+    firstHeaderValue(req.headers.host) ||
+    new URL(gatewayUrl).host
+  );
+}
+
+function proxyHeaders(
+  req: http.IncomingMessage,
+  targetHost: string,
+): http.OutgoingHttpHeaders {
+  return {
+    ...req.headers,
+    "x-forwarded-host": forwardedHost(req),
+    "x-forwarded-proto": forwardedProto(req),
+    host: targetHost,
+  };
+}
+
 async function waitForPort(port: number, deadline: number): Promise<boolean> {
   while (Date.now() < deadline) {
     if (await probePort(port)) return true;
@@ -347,7 +382,7 @@ function proxyHttp(
   res: http.ServerResponse,
 ): void {
   const dispatch = () => {
-    const headers = { ...req.headers, host: `127.0.0.1:${app.port}` };
+    const headers = proxyHeaders(req, `127.0.0.1:${app.port}`);
     const proxyReq = http.request(
       {
         hostname: "127.0.0.1",
@@ -411,10 +446,7 @@ function proxyUpgrade(
   head: Buffer,
 ): void {
   const target = net.connect(app.port, "127.0.0.1", () => {
-    const headers = Object.entries({
-      ...req.headers,
-      host: `127.0.0.1:${app.port}`,
-    })
+    const headers = Object.entries(proxyHeaders(req, `127.0.0.1:${app.port}`))
       .flatMap(([key, value]) =>
         Array.isArray(value)
           ? value.map((item) => `${key}: ${item}`)

@@ -298,15 +298,16 @@ When generating slides for a deck that has a design system, **always use the des
 
 ### Import / Export
 
-| Action              | Args                                              | Purpose                                             |
-| ------------------- | ------------------------------------------------- | --------------------------------------------------- |
-| `import-file`       | `--filePath <path> [--format auto] [--deckId]`    | Import PPTX/DOCX/PDF to deck                        |
-| `import-google-doc` | `--url <google-doc-url-or-id> [--maxChars 60000]` | Extract text from a Google Doc link or selected Doc |
-| `import-pptx`       | `--filePath <path> [--deckId] [--title]`          | Direct PPTX import to deck                          |
-| `import-docx`       | `--filePath <path>`                               | Extract DOCX content for slides                     |
-| `export-pptx`       | `--deckId <id> [--includeNotes]`                  | Export deck as PowerPoint                           |
-| `export-html`       | `--deckId <id>`                                   | Export as standalone HTML                           |
-| `duplicate-deck`    | `--deckId <id> [--title]`                         | Create a copy of an existing deck                   |
+| Action                 | Args                                              | Purpose                                              |
+| ---------------------- | ------------------------------------------------- | ---------------------------------------------------- |
+| `import-file`          | `--filePath <path> [--format auto] [--deckId]`    | Import PPTX/DOCX/PDF to deck                         |
+| `import-google-doc`    | `--url <google-doc-url-or-id> [--maxChars 60000]` | Extract text from a Google Doc link or selected Doc  |
+| `import-pptx`          | `--filePath <path> [--deckId] [--title]`          | Direct PPTX import to deck                           |
+| `import-docx`          | `--filePath <path>`                               | Extract DOCX content for slides                      |
+| `export-pptx`          | `--deckId <id> [--includeNotes]`                  | Export deck as PowerPoint                            |
+| `export-google-slides` | `--deckId <id> [--includeNotes]`                  | Export a PPTX plus Google Slides import instructions |
+| `export-html`          | `--deckId <id>`                                   | Export as standalone HTML                            |
+| `duplicate-deck`       | `--deckId <id> [--title]`                         | Create a copy of an existing deck                    |
 
 If the user provides a Google Docs URL while asking for a deck, call `import-google-doc` before creating slides. Use the returned `text` as source material. Private Docs can be read after the user connects Google Docs and chooses the file through the picker, or when the Doc is shared with the configured service account. If the action still cannot read the Doc, relay the exact access instruction and do not invent slides from the URL alone.
 
@@ -347,22 +348,23 @@ Same rule for `/deck/<id>/present` (presentation mode), `/share/<token>` (share 
 
 ### Common Tasks
 
-| User request                          | What to do                                                                                                                  |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| "What am I looking at?"               | `pnpm action view-screen`                                                                                                   |
-| "List my decks"                       | `pnpm action list-decks`                                                                                                    |
-| "Create a new deck about X"           | `create-deck --title "X" --slides '[]'` → `navigate --deckId=<returned-id>` → call `add-slide` once per slide, sequentially |
-| "Fill this deck / add slides to this" | Read `deckId` from `<current-screen>`, then call `add-slide --deckId=<id>` once per slide, sequentially                     |
-| "Add a slide about Y"                 | `add-slide --deckId <id> --content "<html>"` (new slide) or `update-slide --fullContent` (replace existing)                 |
-| "Generate an image for this slide"    | `pnpm action generate-image --prompt "..." --deck-id <id>`                                                                  |
-| "Open deck abc123"                    | `pnpm action navigate --deckId=abc123`                                                                                      |
-| "Go to the deck list"                 | `pnpm action navigate --view=list`                                                                                          |
-| "Find the company logo for X"         | `pnpm action logo-lookup --domain x.com`                                                                                    |
-| "Create a deck from this Google Doc"  | `import-google-doc --url <url>` first, then build slides from the returned text                                             |
-| "Import a PPTX file"                  | Upload file, then `import-pptx --filePath <path>`                                                                           |
-| "Export this deck as PowerPoint"      | `export-pptx --deckId <id>`                                                                                                 |
-| "Set up brand identity"               | `analyze-brand-assets --websiteUrl "..."` then use results to `create-design-system`                                        |
-| "Generate an image with OpenAI"       | `generate-image --prompt "..." --model openai`                                                                              |
+| User request                          | What to do                                                                                                                              |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| "What am I looking at?"               | `pnpm action view-screen`                                                                                                               |
+| "List my decks"                       | `pnpm action list-decks`                                                                                                                |
+| "Create a new deck about X"           | `create-deck --title "X" --slides '[]'` → `navigate --deckId=<returned-id>` → call `add-slide` once per slide, sequentially             |
+| "Fill this deck / add slides to this" | Read `deckId` from `<current-screen>`, then call `add-slide --deckId=<id>` once per slide, sequentially                                 |
+| "Add a slide about Y"                 | `add-slide --deckId <id> --content "<html>"` (new slide) or `update-slide --fullContent` (replace existing)                             |
+| "Generate an image for this slide"    | `pnpm action generate-image --prompt "..." --deck-id <id>`                                                                              |
+| "Open deck abc123"                    | `pnpm action navigate --deckId=abc123`                                                                                                  |
+| "Go to the deck list"                 | `pnpm action navigate --view=list`                                                                                                      |
+| "Find the company logo for X"         | `pnpm action logo-lookup --domain x.com`                                                                                                |
+| "Create a deck from this Google Doc"  | `import-google-doc --url <url>` first, then build slides from the returned text                                                         |
+| "Import a PPTX file"                  | Upload file, then `import-pptx --filePath <path>`                                                                                       |
+| "Export this deck as PowerPoint"      | `export-pptx --deckId <id>`                                                                                                             |
+| "Export this deck to Google Slides"   | `export-google-slides --deckId <id>`; tell the user to download the PPTX and import it in Google Slides. Do not send an `openurl` link. |
+| "Set up brand identity"               | `analyze-brand-assets --websiteUrl "..."` then use results to `create-design-system`                                                    |
+| "Generate an image with OpenAI"       | `generate-image --prompt "..." --model openai`                                                                                          |
 
 ## Slide HTML Templates
 

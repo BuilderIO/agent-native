@@ -327,6 +327,8 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 | `query-inbound-forms`          | `[--limit N]`               | Query inbound form submissions from the app database                                                                                                      |
 | `onboarding-events`            | `[--days N]`                | Onboarding funnel events from BigQuery                                                                                                                    |
 
+**Gong/call analysis must be bounded.** For ordinary requests about Gong calls, inspect the 5–8 most recent relevant calls, synthesize an answer, and stop. `gong-calls` defaults to `limit=8` and returns guidance telling you whether more calls may exist. Do not keep broadening the search, adding more calls, or fetching another batch in the same turn just because you found "next questions" while writing. If the bounded sample is not enough, say exactly how many calls you checked and ask whether the user wants you to continue with more.
+
 ### Action-Specific Filtering
 
 Use each action's schema-specific filters. For example:

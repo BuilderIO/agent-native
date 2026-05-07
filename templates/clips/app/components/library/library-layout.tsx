@@ -17,6 +17,7 @@ import {
   AgentSidebar,
   AgentToggleButton,
   FeedbackButton,
+  appPath,
   useSession,
 } from "@agent-native/core/client";
 import { OrgSwitcher, RequireActiveOrg } from "@agent-native/core/client/org";
@@ -194,6 +195,25 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   : "-translate-x-full md:translate-x-0",
               )}
             >
+              <div className="flex h-12 shrink-0 items-center border-b border-border px-4">
+                <div className="flex min-w-0 items-center gap-2">
+                  <img
+                    src={appPath("/agent-native-icon-light.svg")}
+                    alt=""
+                    aria-hidden="true"
+                    className="block h-4 w-auto shrink-0 dark:hidden"
+                  />
+                  <img
+                    src={appPath("/agent-native-icon-dark.svg")}
+                    alt=""
+                    aria-hidden="true"
+                    className="hidden h-4 w-auto shrink-0 dark:block"
+                  />
+                  <span className="truncate text-sm font-semibold text-foreground">
+                    Clips
+                  </span>
+                </div>
+              </div>
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <div className="px-3 py-3">
                   <Button
