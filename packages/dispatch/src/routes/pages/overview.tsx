@@ -108,25 +108,27 @@ function HomeChatPanel() {
         <h1 className="text-center text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
           What should we do next?
         </h1>
-        <PromptComposer
-          placeholder="Message agent…"
-          onSubmit={(text) => {
-            const trimmed = text.trim();
-            if (!trimmed) return;
-            send(trimmed);
-          }}
-        />
-        <div className="flex flex-wrap justify-center gap-2">
-          {HOME_CHAT_SUGGESTIONS.map((suggestion) => (
-            <button
-              key={suggestion}
-              type="button"
-              onClick={() => send(suggestion)}
-              className="cursor-pointer rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition hover:border-foreground/30 hover:text-foreground"
-            >
-              {suggestion}
-            </button>
-          ))}
+        <div className="flex flex-col gap-4">
+          <PromptComposer
+            placeholder="Message agent…"
+            onSubmit={(text) => {
+              const trimmed = text.trim();
+              if (!trimmed) return;
+              send(trimmed);
+            }}
+          />
+          <div className="flex flex-wrap justify-center gap-2">
+            {HOME_CHAT_SUGGESTIONS.map((suggestion) => (
+              <button
+                key={suggestion}
+                type="button"
+                onClick={() => send(suggestion)}
+                className="cursor-pointer rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition hover:border-foreground/30 hover:text-foreground"
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     </section>

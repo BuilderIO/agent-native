@@ -586,6 +586,16 @@ export function dbtExtension(): string {
             { path: 'models/staging/stripe_subscriptions.sql', name: 'stripe_subscriptions' },
             { path: 'models/intermediate/stripe_arr_from_events.sql', name: 'stripe_arr_from_events' }
           ],
+          readData(row) {
+            let value = row ? row.data : null;
+            if (typeof value === 'string') {
+              try { value = JSON.parse(value); } catch (e) {}
+            }
+            if (value && value.value !== undefined) return value.value;
+            if (value && value.data && value.data.value !== undefined) return value.data.value;
+            if (value && value.data !== undefined) return value.data;
+            return value || {};
+          },
           modelSql: '',
           testSql: '',
           async init() {
@@ -675,7 +685,7 @@ export function dbtExtension(): string {
             await this.loadSaved();
           },
           async restoreSnippet(row) {
-            const value = row.data?.value || row.data || {};
+            const value = this.readData(row);
             this.selectedFile = value.name || row.itemId || 'saved';
             this.modelSql = value.sql || '';
             this.testSql = value.testSql || value.sql || '';
@@ -818,7 +828,14 @@ export function queryExplorerExtension(): string {
             return Object.keys(rows[0]);
           },
           rowData(row) {
-            return row.data?.value || row.data || {};
+            let value = row ? row.data : null;
+            if (typeof value === 'string') {
+              try { value = JSON.parse(value); } catch (e) {}
+            }
+            if (value && value.value !== undefined) return value.value;
+            if (value && value.data && value.data.value !== undefined) return value.data.value;
+            if (value && value.data !== undefined) return value.data;
+            return value || {};
           },
           time(value) {
             return value ? new Date(value).toLocaleString() : '';

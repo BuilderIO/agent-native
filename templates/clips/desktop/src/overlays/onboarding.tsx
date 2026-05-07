@@ -24,6 +24,7 @@ export function Onboarding() {
           clipsEnabled: clips,
           meetingsEnabled: meetings,
           voiceEnabled: voice,
+          launchAtLoginEnabled: true,
           onboardingComplete: true,
         },
       });

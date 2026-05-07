@@ -101,6 +101,25 @@ const defaultApp =
       ? "dispatch"
       : apps[0].id;
 
+function isChildDevServerUrlLine(line: string): boolean {
+  return /^\s*➜\s+(?:Local|Network):\s+https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):\d+(?:\/\S*)?\s*$/i.test(
+    line,
+  );
+}
+
+function pipeAppOutput(
+  prefix: string,
+  chunk: unknown,
+  write: (value: string) => void,
+): void {
+  const lines = String(chunk)
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .filter((line) => !isChildDevServerUrlLine(line));
+  if (lines.length === 0) return;
+  write(lines.map((line) => `${prefix} ${line}`).join("\n") + "\n");
+}
+
 function syncApps(): void {
   const discovered = discoverApps();
   for (const app of discovered) {
@@ -202,22 +221,10 @@ function startApp(app: WorkspaceApp): void {
 
   const prefix = `[${app.id}]`;
   child.stdout?.on("data", (chunk) => {
-    process.stdout.write(
-      String(chunk)
-        .split(/\r?\n/)
-        .filter(Boolean)
-        .map((line) => `${prefix} ${line}`)
-        .join("\n") + "\n",
-    );
+    pipeAppOutput(prefix, chunk, (value) => process.stdout.write(value));
   });
   child.stderr?.on("data", (chunk) => {
-    process.stderr.write(
-      String(chunk)
-        .split(/\r?\n/)
-        .filter(Boolean)
-        .map((line) => `${prefix} ${line}`)
-        .join("\n") + "\n",
-    );
+    pipeAppOutput(prefix, chunk, (value) => process.stderr.write(value));
   });
   child.on("exit", (code) => {
     if (code === 0 || shuttingDown) return;
@@ -517,10 +524,10 @@ function listen(port: number, attempts = 20): void {
     const actualPort =
       typeof address === "object" && address ? address.port : port;
     gatewayUrl = `http://${gatewayHost}:${actualPort}`;
-    console.log(`[workspace] Gateway: http://${gatewayHost}:${actualPort}`);
     console.log(
       `[workspace] Default: http://${gatewayHost}:${actualPort}/${defaultApp}`,
     );
+    console.log(`[workspace] Gateway: http://${gatewayHost}:${actualPort}`);
     for (const app of apps) {
       console.log(`[workspace] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}`);
     }

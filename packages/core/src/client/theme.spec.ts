@@ -102,4 +102,15 @@ describe("getThemeInitScript", () => {
 
     expect(getThemeInitScript()).not.toContain("__an_optimize_reload");
   });
+
+  it("keeps Vite dev recovery deterministic in browsers without process", () => {
+    const originalProcess = globalThis.process;
+    vi.stubGlobal("process", undefined);
+
+    try {
+      expect(getThemeInitScript()).toContain("__an_optimize_reload");
+    } finally {
+      vi.stubGlobal("process", originalProcess);
+    }
+  });
 });

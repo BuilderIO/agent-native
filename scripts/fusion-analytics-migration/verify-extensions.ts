@@ -18,6 +18,9 @@ type ExtensionKind =
   | "query"
   | "stripe"
   | "slack"
+  | "rich-ui"
+  | "data-ui"
+  | "explorer"
   | "action";
 
 type ExtensionSpec = {
@@ -27,6 +30,7 @@ type ExtensionSpec = {
   collection?: string;
   action?: string;
   query?: string;
+  expectedText?: string[];
 };
 
 const SPECS: Record<string, ExtensionSpec> = {
@@ -54,16 +58,20 @@ const SPECS: Record<string, ExtensionSpec> = {
   "customer-health": {
     id: "customer-health",
     title: "Customer Health",
-    kind: "action",
-    action: "bigquery",
-    query: "SELECT 1 AS ok",
+    kind: "rich-ui",
+    expectedText: [
+      "Fusion Activity",
+      "Top Fusion Users",
+      "Subscriptions and Spaces",
+      "Support Tickets (Pylon)",
+      "Recent Calls (Gong)",
+    ],
   },
   "risk-meeting": {
     id: "risk-meeting",
     title: "Risk Meeting",
-    kind: "action",
-    action: "pylon-issues",
-    query: "codex verify",
+    kind: "rich-ui",
+    expectedText: ["HubSpot Flagged", "Pylon Early Warning"],
   },
   stripe: {
     id: "stripe",
@@ -85,73 +93,103 @@ const SPECS: Record<string, ExtensionSpec> = {
     title: "Query Explorer",
     kind: "query",
   },
+  explorer: {
+    id: "explorer",
+    title: "Explorer",
+    kind: "explorer",
+    expectedText: ["Events", "SQL Query", "Run BigQuery"],
+  },
   hubspot: {
     id: "hubspot",
     title: "HubSpot Sales",
-    kind: "action",
-    action: "hubspot-metrics",
+    kind: "rich-ui",
+    expectedText: ["Pipeline Board", "POV Deals", "Deal Lookup"],
   },
   sentry: {
     id: "sentry",
     title: "Sentry Error Health",
-    kind: "action",
-    action: "sentry",
-    query: "is:unresolved",
+    kind: "rich-ui",
+    expectedText: ["Total Events", "Unresolved Issues", "Top Issues"],
   },
   gcloud: {
     id: "gcloud",
     title: "Google Cloud Health",
-    kind: "action",
-    action: "gcloud",
+    kind: "rich-ui",
+    expectedText: ["Avg Request Rate", "Recent Logs", "Requests"],
   },
   jira: {
     id: "jira",
     title: "Jira Tickets",
-    kind: "action",
-    action: "jira",
+    kind: "rich-ui",
+    expectedText: ["Open Issues", "Created", "Search"],
   },
   "fusion-eng": {
     id: "fusion-eng",
     title: "Fusion Engineering",
-    kind: "action",
-    action: "grafana",
+    kind: "rich-ui",
+    expectedText: ["Dashboards", "Alert Rules", "Grafana Dashboards"],
   },
   "cx-double-click": {
     id: "cx-double-click",
     title: "CX Double Click",
-    kind: "action",
-    action: "bigquery",
-    query: "SELECT 1 AS ok",
+    kind: "rich-ui",
+    expectedText: [
+      "NDR Trend",
+      "Upcoming Renewals by Risk",
+      "Pylon Aging by Account",
+    ],
   },
   "onboarding-progress": {
     id: "onboarding-progress",
     title: "Onboarding Progress",
-    kind: "data",
+    kind: "data-ui",
     collection: "onboarding",
+    expectedText: [
+      "Onboarding Customers Only",
+      "Goals",
+      "What changed",
+      "Recent activity",
+    ],
   },
   "competitive-landscape": {
     id: "competitive-landscape",
     title: "Competitive Landscape",
-    kind: "data",
+    kind: "data-ui",
     collection: "competitive",
+    expectedText: [
+      "Gong Transcript Analysis",
+      "Monthly Competitor Mentions",
+      "Methodology",
+    ],
   },
   "expansion-attainment": {
     id: "expansion-attainment",
     title: "Expansion Attainment Plan",
-    kind: "action",
-    action: "hubspot-metrics",
+    kind: "rich-ui",
+    expectedText: [
+      "Scenario Parameters",
+      "Projected Attainment",
+      "Quarterly Execution Plan",
+      "Account Prioritization",
+    ],
   },
   "strategic-accounts": {
     id: "strategic-accounts",
     title: "Strategic Accounts",
-    kind: "data",
+    kind: "data-ui",
     collection: "strategic",
+    expectedText: ["Clear Coverage", "Implementation blockers"],
   },
   "agent-native-metrics": {
     id: "agent-native-metrics",
     title: "Product Double Click Metrics",
-    kind: "data",
+    kind: "data-ui",
     collection: "agent-native-metrics",
+    expectedText: [
+      "npm package downloads per week",
+      "OSS contributors over time",
+      "GitHub stars over time",
+    ],
   },
   "ae-pipeline": {
     id: "ae-pipeline",
@@ -658,35 +696,140 @@ async function verifyDataBrowser(
     contextId,
     20_000,
   );
-  await page.waitFor<number>(
-    `document.querySelectorAll('button').length`,
+  await prepareDataUi(page, contextId, spec);
+  const details = await verifyRichUi(page, contextId, spec, {
+    allowEmptyState: true,
+  });
+  return `data rows=${rows.length}, ${details}`;
+}
+
+async function prepareDataUi(
+  page: CdpPage,
+  contextId: number,
+  spec: ExtensionSpec,
+) {
+  if (spec.id === "onboarding-progress") {
+    const counts = await page.waitFor<{ allRows: number; visibleRows: number }>(
+      `(() => {
+        const state = [...document.querySelectorAll('*')]
+          .map((el) => el._x_dataStack?.[0])
+          .find((candidate) => candidate && Array.isArray(candidate.allRows) && typeof candidate.visibleRows === 'function');
+        if (!state || state.loading) return null;
+        state.onboardingOnly = false;
+        const visible = state.visibleRows();
+        state.selectedOrgId = visible[0]?.orgId || null;
+        return { allRows: state.allRows.length, visibleRows: visible.length, error: state.error || '' };
+      })()`,
+      contextId,
+    );
+    if (!counts.allRows) throw new Error("Onboarding rows did not load");
+    await delay(200);
+  }
+
+  if (spec.id === "strategic-accounts") {
+    const counts = await page.waitFor<{
+      accounts: number;
+      blockers: number;
+      error?: string;
+    }>(
+      `(() => {
+        const state = [...document.querySelectorAll('*')]
+          .map((el) => el._x_dataStack?.[0])
+          .find((candidate) => candidate && Array.isArray(candidate.accounts) && Array.isArray(candidate.blockers));
+        if (!state || state.loading) return null;
+        state.selectedName = state.accounts[0]?.name || '';
+        return { accounts: state.accounts.length, blockers: state.blockers.length, error: state.error || '' };
+      })()`,
+      contextId,
+    );
+    if (counts.error) throw new Error(counts.error);
+    if (!counts.accounts) {
+      throw new Error("Strategic account source parser produced 0 accounts");
+    }
+    await delay(200);
+  }
+}
+
+async function verifyRichUi(
+  page: CdpPage,
+  contextId: number,
+  spec: ExtensionSpec,
+  opts: { allowEmptyState?: boolean } = {},
+) {
+  const summary = await page.waitFor<{
+    text: string;
+    error?: string;
+    loading?: boolean;
+  }>(
+    `(() => {
+      const states = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .filter(Boolean);
+      const loadingState = states.find((candidate) => Object.prototype.hasOwnProperty.call(candidate, 'loading'));
+      if (loadingState?.loading) return null;
+      return {
+        text: document.body.innerText || '',
+        error: loadingState?.error || '',
+        loading: !!loadingState?.loading
+      };
+    })()`,
     contextId,
+    90_000,
   );
-  await page.evaluate(
-    `document.querySelectorAll('button')[0].click(); true`,
-    contextId,
+  const text = summary.text.replace(/\s+/g, " ");
+  const missing = (spec.expectedText ?? []).filter(
+    (phrase) => !text.includes(phrase),
   );
-  const preLength = await page.waitFor<number>(
-    `(() => { const pre = document.querySelector('pre'); return pre && pre.innerText.length > 20 ? pre.innerText.length : 0; })()`,
-    contextId,
-  );
-  return `data rows=${rows.length}, previewChars=${preLength}`;
+  if (missing.length > 0) {
+    throw new Error(`Missing rich UI labels: ${missing.join(", ")}`);
+  }
+  if (
+    text.includes("Search term, company, project, or query") ||
+    text.includes("Loading migrated SQL data...")
+  ) {
+    throw new Error("Generic JSON/search migration shell is still visible");
+  }
+  if (
+    summary.error &&
+    /Action not found|Unknown action|Missing required|Authentication required|not connected|credentials/i.test(
+      summary.error,
+    )
+  ) {
+    throw new Error(summary.error);
+  }
+  if (!opts.allowEmptyState && text.length < 100) {
+    throw new Error("Rendered rich UI text is unexpectedly small");
+  }
+  return `richUiText=${text.length}`;
 }
 
 async function verifyGcn(page: CdpPage, contextId: number) {
-  const data = await page.waitFor<{ speakers: unknown; meetings: unknown }>(
-    `Promise.all([
-      extensionData.get('legacy', 'speakers', { scope: 'org' }),
-      extensionData.get('legacy', 'meetings', { scope: 'org' })
-    ]).then(([speakers, meetings]) => speakers && meetings ? { speakers, meetings } : null)`,
+  const data = await page.waitFor<{
+    speakers: number;
+    meetings: number;
+    error?: string;
+  }>(
+    `(() => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && Array.isArray(candidate.speakers) && Array.isArray(candidate.meetings));
+      if (!state || state.loading) return null;
+      return { speakers: state.speakers.length, meetings: state.meetings.length, error: state.error || '' };
+    })()`,
     contextId,
   );
-  await clickButton(page, contextId, "speakers");
-  const preLength = await page.waitFor<number>(
-    `(() => { const pre = document.querySelector('pre'); return pre && pre.innerText.length > 20 ? pre.innerText.length : 0; })()`,
+  if (data.error) throw new Error(data.error);
+  await clickButton(page, contextId, "Speaker List");
+  await page.waitFor(
+    `document.body.innerText.includes('Speaker List') && document.body.innerText.includes('All AEs')`,
     contextId,
   );
-  return `legacy rows=${Object.keys(data).length}, previewChars=${preLength}`;
+  await clickButton(page, contextId, "Cabana Meetings");
+  await page.waitFor(
+    `document.body.innerText.includes('Cabana Meetings') && document.body.innerText.includes('Meetings')`,
+    contextId,
+  );
+  return `speakers=${data.speakers}, meetings=${data.meetings}`;
 }
 
 async function verifyQbr(page: CdpPage, contextId: number) {
@@ -1109,13 +1252,30 @@ async function verifyDiscoveryCoach(page: CdpPage, contextId: number) {
 }
 
 async function verifyEngagement(page: CdpPage, contextId: number) {
-  const id = "Codex Verify Co";
-  await setField(page, contextId, "input", id);
-  await clickButton(page, contextId, "Build analysis prompt");
-  const prompt = await page.waitFor<string>(
-    `(() => { const textarea = document.querySelector('textarea'); return textarea && textarea.value.includes(${jsString(id)}) ? textarea.value : ''; })()`,
+  const id = "codex-verify-engagement-root";
+  const company = "Codex Verify Co";
+  const prompt = await page.evaluate<string>(
+    `(async () => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && typeof candidate.generateStrategy === 'function');
+      if (!state) throw new Error('Missing Engagement Planner Alpine state');
+      state.orgIdInput = ${jsString(company)};
+      state.orgData = {
+        root_org_id: ${jsString(id)},
+        company_name: ${jsString(company)},
+        user_count: 4,
+        message_count: 42,
+        email_domain: 'codex.test'
+      };
+      await state.generateStrategy();
+      return state.prompt || '';
+    })()`,
     contextId,
   );
+  if (!prompt.includes(company) || !prompt.includes(id)) {
+    throw new Error("Engagement prompt did not include verified org context");
+  }
   await page.waitFor(
     `extensionData.get('prompts', ${jsString(id)}, { scope: 'org' })`,
     contextId,
@@ -1129,10 +1289,23 @@ async function verifyEngagement(page: CdpPage, contextId: number) {
 
 async function verifyDbt(page: CdpPage, contextId: number) {
   const id = "codex-verify-dbt";
-  await setField(page, contextId, "input", id);
-  await setField(page, contextId, "textarea", "SELECT 1 AS ok");
-  await clickButton(page, contextId, "Save");
-  const saved = await page.waitFor<{ data?: { sql?: string } }>(
+  await page.evaluate(
+    `(async () => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && typeof candidate.saveSnippet === 'function');
+      if (!state) throw new Error('Missing dbt Workspace Alpine state');
+      state.selectedFile = ${jsString(id)};
+      state.modelSql = 'SELECT 1 AS ok';
+      state.testSql = 'SELECT 1 AS ok';
+      await state.saveSnippet();
+      return true;
+    })()`,
+    contextId,
+  );
+  const saved = await page.waitFor<{
+    data?: string | { sql?: string; value?: { sql?: string } };
+  }>(
     `extensionData.get('models', ${jsString(id)}, { scope: 'org' })`,
     contextId,
   );
@@ -1140,56 +1313,117 @@ async function verifyDbt(page: CdpPage, contextId: number) {
     `extensionData.remove('models', ${jsString(id)}, { scope: 'org' })`,
     contextId,
   );
-  return `savedSql=${saved.data?.sql ?? ""}`;
+  const savedData =
+    typeof saved.data === "string" ? JSON.parse(saved.data) : saved.data;
+  const sql = savedData?.sql ?? savedData?.value?.sql ?? "";
+  if (sql !== "SELECT 1 AS ok") {
+    throw new Error("dbt snippet did not persist expected SQL");
+  }
+  return `savedSql=${sql}`;
 }
 
 async function verifyQuery(page: CdpPage, contextId: number) {
-  await setField(page, contextId, "textarea", "SELECT 1 AS ok");
-  await clickButton(page, contextId, "Run BigQuery");
-  const output = await page.waitFor<string>(
-    `(() => {
-      const error = document.querySelector('.text-red-600')?.innerText || '';
-      const pre = document.querySelector('pre')?.innerText || '';
-      return pre || error || '';
+  const output = await page.evaluate<{
+    error?: string;
+    rowCount?: number;
+    historyCount?: number;
+  }>(
+    `(async () => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && typeof candidate.run === 'function' && Array.isArray(candidate.history));
+      if (!state) throw new Error('Missing Query Explorer Alpine state');
+      state.sql = 'SELECT 1 AS ok';
+      await state.run();
+      return { error: state.error || '', rowCount: (state.result?.rows || []).length, historyCount: state.history.length };
     })()`,
     contextId,
     45_000,
   );
   const history = await page.evaluate<
-    Array<{ id: string; data?: { sql?: string } }>
-  >(`extensionData.list('history', { scope: 'org' })`, contextId);
-  for (const row of history.filter(
-    (row) => row.data?.sql === "SELECT 1 AS ok",
-  )) {
+    Array<{
+      id: string;
+      data?: string | { sql?: string; value?: { sql?: string } };
+    }>
+  >(`extensionData.list('query-history', { scope: 'org' })`, contextId);
+  const rowSql = (row: (typeof history)[number]) => {
+    const data = typeof row.data === "string" ? JSON.parse(row.data) : row.data;
+    return data?.sql ?? data?.value?.sql;
+  };
+  for (const row of history.filter((row) => rowSql(row) === "SELECT 1 AS ok")) {
     await page.evaluate(
-      `extensionData.remove('history', ${jsString(row.id)}, { scope: 'org' })`,
+      `extensionData.remove('query-history', ${jsString(row.id)}, { scope: 'org' })`,
       contextId,
     );
   }
   if (
-    /Action not found|Missing required|Authentication required/i.test(output)
+    output.error &&
+    /Action not found|Missing required|Authentication required/i.test(
+      output.error,
+    )
   ) {
-    throw new Error(output);
+    throw new Error(output.error);
   }
-  return `outputChars=${output.length}`;
+  return `rows=${output.rowCount}, history=${output.historyCount}`;
 }
 
 async function verifyStripe(page: CdpPage, contextId: number) {
-  await setField(page, contextId, "input", "codex-verification@example.com");
-  const mode = await page.evaluate<string>(
-    `document.querySelector('select')?.value || ''`,
+  const state = await page.evaluate<{
+    submittedSearch?: string;
+    hasSections?: boolean;
+    error?: string;
+  }>(
+    `(async () => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && typeof candidate.run === 'function' && typeof candidate.activeSubscriptions === 'function');
+      if (!state) throw new Error('Missing Stripe Alpine state');
+      state.query = 'codex-verification@example.com';
+      await state.run();
+      return {
+        submittedSearch: state.submittedSearch,
+        hasSections: document.body.innerText.includes('Active Stripe Subscriptions') && document.body.innerText.includes('Billing by Product'),
+        error: state.error || ''
+      };
+    })()`,
     contextId,
+    60_000,
   );
-  return `controls query+mode ready (${mode})`;
+  if (state.error) throw new Error(state.error);
+  if (!state.hasSections)
+    throw new Error("Stripe billing sections did not render");
+  return `search=${state.submittedSearch}`;
 }
 
 async function verifySlack(page: CdpPage, contextId: number) {
-  await setField(page, contextId, "input", "codex verify");
-  const value = await page.evaluate<string>(
-    `document.querySelector('input')?.value || ''`,
+  const state = await page.waitFor<{
+    channels: number;
+    selected: number;
+    messages: number;
+    error?: string;
+    text?: string;
+  }>(
+    `(() => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && Array.isArray(candidate.channels) && typeof candidate.displayMessages === 'function');
+      if (!state || state.loading) return null;
+      return {
+        channels: state.channels.length,
+        selected: state.selected.length,
+        messages: state.messages.length,
+        error: state.error || '',
+        text: document.body.innerText
+      };
+    })()`,
     contextId,
+    60_000,
   );
-  return `search input ready (${value})`;
+  if (state.error) throw new Error(state.error);
+  if (!state.text?.includes("Analyze Feedback")) {
+    throw new Error("Slack Feedback analysis UI did not render");
+  }
+  return `channels=${state.channels}, selected=${state.selected}, messages=${state.messages}`;
 }
 
 async function verifyAction(
@@ -1223,7 +1457,7 @@ async function verifyAction(
 async function verifyOne(page: CdpPage, spec: ExtensionSpec) {
   const contextId = await openExtension(page, spec);
   const details =
-    spec.kind === "data"
+    spec.kind === "data" || spec.kind === "data-ui"
       ? await verifyDataBrowser(page, contextId, spec)
       : spec.kind === "gcn"
         ? await verifyGcn(page, contextId)
@@ -1245,7 +1479,9 @@ async function verifyOne(page: CdpPage, spec: ExtensionSpec) {
                         ? await verifyStripe(page, contextId)
                         : spec.kind === "slack"
                           ? await verifySlack(page, contextId)
-                          : await verifyAction(page, contextId, spec);
+                          : spec.kind === "rich-ui" || spec.kind === "explorer"
+                            ? await verifyRichUi(page, contextId, spec)
+                            : await verifyAction(page, contextId, spec);
   const errors = await page.evaluate<string[]>(
     `window._extensionErrors || []`,
     contextId,

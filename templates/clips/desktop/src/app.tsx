@@ -2446,6 +2446,7 @@ function Setup({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const featureConfig = useFeatureConfig();
   const voiceEnabled = featureConfig?.voiceEnabled !== false;
+  const launchAtLoginEnabled = featureConfig?.launchAtLoginEnabled !== false;
   const [providerStatus, setProviderStatus] =
     useState<VoiceProviderStatus | null>(null);
   const [providerStatusLoading, setProviderStatusLoading] = useState(true);
@@ -2460,6 +2461,15 @@ function Setup({
     if (!featureConfig) return;
     invoke("set_feature_config", {
       config: { ...featureConfig, voiceEnabled: enabled },
+    }).catch((err) =>
+      console.error("[settings] set_feature_config failed", err),
+    );
+  }
+
+  function setLaunchAtLoginEnabled(enabled: boolean) {
+    if (!featureConfig) return;
+    invoke("set_feature_config", {
+      config: { ...featureConfig, launchAtLoginEnabled: enabled },
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
     );
@@ -2682,6 +2692,20 @@ function Setup({
         <button className="primary" type="submit">
           Connect
         </button>
+      </div>
+
+      <div className="setup-section">
+        <div className="setup-toggle-row">
+          <SettingLabel
+            label="Open at login"
+            hint="Start Clips automatically when you sign in so recording, meetings, and dictation shortcuts are ready."
+          />
+          <Switch
+            on={launchAtLoginEnabled}
+            onChange={setLaunchAtLoginEnabled}
+            label="Open Clips at login"
+          />
+        </div>
       </div>
 
       <div className="setup-section">

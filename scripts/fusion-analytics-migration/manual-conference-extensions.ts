@@ -81,10 +81,15 @@ export function gcnExtension(): string {
           },
           unwrapLegacy(row) {
             if (!row) return null;
-            if (row.data && row.data.value) return row.data.value;
-            if (row.value) return row.value;
-            if (row.data) return row.data;
-            return row;
+            const raw = row.data !== undefined ? row.data : row.value !== undefined ? row.value : row;
+            let value = raw;
+            if (typeof value === 'string') {
+              try { value = JSON.parse(value); } catch (error) {}
+            }
+            if (value && value.value !== undefined) return value.value;
+            if (value && value.data && value.data.value !== undefined) return value.data.value;
+            if (value && value.data !== undefined) return value.data;
+            return value;
           },
           extractLinkedIn(value) {
             const trimmed = String(value || '').trim();

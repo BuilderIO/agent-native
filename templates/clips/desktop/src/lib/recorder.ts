@@ -521,6 +521,7 @@ async function startNativeFullscreenRecording(
             console.error("[clips-recorder] show_finalizing failed:", err),
           );
 
+          const viewUrl = `/r/${id}`;
           try {
             uploadResult = await invoke<NativeFullscreenUploadResult>(
               "native_fullscreen_recording_stop_and_upload",
@@ -539,10 +540,23 @@ async function startNativeFullscreenRecording(
               id,
               err instanceof Error ? err.message : String(err),
             );
+            // Still take the user to the clip status page. If the server
+            // marked the upload failed, that page shows the failure state; if
+            // the abort request could not land, it keeps polling instead of
+            // leaving the user on an empty desktop.
+            try {
+              await openExternal(
+                `${params.serverUrl.replace(
+                  /\/+$/,
+                  "",
+                )}${viewUrl}?saveFailed=1`,
+              );
+            } catch (openErr) {
+              console.error("[clips-recorder] openExternal failed:", openErr);
+            }
             throw err;
           }
 
-          const viewUrl = `/r/${id}`;
           try {
             await openExternal(
               `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,

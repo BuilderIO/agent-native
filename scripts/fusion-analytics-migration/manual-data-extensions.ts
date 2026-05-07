@@ -34,12 +34,22 @@ export function onboardingProgressExtension(): string {
         { key: 'publish-academy', label: 'Publish Academy' },
         { key: 'analytics', label: 'Analytics' }
       ],
+      readData(item) {
+        let value = item ? item.data : null;
+        if (typeof value === 'string') {
+          try { value = JSON.parse(value); } catch (e) {}
+        }
+        if (value && value.value !== undefined) return value.value;
+        if (value && value.data && value.data.value !== undefined) return value.data.value;
+        if (value && value.data !== undefined) return value.data;
+        return value;
+      },
       async init() {
         try {
           const migrated = await extensionData.list('onboarding', { scope: 'org' });
           const byId = {};
           for (const item of migrated) {
-            byId[item.itemId || item.id] = item.data && item.data.value !== undefined ? item.data.value : item.data;
+            byId[item.itemId || item.id] = this.readData(item);
           }
           this.byId = byId;
           this.allRows = this.normalizeRows(byId);
@@ -343,11 +353,21 @@ export function competitiveLandscapeExtension(): string {
       status: null,
       active: [],
       colors: { Replit: '#f97316', Lovable: '#ec4899', 'Figma Make': '#8b5cf6', Cursor: '#06b6d4', 'Claude Code': '#10b981' },
+      readData(item) {
+        let value = item ? item.data : null;
+        if (typeof value === 'string') {
+          try { value = JSON.parse(value); } catch (e) {}
+        }
+        if (value && value.value !== undefined) return value.value;
+        if (value && value.data && value.data.value !== undefined) return value.data.value;
+        if (value && value.data !== undefined) return value.data;
+        return value;
+      },
       async init() {
         try {
           const items = await extensionData.list('competitive', { scope: 'org' });
           const byId = {};
-          for (const item of items) byId[item.itemId || item.id] = item.data && item.data.value !== undefined ? item.data.value : item.data;
+          for (const item of items) byId[item.itemId || item.id] = this.readData(item);
           this.data = byId.mentions || null;
           this.status = byId.status || null;
         } catch (e) {
@@ -481,11 +501,24 @@ export function strategicAccountsExtension(): string {
       selectedName: '',
       lastUpdated: '',
       rawSources: [],
+      readData(item) {
+        let value = item ? item.data : null;
+        if (typeof value === 'string') {
+          try { value = JSON.parse(value); } catch (e) {}
+        }
+        if (value && value.value !== undefined) return value.value;
+        if (value && value.data && value.data.value !== undefined) return value.data.value;
+        if (value && value.data !== undefined) return value.data;
+        return value;
+      },
       async init() {
         try {
           const items = await extensionData.list('strategic', { scope: 'org' });
           const byId = {};
-          this.rawSources = items.map((item) => ({ id: item.itemId || item.id, sourcePath: item.data?.sourcePath || '', value: item.data && item.data.value !== undefined ? item.data.value : item.data }));
+          this.rawSources = items.map((item) => {
+            const value = this.readData(item);
+            return { id: item.itemId || item.id, sourcePath: value?.sourcePath || '', value };
+          });
           for (const item of this.rawSources) byId[item.id] = item.value;
           this.lastUpdated = this.parseStringConst(byId['accounts-data'] || '', 'DATA_LAST_UPDATED');
           this.accounts = this.parseArrayConst(byId['accounts-data'] || '', 'STRATEGIC_ACCOUNTS');
@@ -512,7 +545,8 @@ export function strategicAccountsExtension(): string {
         const marker = 'export const ' + name;
         const startMarker = text.indexOf(marker);
         if (startMarker < 0) return [];
-        const start = text.indexOf('[', startMarker);
+        const equals = text.indexOf('=', startMarker);
+        const start = text.indexOf('[', equals);
         if (start < 0) return [];
         let depth = 0;
         let quote = '';
@@ -706,11 +740,21 @@ export function agentNativeMetricsExtension(): string {
       npmMeta: null,
       stars: null,
       contributors: null,
+      readData(item) {
+        let value = item ? item.data : null;
+        if (typeof value === 'string') {
+          try { value = JSON.parse(value); } catch (e) {}
+        }
+        if (value && value.value !== undefined) return value.value;
+        if (value && value.data && value.data.value !== undefined) return value.data.value;
+        if (value && value.data !== undefined) return value.data;
+        return value;
+      },
       async init() {
         try {
           const items = await extensionData.list('agent-native-metrics', { scope: 'org' });
           const byId = {};
-          for (const item of items) byId[item.itemId || item.id] = item.data && item.data.value !== undefined ? item.data.value : item.data;
+          for (const item of items) byId[item.itemId || item.id] = this.readData(item);
           this.npmRows = Array.isArray(byId['npm-downloads']) ? byId['npm-downloads'] : [];
           this.npmMeta = byId['npm-meta'] || null;
           this.stars = byId['github-stars'] || null;
@@ -831,13 +875,23 @@ export function explorerExtension(): string {
       knownEvents: ['signup', 'login', 'pageView', 'content saved', 'content published', 'fusion chat message submitted', 'fusion chat accepted', 'fusion chat rejected', 'fusion chat started', 'generate', 'import figma', 'import code', 'drag and drop', 'open visual editor', 'preview', 'integration installed', 'subscription created', 'checkout started', 'plan selected', 'invite sent', 'invite accepted', 'comment added'],
       properties: ['userId', 'organizationId', 'sessionId', 'email', 'userEmail', 'event', 'name', 'type', 'kind', 'message', 'action', 'category', 'label', 'browser', 'url', 'device', 'os', 'platform', 'modelName', 'modelId', 'contentId', 'contentName', 'utmSource', 'utmMedium', 'utmCampaign', 'option', 'plan', 'tier', 'source', 'target', 'framework', 'sdk', 'model', 'provider', 'accepted', 'rejected', 'subscription_plan', 'subscription_status', 'org_subscription', 'org_name', 'org_kind', 'org_company_size', 'org_is_trial', 'user_email_domain', 'user_intent', 'user_use_case', 'user_auth_provider', 'user_has_enterprise'],
       operators: ['=', '!=', 'contains', 'not_contains', 'is_set', 'is_not_set'],
+      readData(item) {
+        let value = item ? item.data : null;
+        if (typeof value === 'string') {
+          try { value = JSON.parse(value); } catch (e) {}
+        }
+        if (value && value.value !== undefined) return value.value;
+        if (value && value.data && value.data.value !== undefined) return value.data.value;
+        if (value && value.data !== undefined) return value.data;
+        return value;
+      },
       async init() {
         await this.loadSaved();
       },
       async loadSaved() {
         try {
           const rows = await extensionData.list('explorer-history', { scope: 'org' });
-          this.saved = rows.map((row) => ({ id: row.itemId || row.id, data: row.data && row.data.value !== undefined ? row.data.value : row.data })).filter((row) => row.id !== '_autosave');
+          this.saved = rows.map((row) => ({ id: row.itemId || row.id, data: this.readData(row) })).filter((row) => row.id !== '_autosave');
         } catch (e) {
           this.saved = [];
         }

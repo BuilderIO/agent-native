@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams, useNavigate, NavLink } from "react-router";
+import { useParams, useNavigate, NavLink, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {
   IconShare3,
@@ -8,6 +8,7 @@ import {
   IconChevronDown,
   IconCalendar,
   IconScissors,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
 import {
   useActionMutation,
@@ -67,11 +68,24 @@ function isStorageSetupFailureReason(
   );
 }
 
+function isNativeSaveFailureReason(reason: string | null | undefined): boolean {
+  return /native recording upload|native fullscreen|screencapture|avconvert/i.test(
+    reason ?? "",
+  );
+}
+
+function failureDetail(reason: string | null | undefined): string | null {
+  const trimmed = reason?.trim();
+  if (!trimmed) return null;
+  return trimmed.length > 1200 ? `${trimmed.slice(0, 1200)}...` : trimmed;
+}
+
 export default function RecordingPage() {
   useAutoTitleBridge();
 
   const { recordingId } = useParams<{ recordingId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { session } = useSession();
   const playerRef = useRef<VideoPlayerHandle | null>(null);
 
@@ -338,32 +352,57 @@ export default function RecordingPage() {
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
     const waitingForStorage = isStorageSetupFailureReason(rawFailureReason);
+    const nativeSaveFailed =
+      searchParams.get("saveFailed") === "1" ||
+      isNativeSaveFailureReason(rawFailureReason);
     // Treat "stuck on processing/uploading past the 30s mark" as a failure
     // too — otherwise the user stares at a spinner forever when finalize
     // silently dies (e.g. chunk route 401s, storage provider throws).
     const stuckFailure = !explicitFailure && processingTimeout;
-    const isFailure = explicitFailure || stuckFailure || waitingForStorage;
+    const isFailure =
+      explicitFailure || stuckFailure || waitingForStorage || nativeSaveFailed;
     const displayReason = explicitFailure
       ? (rawFailureReason ?? "You can retry from the library.")
-      : stuckFailure
-        ? `Processing hasn't completed after 30 seconds (status=${recording.status}). The clip may not have finished uploading — check the server logs for [chunk]/[finalize] messages.`
-        : "Uploading and assembling your video — this usually takes just a few seconds.";
+      : nativeSaveFailed
+        ? "The desktop recorder finished, but Clips could not upload and save the video."
+        : stuckFailure
+          ? `Processing hasn't completed after 30 seconds (status=${recording.status}). The clip may not have finished uploading — check the server logs for [chunk]/[finalize] messages.`
+          : "Uploading and assembling your video — this usually takes just a few seconds.";
     const storageSetupFailure = waitingForStorage;
     const label = storageSetupFailure
       ? "Connect storage to finish saving this clip."
-      : isFailure
-        ? "Something went wrong while saving this clip."
-        : "Finishing up your clip…";
+      : nativeSaveFailed
+        ? "Oops, that clip did not save."
+        : isFailure
+          ? "Something went wrong while saving this clip."
+          : "Finishing up your clip…";
     const failureReason = storageSetupFailure
       ? "Your clip data is still preserved. Connect Builder.io or S3 storage and Clips will upload it automatically."
       : displayReason;
+    const detail = failureDetail(rawFailureReason);
     return (
       <div className="flex flex-col items-center justify-center h-screen w-full bg-background px-6">
-        {!isFailure ? <Spinner className="h-8 w-8 mb-4" /> : null}
+        {!isFailure ? (
+          <Spinner className="h-8 w-8 mb-4" />
+        ) : !storageSetupFailure ? (
+          <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full border border-destructive/30 bg-destructive/10 text-destructive">
+            <IconAlertTriangle className="h-5 w-5" />
+          </div>
+        ) : null}
         <h1 className="text-lg font-semibold mb-1">{label}</h1>
         <p className="text-sm text-muted-foreground mb-4 max-w-md text-center">
           {failureReason}
         </p>
+        {isFailure && !storageSetupFailure && detail ? (
+          <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-left shadow-sm">
+            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Details
+            </div>
+            <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
+              {detail}
+            </pre>
+          </div>
+        ) : null}
         {!isFailure && progress > 0 ? (
           <div className="w-64 h-1.5 rounded-full bg-muted overflow-hidden mb-4">
             <div

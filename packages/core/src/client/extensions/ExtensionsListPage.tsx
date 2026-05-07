@@ -56,8 +56,10 @@ function submitCreateTool(prompt: string) {
 
 function CreateToolInput({ className }: { className?: string }) {
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
-      <p className="text-sm font-semibold text-foreground">New extension</p>
+    <div className={cn("flex flex-col gap-3", className)}>
+      <p className="text-center text-base font-semibold text-foreground">
+        New extension
+      </p>
       <PromptComposer
         autoFocus
         placeholder="Describe what you'd like to build... e.g. a todo list, API dashboard, calculator"
@@ -181,9 +183,9 @@ export function ExtensionsListPage() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto px-5 py-8 sm:px-8 sm:py-10">
         {isLoading ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
               <div
                 key={i}
@@ -196,18 +198,24 @@ export function ExtensionsListPage() {
             ))}
           </div>
         ) : toolList.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-4 py-16 text-center">
-            <IconTool className="h-10 w-10 text-muted-foreground/40" />
-            <div>
-              <p className="text-sm font-medium">No extensions yet</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Describe what you'd like to build
-              </p>
+          <div className="flex min-h-[calc(100vh-9rem)] flex-col items-center justify-center px-2 py-12 text-center sm:py-16">
+            <div className="mx-auto flex w-full max-w-2xl flex-col items-center gap-8">
+              <div className="flex flex-col items-center gap-4">
+                <IconTool className="h-12 w-12 text-muted-foreground/40" />
+                <div className="space-y-2">
+                  <p className="text-base font-semibold text-foreground">
+                    No extensions yet
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Describe what you'd like to build
+                  </p>
+                </div>
+              </div>
+              <CreateToolInput className="w-full" />
             </div>
-            <CreateToolInput className="w-full max-w-sm" />
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {toolList.map((extension) => (
               <div
                 key={extension.id}

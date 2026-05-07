@@ -30,6 +30,7 @@
     "global-shortcut:allow-is-registered",
     "updater:default",
     "process:default",
+    "autostart:default",
     "process:allow-restart",
     "notification:default"
   ]

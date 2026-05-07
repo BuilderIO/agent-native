@@ -399,6 +399,8 @@ export interface NitroOptions {
 export interface ClientConfigOptions {
   /** Port for dev server. Default: 8080 */
   port?: number;
+  /** Vite log level. Workspace child apps default to "warn" so only the gateway URL is advertised. */
+  logLevel?: UserConfig["logLevel"];
   /** Additional Vite plugins */
   plugins?: any[];
   /** Nitro plugin options (preset, srcDir, etc) */
@@ -880,6 +882,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
   // part of a unified workspace deploy. Defaults to "/" for standalone apps.
   const appBasePath =
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "/";
+  const isWorkspaceChild = process.env.AGENT_NATIVE_WORKSPACE === "1";
   const base = appBasePath.endsWith("/") ? appBasePath : `${appBasePath}/`;
   const monorepoCoreAllow = [
     path.resolve(cwd, "../../packages/core"),
@@ -898,6 +901,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     : [];
 
   return {
+    logLevel: options.logLevel ?? (isWorkspaceChild ? "warn" : undefined),
     envDir,
     base,
     server: {

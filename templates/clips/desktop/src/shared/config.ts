@@ -6,6 +6,7 @@ interface FeatureConfig {
   clipsEnabled: boolean;
   meetingsEnabled: boolean;
   voiceEnabled: boolean;
+  launchAtLoginEnabled: boolean;
   onboardingComplete: boolean;
 }
 

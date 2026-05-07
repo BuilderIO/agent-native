@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -8,7 +9,13 @@ pub struct FeatureConfig {
     pub clips_enabled: bool,
     pub meetings_enabled: bool,
     pub voice_enabled: bool,
+    #[serde(default = "default_launch_at_login_enabled")]
+    pub launch_at_login_enabled: bool,
     pub onboarding_complete: bool,
+}
+
+fn default_launch_at_login_enabled() -> bool {
+    true
 }
 
 impl Default for FeatureConfig {
@@ -17,6 +24,7 @@ impl Default for FeatureConfig {
             clips_enabled: true,
             meetings_enabled: true,
             voice_enabled: true,
+            launch_at_login_enabled: true,
             onboarding_complete: false,
         }
     }
@@ -70,6 +78,32 @@ fn save_config(app: &AppHandle, config: &FeatureConfig) -> Result<(), String> {
     Ok(())
 }
 
+fn apply_launch_at_login(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    let manager = app.autolaunch();
+    let current = manager
+        .is_enabled()
+        .map_err(|e| format!("read launch-at-login: {e}"))?;
+    if current == enabled {
+        return Ok(());
+    }
+    if enabled {
+        manager
+            .enable()
+            .map_err(|e| format!("enable launch-at-login: {e}"))
+    } else {
+        manager
+            .disable()
+            .map_err(|e| format!("disable launch-at-login: {e}"))
+    }
+}
+
+pub fn sync_launch_at_login(app: &AppHandle) {
+    let config = load_config(app);
+    if let Err(err) = apply_launch_at_login(app, config.launch_at_login_enabled) {
+        eprintln!("[clips-tray] launch-at-login sync failed: {err}");
+    }
+}
+
 /// Load feature config from disk and return it to the frontend.
 #[tauri::command]
 pub async fn get_feature_config(app: AppHandle) -> Result<FeatureConfig, String> {
@@ -79,6 +113,10 @@ pub async fn get_feature_config(app: AppHandle) -> Result<FeatureConfig, String>
 /// Save feature config to disk and emit a change event.
 #[tauri::command]
 pub async fn set_feature_config(app: AppHandle, config: FeatureConfig) -> Result<(), String> {
+    let previous = load_config(&app);
+    if previous.launch_at_login_enabled != config.launch_at_login_enabled {
+        apply_launch_at_login(&app, config.launch_at_login_enabled)?;
+    }
     save_config(&app, &config)?;
     let _ = app.emit("app:feature-config-changed", config);
     Ok(())

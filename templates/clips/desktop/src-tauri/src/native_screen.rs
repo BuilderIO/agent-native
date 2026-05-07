@@ -7,8 +7,15 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, State};
 
-const RECORDING_MIME_TYPE: &str = "video/quicktime";
-const UPLOAD_CHUNK_BYTES: usize = 5 * 1024 * 1024;
+const QUICKTIME_RECORDING_MIME_TYPE: &str = "video/quicktime";
+const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
+// Keep native chunks comfortably under serverless request/event limits. The
+// route still accepts 6 MiB so browser MediaRecorder chunks are unaffected.
+const UPLOAD_CHUNK_BYTES: usize = 3 * 1024 * 1024;
+const TRANSCODE_THRESHOLD_BYTES: u64 = 80 * 1024 * 1024;
+const TARGET_UPLOAD_BYTES: u64 = 95 * 1024 * 1024;
+const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
+const AVCONVERT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Default)]
 pub struct NativeFullscreenRecordingState {
@@ -21,6 +28,13 @@ struct NativeFullscreenSession {
     started_at: Instant,
     width: Option<u32>,
     height: Option<u32>,
+}
+
+struct PreparedRecordingFile {
+    path: PathBuf,
+    mime_type: &'static str,
+    bytes: u64,
+    temporary: bool,
 }
 
 #[derive(Serialize)]
@@ -250,13 +264,37 @@ async fn upload_recording_file(
     has_audio: bool,
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
-    let metadata = std::fs::metadata(&session.path)
-        .map_err(|e| format!("native recording file missing: {e}"))?;
-    let total_bytes = metadata.len();
-    if total_bytes == 0 {
-        return Err("Native recording produced an empty file.".into());
+    let prepared = prepare_recording_file(session)?;
+    let upload_result = upload_prepared_recording_file(
+        session,
+        &prepared,
+        server_url,
+        recording_id,
+        auth_token,
+        cookie,
+        duration_ms,
+        has_audio,
+        has_camera,
+    )
+    .await;
+    if prepared.temporary {
+        let _ = std::fs::remove_file(&prepared.path);
     }
+    upload_result
+}
 
+async fn upload_prepared_recording_file(
+    session: &NativeFullscreenSession,
+    prepared: &PreparedRecordingFile,
+    server_url: String,
+    recording_id: String,
+    auth_token: String,
+    cookie: String,
+    duration_ms: u128,
+    has_audio: bool,
+    has_camera: bool,
+) -> Result<NativeFullscreenUploadResult, String> {
+    let total_bytes = prepared.bytes;
     let total_chunks = ((total_bytes as usize) + UPLOAD_CHUNK_BYTES - 1) / UPLOAD_CHUNK_BYTES;
     let total_posts = total_chunks + 1;
     let client = reqwest::Client::builder()
@@ -264,7 +302,7 @@ async fn upload_recording_file(
         .build()
         .map_err(|e| format!("upload client failed: {e}"))?;
     let mut file =
-        File::open(&session.path).map_err(|e| format!("native recording open failed: {e}"))?;
+        File::open(&prepared.path).map_err(|e| format!("native recording open failed: {e}"))?;
 
     for index in 0..total_chunks {
         let mut buffer = vec![0_u8; UPLOAD_CHUNK_BYTES];
@@ -285,6 +323,7 @@ async fn upload_recording_file(
             total_posts,
             false,
             None,
+            prepared.mime_type,
             session.width,
             session.height,
             has_audio,
@@ -304,6 +343,7 @@ async fn upload_recording_file(
         total_posts,
         true,
         Some(duration_ms),
+        prepared.mime_type,
         session.width,
         session.height,
         has_audio,
@@ -331,6 +371,7 @@ async fn send_upload_post(
     total: usize,
     is_final: bool,
     duration_ms: Option<u128>,
+    mime_type: &str,
     width: Option<u32>,
     height: Option<u32>,
     has_audio: bool,
@@ -344,6 +385,7 @@ async fn send_upload_post(
         total,
         is_final,
         duration_ms,
+        mime_type,
         width,
         height,
         has_audio,
@@ -351,7 +393,7 @@ async fn send_upload_post(
     )?;
     let mut request = client
         .post(url)
-        .header("Content-Type", RECORDING_MIME_TYPE)
+        .header("Content-Type", mime_type)
         .header("X-Request-Source", "clips-desktop")
         .body(body);
     let trimmed_token = auth_token.trim();
@@ -385,6 +427,7 @@ fn upload_url(
     total: usize,
     is_final: bool,
     duration_ms: Option<u128>,
+    mime_type: &str,
     width: Option<u32>,
     height: Option<u32>,
     has_audio: bool,
@@ -399,7 +442,7 @@ fn upload_url(
             .append_pair("index", &index.to_string())
             .append_pair("total", &total.to_string())
             .append_pair("isFinal", if is_final { "1" } else { "0" })
-            .append_pair("mimeType", RECORDING_MIME_TYPE)
+            .append_pair("mimeType", mime_type)
             .append_pair("hasAudio", if has_audio { "1" } else { "0" })
             .append_pair("hasCamera", if has_camera { "1" } else { "0" });
         if let Some(duration_ms) = duration_ms {
@@ -413,4 +456,144 @@ fn upload_url(
         }
     }
     Ok(url.to_string())
+}
+
+fn prepare_recording_file(
+    session: &NativeFullscreenSession,
+) -> Result<PreparedRecordingFile, String> {
+    let metadata = std::fs::metadata(&session.path)
+        .map_err(|e| format!("native recording file missing: {e}"))?;
+    let source_bytes = metadata.len();
+    if source_bytes == 0 {
+        return Err("Native recording produced an empty file.".into());
+    }
+
+    let original = PreparedRecordingFile {
+        path: session.path.clone(),
+        mime_type: QUICKTIME_RECORDING_MIME_TYPE,
+        bytes: source_bytes,
+        temporary: false,
+    };
+
+    if source_bytes < TRANSCODE_THRESHOLD_BYTES {
+        return Ok(original);
+    }
+    if !std::path::Path::new(AVCONVERT_PATH).exists() {
+        eprintln!("[clips-tray] avconvert unavailable; uploading native MOV without transcode");
+        return Ok(original);
+    }
+
+    let presets = native_transcode_presets(session.width, session.height, source_bytes);
+    for (index, preset) in presets.iter().enumerate() {
+        let compressed_path = session.path.with_extension("mp4");
+        let _ = std::fs::remove_file(&compressed_path);
+        match transcode_with_avconvert(&session.path, &compressed_path, preset) {
+            Ok(()) => {
+                let compressed_bytes = std::fs::metadata(&compressed_path)
+                    .map_err(|e| format!("compressed recording file missing: {e}"))?
+                    .len();
+                if compressed_bytes == 0 {
+                    let _ = std::fs::remove_file(&compressed_path);
+                    eprintln!("[clips-tray] avconvert produced an empty file with {preset}");
+                    continue;
+                }
+                if compressed_bytes >= source_bytes {
+                    let _ = std::fs::remove_file(&compressed_path);
+                    eprintln!(
+                        "[clips-tray] avconvert {} did not reduce size ({} >= {})",
+                        preset, compressed_bytes, source_bytes
+                    );
+                    continue;
+                }
+                if compressed_bytes > TARGET_UPLOAD_BYTES && index + 1 < presets.len() {
+                    let _ = std::fs::remove_file(&compressed_path);
+                    eprintln!(
+                        "[clips-tray] avconvert {} still above target ({} bytes); trying smaller preset",
+                        preset, compressed_bytes
+                    );
+                    continue;
+                }
+                eprintln!(
+                    "[clips-tray] native recording transcoded with {}: {} -> {} bytes",
+                    preset, source_bytes, compressed_bytes
+                );
+                return Ok(PreparedRecordingFile {
+                    path: compressed_path,
+                    mime_type: MP4_RECORDING_MIME_TYPE,
+                    bytes: compressed_bytes,
+                    temporary: true,
+                });
+            }
+            Err(err) => {
+                let _ = std::fs::remove_file(&compressed_path);
+                eprintln!("[clips-tray] avconvert transcode failed with {preset}: {err}");
+            }
+        }
+    }
+    eprintln!("[clips-tray] avconvert could not reduce recording; uploading original MOV");
+    Ok(original)
+}
+
+fn native_transcode_presets(
+    width: Option<u32>,
+    height: Option<u32>,
+    source_bytes: u64,
+) -> [&'static str; 3] {
+    let long_side = width.unwrap_or(0).max(height.unwrap_or(0));
+    if source_bytes >= 160 * 1024 * 1024 || long_side > 1920 {
+        ["Preset1280x720", "Preset960x540", "PresetAppleM4V480pSD"]
+    } else {
+        ["Preset1920x1080", "Preset1280x720", "Preset960x540"]
+    }
+}
+
+fn transcode_with_avconvert(
+    source: &std::path::Path,
+    output: &std::path::Path,
+    preset: &str,
+) -> Result<(), String> {
+    let mut child = Command::new(AVCONVERT_PATH)
+        .arg("--source")
+        .arg(source)
+        .arg("--preset")
+        .arg(preset)
+        .arg("--output")
+        .arg(output)
+        .arg("--replace")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("avconvert spawn failed: {e}"))?;
+
+    let deadline = Instant::now() + AVCONVERT_TIMEOUT;
+    loop {
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|e| format!("avconvert wait failed: {e}"))?
+        {
+            if status.success() {
+                return Ok(());
+            }
+            let mut stderr = String::new();
+            if let Some(mut pipe) = child.stderr.take() {
+                let _ = pipe.read_to_string(&mut stderr);
+            }
+            let tail = stderr
+                .lines()
+                .rev()
+                .take(8)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join("\n");
+            return Err(format!("avconvert exited with {status}: {}", tail.trim()));
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("avconvert timed out while compressing recording".into());
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
 }

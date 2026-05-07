@@ -121,6 +121,11 @@ pub fn run() {
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .app_name("Clips")
+                .build(),
+        )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(shortcuts::build_shortcut_plugin().build())
@@ -147,6 +152,7 @@ pub fn run() {
             }
 
             tray::build_tray(app)?;
+            config::sync_launch_at_login(app.handle());
             shortcuts::register_shortcuts(app)?;
             shortcuts::install_popover_dismiss_handler(app);
 
