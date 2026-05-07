@@ -780,7 +780,10 @@ export default function CalendarView() {
                 </TooltipContent>
               </Tooltip>
 
-              <NotificationsBell browserNotifications />
+              <NotificationsBell
+                browserNotifications
+                emptyDescription="This bell shows app updates. Event alerts are set inside each calendar event."
+              />
               <CreateEventPopover
                 open={createDialogOpen}
                 onOpenChange={(open) => {
