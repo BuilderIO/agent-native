@@ -431,6 +431,7 @@ describe("runAgentLoop", () => {
           yield { type: "stop", reason: "tool_use" };
           return;
         }
+        yield { type: "text-delta", text: "answered from history" };
         yield {
           type: "assistant-content",
           parts: [{ type: "text" as const, text: "answered from history" }],
