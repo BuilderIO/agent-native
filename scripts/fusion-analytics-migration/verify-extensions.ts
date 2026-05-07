@@ -806,6 +806,7 @@ async function verifyDiscoveryCoach(page: CdpPage, contextId: number) {
       const state = [...document.querySelectorAll('*')]
         .map((el) => el._x_dataStack?.[0])
         .find((candidate) => candidate && candidate.opPains && candidate.stages);
+      if (!state) throw new Error('Missing Discovery Coach Alpine state');
       state.selectedPain = 0;
       return true;
     })()`,
