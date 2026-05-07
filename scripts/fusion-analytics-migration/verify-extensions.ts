@@ -724,7 +724,7 @@ async function verifyCsQbr(page: CdpPage, contextId: number) {
   }
   await clickButton(page, contextId, "View Deck");
   await page.waitFor<string>(
-    `document.body.innerText.includes('CS QBR Preview') && document.body.innerText.includes('Alex Beebe')`,
+    `document.body.innerText.includes('CS QBR PREVIEW') && document.body.innerText.includes('Alex Beebe')`,
     contextId,
   );
   await page.evaluate(
