@@ -185,6 +185,9 @@ export default defineAction({
     const recordings = rows.map((r) => ({
       id: r.id,
       title: r.title,
+      titleSource: r.titleSource,
+      sourceAppName: r.sourceAppName,
+      sourceWindowTitle: r.sourceWindowTitle,
       description: r.description,
       thumbnailUrl: r.thumbnailUrl,
       animatedThumbnailUrl: r.animatedThumbnailUrl,

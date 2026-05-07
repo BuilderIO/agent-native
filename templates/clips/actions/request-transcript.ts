@@ -51,21 +51,7 @@ import { transcribeWithBuilder } from "@agent-native/core/transcription/builder"
 import regenerateTitle from "./regenerate-title.js";
 import cleanupTranscript from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
-
-/**
- * Default title seeded by `create-recording`. Used to detect "the user hasn't
- * set a title yet, so auto-generating one is safe." Any non-default title
- * means the user (or the agent) already renamed the clip and we must not
- * overwrite their choice.
- */
-const DEFAULT_RECORDING_TITLE = "Untitled recording";
-
-/** Treat blank / null / whitespace as "still the default". */
-function isDefaultTitle(title: string | null | undefined): boolean {
-  const trimmed = (title ?? "").trim();
-  if (!trimmed) return true;
-  return trimmed === DEFAULT_RECORDING_TITLE;
-}
+import { isAutoTitleReplaceable } from "./lib/title-source.js";
 
 interface SpeechToTextSegment {
   start: number; // seconds
@@ -240,6 +226,7 @@ async function completeReadyTranscript({
   const [recForTitle] = await db
     .select({
       title: schema.recordings.title,
+      titleSource: schema.recordings.titleSource,
       durationMs: schema.recordings.durationMs,
     })
     .from(schema.recordings)
@@ -264,7 +251,10 @@ async function completeReadyTranscript({
     );
   });
 
-  const titleQueued = !!(recForTitle && isDefaultTitle(recForTitle.title));
+  const titleQueued = !!(
+    recForTitle &&
+    isAutoTitleReplaceable(recForTitle.title, recForTitle.titleSource)
+  );
   if (titleQueued) {
     void regenerateTitle
       .run({
@@ -555,11 +545,19 @@ export default defineAction({
         // Re-read title fresh — `rec.title` was fetched before the 30+ s
         // transcription and may be stale if the user renamed during that window.
         const [freshRec] = await db
-          .select({ title: schema.recordings.title })
+          .select({
+            title: schema.recordings.title,
+            titleSource: schema.recordings.titleSource,
+          })
           .from(schema.recordings)
           .where(eq(schema.recordings.id, args.recordingId))
           .limit(1);
-        if (isDefaultTitle(freshRec?.title)) {
+        if (
+          isAutoTitleReplaceable(
+            freshRec?.title,
+            freshRec?.titleSource,
+          )
+        ) {
           try {
             await regenerateTitle.run({ recordingId: args.recordingId });
           } catch (delegateErr) {
@@ -663,6 +661,7 @@ export default defineAction({
       .select({
         videoUrl: schema.recordings.videoUrl,
         title: schema.recordings.title,
+        titleSource: schema.recordings.titleSource,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
@@ -809,7 +808,7 @@ export default defineAction({
       // picks that up and fires `sendToAgentChat` once. We intentionally skip
       // this when the user (or agent) has already renamed the clip so we never
       // clobber a human-authored title.
-      if (isDefaultTitle(rec.title)) {
+      if (isAutoTitleReplaceable(rec.title, rec.titleSource)) {
         try {
           await regenerateTitle.run({ recordingId: args.recordingId });
         } catch (delegateErr) {
