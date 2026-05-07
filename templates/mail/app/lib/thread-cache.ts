@@ -52,7 +52,10 @@ function notify(threadId: string) {
   for (const fn of set) fn();
 }
 
-function normalizeTarget(target: WarmTarget): { id: string; accountEmail?: string } {
+function normalizeTarget(target: WarmTarget): {
+  id: string;
+  accountEmail?: string;
+} {
   return typeof target === "string" ? { id: target } : target;
 }
 
@@ -89,12 +92,15 @@ async function fetchThread(
   const params = new URLSearchParams();
   if (accountEmail) params.set("accountEmail", accountEmail);
   const suffix = params.toString() ? `?${params}` : "";
-  const res = await fetch(appApiPath(`/api/threads/${threadId}/messages${suffix}`), {
-    headers: {
-      "Content-Type": "application/json",
-      "X-Request-Source": TAB_ID,
+  const res = await fetch(
+    appApiPath(`/api/threads/${threadId}/messages${suffix}`),
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "X-Request-Source": TAB_ID,
+      },
     },
-  });
+  );
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     const message = body?.error || `Request failed (${res.status})`;

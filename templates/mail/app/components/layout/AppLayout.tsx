@@ -1088,11 +1088,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-	                onClick={() => {
-	                  if (inboxIsFetching) return;
-	                  setIsManuallyRefreshing(true);
-	                  markExternalEmailRefresh();
-	                  qc.invalidateQueries({ queryKey: ["emails"] });
+                onClick={() => {
+                  if (inboxIsFetching) return;
+                  setIsManuallyRefreshing(true);
+                  markExternalEmailRefresh();
+                  qc.invalidateQueries({ queryKey: ["emails"] });
                   qc.invalidateQueries({ queryKey: ["labels"] });
                   window.setTimeout(() => setIsManuallyRefreshing(false), 800);
                 }}

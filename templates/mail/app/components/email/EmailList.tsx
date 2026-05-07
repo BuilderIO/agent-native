@@ -235,9 +235,7 @@ function EmailErrorState({
   containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const rateLimitRetryMs = isQuotaError ? getRateLimitRetryMs(message) : 0;
-  const [cooldownRemaining, setCooldownRemaining] = useState(
-    rateLimitRetryMs,
-  );
+  const [cooldownRemaining, setCooldownRemaining] = useState(rateLimitRetryMs);
   const autoRetryFired = useRef(false);
 
   useEffect(() => {

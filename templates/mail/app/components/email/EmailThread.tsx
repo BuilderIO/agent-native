@@ -390,7 +390,8 @@ export function EmailThread({
       }
       const nextThreadId = ids[nextIdx];
       const nextThread = threads.find(
-        (t) => (t.latestMessage.threadId || t.latestMessage.id) === nextThreadId,
+        (t) =>
+          (t.latestMessage.threadId || t.latestMessage.id) === nextThreadId,
       );
       setSelectedIds?.(new Set());
       void ensureThread(nextThreadId, nextThread?.latestMessage.accountEmail);

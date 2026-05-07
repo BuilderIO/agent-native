@@ -593,7 +593,13 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
       const accountTokens = await getAccountTokens(email);
       let candidateTokens = accountTokens;
       if (accountEmail) {
-        const resolvedAccount = await resolveAccountEmail(accountEmail, email);
+        let resolvedAccount: string;
+        try {
+          resolvedAccount = await resolveAccountEmail(accountEmail, email);
+        } catch {
+          setResponseStatus(event, 403);
+          return { error: "Account not owned by current user" };
+        }
         candidateTokens = accountTokens.filter(
           (account) => account.email === resolvedAccount,
         );
