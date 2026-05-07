@@ -226,11 +226,6 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://agent-native.com/docs/template-images</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
     <loc>https://agent-native.com/docs/template-mail</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
