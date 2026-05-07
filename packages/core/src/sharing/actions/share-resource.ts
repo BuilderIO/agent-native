@@ -23,6 +23,50 @@ export function isSyntheticQaEmail(email: string): boolean {
   );
 }
 
+function appPath(path: string): string {
+  if (!path.startsWith("/")) return path;
+  const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
+  const base = raw.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!base) return path;
+  const normalizedBase = `/${base}`;
+  if (path === normalizedBase || path.startsWith(`${normalizedBase}/`)) {
+    return path;
+  }
+  return `${normalizedBase}${path}`;
+}
+
+function safeNotificationUrl(value: string, appUrl: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  try {
+    const base = new URL(appUrl);
+    if (trimmed.startsWith("/")) {
+      return new URL(appPath(trimmed), `${base.origin}/`).toString();
+    }
+
+    const url = new URL(trimmed);
+    if (!["http:", "https:"].includes(url.protocol)) return null;
+    if (url.origin !== base.origin) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+export function resolveShareNotificationUrl(
+  explicitUrl: string | undefined,
+  fallbackPath: string | undefined,
+  appUrl = getAppProductionUrl(),
+): string {
+  for (const candidate of [explicitUrl, fallbackPath]) {
+    if (!candidate) continue;
+    const url = safeNotificationUrl(candidate, appUrl);
+    if (url) return url;
+  }
+  return appUrl;
+}
+
 function nanoid(size = 12): string {
   const chars =
     "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -55,6 +99,18 @@ export default defineAction({
       .enum(["viewer", "editor", "admin"])
       .default("viewer")
       .describe("Role to grant."),
+    notify: z
+      .boolean()
+      .default(true)
+      .describe(
+        "Whether to email the user about a new individual share. Defaults to true.",
+      ),
+    resourceUrl: z
+      .string()
+      .optional()
+      .describe(
+        "Optional app-relative or same-origin URL recipients should open. External origins are ignored.",
+      ),
   }),
   run: async (args) => {
     const reg = requireShareableResource(args.resourceType);
@@ -94,6 +150,7 @@ export default defineAction({
     });
 
     if (
+      args.notify !== false &&
       args.principalType === "user" &&
       isEmailConfigured() &&
       !isSyntheticQaEmail(args.principalId)
@@ -107,6 +164,15 @@ export default defineAction({
         const resourceTitle: string =
           (resource?.[titleCol] as string | undefined) ?? args.resourceType;
         const appUrl = getAppProductionUrl();
+        const resourcePath =
+          resource && reg.getResourcePath
+            ? reg.getResourcePath(resource)
+            : undefined;
+        const notificationUrl = resolveShareNotificationUrl(
+          args.resourceUrl,
+          resourcePath,
+          appUrl,
+        );
         const appName =
           process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent Native";
         const subject = `${actor} shared "${resourceTitle}" with you on ${appName}`;
@@ -115,9 +181,9 @@ export default defineAction({
           heading: "You've been given access",
           paragraphs: [
             `${emailStrong(actor)} has shared the ${reg.displayName} ${emailStrong(resourceTitle)} with you as a ${emailStrong(args.role)}.`,
-            `You can access it by visiting ${emailStrong(appName)}.`,
+            `Use the button below to open it. If prompted, sign in with ${emailStrong(args.principalId)}.`,
           ],
-          cta: { label: `Open ${reg.displayName}`, url: appUrl },
+          cta: { label: `Open ${reg.displayName}`, url: notificationUrl },
           footer: `You received this because ${actor} granted you ${args.role} access.`,
         });
         await sendEmail({ to: args.principalId, subject, html, text });

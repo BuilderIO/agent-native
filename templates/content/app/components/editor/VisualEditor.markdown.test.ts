@@ -1,14 +1,19 @@
 // @vitest-environment happy-dom
 
-import { Editor } from "@tiptap/core";
+import { Editor, getSchema } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "tiptap-markdown";
 import { describe, expect, it } from "vitest";
+import * as Y from "yjs";
+import { Awareness } from "y-protocols/awareness";
 import {
   parseNfmForEditor,
   serializeEditorToNfm,
 } from "@shared/notion-markdown";
-import { EmptyLineParagraph } from "./VisualEditor";
+import {
+  createVisualEditorExtensions,
+  EmptyLineParagraph,
+} from "./VisualEditor";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 
 function createMarkdownEditor(content: string) {
@@ -58,6 +63,30 @@ describe("VisualEditor markdown round-tripping", () => {
       expect(JSON.stringify(json)).toContain('"bulletList"');
     } finally {
       editor.destroy();
+    }
+  });
+
+  it("creates a collaborative empty doc without recursive block filling", () => {
+    const ydoc = new Y.Doc();
+    const awareness = new Awareness(ydoc);
+    const schema = getSchema(
+      createVisualEditorExtensions({
+        ydoc,
+        localAwareness: awareness,
+        user: { name: "Test User", color: "#60a5fa" },
+      }),
+    );
+
+    try {
+      const blockTypes = Object.values(schema.nodes)
+        .filter((nodeType) => nodeType.spec.group === "block")
+        .map((nodeType) => nodeType.name);
+
+      expect(blockTypes[0]).toBe("paragraph");
+      expect(schema.topNodeType.createAndFill()?.type.name).toBe("doc");
+    } finally {
+      awareness.destroy();
+      ydoc.destroy();
     }
   });
 });

@@ -11,5 +11,6 @@ registerShareableResource({
   sharesTable: schema.documentShares,
   displayName: "Document",
   titleColumn: "title",
+  getResourcePath: (document) => `/page/${document.id}`,
   getDb,
 });
