@@ -8,6 +8,7 @@ import { agentNativePath } from "@agent-native/core/client";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { VisualEditor } from "@/components/editor/VisualEditor";
+import { buildPublicDocumentDescription } from "@shared/og-description";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const id = params.id;
@@ -40,11 +41,31 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => {
   const title = data?.document?.title ?? "Public document";
+  const description = buildPublicDocumentDescription({
+    title,
+    content: data?.document?.content,
+  });
   return [
     { title },
     {
       name: "description",
-      content: data?.document?.content?.slice(0, 160) ?? "",
+      content: description,
+    },
+    {
+      property: "og:title",
+      content: title,
+    },
+    {
+      property: "og:description",
+      content: description,
+    },
+    {
+      name: "twitter:title",
+      content: title,
+    },
+    {
+      name: "twitter:description",
+      content: description,
     },
   ];
 };
