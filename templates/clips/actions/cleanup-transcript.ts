@@ -119,7 +119,10 @@ export default defineAction({
           prompt,
           wantJson,
         });
-        return shapeResult(args.task, text, "builder");
+        if (text.trim()) {
+          return shapeResult(args.task, text, "builder");
+        }
+        console.warn("[cleanup-transcript] Builder path returned empty text");
       } catch (err) {
         // Fall through to BYOK only when Builder is misconfigured / unavailable.
         // Hard errors (e.g. credits exhausted) still surface to the caller.

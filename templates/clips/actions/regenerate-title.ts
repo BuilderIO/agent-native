@@ -101,13 +101,19 @@ function fallbackTitleFromTranscript(text: string): string | null {
         .trim(),
     )
     .filter(Boolean);
-  const words = chunks
-    .slice(0, 3)
-    .join(" ")
-    .split(/\s+/)
-    .map((word) => word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}'-]+$/gu, ""))
-    .filter(Boolean)
-    .slice(0, 9);
+  const candidates = chunks.slice(0, 4).map((chunk) => {
+    const words = chunk
+      .split(/\s+/)
+      .map((word) => word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}'-]+$/gu, ""))
+      .filter(Boolean)
+      .slice(0, 9);
+    const signal = words.filter(
+      (word) => !TITLE_STOPWORDS.has(word.toLowerCase()),
+    ).length;
+    return { words, score: signal * 10 + Math.min(words.length, 9) };
+  });
+  const best = candidates.sort((a, b) => b.score - a.score)[0];
+  const words = best?.words ?? [];
   if (words.length < 2) return null;
   const title = words.map(titleCaseWord).join(" ");
   return cleanGeneratedTitle(title);

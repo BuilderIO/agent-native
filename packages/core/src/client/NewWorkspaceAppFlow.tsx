@@ -184,9 +184,7 @@ export function NewWorkspaceAppFlow({
       .catch((err) => {
         if (cancelled) return;
         setResources([]);
-        setResourcesError(
-          err?.message || "Could not load Dispatch resources",
-        );
+        setResourcesError(err?.message || "Could not load Dispatch resources");
       });
 
     return () => {

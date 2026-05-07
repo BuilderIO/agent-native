@@ -162,7 +162,7 @@ function AddResourceDialog() {
                     ? "Research Specialist"
                     : kind === "knowledge"
                       ? "Core GTM Messaging"
-                    : "Code Style Guide"
+                      : "Code Style Guide"
               }
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -199,7 +199,7 @@ function AddResourceDialog() {
                     ? "---\nname: Research Specialist\ndescription: Handles research tasks\n---\n\n# Instructions\n\n..."
                     : kind === "knowledge"
                       ? "# Core GTM Messaging\n\n## Positioning\n\n## ICP\n\n## Proof points\n\n## Source\n\n"
-                    : "# Instructions\n\nBehavioral rules and guidance for agents across apps..."
+                      : "# Instructions\n\nBehavioral rules and guidance for agents across apps..."
               }
               value={content}
               onChange={(e) => setContent(e.target.value)}
@@ -212,11 +212,7 @@ function AddResourceDialog() {
           <Button
             onClick={() =>
               create.mutate({
-                kind: kind as
-                  | "skill"
-                  | "instruction"
-                  | "agent"
-                  | "knowledge",
+                kind: kind as "skill" | "instruction" | "agent" | "knowledge",
                 name,
                 description: description || undefined,
                 path:

@@ -32,7 +32,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import {
@@ -243,7 +243,12 @@ async function completeReadyTranscript({
       durationMs: schema.recordings.durationMs,
     })
     .from(schema.recordings)
-    .where(eq(schema.recordings.id, recordingId))
+    .where(
+      and(
+        eq(schema.recordings.id, recordingId),
+        eq(schema.recordings.ownerEmail, ownerEmail),
+      ),
+    )
     .limit(1);
 
   void cleanupNativeTranscript({

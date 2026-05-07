@@ -197,9 +197,7 @@ export function CreateAppFlow({
       .catch((err) => {
         if (cancelled) return;
         setResources([]);
-        setResourcesError(
-          err?.message || "Could not load Dispatch resources",
-        );
+        setResourcesError(err?.message || "Could not load Dispatch resources");
       });
     return () => {
       cancelled = true;
@@ -222,10 +220,9 @@ export function CreateAppFlow({
     selectedResourceIds.length === 0
       ? "no resources"
       : `${selectedResourceIds.length} resource${selectedResourceIds.length === 1 ? "" : "s"}`;
-  const selectedAccessLabel = [
-    selectedSecretLabel,
-    selectedResourceLabel,
-  ].join(" · ");
+  const selectedAccessLabel = [selectedSecretLabel, selectedResourceLabel].join(
+    " · ",
+  );
 
   function toggleSecret(id: string) {
     setSelectedSecretIds((cur) =>
@@ -277,8 +274,7 @@ export function CreateAppFlow({
             body: JSON.stringify({
               prompt: trimmed,
               appId,
-              secretIds:
-                selectedSecretIds.length > 0 ? selectedSecretIds : [],
+              secretIds: selectedSecretIds.length > 0 ? selectedSecretIds : [],
               resourceIds:
                 selectedResourceIds.length > 0 ? selectedResourceIds : [],
             }),
@@ -301,8 +297,7 @@ export function CreateAppFlow({
     }
   }
 
-  const submitWithSelectedAccess = () =>
-    submit(prompt);
+  const submitWithSelectedAccess = () => submit(prompt);
 
   return (
     <div className={`flex flex-col gap-3 ${className}`}>
