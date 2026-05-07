@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Link, useLocation } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import {
   IconCalendar,
   IconSettings,
@@ -544,6 +544,7 @@ function GoogleAccountsSection({
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const {
     selectedDate,
     setSelectedDate,
@@ -579,6 +580,14 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   useEffect(() => {
     if (externalCalendars.length <= 2) setFeedsGroupOpen(true);
   }, [externalCalendars.length]);
+
+  function handleMiniCalendarDateSelect(date: Date) {
+    setSelectedDate(date);
+    if (location.pathname !== "/") {
+      navigate("/");
+    }
+    onClose();
+  }
 
   return (
     <>
@@ -624,7 +633,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         {/* Mini calendar */}
         <MiniCalendar
           selectedDate={selectedDate}
-          onDateSelect={setSelectedDate}
+          onDateSelect={handleMiniCalendarDateSelect}
         />
 
         {/* Nav */}
