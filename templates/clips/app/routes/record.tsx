@@ -188,26 +188,28 @@ function PreRecordPanelSkeleton() {
 
 function DesktopRecorderCallout() {
   return (
-    <aside className="w-full rounded-2xl border border-primary/20 bg-primary/5 p-5 shadow-sm lg:sticky lg:top-20">
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-        <IconAppWindow className="h-5 w-5" />
-      </div>
-      <div className="mt-4">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-primary">
-          More seamless
+    <aside className="w-full rounded-xl border border-border bg-muted/20 p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-background text-muted-foreground">
+          <IconAppWindow className="h-4 w-4" />
         </div>
-        <h2 className="mt-1 text-xl font-semibold tracking-tight">
-          Record with the desktop app
-        </h2>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          Launch Clips from the menu bar, use global shortcuts, and avoid the
-          extra browser setup that slows down repeat recordings.
-        </p>
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-foreground">Desktop app</div>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            More seamless for repeat recordings: menu-bar launch, global
+            shortcuts, and fewer browser prompts.
+          </p>
+        </div>
       </div>
-      <Button asChild className="mt-5 w-full gap-2">
+      <Button
+        asChild
+        variant="outline"
+        size="sm"
+        className="mt-4 w-full gap-1.5 bg-background/70"
+      >
         <Link to="/download">
-          <IconDownload className="h-4 w-4" />
-          Download desktop app
+          <IconDownload className="h-3.5 w-3.5" />
+          Download
         </Link>
       </Button>
     </aside>
@@ -1130,14 +1132,8 @@ export default function RecordRoute() {
                 Clips recorder
               </span>
             </div>
-            <div
-              className={
-                isDesktopApp
-                  ? "w-full max-w-md"
-                  : "grid w-full max-w-5xl items-start gap-5 lg:grid-cols-[minmax(0,28rem)_minmax(18rem,22rem)]"
-              }
-            >
-              <div className="min-w-0">
+            <div className="relative w-full max-w-6xl">
+              <div className="mx-auto w-full max-w-md">
                 {storageConfigured === null ? (
                   <PreRecordPanelSkeleton />
                 ) : storageConfigured ? (
@@ -1153,7 +1149,11 @@ export default function RecordRoute() {
                   />
                 )}
               </div>
-              {!isDesktopApp && <DesktopRecorderCallout />}
+              {!isDesktopApp && (
+                <div className="mx-auto mt-4 w-full max-w-md xl:absolute xl:left-[calc(50%+15rem)] xl:top-0 xl:mt-0 xl:w-72">
+                  <DesktopRecorderCallout />
+                </div>
+              )}
             </div>
           </div>
         </RequireActiveOrg>
