@@ -9,7 +9,6 @@ import {
   readBody,
   getSession,
   isElectron,
-  getOrigin,
   getAppUrl,
   resolveOAuthRedirectUri,
   encodeOAuthState,
