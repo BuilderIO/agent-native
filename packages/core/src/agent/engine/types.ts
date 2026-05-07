@@ -126,6 +126,8 @@ export type EngineMessage =
 export type EngineEvent =
   | { type: "text-delta"; text: string }
   | { type: "thinking-delta"; text: string; signature?: string }
+  | { type: "tool-input-start"; id?: string; name?: string }
+  | { type: "tool-input-delta"; id?: string; name?: string; text?: string }
   | { type: "tool-call"; id: string; name: string; input: unknown }
   | {
       type: "tool-call-error";

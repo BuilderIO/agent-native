@@ -263,7 +263,7 @@ describe("createBuilderEngine", () => {
     expect(stop?.reason).toBe("tool_use");
   });
 
-  it("drops tool-call-delta events (engine contract has no equivalent)", async () => {
+  it("maps tool-call-delta events to tool input progress", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -289,7 +289,20 @@ describe("createBuilderEngine", () => {
     const engine = createBuilderEngine();
     const events = await collectEvents(engine.stream(BASE_OPTS));
 
-    expect(events.find((e) => e.type === "tool-call-delta")).toBeUndefined();
+    expect(events.filter((e) => e.type === "tool-input-delta")).toEqual([
+      {
+        type: "tool-input-delta",
+        id: "toolu_01",
+        name: "x",
+        text: "{",
+      },
+      {
+        type: "tool-input-delta",
+        id: "toolu_01",
+        name: "x",
+        text: "}",
+      },
+    ]);
     expect(events.find((e) => e.type === "tool-call")).toBeDefined();
   });
 

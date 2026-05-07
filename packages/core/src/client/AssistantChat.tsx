@@ -37,7 +37,11 @@ import remarkGfm from "remark-gfm";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { getActiveRun } from "./active-run-state.js";
-import { type ContentPart, readSSEStreamRaw } from "./sse-event-processor.js";
+import {
+  AgentAutoContinueSignal,
+  type ContentPart,
+  readSSEStreamRaw,
+} from "./sse-event-processor.js";
 import { cn } from "./utils.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
@@ -2255,6 +2259,7 @@ const AssistantChatInner = forwardRef<
   } | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
+  const [activityLabel, setActivityLabel] = useState<string | null>(null);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
@@ -2434,12 +2439,16 @@ const AssistantChatInner = forwardRef<
                 // detection + startup reap, this only triggers in truly
                 // pathological cases. Keeps "Reconnecting…" from feeling
                 // infinite.
+                let reconnectTimedOut = false;
                 const maxReconnectTimer = setTimeout(() => {
+                  reconnectTimedOut = true;
                   abortCtrl.abort();
                   clearInterval(watchdog);
                 }, 20_000);
 
                 const streamReconnect = async () => {
+                  let noProgressDuringReconnect = false;
+                  let latestContent: ContentPart[] = [];
                   try {
                     const sseRes = await fetch(
                       `${apiUrl}/runs/${encodeURIComponent(runInfo.runId)}/events?after=0`,
@@ -2447,6 +2456,7 @@ const AssistantChatInner = forwardRef<
                     );
                     if (sseRes.ok && sseRes.body) {
                       const content: ContentPart[] = [];
+                      latestContent = content;
                       const toolCallCounter = { value: 0 };
 
                       // Throttle React state updates via requestAnimationFrame
@@ -2474,11 +2484,57 @@ const AssistantChatInner = forwardRef<
                       // Final update with complete content
                       setReconnectContent([...content]);
                     }
-                  } catch {
-                    // Stream error or abort — fall through to re-fetch
+                  } catch (err) {
+                    if (
+                      err instanceof AgentAutoContinueSignal &&
+                      err.reason === "no_progress"
+                    ) {
+                      noProgressDuringReconnect = true;
+                    } else if (
+                      reconnectTimedOut &&
+                      err instanceof Error &&
+                      err.name === "AbortError"
+                    ) {
+                      noProgressDuringReconnect = true;
+                    }
+                    // Other stream errors/aborts fall through to re-fetch.
                   } finally {
                     clearInterval(watchdog);
                     clearTimeout(maxReconnectTimer);
+                  }
+
+                  if (noProgressDuringReconnect && reconnectRunIdRef.current) {
+                    try {
+                      await fetch(
+                        `${apiUrl}/runs/${encodeURIComponent(runInfo.runId)}/abort`,
+                        {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ reason: "no_progress" }),
+                        },
+                      );
+                    } catch {
+                      // Best effort — the important part is unwinding the UI.
+                    }
+                    setReconnectContent([...latestContent]);
+                    setReconnectFrozen(latestContent.length > 0);
+                    setRunErrorInfo({
+                      message:
+                        "The previous agent run stopped producing visible progress while reconnecting, so it was stopped before it could keep looping.",
+                      errorCode: "reconnect_no_progress",
+                      recoverable: true,
+                      runId: runInfo.runId,
+                    });
+                    setDismissedRunErrorKey(null);
+                    reconnectAbortRef.current = null;
+                    setIsReconnecting(false);
+                    reconnectRunIdRef.current = null;
+                    window.dispatchEvent(
+                      new CustomEvent("agentNative.chatRunning", {
+                        detail: { isRunning: false, tabId: tabId || threadId },
+                      }),
+                    );
+                    return;
                   }
 
                   // Poll for thread data — server's updateThreadData may not have
@@ -2803,6 +2859,25 @@ const AssistantChatInner = forwardRef<
     return () => window.removeEventListener("agent-chat:run-error", handler);
   }, [tabId]);
 
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as {
+        label?: string;
+        tabId?: string;
+      };
+      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
+      if (typeof detail?.label === "string" && detail.label.trim()) {
+        setActivityLabel(detail.label.trim());
+      }
+    };
+    window.addEventListener("agent-chat:activity", handler);
+    return () => window.removeEventListener("agent-chat:activity", handler);
+  }, [tabId]);
+
+  useEffect(() => {
+    if (!showRunningInUI) setActivityLabel(null);
+  }, [showRunningInUI]);
+
   // Auto-dequeue: when agent finishes running, send the next queued message
   useEffect(() => {
     if (wasRunningRef.current && !isRunning && queuedMessages.length > 0) {
@@ -2874,6 +2949,7 @@ const AssistantChatInner = forwardRef<
       setLoopLimitInfo(null);
       setRunErrorInfo(null);
       setDismissedRunErrorKey(null);
+      setActivityLabel(null);
       userStoppedRunRef.current = null;
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
@@ -3273,7 +3349,11 @@ const AssistantChatInner = forwardRef<
                 system is actively recovering, not just stuck. */}
                   {showRunningInUI && (
                     <ThinkingIndicator
-                      label={isReconnecting ? "Reconnecting" : "Thinking"}
+                      label={
+                        isReconnecting
+                          ? "Reconnecting"
+                          : (activityLabel ?? "Thinking")
+                      }
                     />
                   )}
                   {queuedMessages.map((msg) => {

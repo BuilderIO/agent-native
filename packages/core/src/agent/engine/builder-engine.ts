@@ -439,8 +439,17 @@ async function* parseJsonlStream(
         }
 
         case "tool-call-delta":
-          // Engine contract has no equivalent; drop. The authoritative
-          // `tool-call` event follows with the fully-parsed input.
+          yield {
+            type: "tool-input-delta",
+            id: event.id,
+            name: event.name,
+            text:
+              typeof event.argsTextDelta === "string"
+                ? event.argsTextDelta
+                : typeof event.delta === "string"
+                  ? event.delta
+                  : "",
+          };
           break;
 
         case "tool-call": {

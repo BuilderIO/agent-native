@@ -16,6 +16,7 @@ export interface SSEEvent {
   type: string;
   text?: string;
   tool?: string;
+  label?: string;
   input?: Record<string, string>;
   result?: string;
   error?: string;
@@ -212,6 +213,21 @@ export function processEvent(
       action: "yield",
       result: { content: [...content] } as ChatModelRunResult,
     };
+  }
+
+  if (ev.type === "activity") {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:activity", {
+          detail: {
+            label: ev.label ?? "Working",
+            ...(ev.tool ? { tool: ev.tool } : {}),
+            tabId,
+          },
+        }),
+      );
+    }
+    return { action: "continue" };
   }
 
   if (ev.type === "tool_start") {
@@ -631,7 +647,12 @@ export async function readSSEStreamRaw(
         sawDataEvent = true;
         lastMeaningfulEventAt = Date.now();
 
-        const { action } = processEvent(ev, content, toolCallCounter, tabId);
+        const { action, autoContinue } = processEvent(
+          ev,
+          content,
+          toolCallCounter,
+          tabId,
+        );
 
         if (
           action === "yield" ||
@@ -643,7 +664,9 @@ export async function readSSEStreamRaw(
         }
         if (action === "auto_continue") {
           onUpdate([...content]);
-          return;
+          throw new AgentAutoContinueSignal(
+            autoContinue ?? { reason: "stream_ended" },
+          );
         }
         if (
           action === "done" ||
@@ -673,4 +696,5 @@ export async function readSSEStreamRaw(
     }
   }
   if (content.length > 0) onUpdate([...content]);
+  throw new AgentAutoContinueSignal({ reason: "stream_ended" });
 }

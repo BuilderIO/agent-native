@@ -154,7 +154,7 @@ export default function PublicDocumentPage() {
         <p className="text-sm text-muted-foreground">
           Updated {formatUpdatedAt(document.updatedAt)}
         </p>
-        <h1 className="mt-3 text-4xl font-semibold tracking-normal text-foreground sm:text-5xl">
+        <h1 className="mt-3 break-words text-4xl font-semibold tracking-normal text-foreground sm:text-5xl">
           {document.title}
         </h1>
         <div className="mt-8 border-t border-border pt-4">

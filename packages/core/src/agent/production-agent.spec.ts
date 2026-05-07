@@ -247,6 +247,83 @@ describe("buildUserContentWithAttachments", () => {
 });
 
 describe("runAgentLoop", () => {
+  it("emits activity while a tool input is being assembled", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "tool-input-start",
+            id: "tool-create",
+            name: "create-document",
+          };
+          yield {
+            type: "tool-input-delta",
+            id: "tool-create",
+            text: '{"title"',
+          };
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "tool-create",
+                name: "create-document",
+                input: { title: "New doc" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "text-delta", text: "done" };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "create-document": actionEntry({ readOnly: false }),
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(events).toContainEqual({
+      type: "activity",
+      label: "Preparing create-document action",
+      tool: "create-document",
+    });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_start",
+        tool: "create-document",
+      }),
+    );
+  });
+
   it("serializes tool calls when a turn includes mutating actions", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {

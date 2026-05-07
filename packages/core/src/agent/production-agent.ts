@@ -487,9 +487,14 @@ export interface ProductionAgentOptions {
 
 const MAX_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 2000;
+const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
 
 function generateRunId(): string {
   return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function toolInputActivityLabel(toolName?: string): string {
+  return toolName ? `Preparing ${toolName} action` : "Preparing action input";
 }
 
 /** Check if an error is transient and should be retried */
@@ -1098,6 +1103,26 @@ export async function runAgentLoop(opts: {
 
         const eventStream = engine.stream(streamOpts);
         let thinkingBuffer = "";
+        const toolInputNames = new Map<string, string>();
+        let lastToolInputActivityAt = 0;
+        const sendToolInputActivity = (
+          toolName: string | undefined,
+          force = false,
+        ) => {
+          const now = Date.now();
+          if (
+            !force &&
+            now - lastToolInputActivityAt < TOOL_INPUT_ACTIVITY_INTERVAL_MS
+          ) {
+            return;
+          }
+          lastToolInputActivityAt = now;
+          send({
+            type: "activity",
+            label: toolInputActivityLabel(toolName),
+            ...(toolName ? { tool: toolName } : {}),
+          });
+        };
 
         for await (const event of eventStream) {
           if (event.type === "text-delta") {
@@ -1107,6 +1132,16 @@ export async function runAgentLoop(opts: {
             // Thinking deltas are not forwarded to the SSE client yet —
             // we accumulate them. In a future iteration, we can surface
             // them as a collapsible "reasoning" section in the UI.
+          } else if (event.type === "tool-input-start") {
+            if (event.id && event.name) {
+              toolInputNames.set(event.id, event.name);
+            }
+            sendToolInputActivity(event.name, true);
+          } else if (event.type === "tool-input-delta") {
+            const toolName =
+              event.name ??
+              (event.id ? toolInputNames.get(event.id) : undefined);
+            sendToolInputActivity(toolName);
           } else if (event.type === "tool-call") {
             // The authoritative tool-call blocks arrive in assistant-content.
           } else if (event.type === "tool-call-error") {

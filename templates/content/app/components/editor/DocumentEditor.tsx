@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { VisualEditor } from "./VisualEditor";
 import { DocumentToolbar } from "./DocumentToolbar";
 import { NotionConflictBanner } from "./NotionConflictBanner";
@@ -77,9 +83,16 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const localContentRef = useRef(localContent);
   localContentRef.current = localContent;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const titleInputRef = useRef<HTMLInputElement>(null);
+  const titleInputRef = useRef<HTMLTextAreaElement>(null);
   const shouldFocusTitleRef = useRef(false);
   const canEdit = document.canEdit ?? true;
+
+  useLayoutEffect(() => {
+    const textarea = titleInputRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [localTitle]);
 
   // Current user info for cursor labels
   const { session } = useSession();
@@ -302,10 +315,14 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                 </div>
               ) : null}
             </div>
-            <input
+            <textarea
               ref={titleInputRef}
+              rows={1}
+              wrap="soft"
               value={localTitle}
-              onChange={(e) => handleTitleChange(e.target.value)}
+              onChange={(e) =>
+                handleTitleChange(e.target.value.replace(/\s*\r?\n\s*/g, " "))
+              }
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -315,9 +332,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                   pm?.focus();
                 }
               }}
+              aria-label="Document title"
               placeholder="Title"
               readOnly={!canEdit}
-              className="w-full text-3xl font-bold bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/40 md:text-4xl"
+              className="block w-full resize-none overflow-hidden break-words border-none bg-transparent p-0 text-3xl font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40 md:text-4xl"
             />
           </div>
 

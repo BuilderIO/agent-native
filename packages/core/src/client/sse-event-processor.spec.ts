@@ -155,6 +155,26 @@ describe("SSE event processor no-progress recovery", () => {
     expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
     expect(onUpdate).not.toHaveBeenCalled();
   });
+
+  it("turns raw streams that close without a terminal event into a recovery signal", async () => {
+    const content: any[] = [];
+    const onUpdate = vi.fn();
+
+    const err = await readSSEStreamRaw(
+      eventStream([{ type: "text", text: "partial" }]),
+      content,
+      { value: 0 },
+      undefined,
+      onUpdate,
+    ).then(
+      () => undefined,
+      (caught) => caught,
+    );
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("stream_ended");
+    expect(onUpdate).toHaveBeenCalledWith([{ type: "text", text: "partial" }]);
+  });
 });
 
 describe("SSE event processor error classification", () => {
@@ -354,6 +374,51 @@ describe("SSE event processor error classification", () => {
 
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:missing-api-key" }),
+    );
+  });
+
+  it("dispatches activity events without adding visible content", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Preparing create-document action",
+            tool: "create-document",
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-activity",
+      ),
+    );
+
+    expect(results).toEqual([{ content: [] }]);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:activity",
+        detail: {
+          label: "Preparing create-document action",
+          tool: "create-document",
+          tabId: "tab-activity",
+        },
+      }),
     );
   });
 
