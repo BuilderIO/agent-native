@@ -50,6 +50,7 @@ import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import regenerateTitle from "./regenerate-title.js";
 import cleanupTranscript from "./cleanup-transcript.js";
+import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 
 /**
  * Default title seeded by `create-recording`. Used to detect "the user hasn't
@@ -162,9 +163,14 @@ async function cleanupNativeTranscript({
   });
 
   try {
+    const agentsContext = await loadAgentsMdContext({
+      ownerEmail,
+      purpose: "cleanup",
+    });
     const result = await cleanupTranscript.run({
       transcript: sourceText,
       task: "cleanup",
+      context: agentsContext,
     });
     const cleanedText = result.cleanedText?.trim();
     if (!cleanedText || cleanedText === sourceText) {
@@ -255,12 +261,17 @@ async function completeReadyTranscript({
 
   const titleQueued = !!(recForTitle && isDefaultTitle(recForTitle.title));
   if (titleQueued) {
-    void regenerateTitle.run({ recordingId }).catch((err) => {
-      console.warn(
-        `[clips] native-transcript title generation failed for ${recordingId}:`,
-        (err as Error)?.message ?? String(err),
-      );
-    });
+    void regenerateTitle
+      .run({
+        recordingId,
+        transcriptText: fullText,
+      })
+      .catch((err) => {
+        console.warn(
+          `[clips] native-transcript title generation failed for ${recordingId}:`,
+          (err as Error)?.message ?? String(err),
+        );
+      });
   }
 
   // Wake the player polling so it picks up the queued cleanup state row

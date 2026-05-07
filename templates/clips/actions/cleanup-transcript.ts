@@ -335,14 +335,14 @@ function buildPrompt({
 
   if (task === "title") {
     return {
-      system: `${CLIPS_TRANSCRIPT_AGENT_INSTRUCTIONS}\n\nYou produce one short, descriptive title for a Clip. Output the title only — no quotes, no preamble, no markdown. Keep it under 80 characters.${langHint}`,
+      system: `${CLIPS_TRANSCRIPT_AGENT_INSTRUCTIONS}\n\nYou produce one short, descriptive title for a Clip. If AGENTS.md resources are included in <context>, use them only for relevant naming, terminology, style, and personal/team preferences; personal instructions win over organization instructions. Output the title only — no quotes, no preamble, no markdown. Keep it under 80 characters.${langHint}`,
       user: `Pick a concise, specific title for this transcript:${ctxBlock}\n\n<transcript>\n${transcript}\n</transcript>`,
     };
   }
 
   if (task === "cleanup") {
     return {
-      system: `${CLIPS_TRANSCRIPT_AGENT_INSTRUCTIONS}\n\nYou clean up live speech-recognition transcripts. Preserve the speaker's meaning and voice. Fix obvious recognition errors, punctuation, capitalization, and spacing. Remove false starts and filler when clearly unintentional. Do not add facts. Output only the cleaned transcript text — no preamble, no markdown.${langHint}`,
+      system: `${CLIPS_TRANSCRIPT_AGENT_INSTRUCTIONS}\n\nYou clean up live speech-recognition transcripts. If AGENTS.md resources are included in <context>, use them only for relevant cleanup preferences: vocabulary, casing, punctuation style, formatting style, terminology, speaker voice, and team/personal conventions; personal instructions win over organization instructions. Preserve the speaker's meaning and voice. Fix obvious recognition errors, punctuation, capitalization, and spacing. Remove false starts and filler when clearly unintentional. Do not add facts. Output only the cleaned transcript text — no preamble, no markdown.${langHint}`,
       user: `Clean up this transcript and return only the final text:${ctxBlock}\n\n<transcript>\n${transcript}\n</transcript>`,
     };
   }

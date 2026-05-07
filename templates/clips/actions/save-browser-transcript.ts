@@ -132,7 +132,10 @@ export default defineAction({
     const titleQueued = !!(rec && isDefaultTitle(rec.title));
     if (titleQueued) {
       void regenerateTitle
-        .run({ recordingId: args.recordingId })
+        .run({
+          recordingId: args.recordingId,
+          transcriptText: args.fullText.trim(),
+        })
         .catch((err) => {
           console.warn(
             `[clips] native transcript title generation skipped for ${args.recordingId}:`,

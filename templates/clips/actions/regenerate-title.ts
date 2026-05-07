@@ -16,7 +16,9 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import cleanupTranscript from "./cleanup-transcript.js";
+import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 
 const DEFAULT_TITLE = "Untitled recording";
 
@@ -50,11 +52,32 @@ function cleanGeneratedTitle(raw: string | null | undefined): string | null {
   return title.slice(0, 80);
 }
 
+function buildTitleContext({
+  currentTitle,
+  agentsContext,
+}: {
+  currentTitle?: string | null;
+  agentsContext?: string;
+}): string | undefined {
+  const parts: string[] = [];
+  if (currentTitle && !isDefaultTitle(currentTitle)) {
+    parts.push(`Current title: ${currentTitle}`);
+  }
+  if (agentsContext) parts.push(agentsContext);
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
 export default defineAction({
   description:
     "Regenerate this recording's title from its transcript using the Gemini 3.1 Flash-Lite cleanup/title path, falling back to the agent chat bridge when unavailable.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
+    transcriptText: z
+      .string()
+      .optional()
+      .describe(
+        "Optional native Web Speech/macOS Speech transcript text to title from immediately.",
+      ),
   }),
   run: async (args) => {
     await assertAccess("recording", args.recordingId, "editor");
@@ -77,22 +100,31 @@ export default defineAction({
       .limit(1);
 
     const transcriptText =
+      args.transcriptText?.trim() ||
       transcript?.fullText?.trim() ||
       transcriptTextFromSegments(transcript?.segmentsJson);
-    if (transcript?.status !== "ready" || !transcriptText) {
+    if (
+      (!args.transcriptText && transcript?.status !== "ready") ||
+      !transcriptText
+    ) {
       throw new Error(
         "Transcript is not ready yet. Try again after transcription finishes.",
       );
     }
 
+    const agentsContext = await loadAgentsMdContext({
+      ownerEmail: getRequestUserEmail() ?? transcript?.ownerEmail,
+      purpose: "title",
+    });
+
     try {
       const result = await cleanupTranscript.run({
         transcript: transcriptText,
         task: "title",
-        context:
-          rec.title && !isDefaultTitle(rec.title)
-            ? `Current title: ${rec.title}`
-            : undefined,
+        context: buildTitleContext({
+          currentTitle: rec.title,
+          agentsContext,
+        }),
       });
       const generatedTitle = cleanGeneratedTitle(result.title);
 
@@ -148,9 +180,10 @@ export default defineAction({
       transcriptStatus: transcript?.status ?? "pending",
       transcriptText,
       segmentsJson: transcript?.segmentsJson ?? "[]",
+      agentsContext,
       message:
         `Regenerate the title for recording ${args.recordingId}. ` +
-        `Read the transcript in this request's context and call ` +
+        `Read the native transcript and AGENTS.md context in this request's context and call ` +
         `\`update-recording --id=${args.recordingId} --title="..."\` with a concise ` +
         `4-9 word descriptive title. Current title: "${rec.title}". ` +
         "Do not prompt the user.",

@@ -32,6 +32,7 @@ interface AiRequest {
   transcriptStatus?: string;
   transcriptText?: string;
   segmentsJson?: string;
+  agentsContext?: string;
   thresholdMs?: number;
   message?: string;
 }
@@ -172,6 +173,7 @@ function buildRequestContext(rec: RecordingSummary, request: AiRequest) {
     recordingId: rec.id,
     currentTitle: request.currentTitle ?? rec.title,
     transcript: request.transcriptText ?? "",
+    agentsContext: request.agentsContext ?? "",
     transcriptStatus: request.transcriptStatus ?? "ready",
     transcriptSegments: parseJsonArray(request.segmentsJson),
     request,
