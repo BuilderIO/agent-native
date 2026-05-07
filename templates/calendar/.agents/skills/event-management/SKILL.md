@@ -90,6 +90,14 @@ Use only one generated video provider per event: `--addGoogleMeet=true` or `--ad
 
 `--attendees` accepts a comma- or space-separated list of email addresses. When attendees are provided, Google sends email invitations automatically (`sendUpdates=all`). Use `--sendUpdates=none` to suppress emails.
 
+Use `--startTimeZone` / `--endTimeZone` with IANA timezone names when the event should be anchored to a specific timezone, e.g. `--startTimeZone America/Los_Angeles`.
+
+Use `--reminders '[{"method":"popup","minutes":10},{"method":"email","minutes":1440}]'` for multiple alerts. Use `--remindersUseDefault false --reminders '[]'` for no alerts.
+
+Use `--colorId 1..11` for a Google Calendar event color. Use `update-calendar-visual-preferences` for broad app display rules instead of per-event Google color.
+
+Use `--attachments '[{"fileUrl":"https://drive.google.com/...","title":"Agenda"}]'` to attach Drive files or HTTPS file links. Google Calendar supports up to 25 attachments per event.
+
 The event is created directly on Google Calendar. Google Calendar must be connected first.
 
 ### update-event
@@ -111,6 +119,13 @@ pnpm action update-event --id google-event-id --attendees "alice@example.com" --
 # Add generated video conferencing
 pnpm action update-event --id google-event-id --addGoogleMeet=true
 pnpm action update-event --id google-event-id --addZoom=true
+
+# Add multiple alerts, a Google event color, and an attachment
+pnpm action update-event \
+  --id google-event-id \
+  --reminders '[{"method":"popup","minutes":10},{"method":"email","minutes":1440}]' \
+  --colorId 9 \
+  --attachments '[{"fileUrl":"https://drive.google.com/...","title":"Agenda"}]'
 ```
 
 `--attendees` REPLACES the entire attendee list — to add someone, fetch the existing attendees first via `get-event` and pass the merged list. Pass an empty string to clear all attendees.
