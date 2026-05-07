@@ -263,6 +263,11 @@ async function completeReadyTranscript({
     });
   }
 
+  // Wake the player polling so it picks up the queued cleanup state row
+  // (`transcript-cleanup-${recordingId}`) before its next 2s tick lands —
+  // otherwise the "Cleaning up…" badge can lag for one full poll interval.
+  await writeAppState("refresh-signal", { ts: Date.now() });
+
   return {
     recordingId,
     status: "ready",
