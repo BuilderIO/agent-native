@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Link, useNavigate } from "react-router";
-import { IconAppWindow, IconArrowLeft, IconVideo } from "@tabler/icons-react";
+import {
+  IconAppWindow,
+  IconArrowLeft,
+  IconDownload,
+  IconVideo,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { agentNativePath, appBasePath } from "@agent-native/core/client";
 import { RequireActiveOrg } from "@agent-native/core/client/org";
@@ -145,20 +150,67 @@ interface PendingRecording {
 
 function PreRecordPanelSkeleton() {
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-5 rounded-2xl border border-border bg-card p-6 shadow-lg">
-      <div className="space-y-2">
-        <Skeleton className="h-5 w-40" />
-        <Skeleton className="h-3 w-56" />
+    <div className="mx-auto w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
+      <div className="space-y-4 p-6">
+        <div className="space-y-2">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="h-3 w-64" />
+        </div>
+        <div className="grid grid-cols-3 gap-1 rounded-xl bg-muted p-1">
+          <Skeleton className="h-11 rounded-lg" />
+          <Skeleton className="h-11 rounded-lg" />
+          <Skeleton className="h-11 rounded-lg" />
+        </div>
       </div>
-      <div className="grid grid-cols-3 gap-2">
-        <Skeleton className="h-[78px] rounded-xl" />
-        <Skeleton className="h-[78px] rounded-xl" />
-        <Skeleton className="h-[78px] rounded-xl" />
+      <div className="space-y-0 border-t border-border">
+        <div className="flex items-center gap-3 px-6 py-4">
+          <Skeleton className="h-8 w-8 rounded-lg" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-3 w-36" />
+          </div>
+        </div>
+        <div className="flex items-center gap-3 border-t border-border px-6 py-4">
+          <Skeleton className="h-8 w-8 rounded-lg" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-3 w-48" />
+          </div>
+        </div>
       </div>
-      <Skeleton className="h-9 w-full rounded-md" />
-      <Skeleton className="h-9 w-full rounded-md" />
-      <Skeleton className="ml-auto h-9 w-32 rounded-md" />
+      <div className="space-y-3 border-t border-border p-6">
+        <Skeleton className="h-11 w-full rounded-md" />
+        <Skeleton className="mx-auto h-8 w-48 rounded-md" />
+      </div>
     </div>
+  );
+}
+
+function DesktopRecorderCallout() {
+  return (
+    <aside className="w-full rounded-2xl border border-primary/20 bg-primary/5 p-5 shadow-sm lg:sticky lg:top-20">
+      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+        <IconAppWindow className="h-5 w-5" />
+      </div>
+      <div className="mt-4">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-primary">
+          More seamless
+        </div>
+        <h2 className="mt-1 text-xl font-semibold tracking-tight">
+          Record with the desktop app
+        </h2>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+          Launch Clips from the menu bar, use global shortcuts, and avoid the
+          extra browser setup that slows down repeat recordings.
+        </p>
+      </div>
+      <Button asChild className="mt-5 w-full gap-2">
+        <Link to="/download">
+          <IconDownload className="h-4 w-4" />
+          Download desktop app
+        </Link>
+      </Button>
+    </aside>
   );
 }
 
@@ -1071,35 +1123,38 @@ export default function RecordRoute() {
           title="Create your organization"
           description="Clips organizes recordings by team. Create an organization to continue — you can invite teammates afterward."
         >
-          <div className="flex min-h-screen flex-col items-center justify-center px-4">
+          <div className="flex min-h-screen flex-col items-center justify-center px-4 py-10">
             <div className="mb-6 flex items-center gap-2 text-primary">
               <IconVideo className="h-6 w-6" />
               <span className="text-sm font-medium uppercase tracking-wide">
                 Clips recorder
               </span>
             </div>
-            {storageConfigured === null ? (
-              <PreRecordPanelSkeleton />
-            ) : storageConfigured ? (
-              <PreRecordPanel
-                onStart={startFlow}
-                onUpload={uploadFile}
-                cameraSize={cameraSize}
-                onCameraSizeChange={setCameraSize}
-              />
-            ) : (
-              <StorageSetupCard onConfigured={() => markStorageConfigured()} />
-            )}
-            {!isDesktopApp && (
-              <Link
-                to="/download"
-                className="mt-6 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-              >
-                <IconAppWindow className="h-3.5 w-3.5" />
-                Get the Clips desktop app for global shortcuts and menu-bar
-                recording
-              </Link>
-            )}
+            <div
+              className={
+                isDesktopApp
+                  ? "w-full max-w-md"
+                  : "grid w-full max-w-5xl items-start gap-5 lg:grid-cols-[minmax(0,28rem)_minmax(18rem,22rem)]"
+              }
+            >
+              <div className="min-w-0">
+                {storageConfigured === null ? (
+                  <PreRecordPanelSkeleton />
+                ) : storageConfigured ? (
+                  <PreRecordPanel
+                    onStart={startFlow}
+                    onUpload={uploadFile}
+                    cameraSize={cameraSize}
+                    onCameraSizeChange={setCameraSize}
+                  />
+                ) : (
+                  <StorageSetupCard
+                    onConfigured={() => markStorageConfigured()}
+                  />
+                )}
+              </div>
+              {!isDesktopApp && <DesktopRecorderCallout />}
+            </div>
           </div>
         </RequireActiveOrg>
       )}

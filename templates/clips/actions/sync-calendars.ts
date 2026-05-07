@@ -130,6 +130,16 @@ function eventEndIso(event: CalendarEvent): string | null {
   return event.end?.dateTime || event.end?.date || null;
 }
 
+function shouldMarkNeedsReauth(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("google calendar list failed (401)") ||
+    lower.includes("invalid_grant") ||
+    lower.includes("invalid_token") ||
+    lower.includes("insufficient_scope")
+  );
+}
+
 export default defineAction({
   description:
     "Pull the latest events from connected calendars and upsert them. Auto-creates meeting rows from events with a join URL starting within the next 14 days.",
@@ -413,12 +423,14 @@ export default defineAction({
       } catch (err: any) {
         const message = err?.message ?? String(err);
         errors.push({ accountId: account.id, error: message });
+        const needsReauth = shouldMarkNeedsReauth(message);
         // Fix 10: even the error-path write is its own try/catch.
         try {
           await db
             .update(schema.calendarAccounts)
             .set({
               lastSyncError: message.slice(0, 500),
+              ...(needsReauth ? { status: "needs-reauth" as const } : {}),
               updatedAt: new Date().toISOString(),
             })
             .where(eq(schema.calendarAccounts.id, account.id));

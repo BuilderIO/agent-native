@@ -116,7 +116,7 @@ The app exposes `view`, `meetingId`, and `dictationId` so the agent always knows
 }
 ```
 
-When on `view: "dictate"`, the block instead contains a `dictation` object with `id`, `fullText` snippet, `cleanedText` snippet, `durationMs`, `source`. When on `view: "meetings"` (the list), `view-screen` returns the upcoming-meetings summary instead of a single meeting.
+When on `view: "dictate"`, the block instead contains a `dictation` object with `id`, `fullText` snippet, `cleanedText` snippet, `durationMs`, `source`. When on `view: "meetings"` (the list), `view-screen` returns the upcoming-meetings summary plus `calendarAccounts` health (`status`, `lastSyncedAt`, `lastSyncError`) instead of a single meeting.
 
 ## Common tasks
 

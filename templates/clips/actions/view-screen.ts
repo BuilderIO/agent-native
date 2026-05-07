@@ -249,6 +249,31 @@ async function fetchUpcomingMeetings() {
   }));
 }
 
+async function fetchCalendarAccounts(organizationId: string | null) {
+  const db = getDb();
+  const where = [
+    accessFilter(schema.calendarAccounts, schema.calendarAccountShares),
+  ];
+  if (organizationId) {
+    where.push(eq(schema.calendarAccounts.orgId, organizationId));
+  }
+  const rows = await db
+    .select({
+      id: schema.calendarAccounts.id,
+      provider: schema.calendarAccounts.provider,
+      displayName: schema.calendarAccounts.displayName,
+      email: schema.calendarAccounts.email,
+      status: schema.calendarAccounts.status,
+      lastSyncedAt: schema.calendarAccounts.lastSyncedAt,
+      lastSyncError: schema.calendarAccounts.lastSyncError,
+    })
+    .from(schema.calendarAccounts)
+    .where(and(...where))
+    .orderBy(desc(schema.calendarAccounts.createdAt));
+
+  return rows;
+}
+
 async function fetchMeetingDetail(meetingId: string) {
   const db = getDb();
   const [meeting] = await db
@@ -463,7 +488,12 @@ export default defineAction({
         break;
       }
       case "meetings": {
-        screen.meetings = await fetchUpcomingMeetings();
+        const [meetings, calendarAccounts] = await Promise.all([
+          fetchUpcomingMeetings(),
+          fetchCalendarAccounts(organizationId),
+        ]);
+        screen.meetings = meetings;
+        screen.calendarAccounts = calendarAccounts;
         break;
       }
       case "meeting": {
