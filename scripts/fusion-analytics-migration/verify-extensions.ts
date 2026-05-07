@@ -568,10 +568,18 @@ async function openExtension(page: CdpPage, spec: ExtensionSpec) {
 }
 
 async function clickButton(page: CdpPage, contextId: number, label: string) {
+  await page.waitFor(
+    `(() => {
+      const button = [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === ${jsString(label)});
+      return button && !button.disabled;
+    })()`,
+    contextId,
+  );
   await page.evaluate(
     `(() => {
       const button = [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === ${jsString(label)});
       if (!button) throw new Error('Missing button: ${label.replace(/'/g, "\\'")}');
+      if (button.disabled) throw new Error('Button is disabled: ${label.replace(/'/g, "\\'")}');
       button.click();
       return true;
     })()`,
@@ -688,7 +696,18 @@ async function verifyCsQbr(page: CdpPage, contextId: number) {
         .map((el) => el._x_dataStack?.[0])
         .find((candidate) => candidate && typeof candidate.selectOwner === 'function');
       if (!state) throw new Error('Missing CS QBR Alpine state');
-      await state.selectOwner('Alex Beebe');
+      const select = document.querySelector('select');
+      const hasAlexOption = select && [...select.options].some((option) => option.value === 'Alex Beebe');
+      if (hasAlexOption) {
+        select.value = 'Alex Beebe';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      } else {
+        await state.selectOwner('Alex Beebe');
+      }
+      const started = Date.now();
+      while ((state.loadingBook || state.selected !== 'Alex Beebe') && Date.now() - started < 45000) {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
       return {
         selected: state.selected,
         accountCount: state.metrics?.accountCount ?? 0,
