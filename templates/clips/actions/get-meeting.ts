@@ -4,7 +4,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
 
@@ -54,7 +54,7 @@ export default defineAction({
     const [row] = await db
       .select()
       .from(schema.meetings)
-      .where(eq(schema.meetings.id, args.id))
+      .where(and(eq(schema.meetings.id, args.id), isNull(schema.meetings.trashedAt)))
       .limit(1);
     if (!row) return { meeting: null };
 

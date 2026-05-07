@@ -67,6 +67,7 @@ Calendar events fire a desktop notification **5 minutes before** the meeting sta
 | `get-meeting`             | One meeting + participants + segments + notes                         |
 | `create-meeting`          | Internal/escape-hatch meeting row creation; the visible Meetings UI is calendar-sourced |
 | `update-meeting`          | Inline title edit, notes edits                                        |
+| `delete-meeting`          | Soft-delete a meeting from the visible list; linked recordings and calendar events stay intact |
 | `start-meeting-recording` | Begin native macOS transcript stream + create the linked recording   |
 | `stop-meeting-recording`  | End the active capture                                                |
 | `finalize-meeting`        | Delegate Gemini Flash-Lite cleanup + summary + bullets + action items |

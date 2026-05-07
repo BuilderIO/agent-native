@@ -1,20 +1,39 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { NavLink, useParams } from "react-router";
+import { NavLink, useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
 import {
   IconArrowLeft,
   IconCheck,
   IconClock,
+  IconDots,
   IconEdit,
   IconLoader2,
   IconNotes,
+  IconTrash,
   IconUsers,
   IconVideo,
 } from "@tabler/icons-react";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
@@ -254,6 +273,7 @@ function ActionItemsByPerson({
 
 export default function MeetingDetailRoute() {
   const { meetingId } = useParams<{ meetingId: string }>();
+  const navigate = useNavigate();
   const qc = useQueryClient();
 
   type GetMeetingResp = {
@@ -283,9 +303,11 @@ export default function MeetingDetailRoute() {
   );
 
   const updateMeeting = useActionMutation<any, any>("update-meeting");
+  const deleteMeeting = useActionMutation<any, any>("delete-meeting");
   const finalize = useActionMutation<any, any>("finalize-meeting");
   const startRecording = useActionMutation<any, any>("start-meeting-recording");
   const [notesJustArrived, setNotesJustArrived] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const previousHasNotesRef = useRef(false);
   const autoFinalizedRef = useRef(false);
 
@@ -425,6 +447,25 @@ export default function MeetingDetailRoute() {
     finalize.mutate({ meetingId: meeting.id });
   };
 
+  const handleDeleteMeeting = () => {
+    if (!meeting) return;
+    deleteMeeting.mutate(
+      { id: meeting.id },
+      {
+        onSuccess: () => {
+          toast.success("Meeting removed");
+          qc.invalidateQueries({ queryKey: ["action", "list-meetings"] });
+          navigate("/meetings", { replace: true });
+        },
+        onError: (err: unknown) => {
+          toast.error(
+            err instanceof Error ? err.message : "Couldn't remove meeting",
+          );
+        },
+      },
+    );
+  };
+
   // Auto-generate notes once the transcript is ready and no notes yet.
   useEffect(() => {
     if (!meeting) return;
@@ -515,6 +556,56 @@ export default function MeetingDetailRoute() {
               Regenerate notes
             </Button>
           ) : null}
+          <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 cursor-pointer"
+                  aria-label="Meeting options"
+                >
+                  <IconDots className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setDeleteOpen(true);
+                  }}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <IconTrash className="mr-2 h-4 w-4" />
+                  Remove meeting
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Remove this meeting?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This removes the meeting from Clips. It will not delete any
+                  linked recording or change your Google Calendar.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={deleteMeeting.isPending}>
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={(event) => {
+                    event.preventDefault();
+                    handleDeleteMeeting();
+                  }}
+                  disabled={deleteMeeting.isPending}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {deleteMeeting.isPending ? "Removing..." : "Remove"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </PageHeader>
 
