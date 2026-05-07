@@ -24,7 +24,7 @@ export function onboardingProgressExtension(): string {
       activeTab: 'fusion',
       onboardingOnly: true,
       selectedOrgId: null,
-      sort: { key: 'customer', dir: 'asc' },
+      sort: null,
       allRows: [],
       rows: [],
       byId: {},
@@ -66,14 +66,25 @@ export function onboardingProgressExtension(): string {
         for (const row of snapshotRows) rowsByOrg[row.orgId] = this.normalizeSnapshotRow(row);
         for (const [key, value] of Object.entries(byId)) {
           if (!key.startsWith('account-bundle:') || !value || !value.orgId) continue;
-          rowsByOrg[value.orgId] = Object.assign({}, rowsByOrg[value.orgId] || {}, this.normalizeBundleRow(value));
+          if (!rowsByOrg[value.orgId]) continue;
+          const enriched = this.normalizeBundleRow(value);
+          rowsByOrg[value.orgId] = Object.assign({}, enriched, rowsByOrg[value.orgId], {
+            pctDelta: enriched.pctDelta,
+            product_usage: enriched.product_usage,
+            contract_usage: enriched.contract_usage,
+            riskSignals: enriched.riskSignals,
+            bucket: enriched.bucket,
+            bucketReasons: enriched.bucketReasons,
+            academyUrl: enriched.academyUrl,
+            bundle: value
+          });
         }
         for (const [key, value] of Object.entries(byId)) {
           if (!key.startsWith('account-analysis:') || !value) continue;
           const orgId = key.split(':')[1];
           if (rowsByOrg[orgId]) rowsByOrg[orgId].analysis = value;
         }
-        return Object.values(rowsByOrg).sort((a, b) => a.name.localeCompare(b.name));
+        return Object.values(rowsByOrg).sort((a, b) => Number(b.daysSinceKickoff ?? -1) - Number(a.daysSinceKickoff ?? -1));
       },
       normalizeSnapshotRow(row) {
         const product = this.productKey(row.product);
@@ -140,15 +151,30 @@ export function onboardingProgressExtension(): string {
         if (pct >= 40) return 'bg-yellow-600';
         return 'bg-red-600';
       },
+      sentimentClass(value) {
+        const v = String(value || '').toLowerCase();
+        if (v.includes('healthy')) return 'bg-emerald-500/15 text-emerald-700';
+        if (v.includes('risk') || v.includes('radar')) return 'bg-yellow-500/15 text-yellow-700';
+        if (v.includes('churn')) return 'bg-red-500/15 text-red-700';
+        return 'bg-muted text-muted-foreground';
+      },
+      isActiveOnboarding(row) {
+        const stage = String(row.onboardingStage || '').toLowerCase();
+        if (!stage) return false;
+        if (['live', 'post-implementation', 'post_implementation', 'churned', 'paused', 'other'].includes(stage)) return false;
+        return ['onboarding', 'in_onboarding', 'in-onboarding', 'kickoff'].includes(stage);
+      },
+      activeRows() {
+        return this.allRows.filter((r) => this.isActiveOnboarding(r));
+      },
       visibleRows() {
         let rows = this.allRows;
         if (this.activeTab !== 'analytics') rows = rows.filter((r) => r.product === this.activeTab);
-        if (this.activeTab !== 'analytics' && this.onboardingOnly) {
-          rows = rows.filter((r) => String(r.customerStage || r.onboardingStage || 'onboarding').toLowerCase().includes('onboarding'));
-        }
+        if (this.activeTab !== 'analytics' && this.onboardingOnly) rows = rows.filter((r) => this.isActiveOnboarding(r));
         return this.sorted(rows);
       },
       sorted(rows) {
+        if (!this.sort) return rows.slice();
         const key = this.sort.key;
         const dir = this.sort.dir === 'asc' ? 1 : -1;
         const value = (row) => {
@@ -168,27 +194,52 @@ export function onboardingProgressExtension(): string {
         });
       },
       setSort(key) {
-        if (this.sort.key !== key) this.sort = { key, dir: 'asc' };
+        if (!this.sort || this.sort.key !== key) this.sort = { key, dir: 'asc' };
         else if (this.sort.dir === 'asc') this.sort.dir = 'desc';
-        else this.sort = { key, dir: 'asc' };
+        else this.sort = null;
       },
       tabCount(tab) {
-        if (tab === 'analytics') return this.allRows.filter((r) => String(r.customerStage || r.onboardingStage || 'onboarding').toLowerCase().includes('onboarding')).length;
-        return this.allRows.filter((r) => r.product === tab && (!this.onboardingOnly || String(r.customerStage || r.onboardingStage || 'onboarding').toLowerCase().includes('onboarding'))).length;
+        if (tab === 'analytics') return this.activeRows().length;
+        return this.allRows.filter((r) => r.product === tab && (!this.onboardingOnly || this.isActiveOnboarding(r))).length;
       },
       selected() {
         const rows = this.visibleRows();
         return rows.find((r) => r.orgId === this.selectedOrgId) || rows[0] || null;
       },
       analyticsRows() {
-        return this.allRows.filter((r) => String(r.customerStage || r.onboardingStage || 'onboarding').toLowerCase().includes('onboarding'));
+        return this.activeRows();
       },
       avg(values) {
         const nums = values.map(Number).filter((v) => Number.isFinite(v));
-        return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
+        return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
+      },
+      median(values) {
+        const nums = values.map(Number).filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+        if (!nums.length) return null;
+        const mid = Math.floor(nums.length / 2);
+        return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+      },
+      fmtMetric(value, suffix) {
+        return value == null ? '-' : Math.round(value) + suffix;
       },
       bucket(rows, key, buckets) {
-        return buckets.map((b) => ({ label: b.label, count: rows.filter((r) => Number(r[key] || 0) >= b.min && Number(r[key] || 0) <= b.max).length }));
+        return buckets.map((b) => {
+          const matched = rows.filter((r) => Number(r[key] || 0) >= b.min && Number(r[key] || 0) <= b.max);
+          return { label: b.label, count: matched.length, customers: matched.map((r) => r.name) };
+        });
+      },
+      bucketWidth(bucket, buckets) {
+        const max = Math.max(1, ...buckets.map((b) => b.count));
+        return Math.max(3, Math.round((bucket.count / max) * 100));
+      },
+      atRiskRows() {
+        return this.analyticsRows().filter((r) => Number(r.daysSinceKickoff || 0) > 90 && Number(r.pctComplete || 0) < 50);
+      },
+      nearCompleteRows() {
+        return this.analyticsRows().filter((r) => Number(r.pctComplete || 0) >= 80).sort((a, b) => Number(b.pctComplete || 0) - Number(a.pctComplete || 0));
+      },
+      noKickoffRows() {
+        return this.analyticsRows().filter((r) => !r.kickoffDate);
       },
       diffFor(row) {
         const orgs = Array.isArray(this.byId['latest-diff']?.orgs) ? this.byId['latest-diff'].orgs : [];
@@ -196,7 +247,33 @@ export function onboardingProgressExtension(): string {
       },
       crossrefFor(row) {
         const orgs = this.byId.crossref?.orgs || {};
-        return orgs[row.orgId] || orgs[row.name] || null;
+        const direct = orgs[row.orgId] || orgs[row.name];
+        if (direct) return direct;
+        const domain = String(row.domain || '').toLowerCase();
+        const name = String(row.name || '').toLowerCase();
+        return Object.values(orgs).find((o) => (domain && String(o.domain || '').toLowerCase() === domain) || (name && String(o.name || '').toLowerCase() === name)) || null;
+      },
+      fmtTs(value) {
+        if (!value) return '-';
+        const d = new Date(value);
+        return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      },
+      isClosedRisk(value) {
+        return /\[\s*(done|closed)\s*\]/i.test(String(value || ''));
+      },
+      visibleRisks(row) {
+        return (row.identifiedRisks || []).filter((risk) => !this.isClosedRisk(risk));
+      },
+      riskTicket(value) {
+        const text = String(value || '');
+        const url = (text.match(/https?:\/\/\S+/i) || [])[0];
+        if (url) return { label: text.replace(url, '').trim() || url, url };
+        const key = (text.match(/\b[A-Z][A-Z0-9]+-\d+\b/) || [])[0];
+        if (key) return { label: text, url: 'https://builder-io.atlassian.net/browse/' + key };
+        return null;
+      },
+      sortWorkshops(row) {
+        return (row.workshopHistory || []).slice().sort((a, b) => String(b.date || b.startedAt || '').localeCompare(String(a.date || a.startedAt || '')));
       }
     }" x-init="init()" class="space-y-4">
       <p class="text-xs text-muted-foreground">Customers in onboarding status from migrated Academy snapshots, account bundles, weekly diffs, and Gong/Slack cross-reference data.</p>
