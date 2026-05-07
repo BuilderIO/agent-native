@@ -1208,34 +1208,93 @@ Write a short, useful meeting description. If I ask you to apply it, update this
             ) : null}
 
             {/* Attachments */}
-            {event.attachments && event.attachments.length > 0 && (
+            {!isOverlay && (
               <>
                 <div className="mx-4 my-2 border-t border-border/50" />
-                <div className="px-4 py-1.5 space-y-1">
-                  {event.attachments.map((att, i) => (
-                    <a
-                      key={i}
-                      href={att.fileUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/50 group"
-                    >
-                      {att.iconLink ? (
-                        <img
-                          src={att.iconLink}
-                          alt=""
-                          className="h-4 w-4 shrink-0"
-                        />
-                      ) : (
-                        <IconFileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      )}
-                      <span className="truncate text-foreground">
-                        {att.title}
+                {editingField === "attachments" ? (
+                  <div className="px-4 py-1.5">
+                    <div className="mb-2 flex items-center gap-3">
+                      <IconPaperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="text-sm font-medium text-foreground">
+                        Attachments
                       </span>
-                      <IconExternalLink className="ml-auto h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
-                    </a>
-                  ))}
-                </div>
+                    </div>
+                    <AttachmentControls
+                      idPrefix={`event-${event.id}`}
+                      attachments={editAttachments}
+                      onChange={setEditAttachments}
+                    />
+                    <div className="mt-2 flex justify-end gap-1.5">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-xs"
+                        onClick={() => {
+                          setEditAttachments(attachmentsToDrafts(event.attachments));
+                          setEditingField(null);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-6 text-xs"
+                        onClick={handleSaveAttachments}
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                ) : event.attachments && event.attachments.length > 0 ? (
+                  <div className="px-4 py-1.5 space-y-1">
+                    {event.attachments.map((att, i) => (
+                      <a
+                        key={i}
+                        href={att.fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/50 group"
+                      >
+                        {att.iconLink ? (
+                          <img
+                            src={att.iconLink}
+                            alt=""
+                            className="h-4 w-4 shrink-0"
+                          />
+                        ) : (
+                          <IconFileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className="truncate text-foreground">
+                          {att.title}
+                        </span>
+                        <IconExternalLink className="ml-auto h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                      </a>
+                    ))}
+                    <button
+                      type="button"
+                      className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                      onClick={() => {
+                        setEditAttachments(attachmentsToDrafts(event.attachments));
+                        setEditingField("attachments");
+                      }}
+                    >
+                      <IconPlus className="h-4 w-4" />
+                      Add attachment
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 px-4 py-1.5 text-sm text-muted-foreground/60 hover:bg-muted/50 hover:text-foreground"
+                    onClick={() => {
+                      setEditAttachments([attachmentsToDrafts(undefined)[0]]);
+                      setEditingField("attachments");
+                    }}
+                  >
+                    <IconPaperclip className="h-4 w-4 shrink-0 text-muted-foreground/40" />
+                    Add attachment
+                  </button>
+                )}
               </>
             )}
 
@@ -1314,36 +1373,94 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                 <div className="px-4 py-1.5">
                   <div className="flex items-start gap-3">
                     <IconAlignLeft className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                    {isOverlay ? (
-                      event.description ? (
-                        <RenderedDescription description={event.description} />
-                      ) : null
-                    ) : editingField === "description" || !event.description ? (
-                      <AutoGrowTextarea
-                        value={editDescription}
-                        onChange={setEditDescription}
-                        onBlur={handleSaveDescription}
-                        onSubmit={handleSaveDescription}
-                        onEscape={() => {
-                          setEditDescription(event.description || "");
-                          setEditingField(null);
-                        }}
-                        autoFocus={editingField === "description"}
-                      />
-                    ) : (
-                      <RenderedDescription
-                        description={event.description}
-                        editable
-                        onClick={() => setEditingField("description")}
-                      />
-                    )}
+                    <div className="min-w-0 flex-1">
+                      {!isOverlay && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="mb-1 h-6 gap-1 px-1.5 text-[11px] text-muted-foreground"
+                          onClick={handleDraftDescription}
+                        >
+                          <IconMessage className="h-3 w-3" />
+                          Ask AI
+                        </Button>
+                      )}
+                      {isOverlay ? (
+                        event.description ? (
+                          <RenderedDescription
+                            description={event.description}
+                          />
+                        ) : null
+                      ) : editingField === "description" ||
+                        !event.description ? (
+                        <AutoGrowTextarea
+                          value={editDescription}
+                          onChange={setEditDescription}
+                          onBlur={handleSaveDescription}
+                          onSubmit={handleSaveDescription}
+                          onEscape={() => {
+                            setEditDescription(event.description || "");
+                            setEditingField(null);
+                          }}
+                          autoFocus={editingField === "description"}
+                        />
+                      ) : (
+                        <RenderedDescription
+                          description={event.description}
+                          editable
+                          onClick={() => setEditingField("description")}
+                        />
+                      )}
+                    </div>
                   </div>
                 </div>
               </>
             )}
 
             {/* Reminders */}
-            {event.reminders && event.reminders.length > 0 && (
+            {!isOverlay && editingField === "reminders" ? (
+              <>
+                <div className="mx-4 my-2 border-t border-border/50" />
+                <div className="px-4 py-1.5">
+                  <div className="mb-2 flex items-center gap-3">
+                    <IconBell className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="text-sm font-medium text-foreground">
+                      Event alerts
+                    </span>
+                  </div>
+                  <ReminderControls
+                    idPrefix={`event-${event.id}`}
+                    mode={editReminderMode}
+                    reminders={editReminders}
+                    onModeChange={setEditReminderMode}
+                    onRemindersChange={setEditReminders}
+                  />
+                  <div className="mt-2 flex justify-end gap-1.5">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs"
+                      onClick={() => {
+                        const reminderState = remindersToDraftState(event);
+                        setEditReminderMode(reminderState.mode);
+                        setEditReminders(reminderState.reminders);
+                        setEditingField(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="h-6 text-xs"
+                      onClick={handleSaveReminders}
+                    >
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              </>
+            ) : event.reminders && event.reminders.length > 0 ? (
               <>
                 <div className="mx-4 my-2 border-t border-border/50" />
                 <div className="flex items-start gap-3 px-4 py-1.5">
@@ -1357,7 +1474,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                   </div>
                 </div>
               </>
-            )}
+            ) : null}
 
             {/* Availability, visibility, and alerts */}
             {!isOverlay ? (
