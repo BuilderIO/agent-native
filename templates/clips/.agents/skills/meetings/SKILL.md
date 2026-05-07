@@ -65,7 +65,7 @@ Calendar events fire a desktop notification **5 minutes before** the meeting sta
 | ------------------------- | --------------------------------------------------------------------- |
 | `list-meetings`           | Upcoming + past, scoped via `accessFilter`                            |
 | `get-meeting`             | One meeting + participants + segments + notes                         |
-| `create-meeting`          | Manual ad-hoc meeting (no calendar event)                             |
+| `create-meeting`          | Internal/escape-hatch meeting row creation; the visible Meetings UI is calendar-sourced |
 | `update-meeting`          | Inline title edit, notes edits                                        |
 | `start-meeting-recording` | Begin native macOS transcript stream + create the linked recording   |
 | `stop-meeting-recording`  | End the active capture                                                |
@@ -125,7 +125,7 @@ When on `view: "dictate"`, the block instead contains a `dictation` object with 
 | "Show me my meetings today"                   | `pnpm action navigate --view=meetings`                                                  |
 | "Open my 3pm call with Alice"                 | Look up via `list-meetings`, then `pnpm action navigate --view=meeting --meetingId=<id>` |
 | "Summarize the standup I just finished"       | `pnpm action finalize-meeting --id=<id>` (delegates to agent for Gemini cleanup)        |
-| "Create a meeting note for the call I just finished" | `pnpm action create-meeting --title="..."` then `start-meeting-recording --id=<mid>` |
+| "Create a meeting note for the call I just finished" | Prefer the current calendar event. If it was not on the calendar, send the user to `/record` instead of creating a fake meeting from the UI. |
 | "Connect my Google Calendar"                  | `pnpm action connect-calendar --provider=google` then open returned `authUrl`           |
 | "Show my action items from last week"         | `list-meetings --since=<iso>`, then collect `actionItemsJson` and filter by `assigneeEmail` |
 
@@ -135,12 +135,13 @@ These flows are common enough to memorize:
 
 - **"Summarize my last meeting with Alice"** — `list-meetings` filtered by participant, pick the most recent, `get-meeting`, then `finalize-meeting` if `summaryMd` is empty.
 - **"Show me action items I owe Bob"** — `list-meetings` (recent), aggregate `actionItemsJson`, filter `assigneeEmail` matching Bob's email. Mention the mic+system caveat if the user expects coverage of remote attendees.
-- **"Create a meeting note for the call I just finished"** — `create-meeting` (manual ad-hoc), then `start-meeting-recording` to attach a transcript. Use this when the call wasn't on the calendar.
+- **"Create a meeting note for the call I just finished"** — prefer an existing calendar-synced meeting. If the call was not on the calendar, send the user to `/record`; do not invent a fake calendar meeting in the visible Meetings list.
 - **"What did Alice commit to in last Tuesday's standup?"** — `get-meeting`, scan `actionItemsJson` filtered by assignee, fall back to grepping the transcript segments tagged `source: "system"` (since Alice is remote).
 
 ## UI conventions (don't break)
 
 - **Card grid** for meeting lists, grouped by day with a date header (Today / Tomorrow / Weekday Date).
+- **Calendar-sourced list**: no "New meeting" CTA in the Meetings list. Users connect/reconnect/sync/disconnect the calendar from the calendar settings menu.
 - **Two-pane detail**: transcript (left) + AI notes (right) with a "Generate notes" button in the header.
 - **Live indicator** is a red animated dot — never a sparkle or a robot icon.
 - **Calendar empty state** mirrors `ConnectBuilderCard` layout: single CTA card + "Add API key" disclosure underneath.

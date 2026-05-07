@@ -4,7 +4,7 @@
  * Pulls events for all calendar accounts visible to the current user
  * (or, when invoked from a recurring job, every connected account).
  * Upserts events into `calendar_events`. Auto-creates `meetings` rows
- * for events with a join URL whose start falls in the next 14 days.
+ * for events whose start falls in the next 14 days.
  *
  * Tokens are read from `app_secrets`; we refresh on demand and write
  * the new access token back. Tokens never touch the calendar_accounts
@@ -142,7 +142,7 @@ function shouldMarkNeedsReauth(message: string): boolean {
 
 export default defineAction({
   description:
-    "Pull the latest events from connected calendars and upsert them. Auto-creates meeting rows from events with a join URL starting within the next 14 days.",
+    "Pull the latest events from connected calendars and upsert them. Auto-creates meeting rows from calendar events starting within the next 14 days.",
   schema: z.object({
     accountId: z
       .string()
@@ -305,8 +305,10 @@ export default defineAction({
           perAccountEvents += 1;
         }
 
-        // Auto-create meetings rows for events with joinUrl + start in [now, +14d]
+        // Auto-create meeting rows for calendar events in [now, +14d]
         // that don't already have a linked meeting.
+        // Granola-style meeting lists come from the calendar, even when an
+        // event is in person or the provider did not expose a join URL.
         const fourteenOut = new Date(
           now.getTime() + FOURTEEN_DAYS_MS,
         ).toISOString();
@@ -317,7 +319,6 @@ export default defineAction({
         const candidateIds = candidates
           .filter(
             (e) =>
-              !!e.joinUrl &&
               !e.meetingId &&
               e.start >= now.toISOString() &&
               e.start <= fourteenOut,

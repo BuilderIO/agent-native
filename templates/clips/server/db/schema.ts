@@ -131,6 +131,13 @@ export const recordings = table("recordings", {
   spaceIds: text("space_ids").notNull().default("[]"), // JSON array of space ids
 
   title: text("title").notNull().default("Untitled recording"),
+  titleSource: text("title_source", {
+    enum: ["default", "context", "upload", "ai", "manual"],
+  })
+    .notNull()
+    .default("default"),
+  sourceAppName: text("source_app_name"),
+  sourceWindowTitle: text("source_window_title"),
   description: text("description").notNull().default(""),
 
   thumbnailUrl: text("thumbnail_url"),

@@ -18,6 +18,10 @@ import {
   requireOrganizationAccess,
 } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import {
+  DEFAULT_RECORDING_TITLE,
+  RECORDING_TITLE_SOURCES,
+} from "./lib/title-source.js";
 
 const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
@@ -35,6 +39,22 @@ export default defineAction({
       .string()
       .optional()
       .describe("Recording title (defaults to 'Untitled recording')"),
+    titleSource: z
+      .enum(RECORDING_TITLE_SOURCES)
+      .optional()
+      .describe("How the initial title was chosen"),
+    sourceAppName: z
+      .string()
+      .trim()
+      .max(200)
+      .optional()
+      .describe("Captured application name, when known"),
+    sourceWindowTitle: z
+      .string()
+      .trim()
+      .max(500)
+      .optional()
+      .describe("Captured window or browser tab title, when known"),
     folderId: z.string().nullish().describe("Optional folder ID"),
     organizationId: z
       .string()
@@ -68,6 +88,10 @@ export default defineAction({
     const ownerEmail = getCurrentOwnerEmail();
     const id = args.id || nanoid();
     const now = new Date().toISOString();
+    const title = args.title?.trim() || DEFAULT_RECORDING_TITLE;
+    const titleSource =
+      args.titleSource ??
+      (title === DEFAULT_RECORDING_TITLE ? "default" : "manual");
 
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
@@ -78,7 +102,10 @@ export default defineAction({
       organizationId,
       orgId: organizationId,
       folderId: args.folderId ?? null,
-      title: args.title?.trim() || "Untitled recording",
+      title,
+      titleSource,
+      sourceAppName: args.sourceAppName?.trim() || null,
+      sourceWindowTitle: args.sourceWindowTitle?.trim() || null,
       status: "uploading",
       uploadProgress: 0,
       hasAudio: args.hasAudio ?? true,
@@ -100,7 +127,7 @@ export default defineAction({
     });
 
     console.log(
-      `Created recording "${args.title ?? "Untitled recording"}" (${id})`,
+      `Created recording "${title}" (${id})`,
     );
 
     return {

@@ -7,7 +7,6 @@ import {
   IconAppWindow,
   IconCalendar,
   IconCalendarOff,
-  IconCalendarPlus,
   IconExternalLink,
   IconKey,
   IconLoader2,
@@ -998,8 +997,8 @@ export default function MeetingsIndexRoute() {
               No calendar meetings
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Clips shows synced calendar events with a meeting link. New
-              recordable events will appear here automatically.
+              Clips pulls this list from Google Calendar. New synced calendar
+              events will appear here automatically.
             </p>
           </div>
         )
