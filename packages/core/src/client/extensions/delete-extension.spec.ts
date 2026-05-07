@@ -39,10 +39,9 @@ describe("extension delete helper", () => {
     ).resolves.toEqual({ mode: "hidden" });
 
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(fetch).toHaveBeenCalledWith(
-      "/_agent-native/extensions/ext-2/hide",
-      { method: "POST" },
-    );
+    expect(fetch).toHaveBeenCalledWith("/_agent-native/extensions/ext-2/hide", {
+      method: "POST",
+    });
   });
 
   it("falls back to hiding when permanent delete is forbidden", async () => {
