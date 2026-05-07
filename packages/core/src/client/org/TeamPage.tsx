@@ -435,6 +435,7 @@ function MemberRow({
   const removeMember = useRemoveMember();
   const changeRole = useChangeMemberRole();
   const [editing, setEditing] = useState(false);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
 
   // Owners can manage admins + members. Admins can only manage members.
   // Owners themselves are immutable through this UI; current user can't
@@ -499,19 +500,43 @@ function MemberRow({
               <TooltipContent>Change role</TooltipContent>
             </Tooltip>
           )}
-          <Tooltip>
-            <TooltipTrigger asChild>
+          {confirmingRemove ? (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setConfirmingRemove(false)}
+                className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                Cancel
+              </button>
               <button
                 type="button"
                 disabled={removeMember.isPending}
-                onClick={() => removeMember.mutate(email)}
-                className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
+                onClick={() =>
+                  removeMember.mutate(email, {
+                    onSettled: () => setConfirmingRemove(false),
+                  })
+                }
+                className="rounded bg-red-500 px-1.5 py-0.5 text-[11px] text-white hover:bg-red-600 disabled:opacity-50"
               >
-                <IconTrash className="h-3.5 w-3.5" />
+                Remove
               </button>
-            </TooltipTrigger>
-            <TooltipContent>Remove member</TooltipContent>
-          </Tooltip>
+            </div>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  disabled={removeMember.isPending}
+                  onClick={() => setConfirmingRemove(true)}
+                  className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
+                >
+                  <IconTrash className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Remove member</TooltipContent>
+            </Tooltip>
+          )}
         </div>
       )}
     </div>

@@ -54,6 +54,26 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
+const STORAGE_SETUP_REQUIRED_REASON =
+  "Video storage is not connected yet. Connect Builder.io or configure S3-compatible storage to upload and finish saving this clip.";
+
+function stateNumber(
+  value: Record<string, unknown> | null | undefined,
+  key: string,
+): number | undefined {
+  const raw = value?.[key];
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return undefined;
+  return raw;
+}
+
+function stateBoolean(
+  value: Record<string, unknown> | null | undefined,
+  key: string,
+): boolean | undefined {
+  const raw = value?.[key];
+  return typeof raw === "boolean" ? raw : undefined;
+}
+
 const cliBoolean = z.preprocess((value) => {
   if (value === "true") return true;
   if (value === "false") return false;
@@ -90,13 +110,15 @@ export default defineAction({
     const id = args.id;
     debugLog("[finalize] starting", { id, ownerEmail });
 
-    // Keys of chunks we need to delete regardless of how finalize exits.
+    // Keys of chunks we normally delete after finalize exits.
     // Collected as soon as we list chunks and purged in a finally-block so
     // a throw mid-finalize can't leave multi-gigabyte base64 payloads
     // lingering in application_state. This was the primary cause of the
     // server-side half of the 70 GB memory leak — each failed finalize
     // orphaned one recording's worth of chunks, and with base64 overhead
-    // a 30-minute recording is ~1.5 GB per corpse.
+    // a 30-minute recording is ~1.5 GB per corpse. Missing storage is the
+    // exception: those chunks stay recoverable until the user connects a
+    // provider and this action runs again.
     let chunkKeysToPurge: string[] = [];
     try {
       const [existing] = await db
@@ -118,16 +140,41 @@ export default defineAction({
         throw new Error(`Recording not found: ${id}`);
       }
 
-      const uploadState = await readAppState(`recording-upload-${id}`);
+      const uploadStateRaw = await readAppState(`recording-upload-${id}`);
+      const uploadState =
+        uploadStateRaw && typeof uploadStateRaw === "object"
+          ? (uploadStateRaw as Record<string, unknown>)
+          : null;
       const mimeType =
         args.mimeType ||
         (typeof uploadState?.mimeType === "string"
           ? uploadState.mimeType
           : "") ||
         "video/webm";
-      const videoFormat: "webm" | "mp4" = mimeType.includes("mp4")
-        ? "mp4"
-        : "webm";
+      const videoFormat: "webm" | "mp4" =
+        mimeType.includes("mp4") || mimeType.includes("quicktime")
+          ? "mp4"
+          : "webm";
+      const finalDurationMs =
+        args.durationMs ??
+        stateNumber(uploadState, "durationMs") ??
+        existing.durationMs ??
+        0;
+      const finalWidth =
+        args.width ?? stateNumber(uploadState, "width") ?? existing.width ?? 0;
+      const finalHeight =
+        args.height ??
+        stateNumber(uploadState, "height") ??
+        existing.height ??
+        0;
+      const finalHasAudio =
+        typeof args.hasAudio === "boolean"
+          ? args.hasAudio
+          : (stateBoolean(uploadState, "hasAudio") ?? existing.hasAudio);
+      const finalHasCamera =
+        typeof args.hasCamera === "boolean"
+          ? args.hasCamera
+          : (stateBoolean(uploadState, "hasCamera") ?? existing.hasCamera);
 
       // The recorder stashes compression metadata at
       // `recording-compression-{id}` when its browser-side ffmpeg.wasm
@@ -281,23 +328,67 @@ export default defineAction({
         throw err;
       }
 
+      if (upload === null) {
+        const now = new Date().toISOString();
+        await db
+          .update(schema.recordings)
+          .set({
+            status: "uploading",
+            failureReason: STORAGE_SETUP_REQUIRED_REASON,
+            durationMs: finalDurationMs,
+            width: finalWidth,
+            height: finalHeight,
+            hasAudio: finalHasAudio,
+            hasCamera: finalHasCamera,
+            uploadProgress: 100,
+            updatedAt: now,
+          })
+          .where(eq(schema.recordings.id, id));
+
+        await writeAppState(`recording-upload-${id}`, {
+          recordingId: id,
+          status: "waiting_storage",
+          failureReason: STORAGE_SETUP_REQUIRED_REASON,
+          progress: 100,
+          chunksReceived: chunkEntries.length,
+          totalChunks: chunkEntries.length,
+          mimeType,
+          durationMs: finalDurationMs,
+          width: finalWidth,
+          height: finalHeight,
+          hasAudio: finalHasAudio,
+          hasCamera: finalHasCamera,
+          updatedAt: now,
+        });
+        await writeAppState("refresh-signal", { ts: Date.now() });
+
+        // Keep the chunk scratch-space recoverable. Once the user connects
+        // Builder.io/S3, the player calls this action again and the same chunks
+        // are uploaded to the newly configured provider.
+        chunkKeysToPurge = [];
+
+        return {
+          id,
+          status: "waiting_storage" as const,
+          storageSetupRequired: true,
+          failureReason: STORAGE_SETUP_REQUIRED_REASON,
+          durationMs: finalDurationMs,
+        };
+      }
+
       if (!upload?.url) {
         const err = new Error(
-          upload === null
-            ? "No file upload provider configured. Connect Builder.io here, or configure S3-compatible storage in Settings."
-            : "File upload returned no URL. Check your storage provider configuration.",
+          "File upload returned no URL. Check your storage provider configuration.",
         );
-        // Provider returned a falsy URL — capture so we can tell whether
-        // it's "no provider configured" (upload === null) or "provider
-        // returned success but empty URL" (likely a misconfigured S3
-        // bucket or a Builder.io edge case worth investigating).
+        // Provider returned success but no URL — likely a misconfigured S3
+        // bucket or a Builder.io edge case worth investigating.
         try {
           captureRouteError(err, {
             route: "finalize-recording",
             tags: {
               uploadStep: "finalize-upload",
               videoFormat,
-              uploadResult: upload === null ? "no-provider" : "no-url",
+              uploadResult: "no-url",
             },
             extra: {
               recordingId: id,
@@ -305,7 +396,7 @@ export default defineAction({
               mimeType,
               videoFormat,
               ownerEmail,
-              uploadShape: upload === null ? "null" : "object-without-url",
+              uploadShape: "object-without-url",
             },
           });
         } catch {
@@ -323,17 +414,12 @@ export default defineAction({
           videoUrl,
           videoFormat,
           videoSizeBytes: assembled.byteLength,
-          durationMs: args.durationMs ?? existing.durationMs ?? 0,
-          width: args.width ?? existing.width ?? 0,
-          height: args.height ?? existing.height ?? 0,
-          hasAudio:
-            typeof args.hasAudio === "boolean"
-              ? args.hasAudio
-              : existing.hasAudio,
-          hasCamera:
-            typeof args.hasCamera === "boolean"
-              ? args.hasCamera
-              : existing.hasCamera,
+          durationMs: finalDurationMs,
+          width: finalWidth,
+          height: finalHeight,
+          hasAudio: finalHasAudio,
+          hasCamera: finalHasCamera,
+          failureReason: null,
           uploadProgress: 100,
           updatedAt: new Date().toISOString(),
         })
@@ -387,7 +473,7 @@ export default defineAction({
             clipId: id,
             title: existing.title,
             createdBy: ownerEmail,
-            duration: args.durationMs ?? existing.durationMs ?? 0,
+            duration: finalDurationMs,
             url: videoUrl,
           },
           { owner: ownerEmail },
@@ -407,7 +493,7 @@ export default defineAction({
         status: "ready" as const,
         videoUrl,
         videoSizeBytes: assembled.byteLength,
-        durationMs: args.durationMs ?? existing.durationMs ?? 0,
+        durationMs: finalDurationMs,
       };
     } finally {
       // Unconditional chunk scratch-space cleanup. Runs on success AND on

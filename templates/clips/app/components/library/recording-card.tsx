@@ -50,6 +50,14 @@ function formatRelative(iso: string): string {
   return rtf.format(Math.round(diff / 31557600), "year");
 }
 
+function isStorageSetupFailureReason(
+  reason: string | null | undefined,
+): boolean {
+  return /video storage is not connected|file upload provider|storage provider|connect builder|s3-compatible/i.test(
+    reason ?? "",
+  );
+}
+
 function PrivacyIcon({
   visibility,
   className,
@@ -97,6 +105,9 @@ export function RecordingCard({
   const relative = useMemo(
     () => formatRelative(recording.createdAt),
     [recording.createdAt],
+  );
+  const waitingForStorage = isStorageSetupFailureReason(
+    recording.failureReason,
   );
 
   const displayThumbnail = useMemo(() => {
@@ -197,29 +208,43 @@ export function RecordingCard({
         {/* Status pill for non-ready recordings */}
         {recording.status !== "ready" && (
           <div className="absolute top-2 right-2 rounded-full bg-black/80 px-2 py-0.5 text-[10px] font-medium text-white uppercase tracking-wide">
-            {recording.status}
+            {waitingForStorage ? "storage" : recording.status}
           </div>
         )}
 
-        {recording.status === "failed" && (
-          <div className="absolute inset-x-2 bottom-2 rounded-md border border-destructive/30 bg-background/95 p-2 text-left shadow-sm backdrop-blur">
+        {(recording.status === "failed" || waitingForStorage) && (
+          <div
+            className={cn(
+              "absolute inset-x-2 bottom-2 rounded-md border bg-background/95 p-2 text-left shadow-sm backdrop-blur",
+              waitingForStorage ? "border-primary/30" : "border-destructive/30",
+            )}
+          >
             <div className="flex items-start gap-2">
-              <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+              <IconAlertTriangle
+                className={cn(
+                  "mt-0.5 h-3.5 w-3.5 shrink-0",
+                  waitingForStorage ? "text-primary" : "text-destructive",
+                )}
+              />
               <div className="min-w-0 flex-1">
                 <div className="text-[11px] font-medium text-foreground">
-                  Upload failed
+                  {waitingForStorage ? "Waiting for storage" : "Upload failed"}
                 </div>
                 <div className="line-clamp-2 text-[10px] leading-snug text-muted-foreground">
-                  {recording.failureReason ?? "Remove this failed clip."}
+                  {waitingForStorage
+                    ? "Open to connect storage and finish saving."
+                    : (recording.failureReason ?? "Remove this failed clip.")}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={handleRemoveFailed}
-                className="rounded border border-border px-1.5 py-0.5 text-[10px] text-foreground hover:bg-accent"
-              >
-                Remove
-              </button>
+              {!waitingForStorage && (
+                <button
+                  type="button"
+                  onClick={handleRemoveFailed}
+                  className="rounded border border-border px-1.5 py-0.5 text-[10px] text-foreground hover:bg-accent"
+                >
+                  Remove
+                </button>
+              )}
             </div>
           </div>
         )}

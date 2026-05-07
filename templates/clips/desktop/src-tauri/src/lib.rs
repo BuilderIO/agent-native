@@ -10,6 +10,7 @@ mod config;
 mod debug;
 mod eventkit;
 mod meetings_watcher;
+mod native_screen;
 mod native_speech;
 mod notifications;
 mod recording_indicator;
@@ -81,6 +82,11 @@ pub fn run() {
             native_speech::native_speech_stop,
             native_speech::native_speech_cancel,
             native_speech::native_speech_set_vocabulary,
+            // native full-screen recording (macOS screencapture, no picker)
+            native_screen::native_fullscreen_recording_available,
+            native_screen::native_fullscreen_recording_start,
+            native_screen::native_fullscreen_recording_stop_and_upload,
+            native_screen::native_fullscreen_recording_cancel,
             // recording indicator pill
             recording_indicator::recording_pill_show,
             recording_indicator::recording_pill_expand,
@@ -126,6 +132,7 @@ pub fn run() {
         .manage(DictationActive::default())
         .manage(VoiceWakePopover::default())
         .manage(LastTranscript::default())
+        .manage(native_screen::NativeFullscreenRecordingState::default())
         .manage(meetings_watcher::MeetingsWatcherState::default())
         .manage(silence_detector::DetectorState::default())
         .setup(|app| {

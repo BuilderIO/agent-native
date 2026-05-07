@@ -48,7 +48,6 @@ import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import { CountdownOverlay } from "@/components/recorder/countdown-overlay";
 import { CameraBubble } from "@/components/recorder/camera-bubble";
 import { RecordingToolbar } from "@/components/recorder/recording-toolbar";
-import { DrawingCanvas } from "@/components/recorder/drawing-canvas";
 import {
   ConfettiCanvas,
   type ConfettiHandle,
@@ -168,7 +167,6 @@ export default function RecordRoute() {
   const [uiState, setUiState] = useState<UiState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
-  const [isDrawing, setIsDrawing] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
@@ -622,6 +620,7 @@ export default function RecordRoute() {
           1,
           Math.ceil(file.size / UPLOAD_CHUNK_BYTES),
         );
+        let finalChunkResult: Record<string, unknown> | null = null;
         for (let i = 0; i < totalChunks; i++) {
           const start = i * UPLOAD_CHUNK_BYTES;
           const end = Math.min(start + UPLOAD_CHUNK_BYTES, file.size);
@@ -653,10 +652,28 @@ export default function RecordRoute() {
               }`,
             );
           }
+          if (isFinal) {
+            finalChunkResult =
+              ((await chunkRes.json().catch(() => null)) as Record<
+                string,
+                unknown
+              > | null) ?? null;
+          }
         }
 
         setUiState("complete");
-        toast.success("Video uploaded");
+        const waitingForStorage =
+          finalChunkResult?.waitingForStorage === true ||
+          finalChunkResult?.status === "waiting_storage";
+        if (waitingForStorage) {
+          toast.info("Video is ready to upload", {
+            description:
+              "Connect Builder.io or S3 storage on the next screen and Clips will finish saving it.",
+            duration: 12_000,
+          });
+        } else {
+          toast.success("Video uploaded");
+        }
         await writeAppState("navigate", {
           view: "recording",
           recordingId: createdId,
@@ -759,7 +776,7 @@ export default function RecordRoute() {
         }
       }
 
-      await engine.stop();
+      const stopResult = await engine.stop();
       // Recording is fully saved — clear refs so that if anything below throws
       // and the user clicks "Try again", doCancel() won't trash a good recording.
       pendingRef.current = null;
@@ -767,7 +784,15 @@ export default function RecordRoute() {
       setCameraStream(null);
       setPreviewStream(null);
       setUiState("complete");
-      toast.success("Recording saved");
+      if (stopResult.waitingForStorage) {
+        toast.info("Recording is ready to upload", {
+          description:
+            "Connect Builder.io or S3 storage on the next screen and Clips will finish saving it.",
+          duration: 12_000,
+        });
+      } else {
+        toast.success("Recording saved");
+      }
 
       await writeAppState("navigate", {
         view: "recording",
@@ -816,7 +841,6 @@ export default function RecordRoute() {
   doStopRef.current = doStop;
 
   const requestStop = useCallback(() => {
-    setIsDrawing(false);
     const engine = engineRef.current;
     if (engine && engine.getState() === "recording") {
       engine.pause();
@@ -861,7 +885,6 @@ export default function RecordRoute() {
     setCameraStream(null);
     setPreviewStream(null);
     setIsPaused(false);
-    setIsDrawing(false);
     setUiState("idle");
     pendingRef.current = null;
     engineRef.current = null;
@@ -904,12 +927,15 @@ export default function RecordRoute() {
       const ctrl = e.ctrlKey;
       const k = e.key.toLowerCase();
 
-      // Esc — stop-confirm when recording. Skip during countdown (engine hasn't
-      // started MediaRecorder yet; calling doStop would orphan the recording
-      // row) and when the dialog is already open (AlertDialog handles its own
-      // Esc-to-close; re-firing requestStop would clobber
-      // autoPausedForStopConfirmRef and prevent resume).
+      // Esc cancels the pre-record countdown. Once recording is live, it opens
+      // the stop confirmation instead.
       if (e.key === "Escape") {
+        if (uiState === "countdown") {
+          e.preventDefault();
+          e.stopPropagation();
+          void doCancel();
+          return;
+        }
         if (!showStopConfirm && uiState === "recording") {
           e.preventDefault();
           // Stop propagation so the same Esc keydown doesn't also trigger
@@ -945,15 +971,6 @@ export default function RecordRoute() {
         if (uiState === "recording" || uiState === "countdown") {
           e.preventDefault();
           void restart();
-          return;
-        }
-      }
-
-      // Cmd/Ctrl+Shift+D — toggle drawing
-      if ((meta || ctrl) && shift && k === "d") {
-        if (uiState === "recording") {
-          e.preventDefault();
-          setIsDrawing((v) => !v);
           return;
         }
       }
@@ -1098,7 +1115,11 @@ export default function RecordRoute() {
 
       {/* Countdown */}
       {uiState === "countdown" && (
-        <CountdownOverlay seconds={3} onComplete={onCountdownComplete} />
+        <CountdownOverlay
+          seconds={3}
+          onComplete={onCountdownComplete}
+          onCancel={doCancel}
+        />
       )}
 
       {/* Preview (camera-only mode renders camera full-screen; screen modes
@@ -1141,11 +1162,6 @@ export default function RecordRoute() {
         />
       )}
 
-      {/* Drawing overlay */}
-      {showRecordingUi && (
-        <DrawingCanvas enabled={isDrawing} fadeAfterSeconds={5} />
-      )}
-
       {/* Confetti */}
       <ConfettiCanvas ref={confettiRef} />
 
@@ -1154,10 +1170,8 @@ export default function RecordRoute() {
         <RecordingToolbar
           elapsedMs={elapsedMs}
           isPaused={isPaused}
-          isDrawing={isDrawing}
           onTogglePause={togglePause}
           onStop={requestStop}
-          onToggleDrawing={() => setIsDrawing((v) => !v)}
           onConfetti={fireConfetti}
           onCancel={requestStop}
         />
@@ -1209,7 +1223,14 @@ export default function RecordRoute() {
                   markStorageConfigured();
                   setError(null);
                   setUiState("idle");
+                  const opts = pendingStartOptsRef.current;
+                  if (opts) {
+                    window.setTimeout(() => {
+                      void startFlow(opts);
+                    }, 0);
+                  }
                 }}
+                connectedDescription="Storage connected. Reopening recorder..."
               />
             </>
           ) : error === "SESSION_EXPIRED" ? (

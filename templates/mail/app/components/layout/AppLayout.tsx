@@ -799,9 +799,70 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     { keys: ["g", "#"], handler: () => navigate("/trash") },
   ]);
 
+  const resolveLabelForCount = (id: string) => {
+    const normalizedId = id.includes("/")
+      ? id
+          .slice(id.lastIndexOf("/") + 1)
+          .replace(/_/g, " ")
+          .toLowerCase()
+      : id.toLowerCase();
+    return labels.find(
+      (label) =>
+        label.id === id ||
+        label.id === normalizedId ||
+        label.name.toLowerCase() === id.toLowerCase(),
+    );
+  };
+
+  const useServerLabelCounts = activeAccounts.size === 0;
+
+  const getPinnedFilterCount = (id: string) => {
+    const label = resolveLabelForCount(id);
+    const countId = label?.id ?? id;
+    if (
+      useServerLabelCounts &&
+      countId !== "note-to-self" &&
+      label?.unreadCount !== undefined
+    ) {
+      return label.unreadCount;
+    }
+    return labelCounts[countId] ?? labelCounts[id] ?? label?.unreadCount ?? 0;
+  };
+
+  const getInboxCount = () => {
+    const inboxLabel = resolveLabelForCount("inbox");
+    if (useServerLabelCounts && inboxLabel?.unreadCount !== undefined) {
+      return inboxLabel.unreadCount;
+    }
+    return labelCounts["inbox"] ?? inboxLabel?.unreadCount ?? 0;
+  };
+
+  const getOtherCount = () => {
+    if (!hasPinnedFilters) return getInboxCount();
+    if (useServerLabelCounts) {
+      const inboxLabel = resolveLabelForCount("inbox");
+      if (inboxLabel?.unreadCount !== undefined) {
+        const pinnedUnreadCount = pinnedLabels.reduce((total, id) => {
+          if (collapsibleViews.some((view) => view.id === id)) return total;
+          return total + getPinnedFilterCount(id);
+        }, 0);
+        return Math.max(0, inboxLabel.unreadCount - pinnedUnreadCount);
+      }
+    }
+    return labelCounts["inbox"] ?? getInboxCount();
+  };
+
   // Get unread counts for tabs
   const getTotalCount = (viewId: string) => {
-    const label = labels.find((l) => l.id === viewId);
+    if (viewId === "inbox") return getOtherCount();
+    const label = resolveLabelForCount(viewId);
+    if (
+      useServerLabelCounts &&
+      viewId !== "note-to-self" &&
+      label?.unreadCount !== undefined
+    ) {
+      return label.unreadCount;
+    }
     if (labelCounts[viewId] !== undefined) return labelCounts[viewId];
     if (label?.unreadCount !== undefined) return label.unreadCount;
     return 0;

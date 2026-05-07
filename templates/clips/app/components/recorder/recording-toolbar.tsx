@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
   IconConfetti,
-  IconPencil,
   IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
@@ -21,15 +20,13 @@ import {
 export interface RecordingToolbarProps {
   elapsedMs: number;
   isPaused: boolean;
-  isDrawing: boolean;
   onTogglePause: () => void;
   onStop: () => void;
-  onToggleDrawing: () => void;
   onConfetti: () => void;
   onCancel: () => void;
 }
 
-const TOOLBAR_WIDTH = 320;
+const TOOLBAR_WIDTH = 276;
 const TOOLBAR_HEIGHT = 56;
 
 function formatElapsed(ms: number): string {
@@ -42,10 +39,8 @@ function formatElapsed(ms: number): string {
 export function RecordingToolbar({
   elapsedMs,
   isPaused,
-  isDrawing,
   onTogglePause,
   onStop,
-  onToggleDrawing,
   onConfetti,
   onCancel,
 }: RecordingToolbarProps) {
@@ -183,27 +178,6 @@ export function RecordingToolbar({
           <span className="text-[10px] uppercase tracking-wide">Paused</span>
         )}
       </div>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            data-toolbar-btn
-            type="button"
-            onClick={onToggleDrawing}
-            className={
-              "flex h-9 w-9 items-center justify-center rounded-full " +
-              (isDrawing
-                ? "bg-primary text-primary-foreground"
-                : "hover:bg-white/15")
-            }
-            aria-label="Toggle drawing"
-            aria-pressed={isDrawing}
-          >
-            <IconPencil className="h-4 w-4" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Draw (⌘⇧D)</TooltipContent>
-      </Tooltip>
 
       <Tooltip>
         <TooltipTrigger asChild>

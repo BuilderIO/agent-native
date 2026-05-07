@@ -134,7 +134,7 @@ export function InboxZero() {
 
       {/* Persistent scrims keep white chrome readable across bright photos. */}
       <div className="fixed inset-0 bg-black/20" />
-      <div className="fixed inset-x-0 top-0 h-32 bg-gradient-to-b from-black/75 to-transparent" />
+      <div className="inbox-zero-top-scrim fixed inset-x-0 top-0" />
 
       {/* Bottom gradient — text legibility */}
       <div className="fixed inset-x-0 bottom-0 h-44 bg-gradient-to-t from-black/70 to-transparent" />
@@ -1264,7 +1264,7 @@ export function EmailList({
         </div>
       );
     }
-    if (view === "inbox" && !labelParam) {
+    if (view === "inbox" && (!labelParam || labelParam === "important")) {
       return <InboxZero />;
     }
     return <EmptyMailboxState view={labelParam ? "label" : view} />;

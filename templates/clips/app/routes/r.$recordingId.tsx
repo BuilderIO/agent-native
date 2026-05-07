@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, NavLink } from "react-router";
 import { toast } from "sonner";
 import {
@@ -59,6 +59,14 @@ export function HydrateFallback() {
 
 type SidePanel = "transcript" | "comments" | "insights" | "agent" | "settings";
 
+function isStorageSetupFailureReason(
+  reason: string | null | undefined,
+): boolean {
+  return /video storage is not connected|file upload provider|storage provider|connect builder|s3-compatible/i.test(
+    reason ?? "",
+  );
+}
+
 export default function RecordingPage() {
   useAutoTitleBridge();
 
@@ -77,6 +85,7 @@ export default function RecordingPage() {
   // 'ready', stop spinning forever and surface an error banner so the user
   // can retry or report the issue instead of staring at a spinner.
   const [processingTimeout, setProcessingTimeout] = useState(false);
+  const [retryingFinalize, setRetryingFinalize] = useState(false);
 
   const playerDataQ = useActionQuery<any>(
     "get-recording-player-data",
@@ -99,7 +108,8 @@ export default function RecordingPage() {
         // And keep polling while the title is still the server-seeded
         // default — the agent will land a generated title via
         // `update-recording` and we want the skeleton to swap in promptly.
-        if (isDefaultTitle(rec.title)) return 3000;
+        if (shouldShowGeneratedTitleSkeleton(rec, data?.transcript?.status))
+          return 3000;
         return false;
       },
     },
@@ -120,8 +130,60 @@ export default function RecordingPage() {
   const transcriptStatus = playerDataQ.data?.transcript?.status;
   const transcriptFailureReason = playerDataQ.data?.transcript?.failureReason;
   const ctas = playerDataQ.data?.ctas ?? [];
+  const showTitleSkeleton = recording
+    ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus)
+    : false;
+  const visibleTitle = recording
+    ? displayRecordingTitle(recording.title)
+    : "Untitled Clip";
 
   const canEdit = role === "owner" || role === "admin" || role === "editor";
+  const retryFinalizeAfterStorage = useCallback(async () => {
+    if (!recordingId) return;
+    setRetryingFinalize(true);
+    setProcessingTimeout(false);
+    try {
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/finalize-recording"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: recordingId }),
+        },
+      );
+      const body = (await res.json().catch(() => null)) as {
+        error?: string;
+        result?: { status?: string; storageSetupRequired?: boolean };
+        status?: string;
+        storageSetupRequired?: boolean;
+      } | null;
+      if (!res.ok) {
+        throw new Error(body?.error ?? `Finalize failed (${res.status})`);
+      }
+      const result = body?.result ?? body;
+      if (
+        result?.storageSetupRequired ||
+        result?.status === "waiting_storage"
+      ) {
+        toast.message("Storage still isn't connected", {
+          description:
+            "Finish the Builder.io popup or configure S3 storage, then try again.",
+        });
+        return;
+      }
+      toast.success("Clip upload resumed");
+      await playerDataQ.refetch();
+    } catch (err) {
+      toast.error("Couldn't resume upload", {
+        description:
+          err instanceof Error ? err.message : "Try again in a moment.",
+        duration: 12_000,
+      });
+    } finally {
+      setRetryingFinalize(false);
+      void playerDataQ.refetch();
+    }
+  }, [playerDataQ, recordingId]);
   const firstCta = ctas[0] ?? null;
   const handleAiError = (err: Error) =>
     toast.error(err?.message ?? "AI request failed");
@@ -273,24 +335,28 @@ export default function RecordingPage() {
   if (recording.status !== "ready" || !recording.videoUrl) {
     const progress = Number(recording.uploadProgress ?? 0);
     const explicitFailure = recording.status === "failed";
+    const rawFailureReason =
+      ((recording as any).failureReason as string | null | undefined) ?? null;
+    const waitingForStorage = isStorageSetupFailureReason(rawFailureReason);
     // Treat "stuck on processing/uploading past the 30s mark" as a failure
     // too — otherwise the user stares at a spinner forever when finalize
     // silently dies (e.g. chunk route 401s, storage provider throws).
     const stuckFailure = !explicitFailure && processingTimeout;
-    const isFailure = explicitFailure || stuckFailure;
-    const label = isFailure
-      ? "Something went wrong while saving this clip."
-      : "Finishing up your clip…";
-    const failureReason = explicitFailure
-      ? ((recording as any).failureReason ?? "You can retry from the library.")
+    const isFailure = explicitFailure || stuckFailure || waitingForStorage;
+    const displayReason = explicitFailure
+      ? (rawFailureReason ?? "You can retry from the library.")
       : stuckFailure
         ? `Processing hasn't completed after 30 seconds (status=${recording.status}). The clip may not have finished uploading — check the server logs for [chunk]/[finalize] messages.`
         : "Uploading and assembling your video — this usually takes just a few seconds.";
-    const storageSetupFailure =
-      isFailure &&
-      /file upload provider|storage provider|connect builder|s3-compatible/i.test(
-        failureReason,
-      );
+    const storageSetupFailure = waitingForStorage;
+    const label = storageSetupFailure
+      ? "Connect storage to finish saving this clip."
+      : isFailure
+        ? "Something went wrong while saving this clip."
+        : "Finishing up your clip…";
+    const failureReason = storageSetupFailure
+      ? "Your clip data is still preserved. Connect Builder.io or S3 storage and Clips will upload it automatically."
+      : displayReason;
     return (
       <div className="flex flex-col items-center justify-center h-screen w-full bg-background px-6">
         {!isFailure ? <Spinner className="h-8 w-8 mb-4" /> : null}
@@ -308,26 +374,39 @@ export default function RecordingPage() {
         ) : null}
         {storageSetupFailure ? (
           <div className="mb-4 w-full">
-            <StorageSetupCard
-              title="Connect storage to finish saving"
-              description="Clips needs storage before it can save and share this recording."
-              onConfigured={() => {
-                setProcessingTimeout(false);
-                playerDataQ.refetch();
-              }}
-            />
+            {retryingFinalize ? (
+              <div className="mx-auto flex w-full max-w-md flex-col items-center gap-3 rounded-2xl border border-border bg-card p-6 shadow-lg">
+                <Spinner className="h-8 w-8 text-muted-foreground" />
+                <div className="text-sm font-medium">Uploading saved clip…</div>
+                <p className="text-sm text-muted-foreground">
+                  Storage is connected. Clips is finishing the upload now.
+                </p>
+              </div>
+            ) : (
+              <StorageSetupCard
+                title="Connect storage to finish saving"
+                description="Choose where Clips should store videos. After it connects, this saved clip will upload automatically."
+                connectedDescription="Storage connected. Uploading this clip..."
+                onConfigured={retryFinalizeAfterStorage}
+              />
+            )}
           </div>
         ) : null}
         <div className="flex items-center gap-2">
           <Button
             onClick={() => {
+              if (storageSetupFailure) {
+                void retryFinalizeAfterStorage();
+                return;
+              }
               setProcessingTimeout(false);
               playerDataQ.refetch();
             }}
             variant="outline"
             size="sm"
+            disabled={retryingFinalize}
           >
-            Check again
+            {storageSetupFailure ? "Retry upload" : "Check again"}
           </Button>
           <Button onClick={() => navigate("/")} variant="ghost" size="sm">
             Back to library
@@ -351,7 +430,7 @@ export default function RecordingPage() {
             <IconArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex-1 min-w-0">
-            {isDefaultTitle(recording.title) ? (
+            {showTitleSkeleton ? (
               // Placeholder while the agent drafts a title. The
               // useAutoTitleBridge in `_app.tsx` queues the delegation the
               // moment the transcript is ready; polling then swaps the
@@ -361,9 +440,7 @@ export default function RecordingPage() {
                 className="h-4 w-56 max-w-full"
               />
             ) : (
-              <h1 className="text-sm font-medium truncate">
-                {recording.title}
-              </h1>
+              <h1 className="text-sm font-medium truncate">{visibleTitle}</h1>
             )}
             <p className="text-xs text-muted-foreground truncate">
               {recording.ownerEmail}
@@ -565,14 +642,14 @@ export default function RecordingPage() {
                       </span>
                     </NavLink>
                   ) : null}
-                  {isDefaultTitle(recording.title) ? (
+                  {showTitleSkeleton ? (
                     <Skeleton
                       aria-label="Generating title"
                       className="h-5 w-72 max-w-full"
                     />
                   ) : (
                     <h2 className="text-base font-semibold truncate">
-                      {recording.title}
+                      {visibleTitle}
                     </h2>
                   )}
                   {recording.description ? (
@@ -763,4 +840,27 @@ export default function RecordingPage() {
 
 function capitalize(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function displayRecordingTitle(title: string | null | undefined): string {
+  return isDefaultTitle(title) ? "Untitled Clip" : (title ?? "").trim();
+}
+
+function shouldShowGeneratedTitleSkeleton(
+  recording: { title: string | null | undefined; createdAt?: string | null },
+  transcriptStatus?: string,
+): boolean {
+  if (!isDefaultTitle(recording.title)) return false;
+  if (transcriptStatus === "failed") return false;
+
+  const createdAtMs = Date.parse(recording.createdAt ?? "");
+  if (
+    Number.isFinite(createdAtMs) &&
+    Date.now() - createdAtMs > 2 * 60 * 1000 &&
+    transcriptStatus !== "pending"
+  ) {
+    return false;
+  }
+
+  return true;
 }

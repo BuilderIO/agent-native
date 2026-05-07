@@ -866,7 +866,11 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     try {
       let tailwindPlugin = require("@tailwindcss/vite");
       if (tailwindPlugin.default) tailwindPlugin = tailwindPlugin.default;
-      tailwindPluginInstance = tailwindPlugin();
+      // Tailwind's Vite optimizer uses Lightning CSS internally and runs
+      // before Vite's own CSS minifier. Lightning CSS collapses the standard
+      // `backdrop-filter` declaration when a `-webkit-` fallback is present,
+      // so let Vite/esbuild handle the production CSS pass instead.
+      tailwindPluginInstance = tailwindPlugin({ optimize: false });
     } catch {
       // Plugin not installed — silently skip. Old templates may still be on v3.
     }
@@ -917,11 +921,12 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     },
     build: {
       outDir: options.outDir ?? "dist/spa",
-      // Safari 18+ so esbuild's CSS minifier keeps the standard
-      // backdrop-filter. Targeting older Safari caused it to drop the
-      // unprefixed version (Safari only got unprefixed backdrop-filter in
-      // 18.0, Sept 2024) and keep just -webkit-backdrop-filter, which broke
-      // the blur in prod where the unprefixed form was expected.
+      // Vite 8 defaults CSS minification to Lightning CSS, which collapses a
+      // `backdrop-filter` + `-webkit-backdrop-filter` pair down to only the
+      // prefixed form. Chrome ignores that, so glass effects disappear in
+      // production. Keep esbuild as the CSS minifier and target Safari 18+ so
+      // the standard property survives the production pipeline.
+      cssMinify: "esbuild",
       cssTarget: ["es2020", "safari18"],
     },
     // Bundle all non-Node.js deps into the production SSR server build.

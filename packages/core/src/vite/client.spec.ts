@@ -89,3 +89,14 @@ describe("Vite optimized dependency recovery", () => {
     expect(originalEnd).toHaveBeenCalledOnce();
   });
 });
+
+describe("Vite CSS build defaults", () => {
+  it("keeps standard backdrop-filter declarations in production CSS", () => {
+    const config = defineConfig();
+
+    expect(config.build).toMatchObject({
+      cssMinify: "esbuild",
+      cssTarget: ["es2020", "safari18"],
+    });
+  });
+});
