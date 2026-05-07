@@ -391,6 +391,18 @@ class CdpPage {
       if (frame) {
         const contextId = this.contextsByFrame.get(frame.id);
         if (contextId) return { frameId: frame.id, contextId, url: frame.url };
+        const isolated = (await this.send("Page.createIsolatedWorld", {
+          frameId: frame.id,
+          worldName: `codex-verify-${extensionId}`,
+          grantUniveralAccess: true,
+        })) as { executionContextId?: number };
+        if (typeof isolated.executionContextId === "number") {
+          return {
+            frameId: frame.id,
+            contextId: isolated.executionContextId,
+            url: frame.url,
+          };
+        }
       }
       await delay(150);
     }
