@@ -13,7 +13,10 @@ import {
 import { createSharesTable, type ShareRole } from "./schema.js";
 import { registerShareableResource } from "./registry.js";
 import shareResource from "./actions/share-resource.js";
-import { isSyntheticQaEmail } from "./actions/share-resource.js";
+import {
+  isSyntheticQaEmail,
+  resolveShareNotificationUrl,
+} from "./actions/share-resource.js";
 import unshareResource from "./actions/unshare-resource.js";
 import listResourceShares from "./actions/list-resource-shares.js";
 import setResourceVisibility from "./actions/set-resource-visibility.js";
@@ -108,6 +111,37 @@ describe("shareable resource access helpers", () => {
     expect(isSyntheticQaEmail("codex+qa-lane@example.invalid")).toBe(true);
     expect(isSyntheticQaEmail("steve+qa-tools-123@example.com")).toBe(false);
     expect(isSyntheticQaEmail("steve@example.test")).toBe(false);
+  });
+
+  it("builds safe share notification URLs", () => {
+    expect(
+      resolveShareNotificationUrl(
+        "/deck/doc-actions",
+        undefined,
+        "https://slides.example.com",
+      ),
+    ).toBe("https://slides.example.com/deck/doc-actions");
+    expect(
+      resolveShareNotificationUrl(
+        "https://slides.example.com/deck/doc-actions",
+        undefined,
+        "https://slides.example.com",
+      ),
+    ).toBe("https://slides.example.com/deck/doc-actions");
+    expect(
+      resolveShareNotificationUrl(
+        "https://evil.example/deck/doc-actions",
+        "/deck/fallback",
+        "https://slides.example.com",
+      ),
+    ).toBe("https://slides.example.com/deck/fallback");
+    expect(
+      resolveShareNotificationUrl(
+        "mailto:viewer@example.com",
+        undefined,
+        "https://slides.example.com",
+      ),
+    ).toBe("https://slides.example.com");
   });
 
   it("filters list access across owner, private, org, public, user share, org share, and anonymous contexts", async () => {

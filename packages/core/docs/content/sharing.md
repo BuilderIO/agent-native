@@ -69,6 +69,7 @@ Every shareable resource gets a share button in its header. Clicking it opens a 
 
 - Visibility selector (`Private` / `Organization` / `Public link`).
 - "Add people or teams" autocomplete — search users in the org or paste an email.
+- A Google Docs-style `Notify people` checkbox for individual email grants.
 - A list of current grants with role pickers and a remove control.
 - A copy-link button that respects the current visibility.
 
@@ -90,12 +91,12 @@ For lists, drop a `<VisibilityBadge visibility={row.visibility} />` next to each
 
 The framework auto-mounts these actions in every template — the agent calls them as tools, the UI calls them as HTTP endpoints:
 
-| Action                    | What it does                                      |
-| ------------------------- | ------------------------------------------------- |
-| `share-resource`          | Grant a user or org access at a specific role.    |
-| `unshare-resource`        | Revoke access for a user or org.                  |
-| `list-resource-shares`    | Show current visibility plus all explicit grants. |
-| `set-resource-visibility` | Change to `private`, `org`, or `public`.          |
+| Action                    | What it does                                                                                  |
+| ------------------------- | --------------------------------------------------------------------------------------------- |
+| `share-resource`          | Grant a user or org access at a specific role. Optional `notify` controls email notifications. |
+| `unshare-resource`        | Revoke access for a user or org.                                                              |
+| `list-resource-shares`    | Show current visibility plus all explicit grants.                                             |
+| `set-resource-visibility` | Change to `private`, `org`, or `public`.                                                      |
 
 Tell the agent "share this design with the marketing team as editors" and it calls `share-resource` against the same endpoint the UI uses. The result shows up in the share dialog the next render.
 
@@ -132,11 +133,12 @@ registerShareableResource({
   sharesTable: schema.deckShares,
   displayName: "Deck",
   titleColumn: "title",
+  getResourcePath: (deck) => `/deck/${deck.id}`,
   getDb,
 });
 ```
 
-After that, list/read queries pass through `accessFilter()` and write actions use `assertAccess()` to enforce roles. The full pattern (including create-action ownership stamping and the migration recipe for existing tables) lives in the `sharing` agent skill — the agent reads it on demand when building a sharing-aware feature.
+After that, list/read queries pass through `accessFilter()` and write actions use `assertAccess()` to enforce roles. `getResourcePath` gives notification emails a direct fallback link when a share is created by the agent or another non-UI caller. The full pattern (including create-action ownership stamping and the migration recipe for existing tables) lives in the `sharing` agent skill — the agent reads it on demand when building a sharing-aware feature.
 
 ## Security guarantees {#security}
 

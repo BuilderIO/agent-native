@@ -5,6 +5,7 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -115,6 +116,7 @@ export function ShareDialog(props: ShareDialogProps) {
 
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("viewer");
+  const [notifyPeople, setNotifyPeople] = useState(true);
   const [passwordEnabled, setPasswordEnabled] = useState(!!password);
   const [passwordValue, setPasswordValue] = useState(password ?? "");
   const [expiryValue, setExpiryValue] = useState(
@@ -133,6 +135,20 @@ export function ShareDialog(props: ShareDialogProps) {
   }
 
   const shares = sharesQuery.data?.shares ?? [];
+  const invitePerson = () => {
+    const trimmed = email.trim();
+    if (!trimmed) return;
+    shareResource.mutate({
+      resourceType,
+      resourceId,
+      principalType: "user",
+      principalId: trimmed,
+      role,
+      notify: notifyPeople,
+      resourceUrl: shareUrl,
+    } as any);
+    setEmail("");
+  };
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
@@ -201,50 +217,43 @@ export function ShareDialog(props: ShareDialogProps) {
             <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
               Invite people
             </Label>
-            <div className="flex gap-2">
-              <Input
-                type="email"
-                placeholder="teammate@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="h-9"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && email.trim()) {
-                    shareResource.mutate({
-                      resourceType,
-                      resourceId,
-                      principalType: "user",
-                      principalId: email.trim(),
-                      role,
-                    } as any);
-                    setEmail("");
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <Input
+                  type="email"
+                  placeholder="teammate@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="h-9"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") invitePerson();
+                  }}
+                />
+                <Select value={role} onValueChange={(v) => setRole(v as Role)}>
+                  <SelectTrigger className="w-[110px] h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="viewer">Viewer</SelectItem>
+                    <SelectItem value="editor">Editor</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  disabled={!email.trim() || shareResource.isPending}
+                  onClick={invitePerson}
+                >
+                  Invite
+                </Button>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Checkbox
+                  checked={notifyPeople}
+                  onCheckedChange={(checked) =>
+                    setNotifyPeople(checked === true)
                   }
-                }}
-              />
-              <Select value={role} onValueChange={(v) => setRole(v as Role)}>
-                <SelectTrigger className="w-[110px] h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="viewer">Viewer</SelectItem>
-                  <SelectItem value="editor">Editor</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button
-                disabled={!email.trim() || shareResource.isPending}
-                onClick={() => {
-                  shareResource.mutate({
-                    resourceType,
-                    resourceId,
-                    principalType: "user",
-                    principalId: email.trim(),
-                    role,
-                  } as any);
-                  setEmail("");
-                }}
-              >
-                Invite
-              </Button>
+                />
+                Notify people
+              </label>
             </div>
             {sharesQuery.data?.ownerEmail || shares.length ? (
               <div className="rounded-md border border-border divide-y divide-border">

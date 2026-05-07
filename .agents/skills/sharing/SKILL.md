@@ -78,6 +78,7 @@ registerShareableResource({
   sharesTable: schema.deckShares,
   displayName: "Deck",
   titleColumn: "title",
+  getResourcePath: (deck) => `/deck/${deck.id}`,
   getDb,
 });
 ```
@@ -155,7 +156,7 @@ The framework auto-mounts these actions in every template — no per-template bo
 
 | Action                     | Args                                                                           | Purpose                                   |
 | -------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------- |
-| `share-resource`           | `resourceType, resourceId, principalType, principalId, role`                   | Grant a user or org access.               |
+| `share-resource`           | `resourceType, resourceId, principalType, principalId, role, notify?, resourceUrl?` | Grant a user or org access. `notify` defaults to true for individual user shares; `resourceUrl` can provide the direct app link used in the notification email. |
 | `unshare-resource`         | `resourceType, resourceId, principalType, principalId`                         | Revoke access.                            |
 | `list-resource-shares`     | `resourceType, resourceId`                                                     | Current visibility + all share grants.    |
 | `set-resource-visibility`  | `resourceType, resourceId, visibility`                                         | Change to `private` / `org` / `public`.  |
@@ -173,6 +174,7 @@ When retrofitting an existing resource table:
 5. Update list/read actions to use `accessFilter`.
 6. Update update/delete actions to `assertAccess` with the correct role.
 7. Add `<ShareButton>` to the resource header.
+8. Add `getResourcePath` in the registration so agent-triggered shares can email a direct link even when no UI supplied `resourceUrl`.
 
 ## Templates that opt out
 
