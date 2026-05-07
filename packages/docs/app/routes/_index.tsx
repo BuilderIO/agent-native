@@ -4,7 +4,6 @@ import CodeBlock from "../components/CodeBlock";
 import Seascape from "../components/Seascape";
 import {
   featuredTemplates,
-  templates,
   TemplateCard,
   trackEvent,
 } from "../components/TemplateCard";
