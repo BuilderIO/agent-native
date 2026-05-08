@@ -485,6 +485,21 @@ export interface ProductionAgentOptions {
   skipFilesContext?: boolean;
 }
 
+export async function resolveAgentOwnerEmail(
+  options: Pick<ProductionAgentOptions, "resolveOwnerEmail">,
+  event: any,
+): Promise<string | null> {
+  let ownerEmail: string | null = null;
+  if (options.resolveOwnerEmail) {
+    try {
+      ownerEmail = await options.resolveOwnerEmail(event);
+    } catch {
+      ownerEmail = null;
+    }
+  }
+  return ownerEmail ?? getRequestUserEmail() ?? null;
+}
+
 const MAX_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 2000;
 const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
@@ -1588,14 +1603,7 @@ export function createProductionAgentHandler(
     // Resolve owner first so we can look up a per-owner API key. Users
     // who bring their own key use their key for this request (durable
     // across serverless cold starts via the settings table).
-    let ownerEmail: string | null = null;
-    if (options.resolveOwnerEmail) {
-      try {
-        ownerEmail = await options.resolveOwnerEmail(event);
-      } catch {
-        ownerEmail = null;
-      }
-    }
+    const ownerEmail = await resolveAgentOwnerEmail(options, event);
 
     // When a per-request engine override is specified, resolve the API key
     // for that provider instead of the global active engine's provider.
