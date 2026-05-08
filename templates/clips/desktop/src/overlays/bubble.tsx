@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { IconCameraOff } from "@tabler/icons-react";
 
 type BubbleSize = "small" | "medium";
 const LOCAL_CAMERA_TARGET_FPS = 60;
@@ -1033,6 +1034,16 @@ export function Bubble() {
         className={`bubble-controls ${showControls ? "is-visible" : ""}`}
         data-no-drag
       >
+        <button
+          type="button"
+          className="bubble-control-button"
+          onClick={onClose}
+          aria-label="Turn camera off"
+          title="Turn camera off"
+          data-no-drag
+        >
+          <IconCameraOff size={14} stroke={2} />
+        </button>
         <button
           type="button"
           className={`bubble-dot bubble-dot-small ${size === "small" ? "is-active" : ""}`}

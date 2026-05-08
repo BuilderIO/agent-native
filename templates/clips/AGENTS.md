@@ -116,7 +116,9 @@ Ephemeral UI state lives in `application_state`, accessed via `readAppState(key)
   "spaceId": "spc_xyz",
   "folderId": "fld_123",
   "shareId": "shr_888",
-  "search": "onboarding"
+  "search": "onboarding",
+  "panel": "transcript",
+  "searchHitMs": 83000
 }
 ```
 
@@ -184,7 +186,7 @@ Start / stop / pause are **UI gestures** — there is no server action. MediaRec
 | Action                       | Args                                                                                                                                                                       | Purpose                                                                                           |
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | `list-recordings`            | `[--view library\|space\|archive\|trash\|all] [--folderId] [--spaceId] [--search] [--tag] [--sort recent\|views\|oldest] [--limit] [--offset]`                             | List recordings the user has access to                                                            |
-| `search-recordings`          | `--query <term> [--limit]`                                                                                                                                                 | Fuzzy search over title / description / transcripts                                               |
+| `search-recordings`          | `--query <term> [--limit]`                                                                                                                                                 | Search title / description / transcripts / comments; transcript/comment matches include `matchMs` |
 | `get-recording-player-data`  | `--recordingId <id>`                                                                                                                                                       | Everything the player page needs (metadata + transcript + comments + reactions + chapters + CTAs) |
 | `update-recording`           | `--id <id> [--title] [--description] [--folderId] [--spaceIds] [--password] [--expiresAt] [--defaultSpeed] [--enableComments] [--enableReactions] [--enableDownloads] ...` | Update recording metadata                                                                         |
 | `move-recording`             | `--id <id> --folderId <fid>`                                                                                                                                               | Move to a folder                                                                                  |

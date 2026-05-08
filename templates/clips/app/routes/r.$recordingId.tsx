@@ -80,12 +80,40 @@ function failureDetail(reason: string | null | undefined): string | null {
   return trimmed.length > 1200 ? `${trimmed.slice(0, 1200)}...` : trimmed;
 }
 
+function parseTimeParam(raw: string | null): number {
+  if (!raw) return 0;
+  const value = raw.trim();
+  if (!value) return 0;
+
+  if (/^\d+(\.\d+)?$/.test(value)) {
+    return Math.floor(parseFloat(value) * 1000);
+  }
+
+  if (/^\d+:\d+(:\d+)?$/.test(value)) {
+    const parts = value.split(":").map((part) => parseInt(part, 10));
+    if (parts.length === 2) return (parts[0] * 60 + parts[1]) * 1000;
+    if (parts.length === 3) {
+      return (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
+    }
+  }
+
+  const match = value.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/i);
+  if (!match) return 0;
+  const hours = parseInt(match[1] ?? "0", 10);
+  const minutes = parseInt(match[2] ?? "0", 10);
+  const seconds = parseInt(match[3] ?? "0", 10);
+  return (hours * 3600 + minutes * 60 + seconds) * 1000;
+}
+
 export default function RecordingPage() {
   useAutoTitleBridge();
 
   const { recordingId } = useParams<{ recordingId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const search = searchParams.toString();
+  const startMs = parseTimeParam(searchParams.get("t"));
+  const panelParam = searchParams.get("panel");
   const { session } = useSession();
   const playerRef = useRef<VideoPlayerHandle | null>(null);
 
@@ -100,6 +128,12 @@ export default function RecordingPage() {
   // can retry or report the issue instead of staring at a spinner.
   const [processingTimeout, setProcessingTimeout] = useState(false);
   const [retryingFinalize, setRetryingFinalize] = useState(false);
+
+  useEffect(() => {
+    if (panelParam === "comments" || panelParam === "transcript") {
+      setPanel(panelParam);
+    }
+  }, [panelParam]);
 
   const playerDataQ = useActionQuery<any>(
     "get-recording-player-data",
@@ -300,10 +334,12 @@ export default function RecordingPage() {
       body: JSON.stringify({
         view: "recording",
         recordingId,
-        path: `/r/${recordingId}`,
+        path: `/r/${recordingId}${search ? `?${search}` : ""}`,
+        panel,
+        ...(startMs > 0 ? { searchHitMs: startMs } : {}),
       }),
     }).catch(() => {});
-  }, [recordingId]);
+  }, [panel, recordingId, search, startMs]);
 
   usePlayerShortcuts({ playerRef, speed, setSpeed, chapters });
 
@@ -653,6 +689,7 @@ export default function RecordingPage() {
                   thumbnailUrl={recording.thumbnailUrl}
                   role={role}
                   defaultSpeed={speed}
+                  startMs={startMs}
                   comments={comments}
                   chapters={chapters}
                   reactions={reactions}

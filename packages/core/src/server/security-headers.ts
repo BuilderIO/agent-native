@@ -28,10 +28,11 @@
  *   - `Referrer-Policy: strict-origin-when-cross-origin` — strips path/query
  *     from outbound Referer headers when the request crosses origin, so a
  *     public-share viewer's outbound link clicks never leak the share token.
- *   - `Permissions-Policy: camera=(), microphone=(), geolocation=(),
- *     screen-wake-lock=()` — blocks iframed children from inheriting camera
- *     / mic / location grants. Templates that need camera/mic for recording
- *     UI override this on their own routes.
+ *   - `Permissions-Policy: camera=(), microphone=(self), geolocation=(),
+ *     screen-wake-lock=()` — allows the app shell to request microphone access
+ *     for composer dictation while keeping camera/location/wake-lock blocked
+ *     by default. Templates that need broader media capture for recording UI
+ *     override this on their own routes.
  *   - `Cross-Origin-Opener-Policy: same-origin` — isolates window.opener so
  *     a popup-window opener reference can't read or modify our document.
  *   - `Cross-Origin-Resource-Policy: same-site` — prevents other origins from
@@ -48,7 +49,7 @@ import { defineEventHandler, setResponseHeader } from "h3";
 
 const HSTS = "max-age=31536000; includeSubDomains; preload";
 const PERMISSIONS_POLICY =
-  "camera=(), microphone=(), geolocation=(), screen-wake-lock=()";
+  "camera=(), microphone=(self), geolocation=(), screen-wake-lock=()";
 
 /**
  * Returns true when the request was received over HTTPS. We trust both the

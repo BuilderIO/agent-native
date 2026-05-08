@@ -1801,6 +1801,21 @@ function getRunErrorMetadata(message: unknown): RunErrorInfo | null {
   };
 }
 
+function isBuilderReconnectRunError(info: RunErrorInfo): boolean {
+  const code = (info.errorCode ?? "").toLowerCase();
+  const message = info.message.toLowerCase();
+  const isAuthCode =
+    code === "authentication_error" ||
+    code === "unauthorized" ||
+    code === "http_401" ||
+    code === "http_403";
+  return (
+    code === "builder_auth_error" ||
+    message.includes("builder authentication failed") ||
+    (isAuthCode && message.includes("invalid token"))
+  );
+}
+
 function getMessageText(message: unknown): string {
   const msg = (message as { message?: unknown })?.message ?? message;
   const content = (msg as { content?: unknown })?.content;
@@ -1830,6 +1845,7 @@ function RunErrorRecoveryCard({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const canRecover = info.recoverable === true;
+  const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
   const copyDetails = useCallback(() => {
     const text = [
       info.message,
@@ -1859,6 +1875,12 @@ function RunErrorRecoveryCard({
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {info.message}
           </p>
+          {shouldShowBuilderReconnect && (
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              The current Builder.io or model-provider credential was rejected.
+              Reconnect Builder.io, then retry this message.
+            </p>
+          )}
           {(info.runId || info.errorCode || info.details) && (
             <button
               type="button"
@@ -1897,6 +1919,17 @@ function RunErrorRecoveryCard({
         </button>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
+        {shouldShowBuilderReconnect && (
+          <a
+            href={agentNativePath("/_agent-native/builder/connect")}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+          >
+            <IconExternalLink size={13} />
+            Reconnect Builder.io
+          </a>
+        )}
         {canRecover && (
           <>
             <button

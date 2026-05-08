@@ -22,9 +22,44 @@ function buildSnippet(fullText: string, query: string): string | null {
   return `${prefix}${fullText.slice(start, end)}${suffix}`;
 }
 
+function parseSegments(raw: string | null | undefined) {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((seg) => ({
+        startMs: Number(seg?.startMs ?? 0),
+        endMs: Number(seg?.endMs ?? seg?.startMs ?? 0),
+        text: String(seg?.text ?? ""),
+      }))
+      .filter((seg) => Number.isFinite(seg.startMs) && seg.text.trim());
+  } catch {
+    return [];
+  }
+}
+
+function transcriptMatch(
+  fullText: string,
+  segmentsJson: string | null | undefined,
+  query: string,
+): { snippet: string | null; matchMs: number | null } {
+  const q = query.toLowerCase();
+  for (const segment of parseSegments(segmentsJson)) {
+    if (segment.text.toLowerCase().includes(q)) {
+      return {
+        snippet: buildSnippet(segment.text, query) ?? segment.text,
+        matchMs: Math.max(0, Math.floor(segment.startMs)),
+      };
+    }
+  }
+
+  return { snippet: buildSnippet(fullText, query), matchMs: null };
+}
+
 export default defineAction({
   description:
-    "Search recordings by title, description, or transcript text. Returns matches with a highlighted transcript snippet.",
+    "Search recordings by title, description, transcript text, or comments. Transcript and comment matches include timestamps for jumping to the matching moment.",
   schema: z.object({
     query: z.string().min(1).describe("Search text"),
     limit: z.coerce.number().int().min(1).max(100).default(30),
@@ -62,6 +97,7 @@ export default defineAction({
       .select({
         recordingId: schema.recordingTranscripts.recordingId,
         fullText: schema.recordingTranscripts.fullText,
+        segmentsJson: schema.recordingTranscripts.segmentsJson,
         id: schema.recordings.id,
         title: schema.recordings.title,
         description: schema.recordings.description,
@@ -85,9 +121,37 @@ export default defineAction({
       )
       .limit(args.limit);
 
+    const commentRows = await db
+      .select({
+        recordingId: schema.recordingComments.recordingId,
+        content: schema.recordingComments.content,
+        videoTimestampMs: schema.recordingComments.videoTimestampMs,
+        id: schema.recordings.id,
+        title: schema.recordings.title,
+        description: schema.recordings.description,
+        thumbnailUrl: schema.recordings.thumbnailUrl,
+        durationMs: schema.recordings.durationMs,
+        ownerEmail: schema.recordings.ownerEmail,
+        visibility: schema.recordings.visibility,
+        createdAt: schema.recordings.createdAt,
+        updatedAt: schema.recordings.updatedAt,
+      })
+      .from(schema.recordingComments)
+      .innerJoin(
+        schema.recordings,
+        eq(schema.recordingComments.recordingId, schema.recordings.id),
+      )
+      .where(
+        and(
+          accessFilter(schema.recordings, schema.recordingShares),
+          sql`${schema.recordingComments.content} LIKE ${pattern} ESCAPE '\\'`,
+        ),
+      )
+      .limit(args.limit);
+
     const transcriptMatches = transcriptRows.map((r) => ({
       recordingId: r.recordingId,
-      fullText: r.fullText,
+      ...transcriptMatch(r.fullText, r.segmentsJson, args.query),
     }));
     const transcriptRecordings = transcriptRows.map((r) => ({
       id: r.id,
@@ -100,39 +164,95 @@ export default defineAction({
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
     }));
+    const commentRecordings = commentRows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      description: r.description,
+      thumbnailUrl: r.thumbnailUrl,
+      durationMs: r.durationMs,
+      ownerEmail: r.ownerEmail,
+      visibility: r.visibility,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      snippet: buildSnippet(r.content, args.query) ?? r.content,
+      matchMs: Math.max(0, Math.floor(r.videoTimestampMs ?? 0)),
+    }));
 
     // Merge matches by id. Prefer transcript snippet if present.
-    const snippetById = new Map<string, string | null>();
+    const transcriptById = new Map<
+      string,
+      { snippet: string | null; matchMs: number | null }
+    >();
     for (const t of transcriptMatches) {
-      if (t.recordingId && t.fullText) {
-        snippetById.set(t.recordingId, buildSnippet(t.fullText, args.query));
+      if (t.recordingId) {
+        transcriptById.set(t.recordingId, {
+          snippet: t.snippet,
+          matchMs: t.matchMs,
+        });
       }
     }
 
     const merged = new Map<string, any>();
     for (const r of recMatches) {
-      merged.set(r.id, { ...r, matchType: "title-description", snippet: null });
+      merged.set(r.id, {
+        ...r,
+        matchType: "title-description",
+        snippet: buildSnippet(r.description, args.query),
+        matchMs: null,
+        matchPanel: null,
+      });
     }
     for (const r of transcriptRecordings) {
       const existing = merged.get(r.id);
-      const snippet = snippetById.get(r.id) ?? null;
+      const match = transcriptById.get(r.id);
+      const snippet = match?.snippet ?? null;
       if (existing) {
         existing.matchType = "title-transcript";
         existing.snippet = snippet;
+        existing.matchMs = match?.matchMs ?? null;
+        existing.matchPanel = "transcript";
       } else {
-        merged.set(r.id, { ...r, matchType: "transcript", snippet });
+        merged.set(r.id, {
+          ...r,
+          matchType: "transcript",
+          snippet,
+          matchMs: match?.matchMs ?? null,
+          matchPanel: "transcript",
+        });
+      }
+    }
+    for (const r of commentRecordings) {
+      const existing = merged.get(r.id);
+      if (existing) {
+        if (existing.matchPanel !== "transcript") {
+          existing.matchType =
+            existing.matchType === "title-description"
+              ? "title-comment"
+              : "comment";
+          existing.snippet = r.snippet;
+          existing.matchMs = r.matchMs;
+          existing.matchPanel = "comments";
+        }
+      } else {
+        merged.set(r.id, {
+          ...r,
+          matchType: "comment",
+          matchPanel: "comments",
+        });
       }
     }
 
     const results = Array.from(merged.values()).sort((a, b) => {
-      // Title matches first, then transcript
+      // Metadata matches first, then timed transcript/comment content.
       const order = {
         "title-description": 0,
         "title-transcript": 1,
-        transcript: 2,
+        "title-comment": 2,
+        transcript: 3,
+        comment: 4,
       } as const;
-      const oa = order[a.matchType as keyof typeof order] ?? 3;
-      const ob = order[b.matchType as keyof typeof order] ?? 3;
+      const oa = order[a.matchType as keyof typeof order] ?? 5;
+      const ob = order[b.matchType as keyof typeof order] ?? 5;
       if (oa !== ob) return oa - ob;
       return (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "");
     });

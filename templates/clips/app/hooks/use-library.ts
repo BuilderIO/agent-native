@@ -75,8 +75,15 @@ export interface SearchHit {
   description: string;
   thumbnailUrl: string | null;
   durationMs: number;
-  matchType: "title-description" | "title-transcript" | "transcript";
+  matchType:
+    | "title-description"
+    | "title-transcript"
+    | "title-comment"
+    | "transcript"
+    | "comment";
   snippet: string | null;
+  matchMs: number | null;
+  matchPanel: "transcript" | "comments" | null;
   createdAt: string;
   updatedAt: string;
 }

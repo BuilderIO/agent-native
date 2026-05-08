@@ -19,6 +19,7 @@ export default createAuthPlugin({
   },
   publicPaths: [
     "/share",
+    "/r",
     "/embed",
     "/download",
     // React Router's lazy route-discovery endpoint. If this is gated by

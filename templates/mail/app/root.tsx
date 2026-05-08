@@ -1,4 +1,12 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import {
+  isRouteErrorResponse,
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useRouteError,
+} from "react-router";
 import { useEffect, useRef, useState } from "react";
 import {
   QueryClient,
@@ -15,6 +23,7 @@ import { getThemeInitScript } from "@agent-native/core/client";
 import { appApiPath } from "@/lib/api-path";
 import { TAB_ID } from "@/lib/tab-id";
 import { markExternalEmailRefresh } from "@/hooks/use-emails";
+import { Button } from "@/components/ui/button";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
@@ -240,4 +249,48 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+function routeErrorMessage(error: unknown): string {
+  if (isRouteErrorResponse(error)) {
+    if (typeof error.data === "string" && error.data.trim()) {
+      return error.data;
+    }
+    if (
+      error.data &&
+      typeof error.data === "object" &&
+      "message" in error.data &&
+      typeof error.data.message === "string"
+    ) {
+      return error.data.message;
+    }
+    return error.statusText || `Request failed (${error.status})`;
+  }
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return "Something went wrong while loading Mail.";
+}
+
+export function ErrorBoundary() {
+  const error = useRouteError();
+  const message = routeErrorMessage(error);
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
+      <div className="w-full max-w-md text-center">
+        <p className="text-sm font-semibold">Mail could not load this view.</p>
+        <p className="mt-2 text-sm text-muted-foreground">{message}</p>
+        <div className="mt-5 flex justify-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.history.back()}
+          >
+            Back
+          </Button>
+          <Button size="sm" onClick={() => window.location.reload()}>
+            Reload
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}

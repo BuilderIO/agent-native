@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   createCheckpoint,
   getChangedFileNames,
+  getUncommittedStatus,
   hasUncommittedChanges,
   isGitRepo,
   restoreToCheckpoint,
@@ -26,6 +27,16 @@ describe("checkpoint service", () => {
     execFileSync("git", ["init"], { cwd, stdio: "pipe" });
     return cwd;
   }
+
+  it("reports raw clean and dirty status for checkpoint guards", () => {
+    const cwd = createTempRepo();
+
+    expect(getUncommittedStatus(cwd)).toBe("");
+
+    fs.writeFileSync(path.join(cwd, "new.txt"), "new\n");
+
+    expect(getUncommittedStatus(cwd)).toContain("?? new.txt");
+  });
 
   it("creates a checkpoint commit and restores tracked and added files", () => {
     const cwd = createTempRepo();
@@ -60,6 +71,7 @@ describe("checkpoint service", () => {
     tmpDirs.push(cwd);
 
     expect(isGitRepo(cwd)).toBe(false);
+    expect(getUncommittedStatus(cwd)).toBeNull();
     expect(createCheckpoint(cwd, "No repo")).toBeNull();
     expect(restoreToCheckpoint(cwd, "HEAD")).toBe(false);
   });

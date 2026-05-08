@@ -461,7 +461,7 @@ export interface ProductionAgentOptions {
   onRunStart?: (
     send: (event: AgentChatEvent) => void,
     threadId: string,
-  ) => void;
+  ) => void | Promise<void>;
   /**
    * Called after the engine + model are resolved for this request. Used by
    * the plugin layer to thread the parent's choices into sub-agents so
@@ -1964,7 +1964,7 @@ export function createProductionAgentHandler(
       async (send, signal) => {
         // Notify listeners that a run has started (used by agent teams)
         if (options.onRunStart) {
-          options.onRunStart(send, threadId ?? runId);
+          await options.onRunStart(send, threadId ?? runId);
         }
 
         // Resolve custom workspace agent mentions first.
