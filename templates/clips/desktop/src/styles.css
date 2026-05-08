@@ -226,15 +226,13 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   box-shadow: var(--shadow-sm);
 }
 
-.mode-toggle button::after {
-  content: attr(data-tooltip);
+.mode-tooltip {
   position: absolute;
   top: calc(100% + 8px);
   left: 50%;
   z-index: 40;
   pointer-events: none;
-  opacity: 0;
-  transform: translateX(-50%) translateY(-2px);
+  transform: translateX(-50%);
   border: 1px solid var(--border-strong);
   border-radius: 6px;
   background: var(--fg);
@@ -245,15 +243,19 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   line-height: 1;
   padding: 6px 8px;
   white-space: nowrap;
-  transition:
-    opacity 120ms,
-    transform 120ms;
+  animation: mode-tooltip-in 120ms ease-out;
 }
 
-.mode-toggle button:hover::after,
-.mode-toggle button:focus-visible::after {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
+@keyframes mode-tooltip-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 
 .icon-button {

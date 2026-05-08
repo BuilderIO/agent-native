@@ -2536,6 +2536,61 @@ function Header({
   onModeChange: (m: CaptureMode) => void;
   submitterEmail?: string | null;
 }) {
+  const [tooltipMode, setTooltipMode] = useState<CaptureMode | null>(null);
+  const tooltipReadyAtRef = useRef(Date.now() + 600);
+  const tooltipTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(
+    null,
+  );
+  const suppressTooltipRef = useRef(false);
+
+  const clearModeTooltip = useCallback(() => {
+    if (tooltipTimerRef.current) {
+      window.clearTimeout(tooltipTimerRef.current);
+      tooltipTimerRef.current = null;
+    }
+    setTooltipMode(null);
+  }, []);
+
+  const queueModeTooltip = useCallback(
+    (nextMode: CaptureMode) => {
+      if (
+        suppressTooltipRef.current ||
+        Date.now() < tooltipReadyAtRef.current ||
+        tooltipMode === nextMode ||
+        tooltipTimerRef.current
+      ) {
+        return;
+      }
+      tooltipTimerRef.current = window.setTimeout(() => {
+        tooltipTimerRef.current = null;
+        if (!suppressTooltipRef.current) {
+          setTooltipMode(nextMode);
+        }
+      }, 350);
+    },
+    [tooltipMode],
+  );
+
+  const leaveModeButton = useCallback(() => {
+    suppressTooltipRef.current = false;
+    clearModeTooltip();
+  }, [clearModeTooltip]);
+
+  const pressModeButton = useCallback(() => {
+    suppressTooltipRef.current = true;
+    clearModeTooltip();
+  }, [clearModeTooltip]);
+
+  useEffect(
+    () => () => {
+      if (tooltipTimerRef.current) {
+        window.clearTimeout(tooltipTimerRef.current);
+        tooltipTimerRef.current = null;
+      }
+    },
+    [],
+  );
+
   // Mode-toggle is absolutely centered (visual center of the popover) and the
   // close button lives top-right as an absolute-positioned sibling, so the
   // tabs aren't offset by the close button's width.
@@ -2549,27 +2604,72 @@ function Header({
       >
         <button
           className={mode === "screen" ? "active" : ""}
-          onClick={() => onModeChange("screen")}
+          onPointerEnter={() => {
+            suppressTooltipRef.current = false;
+          }}
+          onPointerMove={() => queueModeTooltip("screen")}
+          onPointerLeave={leaveModeButton}
+          onPointerDown={pressModeButton}
+          onClick={(event) => {
+            suppressTooltipRef.current = true;
+            clearModeTooltip();
+            event.currentTarget.blur();
+            onModeChange("screen");
+          }}
           aria-label="Screen only"
-          data-tooltip="Screen"
         >
           <ScreenIcon />
+          {tooltipMode === "screen" ? (
+            <span className="mode-tooltip" role="tooltip">
+              Screen
+            </span>
+          ) : null}
         </button>
         <button
           className={mode === "screen-camera" ? "active" : ""}
-          onClick={() => onModeChange("screen-camera")}
+          onPointerEnter={() => {
+            suppressTooltipRef.current = false;
+          }}
+          onPointerMove={() => queueModeTooltip("screen-camera")}
+          onPointerLeave={leaveModeButton}
+          onPointerDown={pressModeButton}
+          onClick={(event) => {
+            suppressTooltipRef.current = true;
+            clearModeTooltip();
+            event.currentTarget.blur();
+            onModeChange("screen-camera");
+          }}
           aria-label="Screen + Camera"
-          data-tooltip="Screen + cam"
         >
           <ScreenCamIcon />
+          {tooltipMode === "screen-camera" ? (
+            <span className="mode-tooltip" role="tooltip">
+              Screen + cam
+            </span>
+          ) : null}
         </button>
         <button
           className={mode === "camera" ? "active" : ""}
-          onClick={() => onModeChange("camera")}
+          onPointerEnter={() => {
+            suppressTooltipRef.current = false;
+          }}
+          onPointerMove={() => queueModeTooltip("camera")}
+          onPointerLeave={leaveModeButton}
+          onPointerDown={pressModeButton}
+          onClick={(event) => {
+            suppressTooltipRef.current = true;
+            clearModeTooltip();
+            event.currentTarget.blur();
+            onModeChange("camera");
+          }}
           aria-label="Camera only"
-          data-tooltip="Camera"
         >
           <CamIcon />
+          {tooltipMode === "camera" ? (
+            <span className="mode-tooltip" role="tooltip">
+              Camera
+            </span>
+          ) : null}
         </button>
       </div>
       <button
