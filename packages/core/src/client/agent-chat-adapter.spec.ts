@@ -599,7 +599,7 @@ describe("createAgentChatAdapter", () => {
       tabId: "chat-auth",
     });
 
-    await drain(
+    const results = await drain(
       adapter.run({
         messages: [
           {
