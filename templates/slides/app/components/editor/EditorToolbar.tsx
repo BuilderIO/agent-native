@@ -64,6 +64,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/hooks/use-toast";
+import { shortcutLabel } from "@/lib/utils";
 interface EditorToolbarProps {
   deck: Deck;
   deckId: string;
@@ -784,7 +785,7 @@ graph TD
               <IconArrowBackUp className="w-3.5 h-3.5 text-muted-foreground" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Undo (Cmd+Z)</TooltipContent>
+          <TooltipContent>Undo ({shortcutLabel("cmd+z")})</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -797,7 +798,9 @@ graph TD
               <IconArrowForwardUp className="w-3.5 h-3.5 text-muted-foreground" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Redo (Cmd+Shift+Z)</TooltipContent>
+          <TooltipContent>
+            Redo ({shortcutLabel("cmd+shift+z")})
+          </TooltipContent>
         </Tooltip>
       </div>
 

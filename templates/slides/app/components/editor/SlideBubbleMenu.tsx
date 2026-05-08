@@ -19,7 +19,7 @@ import {
   IconPencil,
 } from "@tabler/icons-react";
 import { useState, useRef } from "react";
-import { cn } from "@/lib/utils";
+import { cn, shortcutLabel } from "@/lib/utils";
 import {
   Popover,
   PopoverContent,
@@ -443,8 +443,8 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
                   onClose={() => setColorOpen(false)}
                 />
                 <div className="mt-2 pt-2 border-t border-border flex gap-2 text-[10px] text-muted-foreground">
-                  <span>⌘⌥C copy style</span>
-                  <span>⌘⌥V paste style</span>
+                  <span>{shortcutLabel("cmd+alt+c")} copy style</span>
+                  <span>{shortcutLabel("cmd+alt+v")} paste style</span>
                 </div>
               </PopoverContent>
             </Popover>

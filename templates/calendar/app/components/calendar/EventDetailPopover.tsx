@@ -77,6 +77,7 @@ import {
   validateAttachmentDrafts,
 } from "@/lib/event-form-utils";
 import { getGoogleEventColorHex } from "@/lib/event-colors";
+import { shortcutModifierLabel } from "@/lib/utils";
 
 function formatDuration(start: string, end: string): string {
   const totalMinutes = differenceInMinutes(parseISO(end), parseISO(start));
@@ -1133,7 +1134,9 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                     <IconVideo className="h-5 w-5 mr-2 opacity-80" />
                     <span>{getMeetingLabel(meetingLink.type)}</span>
                     <span className="absolute right-4 hidden items-center gap-1 opacity-50 sm:flex">
-                      <kbd className="text-xs font-normal">⌘</kbd>
+                      <kbd className="text-xs font-normal">
+                        {shortcutModifierLabel()}
+                      </kbd>
                       <kbd className="inline-flex h-5 w-5 items-center justify-center rounded bg-white/20 text-[11px] font-medium">
                         J
                       </kbd>

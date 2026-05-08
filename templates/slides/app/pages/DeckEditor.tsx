@@ -25,6 +25,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDecks } from "@/context/DeckContext";
 import type { SlideLayout } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
+import { shortcutLabel } from "@/lib/utils";
 import EditorSidebar from "@/components/editor/EditorSidebar";
 import EditorToolbar from "@/components/editor/EditorToolbar";
 import SlideEditor from "@/components/editor/SlideEditor";
@@ -350,7 +351,7 @@ export default function DeckEditor() {
       deleteSlide(deckId, slideId);
       const t = toast({
         title: `${slideTitle} deleted`,
-        description: "Press ⌘Z or click Undo to restore.",
+        description: `Press ${shortcutLabel("cmd+z")} or click Undo to restore.`,
         action: (
           <ToastAction
             altText="Undo delete"
