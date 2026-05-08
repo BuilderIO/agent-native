@@ -11,6 +11,7 @@ import {
 } from "./sse-event-processor.js";
 import { agentNativePath } from "./api-path.js";
 import { normalizeChatError } from "./error-format.js";
+import { captureError } from "./analytics.js";
 import { unwrapAttachmentEnvelope } from "./composer/pasted-text.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import type {
@@ -624,6 +625,49 @@ export function createAgentChatAdapter(options?: {
         } catch {
           return false;
         }
+      };
+
+      const captureChatClientError = (
+        error: unknown,
+        phase: string,
+        extra: Record<string, unknown> = {},
+      ) => {
+        captureError(error, {
+          tags: {
+            source: "agent-chat-client",
+            phase,
+            hasThread: threadId ? "true" : "false",
+            hasRun: runId ? "true" : "false",
+            lastAutoContinueReason: lastAutoContinueReason ?? undefined,
+          },
+          extra: {
+            apiUrl,
+            tabId,
+            threadId,
+            runId,
+            lastSeq,
+            contentParts: content.length,
+            attemptedRunIds: [...attemptedRunIds],
+            startupRecoveryAttempts,
+            staleRunContinuationAttempts,
+            stalledTransientContinuationAttempts,
+            totalTransientContinuationAttempts,
+            ...extra,
+          },
+          contexts: {
+            agentChat: {
+              tabId,
+              threadId,
+              runId,
+              lastSeq,
+              contentParts: content.length,
+              startupRecoveryAttempts,
+              staleRunContinuationAttempts,
+              stalledTransientContinuationAttempts,
+              totalTransientContinuationAttempts,
+            },
+          },
+        });
       };
 
       try {
