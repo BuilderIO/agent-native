@@ -21,8 +21,12 @@ import { IntegrationsSidebar } from "@/components/email/IntegrationsSidebar";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
-import { Button } from "@/components/ui/button";
 import type { EmailMessage } from "@shared/types";
+import {
+  isInboxScopedAppLabel,
+  mailLabelMatches,
+  shortMailLabel,
+} from "@shared/gmail-labels";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 
 function ContactPanel({
@@ -79,6 +83,7 @@ function ThreadListSidebar({
   routeSearchSuffix,
   selectedIds,
   setSelectedIds,
+  onNavigateThread,
 }: {
   emails: EmailMessage[];
   activeThreadId: string;
@@ -86,6 +91,7 @@ function ThreadListSidebar({
   routeSearchSuffix: string;
   selectedIds: Set<string>;
   setSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
+  onNavigateThread: (threadId: string) => void;
 }) {
   const navigate = useNavigate();
   const markRead = useMarkRead();
@@ -125,6 +131,7 @@ function ThreadListSidebar({
                     isRead: true,
                     accountEmail: email.accountEmail,
                   });
+                onNavigateThread(threadKey);
                 navigate(`/${view}/${threadKey}${routeSearchSuffix}`);
               }}
               className={cn(
@@ -176,23 +183,34 @@ export function InboxPage() {
     threadId: string;
   }>();
   const navigate = useNavigate();
-  // Immediate thread ID for instant list→thread transition. React Router
-  // wraps navigations in startTransition, which keeps the old list view
-  // visible until the route commits. This local state bypasses that: the
-  // click handler sets it synchronously, so the thread view renders on the
-  // next frame. The URL catches up via navigate() in the background.
-  const [pendingThreadId, setPendingThreadId] = useState<string | undefined>(
-    undefined,
+  // Immediate thread route override. React Router wraps navigations in
+  // startTransition, which can leave the previous route visible until the new
+  // route commits. `undefined` means "use the URL", a string means "show this
+  // thread now", and `null` means "show the list now".
+  const [optimisticThreadId, setOptimisticThreadId] = useState<
+    string | null | undefined
+  >(undefined);
+  const threadId =
+    optimisticThreadId === undefined
+      ? routeThreadId
+      : (optimisticThreadId ?? undefined);
+  const handleOptimisticThreadNavigation = useCallback(
+    (nextThreadId: string | undefined) => {
+      setOptimisticThreadId(nextThreadId ?? null);
+    },
+    [],
   );
-  const threadId = pendingThreadId || routeThreadId;
-  // Clear pending once the route catches up
+  // Clear the override once the URL catches up.
   useEffect(() => {
-    if (routeThreadId === pendingThreadId) setPendingThreadId(undefined);
-  }, [routeThreadId, pendingThreadId]);
-  // Clear pending when going back to list
-  useEffect(() => {
-    if (!routeThreadId) setPendingThreadId(undefined);
-  }, [routeThreadId]);
+    if (optimisticThreadId === undefined) return;
+    if (
+      optimisticThreadId === null
+        ? !routeThreadId
+        : routeThreadId === optimisticThreadId
+    ) {
+      setOptimisticThreadId(undefined);
+    }
+  }, [routeThreadId, optimisticThreadId]);
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -218,7 +236,7 @@ export function InboxPage() {
     data: rawEmails = [],
     isLoading,
     isError,
-    refetch,
+    error: emailsError,
   } = useEmails(view, searchQuery, activeLabel ?? undefined);
   const googleStatus = useGoogleAuthStatus();
   const { activeAccounts } = useAccountFilter();
@@ -279,20 +297,19 @@ export function InboxPage() {
     }
 
     if (activeLabel) {
-      // Label tab: show threads where the latest message has this label
-      // (mirrors Superhuman behavior — a thread belongs to a label based on its latest message)
-      const shortLabel = activeLabel.includes("/")
-        ? activeLabel
-            .slice(activeLabel.lastIndexOf("/") + 1)
-            .replace(/_/g, " ")
-            .toLowerCase()
-        : activeLabel.toLowerCase();
+      // App triage labels are inbox slices, so the latest message controls
+      // membership. User Gmail labels/folders are archive-like: keep the
+      // conversation if any message in the thread has that label, so filed
+      // customer history doesn't disappear when the latest message differs.
+      const isInboxScopedLabel = isInboxScopedAppLabel(activeLabel);
       const hasLabel = (e: (typeof filtered)[0]) =>
-        e.labelIds.some((l) => l === activeLabel || l === shortLabel);
+        e.labelIds.some((l) => mailLabelMatches(l, activeLabel));
       // Find the latest message per thread
       const latestByThread = new Map<string, (typeof filtered)[0]>();
+      const labelThreadIds = new Set<string>();
       for (const e of filtered) {
         const key = e.threadId || e.id;
+        if (hasLabel(e)) labelThreadIds.add(key);
         const existing = latestByThread.get(key);
         if (!existing || new Date(e.date) > new Date(existing.date)) {
           latestByThread.set(key, e);
@@ -304,19 +321,17 @@ export function InboxPage() {
         activeLabel === "important"
           ? pinnedUserLabels
               .filter((l) => l !== "important")
-              .map((l) =>
-                l.includes("/")
-                  ? l
-                      .slice(l.lastIndexOf("/") + 1)
-                      .replace(/_/g, " ")
-                      .toLowerCase()
-                  : l.toLowerCase(),
-              )
+              .map((l) => shortMailLabel(l))
           : [];
       const qualifiedThreadIds = new Set(
         [...latestByThread.entries()]
-          .filter(([, latest]) => {
-            if (!hasLabel(latest)) return false;
+          .filter(([threadKey, latest]) => {
+            if (
+              isInboxScopedLabel
+                ? !hasLabel(latest)
+                : !labelThreadIds.has(threadKey)
+            )
+              return false;
             // If viewing "important", skip threads that match another pinned tab
             if (
               otherPinnedShorts.length > 0 &&
@@ -332,14 +347,7 @@ export function InboxPage() {
     if (!searchQuery && view === "inbox" && pinnedUserLabels.length > 0) {
       // "Other" is the inbox remainder: messages that do not belong to one of
       // the pinned triage labels.
-      const pinnedShortNames = pinnedUserLabels.map((l) =>
-        l.includes("/")
-          ? l
-              .slice(l.lastIndexOf("/") + 1)
-              .replace(/_/g, " ")
-              .toLowerCase()
-          : l.toLowerCase(),
-      );
+      const pinnedShortNames = pinnedUserLabels.map((l) => shortMailLabel(l));
       return filtered.filter(
         (e) =>
           !e.labelIds.some(
@@ -441,21 +449,22 @@ export function InboxPage() {
     [threads],
   );
 
-  // Safety valve: if pendingThreadId points to a thread that was removed from
+  // Safety valve: if optimisticThreadId points to a thread that was removed from
   // the view (archived/trashed before the route caught up), clear it so the
   // app doesn't get stuck rendering a ghost thread.
   useEffect(() => {
     if (
-      pendingThreadId &&
+      optimisticThreadId &&
       threads.length > 0 &&
       !threads.some(
         (t) =>
-          (t.latestMessage.threadId || t.latestMessage.id) === pendingThreadId,
+          (t.latestMessage.threadId || t.latestMessage.id) ===
+          optimisticThreadId,
       )
     ) {
-      setPendingThreadId(undefined);
+      setOptimisticThreadId(undefined);
     }
-  }, [pendingThreadId, threads]);
+  }, [optimisticThreadId, threads]);
 
   const handleCompose = useCallback(
     (email: EmailMessage, mode: "reply" | "forward") => {
@@ -535,29 +544,19 @@ export function InboxPage() {
   const contactEmailId = threadId ?? focusedId ?? undefined;
 
   // Error state — only show connect banner when Google is definitively not connected.
-  // For transient errors (rate limits, network blips), show a retry message instead.
+  // For transient errors (rate limits, network blips), let EmailList render its
+  // richer retry/cooldown state instead of replacing it with a generic error.
   if (isError && !hasThread && threads.length === 0) {
-    if (!googleStatus.isLoading && googleStatus.data?.connected === false) {
-      return <GoogleConnectBanner variant="hero" />;
-    }
-    if (!googleStatus.isLoading) {
-      return (
-        <div className="flex flex-1 items-center justify-center text-center">
-          <div>
-            <p className="text-sm text-muted-foreground">
-              Failed to load emails
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-2"
-              onClick={() => refetch()}
-            >
-              Retry
-            </Button>
-          </div>
-        </div>
+    const message = emailsError?.message ?? "";
+    const needsGoogleConnection =
+      /No Google account connected|GOOGLE_CLIENT_ID|GOOGLE_CLIENT_SECRET/i.test(
+        message,
       );
+    if (
+      needsGoogleConnection ||
+      (!googleStatus.isLoading && googleStatus.data?.connected === false)
+    ) {
+      return <GoogleConnectBanner variant="hero" />;
     }
   }
 
@@ -577,6 +576,7 @@ export function InboxPage() {
           routeSearchSuffix={routeSearchSuffix}
           selectedIds={selectedIds}
           setSelectedIds={setSelectedIds}
+          onNavigateThread={handleOptimisticThreadNavigation}
         />
       )}
 
@@ -591,7 +591,7 @@ export function InboxPage() {
             selectedIds={selectedIds}
             setSelectedIds={setSelectedIds}
             onContactSelect={setSidebarContactEmail}
-            onNavigateThread={setPendingThreadId}
+            onNavigateThread={handleOptimisticThreadNavigation}
             isMaximized={isMaximized}
             onToggleMaximize={() => setIsMaximized((v) => !v)}
           />
@@ -605,7 +605,7 @@ export function InboxPage() {
             onCompose={handleCompose}
             onArchived={setLastArchivedId}
             onDraftOpen={handleDraftOpen}
-            onNavigateThread={setPendingThreadId}
+            onNavigateThread={handleOptimisticThreadNavigation}
           />
         )}
       </div>

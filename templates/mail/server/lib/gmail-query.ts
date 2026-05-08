@@ -1,3 +1,5 @@
+import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
+
 export const VIEW_QUERIES: Record<string, string> = {
   inbox: "in:inbox -in:sent",
   unread: "is:unread in:inbox -in:sent",
@@ -34,6 +36,11 @@ export function gmailAppLabelSearchClause(label: string): string {
 
 function viewSearchClauseForLabelTab(view: string, label: string): string {
   if (view === "all") return "";
+  if (!isInboxScopedAppLabel(label)) {
+    if (view === "unread") return "is:unread";
+    if (view === "archive" || view === "trash") return VIEW_QUERIES[view];
+    return "";
+  }
   if (view === "inbox" && label.toLowerCase() === "note-to-self") {
     // Self-sent notes can carry both INBOX and SENT. Keep them in this inbox
     // tab while still excluding sent-only/archive-only results.

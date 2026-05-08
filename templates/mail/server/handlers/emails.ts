@@ -49,6 +49,10 @@ import {
 } from "../lib/google-auth.js";
 import { buildGmailEmailSearchQuery } from "../lib/gmail-query.js";
 import {
+  isInboxScopedAppLabel,
+  mailLabelMatches,
+} from "@shared/gmail-labels.js";
+import {
   incrementSendFrequency,
   getContactFrequencyMap,
 } from "../lib/contact-frequency.js";
@@ -373,6 +377,15 @@ function filterInboxScopedMessages(
 ): EmailMessage[] {
   if (view !== "inbox" && view !== "unread") return emails;
 
+  if (label && !isInboxScopedAppLabel(label)) {
+    return emails.filter(
+      (message) =>
+        !message.isDraft &&
+        !message.isTrashed &&
+        (view !== "unread" || !message.isRead),
+    );
+  }
+
   const allowSentToSelf = label?.toLowerCase() === "note-to-self";
   return emails.filter(
     (message) =>
@@ -527,44 +540,58 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
 
   let emails = await readEmails(email);
 
-  // Filter by view
-  switch (view) {
-    case "inbox":
-      emails = emails.filter(
-        (e) => !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
-      );
-      break;
-    case "unread":
-      emails = emails.filter(
-        (e) =>
-          !e.isRead && !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
-      );
-      break;
-    case "starred":
-      emails = emails.filter((e) => e.isStarred && !e.isTrashed);
-      break;
-    case "sent":
-      emails = emails.filter((e) => e.isSent && !e.isTrashed);
-      break;
-    case "drafts":
-      emails = emails.filter((e) => e.isDraft);
-      break;
-    case "archive":
-      emails = emails.filter((e) => e.isArchived && !e.isTrashed);
-      break;
-    case "trash":
-      emails = emails.filter((e) => e.isTrashed);
-      break;
-    case "all":
-      break;
-    default:
-      // label: prefixed or raw label id
-      const labelId = view.startsWith("label:")
-        ? view.replace("label:", "")
-        : view;
-      emails = emails.filter(
-        (e) => e.labelIds.includes(labelId) && !e.isTrashed,
-      );
+  if (label && (view === "inbox" || view === "unread")) {
+    emails = emails.filter(
+      (e) =>
+        e.labelIds.some((labelId) => mailLabelMatches(labelId, label)) &&
+        !e.isDraft &&
+        !e.isTrashed &&
+        (view !== "unread" || !e.isRead),
+    );
+  } else {
+    // Filter by view
+    switch (view) {
+      case "inbox":
+        emails = emails.filter(
+          (e) => !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
+        );
+        break;
+      case "unread":
+        emails = emails.filter(
+          (e) =>
+            !e.isRead &&
+            !e.isArchived &&
+            !e.isTrashed &&
+            !e.isDraft &&
+            !e.isSent,
+        );
+        break;
+      case "starred":
+        emails = emails.filter((e) => e.isStarred && !e.isTrashed);
+        break;
+      case "sent":
+        emails = emails.filter((e) => e.isSent && !e.isTrashed);
+        break;
+      case "drafts":
+        emails = emails.filter((e) => e.isDraft);
+        break;
+      case "archive":
+        emails = emails.filter((e) => e.isArchived && !e.isTrashed);
+        break;
+      case "trash":
+        emails = emails.filter((e) => e.isTrashed);
+        break;
+      case "all":
+        break;
+      default:
+        // label: prefixed or raw label id
+        const labelId = view.startsWith("label:")
+          ? view.replace("label:", "")
+          : view;
+        emails = emails.filter(
+          (e) => e.labelIds.includes(labelId) && !e.isTrashed,
+        );
+    }
   }
 
   // Full-text search
