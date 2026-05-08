@@ -7,6 +7,14 @@ const mockWriteAppState = vi.fn();
 const mockNotifyClients = vi.fn();
 const mockGetUserEmail = vi.fn(() => "owner@example.com");
 const mockGetOrgId = vi.fn(() => null);
+const mockTables = vi.hoisted(() => ({
+  deckTable: { id: "id_col", data: "data_col", updatedAt: "ua_col" },
+  designSystemsTable: {
+    id: "ds_id_col",
+    ownerEmail: "owner_email_col",
+    isDefault: "is_default_col",
+  },
+}));
 
 let existingDeckRow: { id: string; data: string } | undefined = undefined;
 let defaultDesignSystemId: string | undefined = undefined;
@@ -18,14 +26,11 @@ const limitFn = vi.fn(async () => (existingDeckRow ? [existingDeckRow] : []));
 const defaultDesignSystemLimitFn = vi.fn(async () =>
   defaultDesignSystemId ? [{ id: defaultDesignSystemId }] : [],
 );
-const deckTable = { id: "id_col", data: "data_col", updatedAt: "ua_col" };
-const designSystemsTable = {
-  id: "ds_id_col",
-  ownerEmail: "owner_email_col",
-  isDefault: "is_default_col",
-};
 const whereSelectFn = vi.fn((_condition: unknown, table?: unknown) => ({
-  limit: table === designSystemsTable ? defaultDesignSystemLimitFn : limitFn,
+  limit:
+    table === mockTables.designSystemsTable
+      ? defaultDesignSystemLimitFn
+      : limitFn,
 }));
 const fromFn = vi.fn((table: unknown) => ({
   where: (condition: unknown) => whereSelectFn(condition, table),
@@ -51,8 +56,8 @@ const mockDb = { select: selectFn, insert: insertFn, update: updateFn };
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mockDb,
   schema: {
-    decks: deckTable,
-    designSystems: designSystemsTable,
+    decks: mockTables.deckTable,
+    designSystems: mockTables.designSystemsTable,
   },
 }));
 
