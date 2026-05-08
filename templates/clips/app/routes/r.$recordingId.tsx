@@ -830,6 +830,11 @@ export default function RecordingPage() {
                     currentUserEmail={session?.email}
                     enableComments={recording.enableComments}
                     onSeek={(ms) => playerRef.current?.seek(ms)}
+                    queryKey={[
+                      "action",
+                      "get-recording-player-data",
+                      { recordingId: recordingId ?? "" },
+                    ]}
                   />
                 </TabsContent>
                 {canEdit ? (

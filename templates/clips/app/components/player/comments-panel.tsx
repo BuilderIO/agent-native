@@ -35,7 +35,22 @@ function makeTempId() {
   return `temp_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
 }
 
-type PlayerData = { comments?: Comment[]; [k: string]: unknown };
+// The shape of the cached value depends on the route — the authenticated
+// player route caches `get-recording-player-data` ({ comments, ... }) while
+// the public share route caches a wrapped fetch response
+// ({ ok, status, data: { comments, ... } }). Both feed into this panel, so we
+// don't assume a shape — the parent passes lenses.
+type CommentsLens = {
+  selectComments: (data: unknown) => Comment[] | undefined;
+  applyComments: (data: unknown, next: Comment[]) => unknown;
+};
+
+const defaultLens: CommentsLens = {
+  selectComments: (data) =>
+    (data as { comments?: Comment[] } | undefined)?.comments,
+  applyComments: (data, next) =>
+    data ? { ...(data as object), comments: next } : data,
+};
 
 const COMMENT_EMOJIS = ["👍", "❤️", "🔥", "👏", "🎉", "😂"];
 
@@ -61,6 +76,20 @@ export interface CommentsPanelProps {
   enableComments: boolean;
   onSeek: (ms: number) => void;
   /**
+   * The React Query key whose cached value contains this panel's `comments`.
+   * Optimistic updates patch this key — passing the wrong one (or omitting
+   * it) means the chip / new-comment row won't appear until the next refetch.
+   */
+  queryKey: readonly unknown[];
+  /**
+   * Optional lenses for selecting / replacing the comments array inside the
+   * cached value. Defaults match the authenticated `get-recording-player-data`
+   * shape (`{ comments, ... }`). The public share route wraps comments under
+   * `data.comments` and supplies its own lenses.
+   */
+  selectComments?: CommentsLens["selectComments"];
+  applyComments?: CommentsLens["applyComments"];
+  /**
    * If provided, this callback is invoked instead of firing the comment /
    * reaction mutation when the viewer is not signed in. Use it to surface a
    * sign-in prompt on the public share page.
@@ -77,28 +106,28 @@ export function CommentsPanel(props: CommentsPanelProps) {
     enableComments,
     onSeek,
     onUnauthenticated,
+    queryKey,
+    selectComments = defaultLens.selectComments,
+    applyComments = defaultLens.applyComments,
   } = props;
   const isSignedIn = !!currentUserEmail;
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
 
   const queryClient = useQueryClient();
-  const playerDataKey = useMemo(
-    () => ["action", "get-recording-player-data", { recordingId }],
-    [recordingId],
-  );
 
   const patchComments = (updater: (prev: Comment[]) => Comment[]) => {
-    queryClient.setQueryData<PlayerData>(playerDataKey, (old) => {
+    queryClient.setQueryData(queryKey, (old: unknown) => {
       if (!old) return old;
-      return { ...old, comments: updater(old.comments ?? []) };
+      const current = selectComments(old) ?? [];
+      return applyComments(old, updater(current));
     });
   };
 
   const addComment = useActionMutation("add-comment", {
     onMutate: async (vars: any) => {
-      await queryClient.cancelQueries({ queryKey: playerDataKey });
-      const prev = queryClient.getQueryData<PlayerData>(playerDataKey);
+      await queryClient.cancelQueries({ queryKey });
+      const prev = queryClient.getQueryData(queryKey);
       const tempId = makeTempId();
       const now = new Date().toISOString();
       const optimistic: Comment = {
@@ -118,7 +147,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       return { prev, tempId };
     },
     onError: (_err, _vars, ctx: any) => {
-      if (ctx?.prev) queryClient.setQueryData(playerDataKey, ctx.prev);
+      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
     },
     onSuccess: (data: any, _vars, ctx: any) => {
       if (!ctx?.tempId || !data?.id) return;
@@ -134,8 +163,8 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
   const resolve = useActionMutation("resolve-comment", {
     onMutate: async (vars: any) => {
-      await queryClient.cancelQueries({ queryKey: playerDataKey });
-      const prev = queryClient.getQueryData<PlayerData>(playerDataKey);
+      await queryClient.cancelQueries({ queryKey });
+      const prev = queryClient.getQueryData(queryKey);
       patchComments((list) =>
         list.map((c) =>
           c.id === vars.id
@@ -152,14 +181,14 @@ export function CommentsPanel(props: CommentsPanelProps) {
       return { prev };
     },
     onError: (_err, _vars, ctx: any) => {
-      if (ctx?.prev) queryClient.setQueryData(playerDataKey, ctx.prev);
+      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
     },
   });
 
   const reactToComment = useActionMutation("react-to-comment", {
     onMutate: async (vars: any) => {
-      await queryClient.cancelQueries({ queryKey: playerDataKey });
-      const prev = queryClient.getQueryData<PlayerData>(playerDataKey);
+      await queryClient.cancelQueries({ queryKey });
+      const prev = queryClient.getQueryData(queryKey);
       const currentUser = currentUserEmail;
       if (!currentUser) return { prev };
       patchComments((commentList) =>
@@ -194,7 +223,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       return { prev };
     },
     onError: (_err, _vars, ctx: any) => {
-      if (ctx?.prev) queryClient.setQueryData(playerDataKey, ctx.prev);
+      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
     },
     onSuccess: (data: any, vars: any) => {
       if (!data?.reactions) return;
@@ -210,8 +239,8 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
   const remove = useActionMutation("delete-comment", {
     onMutate: async (vars: any) => {
-      await queryClient.cancelQueries({ queryKey: playerDataKey });
-      const prev = queryClient.getQueryData<PlayerData>(playerDataKey);
+      await queryClient.cancelQueries({ queryKey });
+      const prev = queryClient.getQueryData(queryKey);
       // Deleting a root comment cascades to its replies server-side, so mirror
       // that here: drop the target comment and any descendants in the same
       // thread whose parent chain leads back to it.
@@ -227,7 +256,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       return { prev };
     },
     onError: (_err, _vars, ctx: any) => {
-      if (ctx?.prev) queryClient.setQueryData(playerDataKey, ctx.prev);
+      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
     },
   });
 
