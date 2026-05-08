@@ -23,8 +23,9 @@ export function readPlaybackSpeedPreference(fallback: number): number {
 
   try {
     return (
-      parsePlaybackSpeed(window.localStorage.getItem(PLAYBACK_SPEED_STORAGE_KEY)) ??
-      fallbackSpeed
+      parsePlaybackSpeed(
+        window.localStorage.getItem(PLAYBACK_SPEED_STORAGE_KEY),
+      ) ?? fallbackSpeed
     );
   } catch {
     return fallbackSpeed;

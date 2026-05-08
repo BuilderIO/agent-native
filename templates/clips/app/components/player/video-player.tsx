@@ -376,8 +376,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         const v = videoRef.current;
         const shouldKeepPlaying = Boolean(
           v &&
-            !v.ended &&
-            (isPlaying || playAttemptPendingRef.current || !v.paused),
+          !v.ended &&
+          (isPlaying || playAttemptPendingRef.current || !v.paused),
         );
 
         if (v) v.playbackRate = nextSpeed;
