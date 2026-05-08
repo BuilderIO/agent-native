@@ -31,9 +31,12 @@ import {
   categoryLabels,
   categoryOrder,
   type DataSource,
-  type DataSourceCategory,
   type WalkthroughStep,
 } from "@/lib/data-sources";
+import {
+  isSourceConnected,
+  type EnvKeyStatus,
+} from "@/lib/data-source-status";
 import {
   appApiPath,
   useActionMutation,
@@ -46,13 +49,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-
-interface EnvKeyStatus {
-  key: string;
-  label: string;
-  required: boolean;
-  configured: boolean;
-}
 
 interface AnalyticsPublicKeyRow {
   id: string;
@@ -109,22 +105,6 @@ async function testConnection(
     body: JSON.stringify({ source }),
   });
   return res.json();
-}
-
-function isSourceConnected(
-  source: DataSource,
-  envStatus: EnvKeyStatus[],
-): boolean {
-  const statusMap = new Map(envStatus.map((s) => [s.key, s.configured]));
-  const optionalKeys = new Set(
-    source.walkthroughSteps
-      .filter((step) => step.optional)
-      .map((step) => step.inputKey)
-      .filter(Boolean),
-  );
-  return source.envKeys
-    .filter((key) => !optionalKeys.has(key))
-    .every((key) => statusMap.get(key) === true);
 }
 
 function StepItem({
@@ -1066,11 +1046,14 @@ export default function DataSources() {
     <div className="mx-auto max-w-5xl space-y-8">
       <p className="text-sm text-muted-foreground">
         Connect your data sources, then ask the agent to create dashboards.{" "}
-        {!isStatusLoading && connectedCount > 0 && (
-          <span className="text-emerald-500 font-medium">
-            {connectedCount} connected
-          </span>
-        )}
+        {!isStatusLoading &&
+          (connectedCount > 0 ? (
+            <span className="text-emerald-500 font-medium">
+              {connectedCount} connected
+            </span>
+          ) : (
+            <span className="text-amber-500 font-medium">0 connected</span>
+          ))}
       </p>
 
       {/* Search bar + Add Data Source */}
