@@ -711,7 +711,8 @@ export function MultiTabAssistantChat({
     const isStale = (id: string) => {
       const thread = threadMap.get(id);
       return thread
-        ? thread.messageCount === 0 && now - thread.updatedAt > STALE_THRESHOLD_MS
+        ? thread.messageCount === 0 &&
+            now - thread.updatedAt > STALE_THRESHOLD_MS
         : false;
     };
 

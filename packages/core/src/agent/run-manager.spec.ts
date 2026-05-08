@@ -350,6 +350,7 @@ describe("run manager soft timeout", () => {
       "run-terminal-after-save",
       "thread-terminal-after-save",
       async (send) => {
+        await Promise.resolve();
         send({ type: "text", text: "saved first" });
         send({ type: "done" });
       },
@@ -358,18 +359,13 @@ describe("run manager soft timeout", () => {
     );
     run.subscribers.add((event) => events.push(event.event));
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
 
     expect(run.status).toBe("completed");
     expect(events).toEqual([{ type: "text", text: "saved first" }]);
-    expect(onComplete).toHaveBeenCalledTimes(1);
-    expect(onComplete.mock.calls[0][0].events.map((event) => event.event)).toEqual(
-      [
-        { type: "text", text: "saved first" },
-        { type: "done" },
-      ],
-    );
+    expect(
+      onComplete.mock.calls[0][0].events.map((event) => event.event),
+    ).toEqual([{ type: "text", text: "saved first" }, { type: "done" }]);
     expect(insertRunEvent).toHaveBeenCalledTimes(1);
     expect(insertRunEvent).toHaveBeenCalledWith(
       "run-terminal-after-save",
@@ -396,7 +392,9 @@ describe("run manager soft timeout", () => {
   });
 
   it("marks runs errored when completion persistence fails", async () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
     const events: AgentChatEvent[] = [];
     const run = startRun(
       "run-completion-failed",

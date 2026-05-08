@@ -120,9 +120,9 @@ export function useChatThreads(
           if (!res.ok) {
             throw new Error(`Thread create failed with ${res.status}`);
           }
-          const created = (await res.json().catch(() => null)) as
-            | ChatThreadSummary
-            | null;
+          const created = (await res
+            .json()
+            .catch(() => null)) as ChatThreadSummary | null;
           if (!created) return;
           setThreads((prev) =>
             prev.map((thread) => (thread.id === id ? created : thread)),
