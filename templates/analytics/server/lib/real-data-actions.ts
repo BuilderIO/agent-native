@@ -36,10 +36,39 @@ export const DATA_QUERY_ACTIONS = new Set([
   "twitter-tweets",
 ]);
 
+const MCP_DATA_SOURCE_TOKENS = [
+  "amplitude",
+  "apollo",
+  "bigquery",
+  "commonroom",
+  "ga4",
+  "github",
+  "gong",
+  "grafana",
+  "hubspot",
+  "jira",
+  "mixpanel",
+  "notion",
+  "posthog",
+  "postgres",
+  "postgresql",
+  "pylon",
+  "sentry",
+  "slack",
+  "stripe",
+];
+
+function isMcpDataSourceTool(name: string): boolean {
+  if (!name.startsWith("mcp__")) return false;
+  const normalized = name.toLowerCase();
+  return MCP_DATA_SOURCE_TOKENS.some((token) => normalized.includes(token));
+}
+
 export function hasDataQueryAttempt(
   toolResults: Array<{ name?: string }> | undefined,
 ): boolean {
-  return (toolResults ?? []).some((result) =>
-    DATA_QUERY_ACTIONS.has(String(result.name ?? "")),
-  );
+  return (toolResults ?? []).some((result) => {
+    const name = String(result.name ?? "");
+    return DATA_QUERY_ACTIONS.has(name) || isMcpDataSourceTool(name);
+  });
 }

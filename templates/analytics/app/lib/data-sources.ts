@@ -376,7 +376,7 @@ export const dataSources: DataSource[] = [
   {
     id: "hubspot",
     name: "HubSpot",
-    description: "CRM deals, contacts, companies, and pipelines",
+    description: "CRM deals, contacts, companies, tickets, and pipelines",
     category: "crm",
     icon: IconShoppingCart,
     envKeys: ["HUBSPOT_ACCESS_TOKEN"],
@@ -385,7 +385,7 @@ export const dataSources: DataSource[] = [
       {
         title: "Create a Private App",
         description:
-          "In HubSpot, go to Settings > Integrations > Private Apps. Create a new private app with scopes: crm.objects.contacts.read, crm.objects.deals.read, crm.objects.companies.read.",
+          "In HubSpot, go to Settings > Integrations > Private Apps. Create a new private app with scopes: crm.objects.contacts.read, crm.objects.deals.read, crm.objects.companies.read, and crm.objects.tickets.read.",
         url: "https://app.hubspot.com/private-apps/",
         linkText: "Private Apps",
       },

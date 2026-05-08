@@ -11,6 +11,14 @@ describe("real data action classification", () => {
     expect(hasDataQueryAttempt([{ name: "hubspot-records" }])).toBe(true);
   });
 
+  it("treats connected MCP provider tools as real source evidence", () => {
+    expect(
+      hasDataQueryAttempt([
+        { name: "mcp__codex_apps__hubspot__legacy.__search" },
+      ]),
+    ).toBe(true);
+  });
+
   it("does not count setup or artifact-only actions as source evidence", () => {
     expect(hasDataQueryAttempt([{ name: "data-source-status" }])).toBe(false);
     expect(hasDataQueryAttempt([{ name: "save-analysis" }])).toBe(false);
