@@ -162,7 +162,7 @@ export default defineAction({
           if (!accessToken) {
             calendarErrors.push(
               await recordCalendarFetchError(
-                account.id,
+                account,
                 new Error("Token refresh failed"),
               ),
             );
@@ -230,9 +230,9 @@ export default defineAction({
             if (liveMeeting) liveMeetings.push(liveMeeting);
           }
 
-          await recordCalendarFetchSuccess(account.id).catch(() => {});
+          await recordCalendarFetchSuccess(account).catch(() => {});
         } catch (err) {
-          calendarErrors.push(await recordCalendarFetchError(account.id, err));
+          calendarErrors.push(await recordCalendarFetchError(account, err));
         }
       }
     }
