@@ -57,6 +57,13 @@ beforeEach(() => {
   }) as typeof fetch;
   vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:pptx");
   vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+  const realSetTimeout = window.setTimeout.bind(window);
+  vi.spyOn(window, "setTimeout").mockImplementation(
+    ((handler: TimerHandler, timeout?: number, ...args: any[]) => {
+      if (timeout === 60_000) return 1;
+      return realSetTimeout(handler, timeout, ...args);
+    }) as typeof window.setTimeout,
+  );
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
     () => undefined,
   );
@@ -91,6 +98,11 @@ describe("<ExportMenu>", () => {
       "export-google-slides",
     );
     expect(URL.createObjectURL).toHaveBeenCalled();
+    expect(window.setTimeout).toHaveBeenCalledWith(
+      expect.any(Function),
+      60_000,
+    );
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
     expect(window.open).toHaveBeenCalledWith(
       "https://docs.google.com/presentation/u/0/?usp=import",
       "_blank",
