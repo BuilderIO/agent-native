@@ -1,11 +1,8 @@
 //! Native desktop notifications for upcoming meetings.
 //!
 //! Wraps `tauri-plugin-notification` (v2). The "join_url" in the payload is
-//! intentionally NOT auto-opened by the notification system itself — the
-//! `meetings:start-recording` Tauri event fires unconditionally so the
-//! frontend can open the URL via `tauri-plugin-shell` while simultaneously
-//! invoking `start-meeting-recording`. That keeps the side-effect surface
-//! in TypeScript where it's easier to reason about.
+//! intentionally NOT auto-opened by the notification system itself. The
+//! frontend owns the "Start notes" click so consent/control stays visible.
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -39,7 +36,7 @@ pub async fn notify_meeting_starting(
         format!("in {} min", (starts_in_secs / 60).max(1))
     };
     let body = if join_url.is_some() {
-        format!("{} — Join + Record", pretty_in)
+        format!("{} — Start notes", pretty_in)
     } else {
         format!("Starts {}", pretty_in)
     };
@@ -65,20 +62,13 @@ pub async fn notify_meeting_starting(
 
     // Fire the Tauri event regardless. The renderer's banner overlay
     // (`meeting-notification.tsx`) listens for `meetings:show-notification`
-    // and renders the in-app card, and the popover listens for
-    // `meetings:start-recording` to kick off the actual recording action.
+    // and renders the in-app card.
     let _ = app.emit(
         "meetings:show-notification",
         serde_json::json!({
             "type": "calendar",
             "title": title,
             "subtitle": body,
-            "meetingId": meeting_id,
-        }),
-    );
-    let _ = app.emit(
-        "meetings:start-recording",
-        serde_json::json!({
             "meetingId": meeting_id,
             "joinUrl": join_url,
         }),
