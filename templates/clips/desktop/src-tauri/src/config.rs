@@ -11,6 +11,8 @@ pub struct FeatureConfig {
     pub voice_enabled: bool,
     #[serde(default = "default_launch_at_login_enabled")]
     pub launch_at_login_enabled: bool,
+    #[serde(default)]
+    pub auto_hide_popover_enabled: bool,
     pub onboarding_complete: bool,
 }
 
@@ -25,6 +27,7 @@ impl Default for FeatureConfig {
             meetings_enabled: true,
             voice_enabled: true,
             launch_at_login_enabled: true,
+            auto_hide_popover_enabled: false,
             onboarding_complete: false,
         }
     }
@@ -104,6 +107,10 @@ pub fn sync_launch_at_login(app: &AppHandle) {
     }
 }
 
+pub fn auto_hide_popover_enabled(app: &AppHandle) -> bool {
+    load_config(app).auto_hide_popover_enabled
+}
+
 /// Load feature config from disk and return it to the frontend.
 #[tauri::command]
 pub async fn get_feature_config(app: AppHandle) -> Result<FeatureConfig, String> {
@@ -115,7 +122,9 @@ pub async fn get_feature_config(app: AppHandle) -> Result<FeatureConfig, String>
 pub async fn set_feature_config(app: AppHandle, config: FeatureConfig) -> Result<(), String> {
     let previous = load_config(&app);
     if previous.launch_at_login_enabled != config.launch_at_login_enabled {
-        apply_launch_at_login(&app, config.launch_at_login_enabled)?;
+        if let Err(err) = apply_launch_at_login(&app, config.launch_at_login_enabled) {
+            eprintln!("[clips-tray] launch-at-login apply failed: {err}");
+        }
     }
     save_config(&app, &config)?;
     let _ = app.emit("app:feature-config-changed", config);

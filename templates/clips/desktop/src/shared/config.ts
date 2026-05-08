@@ -7,6 +7,7 @@ interface FeatureConfig {
   meetingsEnabled: boolean;
   voiceEnabled: boolean;
   launchAtLoginEnabled: boolean;
+  autoHidePopoverEnabled: boolean;
   onboardingComplete: boolean;
 }
 

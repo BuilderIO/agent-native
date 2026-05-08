@@ -63,6 +63,7 @@ pub fn run() {
             clips::close_bubble,
             clips::show_popover,
             clips::park_popover_offscreen,
+            clips::open_macos_privacy_settings,
             clips::resize_popover,
             clips::show_signin,
             clips::close_signin,
@@ -191,6 +192,10 @@ pub fn run() {
                         // is relying on to stop.
                         if is_recording_active(&app_handle) {
                             dlog!("[clips-tray] popover blur ignored — recording active");
+                            return;
+                        }
+                        if !config::auto_hide_popover_enabled(&app_handle) {
+                            dlog!("[clips-tray] popover blur ignored — auto-hide disabled");
                             return;
                         }
                         let shown_at = app_handle
