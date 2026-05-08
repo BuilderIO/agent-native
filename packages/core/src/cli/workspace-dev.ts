@@ -25,6 +25,7 @@ export interface WorkspaceApp {
    * listening for the rest of the dev session.
    */
   ready?: boolean;
+  readinessProbe?: Promise<void>;
 }
 
 export interface WorkspaceDevOptions {
@@ -468,6 +469,7 @@ export function runWorkspaceDev(
       app.process = undefined;
       app.installing = false;
       app.ready = false;
+      app.readinessProbe = undefined;
       if (code === 0 || shuttingDown) {
         if (wasInstalling && code === 0 && !shuttingDown) {
           app.installAttempted = true;
@@ -526,6 +528,20 @@ export function runWorkspaceDev(
     return false;
   }
 
+  function ensureReadinessProbe(app: WorkspaceApp): void {
+    if (app.ready || app.readinessProbe) return;
+    app.readinessProbe = waitForPort(
+      app.port,
+      Date.now() + proxyReadyTimeoutMs,
+    )
+      .then((ready) => {
+        if (ready) app.ready = true;
+      })
+      .finally(() => {
+        app.readinessProbe = undefined;
+      });
+  }
+
   function proxyHttp(
     app: WorkspaceApp,
     req: http.IncomingMessage,
@@ -535,6 +551,7 @@ export function runWorkspaceDev(
     startApp(app);
 
     if (!app.ready && wantsHtml(req)) {
+      ensureReadinessProbe(app);
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       if (req.method === "HEAD") {
         res.end();
