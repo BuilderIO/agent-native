@@ -41,6 +41,40 @@ function resolveLocalUrl(url: string | null | undefined): string | undefined {
   return url;
 }
 
+const VOLATILE_VIDEO_QUERY_PARAMS = new Set([
+  "t",
+  "password",
+  "X-Amz-Algorithm",
+  "X-Amz-Credential",
+  "X-Amz-Date",
+  "X-Amz-Expires",
+  "X-Amz-Security-Token",
+  "X-Amz-Signature",
+  "X-Amz-SignedHeaders",
+  "AWSAccessKeyId",
+  "Expires",
+  "Signature",
+]);
+
+function videoSourceIdentity(url: string | undefined): string {
+  if (!url) return "";
+  try {
+    const base =
+      typeof window === "undefined"
+        ? "http://clips.local"
+        : window.location.href;
+    const parsed = new URL(url, base);
+    parsed.hash = "";
+    for (const key of VOLATILE_VIDEO_QUERY_PARAMS) {
+      parsed.searchParams.delete(key);
+    }
+    parsed.searchParams.sort();
+    return `${parsed.origin}${parsed.pathname}${parsed.search}`;
+  } catch {
+    return url;
+  }
+}
+
 export interface VideoPlayerHandle {
   video: HTMLVideoElement | null;
   play: () => Promise<void> | void;
@@ -136,11 +170,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       role,
     } = props;
 
+    const resolvedVideoSrc = useMemo(
+      () => resolveLocalUrl(videoUrl),
+      [videoUrl],
+    );
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const containerRef = useRef<HTMLDivElement | null>(null);
     const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const playAttemptPendingRef = useRef(false);
     const playAttemptIdRef = useRef(0);
+    const [activeVideoSrc, setActiveVideoSrc] = useState(resolvedVideoSrc);
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentMs, setCurrentMs] = useState(startMs ?? 0);
     const [volume, setVolume] = useState(1);
@@ -181,6 +220,45 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [shouldRefreshAutoThumbnail, setShouldRefreshAutoThumbnail] =
       useState(false);
     const excludedRanges = useMemo(() => getExcludedRanges(edits), [edits]);
+    const activeVideoSourceIdentity = useMemo(
+      () => videoSourceIdentity(activeVideoSrc),
+      [activeVideoSrc],
+    );
+    const incomingVideoSourceIdentity = useMemo(
+      () => videoSourceIdentity(resolvedVideoSrc),
+      [resolvedVideoSrc],
+    );
+
+    useEffect(() => {
+      if (!resolvedVideoSrc) {
+        setActiveVideoSrc(undefined);
+        return;
+      }
+      if (!activeVideoSrc) {
+        setActiveVideoSrc(resolvedVideoSrc);
+        return;
+      }
+
+      const v = videoRef.current;
+      const sameResource =
+        activeVideoSourceIdentity === incomingVideoSourceIdentity;
+      const playbackActive =
+        playAttemptPendingRef.current ||
+        isPlayPending ||
+        isPlaying ||
+        Boolean(v && !v.paused && !v.ended);
+
+      if (!sameResource || !playbackActive) {
+        setActiveVideoSrc(resolvedVideoSrc);
+      }
+    }, [
+      activeVideoSourceIdentity,
+      activeVideoSrc,
+      incomingVideoSourceIdentity,
+      isPlayPending,
+      isPlaying,
+      resolvedVideoSrc,
+    ]);
 
     // Hide controls after 2s of idle movement.
     const bumpControls = useCallback(() => {
@@ -229,7 +307,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
     const requestPlay = useCallback(() => {
       const v = videoRef.current;
-      if (!v || !videoUrl) return;
+      if (!v || !activeVideoSrc) return;
       if (playAttemptPendingRef.current) return;
 
       bumpControls();
@@ -246,7 +324,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       } catch (err) {
         rejectPlayAttempt(attemptId, err);
       }
-    }, [attachPlayPromise, bumpControls, rejectPlayAttempt, videoUrl]);
+    }, [activeVideoSrc, attachPlayPromise, bumpControls, rejectPlayAttempt]);
 
     const retryPendingPlay = useCallback(
       (v: HTMLVideoElement) => {
@@ -339,7 +417,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         v.currentTime = visibleMs / 1000;
         setCurrentMs(visibleMs);
       }
-    }, [defaultSpeed, excludedRanges, resolvedDurationMs, startMs, videoUrl]);
+    }, [
+      activeVideoSrc,
+      defaultSpeed,
+      excludedRanges,
+      resolvedDurationMs,
+      startMs,
+    ]);
 
     // Keep the resolved duration in sync with the prop when it changes (new
     // recording loaded, etc.) — only bump it if the prop is a real number.
@@ -348,7 +432,28 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setResolvedDurationMs(durationMs);
       }
       durationProbedRef.current = false;
-    }, [durationMs, videoUrl]);
+    }, [activeVideoSrc, durationMs]);
+
+    const probeDurationIfNeeded = useCallback((v: HTMLVideoElement) => {
+      if (durationProbedRef.current) return;
+      if (Number.isFinite(v.duration) && v.duration > 0) {
+        durationProbedRef.current = true;
+        setResolvedDurationMs(Math.round(v.duration * 1000));
+        return;
+      }
+      if (playAttemptPendingRef.current || !v.paused) return;
+
+      // Poke the browser into computing the real duration for MediaRecorder
+      // WebM files. Defer this while playback is starting; the large seek can
+      // otherwise abort the first user-initiated play().
+      durationProbedRef.current = true;
+      try {
+        v.currentTime = 1e10;
+      } catch {
+        // Safari occasionally throws — the durationchange fallback still picks
+        // up the real duration.
+      }
+    }, []);
 
     // Resolve the WebM-duration-is-Infinity Chrome quirk: when a video created
     // by MediaRecorder doesn't have a Duration element in the container, the
@@ -361,22 +466,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const v = videoRef.current;
       if (!v) return;
 
-      const onLoadedMetadata = () => {
-        if (durationProbedRef.current) return;
-        if (!Number.isFinite(v.duration) || v.duration === 0) {
-          // Poke the browser into computing the real duration.
-          durationProbedRef.current = true;
-          try {
-            v.currentTime = 1e10;
-          } catch {
-            // Safari occasionally throws — the durationchange fallback
-            // handler below still picks up the real duration.
-          }
-        } else {
-          durationProbedRef.current = true;
-          setResolvedDurationMs(Math.round(v.duration * 1000));
-        }
-      };
+      const onLoadedMetadata = () => probeDurationIfNeeded(v);
 
       const onDurationChange = () => {
         if (Number.isFinite(v.duration) && v.duration > 0) {
@@ -397,13 +487,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       v.addEventListener("loadedmetadata", onLoadedMetadata);
       v.addEventListener("durationchange", onDurationChange);
       // If metadata is already loaded by the time this effect runs, trigger it.
-      if (v.readyState >= 1) onLoadedMetadata();
+      if (v.readyState >= 1) probeDurationIfNeeded(v);
 
       return () => {
         v.removeEventListener("loadedmetadata", onLoadedMetadata);
         v.removeEventListener("durationchange", onDurationChange);
       };
-    }, [videoUrl]);
+    }, [activeVideoSrc, probeDurationIfNeeded]);
 
     // Reset the thumbnail-capture flag when the source changes (e.g. the
     // player is reused for a different recording via React Router).
@@ -416,7 +506,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setIsPlayPending(false);
       setIsBuffering(false);
       setPlayError(null);
-    }, [recordingId, videoUrl]);
+    }, [activeVideoSrc, recordingId]);
 
     useEffect(() => {
       let cancelled = false;
@@ -512,7 +602,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // Reset the "Preparing your clip…" overlay whenever the video source
     // changes, and start a 10s safety timeout so the overlay can never stick.
     useEffect(() => {
-      if (!videoUrl) {
+      if (!activeVideoSrc) {
         setIsPreparing(false);
         return;
       }
@@ -526,7 +616,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setIsPreparing(true);
       const t = setTimeout(() => setIsPreparing(false), 10000);
       return () => clearTimeout(t);
-    }, [videoUrl]);
+    }, [activeVideoSrc]);
 
     useEffect(() => {
       bumpControls();
@@ -548,7 +638,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         v.removeEventListener("enterpictureinpicture", onEnter);
         v.removeEventListener("leavepictureinpicture", onLeave);
       };
-    }, [videoUrl]);
+    }, [activeVideoSrc]);
 
     async function togglePipInternal() {
       const v = videoRef.current;
@@ -598,7 +688,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
     const showThroughoutCta = cta && cta.placement === "throughout";
     const centerOverlayMode =
-      videoUrl && !showEndCta && (!isPlaying || isPlayPending || isBuffering)
+      activeVideoSrc &&
+      !showEndCta &&
+      (!isPlaying || isPlayPending || isBuffering)
         ? isPreparing || isPlayPending || isBuffering || !canPlay
           ? "loading"
           : "ready"
@@ -626,10 +718,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           togglePlayback();
         }}
       >
-        {videoUrl ? (
+        {activeVideoSrc ? (
           <video
             ref={videoRef}
-            src={resolveLocalUrl(videoUrl)}
+            src={activeVideoSrc}
             poster={resolveLocalUrl(thumbnailUrl)}
             crossOrigin="anonymous"
             className={cn(
@@ -657,9 +749,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             }}
             onPause={() => {
               setIsPlaying(false);
-              playAttemptPendingRef.current = false;
+              if (playAttemptPendingRef.current) {
+                setIsBuffering(true);
+                return;
+              }
               setIsPlayPending(false);
               setIsBuffering(false);
+              if (videoRef.current) probeDurationIfNeeded(videoRef.current);
               onPause?.();
             }}
             onLoadedData={(e) => {
