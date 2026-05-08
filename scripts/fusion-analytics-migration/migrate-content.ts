@@ -2286,7 +2286,10 @@ function compactPainTheme(theme: FusionPainTheme) {
 }
 
 function summarizeStageData(deals: CompactFusionDeal[]) {
-  const buckets = new Map<string, { stage: string; deals: number; value: number }>();
+  const buckets = new Map<
+    string,
+    { stage: string; deals: number; value: number }
+  >();
   for (const deal of deals) {
     const stage = deal.furthestStage || "Unknown";
     const current = buckets.get(stage) ?? { stage, deals: 0, value: 0 };
@@ -2385,9 +2388,7 @@ function closedWonMarkdown({
   winThemes: typeof CLOSED_WON_WIN_THEMES;
 }) {
   const totalValue = deals.reduce((sum, deal) => sum + deal.amount, 0);
-  const topDeals = [...deals]
-    .sort((a, b) => b.amount - a.amount)
-    .slice(0, 10);
+  const topDeals = [...deals].sort((a, b) => b.amount - a.amount).slice(0, 10);
   return [
     `# ${meta.name}`,
     "",
@@ -2423,7 +2424,10 @@ function closedWonMarkdown({
   ].join("\n");
 }
 
-function metric(summary: Record<string, unknown>, key: string): number | undefined {
+function metric(
+  summary: Record<string, unknown>,
+  key: string,
+): number | undefined {
   const raw = summary[key];
   if (typeof raw === "number" && Number.isFinite(raw)) return raw;
   if (typeof raw === "string") {
@@ -2453,7 +2457,8 @@ function numberForMarkdown(value: number): string {
 
 function moneyForMarkdown(value: number | undefined): string {
   const amount = numberValue(value);
-  if (Math.abs(amount) >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(amount) >= 1_000_000)
+    return `$${(amount / 1_000_000).toFixed(1)}M`;
   if (Math.abs(amount) >= 1_000) return `$${Math.round(amount / 1_000)}K`;
   return `$${Math.round(amount)}`;
 }
@@ -2566,7 +2571,13 @@ const CLOSED_WON_WIN_THEMES = [
       "Developer Productivity Is the Universal Opener - Design System Depth Is What Closes",
     detail:
       "Every deal started with the same hook: a live Figma-to-code demo promising faster UI delivery. What closed each deal was proving Builder understood the customer's specific design system and production codebase.",
-    deals: ["Optum UHG", "Netflix", "Sony Pictures", "Omnicell", "Acuity Brands"],
+    deals: [
+      "Optum UHG",
+      "Netflix",
+      "Sony Pictures",
+      "Omnicell",
+      "Acuity Brands",
+    ],
   },
   {
     number: 2,
@@ -2616,7 +2627,8 @@ const CLOSED_WON_OPERATIONAL_THEMES = [
   },
   {
     number: 2,
-    title: "Generic AI Code Generators Failed Against Production Design Systems",
+    title:
+      "Generic AI Code Generators Failed Against Production Design Systems",
     detail:
       "Teams had tried tools that generated code, but the output did not match their component library, tokens, or repo conventions.",
     deals: ["Yotpo", "ServiceNow", "Acuity Brands", "Weedmaps", "Thales"],
@@ -2647,7 +2659,8 @@ const CLOSED_WON_OPERATIONAL_THEMES = [
 const CLOSED_WON_BUSINESS_THEMES = [
   {
     number: 1,
-    title: "Engineering Bandwidth Was Consumed by UI Work That Should Be Automated",
+    title:
+      "Engineering Bandwidth Was Consumed by UI Work That Should Be Automated",
     detail:
       "Large deals articulated senior engineering time spent on design-to-code translation, component maintenance, or pixel-level QA.",
     deals: ["Omnicell", "Optum UHG", "Thales", "ServiceNow", "Acuity Brands"],
@@ -2675,7 +2688,8 @@ const CLOSED_WON_BUSINESS_THEMES = [
   },
   {
     number: 5,
-    title: "Prior AI and Design Tool Investment Had Not Produced Production Code",
+    title:
+      "Prior AI and Design Tool Investment Had Not Produced Production Code",
     detail:
       "Teams had spent budget and credibility on AI/design tooling that still required engineering cleanup or could not pass security.",
     deals: ["Yotpo", "Weedmaps", "Netflix", "Acuity Brands"],

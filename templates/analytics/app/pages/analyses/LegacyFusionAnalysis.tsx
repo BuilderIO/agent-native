@@ -232,7 +232,9 @@ function ClosedLostDashboard({ data }: { data: ClosedLostPayload }) {
         <MetricCard
           icon={IconDatabase}
           label="Closed-lost deals"
-          value={formatNumber(getMetric(data.summary, "totalDeals") ?? deals.length)}
+          value={formatNumber(
+            getMetric(data.summary, "totalDeals") ?? deals.length,
+          )}
           detail={`${formatNumber(getMetric(data.summary, "dealsWithCalls") ?? 0)} with Gong coverage`}
         />
         <MetricCard
@@ -244,7 +246,9 @@ function ClosedLostDashboard({ data }: { data: ClosedLostPayload }) {
         <MetricCard
           icon={IconMessageCircle}
           label="Customer evidence"
-          value={formatNumber(getMetric(data.summary, "totalCallsMatched") ?? 0)}
+          value={formatNumber(
+            getMetric(data.summary, "totalCallsMatched") ?? 0,
+          )}
           detail={`${formatNumber(getMetric(data.summary, "transcriptsFetched") ?? 0)} transcripts, ${formatNumber(getMetric(data.summary, "emailsFetched") ?? 0)} emails`}
         />
         <MetricCard
@@ -340,7 +344,10 @@ function ClosedWonDashboard({ data }: { data: ClosedWonPayload }) {
     .sort((a, b) => valueOf(b.amount) - valueOf(a.amount))
     .slice(0, 12);
   const personas = data.personas ?? [];
-  const personaCompanies = countBy(personas, (persona) => persona.company || "Unknown");
+  const personaCompanies = countBy(
+    personas,
+    (persona) => persona.company || "Unknown",
+  );
   const winThemes = data.winThemes ?? [];
 
   return (
@@ -357,7 +364,9 @@ function ClosedWonDashboard({ data }: { data: ClosedWonPayload }) {
         <MetricCard
           icon={IconChecks}
           label="Closed-won deals"
-          value={formatNumber(getMetric(data.summary, "totalDeals") ?? deals.length)}
+          value={formatNumber(
+            getMetric(data.summary, "totalDeals") ?? deals.length,
+          )}
           detail={`${formatNumber(getMetric(data.summary, "dealsWithCalls") ?? 0)} with Gong coverage`}
         />
         <MetricCard
@@ -369,7 +378,9 @@ function ClosedWonDashboard({ data }: { data: ClosedWonPayload }) {
         <MetricCard
           icon={IconMessageCircle}
           label="Evidence captured"
-          value={formatNumber(getMetric(data.summary, "totalCallsMatched") ?? 0)}
+          value={formatNumber(
+            getMetric(data.summary, "totalCallsMatched") ?? 0,
+          )}
           detail={`${formatNumber(getMetric(data.summary, "emailsFetched") ?? 0)} emails, ${formatNumber(getMetric(data.summary, "slackMessagesFound") ?? 0)} Slack messages`}
         />
         <MetricCard
@@ -443,7 +454,14 @@ function ClosedWonDashboard({ data }: { data: ClosedWonPayload }) {
           >
             <DealTable
               deals={topDeals}
-              columns={["deal", "amount", "calls", "emails", "slack", "contacts"]}
+              columns={[
+                "deal",
+                "amount",
+                "calls",
+                "emails",
+                "slack",
+                "contacts",
+              ]}
             />
           </SectionCard>
         </TabsContent>
@@ -492,7 +510,9 @@ function DashboardHero({
 }
 
 function MetricGrid({ children }: { children: ReactNode }) {
-  return <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{children}</div>;
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{children}</div>
+  );
 }
 
 function MetricCard({
@@ -517,7 +537,9 @@ function MetricCard({
             {label}
           </p>
           <p className="mt-1 text-2xl font-semibold tracking-tight">{value}</p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{detail}</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {detail}
+          </p>
         </div>
       </CardContent>
     </Card>
@@ -695,7 +717,10 @@ function DealTable({
         </thead>
         <tbody>
           {deals.map((deal) => (
-            <tr key={deal.dealId ?? deal.dealName} className="border-b last:border-0">
+            <tr
+              key={deal.dealId ?? deal.dealName}
+              className="border-b last:border-0"
+            >
               {columns.map((column) => (
                 <td key={column} className="max-w-[320px] px-2 py-3 align-top">
                   {renderDealCell(deal, column)}
@@ -724,9 +749,16 @@ function PainDealTable({ deals }: { deals: PainDeal[] }) {
         </thead>
         <tbody>
           {deals.map((deal) => (
-            <tr key={deal.dealId ?? deal.dealName} className="border-b last:border-0">
-              <td className="px-2 py-3 align-top font-medium">{deal.dealName}</td>
-              <td className="px-2 py-3 align-top">{formatCurrency(deal.amount)}</td>
+            <tr
+              key={deal.dealId ?? deal.dealName}
+              className="border-b last:border-0"
+            >
+              <td className="px-2 py-3 align-top font-medium">
+                {deal.dealName}
+              </td>
+              <td className="px-2 py-3 align-top">
+                {formatCurrency(deal.amount)}
+              </td>
               <td className="max-w-[360px] px-2 py-3 align-top text-muted-foreground">
                 {deal.operationalPain || deal.assessedPainSummary || "Unknown"}
               </td>
@@ -807,7 +839,10 @@ function getMetric(
 }
 
 function summarizeStages(deals: LegacyDeal[]) {
-  const byStage = new Map<string, { stage: string; deals: number; value: number }>();
+  const byStage = new Map<
+    string,
+    { stage: string; deals: number; value: number }
+  >();
   for (const deal of deals) {
     const stage = deal.furthestStage || "Unknown";
     const existing = byStage.get(stage) ?? { stage, deals: 0, value: 0 };
@@ -819,7 +854,8 @@ function summarizeStages(deals: LegacyDeal[]) {
 }
 
 function isLikelyReEngage(deal: LegacyDeal): boolean {
-  const text = `${deal.closedLostReason ?? ""} ${deal.primaryReason ?? ""}`.toLowerCase();
+  const text =
+    `${deal.closedLostReason ?? ""} ${deal.primaryReason ?? ""}`.toLowerCase();
   return [
     "re-engage",
     "reengage",
@@ -844,13 +880,18 @@ function getThemeTitle(theme: PainTheme | WinTheme): string {
 function getThemeDetail(theme: PainTheme | WinTheme): string {
   if ("detail" in theme && theme.detail) return theme.detail;
   if ("description" in theme && theme.description) return theme.description;
-  if ("businessImpact" in theme && theme.businessImpact) return theme.businessImpact;
+  if ("businessImpact" in theme && theme.businessImpact)
+    return theme.businessImpact;
   return "";
 }
 
 function getThemeExamples(theme: PainTheme | WinTheme): string[] {
-  if ("examples" in theme && Array.isArray(theme.examples)) return theme.examples;
-  if ("representativeDeals" in theme && Array.isArray(theme.representativeDeals)) {
+  if ("examples" in theme && Array.isArray(theme.examples))
+    return theme.examples;
+  if (
+    "representativeDeals" in theme &&
+    Array.isArray(theme.representativeDeals)
+  ) {
     return theme.representativeDeals;
   }
   if ("deals" in theme && Array.isArray(theme.deals)) return theme.deals;
@@ -858,7 +899,8 @@ function getThemeExamples(theme: PainTheme | WinTheme): string[] {
 }
 
 function getThemeNumber(theme: PainTheme | WinTheme, index: number): number {
-  if ("number" in theme && typeof theme.number === "number") return theme.number;
+  if ("number" in theme && typeof theme.number === "number")
+    return theme.number;
   if ("rank" in theme && typeof theme.rank === "number") return theme.rank;
   return index + 1;
 }
