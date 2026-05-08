@@ -1234,6 +1234,17 @@ async function startNativeFullscreenRecording(
           await invoke(chromeCmd).catch((err) =>
             console.error(`[clips-recorder] ${chromeCmd} failed:`, err),
           );
+          await invoke("native_fullscreen_capture_thumbnail", {
+            serverUrl: params.serverUrl,
+            recordingId: id,
+            authToken: params.authToken ?? "",
+            cookie: params.cookie ?? "",
+          }).catch((err) => {
+            console.warn(
+              "[clips-recorder] native thumbnail capture/upload failed:",
+              err,
+            );
+          });
 
           invoke("show_finalizing").catch((err) =>
             console.error("[clips-recorder] show_finalizing failed:", err),

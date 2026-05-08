@@ -86,6 +86,7 @@ pub fn run() {
             // native full-screen recording (macOS screencapture, no picker)
             native_screen::native_fullscreen_recording_available,
             native_screen::native_fullscreen_recording_start,
+            native_screen::native_fullscreen_capture_thumbnail,
             native_screen::native_fullscreen_recording_stop_and_upload,
             native_screen::native_fullscreen_recording_cancel,
             native_screen::native_fullscreen_pending_uploads,
