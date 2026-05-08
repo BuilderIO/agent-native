@@ -128,6 +128,7 @@ export {
   trackSessionStatus,
   configureTracking,
   setSentryUser,
+  captureError,
   captureClientException,
   type ClientCaptureContext,
 } from "./analytics.js";
