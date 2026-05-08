@@ -252,7 +252,7 @@ async function createWorkspaceInteractive(
       ``,
       `  cd ${name}`,
       `  pnpm install`,
-      `  pnpm dev          # starts every app in the workspace`,
+      `  pnpm dev          # starts Dispatch; other apps start on first visit`,
       ``,
       ...dispatchNextStep,
       ``,
