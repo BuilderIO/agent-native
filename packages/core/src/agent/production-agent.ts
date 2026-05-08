@@ -474,14 +474,11 @@ export interface ProductionAgentOptions {
         displayMessage?: string;
         attachments?: AgentChatAttachment[];
       }
-    | Promise<
-        | void
-        | {
-            message?: string;
-            displayMessage?: string;
-            attachments?: AgentChatAttachment[];
-          }
-      >;
+    | Promise<void | {
+        message?: string;
+        displayMessage?: string;
+        attachments?: AgentChatAttachment[];
+      }>;
   /** Optional per-app agent run chunk budget in milliseconds. Defaults to
    *  AGENT_RUN_SOFT_TIMEOUT_MS when set, otherwise no framework-imposed
    *  timeout. When reached, the client receives an internal auto-continuation
@@ -1662,9 +1659,7 @@ export function createProductionAgentHandler(
       setResponseStatus(event, 400);
       return { error: "message is required" };
     }
-    let requestMessage = hasMessageText
-      ? message
-      : "Use the attached context.";
+    let requestMessage = hasMessageText ? message : "Use the attached context.";
     let requestAttachments = Array.isArray(attachments) ? attachments : [];
     let requestDisplayMessage = displayMessage;
 

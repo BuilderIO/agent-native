@@ -90,8 +90,8 @@ async function prepareSlidesChatAttachments(args: {
           fileList,
           "",
           "File handling rules:",
-          "- PPTX files: call `import-pptx --filePath \"<path>\"` to create or replace a deck from the presentation.",
-          "- PDF and DOCX files: call `import-file --filePath \"<path>\" --format auto` and use the returned content as source material before creating slides.",
+          '- PPTX files: call `import-pptx --filePath "<path>"` to create or replace a deck from the presentation.',
+          '- PDF and DOCX files: call `import-file --filePath "<path>" --format auto` and use the returned content as source material before creating slides.',
           "- Do not say no PDF/PPTX/DOCX was attached when a matching saved path is listed here.",
         ].join("\n")
       : "",

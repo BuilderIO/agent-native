@@ -1440,14 +1440,11 @@ export interface AgentChatPluginOptions {
         displayMessage?: string;
         attachments?: AgentChatAttachment[];
       }
-    | Promise<
-        | void
-        | {
-            message?: string;
-            displayMessage?: string;
-            attachments?: AgentChatAttachment[];
-          }
-      >;
+    | Promise<void | {
+        message?: string;
+        displayMessage?: string;
+        attachments?: AgentChatAttachment[];
+      }>;
   /**
    * Use ONLY the template's `systemPrompt` and the actions list — skip the
    * framework prompt wrapper, resource loading (AGENTS.md/LEARNINGS.md/
