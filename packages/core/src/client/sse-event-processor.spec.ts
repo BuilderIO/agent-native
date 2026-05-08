@@ -198,7 +198,7 @@ describe("SSE event processor error classification", () => {
       },
     );
 
-    await drain(
+    const results = await drain(
       readSSEStream(
         eventStream([{ type: "error", error: "Authentication required" }]),
         [],
@@ -357,7 +357,7 @@ describe("SSE event processor error classification", () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
 
-    await drain(
+    const results = await drain(
       readSSEStream(
         eventStream([
           {
