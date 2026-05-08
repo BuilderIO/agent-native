@@ -73,11 +73,21 @@ export function readDeployCredentialEnv(key: string): string | undefined {
 
 /**
  * Deployment-level credentials are safe as a runtime fallback only in local /
- * single-tenant contexts. In hosted production with a shared database, every
- * signed-in user needs their own user/org/workspace credential so one deploy
- * key does not silently power another tenant's chat.
+ * single-tenant contexts unless the deploy explicitly opts in. In hosted
+ * production with a shared database, every signed-in user normally needs their
+ * own user/org/workspace credential so one deploy key does not silently power
+ * another tenant's chat.
  */
+function isTruthyEnv(value: string | undefined): boolean {
+  return /^(1|true|yes)$/i.test(value ?? "");
+}
+
+export function isDeployCredentialFallbackExplicitlyAllowed(): boolean {
+  return isTruthyEnv(process.env.AGENT_NATIVE_ALLOW_DEPLOY_CREDENTIAL_FALLBACK);
+}
+
 export function isDeployCredentialFallbackAllowed(): boolean {
+  if (isDeployCredentialFallbackExplicitlyAllowed()) return true;
   if (process.env.NODE_ENV !== "production") return true;
   return isLocalDatabase();
 }
@@ -86,6 +96,28 @@ export function canUseDeployCredentialFallbackForRequest(): boolean {
   const email = getRequestUserEmail();
   if (!email) return true;
   return isDeployCredentialFallbackAllowed();
+}
+
+/**
+ * Builder is a special deploy-managed engine. If the operator set
+ * `AGENT_ENGINE=builder` and provided the Builder key pair, that is an
+ * explicit site-wide choice to route chat through the Builder gateway. Keep
+ * this narrower than the generic fallback gate so arbitrary provider env keys
+ * stay blocked for signed-in shared-DB users.
+ */
+export function isBuilderDeployCredentialFallbackAllowed(): boolean {
+  if (isDeployCredentialFallbackAllowed()) return true;
+  return (
+    process.env.AGENT_ENGINE === "builder" &&
+    !!process.env.BUILDER_PRIVATE_KEY &&
+    !!process.env.BUILDER_PUBLIC_KEY
+  );
+}
+
+export function canUseBuilderDeployCredentialFallbackForRequest(): boolean {
+  const email = getRequestUserEmail();
+  if (!email) return true;
+  return isBuilderDeployCredentialFallbackAllowed();
 }
 
 // ---------------------------------------------------------------------------
@@ -175,7 +207,7 @@ export async function resolveBuilderCredential(
 ): Promise<string | null> {
   const scoped = await resolveScopedBuilderCredential(key);
   if (scoped) return scoped.value;
-  if (!canUseDeployCredentialFallbackForRequest()) return null;
+  if (!canUseBuilderDeployCredentialFallbackForRequest()) return null;
   return readDeployCredentialEnv(key) ?? null;
 }
 
@@ -219,7 +251,7 @@ export async function resolveHasBuilderPrivateKey(): Promise<boolean> {
 export async function resolveBuilderCredentialSource(): Promise<BuilderCredentialSource | null> {
   const scoped = await resolveScopedBuilderCredential("BUILDER_PRIVATE_KEY");
   if (scoped) return scoped.source;
-  return canUseDeployCredentialFallbackForRequest() &&
+  return canUseBuilderDeployCredentialFallbackForRequest() &&
     process.env.BUILDER_PRIVATE_KEY
     ? "env"
     : null;
@@ -360,7 +392,7 @@ export async function deleteBuilderCredentials(
 /**
  * Resolve a request-scoped secret. Reads from `app_secrets` first (current
  * user override, active org, then workspace row); falls back to `process.env`
- * only for unauthenticated/CLI/background contexts.
+ * only when the deploy fallback policy allows it.
  */
 export async function resolveSecret(key: string): Promise<string | null> {
   const email = getRequestUserEmail();
