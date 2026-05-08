@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
-import { IconUser } from "@tabler/icons-react";
+import {
+  IconCloud,
+  IconLoader2,
+  IconServer,
+  IconUser,
+} from "@tabler/icons-react";
 import { useSession, agentNativePath } from "@agent-native/core/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -15,12 +20,51 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 
 export function meta() {
   return [{ title: "Settings · Clips" }];
 }
 
 const SPEEDS = ["1", "1.2", "1.5", "1.75", "2"];
+
+const S3_STORAGE_FIELDS = [
+  {
+    key: "S3_ENDPOINT",
+    label: "Endpoint URL",
+    placeholder: "https://s3.us-east-1.amazonaws.com",
+    required: true,
+  },
+  {
+    key: "S3_BUCKET",
+    label: "Bucket",
+    placeholder: "my-clips-bucket",
+    required: true,
+  },
+  {
+    key: "S3_ACCESS_KEY_ID",
+    label: "Access key ID",
+    placeholder: "AKIA...",
+    required: true,
+  },
+  {
+    key: "S3_SECRET_ACCESS_KEY",
+    label: "Secret access key",
+    placeholder: "••••••••",
+    required: true,
+    secret: true,
+  },
+  {
+    key: "S3_REGION",
+    label: "Region",
+    placeholder: "us-east-1",
+  },
+  {
+    key: "S3_PUBLIC_BASE_URL",
+    label: "Public base URL",
+    placeholder: "https://cdn.example.com",
+  },
+] as const;
 
 interface ClipsUserSettings {
   defaultPlaybackSpeed?: string;
@@ -60,16 +104,45 @@ async function saveSettings(value: ClipsUserSettings): Promise<void> {
   }
 }
 
+async function saveS3StorageSettings(
+  values: Record<string, string>,
+): Promise<void> {
+  const vars = S3_STORAGE_FIELDS.map((field) => ({
+    key: field.key,
+    value: (values[field.key] ?? "").trim(),
+  })).filter((entry) => entry.value.length > 0);
+
+  if (vars.length === 0) {
+    throw new Error("Enter at least one storage value.");
+  }
+
+  const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ vars, scope: "workspace" }),
+  });
+
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(body?.error ?? `Save failed (${res.status})`);
+  }
+}
+
 export default function SettingsIndexRoute() {
   const { session } = useSession();
   const email = session?.email ?? "";
+  const storageStatus = useVideoStorageStatus();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingStorage, setSavingStorage] = useState(false);
   const [defaultSpeed, setDefaultSpeed] = useState("1.2");
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [displayName, setDisplayName] = useState("");
   const [transcriptCleanupEnabled, setTranscriptCleanupEnabled] =
     useState(true);
+  const [s3Values, setS3Values] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -103,6 +176,40 @@ export default function SettingsIndexRoute() {
     }
   }
 
+  async function handleSaveS3Storage() {
+    const s3Configured = storageStatus.data?.activeProvider?.id === "s3";
+    const missing = s3Configured
+      ? []
+      : S3_STORAGE_FIELDS.filter(
+          (field) =>
+            "required" in field &&
+            field.required &&
+            !(s3Values[field.key] ?? "").trim(),
+        );
+    if (missing.length > 0) {
+      toast.error("Endpoint, bucket, access key, and secret are required.");
+      return;
+    }
+
+    setSavingStorage(true);
+    try {
+      await saveS3StorageSettings(s3Values);
+      setS3Values((current) => ({
+        ...current,
+        S3_SECRET_ACCESS_KEY: "",
+      }));
+      await storageStatus.refetch();
+      toast.success("Storage settings saved");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setSavingStorage(false);
+    }
+  }
+
+  const storageConfigured = !!storageStatus.data?.configured;
+  const activeProviderName = storageStatus.data?.activeProvider?.name ?? null;
+
   return (
     <>
       <PageHeader>
@@ -114,6 +221,73 @@ export default function SettingsIndexRoute() {
         <p className="text-sm text-muted-foreground">
           Your personal preferences — scoped to this account.
         </p>
+
+        <Card id="video-storage" className="scroll-mt-16">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <IconCloud className="size-4 text-primary" />
+              Video storage
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-accent/30 px-3 py-2.5">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <IconServer className="h-4 w-4 text-muted-foreground" />
+                  {storageStatus.isLoading
+                    ? "Checking storage"
+                    : storageConfigured
+                      ? (activeProviderName ?? "Storage connected")
+                      : "Not connected"}
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {storageConfigured
+                    ? "New clips will upload to the connected provider."
+                    : "Save S3-compatible credentials or connect Builder.io from the recorder."}
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground">
+                {storageConfigured ? "Connected" : "Pending"}
+              </span>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {S3_STORAGE_FIELDS.map((field) => (
+                <div key={field.key} className="space-y-1.5">
+                  <Label htmlFor={field.key}>{field.label}</Label>
+                  <Input
+                    id={field.key}
+                    type={
+                      "secret" in field && field.secret ? "password" : "text"
+                    }
+                    value={s3Values[field.key] ?? ""}
+                    onChange={(event) =>
+                      setS3Values((current) => ({
+                        ...current,
+                        [field.key]: event.target.value,
+                      }))
+                    }
+                    placeholder={field.placeholder}
+                    autoComplete="off"
+                    disabled={savingStorage}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end">
+              <Button
+                onClick={handleSaveS3Storage}
+                disabled={savingStorage || storageStatus.isLoading}
+              >
+                {savingStorage && (
+                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                )}
+                Save storage
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>

@@ -1,11 +1,11 @@
+import { useState } from "react";
 import { IconPlus, IconUsersGroup } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { SpaceCard, type SpaceCardData } from "@/components/library/space-card";
 import { useSpaces, useOrganizations } from "@/hooks/use-library";
 import { EmptyState } from "@/components/library/empty-state";
 import { PageHeader } from "@/components/library/page-header";
-import { toast } from "sonner";
-import { sendToAgentChat } from "@agent-native/core/client";
+import { CreateSpaceDialog } from "@/components/library/create-space-dialog";
 
 export function meta() {
   return [{ title: "Spaces · Clips" }];
@@ -24,6 +24,7 @@ function Skeleton() {
 }
 
 export default function SpacesIndexRoute() {
+  const [createOpen, setCreateOpen] = useState(false);
   const { data: organizations } = useOrganizations();
   const currentOrganizationId =
     organizations?.currentId ?? organizations?.organizations?.[0]?.id;
@@ -50,12 +51,7 @@ export default function SpacesIndexRoute() {
           <Button
             size="sm"
             className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
-            onClick={() => {
-              sendToAgentChat({
-                message: "Create a new space for the team",
-              });
-              toast.info("Asking the agent to help create a space");
-            }}
+            onClick={() => setCreateOpen(true)}
           >
             <IconPlus className="h-4 w-4" /> New space
           </Button>
@@ -79,6 +75,12 @@ export default function SpacesIndexRoute() {
           </div>
         )}
       </div>
+
+      <CreateSpaceDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        organizationId={currentOrganizationId}
+      />
     </div>
   );
 }

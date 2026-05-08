@@ -21,6 +21,7 @@ export function SpaceCard({ space, className }: SpaceCardProps) {
   const navigate = useNavigate();
   const color = space.color || "hsl(var(--primary))";
   const members = space.memberEmails ?? [];
+  const initial = (space.name.trim().slice(0, 1) || "S").toUpperCase();
 
   return (
     <button
@@ -39,7 +40,11 @@ export function SpaceCard({ space, className }: SpaceCardProps) {
           background: `linear-gradient(135deg, ${color} 0%, ${color}dd 100%)`,
         }}
       >
-        <span className="text-3xl">{space.iconEmoji ?? "🗂️"}</span>
+        {space.iconEmoji ? (
+          <span className="text-3xl">{space.iconEmoji}</span>
+        ) : (
+          <span className="text-3xl font-semibold text-white">{initial}</span>
+        )}
       </div>
       <div className="flex flex-1 flex-col p-3">
         <h3 className="text-sm font-semibold text-foreground truncate">

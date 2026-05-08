@@ -179,7 +179,7 @@ export function StorageSetupCard({
             <span className="text-sm text-muted-foreground">
               Or{" "}
               <a
-                href={appPath("/settings")}
+                href={appPath("/settings#video-storage")}
                 className="font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
               >
                 configure S3-compatible storage

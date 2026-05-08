@@ -14,13 +14,13 @@ import {
   IconMenu2,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconPlus,
 } from "@tabler/icons-react";
 import {
   AgentSidebar,
   AgentToggleButton,
   FeedbackButton,
   appPath,
-  useSession,
 } from "@agent-native/core/client";
 import { OrgSwitcher, RequireActiveOrg } from "@agent-native/core/client/org";
 import { cn } from "@/lib/utils";
@@ -46,6 +46,7 @@ import { usePrefetchVideoStorageStatus } from "@/hooks/use-video-storage-status"
 import { FolderTree, type FolderNode } from "./folder-tree";
 import { SearchBar } from "./search-bar";
 import { PageHeaderSlotProvider } from "./page-header";
+import { CreateSpaceDialog } from "./create-space-dialog";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { toast } from "sonner";
 import {
@@ -86,8 +87,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
 
   const { shouldShowPromo, shouldShowSidebarLink, dismiss } = useDesktopPromo();
   usePrefetchVideoStorageStatus();
-  const { session } = useSession();
-  const currentUserEmail = session?.email ?? null;
 
   const { data: organizations } = useOrganizations();
   const currentOrganizationId =
@@ -101,18 +100,14 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const libFolderList: FolderNode[] = useMemo(
     () =>
       (libFolders?.folders ?? [])
-        .filter(
-          (f: any) =>
-            !f.spaceId &&
-            (!currentUserEmail || f.ownerEmail === currentUserEmail),
-        )
+        .filter((f: any) => !f.spaceId)
         .map((f: any) => ({
           id: f.id,
           parentId: f.parentId ?? null,
           spaceId: f.spaceId ?? null,
           name: f.name,
         })),
-    [currentUserEmail, libFolders],
+    [libFolders],
   );
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -146,6 +141,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
 
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  const [newSpaceOpen, setNewSpaceOpen] = useState(false);
   const createFolder = useCreateFolder();
 
   const navItems: {
@@ -381,6 +377,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                             <TooltipTrigger asChild>
                               <button
                                 type="button"
+                                aria-label="New folder"
                                 className="rounded p-1 text-muted-foreground hover:bg-accent"
                                 onClick={() => setNewFolderOpen(true)}
                               >
@@ -404,6 +401,19 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                           <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                             Spaces
                           </span>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                aria-label="New space"
+                                className="rounded p-1 text-muted-foreground hover:bg-accent"
+                                onClick={() => setNewSpaceOpen(true)}
+                              >
+                                <IconPlus className="h-3.5 w-3.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>New space</TooltipContent>
+                          </Tooltip>
                         </div>
                         <ul className="space-y-0.5">
                           {(spaces?.spaces ?? []).map((s: any) => {
@@ -574,6 +584,12 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <CreateSpaceDialog
+        open={newSpaceOpen}
+        onOpenChange={setNewSpaceOpen}
+        organizationId={currentOrganizationId}
+      />
     </div>
   );
 }
