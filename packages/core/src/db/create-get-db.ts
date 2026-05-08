@@ -65,9 +65,7 @@ function getLibsqlWebDrizzle() {
   return _libsqlWebDrizzle;
 }
 
-let _betterSqliteDrizzle:
-  | Promise<{ drizzle: any; Database: any }>
-  | undefined;
+let _betterSqliteDrizzle: Promise<{ drizzle: any; Database: any }> | undefined;
 function getBetterSqliteDrizzle() {
   if (!_betterSqliteDrizzle) {
     _betterSqliteDrizzle = Promise.all([
