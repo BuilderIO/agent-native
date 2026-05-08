@@ -573,12 +573,12 @@ function DataSourceCard({
               ) : connected ? (
                 <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
                   <IconCheck className="h-3.5 w-3.5" />
-                  Connected
+                  Configured
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
                   <IconCircle className="h-3 w-3" />
-                  Not connected
+                  Not configured
                 </span>
               )}
               {expanded ? (
@@ -872,12 +872,12 @@ function FirstPartyAnalyticsCard() {
               ) : connected ? (
                 <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
                   <IconCheck className="h-3.5 w-3.5" />
-                  Connected
+                  Configured
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
                   <IconCircle className="h-3 w-3" />
-                  Not connected
+                  Not configured
                 </span>
               )}
               {expanded ? (
@@ -1049,10 +1049,10 @@ export default function DataSources() {
         {!isStatusLoading &&
           (connectedCount > 0 ? (
             <span className="text-emerald-500 font-medium">
-              {connectedCount} connected
+              {connectedCount} configured
             </span>
           ) : (
-            <span className="text-amber-500 font-medium">0 connected</span>
+            <span className="text-amber-500 font-medium">0 configured</span>
           ))}
       </p>
 
