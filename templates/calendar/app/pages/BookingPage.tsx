@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { addMinutes, endOfMonth, format, parseISO, startOfMonth } from "date-fns";
+import {
+  addMinutes,
+  endOfMonth,
+  format,
+  parseISO,
+  startOfMonth,
+} from "date-fns";
 import { IconCalendar } from "@tabler/icons-react";
 import { OpenSourceBadge, PoweredByBadge } from "@agent-native/core/client";
 import { ThemeToggle } from "@/components/ThemeToggle";

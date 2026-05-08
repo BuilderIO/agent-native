@@ -602,7 +602,9 @@ Write a short, useful meeting description. If I ask you to apply it, update this
         !event.description?.includes(meetingLink.url)
       ) {
         const label =
-          meetingLink.type === "zoom" ? "Zoom" : getMeetingLabel(meetingLink.type);
+          meetingLink.type === "zoom"
+            ? "Zoom"
+            : getMeetingLabel(meetingLink.type);
         updates.description = event.description?.trim()
           ? `${event.description.trim()}\n\n${label}: ${meetingLink.url}`
           : `${label}: ${meetingLink.url}`;
@@ -1414,7 +1416,9 @@ Write a short, useful meeting description. If I ask you to apply it, update this
               <div
                 className="flex items-center gap-3 px-4 py-1.5 cursor-pointer hover:bg-muted/50 rounded-md"
                 onClick={() => {
-                  setEditLocation(locationIsMeetingLink ? "" : event.location || "");
+                  setEditLocation(
+                    locationIsMeetingLink ? "" : event.location || "",
+                  );
                   setEditingField("location");
                 }}
               >
