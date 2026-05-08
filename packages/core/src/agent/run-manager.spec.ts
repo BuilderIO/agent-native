@@ -37,6 +37,7 @@ import {
   markRunAborted,
   updateRunStatus,
 } from "./run-store.js";
+import { registerErrorCaptureProvider } from "../server/capture-error.js";
 
 const originalTimeoutEnv = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
 const originalRetentionEnv = process.env.AGENT_RUN_RETENTION_MS;
@@ -333,6 +334,57 @@ describe("run manager soft timeout", () => {
         "run-insert-race",
         "completed",
       ),
+    );
+  });
+
+  it("captures background run errors through the generic capture registry", async () => {
+    const provider = vi.fn(() => "evt_run");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-test",
+      provider,
+    );
+    const err = new Error("llm stream failed");
+    const events: AgentChatEvent[] = [];
+
+    const run = startRun(
+      "run-capture-error",
+      "thread-capture-error",
+      async () => {
+        throw err;
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.waitFor(() =>
+      expect(updateRunStatus).toHaveBeenCalledWith(
+        "run-capture-error",
+        "errored",
+      ),
+    );
+    unregister();
+
+    expect(provider).toHaveBeenCalledWith(
+      err,
+      expect.objectContaining({
+        route: "/_agent-native/agent-chat",
+        tags: expect.objectContaining({
+          source: "agent-run-manager",
+          phase: "run",
+          runStatus: "errored",
+        }),
+        extra: expect.objectContaining({
+          runId: "run-capture-error",
+          threadId: "thread-capture-error",
+        }),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        error: "llm stream failed",
+      }),
     );
   });
 
