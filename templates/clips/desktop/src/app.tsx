@@ -96,6 +96,31 @@ const DEFAULT_URL = import.meta.env.DEV
 const MACOS_CAPTURE_PERMISSION_MESSAGE =
   "Recording permission is blocked. Try starting again so macOS can show the Camera and Microphone prompts, then open System Settings → Privacy & Security and enable Clips for Camera, Microphone, and Screen & System Audio Recording. In Tauri dev, macOS may list the debug binary separately from Ghostty or node, so restart Clips after granting it.";
 
+function isHardCapturePermissionError(message: string): boolean {
+  return /permission denied by system|blocked by system|system settings|screen recording|privacy|sandbox/i.test(
+    message,
+  );
+}
+
+function resolveDesktopThumbnailUrl(
+  rawUrl: string | null | undefined,
+  serverUrl: string,
+): string | null {
+  if (!rawUrl) return null;
+  if (
+    rawUrl.startsWith("http://") ||
+    rawUrl.startsWith("https://") ||
+    rawUrl.startsWith("data:") ||
+    rawUrl.startsWith("blob:")
+  ) {
+    return rawUrl;
+  }
+  if (rawUrl.startsWith("/")) {
+    return `${serverUrl.replace(/\/+$/, "")}${rawUrl}`;
+  }
+  return rawUrl;
+}
+
 function loadString(key: string, fallback: string): string {
   try {
     const v = localStorage.getItem(key);
@@ -1510,11 +1535,9 @@ export function App() {
     // block above. Now surface any non-cancel error to the UI.
     console.error("[clips-popover] startRecording failed:", startError);
 
-    // User cancelled the macOS screen-picker (or denied permission).
-    // WebKit throws DOMException `NotAllowedError` for BOTH cancel and
-    // deny with the same message string, so we can't reliably tell them
-    // apart — treat both as a silent no-op and return to pre-record
-    // state. Some browsers throw `AbortError` on user abort instead.
+    // User cancelled the macOS screen-picker (or denied permission). WebKit
+    // often reports both as NotAllowedError; only show the big permissions
+    // banner when the message carries a hard macOS/privacy failure signal.
     const errName =
       startError instanceof DOMException || startError instanceof Error
         ? startError.name
@@ -1524,12 +1547,10 @@ export function App() {
     if (errName === "AbortError" || /was cancelled|dismissed/i.test(message)) {
       return;
     }
-    if (
-      errName === "NotAllowedError" ||
-      /NotAllowedError|permission denied by system|not allowed by the user agent|denied permission/i.test(
-        message,
-      )
-    ) {
+    if (errName === "NotAllowedError" && !isHardCapturePermissionError(message)) {
+      return;
+    }
+    if (isHardCapturePermissionError(message)) {
       setRecError(MACOS_CAPTURE_PERMISSION_MESSAGE);
       return;
     }
@@ -1831,11 +1852,7 @@ export function App() {
               {r.thumbnailUrl ? (
                 <img
                   className="thumb"
-                  src={
-                    r.thumbnailUrl.startsWith("http")
-                      ? r.thumbnailUrl
-                      : `${serverUrl.replace(/\/+$/, "")}${r.thumbnailUrl}`
-                  }
+                  src={resolveDesktopThumbnailUrl(r.thumbnailUrl, serverUrl) ?? ""}
                   alt=""
                 />
               ) : (
