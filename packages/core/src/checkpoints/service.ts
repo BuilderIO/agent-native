@@ -26,16 +26,20 @@ export function isGitRepo(cwd: string): boolean {
 }
 
 export function hasUncommittedChanges(cwd: string): boolean {
+  const output = getUncommittedStatus(cwd);
+  return output !== null && output.trim().length > 0;
+}
+
+export function getUncommittedStatus(cwd: string): string | null {
   try {
-    const output = execFileSync("git", ["status", "--porcelain"], {
+    return execFileSync("git", ["status", "--porcelain"], {
       cwd,
       stdio: "pipe",
       timeout: TIMEOUT,
       encoding: "utf-8",
     });
-    return output.trim().length > 0;
   } catch {
-    return false;
+    return null;
   }
 }
 
