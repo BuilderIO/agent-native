@@ -117,10 +117,87 @@ const MAC_CAMERA_PREF_URL =
 const MAC_MICROPHONE_PREF_URL =
   "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
 
+type BrowserDocumentPolicy = {
+  allowsFeature?: (feature: string) => boolean;
+};
+
 function isMacPlatform(): boolean {
   return /^darwin|mac/i.test(
     typeof navigator !== "undefined" ? navigator.platform : "",
   );
+}
+
+function isEmbeddedWindow(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
+function openUrlFromUserGesture(url: string): void {
+  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  if (!opened) {
+    window.location.href = url;
+  }
+}
+
+function capturePolicy(): BrowserDocumentPolicy | null {
+  if (typeof document === "undefined") return null;
+  const doc = document as Document & {
+    permissionsPolicy?: BrowserDocumentPolicy;
+    featurePolicy?: BrowserDocumentPolicy;
+  };
+  return doc.permissionsPolicy ?? doc.featurePolicy ?? null;
+}
+
+function isCaptureFeatureBlockedByPolicy(feature: string): boolean {
+  const policy = capturePolicy();
+  if (!policy?.allowsFeature) return false;
+  try {
+    return !policy.allowsFeature(feature);
+  } catch {
+    return false;
+  }
+}
+
+function getPolicyBlockedCaptureLabel(opts: {
+  mode: RecordingMode;
+  micDeviceId?: string | null;
+}): "screen" | "camera" | "microphone" | null {
+  if (
+    (opts.mode === "screen" || opts.mode === "screen+camera") &&
+    isCaptureFeatureBlockedByPolicy("display-capture")
+  ) {
+    return "screen";
+  }
+  if (
+    (opts.mode === "camera" || opts.mode === "screen+camera") &&
+    isCaptureFeatureBlockedByPolicy("camera")
+  ) {
+    return "camera";
+  }
+  if (
+    wantsMicrophone(opts.micDeviceId) &&
+    isCaptureFeatureBlockedByPolicy("microphone")
+  ) {
+    return "microphone";
+  }
+  return null;
+}
+
+function directRecorderUrl(opts?: {
+  mode: RecordingMode;
+  displaySurface: DisplaySurface;
+}): string {
+  if (typeof window === "undefined") return "/record";
+  const url = new URL(window.location.href);
+  if (opts) {
+    url.searchParams.set("mode", opts.mode);
+    url.searchParams.set("surface", opts.displaySurface);
+  }
+  return url.toString();
 }
 
 function isPermissionError(message: string): boolean {
@@ -205,6 +282,9 @@ function permissionGuidance(
     return "Browser site permissions are not the blocker here. Open Clips directly in a browser tab, or use an app frame that delegates the selected capture sources.";
   }
   if (isScreenPermissionError(message)) {
+    if (isEmbeddedWindow()) {
+      return "The web client is running Clips inside a frame. Open the recorder in its own tab, then start recording; Chrome can block screen sharing in embedded pages even when macOS access is enabled.";
+    }
     if (isMacPlatform()) {
       return "Chrome can have Camera and Microphone allowed while macOS still blocks screen capture. Enable your browser in System Settings > Privacy & Security > Screen & System Audio Recording, then quit and reopen it.";
     }
@@ -387,9 +467,9 @@ function RecordingErrorCard({
   const guidance = permissionGuidance(error, { mode, micDeviceId });
   const permissionError = isPermissionError(error);
   const policyError = isPolicyPermissionError(error);
+  const embeddedScreenError = isEmbeddedWindow() && isScreenPermissionError(error);
   const settings = getModePermissionLabels(mode, micDeviceId);
-  const directUrl =
-    typeof window !== "undefined" ? window.location.href : "/record";
+  const directUrl = directRecorderUrl();
 
   return (
     <div className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
@@ -421,12 +501,14 @@ function RecordingErrorCard({
           <IconRefresh className="h-4 w-4" />
           Try again
         </Button>
-        {policyError && (
-          <Button asChild className="w-full gap-2">
-            <a href={directUrl} target="_blank" rel="noreferrer">
-              <IconExternalLink className="h-4 w-4" />
-              Open in tab
-            </a>
+        {(policyError || embeddedScreenError) && (
+          <Button
+            type="button"
+            onClick={() => openUrlFromUserGesture(directUrl)}
+            className="w-full gap-2"
+          >
+            <IconExternalLink className="h-4 w-4" />
+            Open recorder in tab
           </Button>
         )}
         {permissionError &&
@@ -448,7 +530,7 @@ function RecordingErrorCard({
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    window.location.href = MAC_SCREEN_RECORDING_PREF_URL;
+                    openUrlFromUserGesture(MAC_SCREEN_RECORDING_PREF_URL);
                   }}
                   className="gap-1.5 px-2 text-xs"
                 >
@@ -461,7 +543,7 @@ function RecordingErrorCard({
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    window.location.href = MAC_CAMERA_PREF_URL;
+                    openUrlFromUserGesture(MAC_CAMERA_PREF_URL);
                   }}
                   className="gap-1.5 px-2 text-xs"
                 >
@@ -474,7 +556,7 @@ function RecordingErrorCard({
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    window.location.href = MAC_MICROPHONE_PREF_URL;
+                    openUrlFromUserGesture(MAC_MICROPHONE_PREF_URL);
                   }}
                   className="gap-1.5 px-2 text-xs"
                 >
@@ -608,7 +690,7 @@ export default function RecordRoute() {
         ? {
             label: "Open settings",
             onClick: () => {
-              window.location.href = settingsUrl;
+              openUrlFromUserGesture(settingsUrl);
             },
           }
         : undefined,
