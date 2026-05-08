@@ -424,9 +424,7 @@ function writeNetlifyRedirects(distDir: string, apps: string[]): void {
 }
 
 function writeVercelBuildConfig(outputDir: string, apps: string[]): void {
-  const routes: Array<Record<string, any>> = [
-    { handle: "filesystem" },
-  ];
+  const routes: Array<Record<string, any>> = [{ handle: "filesystem" }];
 
   if (apps.includes("dispatch")) {
     routes.push(
@@ -472,10 +470,7 @@ function writeVercelBuildConfig(outputDir: string, apps: string[]): void {
   );
 }
 
-function vercelRedirect(
-  src: string,
-  location: string,
-): Record<string, any> {
+function vercelRedirect(src: string, location: string): Record<string, any> {
   return {
     src,
     status: 302,
@@ -585,9 +580,6 @@ function normalizeBasePathArgs(args) {
   return args;
 }
 `;
-  fs.writeFileSync(entryPath, entry);
-}
-`;
   const handlerArgs =
     app === "dispatch" ? "...args" : "...normalizeBasePathArgs(args)";
   const server = `const basePath = ${JSON.stringify(basePath)};
@@ -633,6 +625,67 @@ export const config = {
 `;
   fs.rmSync(serverPath, { force: true });
   fs.writeFileSync(path.join(functionDir, `${app}-server.mjs`), server);
+}
+
+function patchVercelFunctionEntry(
+  functionDir: string,
+  app: string,
+  workspaceApps: WorkspaceAppManifestEntry[],
+): void {
+  const entryPath = path.join(functionDir, "index.mjs");
+  if (!fs.existsSync(entryPath)) return;
+
+  const mainPath = path.join(functionDir, "main.mjs");
+  fs.rmSync(mainPath, { force: true });
+  fs.renameSync(entryPath, mainPath);
+
+  const basePath = `/${app}`;
+  const entry = `const basePath = ${JSON.stringify(basePath)};
+
+function setBasePathEnv() {
+  const processRef = globalThis.process ??= { env: {} };
+  processRef.env ??= {};
+  Object.assign(processRef.env, {
+    AGENT_NATIVE_WORKSPACE: "1",
+    APP_BASE_PATH: basePath,
+    VITE_AGENT_NATIVE_WORKSPACE: "1",
+    VITE_APP_BASE_PATH: basePath,
+    ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
+  });
+}
+
+function normalizeBasePathArgs(args) {
+  const request = args[0];
+  if (!request) return args;
+
+  if (typeof Request === "function" && request instanceof Request) {
+    const url = new URL(request.url);
+    if (url.pathname === basePath || url.pathname === \`\${basePath}/\`) {
+      url.pathname = \`\${basePath}//\`;
+      return [new Request(url, request), ...args.slice(1)];
+    }
+    return args;
+  }
+
+  if (typeof request.url !== "string") return args;
+  const url = new URL(request.url, "http://agent-native.local");
+  if (url.pathname === basePath || url.pathname === \`\${basePath}/\`) {
+    request.url = \`\${basePath}//\${url.search}\`;
+  }
+  return args;
+}
+
+setBasePathEnv();
+
+let cachedHandler;
+
+export default async function handler(...args) {
+  setBasePathEnv();
+  cachedHandler ??= (await import("./main.mjs")).default;
+  return cachedHandler(...normalizeBasePathArgs(args));
+}
+`;
+  fs.writeFileSync(entryPath, entry);
 }
 
 function netlifyFunctionExcludedPaths(
@@ -727,14 +780,14 @@ function writeWorkspaceAppManifests(
               WORKSPACE_APPS_MANIFEST_FILE,
             ),
           )
-      : apps.map((app) =>
-          path.join(
-            distDir,
-            app,
-            WORKSPACE_APPS_MANIFEST_DIR,
-            WORKSPACE_APPS_MANIFEST_FILE,
-          ),
-        );
+        : apps.map((app) =>
+            path.join(
+              distDir,
+              app,
+              WORKSPACE_APPS_MANIFEST_DIR,
+              WORKSPACE_APPS_MANIFEST_FILE,
+            ),
+          );
 
   for (const target of targets) {
     fs.mkdirSync(path.dirname(target), { recursive: true });
