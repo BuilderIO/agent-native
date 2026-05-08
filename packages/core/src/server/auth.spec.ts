@@ -1253,6 +1253,14 @@ describe("server/auth", () => {
       expect(html).toContain(
         "__anPath('/_agent-native/auth/desktop-exchange')",
       );
+      expect(html).toContain('id="google-debug"');
+      expect(html).toContain("&debug=1");
+      expect(html).toContain(
+        "__anSetOAuthDebug('Google popup opened; waiting for callback', flowId)",
+      );
+      expect(html).toContain(
+        "check server logs for [agent-native][google-oauth]",
+      );
       expect(html).toContain("params.set('desktop', '1')");
       expect(html).toContain("params.set('flow_id', flowId)");
       expect(html).toContain("params.set('redirect', '1')");
@@ -1261,6 +1269,25 @@ describe("server/auth", () => {
       expect(html).toContain("window.location.href = url");
       expect(html).not.toContain("window.open(data.url");
       expect(html).not.toContain("Waiting for sign-in");
+    });
+
+    it("adds OAuth debug breadcrumbs to the minimal Google auth plugin page", async () => {
+      const createAuthPlugin = vi.fn((options: any) => options);
+      vi.doMock("./auth-plugin.js", () => ({ createAuthPlugin }));
+
+      const { createGoogleAuthPlugin } =
+        await import("./google-auth-plugin.js");
+      createGoogleAuthPlugin();
+
+      const loginHtml = createAuthPlugin.mock.calls[0]?.[0]?.loginHtml;
+      expect(loginHtml).toContain('id="debug"');
+      expect(loginHtml).toContain("&debug=1");
+      expect(loginHtml).toContain(
+        "__anSetOAuthDebug('Google popup opened; waiting for callback', flowId)",
+      );
+      expect(loginHtml).toContain(
+        "check server logs for [agent-native][google-oauth]",
+      );
     });
 
     it("uses sign-in copy when only Google auth is enabled", async () => {
@@ -1416,6 +1443,10 @@ describe("server/auth", () => {
       const html = await (response as Response).text();
       expect(html).toContain("return to Mail");
       expect(html).toContain("window.close()");
+      expect(html).toContain("Debug flow: flow-1");
+      expect(html).toContain(
+        "[agent-native][google-oauth] success page loaded",
+      );
       expect(html).not.toContain("return to Clips");
     });
 

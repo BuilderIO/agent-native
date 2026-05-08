@@ -54,6 +54,15 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
   button:disabled { opacity: 0.5; cursor: wait; }
   .error { margin-top: 0.75rem; font-size: 0.8125rem; color: #f87171; display: none; }
   .error.show { display: block; }
+  .debug {
+    display: none;
+    margin-top: 0.625rem;
+    font-size: 0.6875rem;
+    line-height: 1.45;
+    color: #777;
+    word-break: break-word;
+  }
+  .debug.show { display: block; }
   svg { width: 18px; height: 18px; }
 </style>
 </head>
@@ -66,6 +75,7 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
     Sign in with Google
   </button>
   <p class="error" id="err"></p>
+  <p class="debug" id="debug"></p>
 </div>
 <script>
   function __anBasePath() {
@@ -89,6 +99,7 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
     }
   }
   var __anOAuthPollTimer = null;
+  var __anOAuthPollCount = 0;
   function __anNewOAuthFlowId() {
     try {
       if (window.crypto && typeof window.crypto.randomUUID === 'function') {
@@ -96,6 +107,20 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
       }
     } catch(e) {}
     return 'builder-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+  }
+  function __anFlowDebugId(flowId) {
+    return flowId ? String(flowId).slice(-10) : '';
+  }
+  function __anSetOAuthDebug(message, flowId) {
+    var text = message + (flowId ? ' (flow ' + __anFlowDebugId(flowId) + ')' : '');
+    try {
+      console.info('[agent-native][google-oauth]', { message: message, flow: __anFlowDebugId(flowId) || undefined });
+    } catch(e) {}
+    var debug = document.getElementById('debug');
+    if (debug) {
+      debug.textContent = text;
+      debug.classList.add('show');
+    }
   }
   function __anShowOAuthError(err, btn, message) {
     if (__anOAuthPollTimer) {
@@ -109,13 +134,16 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
   function __anWaitForOAuthExchange(flowId, ret, btn, err) {
     var started = Date.now();
     var timeoutMs = 5 * 60 * 1000;
+    __anOAuthPollCount = 0;
     async function check() {
+      __anOAuthPollCount++;
       try {
-        var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + '?flow_id=' + encodeURIComponent(flowId), { credentials: 'include' });
+        var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + '?flow_id=' + encodeURIComponent(flowId) + '&debug=1', { credentials: 'include' });
         var data = await res.json().catch(function() { return {}; });
         if (data && (data.email || data.token)) {
           if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
           __anOAuthPollTimer = null;
+          __anSetOAuthDebug('OAuth exchange redeemed; returning to the app', flowId);
           window.location.href = ret || '/';
           return;
         }
@@ -123,9 +151,16 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
           __anShowOAuthError(err, btn, data.message || data.error);
           return;
         }
-      } catch(e) {}
+        if (data && data.pending && (__anOAuthPollCount === 1 || __anOAuthPollCount % 5 === 0)) {
+          __anSetOAuthDebug('Waiting for the Google callback; polling attempt ' + __anOAuthPollCount, flowId);
+        }
+      } catch(e) {
+        if (__anOAuthPollCount === 1 || __anOAuthPollCount % 5 === 0) {
+          __anSetOAuthDebug('Could not reach the OAuth exchange endpoint: ' + (e && e.message ? e.message : 'network error'), flowId);
+        }
+      }
       if (Date.now() - started > timeoutMs) {
-        __anShowOAuthError(err, btn, 'Google sign-in did not finish. Allow popups and try again.');
+        __anShowOAuthError(err, btn, 'Google sign-in did not finish. Flow ' + __anFlowDebugId(flowId) + ' never redeemed; check server logs for [agent-native][google-oauth].');
       }
     }
     if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
@@ -141,7 +176,18 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
     params.set('redirect', '1');
     var url = __anPath('/_agent-native/google/auth-url') + '?' + params.toString();
     try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
-    try { window.open(url, '_blank', 'noopener,noreferrer,width=640,height=760'); } catch(e) {}
+    __anSetOAuthDebug('Opening Google sign-in popup', flowId);
+    try {
+      var popup = window.open(url, '_blank', 'noopener,noreferrer,width=640,height=760');
+      if (!popup) {
+        __anSetOAuthDebug('Google popup requested; no window handle returned', flowId);
+      } else {
+        __anSetOAuthDebug('Google popup opened; waiting for callback', flowId);
+      }
+    } catch(e) {
+      __anShowOAuthError(err, btn, 'Could not open Google popup for flow ' + __anFlowDebugId(flowId) + ': ' + (e && e.message ? e.message : 'unknown error'));
+      return;
+    }
     __anWaitForOAuthExchange(flowId, ret, btn, err);
   }
   function __anOpenOAuthUrl(url) {

@@ -228,6 +228,42 @@ function getOAuthStateAppId(): string | undefined {
     .replace(/^-+|-+$/g, "");
   return slug || undefined;
 }
+
+function oauthDebugFlowId(flowId: unknown): string | undefined {
+  return typeof flowId === "string" && flowId ? flowId.slice(-10) : undefined;
+}
+
+function oauthDebugUrlPath(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value) return undefined;
+  try {
+    const url = new URL(value);
+    return url.pathname;
+  } catch {
+    return undefined;
+  }
+}
+
+function logGoogleOAuthDebug(
+  event: H3Event,
+  phase: string,
+  details: Record<string, unknown> = {},
+): void {
+  const { flowId, ...rest } = details;
+  const reqUrl = event.node?.req?.url ?? event.path ?? "";
+  const path = reqUrl.split("?")[0] || undefined;
+  const userAgent = getHeader(event, "user-agent") || "";
+  const referer = getHeader(event, "referer") || "";
+  console.info("[agent-native][google-oauth]", {
+    phase,
+    app: getOAuthStateAppId(),
+    path,
+    flow: oauthDebugFlowId(flowId),
+    electron: /Electron/i.test(userAgent),
+    agentNativeDesktop: /AgentNativeDesktop/i.test(userAgent),
+    builderReferrer: /builder\.(io|my)|builderio\.xyz/i.test(referer),
+    ...rest,
+  });
+}
 const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
 // ---------------------------------------------------------------------------
@@ -1655,6 +1691,16 @@ async function mountBetterAuthRoutes(
           returnUrl,
           flowId,
         });
+        logGoogleOAuthDebug(event, "auth-url", {
+          flowId,
+          desktop,
+          redirectPath: oauthDebugUrlPath(redirectUri),
+          returnUrl,
+          redirect: q.redirect === "1",
+          workspace:
+            process.env.AGENT_NATIVE_WORKSPACE === "1" ||
+            process.env.VITE_AGENT_NATIVE_WORKSPACE === "1",
+        });
         const params = new URLSearchParams({
           client_id: process.env.GOOGLE_CLIENT_ID!,
           redirect_uri: redirectUri,
@@ -1682,6 +1728,8 @@ async function mountBetterAuthRoutes(
         }
         const callbackRelay = workspaceOAuthCallbackRelayResponse(event);
         if (callbackRelay) return callbackRelay;
+        let callbackFlowId: string | undefined;
+        let callbackDesktop = false;
         try {
           const query = getQuery(event);
           const code = query.code as string;
@@ -1694,6 +1742,15 @@ async function mountBetterAuthRoutes(
             query.state as string | undefined,
             getAppUrl(event, "/_agent-native/google/callback"),
           );
+          callbackFlowId = flowId;
+          callbackDesktop = desktop;
+          logGoogleOAuthDebug(event, "callback-start", {
+            flowId,
+            desktop,
+            redirectPath: oauthDebugUrlPath(redirectUri),
+            hasCode: !!code,
+            returnUrl,
+          });
           // Defence in depth: the state is HMAC-signed, but if the signing
           // key ever leaked an attacker could mint state with their own
           // redirect_uri. Re-validate against the same allowlist used at
@@ -1751,6 +1808,12 @@ async function mountBetterAuthRoutes(
             hasProductionSession: false,
             desktop,
           });
+          logGoogleOAuthDebug(event, "callback-session-created", {
+            flowId,
+            desktop,
+            hasSessionToken: !!sessionToken,
+            emailDomain: email.split("@")[1] || "",
+          });
 
           if (flowId && sessionToken) {
             _desktopExchanges.set(flowId, {
@@ -1762,6 +1825,10 @@ async function mountBetterAuthRoutes(
             // Workers, multi-region). Fire-and-forget — in-memory Map is
             // still the primary fast path for same-instance requests.
             void persistDesktopExchangeToDB(flowId, sessionToken, email);
+            logGoogleOAuthDebug(event, "callback-exchange-stored", {
+              flowId,
+              desktop,
+            });
           }
 
           return oauthCallbackResponse(event, email, {
@@ -1772,6 +1839,11 @@ async function mountBetterAuthRoutes(
           });
         } catch (error: any) {
           const msg = error.message || "Unknown error";
+          logGoogleOAuthDebug(event, "callback-error", {
+            flowId: callbackFlowId,
+            desktop: callbackDesktop,
+            message: msg,
+          });
           return oauthErrorPage(`Connection failed: ${msg}`);
         }
       }),
@@ -1788,7 +1860,9 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
-      const flowId = getQuery(event).flow_id as string | undefined;
+      const query = getQuery(event);
+      const flowId = query.flow_id as string | undefined;
+      const debug = query.debug === "1" || query.debug === "true";
       if (!flowId) {
         setResponseStatus(event, 400);
         return { error: "Missing flow_id" };
@@ -1800,7 +1874,10 @@ async function mountBetterAuthRoutes(
         // OAuth callback and the polling request may hit different isolates.
         const fromDb = await consumeDesktopExchangeFromDB(flowId);
         if (!fromDb) {
-          return { pending: true };
+          if (debug) {
+            logGoogleOAuthDebug(event, "exchange-pending", { flowId });
+          }
+          return { pending: true, flow: oauthDebugFlowId(flowId) };
         }
         entry =
           "error" in fromDb
@@ -1816,6 +1893,11 @@ async function mountBetterAuthRoutes(
       // DB fallback path after in-memory consumption.
       void removeSession(`dex:${flowId}`);
       if ("error" in entry) {
+        logGoogleOAuthDebug(event, "exchange-error", {
+          flowId,
+          message: entry.error.message,
+          code: entry.error.code,
+        });
         return { error: entry.error.message, ...entry.error };
       }
       // Make the exchange itself establish the app session. Older clients
@@ -1823,6 +1905,10 @@ async function mountBetterAuthRoutes(
       // OAuth handoff should not depend on that second request succeeding.
       setFrameworkSessionCookie(event, entry.token);
       setResponseHeader(event, "Referrer-Policy", "no-referrer");
+      logGoogleOAuthDebug(event, "exchange-success", {
+        flowId,
+        emailDomain: entry.email.split("@")[1] || "",
+      });
       return { token: entry.token, email: entry.email };
     }),
   );
