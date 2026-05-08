@@ -64,6 +64,7 @@ import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { agentNativePath } from "./api-path.js";
 import { BUILDER_SPACE_SETTINGS_URL } from "./error-format.js";
+import { ThumbsFeedback } from "./observability/ThumbsFeedback.js";
 import {
   TiptapComposer,
   type TiptapComposerHandle,
@@ -106,12 +107,6 @@ import {
   IconRefresh,
   IconPlayerPlay,
 } from "@tabler/icons-react";
-
-const ThumbsFeedbackLazy = React.lazy(() =>
-  import("./observability/ThumbsFeedback.js").then((m) => ({
-    default: m.ThumbsFeedback,
-  })),
-);
 
 class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
   public accept = "application/pdf,.pdf";
@@ -1623,23 +1618,21 @@ function AssistantMessage() {
               Restoring...
             </span>
           ) : (
-            <React.Suspense fallback={null}>
-              <ThumbsFeedbackLazy
-                threadId={cpCtx?.threadId ?? ""}
-                runId={(() => {
-                  const meta = messageRuntime.getState().metadata as
-                    | { custom?: { runId?: unknown }; runId?: unknown }
-                    | undefined;
-                  return (
-                    (typeof meta?.custom?.runId === "string" &&
-                      meta.custom.runId) ||
-                    (typeof meta?.runId === "string" && meta.runId) ||
-                    ""
-                  );
-                })()}
-                messageSeq={thread.messages.findIndex((m) => m.id === msg.id)}
-              />
-            </React.Suspense>
+            <ThumbsFeedback
+              threadId={cpCtx?.threadId ?? ""}
+              runId={(() => {
+                const meta = messageRuntime.getState().metadata as
+                  | { custom?: { runId?: unknown }; runId?: unknown }
+                  | undefined;
+                return (
+                  (typeof meta?.custom?.runId === "string" &&
+                    meta.custom.runId) ||
+                  (typeof meta?.runId === "string" && meta.runId) ||
+                  ""
+                );
+              })()}
+              messageSeq={thread.messages.findIndex((m) => m.id === msg.id)}
+            />
           )}
         </div>
       )}
