@@ -15,15 +15,22 @@ let previousUnpooledDatabaseUrl: string | undefined;
 let previousNetlify: string | undefined;
 let previousNetlifyLocal: string | undefined;
 let previousNitroPreset: string | undefined;
+let previousVercel: string | undefined;
 let previousViteAppBasePath: string | undefined;
 let previousWorkspaceAppsJson: string | undefined;
 let execFile: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-workspace-deploy-"));
-  execFile = vi.fn(((_cmd, args) => {
+  execFile = vi.fn(((_cmd, args, options) => {
     if (Array.isArray(args) && args[0] === "--filter") {
-      writeAppBuildOutput(tmpDir, String(args[1]));
+      const preset = (options as { env?: NodeJS.ProcessEnv } | undefined)?.env
+        ?.NITRO_PRESET;
+      if (preset === "vercel") {
+        writeVercelAppBuildOutput(tmpDir, String(args[1]));
+      } else {
+        writeAppBuildOutput(tmpDir, String(args[1]));
+      }
     }
     return Buffer.from("");
   }) as typeof execFileSync);
@@ -35,6 +42,7 @@ beforeEach(() => {
   previousNetlify = process.env.NETLIFY;
   previousNetlifyLocal = process.env.NETLIFY_LOCAL;
   previousNitroPreset = process.env.NITRO_PRESET;
+  previousVercel = process.env.VERCEL;
   previousViteAppBasePath = process.env.VITE_APP_BASE_PATH;
   previousWorkspaceAppsJson = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
   delete process.env.APP_BASE_PATH;
@@ -45,6 +53,7 @@ beforeEach(() => {
   delete process.env.NETLIFY;
   delete process.env.NETLIFY_LOCAL;
   delete process.env.NITRO_PRESET;
+  delete process.env.VERCEL;
   delete process.env.VITE_APP_BASE_PATH;
   delete process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
 });
@@ -58,6 +67,7 @@ afterEach(() => {
   restoreEnv("NETLIFY", previousNetlify);
   restoreEnv("NETLIFY_LOCAL", previousNetlifyLocal);
   restoreEnv("NITRO_PRESET", previousNitroPreset);
+  restoreEnv("VERCEL", previousVercel);
   restoreEnv("VITE_APP_BASE_PATH", previousViteAppBasePath);
   restoreEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", previousWorkspaceAppsJson);
   fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -422,6 +432,170 @@ describe("workspace deploy", () => {
     });
   });
 
+  it("collects Vercel static assets, functions, and routing config for a workspace", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "starter");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=vercel", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const dispatchCall = buildCallForApp("dispatch");
+    expect(dispatchCall?.env).toMatchObject({
+      NITRO_PRESET: "vercel",
+      APP_BASE_PATH: "/dispatch",
+      VITE_APP_BASE_PATH: "/dispatch",
+    });
+
+    const starterCall = buildCallForApp("starter");
+    expect(starterCall?.env).toMatchObject({
+      NITRO_PRESET: "vercel",
+      APP_BASE_PATH: "/starter",
+      VITE_APP_BASE_PATH: "/starter",
+    });
+
+    expect(
+      fs.existsSync(
+        path.join(
+          tmpDir,
+          ".vercel",
+          "output",
+          "static",
+          "dispatch",
+          "assets",
+          "app.js",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          tmpDir,
+          ".vercel",
+          "output",
+          "static",
+          "starter",
+          "assets",
+          "app.js",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          tmpDir,
+          ".vercel",
+          "output",
+          "static",
+          "dispatch",
+          "dispatch",
+        ),
+      ),
+    ).toBe(false);
+
+    const dispatchFunc = path.join(
+      tmpDir,
+      ".vercel",
+      "output",
+      "functions",
+      "dispatch-server.func",
+    );
+    const starterFunc = path.join(
+      tmpDir,
+      ".vercel",
+      "output",
+      "functions",
+      "starter-server.func",
+    );
+    expect(fs.existsSync(path.join(dispatchFunc, "index.mjs"))).toBe(true);
+    expect(fs.existsSync(path.join(dispatchFunc, "main.mjs"))).toBe(true);
+    expect(fs.existsSync(path.join(starterFunc, "index.mjs"))).toBe(true);
+    expect(fs.existsSync(path.join(starterFunc, "main.mjs"))).toBe(true);
+
+    const dispatchWrapper = fs.readFileSync(
+      path.join(dispatchFunc, "index.mjs"),
+      "utf-8",
+    );
+    expect(dispatchWrapper).toContain('const basePath = "/dispatch";');
+    expect(dispatchWrapper).toContain("Object.assign(processRef.env");
+    expect(dispatchWrapper).toContain("APP_BASE_PATH: basePath");
+    expect(dispatchWrapper).toContain("AGENT_NATIVE_WORKSPACE_APPS_JSON");
+    expect(dispatchWrapper).toContain('\\"path\\":\\"/starter\\"');
+    expect(dispatchWrapper).toContain('await import("./main.mjs")');
+
+    const manifest = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          dispatchFunc,
+          ".agent-native",
+          "workspace-apps.json",
+        ),
+        "utf-8",
+      ),
+    );
+    expect(manifest.apps.map((app: { id: string }) => app.id)).toEqual([
+      "dispatch",
+      "starter",
+    ]);
+
+    const starterModule = await import(
+      `${pathToFileURL(path.join(starterFunc, "index.mjs")).href}?t=${Date.now()}-vercel-starter`
+    );
+    const req = { url: "/starter" };
+    await expect(starterModule.default(req, {})).resolves.toBe("/starter//");
+
+    const config = JSON.parse(
+      fs.readFileSync(
+        path.join(tmpDir, ".vercel", "output", "config.json"),
+        "utf-8",
+      ),
+    );
+    expect(config.version).toBe(3);
+    expect(config.routes).toContainEqual({ handle: "filesystem" });
+    expect(config.routes).toContainEqual({
+      src: "/_agent-native/(.*)",
+      dest: "/dispatch-server",
+    });
+    expect(config.routes).toContainEqual({
+      src: "/\\.well-known/(.*)",
+      dest: "/dispatch-server",
+    });
+    expect(config.routes).toContainEqual({
+      src: "/",
+      status: 302,
+      headers: { Location: "/dispatch/overview" },
+    });
+    expect(config.routes).toContainEqual({
+      src: "/dispatch",
+      status: 302,
+      headers: { Location: "/dispatch/overview" },
+    });
+    expect(config.routes).toContainEqual({
+      src: "/login",
+      status: 302,
+      headers: { Location: "/dispatch/login" },
+    });
+    expect(config.routes).toContainEqual({
+      src: "/apps/(.*)",
+      status: 302,
+      headers: { Location: "/dispatch/apps/$1" },
+    });
+    expect(config.routes).toContainEqual({
+      src: "/dispatch/(.*)",
+      dest: "/dispatch-server",
+    });
+    expect(config.routes).toContainEqual({
+      src: "/starter",
+      dest: "/starter-server",
+    });
+    expect(config.routes).toContainEqual({
+      src: "/starter/(.*)",
+      dest: "/starter-server",
+    });
+  });
+
   it("allows local build-only deploy checks without A2A_SECRET", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
 
@@ -458,6 +632,21 @@ describe("workspace deploy", () => {
       runWorkspaceDeploy({
         workspaceRoot: tmpDir,
         preset: "cloudflare_pages",
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      }),
+    ).rejects.toThrow(/A2A_SECRET is required/);
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it("requires A2A_SECRET for hosted Vercel workspace deploy builds", async () => {
+    process.env.VERCEL = "1";
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await expect(
+      runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "vercel",
         buildOnly: true,
         execFile: execFile as typeof execFileSync,
       }),
@@ -727,6 +916,37 @@ function writeAppBuildOutput(workspaceRoot: string, app: string): void {
       "};",
       "",
     ].join("\n"),
+  );
+}
+
+function writeVercelAppBuildOutput(workspaceRoot: string, app: string): void {
+  const appDir = path.join(workspaceRoot, "apps", app);
+  const staticDir = path.join(appDir, ".vercel", "output", "static", app);
+  const functionDir = path.join(
+    appDir,
+    ".vercel",
+    "output",
+    "functions",
+    "__server.func",
+  );
+  fs.mkdirSync(path.join(staticDir, "assets"), { recursive: true });
+  fs.mkdirSync(functionDir, { recursive: true });
+  fs.writeFileSync(path.join(staticDir, "assets", "app.js"), "export {};");
+  fs.writeFileSync(path.join(staticDir, "favicon.ico"), "");
+  fs.writeFileSync(path.join(staticDir, "favicon.svg"), "<svg></svg>");
+  fs.writeFileSync(path.join(staticDir, "manifest.json"), "{}");
+  fs.mkdirSync(path.join(staticDir, app, "assets"), { recursive: true });
+  fs.writeFileSync(
+    path.join(staticDir, app, "assets", "duplicate.js"),
+    "export {};",
+  );
+  fs.writeFileSync(
+    path.join(functionDir, "index.mjs"),
+    "export default async function handler(req) { return req?.url ?? 'ok'; }\n",
+  );
+  fs.writeFileSync(
+    path.join(functionDir, ".vc-config.json"),
+    JSON.stringify({ handler: "index.mjs", runtime: "nodejs24.x" }),
   );
 }
 

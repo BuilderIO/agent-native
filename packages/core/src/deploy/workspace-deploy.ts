@@ -20,7 +20,7 @@ import path from "path";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js";
 
-export type WorkspaceDeployPreset = "cloudflare_pages" | "netlify";
+export type WorkspaceDeployPreset = "cloudflare_pages" | "netlify" | "vercel";
 
 const NETLIFY_WORKSPACE_STATIC_DIR = "_workspace_static";
 const NETLIFY_PUBLIC_ASSET_EXTENSIONS = new Set([
@@ -47,6 +47,7 @@ const NETLIFY_PUBLIC_ASSET_EXTENSIONS = new Set([
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_DIR = ".agent-native";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
+const VERCEL_OUTPUT_DIR = ".vercel/output";
 
 interface WorkspaceAppManifestEntry {
   id: string;
@@ -103,8 +104,17 @@ export async function runWorkspaceDeploy(
   const preset = resolvePreset(opts.preset, rawArgs);
   assertWorkspaceDeployProductionEnv({ buildOnly, preset });
   const distDir = path.join(workspaceRoot, "dist");
-  fs.rmSync(distDir, { recursive: true, force: true });
-  fs.mkdirSync(distDir, { recursive: true });
+  const vercelOutputDir = path.join(workspaceRoot, VERCEL_OUTPUT_DIR);
+  if (preset === "vercel") {
+    fs.rmSync(vercelOutputDir, { recursive: true, force: true });
+    fs.mkdirSync(path.join(vercelOutputDir, "static"), { recursive: true });
+    fs.mkdirSync(path.join(vercelOutputDir, "functions"), {
+      recursive: true,
+    });
+  } else {
+    fs.rmSync(distDir, { recursive: true, force: true });
+    fs.mkdirSync(distDir, { recursive: true });
+  }
 
   if (preset === "netlify") {
     const functionsDir = netlifyFunctionsDir(workspaceRoot);
@@ -119,7 +129,14 @@ export async function runWorkspaceDeploy(
   const execFile = opts.execFile ?? execFileSync;
   for (const app of apps) {
     buildOneApp(workspaceRoot, app, preset, execFile, workspaceApps);
-    moveAppBuildIntoDist(workspaceRoot, app, distDir, preset, workspaceApps);
+    moveAppBuildIntoWorkspaceOutput(
+      workspaceRoot,
+      app,
+      preset,
+      distDir,
+      vercelOutputDir,
+      workspaceApps,
+    );
   }
   writeWorkspaceAppManifests(
     workspaceRoot,
@@ -131,13 +148,16 @@ export async function runWorkspaceDeploy(
 
   if (preset === "netlify") {
     writeNetlifyRedirects(distDir, apps);
+  } else if (preset === "vercel") {
+    writeVercelBuildConfig(vercelOutputDir, apps);
   } else {
     writeCloudflareRoutingManifest(distDir, apps);
   }
 
   if (buildOnly) {
+    const outputDir = preset === "vercel" ? vercelOutputDir : distDir;
     console.log(
-      `\n[workspace-deploy] Build complete at ${distDir}. Skipping publish (--build-only).`,
+      `\n[workspace-deploy] Build complete at ${outputDir}. Skipping publish (--build-only).`,
     );
     return;
   }
@@ -148,6 +168,8 @@ export async function runWorkspaceDeploy(
     console.log(
       `  netlify deploy --prod --dir=dist --functions=.netlify/functions-internal\n`,
     );
+  } else if (preset === "vercel") {
+    console.log(`  vercel deploy --prebuilt\n`);
   } else {
     console.log(`  wrangler pages deploy dist\n`);
   }
@@ -194,14 +216,25 @@ function buildOneApp(
   });
 }
 
-function moveAppBuildIntoDist(
+function moveAppBuildIntoWorkspaceOutput(
   workspaceRoot: string,
   app: string,
-  distDir: string,
   preset: WorkspaceDeployPreset,
+  distDir: string,
+  vercelOutputDir: string,
   workspaceApps: WorkspaceAppManifestEntry[],
 ): void {
   const appDir = path.join(workspaceRoot, "apps", app);
+  if (preset === "vercel") {
+    copyVercelAppBuildIntoWorkspace(
+      workspaceRoot,
+      app,
+      vercelOutputDir,
+      workspaceApps,
+    );
+    return;
+  }
+
   // Resolve the per-app build output: prefer dist/ (standard), fall back to
   // .output/ (Nitro's default). The Cloudflare preset emits into dist/
   // containing the worker + assets.
@@ -230,6 +263,50 @@ function moveAppBuildIntoDist(
     fs.mkdirSync(target, { recursive: true });
     copyDir(src, target);
   }
+}
+
+function copyVercelAppBuildIntoWorkspace(
+  workspaceRoot: string,
+  app: string,
+  vercelOutputDir: string,
+  workspaceApps: WorkspaceAppManifestEntry[],
+): void {
+  const appDir = path.join(workspaceRoot, "apps", app);
+  const src = path.join(appDir, VERCEL_OUTPUT_DIR);
+  if (!fs.existsSync(src)) {
+    throw new Error(
+      `Expected Vercel output at ${src} after building ${app}. Check the app's build script and NITRO_PRESET.`,
+    );
+  }
+
+  const staticSrc = path.join(src, "static");
+  const staticDest = path.join(vercelOutputDir, "static");
+  if (fs.existsSync(staticSrc)) {
+    copyDir(staticSrc, staticDest);
+    // Nitro's Vercel preset already nests assets under baseURL. The shared
+    // deploy build also mirrors client assets under baseURL for other Nitro
+    // presets, so mounted apps can contain a duplicate /<app>/<app> copy.
+    fs.rmSync(path.join(staticDest, app, app), {
+      recursive: true,
+      force: true,
+    });
+  }
+
+  const functionSrc = path.join(src, "functions", "__server.func");
+  if (!fs.existsSync(functionSrc)) {
+    throw new Error(
+      `Expected Vercel function at ${functionSrc} after building ${app}. Check the app's build script and NITRO_PRESET.`,
+    );
+  }
+
+  const functionDest = path.join(
+    vercelOutputDir,
+    "functions",
+    `${app}-server.func`,
+  );
+  fs.rmSync(functionDest, { recursive: true, force: true });
+  copyDir(functionSrc, functionDest);
+  patchVercelFunctionEntry(functionDest, app, workspaceApps);
 }
 
 /**
@@ -346,6 +423,66 @@ function writeNetlifyRedirects(distDir: string, apps: string[]): void {
   fs.writeFileSync(path.join(distDir, "_redirects"), lines.join("\n") + "\n");
 }
 
+function writeVercelBuildConfig(outputDir: string, apps: string[]): void {
+  const routes: Array<Record<string, any>> = [
+    { handle: "filesystem" },
+  ];
+
+  if (apps.includes("dispatch")) {
+    routes.push(
+      { src: "/_agent-native", dest: "/dispatch-server" },
+      { src: "/_agent-native/(.*)", dest: "/dispatch-server" },
+      { src: "/\\.well-known", dest: "/dispatch-server" },
+      { src: "/\\.well-known/(.*)", dest: "/dispatch-server" },
+    );
+
+    const faviconAsset = dispatchRootFaviconAsset(
+      path.join(outputDir, "static"),
+    );
+    if (faviconAsset) {
+      routes.push(vercelRedirect("/favicon.ico", `/dispatch/${faviconAsset}`));
+    }
+
+    routes.push(
+      vercelRedirect("/", "/dispatch/overview"),
+      vercelRedirect("/dispatch", "/dispatch/overview"),
+    );
+    for (const [from, to] of DISPATCH_WORKSPACE_ROOT_REDIRECTS) {
+      routes.push(vercelRedirect(`/${from}`, `/dispatch/${to}`));
+    }
+    routes.push(vercelRedirect("/apps/(.*)", "/dispatch/apps/$1"));
+  } else {
+    routes.push(vercelRedirect("/", `/${apps[0]}/`));
+  }
+
+  for (const app of apps) {
+    if (app !== "dispatch") {
+      routes.push({ src: `/${app}`, dest: `/${app}-server` });
+    }
+    routes.push({ src: `/${app}/(.*)`, dest: `/${app}-server` });
+  }
+
+  const config = {
+    version: 3,
+    routes,
+  };
+  fs.writeFileSync(
+    path.join(outputDir, "config.json"),
+    JSON.stringify(config, null, 2) + "\n",
+  );
+}
+
+function vercelRedirect(
+  src: string,
+  location: string,
+): Record<string, any> {
+  return {
+    src,
+    status: 302,
+    headers: { Location: location },
+  };
+}
+
 function netlifyAssetRedirectsFor(app: string, distDir: string): string[] {
   const from = `/${app}`;
   const to = `/${NETLIFY_WORKSPACE_STATIC_DIR}/${app}`;
@@ -447,6 +584,67 @@ function normalizeBasePathArgs(args) {
   }
   return args;
 }
+
+function patchVercelFunctionEntry(
+  functionDir: string,
+  app: string,
+  workspaceApps: WorkspaceAppManifestEntry[],
+): void {
+  const entryPath = path.join(functionDir, "index.mjs");
+  if (!fs.existsSync(entryPath)) return;
+
+  const mainPath = path.join(functionDir, "main.mjs");
+  fs.rmSync(mainPath, { force: true });
+  fs.renameSync(entryPath, mainPath);
+
+  const basePath = `/${app}`;
+  const entry = `const basePath = ${JSON.stringify(basePath)};
+
+function setBasePathEnv() {
+  const processRef = globalThis.process ??= { env: {} };
+  processRef.env ??= {};
+  Object.assign(processRef.env, {
+    AGENT_NATIVE_WORKSPACE: "1",
+    APP_BASE_PATH: basePath,
+    VITE_AGENT_NATIVE_WORKSPACE: "1",
+    VITE_APP_BASE_PATH: basePath,
+    ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
+  });
+}
+
+function normalizeBasePathArgs(args) {
+  const request = args[0];
+  if (!request) return args;
+
+  if (typeof Request === "function" && request instanceof Request) {
+    const url = new URL(request.url);
+    if (url.pathname === basePath || url.pathname === \`\${basePath}/\`) {
+      url.pathname = \`\${basePath}//\`;
+      return [new Request(url, request), ...args.slice(1)];
+    }
+    return args;
+  }
+
+  if (typeof request.url !== "string") return args;
+  const url = new URL(request.url, "http://agent-native.local");
+  if (url.pathname === basePath || url.pathname === \`\${basePath}/\`) {
+    request.url = \`\${basePath}//\${url.search}\`;
+  }
+  return args;
+}
+
+setBasePathEnv();
+
+let cachedHandler;
+
+export default async function handler(...args) {
+  setBasePathEnv();
+  cachedHandler ??= (await import("./main.mjs")).default;
+  return cachedHandler(...normalizeBasePathArgs(args));
+}
+`;
+  fs.writeFileSync(entryPath, entry);
+}
 `;
   const handlerArgs =
     app === "dispatch" ? "...args" : "...normalizeBasePathArgs(args)";
@@ -532,6 +730,10 @@ function cleanAppBuildOutputs(appDir: string): void {
     recursive: true,
     force: true,
   });
+  fs.rmSync(path.join(appDir, ".vercel", "output"), {
+    recursive: true,
+    force: true,
+  });
 }
 
 function appUsesNetlifyUnpooledDatabaseUrl(appDir: string): boolean {
@@ -572,6 +774,17 @@ function writeWorkspaceAppManifests(
             WORKSPACE_APPS_MANIFEST_FILE,
           ),
         )
+      : preset === "vercel"
+        ? apps.map((app) =>
+            path.join(
+              workspaceRoot,
+              VERCEL_OUTPUT_DIR,
+              "functions",
+              `${app}-server.func`,
+              WORKSPACE_APPS_MANIFEST_DIR,
+              WORKSPACE_APPS_MANIFEST_FILE,
+            ),
+          )
       : apps.map((app) =>
           path.join(
             distDir,
@@ -786,6 +999,9 @@ function isProductionWorkspaceDeploy(opts: {
   if (opts.preset === "cloudflare_pages" && process.env.CF_PAGES === "1") {
     return true;
   }
+  if (opts.preset === "vercel" && process.env.VERCEL === "1") {
+    return true;
+  }
   return false;
 }
 
@@ -797,8 +1013,9 @@ function normalizePreset(
     return "cloudflare_pages";
   }
   if (value === "netlify") return "netlify";
+  if (value === "vercel") return "vercel";
   throw new Error(
-    `Unsupported workspace deploy preset "${value}". Supported presets: cloudflare_pages, netlify.`,
+    `Unsupported workspace deploy preset "${value}". Supported presets: cloudflare_pages, netlify, vercel.`,
   );
 }
 
