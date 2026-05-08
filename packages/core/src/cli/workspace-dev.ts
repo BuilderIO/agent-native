@@ -17,6 +17,8 @@ export interface WorkspaceApp {
   process?: ChildProcess;
   restartTimer?: NodeJS.Timeout;
   restartAttempts?: number;
+  installing?: boolean;
+  installAttempted?: boolean;
   /**
    * Set true once we've successfully connected to the upstream. After that we
    * skip the readiness probe on every request; the child server stays
@@ -197,6 +199,9 @@ function wantsHtml(req: http.IncomingMessage): boolean {
 
 function renderStartingApp(app: WorkspaceApp): string {
   const escapedName = escapeHtml(app.name || app.id);
+  const message = app.installing
+    ? "The workspace gateway is installing this app's dependencies before starting it."
+    : "The workspace gateway is waking this app's dev server.";
   return `<!doctype html>
 <html>
   <head>
@@ -218,7 +223,7 @@ function renderStartingApp(app: WorkspaceApp): string {
     <main>
       <div class="bar"></div>
       <h1>Starting ${escapedName}</h1>
-      <p>The workspace gateway is waking this app's dev server.</p>
+      <p>${escapeHtml(message)}</p>
     </main>
   </body>
 </html>`;
@@ -272,6 +277,15 @@ function renderIndex(apps: WorkspaceApp[]): string {
     </main>
   </body>
 </html>`;
+}
+
+function hasLocalBin(dir: string, command: string): boolean {
+  const binDir = path.join(dir, "node_modules", ".bin");
+  return (
+    fs.existsSync(path.join(binDir, command)) ||
+    fs.existsSync(path.join(binDir, `${command}.cmd`)) ||
+    fs.existsSync(path.join(binDir, `${command}.ps1`))
+  );
 }
 
 export function runWorkspaceDev(
@@ -389,37 +403,46 @@ export function runWorkspaceDev(
     }
 
     const basePath = `/${app.id}`;
-    const child = spawnProcess(
-      "pnpm",
-      [
-        "--dir",
-        app.dir,
-        "exec",
-        "vite",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        String(app.port),
-        "--strictPort",
-        ...(forceVite ? ["--force"] : []),
-      ],
-      {
-        cwd: root,
-        stdio: ["ignore", "pipe", "pipe"],
-        env: {
-          ...env,
-          APP_NAME: app.id,
-          AGENT_NATIVE_WORKSPACE: "1",
-          AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
-          APP_BASE_PATH: basePath,
-          VITE_AGENT_NATIVE_WORKSPACE: "1",
-          VITE_APP_BASE_PATH: basePath,
-          PORT: String(app.port),
-          WORKSPACE_GATEWAY_URL: gatewayUrl,
-        },
+    const shouldInstall =
+      !app.installAttempted && !hasLocalBin(app.dir, "vite");
+    const childArgs = shouldInstall
+      ? ["--dir", root, "install", "--no-frozen-lockfile", "--prefer-offline"]
+      : [
+          "--dir",
+          app.dir,
+          "exec",
+          "vite",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          String(app.port),
+          "--strictPort",
+          ...(forceVite ? ["--force"] : []),
+        ];
+
+    if (shouldInstall) {
+      stdout.write(
+        `[workspace] Installing dependencies before starting /${app.id}\n`,
+      );
+    }
+
+    const child = spawnProcess("pnpm", childArgs, {
+      cwd: root,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...env,
+        APP_NAME: app.id,
+        AGENT_NATIVE_WORKSPACE: "1",
+        AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
+        APP_BASE_PATH: basePath,
+        VITE_AGENT_NATIVE_WORKSPACE: "1",
+        VITE_APP_BASE_PATH: basePath,
+        PORT: String(app.port),
+        WORKSPACE_GATEWAY_URL: gatewayUrl,
       },
-    );
+    });
     app.process = child;
+    app.installing = shouldInstall;
 
     const prefix = `[${app.id}]`;
     const stableTimer = setTimeout(() => {
@@ -435,9 +458,18 @@ export function runWorkspaceDev(
     });
     child.on("exit", (code) => {
       clearTimeout(stableTimer);
+      const wasInstalling = app.installing;
       app.process = undefined;
+      app.installing = false;
       app.ready = false;
-      if (code === 0 || shuttingDown) return;
+      if (code === 0 || shuttingDown) {
+        if (wasInstalling && code === 0 && !shuttingDown) {
+          app.installAttempted = true;
+          startApp(app);
+        }
+        return;
+      }
+      if (wasInstalling) app.installAttempted = false;
       app.restartAttempts = (app.restartAttempts ?? 0) + 1;
       const delay = appRestartDelay(app.restartAttempts);
       stderr.write(
@@ -669,9 +701,24 @@ export function runWorkspaceDev(
   }
 
   const server = http.createServer((req, res) => {
-    if (req.url === "/" || req.url === "/index.html") {
-      if (redirectRootToDefault) {
-        res.writeHead(302, { location: `/${defaultApp}` });
+    const parsedUrl = new URL(req.url || "/", "http://workspace.local");
+    const pathname = parsedUrl.pathname;
+
+    if (pathname === "/" || pathname === "/index.html") {
+      syncApps();
+      const currentDefaultApp =
+        explicitDefaultApp && appById.has(explicitDefaultApp)
+          ? explicitDefaultApp
+          : appById.has("dispatch")
+            ? "dispatch"
+            : defaultApp;
+      const shouldRedirectRoot =
+        Boolean(explicitDefaultApp && appById.has(explicitDefaultApp)) ||
+        appById.has("dispatch");
+      if (shouldRedirectRoot) {
+        res.writeHead(302, {
+          location: `/${currentDefaultApp}${parsedUrl.search}`,
+        });
         res.end();
         return;
       }
@@ -680,7 +727,7 @@ export function runWorkspaceDev(
       return;
     }
 
-    if (req.url === "/_workspace/apps") {
+    if (pathname === "/_workspace/apps") {
       syncApps();
       res.writeHead(200, { "content-type": "application/json" });
       res.end(

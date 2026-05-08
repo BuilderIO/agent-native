@@ -79,6 +79,45 @@ describe("workspace dev startup", () => {
     expect(fake.startedApps()).toEqual([]);
   });
 
+  it("redirects root requests with query strings to Dispatch", async () => {
+    tmpDir = makeWorkspace(["dispatch", "starter"]);
+    const fake = fakeSpawn();
+    handle = runWorkspaceDev({
+      root: tmpDir,
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+
+    const res = await fetch(`${url}/?builderPreview=1`, {
+      redirect: "manual",
+    });
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/dispatch?builderPreview=1");
+  });
+
+  it("refreshes the root fallback app list before rendering", async () => {
+    tmpDir = makeWorkspace(["starter"]);
+    const fake = fakeSpawn();
+    handle = runWorkspaceDev({
+      root: tmpDir,
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    makeApp(tmpDir, "todo");
+
+    const res = await fetch(`${url}/?fallback=1`);
+    const html = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(html).toContain("/todo");
+    expect(html).toContain("Todo");
+  });
+
   it("detects new apps without starting them until requested", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
@@ -102,6 +141,42 @@ describe("workspace dev startup", () => {
     expect(fake.startedApps()).toEqual(["dispatch"]);
 
     await fetch(`${url}/todo`, { headers: { accept: "text/html" } });
+    expect(fake.startedApps()).toEqual(["dispatch", "todo"]);
+  });
+
+  it("runs a workspace install before starting a newly generated app without installed bins", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = runWorkspaceDev({
+      root: tmpDir,
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    makeApp(tmpDir, "todo", { installVite: false });
+
+    const res = await fetch(`${url}/todo`, {
+      headers: { accept: "text/html" },
+    });
+    expect(await res.text()).toContain("installing this app's dependencies");
+
+    const installCall = fake.calls().at(-1);
+    expect(installCall).toMatchObject({
+      command: "pnpm",
+      args: [
+        "--dir",
+        tmpDir,
+        "install",
+        "--no-frozen-lockfile",
+        "--prefer-offline",
+      ],
+    });
+    expect(fake.startedApps()).toEqual(["dispatch"]);
+
+    createViteBin(path.join(tmpDir, "apps", "todo"));
+    installCall?.child.emit("exit", 0, null);
+
     expect(fake.startedApps()).toEqual(["dispatch", "todo"]);
   });
 });
@@ -146,7 +221,11 @@ function makeWorkspace(apps: string[]): string {
   return dir;
 }
 
-function makeApp(workspaceRoot: string, app: string): void {
+function makeApp(
+  workspaceRoot: string,
+  app: string,
+  opts: { installVite?: boolean } = {},
+): void {
   const appDir = path.join(workspaceRoot, "apps", app);
   fs.mkdirSync(appDir, { recursive: true });
   fs.writeFileSync(
@@ -156,15 +235,30 @@ function makeApp(workspaceRoot: string, app: string): void {
       displayName: app.charAt(0).toUpperCase() + app.slice(1),
     }),
   );
+  if (opts.installVite !== false) createViteBin(appDir);
+}
+
+function createViteBin(appDir: string): void {
+  const binDir = path.join(appDir, "node_modules", ".bin");
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.writeFileSync(path.join(binDir, "vite"), "");
 }
 
 function fakeSpawn(): {
   spawnProcess: typeof spawn;
+  calls: () => Array<{
+    command: string;
+    args: string[];
+    child: ChildProcess & EventEmitter;
+  }>;
   startedApps: () => string[];
 } {
-  const calls: Array<{ command: string; args: string[] }> = [];
+  const calls: Array<{
+    command: string;
+    args: string[];
+    child: ChildProcess & EventEmitter;
+  }> = [];
   const spawnProcess = vi.fn((command: string, args: string[]) => {
-    calls.push({ command, args });
     const child = new EventEmitter() as ChildProcess;
     child.stdout = new EventEmitter() as ChildProcess["stdout"];
     child.stderr = new EventEmitter() as ChildProcess["stderr"];
@@ -175,14 +269,21 @@ function fakeSpawn(): {
       return true;
     }) as ChildProcess["kill"];
     child.unref = vi.fn() as ChildProcess["unref"];
+    calls.push({ command, args, child: child as ChildProcess & EventEmitter });
     return child;
   }) as unknown as typeof spawn;
 
   return {
     spawnProcess,
+    calls: () => calls,
     startedApps: () =>
       calls
-        .filter((call) => call.command === "pnpm" && call.args[0] === "--dir")
+        .filter(
+          (call) =>
+            call.command === "pnpm" &&
+            call.args[0] === "--dir" &&
+            call.args[2] === "exec",
+        )
         .map((call) => path.basename(call.args[1])),
   };
 }
