@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.12.17
+
+### Patch Changes
+
+- ad7006d: Block frame-routed code submissions when local source access is unavailable and point users to Agent Native Desktop for code, CLI, and Workspace access.
+- ad7006d: Keep workspace app creation prompts editable after submit and clarify that named products are design references, not implied API-key requirements.
+- ad7006d: Fix Plan mode selector mouse interaction and remove keyboard-shortcut wording from user-facing mode guidance.
+- ad7006d: Suppress benign Vite connection-reset error overlays and keep narrow composer controls contained.
+
 ## 0.12.16
 
 ### Patch Changes
