@@ -25,6 +25,7 @@ import {
 import type { DesignSystemData } from "../../../shared/api";
 import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
+import { TAB_ID } from "@/lib/tab-id";
 
 let builderIdCounter = 0;
 
@@ -294,13 +295,20 @@ function syncSelectionToAppState(
 ) {
   const url = agentNativePath("/_agent-native/application-state/selection");
   if (items.length === 0) {
-    fetch(url, { method: "DELETE", keepalive: true }).catch(() => {});
+    fetch(url, {
+      method: "DELETE",
+      keepalive: true,
+      headers: { "X-Request-Source": TAB_ID },
+    }).catch(() => {});
     return;
   }
   fetch(url, {
     method: "PUT",
     keepalive: true,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Request-Source": TAB_ID,
+    },
     body: JSON.stringify({ items }),
   }).catch(() => {});
 }

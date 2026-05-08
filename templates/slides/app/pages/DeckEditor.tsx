@@ -61,14 +61,12 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { nanoid } from "nanoid";
+import { TAB_ID } from "@/lib/tab-id";
 const Pinpoint = lazy(() =>
   import("@agent-native/pinpoint/react").then((m) => ({
     default: m.Pinpoint,
   })),
 );
-
-// Stable tab ID for jitter prevention (module-level = never recreated)
-const COLLAB_TAB_ID = `slides-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export default function DeckEditor() {
   const { id } = useParams<{ id: string }>();
@@ -152,8 +150,6 @@ export default function DeckEditor() {
         return null;
       }
     },
-    refetchInterval: 2_000,
-    refetchIntervalInBackground: true,
   });
 
   const showQuestionFlow =
@@ -195,7 +191,7 @@ export default function DeckEditor() {
         agentNativePath("/_agent-native/application-state/show-questions"),
         {
           method: "DELETE",
-          headers: { "X-Agent-Native-CSRF": "1" },
+          headers: { "X-Agent-Native-CSRF": "1", "X-Request-Source": TAB_ID },
         },
       ).catch(() => {});
     },
@@ -214,7 +210,7 @@ export default function DeckEditor() {
     queryClient.setQueryData(["show-questions"], null);
     fetch(agentNativePath("/_agent-native/application-state/show-questions"), {
       method: "DELETE",
-      headers: { "X-Agent-Native-CSRF": "1" },
+      headers: { "X-Agent-Native-CSRF": "1", "X-Request-Source": TAB_ID },
     }).catch(() => {});
   }, [id, queryClient]);
 
@@ -513,7 +509,7 @@ export default function DeckEditor() {
     agentPresent,
   } = useCollaborativeDoc({
     docId: slideDocId,
-    requestSource: COLLAB_TAB_ID,
+    requestSource: TAB_ID,
     user: currentUser,
   });
 
