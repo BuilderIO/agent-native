@@ -530,6 +530,47 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("surfaces missing-credential HTTP responses instead of yielding a blank assistant message", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+
+    const fetchSpy = vi.fn().mockResolvedValue(
+      jsonResponse(
+        {
+          error: "No LLM provider is connected",
+          errorCode: "missing_credentials",
+        },
+        500,
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-missing-credentials",
+    });
+
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "show my upcoming events" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:missing-api-key" }),
+    );
+    expect(results[0]).toEqual({
+      content: [{ type: "text", text: "Error: No LLM provider is connected" }],
+      status: { type: "incomplete", reason: "error" },
+    });
+  });
+
   it("treats authentication failures as auth errors, not AI setup", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
