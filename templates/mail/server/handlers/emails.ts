@@ -418,6 +418,12 @@ function retryAfterSecondsFromErrors(errors: Array<{ error: string }>): number {
   return Math.min(retryAfter, 5 * 60);
 }
 
+function parseEmailPageLimit(value: string | undefined): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 50;
+  return Math.min(Math.max(Math.floor(n), 10), 50);
+}
+
 // ─── Email list ───────────────────────────────────────────────────────────────
 
 export const listEmails = defineEventHandler(async (event: H3Event) => {
@@ -427,12 +433,15 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     q,
     label,
     forceRefresh,
+    limit,
   } = getQuery(event) as {
     view?: string;
     q?: string;
     label?: string;
     forceRefresh?: string;
+    limit?: string;
   };
+  const pageLimit = parseEmailPageLimit(limit);
 
   if (view === "snoozed" || view === "scheduled") {
     let emails = await getSyntheticEmailsForView(email, view);
@@ -474,10 +483,10 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       const accountTokens = await getAccountTokens(email);
       const labelMap = await getCachedLabelMap(accountTokens);
       const { messages, errors, nextPageTokens, resultSizeEstimate } =
-        await listGmailMessages(searchQuery, undefined, email, pageTokens, {
+        await listGmailMessages(searchQuery, pageLimit, email, pageTokens, {
           mode: "threads",
           threadFormat: "metadata",
-          threadCandidateLimit: q ? 160 : undefined,
+          threadCandidateLimit: q ? 80 : undefined,
         });
       if (messages.length === 0 && errors.length > 0) {
         // All accounts failed — surface as error
@@ -2156,7 +2165,13 @@ export const listContacts = defineEventHandler(async (event: H3Event) => {
         contactMap.size === 0 ? ["in:sent", ""] : ["in:sent"];
       for (const query of gmailQueries) {
         try {
-          const { messages } = await listGmailMessages(query, 100, email);
+          const { messages } = await listGmailMessages(
+            query,
+            25,
+            email,
+            undefined,
+            { messageFormat: "metadata" },
+          );
           for (const msg of messages) {
             const headers = msg.payload?.headers || [];
             for (const field of ["From", "To", "Cc", "Bcc"]) {

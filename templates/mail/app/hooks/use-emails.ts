@@ -303,12 +303,10 @@ export function useEmails(
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage: EmailsPage) => lastPage.nextPageToken,
-    // Gmail's per-user quota is tight (250 units/sec). Each list call costs
-    // ~255 units (messages.list + 50 × messages.get). Aggressive polling
-    // easily trips quota on multi-account users — keep refetches conservative
-    // and rely on mutation invalidations for the hot edits. Search queries
-    // get a short cache window so repeated renders/back navigation do not
-    // re-hydrate the same expensive Gmail search immediately.
+    // Gmail's per-user quota is tight. Keep pages modest and refetches
+    // conservative; thread list hydration is quota-expensive even when batched.
+    // Search queries get a short cache window so repeated renders/back
+    // navigation do not re-hydrate the same expensive Gmail search immediately.
     // refetchOnWindowFocus stays off: with useInfiniteQuery it replays every
     // cached page (50+ Gmail calls each) on tab focus and trips the quota.
     staleTime: search ? 30_000 : 60_000,

@@ -764,7 +764,7 @@ function listCacheKey(
         .join("|")
     : "";
   const queryPart = query === undefined ? "<default>" : query;
-  return `${forEmail ?? ""}::${queryPart}::${maxResults}::${tokenPart}::${options?.mode ?? "messages"}::${options?.threadFormat ?? ""}::${options?.threadCandidateLimit ?? ""}`;
+  return `${forEmail ?? ""}::${queryPart}::${maxResults}::${tokenPart}::${options?.mode ?? "messages"}::${options?.threadFormat ?? ""}::${options?.messageFormat ?? ""}::${options?.threadCandidateLimit ?? ""}`;
 }
 
 export async function listGmailMessages(
