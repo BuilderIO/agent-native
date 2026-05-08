@@ -1216,7 +1216,10 @@ describe("runAgentLoop", () => {
 
     expect(streamCalls).toBe(3);
     expect(guard).toHaveBeenCalledTimes(2);
-    expect(events).toContainEqual({ type: "clear" });
+    expect(events).not.toContainEqual({
+      type: "text",
+      text: "Looks up and to the right.",
+    });
     expect(events).toContainEqual({
       type: "tool_start",
       tool: "query-data",
@@ -1230,6 +1233,49 @@ describe("runAgentLoop", () => {
     expect(JSON.stringify(seenMessages[1])).toContain(
       "This answer needs a real data-source query",
     );
+  });
+
+  it("flushes guarded final-answer text after the guard accepts it", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield { type: "text-delta", text: "Grounded answer." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "Grounded answer." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      finalResponseGuard: () => null,
+    });
+
+    expect(events).toContainEqual({
+      type: "text",
+      text: "Grounded answer.",
+    });
+    expect(events.at(-1)).toEqual({ type: "done" });
   });
 
   it("uses the final-response guard fallback after one failed corrective retry", async () => {
@@ -1275,7 +1321,8 @@ describe("runAgentLoop", () => {
     });
 
     expect(streamCalls).toBe(2);
-    expect(events.filter((event) => event.type === "clear")).toHaveLength(2);
+    expect(events).not.toContainEqual({ type: "text", text: "fake answer" });
+    expect(events).not.toContainEqual({ type: "text", text: "still fake" });
     expect(events).toContainEqual({
       type: "text",
       text: "I stopped because no real data-source query ran.",

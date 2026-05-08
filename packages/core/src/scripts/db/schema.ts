@@ -10,9 +10,12 @@
  */
 
 import path from "path";
-import { createClient, type Client } from "@libsql/client";
-import { getDatabaseUrl, getDatabaseAuthToken } from "../../db/client.js";
+import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
+import {
+  createSqliteScriptClient,
+  type SqliteScriptClient,
+} from "./sqlite-client.js";
 
 interface ColumnInfo {
   name: string;
@@ -54,7 +57,7 @@ function databaseLabel(url: string): string {
  * Execute a PRAGMA query and return the rows as plain objects.
  */
 async function pragma(
-  client: Client,
+  client: SqliteScriptClient,
   pragmaQuery: string,
 ): Promise<Record<string, unknown>[]> {
   const result = await client.execute(pragmaQuery);
@@ -251,10 +254,7 @@ Options:
   }
 
   // SQLite / libsql path
-  const client = createClient({
-    url,
-    authToken: getDatabaseAuthToken(),
-  });
+  const client = await createSqliteScriptClient(url);
 
   try {
     const tablesResult = await client.execute(

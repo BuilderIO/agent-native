@@ -426,6 +426,47 @@ describe("SSE event processor error classification", () => {
     );
   });
 
+  it("clears visible activity when the server clears a corrective draft", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Preparing data-source-status action",
+            tool: "data-source-status",
+          },
+          { type: "clear" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-clear",
+      ),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:activity-clear",
+        detail: { tabId: "tab-clear" },
+      }),
+    );
+  });
+
   it("dispatches visible activity for tool starts", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });

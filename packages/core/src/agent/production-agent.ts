@@ -1104,6 +1104,7 @@ export async function runAgentLoop(opts: {
     actions,
   );
   const duplicateReadOnlyToolCalls = new Map<string, number>();
+  const bufferTextUntilFinalGuard = Boolean(opts.finalResponseGuard);
   let finalGuardRetries = 0;
   let iterations = 0;
   while (true) {
@@ -1114,6 +1115,7 @@ export async function runAgentLoop(opts: {
     }
 
     let assistantContent: EngineContentPart[] | undefined;
+    let bufferedAssistantText = "";
     const toolCallErrors = new Map<
       string,
       { name: string; input: unknown; error: string }
@@ -1121,6 +1123,7 @@ export async function runAgentLoop(opts: {
 
     for (let retry = 0; ; retry++) {
       assistantContent = undefined;
+      bufferedAssistantText = "";
       toolCallErrors.clear();
       try {
         const streamOpts = {
@@ -1158,7 +1161,11 @@ export async function runAgentLoop(opts: {
 
         for await (const event of eventStream) {
           if (event.type === "text-delta") {
-            send({ type: "text", text: event.text });
+            if (bufferTextUntilFinalGuard) {
+              bufferedAssistantText += event.text;
+            } else {
+              send({ type: "text", text: event.text });
+            }
           } else if (event.type === "thinking-delta") {
             thinkingBuffer += event.text;
             // Thinking deltas are not forwarded to the SSE client yet —
@@ -1264,6 +1271,12 @@ export async function runAgentLoop(opts: {
       (p): p is import("./engine/types.js").EngineToolCallPart =>
         p.type === "tool-call",
     );
+    const flushBufferedAssistantText = () => {
+      if (!bufferTextUntilFinalGuard) return;
+      const text =
+        bufferedAssistantText || collectTextParts(assistantContentForHistory);
+      if (text) send({ type: "text", text });
+    };
 
     if (toolCallParts.length === 0) {
       const guard = opts.finalResponseGuard
@@ -1281,7 +1294,6 @@ export async function runAgentLoop(opts: {
           typeof guard === "string" ? guard : guard.retryMessage;
         const fallbackMessage =
           typeof guard === "string" ? guard : guard.fallbackMessage;
-        send({ type: "clear" });
         if (finalGuardRetries < 1) {
           finalGuardRetries += 1;
           messages.push({
@@ -1291,9 +1303,13 @@ export async function runAgentLoop(opts: {
           continue;
         }
         send({ type: "text", text: fallbackMessage ?? retryMessage });
+      } else {
+        flushBufferedAssistantText();
       }
       break;
     }
+
+    flushBufferedAssistantText();
 
     let requestedActionStop: { message: string; errorCode?: string } | null =
       null;

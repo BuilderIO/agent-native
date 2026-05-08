@@ -176,6 +176,15 @@ function isMissingCredentialText(message: string, errorCode?: string): boolean {
   );
 }
 
+function dispatchActivityClear(tabId: string | undefined) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("agent-chat:activity-clear", {
+      detail: { tabId },
+    }),
+  );
+}
+
 /**
  * Process a single SSE event and update the content accumulator.
  * Returns: "continue" to keep going, "done" to stop, or a yield-ready result.
@@ -202,6 +211,7 @@ export function processEvent(
   if (ev.type === "clear") {
     // Server is retrying — discard partial text/tool output from the failed attempt
     content.length = 0;
+    dispatchActivityClear(tabId);
     return { action: "continue" };
   }
 

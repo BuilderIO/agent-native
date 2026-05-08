@@ -163,13 +163,30 @@ export function AgentTaskCard({
   const isComplete = status === "completed";
   const isError = status === "errored";
 
+  const taskTitle = description.trim() || "Task";
+  const currentStepText = currentStep.trim();
+  const statusLabel = isRunning ? "Running" : isError ? "Error" : "Done";
+  const statusClassName = cn(
+    "inline-flex h-5 shrink-0 items-center gap-1 rounded-md px-1.5 text-[10px] font-medium",
+    isError
+      ? "bg-destructive/10 text-destructive"
+      : isComplete
+        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+        : "bg-muted text-muted-foreground",
+  );
+
   const displayText = isComplete && summary ? summary : preview;
   const hasContent = displayText.length > 0;
+  const emptyMessage = isRunning
+    ? "Waiting for updates"
+    : isError
+      ? "No error details yet"
+      : "No summary available";
 
   return (
     <div
       className={cn(
-        "my-2 rounded-lg border overflow-hidden transition-colors",
+        "my-2 overflow-hidden rounded-lg border bg-background/50 transition-colors",
         isError
           ? "border-destructive/30"
           : isComplete
@@ -178,35 +195,31 @@ export function AgentTaskCard({
       )}
     >
       {/* Header */}
-      <div
-        className="flex items-center gap-2 px-3 py-2.5 cursor-pointer select-none hover:bg-muted/50"
+      <button
+        type="button"
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/45"
         onClick={() => setExpanded(!expanded)}
       >
-        <span className="shrink-0">
+        <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md border border-border/60 bg-background/70 px-1.5 text-[10px] font-medium text-muted-foreground">
+          <IconSubtask className="h-3 w-3" />
+          Sub-agent
+        </span>
+
+        <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+          {taskTitle}
+        </span>
+
+        <span className={statusClassName}>
           {isRunning ? (
-            <IconLoader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            <IconLoader2 className="h-3 w-3 animate-spin" />
           ) : isError ? (
-            <IconAlertCircle className="h-3.5 w-3.5 text-destructive" />
+            <IconAlertCircle className="h-3 w-3" />
           ) : (
-            <IconCheck className="h-3.5 w-3.5 text-emerald-500" />
+            <IconCheck className="h-3 w-3" />
           )}
+          {statusLabel}
         </span>
-
-        <IconSubtask className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-
-        <span className="text-xs font-medium truncate min-w-0 flex-1">
-          {description}
-        </span>
-
-        {currentStep && isRunning && (
-          <span className="text-[10px] text-muted-foreground/70 truncate max-w-[180px] shrink-0">
-            {currentStep}
-          </span>
-        )}
-
-        {isComplete && (
-          <span className="text-[10px] text-emerald-500/70 shrink-0">Done</span>
-        )}
 
         <IconChevronRight
           className={cn(
@@ -214,14 +227,21 @@ export function AgentTaskCard({
             expanded && "rotate-90",
           )}
         />
-      </div>
+      </button>
+
+      {expanded && isRunning && currentStepText && (
+        <div className="flex gap-1.5 border-t border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground">
+          <span className="shrink-0 font-medium text-foreground/70">Now:</span>
+          <span className="min-w-0 break-words">{currentStepText}</span>
+        </div>
+      )}
 
       {/* Preview content */}
       {expanded && hasContent && (
-        <div className="px-3 pb-2">
+        <div className="px-3 pb-2 pt-1">
           <div
             ref={previewRef}
-            className="rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground break-words max-h-48 overflow-y-auto agent-markdown prose prose-sm prose-invert max-w-none"
+            className="agent-markdown prose prose-sm prose-invert max-h-48 max-w-none overflow-y-auto break-words rounded-md border border-border/50 bg-muted/25 px-3 py-2 text-xs text-muted-foreground"
           >
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {displayText.length > 800
@@ -234,19 +254,15 @@ export function AgentTaskCard({
 
       {/* Footer with Open button */}
       {expanded && (
-        <div className="flex items-center justify-between px-3 pb-2">
-          {isRunning && !hasContent && (
-            <span className="text-[10px] text-muted-foreground/50">
-              Working...
-            </span>
-          )}
-          {!isRunning && !hasContent && <span />}
-          {hasContent && <span />}
+        <div className="flex items-center justify-between gap-2 px-3 pb-2">
+          <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground/60">
+            {!hasContent ? emptyMessage : ""}
+          </span>
           <button
             onClick={handleOpen}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted"
+            className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
           >
-            Open
+            Open thread
             <IconExternalLink className="h-3 w-3" />
           </button>
         </div>

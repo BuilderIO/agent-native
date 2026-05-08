@@ -38,7 +38,7 @@ export default defineAction({
     const maskedUrl = url.replace(/\/\/.*@/, "//***@");
 
     try {
-      const { createClient } = await import("@libsql/client");
+      const { createClient } = await import("@libsql/client/web");
       const client = createClient({ url, authToken: token || undefined });
       await client.execute("SELECT 1");
     } catch (err: any) {

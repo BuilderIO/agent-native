@@ -880,10 +880,11 @@ async function buildDatabaseConfig(
     });
   }
 
-  // Remote libsql (Turso)
-  const { createClient } = await import("@libsql/client");
+  // Remote libsql (Turso). Use the web client to avoid serverless bundles
+  // depending on libsql's platform-specific native packages.
+  const { createClient } = await import("@libsql/client/web");
   const client = createClient({ url, authToken: getDatabaseAuthToken() });
-  const { drizzle } = await import("drizzle-orm/libsql");
+  const { drizzle } = await import("drizzle-orm/libsql/web");
   const db = drizzle(client, { schema: sqliteAuthSchema });
   const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
   return drizzleAdapter(db, {

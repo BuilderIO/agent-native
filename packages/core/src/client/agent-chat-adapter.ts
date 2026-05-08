@@ -509,6 +509,34 @@ function authErrorReasonFromMessage(
     : "auth-required";
 }
 
+function authErrorText(
+  reason: "auth-required" | "session-expired",
+  message?: string,
+): string {
+  const fallback =
+    reason === "session-expired"
+      ? "Your chat session expired. Refresh chat and sign in again to continue."
+      : "Authentication required. Sign in again to use chat.";
+
+  if (!message) return formatChatErrorText(fallback);
+
+  try {
+    const parsed = JSON.parse(message) as {
+      error?: unknown;
+      message?: unknown;
+    };
+    const raw =
+      typeof parsed.error === "string"
+        ? parsed.error
+        : typeof parsed.message === "string"
+          ? parsed.message
+          : undefined;
+    return formatChatErrorText(raw || fallback);
+  } catch {
+    return formatChatErrorText(message || fallback);
+  }
+}
+
 function safeAgentNativePath(path: string): string {
   try {
     return agentNativePath(path);
@@ -1100,7 +1128,10 @@ export function createAgentChatAdapter(options?: {
                   continue;
                 }
                 dispatchAuthError("auth-required");
-                content.push({ type: "text", text: "" });
+                content.push({
+                  type: "text",
+                  text: authErrorText("auth-required"),
+                });
                 yield {
                   content: [...content],
                   status: {
@@ -1118,7 +1149,10 @@ export function createAgentChatAdapter(options?: {
                   continue;
                 }
                 dispatchAuthError("session-expired");
-                content.push({ type: "text", text: "" });
+                content.push({
+                  type: "text",
+                  text: authErrorText("session-expired"),
+                });
                 yield {
                   content: [...content],
                   status: {
@@ -1136,8 +1170,12 @@ export function createAgentChatAdapter(options?: {
                   if (await tryRecoverAuthOnce()) {
                     continue;
                   }
-                  dispatchAuthError(authErrorReasonFromMessage(body));
-                  content.push({ type: "text", text: "" });
+                  const reason = authErrorReasonFromMessage(body);
+                  dispatchAuthError(reason);
+                  content.push({
+                    type: "text",
+                    text: authErrorText(reason, body),
+                  });
                   yield {
                     content: [...content],
                     status: {
@@ -1279,8 +1317,12 @@ export function createAgentChatAdapter(options?: {
               if (await tryRecoverAuthOnce()) {
                 continue;
               }
-              dispatchAuthError(authErrorReasonFromMessage(errMsg));
-              content.push({ type: "text", text: "" });
+              const reason = authErrorReasonFromMessage(errMsg);
+              dispatchAuthError(reason);
+              content.push({
+                type: "text",
+                text: authErrorText(reason, errMsg),
+              });
               yield {
                 content: [...content],
                 status: {

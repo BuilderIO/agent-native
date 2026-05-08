@@ -8,8 +8,8 @@ describe("db scripts parameterized SQL", () => {
   });
 
   function mockSqliteClient(executeImpl: ReturnType<typeof vi.fn>) {
-    vi.doMock("@libsql/client", () => ({
-      createClient: () => ({
+    vi.doMock("./sqlite-client.js", () => ({
+      createSqliteScriptClient: async () => ({
         execute: executeImpl,
         close: vi.fn(),
       }),

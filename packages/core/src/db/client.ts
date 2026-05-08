@@ -4,9 +4,9 @@
  * Detects the database backend from the environment (D1, Postgres, or SQLite/libsql)
  * and returns a unified `DbExec` interface that all core stores use.
  *
- * Imports for postgres and @libsql/client are lazy (dynamic import) so this
- * module can be loaded in any runtime (Node.js, Cloudflare Workers, edge)
- * without failing on missing native deps.
+ * Imports for postgres, better-sqlite3, and @libsql/client/web are lazy
+ * (dynamic import) so this module can be loaded in any runtime (Node.js,
+ * Cloudflare Workers, edge) without failing on missing native deps.
  */
 import path from "path";
 
@@ -53,6 +53,43 @@ export function getDatabaseAuthToken(): string | undefined {
     if (prefixed) return prefixed;
   }
   return process.env.DATABASE_AUTH_TOKEN;
+}
+
+export function isLocalSqliteUrl(url: string): boolean {
+  return url === "" || url.startsWith("file:") || !url.includes("://");
+}
+
+export async function prepareLocalSqliteUrl(url: string): Promise<string> {
+  if (!url.startsWith("file:")) return url;
+
+  // On serverless runtimes (Netlify, AWS Lambda) the working directory is
+  // read-only. Detect this and redirect local SQLite to /tmp which IS writable
+  // (ephemeral per invocation, but the server stays alive for the request).
+  const isServerless =
+    !!process.env.NETLIFY ||
+    !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    !!process.env.LAMBDA_TASK_ROOT;
+  try {
+    const fs = await import("fs");
+    if (isServerless && url === "file:./data/app.db") {
+      fs.mkdirSync("/tmp/data", { recursive: true });
+      return "file:///tmp/data/app.db";
+    }
+    fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
+  } catch {
+    // Edge runtime — no filesystem.
+  }
+  return url;
+}
+
+export function sqliteFilenameFromUrl(url: string): string {
+  if (url.startsWith("file://")) {
+    return decodeURIComponent(new URL(url).pathname);
+  }
+  if (url.startsWith("file:")) {
+    return url.slice("file:".length) || ":memory:";
+  }
+  return url || "./data/app.db";
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +328,7 @@ export async function retryOnConnectionError<T>(
 let _exec: DbExec | undefined;
 let _pgPool: any;
 let _neonPool: any;
+let _sqlite: any;
 let _initPromise: Promise<void> | undefined;
 
 async function initClient(): Promise<void> {
@@ -420,43 +458,43 @@ async function initClient(): Promise<void> {
     return;
   }
 
-  // SQLite / libsql (default)
-  if (url.startsWith("file:")) {
-    // On serverless runtimes (Netlify, AWS Lambda) the working directory is
-    // read-only. Detect this and redirect local SQLite to /tmp which IS
-    // writable (ephemeral per invocation, but the server stays alive for the
-    // duration of the request).
-    const isServerless =
-      !!process.env.NETLIFY ||
-      !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
-      !!process.env.LAMBDA_TASK_ROOT;
-    try {
-      const fs = await import("fs");
-      if (isServerless && url === "file:./data/app.db") {
-        fs.mkdirSync("/tmp/data", { recursive: true });
-        url = "file:///tmp/data/app.db";
-      } else {
-        fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
-      }
-    } catch {
-      // Edge runtime — no filesystem
-    }
+  // SQLite / libsql (default). Local file databases use better-sqlite3 so
+  // serverless bundles do not need libsql's platform-specific native package.
+  if (isLocalSqliteUrl(url)) {
+    url = await prepareLocalSqliteUrl(
+      url.startsWith("file:") ? url : `file:${url}`,
+    );
+    const { default: Database } = await import("better-sqlite3");
+    _sqlite = new Database(sqliteFilenameFromUrl(url));
+    _sqlite.pragma("busy_timeout = 10000");
+    _sqlite.pragma("journal_mode = WAL");
+
+    _exec = {
+      async execute(sql) {
+        const rawSql = typeof sql === "string" ? sql : sql.sql;
+        const args = typeof sql === "string" ? [] : sql.args || [];
+        const stmt = _sqlite.prepare(rawSql);
+        if (stmt.reader) {
+          return {
+            rows: stmt.all(...args),
+            rowsAffected: 0,
+          };
+        }
+        const result = stmt.run(...args);
+        return {
+          rows: [],
+          rowsAffected: result.changes ?? 0,
+        };
+      },
+    };
+    return;
   }
 
-  const { createClient } = await import("@libsql/client");
+  const { createClient } = await import("@libsql/client/web");
   const client = createClient({
     url,
     authToken: getDatabaseAuthToken(),
   });
-
-  // Enable WAL mode and set busy timeout for local SQLite.
-  // Retries handle SQLITE_BUSY_RECOVERY (stale WAL from a previous crash/HMR restart).
-  if (url.startsWith("file:") || url.endsWith(".db")) {
-    await retrySqliteBusy(async () => {
-      await client.execute("PRAGMA busy_timeout = 10000");
-      await client.execute("PRAGMA journal_mode = WAL");
-    });
-  }
 
   _exec = {
     async execute(sql) {
@@ -521,6 +559,10 @@ export async function closeDbExec(): Promise<void> {
   if (_neonPool) {
     await _neonPool.end();
     _neonPool = undefined;
+  }
+  if (_sqlite) {
+    _sqlite.close();
+    _sqlite = undefined;
   }
   _exec = undefined;
   _initPromise = undefined;

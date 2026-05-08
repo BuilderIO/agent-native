@@ -43,6 +43,37 @@ title: Q3 Budget Proposal
 ```
 ````
 
+## Actionable Inbox Triage
+
+When the user asks to summarize, triage, prioritize, catch up on, or find emails that need replies, make the response actionable instead of just descriptive.
+
+Use this shape by default:
+
+1. **Needs attention / likely replies** — emails where the user probably owes a response, decision, approval, scheduling answer, customer follow-up, or sensitive acknowledgement.
+2. **Follow-up tasks** — action items implied by the emails, even when the right next step is not a reply.
+3. **FYI / no action** — important context the user may want to know, but no obvious response needed.
+
+For every item in the first two groups, include:
+
+- Sender and subject.
+- Why it matters in one short sentence.
+- The concrete next action.
+- A direct app link using the route `/<view>/<threadId>` (for example `[Open email](/inbox/abc123)`). Use the current view from `view-screen` when available; otherwise default to `inbox`.
+
+For the top one to three most important threads, also include an inline `embed` preview immediately next to the sentence that references it. Keep the embed cap from the Inline Previews section.
+
+After the triage, ask a specific follow-up question that moves the workflow forward, such as:
+
+> Want me to draft replies for the urgent ones, turn the follow-ups into a checklist, or archive the FYIs?
+
+When the user asks for help prioritizing and writing responses, create or update compose drafts for the selected urgent threads instead of only describing what you would write. Use `get-mail-settings` first, then `manage-draft --action=create --mode=reply --replyToId=<message-id> --replyToThreadId=<thread-id> ...` for each draft. Never send unless the user explicitly asks to send.
+
+For sales, customer, PG, support, or account follow-up, enrich the top candidates with CRM context when possible:
+
+- Run `pnpm action get-hubspot-contact --email=<sender-email>` for the sender or relevant customer contact.
+- Use HubSpot context to raise priority when there are open deals, tickets, lifecycle stage signals, or recent account activity.
+- If HubSpot is not configured or the contact is not found, continue with Gmail-only triage and mention no CRM signal only when it affects the recommendation.
+
 ## Resources
 
 Resources are SQL-backed persistent files for storing notes, learnings, and context. They replace the old `LEARNINGS.md` file approach — resources are stored in the database, not the filesystem.
@@ -263,6 +294,7 @@ Common operations:
 - **Create/edit drafts:** `pnpm action manage-draft --action=create --to=... --subject=... --body=...`
 - **Navigate UI:** `pnpm action navigate --view=inbox` or `--threadId=...`
 - **Search:** `pnpm action search-emails --q=term`
+- **Check CRM context:** `pnpm action get-hubspot-contact --email=<sender@example.com>`
 
 See the full Scripts section below for all available scripts and arguments.
 
@@ -408,15 +440,16 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 
 ### Reading & Searching
 
-| Action              | Args                                                                                               | Purpose                                       |
-| ------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `view-screen`       | `[--full]`                                                                                         | See what the user is looking at right now     |
-| `view-composer`     | `[--id=<draft-id>]`                                                                                | See all open compose drafts                   |
-| `get-mail-settings` | none                                                                                               | Read signature and writing style              |
-| `list-emails`       | `--view <inbox\|unread\|starred\|sent\|...> --q <term> [--account <email>] [--includeCounts=true]` | List and search emails (uses Gmail via API)   |
-| `search-emails`     | `--q <term> [--view <name>] [--account <email>] [--includeCounts=true]`                            | Search emails across all views (requires --q) |
-| `get-email`         | `--id <email-id>`                                                                                  | Get a single email by ID                      |
-| `get-thread`        | `--id <thread-id> [--compact]`                                                                     | Get all messages in a thread                  |
+| Action                | Args                                                                                               | Purpose                                       |
+| --------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `view-screen`         | `[--full]`                                                                                         | See what the user is looking at right now     |
+| `view-composer`       | `[--id=<draft-id>]`                                                                                | See all open compose drafts                   |
+| `get-mail-settings`   | none                                                                                               | Read signature and writing style              |
+| `list-emails`         | `--view <inbox\|unread\|starred\|sent\|...> --q <term> [--account <email>] [--includeCounts=true]` | List and search emails (uses Gmail via API)   |
+| `search-emails`       | `--q <term> [--view <name>] [--account <email>] [--includeCounts=true]`                            | Search emails across all views (requires --q) |
+| `get-email`           | `--id <email-id>`                                                                                  | Get a single email by ID                      |
+| `get-thread`          | `--id <thread-id> [--compact]`                                                                     | Get all messages in a thread                  |
+| `get-hubspot-contact` | `--email <email>`                                                                                  | Look up HubSpot contact, deals, and tickets   |
 
 ### Actions
 
