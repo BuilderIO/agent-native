@@ -6,6 +6,11 @@ import {
   requireRequestCredentialContext,
   scopedCredentialCacheKey,
 } from "./credentials-context";
+import {
+  DEFAULT_GONG_CALL_LIMIT,
+  limitGongCalls,
+  normalizeGongCallLimit,
+} from "./gong-limits";
 
 const DEFAULT_API_BASE = "https://api.gong.io/v2";
 
@@ -159,14 +164,17 @@ export async function getUsers(): Promise<GongUser[]> {
 export async function searchCalls(
   query: string,
   days = 90,
-): Promise<GongCall[]> {
+  limit = DEFAULT_GONG_CALL_LIMIT,
+): Promise<{ calls: GongCall[]; limit: number; truncated: boolean }> {
   const fromDateTime = new Date(
     Date.now() - days * 24 * 60 * 60 * 1000,
   ).toISOString();
+  const normalizedLimit = normalizeGongCallLimit(limit);
 
   // Use GET /v2/calls to list calls, then filter client-side
   let allCalls: GongCall[] = [];
   let cursor: string | undefined;
+  let truncated = false;
   do {
     const params = new URLSearchParams({ fromDateTime });
     if (cursor) params.set("cursor", cursor);
@@ -174,15 +182,24 @@ export async function searchCalls(
       calls?: GongCall[];
       records?: { cursor?: string; totalRecords?: number };
     }>(`/calls?${params.toString()}`);
-    allCalls = allCalls.concat(data.calls ?? []);
+    const lowerQuery = query.toLowerCase();
+    const pageMatches = (data.calls ?? []).filter((call) => {
+      const title = call.title?.toLowerCase() ?? "";
+      const parties =
+        call.parties?.map((p) => p.name.toLowerCase()).join(" ") ?? "";
+      return title.includes(lowerQuery) || parties.includes(lowerQuery);
+    });
+    allCalls = allCalls.concat(pageMatches);
     cursor = data.records?.cursor;
+    if (allCalls.length >= normalizedLimit) {
+      truncated = Boolean(cursor) || allCalls.length > normalizedLimit;
+      break;
+    }
   } while (cursor);
 
-  const lowerQuery = query.toLowerCase();
-  return allCalls.filter((call) => {
-    const title = call.title?.toLowerCase() ?? "";
-    const parties =
-      call.parties?.map((p) => p.name.toLowerCase()).join(" ") ?? "";
-    return title.includes(lowerQuery) || parties.includes(lowerQuery);
-  });
+  const limited = limitGongCalls(allCalls, normalizedLimit);
+  return {
+    ...limited,
+    truncated: truncated || limited.truncated,
+  };
 }

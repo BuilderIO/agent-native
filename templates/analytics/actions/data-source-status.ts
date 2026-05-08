@@ -1,17 +1,19 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { hasCredential } from "../server/lib/credentials";
-import { credentialKeys } from "../server/lib/credential-keys";
+import { resolveCredentialConfigs } from "../server/lib/credential-keys";
 import { tryRequestCredentialContext } from "../server/lib/credentials-context";
 
 export default defineAction({
   description:
-    "List which analytics data-source credentials are configured without revealing secret values.",
+    "List which analytics data-source credentials are configured without revealing secret values. The `key` arg accepts exact credential names like JIRA_API_TOKEN and provider aliases like jira, pylon, bigquery, hubspot, gong, or slack.",
   schema: z.object({
     key: z
       .string()
       .optional()
-      .describe("Optional credential key to check, e.g. SENTRY_AUTH_TOKEN"),
+      .describe(
+        "Optional credential key or provider alias to check, e.g. jira, pylon, bigquery, or SENTRY_AUTH_TOKEN",
+      ),
   }),
   http: { method: "GET" },
   run: async (args) => {
@@ -26,10 +28,8 @@ export default defineAction({
       };
     }
 
-    const configs = args.key
-      ? credentialKeys.filter((cfg) => cfg.key === args.key)
-      : credentialKeys;
-    if (args.key && configs.length === 0) {
+    const { configs, known } = resolveCredentialConfigs(args.key);
+    if (args.key && !known) {
       return { error: `Unknown credential key: ${args.key}` };
     }
 

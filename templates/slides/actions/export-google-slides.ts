@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import exportPptxAction from "./export-pptx.js";
-import { getExportUrl, getSlidesAppUrl } from "./_app-url.js";
+import { getExportUrl } from "./_app-url.js";
 
 /**
  * Google Slides has no first-party "import this URL" REST API — there is no
@@ -11,15 +11,13 @@ import { getExportUrl, getSlidesAppUrl } from "./_app-url.js";
  *   2. Hand the user the download URL plus a prompt that opens Google Slides
  *      with File → Import primed (`?usp=import`), which triggers the
  *      "Choose a file" dialog they can drop the .pptx into.
- *
- * If APP_URL is publicly reachable we also surface a `googleSlidesImportUrl`
- * pointing at `docs.google.com/presentation/u/0/?usp=openurl&url=<encoded>`.
- * Google occasionally honors this for hosted .pptx URLs, but it's unreliable
- * — we still return the download URL + note so the user always has a path.
+ * Direct `openurl` links make Google fetch the app's private export URL and
+ * commonly fail with "file wasn't available on site", so this action never
+ * returns one.
  */
 export default defineAction({
   description:
-    "Export a deck for Google Slides. Generates a PPTX (the format Google Slides imports) and returns a download URL plus a Google Slides import URL. The user can either drag the file into Google Slides or use File → Import.",
+    "Export a deck for Google Slides. Generates a PPTX (the format Google Slides imports) and returns a download URL plus the Google Slides import dialog URL. The user can drag the file into Google Slides or use File → Import.",
   schema: z.object({
     deckId: z.string().describe("Deck ID to export"),
     includeNotes: z
@@ -33,18 +31,7 @@ export default defineAction({
     const result = await exportPptxAction.run({ deckId, includeNotes });
     const { filename, slideCount } = result;
 
-    const appUrl = getSlidesAppUrl();
     const downloadUrl = getExportUrl(filename);
-
-    // The /api/exports/:filename route requires a logged-in session, so
-    // Google's importer cannot fetch it directly even when APP_URL is
-    // public. We still build the openurl link as a convenience for the
-    // common "user is logged into both apps in the same browser" case.
-    const isPubliclyReachable =
-      /^https?:\/\//.test(appUrl) && !/localhost|127\.0\.0\.1/.test(appUrl);
-    const googleSlidesImportUrl = isPubliclyReachable
-      ? `https://docs.google.com/presentation/u/0/?usp=openurl&url=${encodeURIComponent(downloadUrl)}`
-      : null;
 
     // The dialog version of the importer — always works, just requires the
     // user to pick the file themselves.
@@ -54,10 +41,10 @@ export default defineAction({
     return {
       ...result,
       downloadUrl,
-      googleSlidesImportUrl,
+      googleSlidesImportUrl: googleSlidesImportDialogUrl,
       googleSlidesImportDialogUrl,
       slideCount,
-      note: "Download the .pptx and import it via Google Slides → File → Import slides. (Google Slides has no direct-import API for hosted PPTX files.)",
+      note: "Download the .pptx and import it via Google Slides → File → Import slides. Google Slides cannot fetch this app's private export URL directly.",
     };
   },
 });

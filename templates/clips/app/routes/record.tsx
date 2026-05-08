@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Link, useNavigate } from "react-router";
-import { IconAppWindow, IconArrowLeft, IconVideo } from "@tabler/icons-react";
+import { IconArrowLeft, IconVideo } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { agentNativePath, appBasePath } from "@agent-native/core/client";
 import { RequireActiveOrg } from "@agent-native/core/client/org";
@@ -14,6 +14,15 @@ import {
   type VideoStorageStatus,
 } from "@/hooks/use-video-storage-status";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  captureVideoThumbnailBlob,
+  uploadRecordingThumbnail,
+} from "@/lib/thumbnail-capture";
+import {
+  buildCaptureTitle,
+  defaultRecordingTitle,
+  inferWindowTitleFromDisplayStream,
+} from "@/lib/recording-title";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
 // and cannot be bundled for the browser).
@@ -112,29 +121,11 @@ function captureThumbnailFromPreview(
   video: HTMLVideoElement | null,
   recordingId: string,
 ): void {
-  if (!video || !video.videoWidth || !video.videoHeight) return;
-  try {
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) return;
-        fetch(`${appBasePath()}/api/recordings/${recordingId}/thumbnail`, {
-          method: "POST",
-          headers: { "Content-Type": blob.type || "image/jpeg" },
-          body: blob,
-        }).catch(() => {});
-      },
-      "image/jpeg",
-      0.85,
-    );
-  } catch {
-    // best effort — the player has a backfill path if this misses.
-  }
+  void captureVideoThumbnailBlob(video)
+    .then((blob) => (blob ? uploadRecordingThumbnail(recordingId, blob) : null))
+    .catch(() => {
+      // best effort — the player has a backfill path if this misses.
+    });
 }
 
 interface PendingRecording {
@@ -145,20 +136,62 @@ interface PendingRecording {
 
 function PreRecordPanelSkeleton() {
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-5 rounded-2xl border border-border bg-card p-6 shadow-lg">
-      <div className="space-y-2">
-        <Skeleton className="h-5 w-40" />
-        <Skeleton className="h-3 w-56" />
+    <div className="mx-auto w-full max-w-md overflow-hidden rounded-2xl border border-border bg-muted/20 shadow-lg">
+      <div className="space-y-4 p-6">
+        <div className="space-y-2">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="h-3 w-64" />
+        </div>
+        <div className="grid grid-cols-3 gap-1 rounded-xl bg-muted p-1">
+          <Skeleton className="h-11 rounded-lg" />
+          <Skeleton className="h-11 rounded-lg" />
+          <Skeleton className="h-11 rounded-lg" />
+        </div>
       </div>
-      <div className="grid grid-cols-3 gap-2">
-        <Skeleton className="h-[78px] rounded-xl" />
-        <Skeleton className="h-[78px] rounded-xl" />
-        <Skeleton className="h-[78px] rounded-xl" />
+      <div className="space-y-0 border-t border-border">
+        <div className="flex items-center gap-3 px-6 py-4">
+          <Skeleton className="h-8 w-8 rounded-lg" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-3 w-36" />
+          </div>
+        </div>
+        <div className="flex items-center gap-3 border-t border-border px-6 py-4">
+          <Skeleton className="h-8 w-8 rounded-lg" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-3 w-48" />
+          </div>
+        </div>
       </div>
-      <Skeleton className="h-9 w-full rounded-md" />
-      <Skeleton className="h-9 w-full rounded-md" />
-      <Skeleton className="ml-auto h-9 w-32 rounded-md" />
+      <div className="space-y-3 border-t border-border p-6">
+        <Skeleton className="h-11 w-full rounded-md" />
+        <Skeleton className="mx-auto h-8 w-48 rounded-md" />
+      </div>
     </div>
+  );
+}
+
+function DesktopRecorderCallout() {
+  return (
+    <aside className="w-full p-1">
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-foreground">
+          Get the desktop app
+        </div>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          Menu-bar launch and global shortcuts make repeat recordings smoother.
+        </p>
+      </div>
+      <Button
+        asChild
+        variant="outline"
+        size="sm"
+        className="mt-3 w-full bg-background/70"
+      >
+        <Link to="/download">Download</Link>
+      </Button>
+    </aside>
   );
 }
 
@@ -376,6 +409,11 @@ export default function RecordRoute() {
           await engine.cancel().catch(() => {});
           return;
         }
+        const captureTitle = buildCaptureTitle({
+          windowTitle: inferWindowTitleFromDisplayStream(ps),
+          displaySurface: opts.displaySurface,
+          mode: opts.mode,
+        });
 
         const wantsMic = opts.micDeviceId !== NO_MIC_DEVICE_ID;
         if (wantsMic && liveTranscription.supported) {
@@ -402,7 +440,10 @@ export default function RecordRoute() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              title: "Untitled recording",
+              title: captureTitle.title,
+              titleSource: captureTitle.titleSource,
+              sourceAppName: captureTitle.sourceAppName,
+              sourceWindowTitle: captureTitle.sourceWindowTitle,
               hasCamera: opts.mode !== "screen",
               hasAudio: wantsMic,
               visibility: "public",
@@ -578,7 +619,9 @@ export default function RecordRoute() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              title: file.name.replace(/\.[^/.]+$/, "") || "Untitled recording",
+              title:
+                file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle(),
+              titleSource: "upload",
               hasCamera: false,
               hasAudio: true,
               width: meta.width,
@@ -1071,35 +1114,36 @@ export default function RecordRoute() {
           title="Create your organization"
           description="Clips organizes recordings by team. Create an organization to continue — you can invite teammates afterward."
         >
-          <div className="flex min-h-screen flex-col items-center justify-center px-4">
+          <div className="flex min-h-screen flex-col items-center justify-center px-4 py-10">
             <div className="mb-6 flex items-center gap-2 text-primary">
               <IconVideo className="h-6 w-6" />
               <span className="text-sm font-medium uppercase tracking-wide">
                 Clips recorder
               </span>
             </div>
-            {storageConfigured === null ? (
-              <PreRecordPanelSkeleton />
-            ) : storageConfigured ? (
-              <PreRecordPanel
-                onStart={startFlow}
-                onUpload={uploadFile}
-                cameraSize={cameraSize}
-                onCameraSizeChange={setCameraSize}
-              />
-            ) : (
-              <StorageSetupCard onConfigured={() => markStorageConfigured()} />
-            )}
-            {!isDesktopApp && (
-              <Link
-                to="/download"
-                className="mt-6 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-              >
-                <IconAppWindow className="h-3.5 w-3.5" />
-                Get the Clips desktop app for global shortcuts and menu-bar
-                recording
-              </Link>
-            )}
+            <div className="relative w-full max-w-6xl">
+              <div className="mx-auto w-full max-w-md">
+                {storageConfigured === null ? (
+                  <PreRecordPanelSkeleton />
+                ) : storageConfigured ? (
+                  <PreRecordPanel
+                    onStart={startFlow}
+                    onUpload={uploadFile}
+                    cameraSize={cameraSize}
+                    onCameraSizeChange={setCameraSize}
+                  />
+                ) : (
+                  <StorageSetupCard
+                    onConfigured={() => markStorageConfigured()}
+                  />
+                )}
+              </div>
+              {!isDesktopApp && (
+                <div className="mx-auto mt-4 w-full max-w-md xl:absolute xl:left-[calc(50%+15rem)] xl:top-0 xl:mt-0 xl:w-72">
+                  <DesktopRecorderCallout />
+                </div>
+              )}
+            </div>
           </div>
         </RequireActiveOrg>
       )}

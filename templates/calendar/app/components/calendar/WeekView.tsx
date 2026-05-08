@@ -191,6 +191,9 @@ export function WeekView({
   const [focusedEventId, setFocusedEventId] = useState<string | null>(null);
   const currentTimeRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const allDayContainerRef = useRef<HTMLDivElement>(null);
+  const [timeGridScrollbarWidth, setTimeGridScrollbarWidth] = useState(0);
+  const [allDayScrollbarWidth, setAllDayScrollbarWidth] = useState(0);
 
   // Escape clears the highlighted/elevated event so it drops behind others
   useEffect(() => {
@@ -339,6 +342,47 @@ export function WeekView({
   const allDaySectionHeight = hasAnyAllDay
     ? allDayRows * allDayRowHeight + 6
     : 0;
+  const allDayHeaderSpacerWidth = Math.max(
+    0,
+    timeGridScrollbarWidth - allDayScrollbarWidth,
+  );
+
+  useEffect(() => {
+    const measureScrollbars = () => {
+      const timeGrid = scrollContainerRef.current;
+      const allDayGrid = allDayContainerRef.current;
+
+      setTimeGridScrollbarWidth(
+        timeGrid ? Math.max(0, timeGrid.offsetWidth - timeGrid.clientWidth) : 0,
+      );
+      setAllDayScrollbarWidth(
+        allDayGrid
+          ? Math.max(0, allDayGrid.offsetWidth - allDayGrid.clientWidth)
+          : 0,
+      );
+    };
+
+    measureScrollbars();
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(measureScrollbars)
+        : null;
+
+    if (scrollContainerRef.current) {
+      resizeObserver?.observe(scrollContainerRef.current);
+    }
+    if (allDayContainerRef.current) {
+      resizeObserver?.observe(allDayContainerRef.current);
+    }
+
+    window.addEventListener("resize", measureScrollbars);
+
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", measureScrollbars);
+    };
+  }, [allDaySectionHeight, hasAnyAllDay]);
 
   // Timezone label: prefer the short generic name (e.g. "PT", "ET")
   // over the offset form ("GMT-7"), and fall back to the IANA id when
@@ -453,11 +497,19 @@ export function WeekView({
               </span>
             </div>
           ))}
+          {timeGridScrollbarWidth > 0 && (
+            <div
+              aria-hidden="true"
+              className="shrink-0"
+              style={{ width: `${timeGridScrollbarWidth}px` }}
+            />
+          )}
         </div>
 
         {/* All-day events row */}
         {hasAnyAllDay && (
           <div
+            ref={allDayContainerRef}
             className="relative flex border-t border-border overflow-y-auto"
             style={{ maxHeight: 88, height: `${allDaySectionHeight}px` }}
           >
@@ -522,6 +574,13 @@ export function WeekView({
                 );
               })}
             </div>
+            {allDayHeaderSpacerWidth > 0 && (
+              <div
+                aria-hidden="true"
+                className="shrink-0"
+                style={{ width: `${allDayHeaderSpacerWidth}px` }}
+              />
+            )}
           </div>
         )}
       </div>

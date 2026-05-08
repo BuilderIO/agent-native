@@ -32,14 +32,14 @@ function hasStructuredEvidence(
 
 function stopWithoutEvidence(): never {
   throw new AgentActionStopError(
-    "I couldn't save this analysis because it did not include structured evidence from a real data-source action in this turn. I stopped rather than risk saving fabricated analytics results.",
+    "I couldn't save this analysis because it did not include structured evidence from a real data-source action in this turn. Evidence can be table rows, call/message records, transcript excerpts, coded themes, sentiment labels, or provider error details. I stopped rather than risk saving fabricated analytics results.",
     {
       errorCode: "analysis_missing_data_evidence",
       toolResult: JSON.stringify(
         {
           error: "analysis_missing_data_evidence",
           message:
-            "save-analysis requires resultData with raw query results, row samples, aggregate metrics, or explicit provider error details from real data-source actions.",
+            "save-analysis requires resultData with raw query results, row samples, aggregate metrics, call/message IDs, transcript/message excerpts, coded theme counts, sentiment labels, or explicit provider error details from real data-source actions.",
           stopped: true,
         },
         null,
@@ -53,7 +53,7 @@ export default defineAction({
   description:
     "Save an ad-hoc analysis. Stores the analysis question, instructions for re-running, data sources used, and the results. " +
     "This creates a reusable analysis that anyone can re-run later to get updated results. " +
-    "Call this only after you've gathered real data and include non-empty resultData with structured evidence from those data-source action results.",
+    "Call this only after you've gathered real evidence and include non-empty resultData with structured evidence from those data-source action results. For qualitative analyses, resultData may include call/message IDs, transcript excerpts, coded themes, mention counts, and sentiment labels derived from actual source records.",
   schema: z.object({
     id: z
       .string()
@@ -95,7 +95,7 @@ export default defineAction({
         z.record(z.string(), z.unknown()),
       )
       .describe(
-        "Required structured data (JSON) backing the analysis. Include raw query results, row samples, aggregate metrics, and any explicit provider error details from the real data-source actions used.",
+        "Required structured data (JSON) backing the analysis. Include raw query results, row samples, aggregate metrics, call/message IDs, transcript/message excerpts, coded theme counts, sentiment labels, and any explicit provider error details from the real data-source actions used.",
       ),
   }),
   http: false,

@@ -3,7 +3,12 @@ import {
   requireCredential,
   runApiHandlerWithContext,
 } from "../lib/credentials";
-import { getCalls, searchCalls, getUsers } from "../lib/gong";
+import {
+  DEFAULT_GONG_CALL_LIMIT,
+  limitGongCalls,
+  normalizeGongCallLimit,
+} from "../lib/gong-limits";
+import { getCalls, getUsers, searchCalls } from "../lib/gong";
 
 export const handleGongCalls = defineEventHandler(async (event) => {
   return runApiHandlerWithContext(event, async () => {
@@ -12,18 +17,24 @@ export const handleGongCalls = defineEventHandler(async (event) => {
       (await requireCredential(event, "GONG_ACCESS_SECRET", "Gong"));
     if (missing) return missing;
     try {
-      const { company, days: daysParam } = getQuery(event);
+      const { company, days: daysParam, limit: limitParam } = getQuery(event);
+      const limit = normalizeGongCallLimit(
+        limitParam
+          ? parseInt(limitParam as string, 10)
+          : DEFAULT_GONG_CALL_LIMIT,
+      );
       if (company) {
-        const days = daysParam ? parseInt(daysParam as string) : 90;
-        const calls = await searchCalls(company as string, days);
-        return { calls, total: calls.length };
+        const days = daysParam ? parseInt(daysParam as string, 10) : 90;
+        const result = await searchCalls(company as string, days, limit);
+        return { ...result, total: result.calls.length };
       } else {
-        const days = daysParam ? parseInt(daysParam as string) : 30;
+        const days = daysParam ? parseInt(daysParam as string, 10) : 30;
         const fromDateTime = new Date(
           Date.now() - days * 24 * 60 * 60 * 1000,
         ).toISOString();
         const result = await getCalls({ fromDateTime });
-        return { calls: result.calls, total: result.calls.length };
+        const limited = limitGongCalls(result.calls, limit);
+        return { ...limited, total: limited.calls.length };
       }
     } catch (err: any) {
       console.error("Gong calls error:", err.message);

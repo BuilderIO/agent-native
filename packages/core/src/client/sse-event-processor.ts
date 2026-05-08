@@ -233,17 +233,27 @@ export function processEvent(
   if (ev.type === "tool_start") {
     const toolCallId = `tc_${++toolCallCounter.value}`;
     const args = (ev.input ?? {}) as Record<string, string>;
+    const tool = ev.tool ?? "unknown";
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-start", {
-          detail: { tool: ev.tool ?? "unknown", input: args },
+          detail: { tool, input: args },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:activity", {
+          detail: {
+            label: `Running ${tool}`,
+            tool,
+            tabId,
+          },
         }),
       );
     }
     content.push({
       type: "tool-call",
       toolCallId,
-      toolName: ev.tool ?? "unknown",
+      toolName: tool,
       argsText: JSON.stringify(args),
       args,
     });

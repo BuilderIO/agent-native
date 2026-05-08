@@ -39,10 +39,10 @@ function getServerUrl(): string | null {
  */
 async function callStartMeetingRecording(
   meetingId: string,
-): Promise<string | null> {
+): Promise<{ error: string | null; meetingId?: string }> {
   const base = getServerUrl();
   if (!base) {
-    return "No server configured";
+    return { error: "No server configured" };
   }
   try {
     const resp = await fetch(
@@ -56,14 +56,19 @@ async function callStartMeetingRecording(
     );
     if (!resp.ok) {
       const text = await resp.text().catch(() => "");
-      return resp.status === 401
-        ? "Sign in to record meetings"
-        : `Couldn't start recording (${resp.status})${text ? `: ${text.slice(0, 120)}` : ""}`;
+      return {
+        error:
+          resp.status === 401
+            ? "Sign in to record meetings"
+            : `Couldn't start recording (${resp.status})${text ? `: ${text.slice(0, 120)}` : ""}`,
+      };
     }
-    return null;
+    const payload = await resp.json().catch(() => null);
+    const result = payload?.result ?? payload;
+    return { error: null, meetingId: result?.meetingId ?? meetingId };
   } catch (err) {
     console.error("[clips-tray] start-meeting-recording fetch failed:", err);
-    return "Network error — couldn't reach server";
+    return { error: "Network error — couldn't reach server" };
   }
 }
 
@@ -145,19 +150,22 @@ export function MeetingNotification() {
       listen<StartRecordingPayload>("meetings:start-recording", (ev) => {
         const { meetingId, joinUrl } = ev.payload;
         if (!meetingId) return;
-        callStartMeetingRecording(meetingId).then((err) => {
-          if (err) setError(err);
-        });
-        invoke("recording_pill_show", {
-          meetingId,
-          mode: "meeting",
-        }).catch(() => {});
         if (joinUrl) {
           openJoinUrl(joinUrl);
           // Keep the legacy event around for any other listeners that
           // care about it (host integrations, analytics, etc.).
           emit("meetings:open-join-url", { joinUrl }).catch(() => {});
         }
+        callStartMeetingRecording(meetingId).then((result) => {
+          if (result.error) {
+            setError(result.error);
+            return;
+          }
+          invoke("recording_pill_show", {
+            meetingId: result.meetingId ?? meetingId,
+            mode: "meeting",
+          }).catch(() => {});
+        });
       }),
     );
 
@@ -205,19 +213,19 @@ export function MeetingNotification() {
       openJoinUrl(data.joinUrl);
     }
     emit("meetings:take-notes", { meetingId: data.meetingId }).catch(() => {});
-    invoke("recording_pill_show", {
-      meetingId: data.meetingId,
-      mode: "meeting",
-    }).catch(() => {});
-    const err = await callStartMeetingRecording(data.meetingId);
+    const result = await callStartMeetingRecording(data.meetingId);
     setPending(false);
-    if (err) {
-      setError(err);
+    if (result.error) {
+      setError(result.error);
       // Keep the banner up so the user can see the error — re-arm with a
       // longer auto-dismiss so they have time to read it.
       scheduleDismiss(15_000);
       return;
     }
+    invoke("recording_pill_show", {
+      meetingId: result.meetingId ?? data.meetingId,
+      mode: "meeting",
+    }).catch(() => {});
     dismiss();
   }
 

@@ -12,6 +12,7 @@ import {
   defineEventHandler,
   getRouterParam,
   getHeader,
+  getQuery,
   readRawBody,
   setResponseStatus,
   type H3Event,
@@ -22,6 +23,7 @@ import { getEventOwnerContext } from "../../../../lib/recordings.js";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
+import { parseEdits } from "../../../../../app/lib/timestamp-mapping.js";
 
 const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
 
@@ -76,6 +78,7 @@ export default defineEventHandler(async (event: H3Event) => {
         id: schema.recordings.id,
         ownerEmail: schema.recordings.ownerEmail,
         thumbnailUrl: schema.recordings.thumbnailUrl,
+        editsJson: schema.recordings.editsJson,
       })
       .from(schema.recordings)
       .where(
@@ -94,16 +97,26 @@ export default defineEventHandler(async (event: H3Event) => {
       return { error: "Recording not found" };
     }
 
-    // If we already have a thumbnail, don't overwrite — the client-side effect
-    // is supposed to short-circuit on `thumbnailUrl`, but belt-and-braces.
+    const replaceMode = getQuery(event).replace;
+    const replaceAutoThumbnail = replaceMode === "auto";
+    const hasEditorThumbnail = Boolean(
+      parseEdits(existing.editsJson).thumbnail,
+    );
+
+    // If we already have a thumbnail, don't overwrite editor-picked thumbnails.
+    // Auto-generated thumbnails may be replaced by the player when the saved
+    // image probes as blank.
     if (existing.thumbnailUrl) {
-      console.log("[thumbnail] already set, skipping", { recordingId });
-      return {
-        ok: true,
-        recordingId,
-        thumbnailUrl: existing.thumbnailUrl,
-        skipped: true,
-      };
+      if (!replaceAutoThumbnail || hasEditorThumbnail) {
+        console.log("[thumbnail] already set, skipping", { recordingId });
+        return {
+          ok: true,
+          recordingId,
+          thumbnailUrl: existing.thumbnailUrl,
+          skipped: true,
+        };
+      }
+      console.log("[thumbnail] replacing auto thumbnail", { recordingId });
     }
 
     const contentLength = Number(getHeader(event, "content-length") || 0);

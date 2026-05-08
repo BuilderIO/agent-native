@@ -4,9 +4,13 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
+import {
+  materializeCalendarMeetingFromVirtualId,
+  parseCalendarMeetingId,
+} from "../server/lib/calendar-event-meetings.js";
 
 interface Bullet {
   text: string;
@@ -47,14 +51,28 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
-    const access = await resolveAccess("meeting", args.id);
+    let meetingId = args.id;
+    if (parseCalendarMeetingId(args.id)) {
+      const materialized = await materializeCalendarMeetingFromVirtualId(
+        args.id,
+      );
+      if (!materialized?.meeting?.id) return { meeting: null };
+      meetingId = materialized.meeting.id;
+    }
+
+    const access = await resolveAccess("meeting", meetingId);
     if (!access) return { meeting: null };
 
     const db = getDb();
     const [row] = await db
       .select()
       .from(schema.meetings)
-      .where(eq(schema.meetings.id, args.id))
+      .where(
+        and(
+          eq(schema.meetings.id, meetingId),
+          isNull(schema.meetings.trashedAt),
+        ),
+      )
       .limit(1);
     if (!row) return { meeting: null };
 
@@ -79,12 +97,12 @@ export default defineAction({
     const participants = await db
       .select()
       .from(schema.meetingParticipants)
-      .where(eq(schema.meetingParticipants.meetingId, args.id));
+      .where(eq(schema.meetingParticipants.meetingId, meetingId));
 
     const actionItems = await db
       .select()
       .from(schema.meetingActionItems)
-      .where(eq(schema.meetingActionItems.meetingId, args.id));
+      .where(eq(schema.meetingActionItems.meetingId, meetingId));
 
     let recording = null;
     let transcript = null;

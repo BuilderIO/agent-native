@@ -3,8 +3,9 @@
  *
  * Pulls events for all calendar accounts visible to the current user
  * (or, when invoked from a recurring job, every connected account).
- * Upserts events into `calendar_events`. Auto-creates `meetings` rows
- * for events with a join URL whose start falls in the next 14 days.
+ * Upserts events into `calendar_events` for compatibility with existing
+ * recorded meetings. The Meetings UI reads Google Calendar live and no
+ * longer bulk-creates `meetings` rows from every upcoming event.
  *
  * Tokens are read from `app_secrets`; we refresh on demand and write
  * the new access token back. Tokens never touch the calendar_accounts
@@ -22,13 +23,10 @@ import {
   listEvents,
   refreshAccessToken,
   pickJoinUrl,
-  detectPlatform,
   type CalendarEvent,
 } from "../server/lib/google-calendar-client.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
-
-const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
 
 interface AccessTokenBundle {
   accessToken: string;
@@ -130,9 +128,19 @@ function eventEndIso(event: CalendarEvent): string | null {
   return event.end?.dateTime || event.end?.date || null;
 }
 
+function shouldMarkNeedsReauth(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("google calendar list failed (401)") ||
+    lower.includes("invalid_grant") ||
+    lower.includes("invalid_token") ||
+    lower.includes("insufficient_scope")
+  );
+}
+
 export default defineAction({
   description:
-    "Pull the latest events from connected calendars and upsert them. Auto-creates meeting rows from events with a join URL starting within the next 14 days.",
+    "Refresh connected calendar event snapshots for compatibility. The Meetings UI reads Google Calendar live and does not require this action.",
   schema: z.object({
     accountId: z
       .string()
@@ -295,84 +303,6 @@ export default defineAction({
           perAccountEvents += 1;
         }
 
-        // Auto-create meetings rows for events with joinUrl + start in [now, +14d]
-        // that don't already have a linked meeting.
-        const fourteenOut = new Date(
-          now.getTime() + FOURTEEN_DAYS_MS,
-        ).toISOString();
-        const candidates = await db
-          .select()
-          .from(schema.calendarEvents)
-          .where(and(eq(schema.calendarEvents.calendarAccountId, account.id)));
-        const candidateIds = candidates
-          .filter(
-            (e) =>
-              !!e.joinUrl &&
-              !e.meetingId &&
-              e.start >= now.toISOString() &&
-              e.start <= fourteenOut,
-          )
-          .map((e) => e.id);
-
-        // Bulk lookup of any pre-existing meetings keyed off externalId is
-        // unnecessary — we use the meetingId column on calendar_events as
-        // the dedup key.
-        for (const evRow of candidates.filter((e) =>
-          candidateIds.includes(e.id),
-        )) {
-          const meetingId = randomUUID();
-          const platform = detectPlatform(evRow.joinUrl ?? undefined);
-          const meetingNow = new Date().toISOString();
-          await db.insert(schema.meetings).values({
-            id: meetingId,
-            organizationId: account.orgId ?? null,
-            title: evRow.title || "Untitled meeting",
-            scheduledStart: evRow.start,
-            scheduledEnd: evRow.end,
-            platform,
-            joinUrl: evRow.joinUrl ?? null,
-            calendarEventId: evRow.id,
-            source: "calendar",
-            createdAt: meetingNow,
-            updatedAt: meetingNow,
-            ownerEmail: account.ownerEmail,
-            visibility: "private",
-          } as any);
-
-          // Seed participants from attendees.
-          try {
-            const attendees = JSON.parse(evRow.attendeesJson) as Array<{
-              email?: string;
-              name?: string;
-              responseStatus?: string;
-            }>;
-            if (Array.isArray(attendees) && attendees.length) {
-              await db.insert(schema.meetingParticipants).values(
-                attendees
-                  .filter((a) => a.email)
-                  .map((a) => ({
-                    id: randomUUID(),
-                    meetingId,
-                    email: a.email!,
-                    name: a.name ?? null,
-                    isOrganizer: a.email === evRow.organizerEmail,
-                    attendedAt: null,
-                    createdAt: meetingNow,
-                  })) as any,
-              );
-            }
-          } catch {
-            // Skip participant seeding on JSON parse error.
-          }
-
-          await db
-            .update(schema.calendarEvents)
-            .set({ meetingId })
-            .where(eq(schema.calendarEvents.id, evRow.id));
-          totalMeetings += 1;
-          perAccountMeetings += 1;
-        }
-
         // Fix 10: isolate the success-path status write so other accounts'
         // needs-reauth flags can't be wiped by a later account-level throw.
         try {
@@ -413,12 +343,14 @@ export default defineAction({
       } catch (err: any) {
         const message = err?.message ?? String(err);
         errors.push({ accountId: account.id, error: message });
+        const needsReauth = shouldMarkNeedsReauth(message);
         // Fix 10: even the error-path write is its own try/catch.
         try {
           await db
             .update(schema.calendarAccounts)
             .set({
               lastSyncError: message.slice(0, 500),
+              ...(needsReauth ? { status: "needs-reauth" as const } : {}),
               updatedAt: new Date().toISOString(),
             })
             .where(eq(schema.calendarAccounts.id, account.id));

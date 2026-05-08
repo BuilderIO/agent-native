@@ -1,11 +1,12 @@
 ---
 name: meetings
 description: >-
-  Calendar-synced meetings in Clips — upcoming meetings, live transcripts with
-  mic + system-audio capture, AI summary / bullets / per-attendee action items,
-  and the bidirectional recording↔meeting link. Use when listing meetings,
-  opening a meeting detail, finalizing notes, connecting a calendar, or working
-  with attendee-tagged transcript segments.
+  Live calendar-backed meetings in Clips — upcoming Google Calendar events,
+  desktop join/record reminders, live transcripts with mic + system-audio
+  capture, AI summary / bullets / per-attendee action items, and the
+  bidirectional recording↔meeting link. Use when listing meetings, opening a
+  meeting detail, finalizing notes, connecting a calendar, or working with
+  attendee-tagged transcript segments.
 ---
 
 # Meetings
@@ -34,7 +35,7 @@ The Meetings tab intentionally mirrors **Granola**: card grid grouped by day, tw
 - **`meeting_participants`** — meetingId + email + name + isOrganizer + attendedAt.
 - **`meeting_action_items`** — meetingId, assigneeEmail, text, dueDate, completedAt.
 - **`calendar_accounts`** — provider, externalAccountId, secret refs, lastSyncedAt. (See onboarding-calendar plugin.)
-- **`calendar_events`** — synced events; auto-promote to a `meetings` row N min before start.
+- **`calendar_events`** — compatibility snapshot for events that have been recorded or edited; the visible list reads Google Calendar live.
 - **`recordings`** — when a meeting is recorded, the resulting recording row carries `meeting_id` (non-null) so we keep a bidirectional link. See the `recording` skill for the inverse direction.
 
 ## Audio capture: mic + system, tagged
@@ -57,23 +58,24 @@ Both fields are set by `start-meeting-recording`. Agents that operate on a recor
 
 ## Calendar reminders
 
-Calendar events fire a desktop notification **5 minutes before** the meeting start (consumer: the desktop tray in `src-tauri/`). A recurring job (`calendar-jobs.ts`) keeps `calendar_events` fresh; the tray subscribes via the framework's polling layer. Agents do not need to schedule reminders manually.
+Calendar events fire a desktop notification **5 minutes before** the meeting start (consumer: the desktop tray in `src-tauri/`). The tray polls `list-meetings`, which reads Google Calendar live, so upcoming reminders do not depend on a manual sync or pre-created `meetings` rows. Agents do not need to schedule reminders manually.
 
 ## Actions
 
 | Action                    | What it does                                                          |
 | ------------------------- | --------------------------------------------------------------------- |
-| `list-meetings`           | Upcoming + past, scoped via `accessFilter`                            |
+| `list-meetings`           | Upcoming + past, scoped via `accessFilter`; reads connected Google Calendar live |
 | `get-meeting`             | One meeting + participants + segments + notes                         |
-| `create-meeting`          | Manual ad-hoc meeting (no calendar event)                             |
+| `create-meeting`          | Internal/escape-hatch meeting row creation; the visible Meetings UI is calendar-sourced |
 | `update-meeting`          | Inline title edit, notes edits                                        |
+| `delete-meeting`          | Soft-delete a meeting from the visible list; linked recordings and calendar events stay intact |
 | `start-meeting-recording` | Begin native macOS transcript stream + create the linked recording   |
 | `stop-meeting-recording`  | End the active capture                                                |
 | `finalize-meeting`        | Delegate Gemini Flash-Lite cleanup + summary + bullets + action items |
 | `cleanup-transcript`      | Shared cleanup pipeline (used by Clips, Meetings, Dictate)            |
 | `connect-calendar`        | Returns OAuth URL for Google Calendar                                 |
 | `list-calendar-accounts`  | What's connected                                                      |
-| `sync-calendars`          | Force-refresh `calendar_events`                                       |
+| `sync-calendars`          | Compatibility refresh for `calendar_events`; not needed for the visible list |
 | `disconnect-calendar`     | Revoke + clear secret refs                                            |
 
 All actions go through `accessFilter` / `assertAccess`. AI work delegates via `sendToAgentChat` per the `delegate-to-agent` skill — never inline LLM calls.
@@ -116,7 +118,7 @@ The app exposes `view`, `meetingId`, and `dictationId` so the agent always knows
 }
 ```
 
-When on `view: "dictate"`, the block instead contains a `dictation` object with `id`, `fullText` snippet, `cleanedText` snippet, `durationMs`, `source`. When on `view: "meetings"` (the list), `view-screen` returns the upcoming-meetings summary instead of a single meeting.
+When on `view: "dictate"`, the block instead contains a `dictation` object with `id`, `fullText` snippet, `cleanedText` snippet, `durationMs`, `source`. When on `view: "meetings"` (the list), `view-screen` returns the upcoming-meetings summary plus `calendarAccounts` health (`status`, `lastSyncedAt`, `lastSyncError`) instead of a single meeting.
 
 ## Common tasks
 
@@ -125,7 +127,7 @@ When on `view: "dictate"`, the block instead contains a `dictation` object with 
 | "Show me my meetings today"                   | `pnpm action navigate --view=meetings`                                                  |
 | "Open my 3pm call with Alice"                 | Look up via `list-meetings`, then `pnpm action navigate --view=meeting --meetingId=<id>` |
 | "Summarize the standup I just finished"       | `pnpm action finalize-meeting --id=<id>` (delegates to agent for Gemini cleanup)        |
-| "Create a meeting note for the call I just finished" | `pnpm action create-meeting --title="..."` then `start-meeting-recording --id=<mid>` |
+| "Create a meeting note for the call I just finished" | Prefer the current calendar event. If it was not on the calendar, send the user to `/record` instead of creating a fake meeting from the UI. |
 | "Connect my Google Calendar"                  | `pnpm action connect-calendar --provider=google` then open returned `authUrl`           |
 | "Show my action items from last week"         | `list-meetings --since=<iso>`, then collect `actionItemsJson` and filter by `assigneeEmail` |
 
@@ -135,13 +137,14 @@ These flows are common enough to memorize:
 
 - **"Summarize my last meeting with Alice"** — `list-meetings` filtered by participant, pick the most recent, `get-meeting`, then `finalize-meeting` if `summaryMd` is empty.
 - **"Show me action items I owe Bob"** — `list-meetings` (recent), aggregate `actionItemsJson`, filter `assigneeEmail` matching Bob's email. Mention the mic+system caveat if the user expects coverage of remote attendees.
-- **"Create a meeting note for the call I just finished"** — `create-meeting` (manual ad-hoc), then `start-meeting-recording` to attach a transcript. Use this when the call wasn't on the calendar.
+- **"Create a meeting note for the call I just finished"** — prefer an existing calendar-synced meeting. If the call was not on the calendar, send the user to `/record`; do not invent a fake calendar meeting in the visible Meetings list.
 - **"What did Alice commit to in last Tuesday's standup?"** — `get-meeting`, scan `actionItemsJson` filtered by assignee, fall back to grepping the transcript segments tagged `source: "system"` (since Alice is remote).
 
 ## UI conventions (don't break)
 
 - **Card grid** for meeting lists, grouped by day with a date header (Today / Tomorrow / Weekday Date).
+- **Calendar-sourced list**: no "New meeting" CTA and no manual sync requirement in the Meetings list. Users connect/reconnect/disconnect the calendar from the calendar settings menu; events are fetched live from Google Calendar.
 - **Two-pane detail**: transcript (left) + AI notes (right) with a "Generate notes" button in the header.
 - **Live indicator** is a red animated dot — never a sparkle or a robot icon.
-- **Calendar empty state** mirrors `ConnectBuilderCard` layout: single CTA card + "Add API key" disclosure underneath.
+- **Calendar empty state** uses one focused Google Calendar CTA card.
 - shadcn components only. Tabler icons (`IconCalendar`, `IconMicrophone2`, `IconWand`, `IconNotes`). No emojis as icons. No sparkle/robot.

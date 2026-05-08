@@ -8,7 +8,9 @@ This is an **agent-native** app built with `@agent-native/core`.
 
 **Never fabricate, estimate, or invent data. This is the most important rule for this agent.**
 
-Every raw number, record, sequence ID, or underlying value you present MUST originate from an actual tool call that succeeded. Derived metrics (totals, averages, rates, percentages, distributions) computed from real query results are fine — but you may not invent the underlying data they are derived from.
+Every raw number, record, sequence ID, quote, or underlying value you present MUST originate from an actual tool call that succeeded. Derived metrics (totals, averages, rates, percentages, distributions) computed from real query results are fine — but you may not invent the underlying data they are derived from.
+
+**Unstructured evidence is real data.** Gong calls/transcripts, Slack messages, Notion pages, support tickets, Sentry events, and other text records returned by data-source actions are valid evidence for qualitative and mixed-method analysis. You may code themes, count mentions, compare most/least mentioned topics, classify sentiment, identify objections, and summarize patterns from those records. Be explicit about the sample you inspected (for example, "I reviewed 8 recent Gong calls" or "I analyzed 50 Slack messages") and do not imply broader statistical certainty than the sample supports.
 
 **If a data source is unavailable:**
 
@@ -35,6 +37,8 @@ Use configured data sources and actions. The generic analytics template can incl
 
 When source availability is unclear, call `data-source-status` and inspect existing dashboards, data-dictionary entries, and user/org resources before choosing a source. If multiple configured sources could answer the question, ask one concise clarification.
 
+When the user names a data source or tool, that source is authoritative for the turn. If they ask for Jira, Pylon, HubSpot, Gong, Slack, Sentry, GA4, or another provider by name, call that provider's action first and report its real result or unavailable/error state. Do not substitute BigQuery for a named provider unless the user explicitly asks for the warehouse copy, or the named provider is unavailable and the user chooses a fallback. `data-source-status --key <provider>` accepts provider aliases such as `jira`, `pylon`, `bigquery`, `hubspot`, `gong`, and `slack`.
+
 If a provider action returns an error:
 
 - **Credentials not configured** — surface the action's message and settings path when provided, and point the user at Settings → Data sources.
@@ -43,7 +47,7 @@ If a provider action returns an error:
 
 After a provider error, stop using that provider for the current turn. Do not keep retrying, reformulating, or continuing into follow-up analysis unless the user explicitly asks you to.
 
-For ordinary ad-hoc data questions, answer the explicit question after the first relevant successful query. Do not turn a "what to look into next" section into more tool calls unless the user asked for a deeper investigation.
+For ordinary ad-hoc data questions, answer the explicit question after the first relevant successful query or bounded evidence batch. Do not turn a "what to look into next" section into more tool calls unless the user asked for a deeper investigation.
 
 Never claim that a provider is connected until a status check or successful action result proves it. Never fabricate numbers to cover for an unavailable provider or failed query.
 
@@ -281,13 +285,13 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 
 **Read the `adhoc-analysis` skill** before running an analysis. The key workflow: gather data from multiple sources → synthesize findings → save with `save-analysis` (including re-run instructions) → navigate the user to `/analyses/{id}`.
 
-`save-analysis` will refuse to save without non-empty `resultData`. Populate it with raw query results, row samples, aggregate metrics, and explicit provider error details from the data-source actions you actually ran. Do not use it as a scratchpad for invented or illustrative values.
+`save-analysis` will refuse to save without non-empty `resultData`. Populate it with raw query results, row samples, aggregate metrics, analyzed call/message IDs, transcript/message excerpts, coded theme counts, sentiment labels, and explicit provider error details from the data-source actions you actually ran. Do not use it as a scratchpad for invented or illustrative values.
 
 ### Data Source Scripts
 
 | Action                         | Args / Flags                | Use For                                                                                                                                                   |
 | ------------------------------ | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `data-source-status`           | `[--key <name>]`            | Show configured data-source credentials without revealing values                                                                                          |
+| `data-source-status`           | `[--key <provider-or-key>]` | Show configured data-source credentials without revealing values. Accepts aliases like `jira`, `pylon`, `bigquery`, `hubspot`, `gong`, `slack`.           |
 | `github-prs`                   | `--org`, `--query`          | PR & issue search                                                                                                                                         |
 | `hubspot-deals`                |                             | CRM deals, pipelines                                                                                                                                      |
 | `hubspot-metrics`              |                             | CRM metrics summary                                                                                                                                       |
@@ -307,7 +311,7 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 | `seo-page-keywords`            | `--url`                     | Keywords for a specific page                                                                                                                              |
 | `seo-blog-pages`               |                             | Blog page SEO metrics                                                                                                                                     |
 | `ga4-report`                   | `--metrics`, `--dimensions` | Google Analytics reports                                                                                                                                  |
-| `bigquery`                     | `--sql`                     | Ad-hoc BigQuery queries when BigQuery is configured. Surface missing-credential or API errors; never invent warehouse data                                |
+| `bigquery`                     | `--sql`                     | Ad-hoc BigQuery/warehouse queries when BigQuery is configured. Do not use as a substitute for named provider actions like Jira or Pylon.                  |
 | `query-agent-native-analytics` | `--sql`                     | Query first-party `analytics_events` recorded via `/track`, including traffic, product events, and app/template usage collected by this analytics app     |
 | `create-analytics-public-key`  | `[--name <label>]`          | Generate a public write key for hosted apps to send events to `analytics.agent-native.com/track`                                                          |
 | `list-analytics-public-keys`   |                             | List active/revoked first-party analytics write keys                                                                                                      |
@@ -326,6 +330,8 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 | `check-form-schema`            |                             | Show the inbound forms table schema in the app database                                                                                                   |
 | `query-inbound-forms`          | `[--limit N]`               | Query inbound form submissions from the app database                                                                                                      |
 | `onboarding-events`            | `[--days N]`                | Onboarding funnel events from BigQuery                                                                                                                    |
+
+**Gong/call analysis must be bounded.** For ordinary requests about Gong calls, inspect the 5–8 most recent relevant calls, synthesize an answer, and stop. `gong-calls` defaults to `limit=8` and returns guidance telling you whether more calls may exist. Do not keep broadening the search, adding more calls, or fetching another batch in the same turn just because you found "next questions" while writing. If the bounded sample is not enough, say exactly how many calls you checked and ask whether the user wants you to continue with more.
 
 ### Action-Specific Filtering
 

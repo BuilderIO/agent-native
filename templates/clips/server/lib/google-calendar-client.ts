@@ -172,6 +172,27 @@ export interface ListEventsResponse {
   nextPageToken?: string;
 }
 
+export interface GetEventArgs {
+  accessToken: string;
+  calendarId?: string;
+  eventId: string;
+}
+
+/** Fetch a single event by id. Throws on non-2xx. */
+export async function getEvent(args: GetEventArgs): Promise<CalendarEvent> {
+  const calId = encodeURIComponent(args.calendarId ?? "primary");
+  const eventId = encodeURIComponent(args.eventId);
+  const url = `${GOOGLE_CALENDAR_API}/calendars/${calId}/events/${eventId}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${args.accessToken}` },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Google calendar event failed (${res.status}): ${text}`);
+  }
+  return (await res.json()) as CalendarEvent;
+}
+
 /** Make a single events.list call (one page). Throws on non-2xx. */
 async function listEventsPage(
   args: ListEventsArgs,

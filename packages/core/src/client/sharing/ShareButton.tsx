@@ -484,6 +484,11 @@ function SharePanel(
     );
   };
 
+  const handleDone = () => {
+    if (canManage && hasInviteEmail) handleAdd();
+    onClose();
+  };
+
   const titleText = resourceTitle
     ? `Share "${resourceTitle}"`
     : `Share ${resourceType}`;
@@ -669,7 +674,11 @@ function SharePanel(
       ) : null}
 
       <div className="mt-2 flex justify-end">
-        <button type="button" onClick={onClose} className={BUTTON_PRIMARY_SM}>
+        <button
+          type="button"
+          onClick={handleDone}
+          className={BUTTON_PRIMARY_SM}
+        >
           Done
         </button>
       </div>

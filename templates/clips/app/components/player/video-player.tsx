@@ -8,16 +8,31 @@ import {
   useState,
 } from "react";
 import { appBasePath, captureClientException } from "@agent-native/core/client";
+import { IconPlayerPlay } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/spinner";
-import { PlayerControls } from "./player-controls";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { PlayerControls, SPEED_OPTIONS } from "./player-controls";
 import { CaptionsOverlay } from "./captions-overlay";
 import { CtaButton } from "./cta-button";
+import { msToClock } from "./scrubber";
 import {
   getExcludedRanges,
   parseEdits,
   type TrimRange,
 } from "@/lib/timestamp-mapping";
+import {
+  captureVideoThumbnailBlob,
+  thumbnailUrlHasVisibleContent,
+  uploadRecordingThumbnail,
+} from "@/lib/thumbnail-capture";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -84,11 +99,8 @@ export interface VideoPlayerProps {
   /** Optional poster/thumbnail styling. */
   cover?: boolean;
   /**
-   * Viewer role for this recording. When `owner` (and `thumbnailUrl` is not
-   * already set) we opportunistically capture the first rendered frame and
-   * POST it to `/api/recordings/:id/thumbnail` so the library grid has a
-   * real thumbnail on future loads — fixes clips recorded before the
-   * thumbnail-capture feature shipped.
+   * Viewer role for this recording. When `owner`, we opportunistically capture
+   * a visible frame for missing or blank auto-generated library thumbnails.
    */
   role?: "owner" | "admin" | "editor" | "viewer";
 }
@@ -128,6 +140,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const containerRef = useRef<HTMLDivElement | null>(null);
     const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const playAttemptPendingRef = useRef(false);
+    const playAttemptIdRef = useRef(0);
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentMs, setCurrentMs] = useState(startMs ?? 0);
     const [volume, setVolume] = useState(1);
@@ -137,6 +151,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [captionsOn, setCaptionsOn] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isPip, setIsPip] = useState(false);
+    const [canPlay, setCanPlay] = useState(false);
+    const [isPlayPending, setIsPlayPending] = useState(false);
+    const [isBuffering, setIsBuffering] = useState(false);
+    const [playError, setPlayError] = useState<string | null>(null);
     // MediaRecorder-created WebM files report `video.duration === Infinity`
     // until the browser has actually scrubbed to the end. When that happens
     // the scrubber's percentage math breaks (anything / Infinity = 0) and
@@ -152,8 +170,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const durationProbedRef = useRef(false);
     const initialVisibleFrameSeekedRef = useRef(false);
     // Whether we've already captured-and-uploaded a still-frame thumbnail for
-    // this clip. Owner-only, once per player lifecycle, skipped if the row
-    // already has a thumbnailUrl — see the capture effect below for why.
+    // this clip. Owner-only and once per player lifecycle.
     const thumbnailCapturedRef = useRef(false);
     // "Preparing your clip…" overlay — shown while the browser buffers the
     // first frame of a freshly-finalized clip so the user doesn't see a blank
@@ -161,7 +178,111 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // after a 10s safety timeout.
     const [isPreparing, setIsPreparing] = useState<boolean>(!!videoUrl);
     const edits = useMemo(() => parseEdits(editsJson), [editsJson]);
+    const hasEditorThumbnail = Boolean(edits.thumbnail);
+    const [shouldRefreshAutoThumbnail, setShouldRefreshAutoThumbnail] =
+      useState(false);
     const excludedRanges = useMemo(() => getExcludedRanges(edits), [edits]);
+
+    // Hide controls after 2s of idle movement.
+    const bumpControls = useCallback(() => {
+      setShowControls(true);
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+      if (alwaysShowControls) return;
+      idleTimer.current = setTimeout(() => {
+        setShowControls(false);
+      }, 2000);
+    }, [alwaysShowControls]);
+
+    const resolvePlayAttempt = useCallback((attemptId: number) => {
+      if (attemptId !== playAttemptIdRef.current) return;
+      playAttemptPendingRef.current = false;
+      setIsPlayPending(false);
+      setIsBuffering(false);
+      setIsPreparing(false);
+    }, []);
+
+    const rejectPlayAttempt = useCallback((attemptId: number, err: unknown) => {
+      if (attemptId !== playAttemptIdRef.current) return;
+      playAttemptPendingRef.current = false;
+      setIsPlayPending(false);
+      setIsBuffering(false);
+
+      const name = err instanceof DOMException ? err.name : "";
+      if (name === "AbortError") return;
+
+      console.warn("[clips] playback start failed", err);
+      setPlayError("Could not start playback. Try again.");
+    }, []);
+
+    const attachPlayPromise = useCallback(
+      (playPromise: Promise<void> | undefined, attemptId: number) => {
+        if (!playPromise || typeof playPromise.then !== "function") {
+          resolvePlayAttempt(attemptId);
+          return;
+        }
+
+        void playPromise
+          .then(() => resolvePlayAttempt(attemptId))
+          .catch((err) => rejectPlayAttempt(attemptId, err));
+      },
+      [rejectPlayAttempt, resolvePlayAttempt],
+    );
+
+    const requestPlay = useCallback(() => {
+      const v = videoRef.current;
+      if (!v || !videoUrl) return;
+      if (playAttemptPendingRef.current) return;
+
+      bumpControls();
+      setPlayError(null);
+      setIsBuffering(v.readyState < 3);
+      setIsPlayPending(true);
+
+      const attemptId = playAttemptIdRef.current + 1;
+      playAttemptIdRef.current = attemptId;
+      playAttemptPendingRef.current = true;
+
+      try {
+        attachPlayPromise(v.play(), attemptId);
+      } catch (err) {
+        rejectPlayAttempt(attemptId, err);
+      }
+    }, [attachPlayPromise, bumpControls, rejectPlayAttempt, videoUrl]);
+
+    const retryPendingPlay = useCallback(
+      (v: HTMLVideoElement) => {
+        if (!playAttemptPendingRef.current || !v.paused) return;
+        try {
+          attachPlayPromise(v.play(), playAttemptIdRef.current);
+        } catch (err) {
+          rejectPlayAttempt(playAttemptIdRef.current, err);
+        }
+      },
+      [attachPlayPromise, rejectPlayAttempt],
+    );
+
+    const pauseVideo = useCallback(() => {
+      playAttemptIdRef.current += 1;
+      playAttemptPendingRef.current = false;
+      setIsPlayPending(false);
+      setIsBuffering(false);
+      videoRef.current?.pause();
+    }, []);
+
+    const togglePlayback = useCallback(() => {
+      const v = videoRef.current;
+      if (!v) return;
+      if (!v.paused || isPlaying) {
+        pauseVideo();
+        return;
+      }
+      requestPlay();
+    }, [isPlaying, pauseVideo, requestPlay]);
+
+    const applySpeed = useCallback((rate: number) => {
+      if (videoRef.current) videoRef.current.playbackRate = rate;
+      setSpeed(rate);
+    }, []);
 
     const seekToVisibleMs = useCallback(
       (ms: number) => {
@@ -187,13 +308,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         get video() {
           return videoRef.current;
         },
-        play: () => videoRef.current?.play(),
-        pause: () => videoRef.current?.pause(),
+        play: requestPlay,
+        pause: pauseVideo,
         seek: seekToVisibleMs,
-        setSpeed: (rate: number) => {
-          if (videoRef.current) videoRef.current.playbackRate = rate;
-          setSpeed(rate);
-        },
+        setSpeed: applySpeed,
         toggleMute: () => {
           if (videoRef.current) {
             videoRef.current.muted = !videoRef.current.muted;
@@ -204,7 +322,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         toggleFullscreen: () => void toggleFullscreenInternal(),
         togglePip: () => togglePipInternal(),
       }),
-      [seekToVisibleMs],
+      [applySpeed, pauseVideo, requestPlay, seekToVisibleMs],
     );
 
     // Apply initial playbackRate and start position.
@@ -293,66 +411,78 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     useEffect(() => {
       thumbnailCapturedRef.current = false;
       initialVisibleFrameSeekedRef.current = false;
+      playAttemptIdRef.current += 1;
+      playAttemptPendingRef.current = false;
+      setCanPlay(false);
+      setIsPlayPending(false);
+      setIsBuffering(false);
+      setPlayError(null);
     }, [recordingId, videoUrl]);
 
+    useEffect(() => {
+      let cancelled = false;
+      setShouldRefreshAutoThumbnail(false);
+
+      if (!thumbnailUrl || hasEditorThumbnail) return;
+
+      void thumbnailUrlHasVisibleContent(thumbnailUrl).then((visible) => {
+        if (!cancelled && visible === false) {
+          setShouldRefreshAutoThumbnail(true);
+          thumbnailCapturedRef.current = false;
+        }
+      });
+
+      return () => {
+        cancelled = true;
+      };
+    }, [hasEditorThumbnail, thumbnailUrl]);
+
     // Opportunistically capture and upload a still-frame thumbnail for the
-    // owner as soon as the first frame is ready. We only do this once per
-    // clip, skip if the row already has a thumbnail, and silently no-op on
-    // failure — the fallback play-icon placeholder in the library grid is
-    // still fine. This backfills thumbnails for clips recorded before the
-    // capture feature shipped.
+    // owner as soon as the first visible frame is ready. We skip editor-picked
+    // thumbnails, but refresh auto-generated thumbnails that probed as blank.
     const captureThumbnail = useCallback(() => {
       if (thumbnailCapturedRef.current) return;
       if (role !== "owner") return;
-      if (thumbnailUrl) return;
+      if (hasEditorThumbnail) return;
       if (!recordingId) return;
+      const replaceAuto = Boolean(thumbnailUrl && shouldRefreshAutoThumbnail);
+      if (thumbnailUrl && !replaceAuto) return;
       const v = videoRef.current;
       if (!v || !v.videoWidth || !v.videoHeight) return;
 
       thumbnailCapturedRef.current = true;
 
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width = v.videoWidth;
-        canvas.height = v.videoHeight;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob(
-          (blob) => {
-            if (!blob) return;
-            fetch(`${appBasePath()}/api/recordings/${recordingId}/thumbnail`, {
-              method: "POST",
-              headers: { "Content-Type": blob.type || "image/jpeg" },
-              body: blob,
-            }).catch((err) => {
-              // Thumbnails are best-effort — never fail the player UI.
-              // Still log to console for dev visibility, and report to
-              // Sentry so we can spot regressions / Builder.io upload
-              // outages without users ever seeing a broken-looking page.
-              console.warn("[clips] thumbnail upload failed", err);
-              try {
-                captureClientException(err, {
-                  tags: { uploadStep: "thumbnail" },
-                  extra: {
-                    recordingId,
-                    blobBytes: blob.size,
-                    mimeType: blob.type || "image/jpeg",
-                    message: err instanceof Error ? err.message : String(err),
-                  },
-                });
-              } catch {
-                // Best-effort — never throw from a fire-and-forget catch.
-              }
+      void captureVideoThumbnailBlob(v)
+        .then((blob) => {
+          if (!blob) {
+            thumbnailCapturedRef.current = false;
+            return null;
+          }
+          return uploadRecordingThumbnail(recordingId, blob, { replaceAuto });
+        })
+        .catch((err) => {
+          // Thumbnails are best-effort — never fail the player UI.
+          console.warn("[clips] thumbnail capture/upload failed", err);
+          try {
+            captureClientException(err, {
+              tags: { uploadStep: "thumbnail" },
+              extra: {
+                recordingId,
+                replaceAuto,
+                message: err instanceof Error ? err.message : String(err),
+              },
             });
-          },
-          "image/jpeg",
-          0.85,
-        );
-      } catch (err) {
-        console.warn("[clips] thumbnail capture failed", err);
-      }
-    }, [recordingId, role, thumbnailUrl]);
+          } catch {
+            // Best-effort — never throw from a fire-and-forget catch.
+          }
+        });
+    }, [
+      hasEditorThumbnail,
+      recordingId,
+      role,
+      shouldRefreshAutoThumbnail,
+      thumbnailUrl,
+    ]);
 
     const seekInitialVisibleFrame = useCallback(
       (v: HTMLVideoElement): boolean => {
@@ -398,16 +528,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const t = setTimeout(() => setIsPreparing(false), 10000);
       return () => clearTimeout(t);
     }, [videoUrl]);
-
-    // Hide controls after 2s of idle movement.
-    const bumpControls = useCallback(() => {
-      setShowControls(true);
-      if (idleTimer.current) clearTimeout(idleTimer.current);
-      if (alwaysShowControls) return;
-      idleTimer.current = setTimeout(() => {
-        setShowControls(false);
-      }, 2000);
-    }, [alwaysShowControls]);
 
     useEffect(() => {
       bumpControls();
@@ -478,6 +598,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       currentMs >= resolvedDurationMs - 200;
 
     const showThroughoutCta = cta && cta.placement === "throughout";
+    const centerOverlayMode =
+      videoUrl && !showEndCta && (!isPlaying || isPlayPending || isBuffering)
+        ? isPreparing || isPlayPending || isBuffering || !canPlay
+          ? "loading"
+          : "ready"
+        : null;
+    const centerOverlayLabel = isPlayPending
+      ? "Starting playback"
+      : isBuffering
+        ? "Buffering"
+        : "Preparing clip";
 
     return (
       <div
@@ -493,10 +624,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           // Clicking the video toggles play — but not when clicking controls.
           const target = e.target as HTMLElement;
           if (target.closest("[data-player-ui]")) return;
-          if (videoRef.current) {
-            if (videoRef.current.paused) videoRef.current.play();
-            else videoRef.current.pause();
-          }
+          togglePlayback();
         }}
       >
         {videoUrl ? (
@@ -510,23 +638,59 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             )}
             autoPlay={autoPlay}
             playsInline
+            onLoadStart={() => {
+              setCanPlay(false);
+              setIsPreparing(true);
+              setIsBuffering(false);
+              setPlayError(null);
+            }}
             onPlay={() => {
               setIsPlaying(true);
               onPlay?.();
             }}
+            onPlaying={() => {
+              setIsPlaying(true);
+              setCanPlay(true);
+              setIsPreparing(false);
+              setIsBuffering(false);
+              resolvePlayAttempt(playAttemptIdRef.current);
+            }}
             onPause={() => {
               setIsPlaying(false);
+              playAttemptPendingRef.current = false;
+              setIsPlayPending(false);
+              setIsBuffering(false);
               onPause?.();
             }}
             onLoadedData={(e) => {
               const didSeek = seekInitialVisibleFrame(e.currentTarget);
+              setCanPlay(e.currentTarget.readyState >= 2);
               setIsPreparing(false);
+              retryPendingPlay(e.currentTarget);
               if (!didSeek) captureThumbnail();
             }}
             onCanPlay={(e) => {
               const didSeek = seekInitialVisibleFrame(e.currentTarget);
+              setCanPlay(true);
               setIsPreparing(false);
+              setIsBuffering(false);
+              retryPendingPlay(e.currentTarget);
               if (!didSeek) captureThumbnail();
+            }}
+            onCanPlayThrough={(e) => {
+              setCanPlay(true);
+              setIsBuffering(false);
+              retryPendingPlay(e.currentTarget);
+            }}
+            onWaiting={(e) => {
+              if (!e.currentTarget.paused || playAttemptPendingRef.current) {
+                setIsBuffering(true);
+              }
+            }}
+            onStalled={(e) => {
+              if (!e.currentTarget.paused || playAttemptPendingRef.current) {
+                setIsBuffering(true);
+              }
             }}
             onSeeked={() => {
               setIsPreparing(false);
@@ -559,7 +723,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             }}
             onEnded={() => {
               setIsPlaying(false);
+              setIsPlayPending(false);
+              setIsBuffering(false);
               onEnded?.();
+            }}
+            onError={() => {
+              playAttemptPendingRef.current = false;
+              setIsPlayPending(false);
+              setIsBuffering(false);
+              setIsPreparing(false);
+              setPlayError("Video could not be loaded.");
             }}
             onVolumeChange={(e) => {
               setVolume(e.currentTarget.volume);
@@ -572,16 +745,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           </div>
         )}
 
-        {/* Preparing overlay — shown while the browser buffers the first
-            playable frame so the user doesn't stare at a black rectangle. */}
-        {videoUrl && isPreparing ? (
-          <div
-            data-player-ui
-            className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black text-white/80 pointer-events-none"
-          >
-            <Spinner className="h-8 w-8 text-white/70" />
-            <p className="text-sm font-medium">Preparing your clip…</p>
-          </div>
+        {centerOverlayMode ? (
+          <CenterPlaybackOverlay
+            mode={centerOverlayMode}
+            label={centerOverlayLabel}
+            durationMs={resolvedDurationMs}
+            speed={speed}
+            playError={playError}
+            onPlay={requestPlay}
+            onSpeedChange={applySpeed}
+          />
         ) : null}
 
         {/* Captions */}
@@ -643,10 +816,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               excludedRanges={excludedRanges}
               hasCaptions={!!transcriptSegments?.length}
               onPlayPause={() => {
-                const v = videoRef.current;
-                if (!v) return;
-                if (v.paused) v.play();
-                else v.pause();
+                togglePlayback();
               }}
               onSeek={(ms) => {
                 seekToVisibleMs(ms);
@@ -668,9 +838,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 }
               }}
               onSpeedChange={(rate) => {
-                const v = videoRef.current;
-                if (v) v.playbackRate = rate;
-                setSpeed(rate);
+                applySpeed(rate);
               }}
               onToggleCaptions={() => setCaptionsOn((v) => !v)}
               onTogglePip={() => void togglePipInternal()}
@@ -683,6 +851,106 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     );
   },
 );
+
+function CenterPlaybackOverlay({
+  mode,
+  label,
+  durationMs,
+  speed,
+  playError,
+  onPlay,
+  onSpeedChange,
+}: {
+  mode: "loading" | "ready";
+  label: string;
+  durationMs: number;
+  speed: number;
+  playError: string | null;
+  onPlay: () => void;
+  onSpeedChange: (rate: number) => void;
+}) {
+  const showLoading = mode === "loading" && !playError;
+
+  return (
+    <div
+      className={cn(
+        "absolute inset-0 z-10 flex items-center justify-center pointer-events-none text-white transition-colors",
+        showLoading ? "bg-black/55" : "bg-black/15",
+      )}
+      aria-live="polite"
+    >
+      <div className="flex flex-col items-center gap-3 px-4 drop-shadow-[0_8px_24px_rgba(0,0,0,0.55)]">
+        {showLoading ? (
+          <div className="flex flex-col items-center gap-3 rounded-md bg-black/70 px-4 py-3 shadow-xl ring-1 ring-white/10 backdrop-blur-md">
+            <Spinner className="h-8 w-8 text-white/85" />
+            <p className="text-sm font-medium text-white/85">{label}</p>
+          </div>
+        ) : (
+          <>
+            <button
+              data-player-ui
+              type="button"
+              aria-label="Play clip"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPlay();
+              }}
+              className="pointer-events-auto flex h-24 w-24 items-center justify-center rounded-full bg-white text-black shadow-2xl ring-1 ring-white/35 transition-transform duration-150 hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+            >
+              <IconPlayerPlay className="ml-1 h-12 w-12 fill-current" />
+            </button>
+
+            <div
+              data-player-ui
+              className="pointer-events-auto flex items-center gap-2 rounded-md bg-black/75 px-3 py-2 text-sm font-semibold text-white shadow-xl ring-1 ring-white/10 backdrop-blur-md"
+            >
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="rounded-md px-2 py-1 tabular-nums transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                  >
+                    {formatSpeedLabel(speed)}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="center"
+                  side="top"
+                  className="min-w-[96px]"
+                >
+                  <DropdownMenuLabel>Speed</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {SPEED_OPTIONS.map((rate) => (
+                    <DropdownMenuItem
+                      key={rate}
+                      onSelect={() => onSpeedChange(rate)}
+                      className={cn(
+                        "tabular-nums",
+                        rate === speed && "bg-accent font-semibold",
+                      )}
+                    >
+                      {formatSpeedLabel(rate)}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <span className="h-4 w-px bg-white/20" aria-hidden />
+              <span className="min-w-12 text-center tabular-nums">
+                {msToClock(durationMs)}
+              </span>
+            </div>
+
+            {playError ? (
+              <p className="max-w-xs rounded-md bg-black/70 px-3 py-2 text-center text-xs font-medium text-white/85 ring-1 ring-white/10">
+                {playError}
+              </p>
+            ) : null}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Clamp a millisecond seek target to a value the browser will actually accept.
@@ -719,4 +987,8 @@ function skipExcludedRange(
   if (!range) return ms;
   const next = Math.max(ms, range.endMs);
   return durationMs > 0 ? Math.min(next, durationMs) : next;
+}
+
+function formatSpeedLabel(rate: number): string {
+  return `${Number.isInteger(rate) ? rate : rate.toFixed(1)}x`;
 }

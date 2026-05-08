@@ -1,33 +1,35 @@
 import { Link } from "react-router";
 import { useState } from "react";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { withDefaultSocialImage } from "../seo";
 
-export const meta = () => [
-  {
-    title:
-      "Agent-Native Calendar — Open Source Alternative to Google Calendar & Calendly",
-  },
-  {
-    name: "description",
-    content:
-      "Build an AI-powered calendar you own. Open source alternative to Google Calendar and Calendly. Google Calendar sync, public booking pages, configurable availability, and natural language scheduling.",
-  },
-  {
-    property: "og:title",
-    content:
-      "Agent-Native Calendar — Open Source Alternative to Google Calendar & Calendly",
-  },
-  {
-    property: "og:description",
-    content:
-      "Build an AI-powered calendar you own. Google Calendar sync, public booking pages, and natural language scheduling.",
-  },
-  {
-    name: "keywords",
-    content:
-      "AI calendar, open source calendar, Google Calendar alternative, Calendly alternative, AI scheduling, agent-native calendar, AI booking page, open source scheduling, AI appointment booking, natural language scheduling",
-  },
-];
+export const meta = () =>
+  withDefaultSocialImage([
+    {
+      title:
+        "Agent-Native Calendar — Open Source Alternative to Google Calendar & Calendly",
+    },
+    {
+      name: "description",
+      content:
+        "Build an AI-powered calendar you own. Open source alternative to Google Calendar and Calendly. Google Calendar sync, public booking pages, configurable availability, and natural language scheduling.",
+    },
+    {
+      property: "og:title",
+      content:
+        "Agent-Native Calendar — Open Source Alternative to Google Calendar & Calendly",
+    },
+    {
+      property: "og:description",
+      content:
+        "Build an AI-powered calendar you own. Google Calendar sync, public booking pages, and natural language scheduling.",
+    },
+    {
+      name: "keywords",
+      content:
+        "AI calendar, open source calendar, Google Calendar alternative, Calendly alternative, AI scheduling, agent-native calendar, AI booking page, open source scheduling, AI appointment booking, natural language scheduling",
+    },
+  ]);
 
 const template = templates.find((t) => t.slug === "calendar")!;
 

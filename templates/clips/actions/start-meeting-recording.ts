@@ -19,6 +19,10 @@ import {
 } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
+import {
+  materializeCalendarMeetingFromVirtualId,
+  parseCalendarMeetingId,
+} from "../server/lib/calendar-event-meetings.js";
 
 export default defineAction({
   description:
@@ -30,7 +34,18 @@ export default defineAction({
     hasAudio: z.boolean().optional().default(true),
   }),
   run: async (args) => {
-    await assertAccess("meeting", args.meetingId, "editor");
+    let meetingId = args.meetingId;
+    if (parseCalendarMeetingId(args.meetingId)) {
+      const materialized = await materializeCalendarMeetingFromVirtualId(
+        args.meetingId,
+      );
+      if (!materialized?.meeting?.id) {
+        throw new Error("Calendar event not found. Reconnect Google Calendar.");
+      }
+      meetingId = materialized.meeting.id;
+    }
+
+    await assertAccess("meeting", meetingId, "editor");
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const orgId = await getActiveOrganizationId();
@@ -39,9 +54,9 @@ export default defineAction({
     const [meeting] = await db
       .select()
       .from(schema.meetings)
-      .where(eq(schema.meetings.id, args.meetingId))
+      .where(eq(schema.meetings.id, meetingId))
       .limit(1);
-    if (!meeting) throw new Error(`Meeting not found: ${args.meetingId}`);
+    if (!meeting) throw new Error(`Meeting not found: ${meetingId}`);
 
     if (meeting.recordingId) {
       // Already linked — return the existing row instead of creating a duplicate.
@@ -53,7 +68,7 @@ export default defineAction({
       if (existing) {
         return {
           recording: existing,
-          meetingId: args.meetingId,
+          meetingId,
           created: false,
         };
       }
@@ -84,13 +99,13 @@ export default defineAction({
         transcriptStatus: "pending",
         updatedAt: nowIso,
       })
-      .where(eq(schema.meetings.id, args.meetingId));
+      .where(eq(schema.meetings.id, meetingId));
 
     // Tell the UI / Tauri tray app to start the actual capture.
     await writeAppState("record-intent", {
       mode: "meeting",
       recordingId,
-      meetingId: args.meetingId,
+      meetingId,
       requestedAt: nowIso,
     });
     await writeAppState("refresh-signal", { ts: Date.now() });
@@ -101,6 +116,6 @@ export default defineAction({
       .where(eq(schema.recordings.id, recordingId))
       .limit(1);
 
-    return { recording, meetingId: args.meetingId, created: true };
+    return { recording, meetingId, created: true };
   },
 });

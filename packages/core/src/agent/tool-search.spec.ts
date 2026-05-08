@@ -115,6 +115,29 @@ describe("tool-search", () => {
     );
   });
 
+  it("ranks named provider tools above generic warehouse tools", () => {
+    const registry = {
+      bigquery: action(
+        "Query the user-configured BigQuery data warehouse. Use this for warehouse SQL, not as a substitute for Jira or Pylon provider data.",
+      ),
+      "pylon-issues": action(
+        "Query Pylon support issues and customer accounts. Use this first for Pylon support ticket data.",
+      ),
+      jira: action(
+        "Query Jira issues, bugs, tickets, boards, sprints, and project tracking.",
+      ),
+      "jira-search": action("Search Jira issues and bugs using JQL."),
+    };
+
+    expect(
+      searchToolRegistry(registry, { query: "pylon support issues" }).results[0]
+        ?.name,
+    ).toBe("pylon-issues");
+    expect(
+      searchToolRegistry(registry, { query: "jira bugs" }).results[0]?.name,
+    ).toMatch(/^jira/);
+  });
+
   it("honors MCP request visibility for scoped connected servers", () => {
     vi.stubEnv("NODE_ENV", "production");
     const registry = {

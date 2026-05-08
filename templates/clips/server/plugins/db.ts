@@ -156,6 +156,9 @@ const migrations = runMigrations(
       folder_id TEXT,
       space_ids TEXT NOT NULL DEFAULT '[]',
       title TEXT NOT NULL DEFAULT 'Untitled recording',
+      title_source TEXT NOT NULL DEFAULT 'default',
+      source_app_name TEXT,
+      source_window_title TEXT,
       description TEXT NOT NULL DEFAULT '',
       thumbnail_url TEXT,
       animated_thumbnail_url TEXT,
@@ -617,6 +620,18 @@ const migrations = runMigrations(
     {
       version: 37,
       sql: `CREATE INDEX IF NOT EXISTS clips_vocabulary_shares_resource_idx ON clips_vocabulary_shares (resource_id)`,
+    },
+    {
+      version: 38,
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS title_source TEXT NOT NULL DEFAULT 'default'`,
+    },
+    {
+      version: 39,
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS source_app_name TEXT`,
+    },
+    {
+      version: 40,
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS source_window_title TEXT`,
     },
   ],
   { table: "clips_migrations" },

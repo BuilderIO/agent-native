@@ -52,7 +52,10 @@ export default defineAction({
       updatedAt: new Date().toISOString(),
     };
 
-    if (typeof args.title === "string") patch.title = args.title.trim();
+    if (typeof args.title === "string") {
+      patch.title = args.title.trim();
+      patch.titleSource = "manual";
+    }
     if (typeof args.description === "string")
       patch.description = args.description;
     if (args.folderId !== undefined) patch.folderId = args.folderId ?? null;

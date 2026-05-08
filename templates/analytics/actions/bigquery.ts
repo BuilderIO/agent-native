@@ -55,7 +55,7 @@ function stopForBigQueryFailure(code: string, message: string): never {
 
 export default defineAction({
   description:
-    "Query the user-configured BigQuery data warehouse. Use this for warehouse tables and views from connected analytics sources. Pass standard SQL via the `sql` arg. Do NOT use `db-query` for warehouse data (it only reaches the app's own SQL database). If BigQuery returns any error, stop and report it to the user instead of retrying or reformulating more queries in the same turn.",
+    "Query the user-configured BigQuery data warehouse. Use this when the user asks for warehouse SQL, BigQuery, or a data-dictionary metric/table that lives in BigQuery. If the user names a provider action such as Jira or Pylon, use that provider action first and do not use BigQuery unless the user explicitly asks for a warehouse copy. Pass standard SQL via the `sql` arg. Do NOT use `db-query` for warehouse data (it only reaches the app's own SQL database). If BigQuery returns any error, stop and report it to the user instead of retrying or reformulating more queries in the same turn.",
   schema: z.object({
     sql: z.string().describe("SQL query to execute"),
   }),

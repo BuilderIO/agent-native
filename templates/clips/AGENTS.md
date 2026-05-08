@@ -174,10 +174,10 @@ cd templates/clips && pnpm action <name> [args]
 
 Start / stop / pause are **UI gestures** — there is no server action. MediaRecorder needs an explicit user click (permission + user-activation). The agent sends the user to `/record` via `navigate --view=record`, the user picks the mode and hits Start.
 
-| Action               | Args                                                                 | Purpose                                                                             |
-| -------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `create-recording`   | `--title [--folderId] [--organizationId] [--hasCamera] [--hasAudio]` | Insert a recording row in `uploading` status. Called from the frontend upload flow. |
-| `finalize-recording` | `--id <id>`                                                          | Internal — assembles chunks, uploads the blob, flips status to `ready`.             |
+| Action               | Args                                                                                                                                                                | Purpose                                                                                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `create-recording`   | `[--title] [--titleSource default\|context\|upload\|ai\|manual] [--sourceAppName] [--sourceWindowTitle] [--folderId] [--organizationId] [--hasCamera] [--hasAudio]` | Insert a recording row in `uploading` status. Called from the frontend upload flow; recorders pass app/window context for Loom-style fallback titles. |
+| `finalize-recording` | `--id <id>`                                                                                                                                                         | Internal — assembles chunks, uploads the blob, flips status to `ready`.                                                                               |
 
 ### Library + CRUD
 
@@ -384,7 +384,7 @@ See the `authentication` skill for the full mode matrix (`AUTH_MODE=local`, `ACC
 
 Clips has a **Meetings** tab (`/meetings`) and a **Dictate** tab (`/dictate`):
 
-- **Meetings** lists upcoming + past meetings synced from Google Calendar (or created ad-hoc), with a two-pane detail view: live transcript (left) + AI summary / bullets / per-attendee action items (right). Use `list-meetings`, `get-meeting`, `finalize-meeting`, `connect-calendar`, etc. Navigation state exposes `view: "meetings" | "meeting"` and `meetingId`.
+- **Meetings** lists upcoming + past meetings synced from Google Calendar, with a two-pane detail view: live transcript (left) + AI summary / bullets / per-attendee action items (right). Use `list-meetings`, `get-meeting`, `finalize-meeting`, `connect-calendar`, `delete-meeting`, etc. Navigation state exposes `view: "meetings" | "meeting"` and `meetingId`; `view-screen` includes `calendarAccounts` health so agents can distinguish an empty calendar from `needs-reauth` / sync failures. The visible Meetings UI is calendar-sourced only: no "New meeting" CTA.
 - **Dictate** is the press-and-hold/browser dictation history: every Hold-Fn, Cmd+Shift+Space, or in-browser dictation is saved as a row, expandable to show original + AI-cleaned text. Use `create-dictation`, `list-dictations`, `cleanup-dictation`. Navigation state exposes `view: "dictate"` and `dictationId`.
 
 **Audio capture: mic + system, tagged.** Meeting capture records two streams (`mic` and `system`) and tags every transcript segment with its `source`, so per-attendee action items can attribute speech to remote attendees. Mic-only recordings make remote attendees silent — call this out whenever the user expects coverage of people on the other end of a Zoom/Meet/Teams call. Dictations are mic-only by design.

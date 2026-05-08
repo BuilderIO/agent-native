@@ -1,13 +1,15 @@
 import DocsLayout from "../components/DocsLayout";
 import MarkdownRenderer from "../components/MarkdownRenderer";
 import { getDoc } from "../components/docs-content";
+import { withDefaultSocialImage } from "../seo";
 
 const doc = getDoc("getting-started")!;
 
-export const meta = () => [
-  { title: `${doc.title} — Agent-Native` },
-  { name: "description", content: doc.description },
-];
+export const meta = () =>
+  withDefaultSocialImage([
+    { title: `${doc.title} — Agent-Native` },
+    { name: "description", content: doc.description },
+  ]);
 
 export default function DocsIndex() {
   const toc = doc.headings.map((h) => ({

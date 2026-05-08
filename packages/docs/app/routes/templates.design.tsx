@@ -1,31 +1,33 @@
 import { Link } from "react-router";
 import { useState } from "react";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { withDefaultSocialImage } from "../seo";
 
-export const meta = () => [
-  {
-    title: "Agent-Native Design — Open Source AI HTML Prototyping Tool",
-  },
-  {
-    name: "description",
-    content:
-      "Create interactive HTML prototypes with AI. Generate Alpine/Tailwind designs from prompts, compare variants, refine with tweak controls, and export HTML, ZIP, or PDF.",
-  },
-  {
-    property: "og:title",
-    content: "Agent-Native Design — Open Source AI HTML Prototyping Tool",
-  },
-  {
-    property: "og:description",
-    content:
-      "Generate, refine, preview, and export interactive HTML prototypes — built on an agent you own.",
-  },
-  {
-    name: "keywords",
-    content:
-      "AI design tool, AI HTML prototype, open source design tool, AI UI generator, Alpine Tailwind prototype, agent-native design, prompt to HTML, generative design",
-  },
-];
+export const meta = () =>
+  withDefaultSocialImage([
+    {
+      title: "Agent-Native Design — Open Source AI HTML Prototyping Tool",
+    },
+    {
+      name: "description",
+      content:
+        "Create interactive HTML prototypes with AI. Generate Alpine/Tailwind designs from prompts, compare variants, refine with tweak controls, and export HTML, ZIP, or PDF.",
+    },
+    {
+      property: "og:title",
+      content: "Agent-Native Design — Open Source AI HTML Prototyping Tool",
+    },
+    {
+      property: "og:description",
+      content:
+        "Generate, refine, preview, and export interactive HTML prototypes — built on an agent you own.",
+    },
+    {
+      name: "keywords",
+      content:
+        "AI design tool, AI HTML prototype, open source design tool, AI UI generator, Alpine Tailwind prototype, agent-native design, prompt to HTML, generative design",
+    },
+  ]);
 
 const template = templates.find((t) => t.slug === "design")!;
 

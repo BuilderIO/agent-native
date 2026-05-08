@@ -50,6 +50,12 @@ Ephemeral UI state is stored in the SQL `application_state` table, accessed via 
 
 The `navigation` key is written by the UI whenever the route changes. The `navigate` key is a one-shot command: the agent writes it, the UI reads and executes the navigation, then deletes it.
 
+## Mounted Workspace Routing
+
+This app may be mounted under `/<app-id>` in a workspace. Inside app source, React Router paths are app-local: use `<Link to="/review">` and `navigate("/review")`, not `/<app-id>/review`. The workspace gateway and `APP_BASE_PATH` add the mounted prefix in the browser; hardcoding it inside React Router links causes doubled URLs such as `/<app-id>/<app-id>/review`.
+
+For raw paths outside React Router, use the core helpers: `appPath()` for static assets or normal hrefs, `appApiPath()` for `/api/*`, and `agentNativePath()` for `/_agent-native/*`.
+
 ## Agent Operations
 
 **Always know what the user is currently viewing before you edit anything.** The user's view can change mid-conversation. Stale IDs lead to editing the wrong record.
@@ -101,7 +107,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 
 As you build out this app, follow this checklist for each new feature:
 
-1. **Add navigation state entries** -- create or extend `app/hooks/use-navigation-state.ts` to track new routes
+1. **Add navigation state entries** -- extend `app/hooks/use-navigation-state.ts` to track new routes
 2. **Enhance view-screen** -- make the view-screen script return relevant context for the new view
 3. **Create domain actions** -- add scripts for CRUD operations on new data models
 4. **Create domain skills** -- add `.agents/skills/<feature>/SKILL.md` documenting the data model, storage patterns, and agent operations

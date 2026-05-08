@@ -3,6 +3,9 @@ import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 export interface RecordingSummary {
   id: string;
   title: string;
+  titleSource?: "default" | "context" | "upload" | "ai" | "manual";
+  sourceAppName?: string | null;
+  sourceWindowTitle?: string | null;
   description: string;
   thumbnailUrl: string | null;
   animatedThumbnailUrl: string | null;
