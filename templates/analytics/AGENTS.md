@@ -39,6 +39,8 @@ When source availability is unclear, call `data-source-status` and inspect exist
 
 When the user names a data source or tool, that source is authoritative for the turn. If they ask for Jira, Pylon, HubSpot, Gong, Slack, Sentry, GA4, or another provider by name, call that provider's action first and report its real result or unavailable/error state. Do not substitute BigQuery for a named provider unless the user explicitly asks for the warehouse copy, or the named provider is unavailable and the user chooses a fallback. `data-source-status --key <provider>` accepts provider aliases such as `jira`, `pylon`, `bigquery`, `hubspot`, `gong`, and `slack`.
 
+Connected MCP/provider tools are also real source access. If `tool-search` returns a provider-specific MCP tool for a named source (for example a HubSpot search tool), use it when it is the best match and treat the returned records as evidence.
+
 If a provider action returns an error:
 
 - **Credentials not configured** — surface the action's message and settings path when provided, and point the user at Settings → Data sources.
@@ -294,11 +296,11 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 | `data-source-status`           | `[--key <provider-or-key>]` | Show configured data-source credentials without revealing values. Accepts aliases like `jira`, `pylon`, `bigquery`, `hubspot`, `gong`, `slack`.           |
 | `github-prs`                   | `--org`, `--query`          | PR & issue search                                                                                                                                         |
 | `hubspot-deals`                |                             | CRM deals, pipelines                                                                                                                                      |
-| `hubspot-deal-properties`      | `[--search <term>]`         | Search HubSpot deal property metadata before requesting custom fields such as NBM dates                                                                    |
+| `hubspot-deal-properties`      | `[--search <term>]`         | Search HubSpot deal property metadata before requesting custom fields such as NBM dates                                                                   |
 | `hubspot-metrics`              |                             | CRM metrics summary                                                                                                                                       |
 | `hubspot-pipelines`            |                             | Pipeline stages                                                                                                                                           |
 | `hubspot-records`              | `--objectType`, `--query`   | Search or list HubSpot contacts, companies, deals, and tickets. Use this when the data is in HubSpot but is not strictly a deal pipeline metric.          |
-| `hubspot-properties`           | `--objectType`, `--search`  | Search HubSpot property metadata for contacts, companies, deals, and tickets before requesting custom fields.                                               |
+| `hubspot-properties`           | `--objectType`, `--search`  | Search HubSpot property metadata for contacts, companies, deals, and tickets before requesting custom fields.                                             |
 | `jira-search`                  | `--jql`, `--fields`         | Ticket search                                                                                                                                             |
 | `jira-analytics`               |                             | Sprint tracking, velocity                                                                                                                                 |
 | `jira`                         | `--mode`, `--jql`, `--key`  | Jira issues, issue details, projects, statuses, boards, sprints, and analytics                                                                            |
@@ -346,26 +348,26 @@ pnpm action commonroom-members --query="enterprise" --limit=10
 
 ## Common Tasks
 
-| User request                        | What to do                                                                                                                                                         |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| "What am I looking at?"             | `view-screen`                                                                                                                                                      |
-| "Show weekly signup trends"         | Query the configured signup source, then emit a live `/chart` embed (see Inline Charts in Chat). Do **not** use `generate-chart` — that's for saved analyses only. |
-| "Create a dashboard for X"          | Use `update-dashboard`, then navigate to it                                                                                                                        |
-| "How many open bugs?"               | `jira-search --jql="issuetype = Bug AND resolution = Unresolved"`                                                                                                  |
-| "Find deals over $50k"              | `hubspot-deals`, then filter returned deals by `amount` and cite the matching records                                                                               |
-| "Find this customer/contact/company" | `hubspot-records --objectType=companies --query="<name-or-domain>"` or `hubspot-records --objectType=contacts --query="<email-or-name>"`                          |
-| "Build an AE QBR / NBM deck"        | `hubspot-deals --properties nbm_meeting_booked_date,nbm_meeting_complete_date,hs_manual_forecast_category`; use HubSpot as the source of truth before any warehouse fallback |
-| "Check error rates"                 | `sentry --mode=issues --statsPeriod=7d`                                                                                                                            |
-| "Show me PRs from this week"        | `github-prs --org=<github-org> --query="is:open created:>2026-03-27"`                                                                                              |
-| "Top keywords for our blog"         | `seo-top-keywords --fields=keyword,rank_absolute,etv`                                                                                                              |
-| "Go to the overview"                | `navigate --view=overview`                                                                                                                                         |
-| "Open the weekly metrics dashboard" | `navigate --view=adhoc --dashboardId=weekly-metrics`                                                                                                               |
-| "Analyze our closed-lost deals"     | Read `adhoc-analysis` skill, gather data, save with `save-analysis`                                                                                                |
-| "Re-run this analysis"              | Read saved instructions, re-gather data, update with `save-analysis`                                                                                               |
-| "Show me my analyses"               | `navigate --view=analyses`                                                                                                                                         |
-| "Build me a dashboard for X"        | `list-data-dictionary --search=X` FIRST, then compose from entries                                                                                                 |
-| "Document this metric"              | `save-data-dictionary-entry --metric="…" --definition="…" …`                                                                                                       |
-| "Populate the data dictionary"      | Ask where definitions live, fetch them, loop over `save-data-dictionary-entry`                                                                                     |
+| User request                         | What to do                                                                                                                                                                   |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "What am I looking at?"              | `view-screen`                                                                                                                                                                |
+| "Show weekly signup trends"          | Query the configured signup source, then emit a live `/chart` embed (see Inline Charts in Chat). Do **not** use `generate-chart` — that's for saved analyses only.           |
+| "Create a dashboard for X"           | Use `update-dashboard`, then navigate to it                                                                                                                                  |
+| "How many open bugs?"                | `jira-search --jql="issuetype = Bug AND resolution = Unresolved"`                                                                                                            |
+| "Find deals over $50k"               | `hubspot-deals`, then filter returned deals by `amount` and cite the matching records                                                                                        |
+| "Find this customer/contact/company" | `hubspot-records --objectType=companies --query="<name-or-domain>"` or `hubspot-records --objectType=contacts --query="<email-or-name>"`                                     |
+| "Build an AE QBR / NBM deck"         | `hubspot-deals --properties nbm_meeting_booked_date,nbm_meeting_complete_date,hs_manual_forecast_category`; use HubSpot as the source of truth before any warehouse fallback |
+| "Check error rates"                  | `sentry --mode=issues --statsPeriod=7d`                                                                                                                                      |
+| "Show me PRs from this week"         | `github-prs --org=<github-org> --query="is:open created:>2026-03-27"`                                                                                                        |
+| "Top keywords for our blog"          | `seo-top-keywords --fields=keyword,rank_absolute,etv`                                                                                                                        |
+| "Go to the overview"                 | `navigate --view=overview`                                                                                                                                                   |
+| "Open the weekly metrics dashboard"  | `navigate --view=adhoc --dashboardId=weekly-metrics`                                                                                                                         |
+| "Analyze our closed-lost deals"      | Read `adhoc-analysis` skill, gather data, save with `save-analysis`                                                                                                          |
+| "Re-run this analysis"               | Read saved instructions, re-gather data, update with `save-analysis`                                                                                                         |
+| "Show me my analyses"                | `navigate --view=analyses`                                                                                                                                                   |
+| "Build me a dashboard for X"         | `list-data-dictionary --search=X` FIRST, then compose from entries                                                                                                           |
+| "Document this metric"               | `save-data-dictionary-entry --metric="…" --definition="…" …`                                                                                                                 |
+| "Populate the data dictionary"       | Ask where definitions live, fetch them, loop over `save-data-dictionary-entry`                                                                                               |
 
 **Key principle**: When asked a question, don't say "check the dashboard" — actually query the data, get results, and present the answer directly in chat with tables and/or charts.
 
