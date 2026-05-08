@@ -83,9 +83,15 @@ async function resolveSlackSenderProfile(
   const teamId = contextString(incoming.platformContext.teamId);
   if (!token || !userId) return { email: null, name: null };
 
-  const cacheKey = `${teamId ?? "default"}:${userId}`;
-  const cached = slackProfileCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) return cached.profile;
+  // Slack user IDs are scoped per workspace, so without a teamId we can't
+  // safely cache: two installs of the bot in different workspaces could
+  // share user-id strings and collide on a single "default" key. Skip the
+  // cache (and lookup on every request) when teamId is missing.
+  const cacheKey = teamId ? `${teamId}:${userId}` : null;
+  if (cacheKey) {
+    const cached = slackProfileCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.profile;
+  }
 
   try {
     const params = new URLSearchParams({ user: userId });
@@ -115,10 +121,12 @@ async function resolveSlackSenderProfile(
             null,
         }
       : { email: null, name: null };
-    slackProfileCache.set(cacheKey, {
-      profile,
-      expiresAt: Date.now() + SLACK_PROFILE_CACHE_TTL,
-    });
+    if (cacheKey) {
+      slackProfileCache.set(cacheKey, {
+        profile,
+        expiresAt: Date.now() + SLACK_PROFILE_CACHE_TTL,
+      });
+    }
     return profile;
   } catch {
     return { email: null, name: null };
