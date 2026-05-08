@@ -1272,15 +1272,16 @@ async function verifyDiscoveryCoach(page: CdpPage, contextId: number) {
     `document.body.innerText.includes('Opening questions') && document.body.innerText.includes('Connect to buyer')`,
     contextId,
   );
+  await clickButton(page, contextId, "Developer / Engineer");
+  await clickButton(page, contextId, "What they say vs. mean");
   await page.evaluate(
     `(() => {
-      const state = [...document.querySelectorAll('*')]
-        .map((el) => el._x_dataStack?.[0])
-        .find((candidate) => candidate && candidate.opPains && candidate.stages);
-      if (!state) throw new Error('Missing Discovery Coach Alpine state');
-      state.activePersonaId = 'developer';
-      state.personaSection = 'pains';
-      state.expandedPersonaIndexes = [0];
+      const label = [...document.querySelectorAll('*')]
+        .find((el) => el.textContent && el.textContent.trim() === 'They say:');
+      const card = label?.closest('.overflow-hidden');
+      const trigger = card?.querySelector('.cursor-pointer');
+      if (!trigger) throw new Error('Missing persona pain trigger');
+      trigger.click();
       return true;
     })()`,
     contextId,
