@@ -1234,6 +1234,9 @@ async function verifyDiscoveryCoach(page: CdpPage, contextId: number) {
   const counts = await page.evaluate<{
     stages: number;
     pains: number;
+    personas: number;
+    businessPains: number;
+    translations: number;
     wonSignals: number;
     lostSignals: number;
   }>(
@@ -1245,21 +1248,53 @@ async function verifyDiscoveryCoach(page: CdpPage, contextId: number) {
       return {
         stages: state.stages?.length || 0,
         pains: state.opPains?.length || 0,
+        personas: state.personas?.length || 0,
+        businessPains: Object.keys(state.businessPains || {}).length,
+        translations: state.translationMap?.length || 0,
         wonSignals: state.wonSignals?.length || 0,
         lostSignals: state.lostSignals?.length || 0
       };
     })()`,
     contextId,
   );
-  if (!counts.stages || !counts.pains || !counts.wonSignals) {
+  if (
+    !counts.stages ||
+    !counts.pains ||
+    !counts.personas ||
+    !counts.businessPains ||
+    !counts.translations ||
+    !counts.wonSignals
+  ) {
     throw new Error(`Discovery data missing: ${JSON.stringify(counts)}`);
   }
+  await clickButton(page, contextId, "Persona guide");
+  await page.waitFor<string>(
+    `document.body.innerText.includes('Opening questions') && document.body.innerText.includes('Connect to buyer')`,
+    contextId,
+  );
+  await page.evaluate(
+    `(() => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && candidate.opPains && candidate.stages);
+      if (!state) throw new Error('Missing Discovery Coach Alpine state');
+      state.activePersonaId = 'developer';
+      state.personaSection = 'pains';
+      state.expandedPersonaIndexes = [0];
+      return true;
+    })()`,
+    contextId,
+  );
+  await page.waitFor<string>(
+    `document.body.innerText.includes('What they mean') && document.body.innerText.includes('Business pain to find')`,
+    contextId,
+  );
   await clickButton(page, contextId, "Pain translation map");
   await page.waitFor<string>(
     `document.body.innerText.includes('Pain translation map')`,
     contextId,
   );
-  await clickButton(page, contextId, "Win/loss signals");
+  await clickButton(page, contextId, "Win / loss signals");
   await page.waitFor<string>(
     `document.body.innerText.includes('Won deals') && document.body.innerText.includes('Lost deals')`,
     contextId,
@@ -1272,6 +1307,7 @@ async function verifyDiscoveryCoach(page: CdpPage, contextId: number) {
         .find((candidate) => candidate && candidate.opPains && candidate.stages);
       if (!state) throw new Error('Missing Discovery Coach Alpine state');
       state.selectedPain = 0;
+      state.expandedPainQuestions = [0];
       return true;
     })()`,
     contextId,
@@ -1280,7 +1316,23 @@ async function verifyDiscoveryCoach(page: CdpPage, contextId: number) {
     `document.body.innerText.includes('Listen for:')`,
     contextId,
   );
-  return `stages=${counts.stages}, pains=${counts.pains}, signals=${counts.wonSignals + counts.lostSignals}`;
+  await clickButton(page, contextId, "Business pains");
+  await page.evaluate(
+    `(() => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && candidate.opPains && candidate.stages);
+      if (!state) throw new Error('Missing Discovery Coach Alpine state');
+      state.expandedBusinessPainIds = [Object.keys(state.businessPains || {})[0]].filter(Boolean);
+      return true;
+    })()`,
+    contextId,
+  );
+  await page.waitFor<string>(
+    `document.body.innerText.includes('Forcing function question') && document.body.innerText.includes('Won examples')`,
+    contextId,
+  );
+  return `stages=${counts.stages}, pains=${counts.pains}, personas=${counts.personas}, businessPains=${counts.businessPains}, signals=${counts.wonSignals + counts.lostSignals}`;
 }
 
 async function verifyEngagement(page: CdpPage, contextId: number) {
