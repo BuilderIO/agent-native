@@ -49,8 +49,8 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
         case "k":
         case "K":
           e.preventDefault();
-          if (v.paused) v.play();
-          else v.pause();
+          if (v.paused) void player.play();
+          else player.pause();
           break;
         case "j":
         case "J":

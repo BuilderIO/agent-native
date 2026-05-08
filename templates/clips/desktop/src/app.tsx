@@ -457,15 +457,17 @@ export function App() {
   const [micOn, setMicOn] = useState<boolean>(() => loadBool(MIC_ON_KEY, true));
   const [voiceShortcut, setVoiceShortcut] = useState<VoiceShortcutPreference>(
     () => {
-      if (!loadBool(VOICE_SHORTCUT_CONFIGURED_KEY, false)) return "both";
-      const saved = loadString(VOICE_SHORTCUT_KEY, "both");
+      if (!loadBool(VOICE_SHORTCUT_CONFIGURED_KEY, false)) {
+        return "cmd-shift-space";
+      }
+      const saved = loadString(VOICE_SHORTCUT_KEY, "cmd-shift-space");
       return saved === "fn" ||
         saved === "cmd-shift-space" ||
         saved === "ctrl-shift-space" ||
         saved === "custom" ||
         saved === "both"
         ? saved
-        : "both";
+        : "cmd-shift-space";
     },
   );
   const [voiceCustomShortcut, setVoiceCustomShortcut] = useState<string>(() =>
@@ -517,6 +519,10 @@ export function App() {
   // Stored so Cancel can stop the polling loop.
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isRecording = recorder !== null;
+  const voiceDictationEnabled = featureConfig?.voiceEnabled !== false;
+  const fnShortcutEnabled =
+    voiceDictationEnabled &&
+    (voiceShortcut === "fn" || voiceShortcut === "both");
   const updateVoiceShortcut = useCallback((value: VoiceShortcutPreference) => {
     saveBool(VOICE_SHORTCUT_CONFIGURED_KEY, true);
     setVoiceShortcut(value);
@@ -529,7 +535,7 @@ export function App() {
 
   useEffect(() => {
     return installDesktopVoiceDictation({
-      enabled: featureConfig?.voiceEnabled !== false,
+      enabled: voiceDictationEnabled,
       serverUrl,
       shortcut: voiceShortcut,
       mode: voiceMode,
@@ -537,13 +543,21 @@ export function App() {
       instructions: voiceInstructions,
     });
   }, [
-    featureConfig?.voiceEnabled,
     serverUrl,
     voiceShortcut,
+    voiceDictationEnabled,
     voiceMode,
     voiceProvider,
     voiceInstructions,
   ]);
+
+  useEffect(() => {
+    invoke("set_fn_shortcut_enabled", { enabled: fnShortcutEnabled }).catch(
+      (err) => {
+        console.warn("[clips-tray] set_fn_shortcut_enabled failed:", err);
+      },
+    );
+  }, [fnShortcutEnabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -963,15 +977,15 @@ export function App() {
   // The bubble overlay (small circular PiP in the bottom-left of the screen
   // showing the user's face) uses two paths. Browser capture keeps the camera
   // in this popover for the entire session because WebKit can mute capture
-  // tracks across same-process webviews. Native full-screen capture only uses
-  // a local bubble camera when the explicit development flag is enabled.
+  // tracks across same-process webviews. Native full-screen capture uses a
+  // local bubble camera because the native screen recorder captures that
+  // overlay directly.
   //
   // Lifecycle:
   //   - Popover visible + camera mode + cameraOn → acquire camera, call
-  //     show_bubble, then either start the WebRTC/canvas relay
-  //     (default browser capture) or tell the bubble to start its local camera
-  //     (explicit native full-screen capture). User sees their face in the
-  //     bottom-left corner.
+  //     show_bubble, then either start the WebRTC/canvas relay (browser
+  //     capture) or tell the bubble to start its local camera (native
+  //     full-screen capture). User sees their face in the bottom-left corner.
   //   - User clicks Start Recording → popover hides, recording begins.
   //     `isRecording` becomes true, so this effect's deps still say
   //     "active" — the stream + bubble + pump keep running. The recorder
@@ -2854,12 +2868,14 @@ function Setup({
     byok: "Use your own provider key for cleanup.",
   };
   const shortcutHint: Record<VoiceShortcutPreference, string> = {
-    fn: "Press the Fn / globe key to dictate.",
-    "cmd-shift-space": "Press Cmd+Shift+Space to dictate.",
+    fn: "Press the Fn / globe key to dictate. macOS requires Input Monitoring for this one shortcut.",
+    "cmd-shift-space":
+      "Press Cmd+Shift+Space to dictate. This does not need Input Monitoring.",
     "ctrl-shift-space": "Press Ctrl+Shift+Space to dictate.",
     custom: `Press ${voiceCustomShortcut || "your recorded shortcut"} to dictate.`,
-    both: "Any of Fn, Cmd+Shift+Space, or Ctrl+Shift+Space.",
+    both: "Any of Fn, Cmd+Shift+Space, or Ctrl+Shift+Space. Includes Fn, so macOS may ask for Input Monitoring.",
   };
+  const fnShortcutSelected = voiceShortcut === "fn" || voiceShortcut === "both";
   const modeHint: Record<VoiceMode, string> = {
     "push-to-talk": "Hold the shortcut while speaking. Release to stop.",
     toggle: "Press once to start, again to stop.",
@@ -3090,13 +3106,6 @@ function Setup({
             >
               Accessibility
             </button>
-            <button
-              type="button"
-              className="setup-permission-button"
-              onClick={() => openMacosPrivacySettings("input-monitoring")}
-            >
-              Input Monitoring
-            </button>
           </div>
         </div>
       ) : null}
@@ -3246,11 +3255,11 @@ function Setup({
                 )
               }
             >
-              <option value="fn">Fn (globe) key</option>
               <option value="cmd-shift-space">Cmd+Shift+Space</option>
               <option value="ctrl-shift-space">Ctrl+Shift+Space</option>
               <option value="custom">Custom shortcut</option>
-              <option value="both">All shortcuts</option>
+              <option value="fn">Fn (globe, needs Input Monitoring)</option>
+              <option value="both">All shortcuts (includes Fn)</option>
             </select>
             {voiceShortcut === "custom" ? (
               <ShortcutRecorder
@@ -3260,6 +3269,15 @@ function Setup({
               />
             ) : null}
             <p className="setup-hint">{shortcutHint[voiceShortcut]}</p>
+            {isMacPlatform() && fnShortcutSelected ? (
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => openMacosPrivacySettings("input-monitoring")}
+              >
+                Open Input Monitoring
+              </button>
+            ) : null}
           </div>
 
           <div className="setup-section">

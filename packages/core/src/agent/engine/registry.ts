@@ -210,6 +210,31 @@ export function isStoredEngineUsable(
   return entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v));
 }
 
+/**
+ * Request-aware version of `isStoredEngineUsable`.
+ *
+ * The settings row stores the selected engine/model, while credentials may
+ * live in per-user/org `app_secrets`. The sync helper intentionally only sees
+ * deploy env vars; this async helper is what request-time routes should use
+ * when deciding whether a stored engine can actually run for the current user.
+ */
+export async function isStoredEngineUsableForRequest(
+  stored: unknown,
+  entry: AgentEngineEntry,
+): Promise<boolean> {
+  if (isAgentEngineSettingConfigured(stored)) return true;
+  if (entry.requiredEnvVars.length === 0) return true;
+  for (const key of entry.requiredEnvVars) {
+    try {
+      if (await resolveSecret(key)) continue;
+    } catch {
+      // Fall through to the deployment-level check below.
+    }
+    if (!readDeployCredentialEnv(key)) return false;
+  }
+  return true;
+}
+
 export interface ResolveEngineConfig {
   /** Explicit engine name or instance from createAgentChatPlugin options */
   engineOption?:
@@ -223,13 +248,16 @@ export interface ResolveEngineConfig {
 }
 
 /**
- * Resolve an AgentEngine from options → settings → env → default.
+ * Resolve an AgentEngine from options → explicit env → request credentials →
+ * settings → env → default.
  *
  * Resolution order:
  * 1. Explicit `engineOption` from plugin options (string name, instance, or {name, config})
- * 2. Settings store key "agent-engine" → { engine: string }
- * 3. Env var AGENT_ENGINE
- * 4. Default "anthropic" (requires ANTHROPIC_API_KEY)
+ * 2. Env var AGENT_ENGINE
+ * 3. Current request's app_secrets; Builder wins by default when connected
+ * 4. Settings store key "agent-engine" → { engine: string }, when usable
+ * 5. Auto-detect deployment env credentials
+ * 6. Default "anthropic" (requires ANTHROPIC_API_KEY)
  */
 export async function resolveEngine(
   config: ResolveEngineConfig,
@@ -273,36 +301,47 @@ export async function resolveEngine(
     return entry.create({ apiKey });
   }
 
-  // 4. Settings store — only when the stored row's API key is reachable.
-  try {
-    const stored = await getSetting("agent-engine");
-    if (stored && typeof stored.engine === "string") {
-      const entry = _registry.get(stored.engine);
-      if (entry && isStoredEngineUsable(stored, entry)) {
-        return entry.create({
-          apiKey,
-          ...stripInlineApiKeyConfig(
-            stored.config as Record<string, unknown> | undefined,
-          ),
-        });
-      }
-    }
-  } catch {
-    // Settings not available — fall through
-  }
-
-  // 5. Env var — explicit engine name override
+  // 4. Env var — explicit engine name override
   const envEngine = process.env.AGENT_ENGINE;
   if (envEngine) {
     const entry = _registry.get(envEngine);
     if (entry) return entry.create({ apiKey });
   }
 
-  // 6. Auto-detect from the current user's per-user `app_secrets` rows
+  let stored:
+    | (Record<string, unknown> & { engine?: unknown; config?: unknown })
+    | null = null;
+  try {
+    stored = (await getSetting("agent-engine")) as typeof stored;
+  } catch {
+    // Settings not available — fall through
+  }
+
+  // 5. Auto-detect from the current user's per-user `app_secrets` rows
   // (Builder OAuth callback + "paste your own key" settings flow write
   // here, not env). Comes before env-detection so a user-specific
-  // connection wins over a stale deploy-level key.
+  // Builder connection wins over a stale deploy-level/provider key.
   const detectedFromUser = await detectEngineFromUserSecrets();
+  if (detectedFromUser?.name === "builder") {
+    return detectedFromUser.create({ apiKey });
+  }
+
+  // 6. Settings store — only when the stored row's API key is reachable.
+  // This remains below Builder detection so "Builder.io connected" and the
+  // runtime agree on the default managed gateway path. Non-Builder user keys
+  // still honor the stored provider/model when Builder is not connected.
+  if (stored && typeof stored.engine === "string") {
+    const entry = _registry.get(stored.engine);
+    if (entry && (await isStoredEngineUsableForRequest(stored, entry))) {
+      return entry.create({
+        apiKey,
+        ...stripInlineApiKeyConfig(
+          stored.config as Record<string, unknown> | undefined,
+        ),
+      });
+    }
+  }
+
   if (detectedFromUser) return detectedFromUser.create({ apiKey });
 
   // 8. Auto-detect from any provider env var — so just dropping a key in

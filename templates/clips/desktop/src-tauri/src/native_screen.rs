@@ -30,6 +30,10 @@ const TARGET_UPLOAD_BYTES: u64 = 95 * 1024 * 1024;
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
 const AVCONVERT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const PENDING_UPLOADS_DIR: &str = "pending-recording-uploads";
+const THUMBNAIL_MIME_TYPE: &str = "image/jpeg";
+const THUMBNAIL_MAX_BYTES: u64 = 2 * 1024 * 1024;
+const THUMBNAIL_WIDTH: &str = "1280";
+const SIPS_PATH: &str = "/usr/bin/sips";
 
 #[derive(Default)]
 pub struct NativeFullscreenRecordingState {
@@ -261,6 +265,31 @@ pub async fn native_fullscreen_recording_stop_and_upload(
 }
 
 #[tauri::command]
+pub async fn native_fullscreen_capture_thumbnail(
+    app: AppHandle,
+    server_url: String,
+    recording_id: String,
+    auth_token: Option<String>,
+    cookie: Option<String>,
+) -> Result<(), String> {
+    let bytes = capture_thumbnail_bytes(&app, &recording_id)?;
+    tauri::async_runtime::spawn(async move {
+        if let Err(err) = upload_thumbnail_bytes(
+            server_url,
+            recording_id.clone(),
+            auth_token.unwrap_or_default(),
+            cookie.unwrap_or_default(),
+            bytes,
+        )
+        .await
+        {
+            eprintln!("[clips-tray] native thumbnail upload failed for {recording_id}: {err}");
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn native_fullscreen_recording_cancel(
     state: State<'_, NativeFullscreenRecordingState>,
 ) -> Result<(), String> {
@@ -395,6 +424,108 @@ fn pending_recording_path(
 fn saved_recording_metadata_path(app: &AppHandle, recording_id: &str) -> Result<PathBuf, String> {
     let safe_id = sanitize_recording_id(recording_id);
     Ok(pending_uploads_dir(app)?.join(format!("{safe_id}.json")))
+}
+
+fn thumbnail_path(app: &AppHandle, recording_id: &str) -> Result<PathBuf, String> {
+    let safe_id = sanitize_recording_id(recording_id);
+    pending_recording_path(app, &format!("{safe_id}-thumb"), "jpg")
+}
+
+fn resized_thumbnail_path(path: &Path) -> PathBuf {
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("thumbnail");
+    path.with_file_name(format!("{stem}-1280.jpg"))
+}
+
+fn thumbnail_file_for_upload(path: &Path) -> Result<PathBuf, String> {
+    let original_bytes = std::fs::metadata(path)
+        .map_err(|e| format!("thumbnail metadata unavailable: {e}"))?
+        .len();
+    if original_bytes <= THUMBNAIL_MAX_BYTES || !std::path::Path::new(SIPS_PATH).exists() {
+        return Ok(path.to_path_buf());
+    }
+
+    let resized_path = resized_thumbnail_path(path);
+    let _ = std::fs::remove_file(&resized_path);
+    let status = Command::new(SIPS_PATH)
+        .arg("--resampleWidth")
+        .arg(THUMBNAIL_WIDTH)
+        .arg("--setProperty")
+        .arg("format")
+        .arg("jpeg")
+        .arg("--setProperty")
+        .arg("formatOptions")
+        .arg("85")
+        .arg(path)
+        .arg("--out")
+        .arg(&resized_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| format!("thumbnail resize failed: {e}"))?;
+
+    if !status.success() {
+        let _ = std::fs::remove_file(&resized_path);
+        return Ok(path.to_path_buf());
+    }
+
+    let resized_bytes = std::fs::metadata(&resized_path)
+        .map_err(|e| format!("resized thumbnail metadata unavailable: {e}"))?
+        .len();
+    if resized_bytes == 0 || resized_bytes > original_bytes {
+        let _ = std::fs::remove_file(&resized_path);
+        return Ok(path.to_path_buf());
+    }
+
+    Ok(resized_path)
+}
+
+fn capture_thumbnail_bytes(app: &AppHandle, recording_id: &str) -> Result<Vec<u8>, String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, recording_id);
+        Err("Native full-screen thumbnails are currently macOS-only.".into())
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if !std::path::Path::new("/usr/sbin/screencapture").exists() {
+            return Err("macOS screencapture is unavailable on this machine.".into());
+        }
+
+        let path = thumbnail_path(app, recording_id)?;
+        let _ = std::fs::remove_file(&path);
+        let status = Command::new("/usr/sbin/screencapture")
+            .arg("-x")
+            .arg("-t")
+            .arg("jpg")
+            .arg("-D1")
+            .arg(&path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map_err(|e| format!("thumbnail capture failed: {e}"))?;
+        if !status.success() {
+            let _ = std::fs::remove_file(&path);
+            return Err(format!("thumbnail capture exited with {status}"));
+        }
+
+        let upload_path = thumbnail_file_for_upload(&path)?;
+        let bytes =
+            std::fs::read(&upload_path).map_err(|e| format!("thumbnail read failed: {e}"))?;
+        if upload_path != path {
+            let _ = std::fs::remove_file(&upload_path);
+        }
+        let _ = std::fs::remove_file(&path);
+        if bytes.is_empty() {
+            return Err("Thumbnail capture produced an empty file.".into());
+        }
+        Ok(bytes)
+    }
 }
 
 fn saved_recording_from_session(
@@ -840,6 +971,55 @@ async fn reset_upload_chunks(
         ));
     }
     Ok(())
+}
+
+async fn upload_thumbnail_bytes(
+    server_url: String,
+    recording_id: String,
+    auth_token: String,
+    cookie: String,
+    bytes: Vec<u8>,
+) -> Result<(), String> {
+    let url = thumbnail_upload_url(&server_url, &recording_id)?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("thumbnail upload client failed: {e}"))?;
+    let mut request = client
+        .post(url)
+        .header("Content-Type", THUMBNAIL_MIME_TYPE)
+        .header("X-Request-Source", "clips-desktop")
+        .body(bytes);
+    let trimmed_token = auth_token.trim();
+    if !trimmed_token.is_empty() {
+        request = request.bearer_auth(trimmed_token);
+    }
+    let trimmed_cookie = cookie.trim();
+    if !trimmed_cookie.is_empty() {
+        request = request.header("Cookie", trimmed_cookie);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("native thumbnail upload failed: {e}"))?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(format!(
+            "native thumbnail upload returned {status}: {}",
+            body.chars().take(400).collect::<String>()
+        ));
+    }
+    Ok(())
+}
+
+fn thumbnail_upload_url(server_url: &str, recording_id: &str) -> Result<url::Url, String> {
+    let base = server_url.trim_end_matches('/');
+    url::Url::parse(&format!(
+        "{base}/api/recordings/{recording_id}/thumbnail?replace=auto"
+    ))
+    .map_err(|e| format!("invalid thumbnail upload URL: {e}"))
 }
 
 async fn send_upload_post(

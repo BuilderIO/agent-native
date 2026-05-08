@@ -105,6 +105,46 @@ export interface RecorderFinalizeResult {
 }
 
 const DEFAULT_CHUNK_MS = 2000;
+type CaptureSource = "screen" | "camera" | "microphone" | "unknown";
+
+function errorName(err: unknown): string {
+  return (err as { name?: string } | null)?.name ?? "";
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err || "Unknown error");
+}
+
+function makeAbortError(message: string): Error {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
+}
+
+function isHardScreenPermissionError(err: unknown): boolean {
+  const combined = `${errorName(err)} ${errorMessage(err)}`;
+  return /permission denied by system|blocked by system|system settings|screen recording|screen capture|screen & system audio|privacy|could not start video source|notreadableerror/i.test(
+    combined,
+  );
+}
+
+function isScreenPickerDismissal(err: unknown): boolean {
+  const name = errorName(err);
+  const message = errorMessage(err);
+  if (name === "AbortError") return true;
+  if (/cancelled|canceled|dismissed/i.test(message)) return true;
+  // Chromium reports a user-cancelled screen picker as NotAllowedError with
+  // a "by user" / "user denied" signal in the message. A bare NotAllowedError
+  // without that signal can be an enterprise-policy block or other genuine
+  // denial — surface those as errors instead of silently swallowing them.
+  if (
+    name === "NotAllowedError" &&
+    /by user|user (cancelled|canceled|denied|dismissed)/i.test(message)
+  ) {
+    return true;
+  }
+  return false;
+}
 
 /** Pick a MediaRecorder mimeType the current browser actually supports. */
 export function pickMimeTypeCandidates(): string[] {
@@ -294,13 +334,14 @@ export class RecorderEngine {
         )
         .map((result) => result.value);
 
-      const requiredFailure =
-        (wantsDisplay && displayResult.status === "rejected"
-          ? displayResult.reason
-          : null) ??
-        (wantsCamera && cameraResult.status === "rejected"
-          ? cameraResult.reason
-          : null);
+      const requiredFailure: { source: CaptureSource; reason: unknown } | null =
+        wantsDisplay && displayResult.status === "rejected"
+          ? { source: "screen", reason: displayResult.reason }
+          : wantsCamera && cameraResult.status === "rejected"
+            ? { source: "camera", reason: cameraResult.reason }
+            : wantsMic && micResult.status === "rejected"
+              ? { source: "microphone", reason: micResult.reason }
+              : null;
       if (requiredFailure) {
         for (const stream of settledStreams) {
           for (const track of stream.getTracks()) {
@@ -311,14 +352,19 @@ export class RecorderEngine {
             }
           }
         }
-        throw requiredFailure;
+        throw this.friendlyError(
+          requiredFailure.reason,
+          requiredFailure.source,
+        );
       }
 
       this.displayStream =
         displayResult.status === "fulfilled" ? displayResult.value : null;
       this.cameraStream =
         cameraResult.status === "fulfilled" ? cameraResult.value : null;
-      // Mic is optional — if denied we still record without it.
+      // If the user explicitly picked a microphone and getUserMedia rejected,
+      // we threw above. The only way this lands is wantsMic=false (user chose
+      // "No microphone") — micResult fulfills with null in that case.
       this.micStream =
         micResult.status === "fulfilled" ? micResult.value : null;
 
@@ -358,7 +404,7 @@ export class RecorderEngine {
       // running until tab close.
       this.cleanupTracks();
       this.transition("error", { reason: String(err) });
-      throw this.friendlyError(err);
+      throw err instanceof Error ? err : this.friendlyError(err);
     }
   }
 
@@ -1177,15 +1223,61 @@ export class RecorderEngine {
     this.transition("error", { message: e.message });
   }
 
-  private friendlyError(err: unknown): Error {
-    const message =
-      err instanceof Error ? err.message : String(err || "Unknown error");
-    if (/Permission denied|NotAllowedError|denied/i.test(message)) {
+  private friendlyError(
+    err: unknown,
+    source: CaptureSource = "unknown",
+  ): Error {
+    const name = errorName(err);
+    const message = errorMessage(err);
+    const combined = `${name} ${message}`;
+
+    if (source === "screen") {
+      if (isScreenPickerDismissal(err)) {
+        return makeAbortError("Screen sharing was cancelled.");
+      }
+      if (
+        /Permission denied|NotAllowedError|denied|blocked|NotReadableError|could not start video source/i.test(
+          combined,
+        )
+      ) {
+        return new Error(
+          "Screen recording is blocked for this browser. Chrome camera and microphone permissions can be allowed while macOS still blocks Screen & System Audio Recording. Open macOS System Settings > Privacy & Security > Screen & System Audio Recording, enable your browser, then quit and reopen it.",
+        );
+      }
+    }
+
+    if (source === "camera") {
+      if (/NotReadableError|TrackStartError|in use/i.test(combined)) {
+        return new Error(
+          "That camera is busy in another app. Close the other app or choose a different camera.",
+        );
+      }
+      if (/Permission denied|NotAllowedError|denied|blocked/i.test(combined)) {
+        return new Error(
+          "Camera access is blocked for this browser or by macOS. Check this site's Camera permission, then check macOS System Settings > Privacy & Security > Camera for your browser and reload Clips.",
+        );
+      }
+    }
+
+    if (source === "microphone") {
+      if (/NotReadableError|TrackStartError|in use/i.test(combined)) {
+        return new Error(
+          "That microphone is busy in another app. Close the other app or choose a different input.",
+        );
+      }
+      if (/Permission denied|NotAllowedError|denied|blocked/i.test(combined)) {
+        return new Error(
+          "Microphone access is blocked for this browser or by macOS. Check this site's Microphone permission, then check macOS System Settings > Privacy & Security > Microphone for your browser and reload Clips.",
+        );
+      }
+    }
+
+    if (/Permission denied|NotAllowedError|denied/i.test(combined)) {
       return new Error(
-        "Screen, camera, or microphone access was blocked. In Brave/Chrome, open Site settings for this app and allow Camera and Microphone. On macOS, also check System Settings > Privacy & Security for Screen Recording, Camera, and Microphone, then quit and reopen the browser.",
+        "Screen, camera, or microphone access was blocked. Open this site's browser permissions and allow Camera and Microphone. On macOS, also check System Settings > Privacy & Security for Screen & System Audio Recording, Camera, and Microphone, then quit and reopen the browser.",
       );
     }
-    if (/NotFoundError|no device/i.test(message)) {
+    if (/NotFoundError|no device/i.test(combined)) {
       return new Error(
         "No camera or microphone found. Plug one in or pick a different device.",
       );

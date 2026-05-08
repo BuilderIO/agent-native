@@ -1,7 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { Link, useNavigate } from "react-router";
-import { IconArrowLeft, IconVideo } from "@tabler/icons-react";
+import { Link, useLocation, useNavigate } from "react-router";
+import {
+  IconAlertTriangle,
+  IconArrowLeft,
+  IconCamera,
+  IconDeviceDesktop,
+  IconMicrophone,
+  IconRefresh,
+  IconVideo,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { agentNativePath, appBasePath } from "@agent-native/core/client";
 import { RequireActiveOrg } from "@agent-native/core/client/org";
@@ -104,17 +112,101 @@ function isMacPlatform(): boolean {
 }
 
 function isPermissionError(message: string): boolean {
-  return /screen|camera|microphone|mic|permission|blocked|denied|not allowed/i.test(
+  // Device-busy errors ("That camera is busy in another app", "Microphone is
+  // currently in use") mention the device name but are not permission failures
+  // — sending the user to enable a permission they already have wastes their
+  // time. Require an explicit permission/denied/blocked keyword to qualify.
+  const isDeviceBusy =
+    /\b(busy|in use|already in use|in another (app|application|tab)|currently used|conflicting)\b/i.test(
+      message,
+    );
+  const hasPermissionKeyword =
+    /\b(permission|blocked|denied|not allowed|privacy|allow|disable[d]?|enable)\b/i.test(
+      message,
+    );
+  if (isDeviceBusy && !hasPermissionKeyword) return false;
+  return /screen|camera|microphone|mic|permission|blocked|denied|not allowed|privacy/i.test(
     message,
   );
 }
 
+function isScreenPermissionError(message: string): boolean {
+  return (
+    isPermissionError(message) &&
+    /screen|display|share|system audio|screen recording|Screen & System Audio Recording/i.test(
+      message,
+    )
+  );
+}
+
+function isCameraPermissionError(message: string): boolean {
+  return isPermissionError(message) && /camera/i.test(message);
+}
+
+function isMicrophonePermissionError(message: string): boolean {
+  return isPermissionError(message) && /microphone|mic/i.test(message);
+}
+
 function permissionGuidance(message: string): string | null {
   if (!isPermissionError(message)) return null;
-  if (isMacPlatform()) {
-    return "Check Brave/Chrome Site settings first. If it still fails, open macOS System Settings > Privacy & Security and enable Screen Recording, Camera, and Microphone for your browser, then quit and reopen it.";
+  if (isScreenPermissionError(message)) {
+    if (isMacPlatform()) {
+      return "Chrome can have Camera and Microphone allowed while macOS still blocks screen capture. Enable your browser in System Settings > Privacy & Security > Screen & System Audio Recording, then quit and reopen it.";
+    }
+    return "Choose a source in the browser screen picker. If it still fails, check this site's browser permissions and reload Clips.";
   }
-  return "Open Brave/Chrome Site settings for this app and allow Camera and Microphone, then reload this page.";
+  if (isCameraPermissionError(message)) {
+    if (isMacPlatform()) {
+      return "Allow Camera in this site's browser settings and in macOS System Settings > Privacy & Security > Camera, then reload Clips.";
+    }
+    return "Open this site's browser settings, allow Camera, then reload Clips.";
+  }
+  if (isMicrophonePermissionError(message)) {
+    if (isMacPlatform()) {
+      return "Allow Microphone in this site's browser settings and in macOS System Settings > Privacy & Security > Microphone, then reload Clips.";
+    }
+    return "Open this site's browser settings, allow Microphone, then reload Clips.";
+  }
+  if (isMacPlatform()) {
+    return "Check this site's browser permissions first. If it still fails, open macOS System Settings > Privacy & Security and enable Screen & System Audio Recording, Camera, and Microphone for your browser, then quit and reopen it.";
+  }
+  return "Open this site's browser settings and allow Camera and Microphone, then reload this page.";
+}
+
+function isDismissedCapturePicker(err: unknown, message: string): boolean {
+  const name = err instanceof Error ? err.name : "";
+  return (
+    name === "AbortError" ||
+    /screen sharing was cancelled|cancelled|canceled|dismissed/i.test(message)
+  );
+}
+
+function getRecordingModeParam(value: string | null): RecordingMode | null {
+  if (value === "screen" || value === "camera") return value;
+  if (
+    value === "screen+camera" ||
+    value === "screen camera" ||
+    value === "screen-camera"
+  ) {
+    return "screen+camera";
+  }
+  return null;
+}
+
+function getDisplaySurfaceParam(value: string | null): DisplaySurface | null {
+  if (value === "monitor" || value === "window" || value === "browser") {
+    return value;
+  }
+  if (value === "screen") return "monitor";
+  return null;
+}
+
+function getRecordingErrorTitle(error: string): string {
+  if (/upload failed|chunk/i.test(error)) return "Upload failed";
+  if (isScreenPermissionError(error)) return "Screen recording needs access";
+  if (isCameraPermissionError(error)) return "Camera needs access";
+  if (isMicrophonePermissionError(error)) return "Microphone needs access";
+  return "Couldn't start recording";
 }
 
 function captureThumbnailFromPreview(
@@ -195,8 +287,91 @@ function DesktopRecorderCallout() {
   );
 }
 
+function RecordingErrorCard({
+  error,
+  onTryAgain,
+}: {
+  error: string;
+  onTryAgain: () => void;
+}) {
+  const guidance = permissionGuidance(error);
+  const permissionError = isPermissionError(error);
+
+  return (
+    <div className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
+      <div className="border-b border-border p-6">
+        <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+          <IconAlertTriangle className="h-5 w-5" />
+        </div>
+        <h2 className="text-lg font-semibold text-foreground">
+          {getRecordingErrorTitle(error)}
+        </h2>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+          {error}
+        </p>
+      </div>
+
+      {guidance && (
+        <div className="border-b border-border bg-muted/25 px-6 py-4 text-left">
+          <div className="text-xs font-medium text-foreground">
+            What to check
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {guidance}
+          </p>
+        </div>
+      )}
+
+      <div className="space-y-3 p-6">
+        <Button variant="outline" onClick={onTryAgain} className="w-full gap-2">
+          <IconRefresh className="h-4 w-4" />
+          Try again
+        </Button>
+        {permissionError && isMacPlatform() && (
+          <div className="grid grid-cols-3 gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                window.location.href = MAC_SCREEN_RECORDING_PREF_URL;
+              }}
+              className="gap-1.5 px-2 text-xs"
+            >
+              <IconDeviceDesktop className="h-3.5 w-3.5" />
+              Screen
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                window.location.href = MAC_CAMERA_PREF_URL;
+              }}
+              className="gap-1.5 px-2 text-xs"
+            >
+              <IconCamera className="h-3.5 w-3.5" />
+              Camera
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                window.location.href = MAC_MICROPHONE_PREF_URL;
+              }}
+              className="gap-1.5 px-2 text-xs"
+            >
+              <IconMicrophone className="h-3.5 w-3.5" />
+              Mic
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function RecordRoute() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [uiState, setUiState] = useState<UiState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
@@ -220,6 +395,15 @@ export default function RecordRoute() {
   const storageConfigured: boolean | null = storageQuery.isLoading
     ? null
     : !!storageQuery.data?.configured;
+  const initialRecorderOptions = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const mode = params.get("mode");
+    const surface = params.get("surface");
+    return {
+      mode: getRecordingModeParam(mode),
+      surface: getDisplaySurfaceParam(surface),
+    };
+  }, [location.search]);
   const markStorageConfigured = useCallback(
     (status?: VideoStorageStatus) => {
       queryClient.setQueryData<VideoStorageStatus>(
@@ -507,6 +691,7 @@ export default function RecordRoute() {
         if (isStale()) return;
         const message =
           err instanceof Error ? err.message : "Could not start recording";
+        const pickerDismissed = isDismissedCapturePicker(err, message);
         await liveTranscription.stopAndWait().catch(() => "");
         // If the recording row was created before the failure, trash it so it
         // doesn't sit in the library forever in 'uploading' status. This
@@ -528,6 +713,11 @@ export default function RecordRoute() {
         }
         pendingRef.current = null;
         engineRef.current = null;
+        if (pickerDismissed) {
+          setError(null);
+          setUiState("idle");
+          return;
+        }
         setError(message);
         setUiState("error");
         if (
@@ -1039,30 +1229,10 @@ export default function RecordRoute() {
     requestStop,
   ]);
 
-  // -------------------------------------------------------------------------
-  // Listen for `record-intent` app-state requests from the agent.
-  // -------------------------------------------------------------------------
-  // (We expose this as an entry point — when the agent writes `record-intent`
-  // with mode, the UI auto-kicks off. The actual poll is owned by root.tsx;
-  // this component only reads URL query params for simpler agent hand-off.)
-  useEffect(() => {
-    if (uiState !== "idle" || !storageConfigured) return;
-    const url = new URL(window.location.href);
-    const modeParam = url.searchParams.get("mode") as RecordingMode | null;
-    if (
-      modeParam &&
-      (modeParam === "screen" ||
-        modeParam === "camera" ||
-        modeParam === "screen+camera")
-    ) {
-      void startFlow({
-        mode: modeParam,
-        displaySurface: "window",
-        micDeviceId: null,
-        cameraDeviceId: null,
-      });
-    }
-  }, [uiState, startFlow, storageConfigured]);
+  // Query params can preselect recorder controls, but browser capture must
+  // still start from the user's Start click. Calling getDisplayMedia from an
+  // effect loses Chrome's transient user activation and looks like a fake
+  // permission failure even when Camera and Microphone are already allowed.
 
   // -------------------------------------------------------------------------
   // Render.
@@ -1128,6 +1298,8 @@ export default function RecordRoute() {
                 ) : storageConfigured ? (
                   <PreRecordPanel
                     onStart={startFlow}
+                    initialMode={initialRecorderOptions.mode}
+                    initialDisplaySurface={initialRecorderOptions.surface}
                     onUpload={uploadFile}
                     cameraSize={cameraSize}
                     onCameraSizeChange={setCameraSize}
@@ -1290,57 +1462,14 @@ export default function RecordRoute() {
               </div>
             </div>
           ) : (
-            <div className="max-w-md rounded-xl border border-border bg-card p-6">
-              <div className="mb-2 text-sm font-semibold text-foreground">
-                {/upload failed|chunk/i.test(error)
-                  ? "Upload failed"
-                  : "Couldn't start recording"}
-              </div>
-              <div className="text-sm text-muted-foreground">{error}</div>
-              {permissionGuidance(error) && (
-                <div className="mt-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-left text-xs text-muted-foreground">
-                  {permissionGuidance(error)}
-                </div>
-              )}
-              <div className="mt-4 flex flex-wrap justify-center gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    void doCancel();
-                  }}
-                >
-                  Try again
-                </Button>
-                {isPermissionError(error) && isMacPlatform() && (
-                  <>
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        window.location.href = MAC_SCREEN_RECORDING_PREF_URL;
-                      }}
-                    >
-                      Screen settings
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        window.location.href = MAC_CAMERA_PREF_URL;
-                      }}
-                    >
-                      Camera settings
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        window.location.href = MAC_MICROPHONE_PREF_URL;
-                      }}
-                    >
-                      Mic settings
-                    </Button>
-                  </>
-                )}
-              </div>
-            </div>
+            <RecordingErrorCard
+              error={error}
+              onTryAgain={() => {
+                // Re-run the same flow with the current mode/surface — users
+                // expect "Try again" to retry, not to wipe their selections.
+                void restart();
+              }}
+            />
           )}
         </div>
       )}

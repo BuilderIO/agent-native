@@ -43,6 +43,8 @@ export interface PreRecordPanelProps {
     micDeviceId: string | null;
     cameraDeviceId: string | null;
   }) => void;
+  initialMode?: RecordingMode | null;
+  initialDisplaySurface?: DisplaySurface | null;
   /** Called when the user picks a local video file to upload. */
   onUpload?: (file: File) => void;
   onCancel?: () => void;
@@ -128,6 +130,8 @@ const SURFACE_OPTIONS: Array<{
 
 export function PreRecordPanel({
   onStart,
+  initialMode,
+  initialDisplaySurface,
   onUpload,
   onCancel,
   busy,
@@ -135,9 +139,12 @@ export function PreRecordPanel({
   onCameraSizeChange,
 }: PreRecordPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [mode, setMode] = useState<RecordingMode>("screen+camera");
-  const [displaySurface, setDisplaySurface] =
-    useState<DisplaySurface>("window");
+  const [mode, setMode] = useState<RecordingMode>(
+    () => initialMode ?? "screen+camera",
+  );
+  const [displaySurface, setDisplaySurface] = useState<DisplaySurface>(
+    () => initialDisplaySurface ?? "window",
+  );
   const [sourceOpen, setSourceOpen] = useState(false);
   const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
@@ -155,6 +162,14 @@ export function PreRecordPanel({
     error: null,
     hasPreview: false,
   });
+
+  useEffect(() => {
+    if (initialMode) setMode(initialMode);
+  }, [initialMode]);
+
+  useEffect(() => {
+    if (initialDisplaySurface) setDisplaySurface(initialDisplaySurface);
+  }, [initialDisplaySurface]);
 
   useEffect(() => {
     let cancelled = false;

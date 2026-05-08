@@ -6,7 +6,7 @@ import {
   type FormEvent,
 } from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { IconCheck, IconMessage2 } from "@tabler/icons-react";
+import { IconCheck } from "@tabler/icons-react";
 
 const DEFAULT_FEEDBACK_URL =
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
@@ -164,7 +164,6 @@ export function FeedbackButton({ submitterEmail }: FeedbackButtonProps) {
           aria-label="Feedback"
           title="Feedback"
         >
-          <IconMessage2 size={15} stroke={2} />
           <span>Feedback</span>
         </button>
       </PopoverPrimitive.Trigger>

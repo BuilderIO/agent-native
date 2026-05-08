@@ -168,8 +168,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   top: 50%;
   transform: translateY(-50%);
   width: auto;
-  gap: 5px;
-  padding: 0 8px;
+  padding: 0 9px;
   font-size: 12px;
   font-weight: 500;
 }

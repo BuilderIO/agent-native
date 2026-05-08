@@ -86,6 +86,7 @@ pub fn run() {
             // native full-screen recording (macOS screencapture, no picker)
             native_screen::native_fullscreen_recording_available,
             native_screen::native_fullscreen_recording_start,
+            native_screen::native_fullscreen_capture_thumbnail,
             native_screen::native_fullscreen_recording_stop_and_upload,
             native_screen::native_fullscreen_recording_cancel,
             native_screen::native_fullscreen_pending_uploads,
@@ -122,6 +123,7 @@ pub fn run() {
             silence_detector::silence_detector_stop,
             // custom global shortcuts configured from Settings
             shortcuts::set_custom_shortcuts,
+            shortcuts::set_fn_shortcut_enabled,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())

@@ -69,6 +69,17 @@ function resolveModelSelection(
   groups: EngineModelGroup[],
 ): ModelSelection | undefined {
   if (!selection?.model) return undefined;
+  if (groups.length === 0) {
+    const requestedEffort = selection.effort ?? "auto";
+    const effortOptions = getReasoningEffortOptionsForModel(selection.model);
+    return {
+      model: selection.model,
+      effort:
+        requestedEffort === "auto" || effortOptions.includes(requestedEffort)
+          ? requestedEffort
+          : "auto",
+    };
+  }
   const preferredGroup = groups.find(
     (group) =>
       group.engine === selection.engine &&

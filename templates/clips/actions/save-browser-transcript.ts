@@ -35,47 +35,99 @@ export default defineAction({
     recordingId: z.string().describe("Recording ID"),
     fullText: z
       .string()
+      .optional()
+      .default("")
       .describe("Full transcript text from native speech recognition"),
     source: z
       .enum(["web-speech", "macos-native"])
       .optional()
       .describe("Native transcription source"),
+    failureReason: z
+      .string()
+      .optional()
+      .describe("Why native speech recognition could not save text"),
   }),
   run: async (args) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const now = new Date().toISOString();
+    const fullText = args.fullText.trim();
+    const failureReason = args.failureReason?.trim() || "";
 
-    if (!args.fullText.trim()) {
-      return {
-        recordingId: args.recordingId,
-        status: "skipped" as const,
-        reason: "Empty transcript",
-      };
-    }
-
-    const [existing] = await db
-      .select({ recordingId: schema.recordingTranscripts.recordingId })
+    const [current] = await db
+      .select({
+        recordingId: schema.recordingTranscripts.recordingId,
+        status: schema.recordingTranscripts.status,
+        fullText: schema.recordingTranscripts.fullText,
+        segmentsJson: schema.recordingTranscripts.segmentsJson,
+      })
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
       .limit(1);
 
-    if (existing) {
-      const [current] = await db
-        .select({
-          status: schema.recordingTranscripts.status,
-          segmentsJson: schema.recordingTranscripts.segmentsJson,
-        })
-        .from(schema.recordingTranscripts)
-        .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
-        .limit(1);
+    const hasReadySegments =
+      current?.status === "ready" &&
+      current?.segmentsJson &&
+      current.segmentsJson !== "[]";
+    const hasReadyTranscript =
+      current?.status === "ready" &&
+      (Boolean(current.fullText?.trim()) || Boolean(hasReadySegments));
 
+    if (!fullText) {
+      if (!failureReason) {
+        return {
+          recordingId: args.recordingId,
+          status: "skipped" as const,
+          reason: "Empty transcript",
+        };
+      }
+      if (hasReadyTranscript) {
+        return {
+          recordingId: args.recordingId,
+          status: "skipped" as const,
+          reason: "Transcript already exists",
+        };
+      }
+      if (current) {
+        await db
+          .update(schema.recordingTranscripts)
+          .set({
+            ownerEmail,
+            fullText: "",
+            segmentsJson: "[]",
+            status: "failed",
+            failureReason,
+            updatedAt: now,
+          })
+          .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
+      } else {
+        await db.insert(schema.recordingTranscripts).values({
+          recordingId: args.recordingId,
+          ownerEmail,
+          language: "en",
+          segmentsJson: "[]",
+          fullText: "",
+          status: "failed",
+          failureReason,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      console.warn(
+        `[clips] Native transcript failed for ${args.recordingId} via ${args.source ?? "web-speech"}: ${failureReason}`,
+      );
+      return {
+        recordingId: args.recordingId,
+        status: "failed" as const,
+        provider: args.source ?? "web-speech",
+        failureReason,
+      };
+    }
+
+    if (current) {
       // Don't overwrite an already-segmented cloud/native transcript with a
       // later lower-confidence native pass.
-      const hasReadySegments =
-        current?.status === "ready" &&
-        current?.segmentsJson &&
-        current.segmentsJson !== "[]";
       if (hasReadySegments) {
         return {
           recordingId: args.recordingId,
@@ -84,7 +136,6 @@ export default defineAction({
         };
       }
 
-      const fullText = args.fullText.trim();
       await db
         .update(schema.recordingTranscripts)
         .set({
@@ -97,7 +148,6 @@ export default defineAction({
         })
         .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
     } else {
-      const fullText = args.fullText.trim();
       await db.insert(schema.recordingTranscripts).values({
         recordingId: args.recordingId,
         ownerEmail,
@@ -112,7 +162,7 @@ export default defineAction({
     }
 
     console.log(
-      `[clips] Native transcript saved for ${args.recordingId} via ${args.source ?? "web-speech"} (${args.fullText.trim().length} chars)`,
+      `[clips] Native transcript saved for ${args.recordingId} via ${args.source ?? "web-speech"} (${fullText.length} chars)`,
     );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
@@ -133,7 +183,7 @@ export default defineAction({
       void regenerateTitle
         .run({
           recordingId: args.recordingId,
-          transcriptText: args.fullText.trim(),
+          transcriptText: fullText,
         })
         .catch((err) => {
           console.warn(
@@ -147,7 +197,7 @@ export default defineAction({
       recordingId: args.recordingId,
       status: "ready" as const,
       provider: args.source ?? "web-speech",
-      chars: args.fullText.trim().length,
+      chars: fullText.length,
       titleQueued,
     };
   },

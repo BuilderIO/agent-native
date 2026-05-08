@@ -1,9 +1,10 @@
 //! Background poller for upcoming meetings.
 //!
 //! Runs as a tokio task spawned from `lib.rs::run` setup. Every 30s it calls
-//! the backend's `list-meetings` action with `upcomingWithinMin=10`. For any
-//! meeting starting in the next 5 minutes we haven't already alerted on, we
-//! fire a native notification + the in-app banner overlay.
+//! the backend's `list-meetings` action for the next handful of live Google
+//! Calendar meetings. For any meeting starting in the next 5 minutes we
+//! haven't already alerted on, we fire a native notification + the in-app
+//! banner overlay.
 //!
 //! ## Wire-up (from the popover renderer)
 //!
@@ -34,6 +35,8 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::dlog;
 use crate::tray_meetings::MeetingItem as TrayMeetingItem;
+
+const MEETING_POLL_LIMIT: u8 = 10;
 
 /// Shared state for the watcher loop. Lives behind a Mutex; the watcher task
 /// reads it on every tick. The frontend pokes `set_server_url` /
@@ -176,11 +179,12 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
         return Ok(());
     };
 
-    let url = format!(
-        "{}/_agent-native/actions/list-meetings?upcomingWithinMin=10",
-        server_url
-    );
-    let mut req = client.get(&url);
+    let url = format!("{}/_agent-native/actions/list-meetings", server_url);
+    let limit = MEETING_POLL_LIMIT.to_string();
+    let mut req = client
+        .get(&url)
+        .query(&[("view", "upcoming"), ("limit", limit.as_str())]);
+    req = req.header("X-Request-Source", "clips-desktop");
     if let Some(c) = cookie.as_deref() {
         req = req.header("Cookie", c);
     }

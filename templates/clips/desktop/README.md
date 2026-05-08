@@ -36,6 +36,16 @@ localStorage.setItem("clips:dev-synthetic-capture", "1");
 
 Remove that key to return to real capture.
 
+Full-screen recording uses the native macOS recorder by default so it can start
+without WebKit's screen/window picker. To debug the old `getDisplayMedia` path,
+run this in the tray devtools console:
+
+```js
+localStorage.setItem("clips:native-fullscreen-recording", "0");
+```
+
+Remove that key to return full-screen mode to one-click native recording.
+
 ## First-run configuration
 
 On first launch the popover asks for the URL of your Clips server. This is stored in `localStorage` (default: `http://localhost:8080`). You can change it at any time from the popover's "Server" link.

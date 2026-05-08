@@ -7,8 +7,9 @@ import {
   listAgentEngines,
   registerBuiltinEngines,
   detectEngineFromEnv,
+  detectEngineFromUserSecrets,
   getAgentEngineEntry,
-  isStoredEngineUsable,
+  isStoredEngineUsableForRequest,
 } from "../../agent/engine/index.js";
 import { DEFAULT_MODEL } from "../../agent/default-model.js";
 import { getSetting } from "../../settings/index.js";
@@ -32,24 +33,32 @@ export async function run(): Promise<string> {
     ? (currentSetting as { engine?: string; model?: string })
     : null;
 
-  // Same priority chain resolveEngine uses: stored (if usable) → AGENT_ENGINE
-  // → detect → anthropic. Gating stored on isStoredEngineUsable keeps this
-  // in step with /agent-engine/status.
+  // Same priority chain resolveEngine uses after explicit request options:
+  // AGENT_ENGINE → Builder app_secrets → stored (if usable) → user BYOK
+  // app_secrets → env → anthropic. Gating stored on the request-aware helper
+  // keeps the picker in step with the runtime.
   const storedEntry =
     typeof current?.engine === "string"
       ? getAgentEngineEntry(current.engine)
       : undefined;
   const storedUsable =
-    !!storedEntry && isStoredEngineUsable(current, storedEntry);
+    !!storedEntry &&
+    (await isStoredEngineUsableForRequest(current, storedEntry));
+  const detectedFromUser = await detectEngineFromUserSecrets();
 
   const currentEntry =
-    (storedUsable ? storedEntry : undefined) ??
     (process.env.AGENT_ENGINE
       ? getAgentEngineEntry(process.env.AGENT_ENGINE)
       : undefined) ??
+    (detectedFromUser?.name === "builder" ? detectedFromUser : undefined) ??
+    (storedUsable ? storedEntry : undefined) ??
+    detectedFromUser ??
     detectEngineFromEnv() ??
     undefined;
-  const currentModel = storedUsable ? current?.model : undefined;
+  const currentModel =
+    storedUsable && currentEntry?.name === current?.engine
+      ? current?.model
+      : undefined;
   const currentEngineName = currentEntry?.name ?? "anthropic";
 
   const result = {

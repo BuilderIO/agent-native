@@ -384,14 +384,14 @@ See the `authentication` skill for the full mode matrix (`AUTH_MODE=local`, `ACC
 
 Clips has a **Meetings** tab (`/meetings`) and a **Dictate** tab (`/dictate`):
 
-- **Meetings** lists upcoming + past meetings synced from Google Calendar, with a two-pane detail view: live transcript (left) + AI summary / bullets / per-attendee action items (right). Use `list-meetings`, `get-meeting`, `finalize-meeting`, `connect-calendar`, `delete-meeting`, etc. Navigation state exposes `view: "meetings" | "meeting"` and `meetingId`; `view-screen` includes `calendarAccounts` health so agents can distinguish an empty calendar from `needs-reauth` / sync failures. The visible Meetings UI is calendar-sourced only: no "New meeting" CTA.
+- **Meetings** lists upcoming + past meetings from live Google Calendar reads, with a two-pane detail view: live transcript (left) + AI summary / bullets / per-attendee action items (right). Use `list-meetings`, `get-meeting`, `finalize-meeting`, `connect-calendar`, `delete-meeting`, etc. Navigation state exposes `view: "meetings" | "meeting"` and `meetingId`; `view-screen` includes `calendarAccounts` health so agents can distinguish an empty calendar from `needs-reauth` / fetch failures. The visible Meetings UI is calendar-sourced only: no "New meeting" CTA.
 - **Dictate** is the press-and-hold/browser dictation history: every Hold-Fn, Cmd+Shift+Space, or in-browser dictation is saved as a row, expandable to show original + AI-cleaned text. Use `create-dictation`, `list-dictations`, `cleanup-dictation`. Navigation state exposes `view: "dictate"` and `dictationId`.
 
 **Audio capture: mic + system, tagged.** Meeting capture records two streams (`mic` and `system`) and tags every transcript segment with its `source`, so per-attendee action items can attribute speech to remote attendees. Mic-only recordings make remote attendees silent — call this out whenever the user expects coverage of people on the other end of a Zoom/Meet/Teams call. Dictations are mic-only by design.
 
 **Bidirectional recording↔meeting link.** A meeting recording sets `meetings.recordingId` AND `recordings.meeting_id`, so a recording opened from the Library can also be recognized as a meeting (and vice versa). When a recording row's `meeting_id` is non-null, both the Clips and Meetings answers are valid.
 
-**Calendar reminders fire 5 minutes before the meeting starts.** The desktop tray (`src-tauri/`) is the consumer; the recurring job in `server/plugins/calendar-jobs.ts` keeps `calendar_events` fresh. Agents do not need to schedule reminders manually.
+**Calendar reminders fire 5 minutes before the meeting starts.** The desktop tray (`desktop/src-tauri/`) polls the live `list-meetings` action and filters locally for near-start reminders; `calendar_events` is only a snapshot/materialization table for meetings that have been recorded or edited. Agents do not need to schedule reminders manually.
 
 **Desktop launch at login is on by default.** The tray app persists this as `launchAtLoginEnabled` in `feature-config.json`, syncs it through Tauri's autostart plugin during native startup, and exposes it in Settings as "Open at login".
 

@@ -10,6 +10,12 @@ describe("AgentEngine registry", () => {
     vi.doUnmock("../../secrets/storage.js");
     // Clear env vars that influence resolveEngine
     delete process.env.AGENT_ENGINE;
+    delete process.env.AGENT_ENGINE_PREFER_BYO_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    delete process.env.BUILDER_PRIVATE_KEY;
+    delete process.env.BUILDER_PUBLIC_KEY;
   });
 
   it("registers and retrieves an engine", async () => {
@@ -525,6 +531,151 @@ describe("AgentEngine registry", () => {
       expect(builderCreate).toHaveBeenCalled();
       expect(anthropicCreate).not.toHaveBeenCalled();
       expect(resolved).toBe(builderEngine);
+    });
+
+    it("resolveEngine prefers connected Builder over a stale stored provider env key", async () => {
+      process.env.OPENAI_API_KEY = "sk-ant-wrong-provider";
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn().mockResolvedValue({
+          engine: "ai-sdk:openai",
+          model: "gpt-5.4",
+        }),
+      }));
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret: vi.fn(async ({ key }: { key: string }) => {
+          if (key === "BUILDER_PRIVATE_KEY") {
+            return { key, value: "p-key-from-app-secrets" };
+          }
+          if (key === "BUILDER_PUBLIC_KEY") {
+            return { key, value: "space-from-app-secrets" };
+          }
+          return null;
+        }),
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const builderEngine = { name: "builder", stream: vi.fn() } as any;
+      const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const builderCreate = vi.fn().mockReturnValue(builderEngine);
+      const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
+
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        create: builderCreate,
+      });
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: vi.fn() as any,
+      });
+
+      const resolved = await resolveEngine({ apiKey: "sk-ant-wrong-provider" });
+      expect(builderCreate).toHaveBeenCalled();
+      expect(openAiCreate).not.toHaveBeenCalled();
+      expect(resolved).toBe(builderEngine);
+    });
+
+    it("resolveEngine still honors a stored BYOK provider when Builder is not connected", async () => {
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn().mockResolvedValue({
+          engine: "ai-sdk:google",
+          model: "gemini-3.1-pro-preview",
+        }),
+      }));
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret: vi.fn(async ({ key }: { key: string }) =>
+          key === "GOOGLE_GENERATIVE_AI_API_KEY"
+            ? { key, value: "google-user-key" }
+            : null,
+        ),
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const googleEngine = { name: "ai-sdk:google", stream: vi.fn() } as any;
+      const googleCreate = vi.fn().mockReturnValue(googleEngine);
+      const openAiCreate = vi.fn().mockReturnValue({
+        name: "ai-sdk:openai",
+        stream: vi.fn(),
+      } as any);
+
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        create: vi.fn() as any,
+      });
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+      registerAgentEngine({
+        name: "ai-sdk:google",
+        label: "Gemini",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gemini-3.1-pro-preview",
+        supportedModels: [],
+        requiredEnvVars: ["GOOGLE_GENERATIVE_AI_API_KEY"],
+        create: googleCreate,
+      });
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: vi.fn() as any,
+      });
+
+      const resolved = await resolveEngine({ apiKey: "google-user-key" });
+      expect(googleCreate).toHaveBeenCalledWith({ apiKey: "google-user-key" });
+      expect(openAiCreate).not.toHaveBeenCalled();
+      expect(resolved).toBe(googleEngine);
     });
   });
 });
