@@ -110,9 +110,10 @@ function rootCause(err: Error): Error {
   return cause instanceof Error ? rootCause(cause) : err;
 }
 
-function isRecentlyPendingTranscript(
-  transcript: { status: string | null; updatedAt: string | null },
-): boolean {
+function isRecentlyPendingTranscript(transcript: {
+  status: string | null;
+  updatedAt: string | null;
+}): boolean {
   if (transcript.status !== "pending") return false;
   const updatedAtMs = Date.parse(transcript.updatedAt ?? "");
   return (
