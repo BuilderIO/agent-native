@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   IconSend,
   IconCheck,
@@ -21,7 +21,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { agentNativePath, useActionMutation } from "@agent-native/core/client";
+import { useActionMutation } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { msToClock } from "./scrubber";
 
@@ -156,6 +156,58 @@ export function CommentsPanel(props: CommentsPanelProps) {
     },
   });
 
+  const reactToComment = useActionMutation("react-to-comment", {
+    onMutate: async (vars: any) => {
+      await queryClient.cancelQueries({ queryKey: playerDataKey });
+      const prev = queryClient.getQueryData<PlayerData>(playerDataKey);
+      const currentUser = currentUserEmail;
+      if (!currentUser) return { prev };
+      patchComments((commentList) =>
+        commentList.map((comment) => {
+          if (comment.id !== vars.commentId) return comment;
+          let reactions: Record<string, string[]> = {};
+          try {
+            const parsed = JSON.parse(comment.emojiReactionsJson || "{}");
+            if (parsed && typeof parsed === "object") {
+              reactions = parsed as Record<string, string[]>;
+            }
+          } catch {}
+          const reactingUsers = Array.isArray(reactions[vars.emoji])
+            ? reactions[vars.emoji]
+            : [];
+          const userAlreadyReacted = reactingUsers.includes(currentUser);
+          const updatedReactingUsers = userAlreadyReacted
+            ? reactingUsers.filter((email) => email !== currentUser)
+            : [...reactingUsers, currentUser];
+          const updatedReactions = { ...reactions };
+          if (updatedReactingUsers.length === 0) {
+            delete updatedReactions[vars.emoji];
+          } else {
+            updatedReactions[vars.emoji] = updatedReactingUsers;
+          }
+          return {
+            ...comment,
+            emojiReactionsJson: JSON.stringify(updatedReactions),
+          };
+        }),
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx: any) => {
+      if (ctx?.prev) queryClient.setQueryData(playerDataKey, ctx.prev);
+    },
+    onSuccess: (data: any, vars: any) => {
+      if (!data?.reactions) return;
+      patchComments((list) =>
+        list.map((c) =>
+          c.id === vars.commentId
+            ? { ...c, emojiReactionsJson: JSON.stringify(data.reactions) }
+            : c,
+        ),
+      );
+    },
+  });
+
   const remove = useActionMutation("delete-comment", {
     onMutate: async (vars: any) => {
       await queryClient.cancelQueries({ queryKey: playerDataKey });
@@ -241,7 +293,6 @@ export function CommentsPanel(props: CommentsPanelProps) {
                 <li key={root.threadId} className="p-3 space-y-2">
                   <CommentCard
                     comment={root}
-                    recordingId={recordingId}
                     currentUserEmail={currentUserEmail}
                     onSeek={onSeek}
                     onReply={() => {
@@ -255,6 +306,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
                       resolve.mutate({ id, resolved })
                     }
                     onDelete={(id) => remove.mutate({ id })}
+                    onReact={(commentId, emoji) =>
+                      reactToComment.mutate({ commentId, emoji })
+                    }
                     onUnauthenticated={onUnauthenticated}
                   />
                   {replies.length ? (
@@ -263,7 +317,6 @@ export function CommentsPanel(props: CommentsPanelProps) {
                         <li key={r.id}>
                           <CommentCard
                             comment={r}
-                            recordingId={recordingId}
                             currentUserEmail={currentUserEmail}
                             onSeek={onSeek}
                             onReply={() => {
@@ -277,6 +330,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
                               resolve.mutate({ id, resolved })
                             }
                             onDelete={(id) => remove.mutate({ id })}
+                            onReact={(commentId, emoji) =>
+                              reactToComment.mutate({ commentId, emoji })
+                            }
                             onUnauthenticated={onUnauthenticated}
                             isReply
                           />
@@ -361,27 +417,56 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
 function CommentCard({
   comment,
-  recordingId,
   currentUserEmail,
   onSeek,
   onReply,
   onResolve,
   onDelete,
+  onReact,
   onUnauthenticated,
   isReply,
 }: {
   comment: Comment;
-  recordingId: string;
   currentUserEmail?: string;
   onSeek: (ms: number) => void;
   onReply: () => void;
   onResolve: (id: string, resolved: boolean) => void;
   onDelete: (id: string) => void;
+  onReact: (commentId: string, emoji: string) => void;
   onUnauthenticated?: (intent: "comment" | "react") => void;
   isReply?: boolean;
 }) {
-  const reactions = parseReactions(comment.emojiReactionsJson);
+  // Local override forces a synchronous re-render the instant the user clicks
+  // an emoji — independent of React Query cache propagation. It's cleared as
+  // soon as the prop (server-confirmed) catches up to whatever we showed.
+  const [localJson, setLocalJson] = useState<string | null>(null);
+  useEffect(() => {
+    setLocalJson(null);
+  }, [comment.emojiReactionsJson]);
+
+  const reactions = parseReactions(localJson ?? comment.emojiReactionsJson);
   const isOwner = currentUserEmail && comment.authorEmail === currentUserEmail;
+
+  function toggleEmoji(emoji: string) {
+    if (!currentUserEmail) return reactions;
+    const reactingUsers = Array.isArray(reactions[emoji])
+      ? reactions[emoji]
+      : [];
+    const userAlreadyReacted = reactingUsers.includes(currentUserEmail);
+
+    const updatedReactingUsers = userAlreadyReacted
+      ? reactingUsers.filter((email) => email !== currentUserEmail)
+      : [...reactingUsers, currentUserEmail];
+
+    const updatedReactions: Record<string, string[]> = { ...reactions };
+    if (updatedReactingUsers.length === 0) {
+      delete updatedReactions[emoji];
+    } else {
+      updatedReactions[emoji] = updatedReactingUsers;
+    }
+
+    return updatedReactions;
+  }
 
   return (
     <div className={cn("flex gap-2", comment.resolved && "opacity-60")}>
@@ -441,29 +526,8 @@ function CommentCard({
                         onUnauthenticated?.("react");
                         return;
                       }
-                      // Add to comment's emoji reactions
-                      const next = { ...reactions };
-                      const bucket = next[e] ?? [];
-                      if (!bucket.includes(currentUserEmail)) {
-                        next[e] = [...bucket, currentUserEmail];
-                      }
-                      // Patch via delete+re-add isn't ideal; a dedicated action could be added.
-                      // For now, store via react-to-recording at comment timestamp as a proxy.
-                      fetch(
-                        agentNativePath(
-                          "/_agent-native/actions/react-to-recording",
-                        ),
-                        {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            recordingId,
-                            emoji: e,
-                            videoTimestampMs: comment.videoTimestampMs,
-                          }),
-                        },
-                      ).catch(() => {});
-                      void next;
+                      setLocalJson(JSON.stringify(toggleEmoji(e)));
+                      onReact(comment.id, e);
                     }}
                     className="text-lg h-8 w-8 rounded hover:bg-accent flex items-center justify-center"
                   >
@@ -504,14 +568,38 @@ function CommentCard({
 
         {Object.keys(reactions).length > 0 ? (
           <div className="flex flex-wrap gap-1 mt-1.5">
-            {Object.entries(reactions).map(([emoji, users]) => (
-              <span
-                key={emoji}
-                className="text-[11px] rounded-full bg-accent px-1.5 py-0.5 flex items-center gap-1"
-              >
-                {emoji} {users.length}
-              </span>
-            ))}
+            {Object.entries(reactions).map(([emoji, users]) => {
+              const mine =
+                !!currentUserEmail && users.includes(currentUserEmail);
+              return (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => {
+                    if (!currentUserEmail) {
+                      onUnauthenticated?.("react");
+                      return;
+                    }
+                    setLocalJson(JSON.stringify(toggleEmoji(emoji)));
+                    onReact(comment.id, emoji);
+                  }}
+                  aria-pressed={mine}
+                  title={
+                    mine
+                      ? "Click to remove your reaction"
+                      : "Click to add your reaction"
+                  }
+                  className={cn(
+                    "text-[11px] rounded-full px-1.5 py-0.5 flex items-center gap-1 transition-colors",
+                    mine
+                      ? "bg-primary/15 border border-primary/40 text-primary hover:bg-primary/25"
+                      : "bg-accent border border-transparent hover:bg-accent/70",
+                  )}
+                >
+                  {emoji} {users.length}
+                </button>
+              );
+            })}
           </div>
         ) : null}
       </div>
