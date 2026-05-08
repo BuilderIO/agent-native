@@ -8,16 +8,19 @@ import { ShareButton } from "./ShareButton.js";
 const shareMutate = vi.hoisted(() => vi.fn());
 const otherMutate = vi.hoisted(() => vi.fn());
 const refetchShares = vi.hoisted(() => vi.fn(async () => undefined));
+const sharesData = vi.hoisted(() => ({
+  current: {
+    ownerEmail: "owner@example.com",
+    orgId: null,
+    visibility: "private",
+    role: "owner",
+    shares: [],
+  },
+}));
 
 vi.mock("../use-action.js", () => ({
   useActionQuery: () => ({
-    data: {
-      ownerEmail: "owner@example.com",
-      orgId: null,
-      visibility: "private",
-      role: "owner",
-      shares: [],
-    },
+    data: sharesData.current,
     refetch: refetchShares,
   }),
   useActionMutation: (name: string) => ({
@@ -67,6 +70,13 @@ describe("ShareButton", () => {
     shareMutate.mockReset();
     otherMutate.mockReset();
     refetchShares.mockClear();
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      visibility: "private",
+      role: "owner",
+      shares: [],
+    };
     queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -125,5 +135,80 @@ describe("ShareButton", () => {
       }),
       expect.any(Object),
     );
+  });
+
+  it("requires public visibility before copying a public-only link", async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            resourceTitle="Launch deck"
+            shareUrl="https://slides.agent-native.com/p/deck-1"
+            shareUrlRequiresPublic
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const makePublicAndCopy = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent === "Make public and copy");
+    if (!makePublicAndCopy) throw new Error("Make public button not found");
+
+    const linkInput = container.querySelector(
+      'input[value="Link available after general access is Public"]',
+    );
+    expect(linkInput).toBeTruthy();
+
+    await act(async () => {
+      makePublicAndCopy.click();
+    });
+
+    expect(otherMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resourceType: "deck",
+        resourceId: "deck-1",
+        visibility: "public",
+      }),
+      expect.any(Object),
+    );
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("shows the copy action for public public-only links", async () => {
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      visibility: "public",
+      role: "owner",
+      shares: [],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            shareUrl="https://slides.agent-native.com/p/deck-1"
+            shareUrlRequiresPublic
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(
+      Array.from(container.querySelectorAll("button")).some(
+        (button) => button.textContent === "Copy",
+      ),
+    ).toBe(true);
   });
 });

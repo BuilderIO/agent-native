@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 import {
   hasCollabState,
   agentEnterDocument,
@@ -85,10 +85,11 @@ export default defineAction({
     }
 
     if (applied) {
-      const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
+      const now = new Date().toISOString();
+      deck.updatedAt = now;
       await client.execute({
-        sql: `UPDATE decks SET data = ?, updated_at = ${nowExpr} WHERE id = ?`,
-        args: [JSON.stringify(deck), deckId],
+        sql: "UPDATE decks SET data = ?, updated_at = ? WHERE id = ?",
+        args: [JSON.stringify(deck), now, deckId],
       });
       // Broadcast so in-memory deck list in the editor refreshes. Yjs handles
       // live content sync for find/replace, but --fullContent and the slide

@@ -887,7 +887,9 @@ graph TD
           resourceTitle={deckTitle}
           shareUrl={shareUrl}
           shareUrlLabel="Presentation link"
-          shareUrlDescription="Set general access to Public for anyone with this link to view."
+          shareUrlDescription="Read-only presentation view for anyone with public access."
+          shareUrlRequiresPublic
+          shareUrlUnavailableDescription="This link opens only after general access is Public. Keep the deck private to invite specific people instead."
         />
       </div>
       {/* Present button — matches Share trigger height (h-9) */}

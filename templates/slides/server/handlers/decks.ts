@@ -157,6 +157,7 @@ export const listDecks = defineEventHandler(async (event) => {
         title: row.title,
         visibility: row.visibility,
         designSystemId: row.designSystemId ?? deck.designSystemId ?? null,
+        updatedAt: row.updatedAt,
         slides: deck.slides || [],
       };
     });
@@ -182,6 +183,7 @@ export const getDeck = defineEventHandler(async (event) => {
         title: row.title,
         visibility: row.visibility,
         designSystemId: row.designSystemId ?? deck.designSystemId ?? null,
+        updatedAt: row.updatedAt,
       };
     } catch (err) {
       if (err instanceof ForbiddenError) {

@@ -43,6 +43,10 @@ export interface ShareButtonProps {
   shareUrlLabel?: string;
   /** Optional helper text for the copyable link section. */
   shareUrlDescription?: ReactNode;
+  /** When true, the share URL is only copyable after visibility is public. */
+  shareUrlRequiresPublic?: boolean;
+  /** Optional helper text shown when the share URL requires public visibility. */
+  shareUrlUnavailableDescription?: ReactNode;
   /** Optional template-specific copy for the visibility picker. */
   visibilityCopy?: Partial<
     Record<Visibility, { label?: string; description?: string }>
@@ -174,40 +178,49 @@ export function ShareButton(props: ShareButtonProps) {
     );
   };
 
-  const handleVisibilityChange = (next: Visibility) => {
+  const handleVisibilityChange = (next: Visibility): Promise<void> => {
     const requestId = ++visibilityRequestId.current;
     const previous = queryClient.getQueryData<SharesResponse>(shareQueryKey);
     setPendingVisibility(next);
     updateCachedVisibility(next);
-    setVisibility.mutate(
-      {
-        resourceType: props.resourceType,
-        resourceId: props.resourceId,
-        visibility: next,
-      } as any,
-      {
-        onSuccess: (result: any) => {
-          if (requestId !== visibilityRequestId.current) return;
-          updateCachedVisibility(
-            (result?.visibility as Visibility | undefined) ?? next,
-          );
-          sharesQuery.refetch().finally(() => {
+    return new Promise((resolve, reject) => {
+      setVisibility.mutate(
+        {
+          resourceType: props.resourceType,
+          resourceId: props.resourceId,
+          visibility: next,
+        } as any,
+        {
+          onSuccess: (result: any) => {
+            if (requestId === visibilityRequestId.current) {
+              updateCachedVisibility(
+                (result?.visibility as Visibility | undefined) ?? next,
+              );
+            }
+            sharesQuery
+              .refetch()
+              .then(() => resolve())
+              .catch(reject)
+              .finally(() => {
+                if (requestId === visibilityRequestId.current) {
+                  setPendingVisibility(null);
+                }
+              });
+          },
+          onError: (error) => {
             if (requestId === visibilityRequestId.current) {
               setPendingVisibility(null);
+              if (previous) {
+                queryClient.setQueryData(shareQueryKey, previous);
+              } else {
+                queryClient.invalidateQueries({ queryKey: shareQueryKey });
+              }
             }
-          });
+            reject(error);
+          },
         },
-        onError: () => {
-          if (requestId !== visibilityRequestId.current) return;
-          setPendingVisibility(null);
-          if (previous) {
-            queryClient.setQueryData(shareQueryKey, previous);
-          } else {
-            queryClient.invalidateQueries({ queryKey: shareQueryKey });
-          }
-        },
-      },
-    );
+      );
+    });
   };
 
   // The trigger always says "Share" — the icon reflects the resource's
@@ -296,7 +309,7 @@ function SharePanel(
   props: ShareButtonProps & {
     sharesQuery: ReturnType<typeof useActionQuery<SharesResponse>>;
     visibilityOverride: Visibility | null;
-    onVisibilityChange: (visibility: Visibility) => void;
+    onVisibilityChange: (visibility: Visibility) => Promise<void>;
     onClose: () => void;
   },
 ) {
@@ -361,7 +374,7 @@ function SharePanel(
 
   const handleVisibility = (next: Visibility) => {
     if (next === visibility) return;
-    onVisibilityChange(next);
+    void onVisibilityChange(next).catch(() => {});
   };
 
   const handleAdd = () => {
@@ -670,6 +683,20 @@ function SharePanel(
           value={props.shareUrl}
           label={props.shareUrlLabel}
           description={props.shareUrlDescription}
+          unavailable={props.shareUrlRequiresPublic && visibility !== "public"}
+          unavailableDescription={
+            props.shareUrlUnavailableDescription ??
+            (canManage
+              ? "Make general access public before copying this link."
+              : "This link is not public. Ask an owner or admin to make it public.")
+          }
+          unavailableActionLabel={
+            canManage ? "Make public and copy" : "Not public"
+          }
+          unavailableActionBusyLabel="Making public..."
+          onUnavailableAction={
+            canManage ? () => onVisibilityChange("public") : undefined
+          }
         />
       ) : null}
 
@@ -690,12 +717,23 @@ function CopyLinkField({
   value,
   label = "Share link",
   description,
+  unavailable = false,
+  unavailableDescription,
+  unavailableActionLabel = "Unavailable",
+  unavailableActionBusyLabel = "Working...",
+  onUnavailableAction,
 }: {
   value: string;
   label?: string;
   description?: ReactNode;
+  unavailable?: boolean;
+  unavailableDescription?: ReactNode;
+  unavailableActionLabel?: string;
+  unavailableActionBusyLabel?: string;
+  onUnavailableAction?: () => Promise<void> | void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
   const resetRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
@@ -704,16 +742,41 @@ function CopyLinkField({
     };
   }, []);
 
+  const markCopied = () => {
+    setCopied(true);
+    if (resetRef.current) clearTimeout(resetRef.current);
+    resetRef.current = setTimeout(() => setCopied(false), 1400);
+  };
+
+  const copyValue = async () => {
+    await navigator.clipboard.writeText(value);
+    markCopied();
+  };
+
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      if (resetRef.current) clearTimeout(resetRef.current);
-      resetRef.current = setTimeout(() => setCopied(false), 1400);
+      await copyValue();
     } catch {
       setCopied(false);
     }
   };
+
+  const handleUnavailableAction = async () => {
+    if (!onUnavailableAction) return;
+    setBusy(true);
+    try {
+      await onUnavailableAction();
+      await copyValue();
+    } catch {
+      setCopied(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const inputValue = unavailable
+    ? "Link available after general access is Public"
+    : value;
 
   return (
     <div className="mb-4">
@@ -721,20 +784,39 @@ function CopyLinkField({
       {description ? (
         <div className="mb-2 text-xs text-muted-foreground">{description}</div>
       ) : null}
+      {unavailable && unavailableDescription ? (
+        <div className="mb-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
+          {unavailableDescription}
+        </div>
+      ) : null}
       <div className="flex min-w-0 items-center gap-2">
         <input
           readOnly
-          value={value}
-          className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm text-muted-foreground outline-none"
-          onFocus={(event) => event.currentTarget.select()}
+          disabled={unavailable}
+          value={inputValue}
+          aria-disabled={unavailable}
+          className={cn(
+            "h-9 min-w-0 flex-1 rounded-md border border-input px-3 text-sm text-muted-foreground outline-none",
+            unavailable ? "cursor-not-allowed bg-muted/40" : "bg-background",
+          )}
+          onFocus={(event) => {
+            if (!unavailable) event.currentTarget.select();
+          }}
         />
         <button
           type="button"
-          onClick={handleCopy}
+          onClick={unavailable ? handleUnavailableAction : handleCopy}
+          disabled={unavailable && !onUnavailableAction}
           className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground hover:bg-accent"
         >
           {copied ? <IconCheck size={15} /> : <IconCopy size={15} />}
-          {copied ? "Copied" : "Copy"}
+          {busy
+            ? unavailableActionBusyLabel
+            : unavailable
+              ? unavailableActionLabel
+              : copied
+                ? "Copied"
+                : "Copy"}
         </button>
       </div>
     </div>
