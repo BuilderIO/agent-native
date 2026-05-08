@@ -1804,11 +1804,15 @@ function getRunErrorMetadata(message: unknown): RunErrorInfo | null {
 function isBuilderReconnectRunError(info: RunErrorInfo): boolean {
   const code = (info.errorCode ?? "").toLowerCase();
   const message = info.message.toLowerCase();
+  const isAuthCode =
+    code === "authentication_error" ||
+    code === "unauthorized" ||
+    code === "http_401" ||
+    code === "http_403";
   return (
     code === "builder_auth_error" ||
-    code === "authentication_error" ||
     message.includes("builder authentication failed") ||
-    message.includes("invalid token")
+    (isAuthCode && message.includes("invalid token"))
   );
 }
 

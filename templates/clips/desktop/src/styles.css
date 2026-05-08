@@ -123,7 +123,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .app-settings {
   gap: 0;
   padding: 0;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 /* Header — logo + mode toggle + close */
@@ -201,7 +201,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
+  gap: 5px;
+  min-width: 68px;
   height: 28px;
   border: none;
   background: transparent;
@@ -222,6 +223,13 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: var(--bg);
   color: var(--brand);
   box-shadow: var(--shadow-sm);
+}
+
+.mode-label {
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .icon-button {
@@ -1011,8 +1019,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: calc(100vh - 2px);
-  overflow-y: auto;
+  max-height: none;
+  overflow: visible;
   overscroll-behavior: contain;
 }
 
@@ -2000,6 +2008,29 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   transition:
     background 120ms,
     box-shadow 120ms;
+}
+
+.bubble-control-button {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.86);
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+
+.bubble-control-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
 }
 
 .bubble-dot:hover {
