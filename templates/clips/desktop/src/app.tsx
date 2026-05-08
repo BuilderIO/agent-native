@@ -2551,28 +2551,25 @@ function Header({
           className={mode === "screen" ? "active" : ""}
           onClick={() => onModeChange("screen")}
           aria-label="Screen only"
-          title="Screen only"
+          data-tooltip="Screen"
         >
           <ScreenIcon />
-          <span className="mode-label">Screen</span>
         </button>
         <button
           className={mode === "screen-camera" ? "active" : ""}
           onClick={() => onModeChange("screen-camera")}
           aria-label="Screen + Camera"
-          title="Screen + Camera"
+          data-tooltip="Screen + cam"
         >
           <ScreenCamIcon />
-          <span className="mode-label">Screen + Cam</span>
         </button>
         <button
           className={mode === "camera" ? "active" : ""}
           onClick={() => onModeChange("camera")}
           aria-label="Camera only"
-          title="Camera only"
+          data-tooltip="Camera"
         >
           <CamIcon />
-          <span className="mode-label">Camera</span>
         </button>
       </div>
       <button

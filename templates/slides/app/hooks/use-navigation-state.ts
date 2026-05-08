@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentNativePath } from "@agent-native/core/client";
+import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
   view: string;
@@ -36,7 +37,10 @@ export function useNavigationState() {
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       keepalive: true,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Request-Source": TAB_ID,
+      },
       body: JSON.stringify(state),
     }).catch(() => {});
   }, [location.pathname]);
@@ -62,8 +66,6 @@ export function useNavigationState() {
       }
       return null;
     },
-    refetchInterval: 2_000,
-    refetchIntervalInBackground: true,
     structuralSharing: false,
   });
 
@@ -72,7 +74,7 @@ export function useNavigationState() {
     // Delete the one-shot command AFTER reading it
     fetch(agentNativePath("/_agent-native/application-state/navigate"), {
       method: "DELETE",
-      headers: { "X-Agent-Native-CSRF": "1" },
+      headers: { "X-Agent-Native-CSRF": "1", "X-Request-Source": TAB_ID },
     }).catch(() => {});
     const cmd = navCommand as NavigationState;
     let path = "/";

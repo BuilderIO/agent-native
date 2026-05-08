@@ -31,6 +31,7 @@ import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
 import { getThemeInitScript } from "@agent-native/core/client";
+import { TAB_ID } from "@/lib/tab-id";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -131,7 +132,11 @@ function AppContent() {
   useExitSelectionOnOutsideClick();
   useNavigationState();
   const qc = useQueryClient();
-  useDbSync({ queryClient: qc, queryKeys: ["action"] });
+  useDbSync({
+    queryClient: qc,
+    queryKeys: ["action", "app-state", "navigate-command", "show-questions"],
+    ignoreSource: TAB_ID,
+  });
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [cmdkOpen, setCmdkOpen] = useState(false);

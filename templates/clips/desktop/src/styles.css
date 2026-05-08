@@ -198,11 +198,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .mode-toggle button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  min-width: 68px;
+  width: 34px;
+  min-width: 34px;
   height: 28px;
   border: none;
   background: transparent;
@@ -225,11 +226,34 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   box-shadow: var(--shadow-sm);
 }
 
-.mode-label {
+.mode-toggle button::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  z-index: 40;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-50%) translateY(-2px);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--fg);
+  box-shadow: var(--shadow-md);
+  color: var(--bg);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 500;
   line-height: 1;
+  padding: 6px 8px;
   white-space: nowrap;
+  transition:
+    opacity 120ms,
+    transform 120ms;
+}
+
+.mode-toggle button:hover::after,
+.mode-toggle button:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .icon-button {
