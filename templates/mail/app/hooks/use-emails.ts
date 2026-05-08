@@ -339,8 +339,11 @@ export function useEmails(
     isLoading: q.isLoading,
     isFetching: q.isFetching,
     isRefetching: q.isRefetching,
-    isError: q.isError,
-    error: q.error,
+    // Keep stale data visible when a background refetch fails (usually Gmail
+    // quota cooldown). Showing the full error state while data exists makes
+    // the inbox appear to flash/reload even though the old page is usable.
+    isError: q.isError && !q.data,
+    error: q.isError && !q.data ? q.error : null,
     refetch: q.refetch,
     hasNextPage: q.hasNextPage,
     fetchNextPage: q.fetchNextPage,
