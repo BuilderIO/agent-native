@@ -104,6 +104,36 @@ export interface RecorderHandle {
   cancel(): Promise<void>;
 }
 
+export interface PendingBrowserRecordingUpload {
+  kind: "browser";
+  recordingId: string;
+  serverUrl: string;
+  durationMs: number;
+  width?: number | null;
+  height?: number | null;
+  bytes: number;
+  hasAudio: boolean;
+  hasCamera: boolean;
+  savedAt: string;
+  lastAttemptAt?: string | null;
+  lastError?: string | null;
+  retryCount: number;
+  chunkCount: number;
+  mimeType: string;
+}
+
+interface BrowserRecordingBackupMeta
+  extends Omit<PendingBrowserRecordingUpload, "kind"> {}
+
+interface BrowserRecordingBackupChunk {
+  recordingId: string;
+  index: number;
+  blob: Blob;
+  bytes: number;
+  mimeType: string;
+  createdAt: string;
+}
+
 function chunkUrl(
   serverUrl: string,
   id: string,
@@ -118,6 +148,283 @@ function chunkUrl(
     ...extras,
   });
   return `${serverUrl.replace(/\/+$/, "")}/api/uploads/${id}/chunk?${params}`;
+}
+
+const BACKUP_DB_NAME = "clips-desktop-recording-backups";
+const BACKUP_DB_VERSION = 1;
+const BACKUP_META_STORE = "recordings";
+const BACKUP_CHUNK_STORE = "chunks";
+
+function backupDbAvailable(): boolean {
+  return typeof indexedDB !== "undefined";
+}
+
+function openBackupDb(): Promise<IDBDatabase> {
+  if (!backupDbAvailable()) {
+    return Promise.reject(new Error("IndexedDB is not available"));
+  }
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(BACKUP_DB_NAME, BACKUP_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(BACKUP_META_STORE)) {
+        db.createObjectStore(BACKUP_META_STORE, { keyPath: "recordingId" });
+      }
+      if (!db.objectStoreNames.contains(BACKUP_CHUNK_STORE)) {
+        const chunks = db.createObjectStore(BACKUP_CHUNK_STORE, {
+          keyPath: ["recordingId", "index"],
+        });
+        chunks.createIndex("recordingId", "recordingId", { unique: false });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () =>
+      reject(request.error ?? new Error("Could not open recording backups"));
+  });
+}
+
+function waitForTransaction(tx: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onabort = () =>
+      reject(tx.error ?? new Error("Recording backup transaction aborted"));
+    tx.onerror = () =>
+      reject(tx.error ?? new Error("Recording backup transaction failed"));
+  });
+}
+
+function waitForRequest<T>(request: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () =>
+      reject(request.error ?? new Error("Recording backup request failed"));
+  });
+}
+
+async function putBrowserRecordingBackupMeta(
+  meta: BrowserRecordingBackupMeta,
+): Promise<void> {
+  const db = await openBackupDb();
+  try {
+    const tx = db.transaction(BACKUP_META_STORE, "readwrite");
+    tx.objectStore(BACKUP_META_STORE).put(meta);
+    await waitForTransaction(tx);
+  } finally {
+    db.close();
+  }
+}
+
+async function getBrowserRecordingBackupMeta(
+  recordingId: string,
+): Promise<BrowserRecordingBackupMeta | null> {
+  const db = await openBackupDb();
+  try {
+    const tx = db.transaction(BACKUP_META_STORE, "readonly");
+    const result = await waitForRequest<BrowserRecordingBackupMeta | undefined>(
+      tx.objectStore(BACKUP_META_STORE).get(recordingId),
+    );
+    await waitForTransaction(tx);
+    return result ?? null;
+  } finally {
+    db.close();
+  }
+}
+
+async function putBrowserRecordingBackupChunk(
+  chunk: BrowserRecordingBackupChunk,
+): Promise<void> {
+  const db = await openBackupDb();
+  try {
+    const tx = db.transaction(BACKUP_CHUNK_STORE, "readwrite");
+    tx.objectStore(BACKUP_CHUNK_STORE).put(chunk);
+    await waitForTransaction(tx);
+  } finally {
+    db.close();
+  }
+}
+
+async function getBrowserRecordingBackupChunks(
+  recordingId: string,
+): Promise<BrowserRecordingBackupChunk[]> {
+  const db = await openBackupDb();
+  try {
+    const tx = db.transaction(BACKUP_CHUNK_STORE, "readonly");
+    const chunks = await waitForRequest<BrowserRecordingBackupChunk[]>(
+      tx
+        .objectStore(BACKUP_CHUNK_STORE)
+        .index("recordingId")
+        .getAll(recordingId),
+    );
+    await waitForTransaction(tx);
+    return chunks.sort((a, b) => a.index - b.index);
+  } finally {
+    db.close();
+  }
+}
+
+async function deleteBrowserRecordingBackup(recordingId: string): Promise<void> {
+  if (!backupDbAvailable()) return;
+  const db = await openBackupDb();
+  try {
+    const tx = db.transaction(
+      [BACKUP_META_STORE, BACKUP_CHUNK_STORE],
+      "readwrite",
+    );
+    tx.objectStore(BACKUP_META_STORE).delete(recordingId);
+    const chunkIndex = tx
+      .objectStore(BACKUP_CHUNK_STORE)
+      .index("recordingId");
+    const cursorRequest = chunkIndex.openCursor(IDBKeyRange.only(recordingId));
+    cursorRequest.onsuccess = () => {
+      const cursor = cursorRequest.result;
+      if (!cursor) return;
+      cursor.delete();
+      cursor.continue();
+    };
+    await waitForTransaction(tx);
+  } finally {
+    db.close();
+  }
+}
+
+async function markBrowserRecordingBackupError(
+  recordingId: string,
+  error: string,
+): Promise<void> {
+  const meta = await getBrowserRecordingBackupMeta(recordingId);
+  if (!meta) return;
+  await putBrowserRecordingBackupMeta({
+    ...meta,
+    lastAttemptAt: new Date().toISOString(),
+    lastError: error,
+    retryCount: meta.retryCount + 1,
+  });
+}
+
+export async function listBrowserRecordingBackups(): Promise<
+  PendingBrowserRecordingUpload[]
+> {
+  if (!backupDbAvailable()) return [];
+  const db = await openBackupDb();
+  try {
+    const tx = db.transaction(BACKUP_META_STORE, "readonly");
+    const metas = await waitForRequest<BrowserRecordingBackupMeta[]>(
+      tx.objectStore(BACKUP_META_STORE).getAll(),
+    );
+    await waitForTransaction(tx);
+    return metas
+      .sort((a, b) => b.savedAt.localeCompare(a.savedAt))
+      .map((meta) => ({ ...meta, kind: "browser" as const }));
+  } finally {
+    db.close();
+  }
+}
+
+function buildRetryHeaders(mimeType: string, authToken?: string): Headers {
+  const headers = new Headers({
+    "Content-Type": mimeType || "application/octet-stream",
+    "X-Request-Source": "clips-desktop",
+  });
+  const token = authToken?.trim();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return headers;
+}
+
+async function postBackupChunk(
+  url: string,
+  blob: Blob,
+  authToken?: string,
+): Promise<void> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: buildRetryHeaders(blob.type || "application/octet-stream", authToken),
+    credentials: "include",
+    body: blob,
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Upload retry failed (${res.status}): ${body.slice(0, 200)}`);
+  }
+  await res.text().catch(() => {});
+}
+
+async function resetBrowserRecordingBackupUpload(
+  meta: BrowserRecordingBackupMeta,
+  authToken?: string,
+): Promise<void> {
+  const res = await fetch(
+    `${meta.serverUrl.replace(/\/+$/, "")}/api/uploads/${meta.recordingId}/reset-chunks`,
+    {
+      method: "POST",
+      headers: buildRetryHeaders("application/json", authToken),
+      credentials: "include",
+      body: "{}",
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `Upload retry setup failed (${res.status}): ${body.slice(0, 200)}`,
+    );
+  }
+}
+
+export async function retryBrowserRecordingBackup(input: {
+  recordingId: string;
+  authToken?: string;
+}): Promise<{ recordingId: string; viewUrl: string }> {
+  const meta = await getBrowserRecordingBackupMeta(input.recordingId);
+  if (!meta) {
+    throw new Error("Local recording backup not found");
+  }
+  const chunks = await getBrowserRecordingBackupChunks(input.recordingId);
+  if (chunks.length === 0) {
+    throw new Error("Local recording backup has no chunks");
+  }
+
+  try {
+    await putBrowserRecordingBackupMeta({
+      ...meta,
+      lastAttemptAt: new Date().toISOString(),
+      lastError: null,
+    });
+    await resetBrowserRecordingBackupUpload(meta, input.authToken);
+
+    const totalPosts = chunks.length + 1;
+    for (const chunk of chunks) {
+      await postBackupChunk(
+        chunkUrl(meta.serverUrl, meta.recordingId, chunk.index, false, {
+          total: String(totalPosts),
+          mimeType: meta.mimeType,
+        }),
+        chunk.blob,
+        input.authToken,
+      );
+    }
+
+    await postBackupChunk(
+      chunkUrl(meta.serverUrl, meta.recordingId, chunks.length, true, {
+        total: String(totalPosts),
+        mimeType: meta.mimeType,
+        durationMs: String(Math.round(meta.durationMs || 0)),
+        ...(meta.width ? { width: String(meta.width) } : {}),
+        ...(meta.height ? { height: String(meta.height) } : {}),
+        hasAudio: meta.hasAudio ? "1" : "0",
+        hasCamera: meta.hasCamera ? "1" : "0",
+      }),
+      new Blob([], { type: meta.mimeType }),
+      input.authToken,
+    );
+
+    await deleteBrowserRecordingBackup(meta.recordingId);
+    return { recordingId: meta.recordingId, viewUrl: `/r/${meta.recordingId}` };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await markBrowserRecordingBackupError(meta.recordingId, message).catch(
+      () => {},
+    );
+    throw err;
+  }
 }
 
 async function createRecording(
@@ -1268,6 +1575,32 @@ async function startNativeRecordingInner(
   );
   let chunkIndex = 0;
   let failed: Error | null = null;
+  let backupBytes = 0;
+  let backupMeta: BrowserRecordingBackupMeta = {
+    recordingId: id,
+    serverUrl: params.serverUrl.replace(/\/+$/, ""),
+    durationMs: 0,
+    width: null,
+    height: null,
+    bytes: 0,
+    hasAudio: combined.getAudioTracks().length > 0,
+    hasCamera: wantsCamera,
+    savedAt: new Date().toISOString(),
+    lastAttemptAt: null,
+    lastError: null,
+    retryCount: 0,
+    chunkCount: 0,
+    mimeType: mimeType || "video/webm",
+  };
+  const persistBackupMeta = async (
+    patch: Partial<BrowserRecordingBackupMeta> = {},
+  ) => {
+    backupMeta = { ...backupMeta, ...patch };
+    await putBrowserRecordingBackupMeta(backupMeta);
+  };
+  persistBackupMeta().catch((err) => {
+    console.warn("[clips-recorder] local backup metadata failed:", err);
+  });
   // In-flight chunk uploads. We use a Set (not an array) so entries can be
   // removed as soon as each fetch settles — otherwise, for a 30-minute
   // recording the array grows to 900 Promises, and EACH promise closes over
@@ -1280,8 +1613,10 @@ async function startNativeRecordingInner(
   recorder.ondataavailable = (ev) => {
     if (!ev.data || ev.data.size === 0) return;
     const idx = chunkIndex++;
+    backupBytes += ev.data.size;
+    const chunkMimeType = ev.data.type || mimeType || "video/webm";
     const url = chunkUrl(params.serverUrl, id, idx, false, {
-      mimeType: ev.data.type || mimeType || "video/webm",
+      mimeType: chunkMimeType,
     });
     // Wrap so `inflight.delete(p)` runs regardless of outcome. The closure
     // holds the Blob only for the duration of this fetch — once removed,
@@ -1289,7 +1624,26 @@ async function startNativeRecordingInner(
     // constructing the promise body so `inflight.delete(p)` inside the
     // `.finally` can reference the same handle we added.
     let p: Promise<void>;
-    p = uploadChunk(url, ev.data)
+    p = (async () => {
+      try {
+        await putBrowserRecordingBackupChunk({
+          recordingId: id,
+          index: idx,
+          blob: ev.data,
+          bytes: ev.data.size,
+          mimeType: chunkMimeType,
+          createdAt: new Date().toISOString(),
+        });
+        await persistBackupMeta({
+          bytes: backupBytes,
+          chunkCount: Math.max(backupMeta.chunkCount, idx + 1),
+          mimeType: chunkMimeType,
+        });
+      } catch (err) {
+        console.warn("[clips-recorder] local chunk backup failed:", err);
+      }
+      await uploadChunk(url, ev.data);
+    })()
       .catch((err) => {
         failed ??= err instanceof Error ? err : new Error(String(err));
       })
