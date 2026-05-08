@@ -4,7 +4,10 @@ import {
   type AgentChatMessage,
 } from "@agent-native/core/client";
 
-const GENERATION_TIMEOUT_MS = 120_000;
+// This is only a lost-signal recovery guard. Large design prompts can
+// legitimately take several minutes, so avoid treating normal latency as
+// failure.
+const GENERATION_ORPHAN_TIMEOUT_MS = 30 * 60_000;
 
 interface UseAgentGeneratingOptions {
   onComplete?: (tabId: string | null) => void;
@@ -44,7 +47,7 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
           callbacksRef.current.onStale?.(tabId);
           reset();
         }
-      }, GENERATION_TIMEOUT_MS);
+      }, GENERATION_ORPHAN_TIMEOUT_MS);
     },
     [clearGenerationTimeout, reset],
   );
