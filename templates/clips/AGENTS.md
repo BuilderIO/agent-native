@@ -265,6 +265,7 @@ Public share link: `/share/<recordingId>`. Embed: `/embed/<recordingId>`. Both r
 | `resolve-comment`    | `--id <commentId>`                                                                        | Mark a thread resolved                 |
 | `delete-comment`     | `--id <commentId>`                                                                        | Delete a comment                       |
 | `react-to-recording` | `--recordingId <id> --emoji <e> [--videoTimestampMs <ms>]`                                | Drop an emoji reaction at a timestamp  |
+| `react-to-comment`   | `--commentId <cid> --emoji <e>`                                                           | Toggle the user's emoji on a comment   |
 
 ### Analytics
 

@@ -549,6 +549,13 @@ export default function ShareRoute() {
                     enableComments={recording.enableComments}
                     onSeek={(ms) => playerRef.current?.seek(ms)}
                     onUnauthenticated={requireSignIn}
+                    queryKey={["public-recording", shareId, password]}
+                    selectComments={(d: any) => d?.data?.comments}
+                    applyComments={(d: any, next) =>
+                      d
+                        ? { ...d, data: { ...(d.data ?? {}), comments: next } }
+                        : d
+                    }
                   />
                 </div>
               </TabsContent>
