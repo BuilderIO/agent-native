@@ -9,6 +9,7 @@ import {
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import { Spinner } from "@/components/ui/spinner";
 import { useViewTracking } from "@/hooks/use-view-tracking";
+import { parsePlaybackSpeed } from "@/lib/playback-speed";
 
 export function meta() {
   return [{ title: "Clip" }];
@@ -169,7 +170,7 @@ export default function EmbedRoute() {
         durationMs={recording.durationMs}
         editsJson={recording.editsJson}
         thumbnailUrl={recording.thumbnailUrl}
-        defaultSpeed={parseFloat(recording.defaultSpeed || "1.2") || 1.2}
+        defaultSpeed={parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2}
         autoPlay={autoplay}
         startMs={startMs}
         chapters={chapters}
