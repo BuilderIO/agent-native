@@ -159,7 +159,9 @@ describe("workspace dev startup", () => {
     const res = await fetch(`${url}/todo`, {
       headers: { accept: "text/html" },
     });
-    expect(await res.text()).toContain("installing this app's dependencies");
+    expect(await res.text()).toContain(
+      "installing this app&#39;s dependencies",
+    );
 
     const installCall = fake.calls().at(-1);
     expect(installCall).toMatchObject({
