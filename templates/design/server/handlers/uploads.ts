@@ -10,6 +10,19 @@ import { nanoid } from "nanoid";
 import { getSession } from "@agent-native/core/server";
 
 const UPLOADS_ROOT = path.join(process.cwd(), "data", "uploads");
+const MAX_EXTRACTED_TEXT_CHARS = 8_000;
+const TEXT_EXTENSIONS = new Set([
+  ".html",
+  ".css",
+  ".js",
+  ".jsx",
+  ".ts",
+  ".tsx",
+  ".json",
+  ".txt",
+  ".md",
+  ".csv",
+]);
 const ALLOWED_EXTENSIONS = new Set([
   ".html",
   ".css",
@@ -81,6 +94,43 @@ function hasExpectedSignature(ext: string, data: Uint8Array): boolean {
   return !data.subarray(0, 4096).includes(0);
 }
 
+function truncateExtractedText(text: string): {
+  textContent?: string;
+  textTruncated?: boolean;
+} {
+  const normalized = text.replace(/\0/g, "").trim();
+  if (!normalized) return {};
+  if (normalized.length <= MAX_EXTRACTED_TEXT_CHARS) {
+    return { textContent: normalized };
+  }
+  return {
+    textContent: normalized.slice(0, MAX_EXTRACTED_TEXT_CHARS),
+    textTruncated: true,
+  };
+}
+
+async function extractUploadText(
+  ext: string,
+  data: Uint8Array,
+): Promise<{ textContent?: string; textTruncated?: boolean }> {
+  if (TEXT_EXTENSIONS.has(ext)) {
+    return truncateExtractedText(Buffer.from(data).toString("utf8"));
+  }
+
+  if (ext === ".pdf") {
+    try {
+      const { PDFParse } = await import("pdf-parse");
+      const pdf = new PDFParse({ data: new Uint8Array(data) });
+      const result = await pdf.getText();
+      return truncateExtractedText(result.text ?? "");
+    } catch {
+      return {};
+    }
+  }
+
+  return {};
+}
+
 export const uploadFiles = defineEventHandler(async (event) => {
   const session = await getSession(event).catch(() => null);
   if (!session?.email) {
@@ -128,6 +178,7 @@ export const uploadFiles = defineEventHandler(async (event) => {
         await fs.promises.mkdir(uploadDir, { recursive: true });
         const destPath = path.join(uploadDir, filename);
         await fs.promises.writeFile(destPath, part.data);
+        const extracted = await extractUploadText(ext, part.data);
 
         return {
           path: path
@@ -138,6 +189,7 @@ export const uploadFiles = defineEventHandler(async (event) => {
           filename,
           type: part.type || "application/octet-stream",
           size: part.data.length,
+          ...extracted,
         };
       }),
     );

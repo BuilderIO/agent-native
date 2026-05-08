@@ -5,6 +5,7 @@ import {
   PromptComposer,
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
+import { toast } from "sonner";
 
 export interface UploadedFile {
   path: string;
@@ -12,6 +13,8 @@ export interface UploadedFile {
   filename: string;
   type: string;
   size: number;
+  textContent?: string;
+  textTruncated?: boolean;
 }
 
 interface PromptPopoverProps {
@@ -118,7 +121,14 @@ export default function PromptPopover({
           method: "POST",
           body: formData,
         });
-        if (!res.ok) return [];
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          throw new Error(
+            typeof body?.error === "string"
+              ? body.error
+              : `Upload failed (${res.status})`,
+          );
+        }
         return (await res.json()) as UploadedFile[];
       } finally {
         setUploading(false);
@@ -134,8 +144,14 @@ export default function PromptPopover({
       _references: unknown,
       options: PromptComposerSubmitOptions,
     ) => {
-      const uploaded = await uploadFiles(files);
-      onSubmit(text.trim(), uploaded, options);
+      try {
+        const uploaded = await uploadFiles(files);
+        onSubmit(text.trim(), uploaded, options);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to upload file",
+        );
+      }
     },
     [onSubmit, uploadFiles],
   );

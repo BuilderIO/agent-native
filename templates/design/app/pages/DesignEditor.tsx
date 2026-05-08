@@ -103,6 +103,29 @@ interface DesignData {
   files: DesignFile[];
 }
 
+function formatUploadedFileContext(files: UploadedFile[]): string {
+  if (files.length === 0) return "";
+
+  const lines: string[] = [
+    "",
+    `The user uploaded ${files.length} file(s) for context:`,
+  ];
+
+  files.forEach((file, index) => {
+    lines.push(
+      `${index + 1}. ${file.originalName} (${file.type}, ${(file.size / 1024).toFixed(1)}KB) at path: ${file.path}`,
+    );
+    const text = file.textContent?.trim();
+    if (text) {
+      lines.push(
+        `Extracted text${file.textTruncated ? " (truncated)" : ""}:\n${text}`,
+      );
+    }
+  });
+
+  return lines.join("\n");
+}
+
 function applyInlineStyleToHtml(
   content: string,
   selector: string,
@@ -178,7 +201,7 @@ export default function DesignEditor() {
     hasFreshPendingGeneration(id),
   );
   const [generationIssue, setGenerationIssue] = useState<string | null>(null);
-  const generationOutputReadyRef = useRef(false);
+const generationOutputReadyRef = useRef(false);
   const generationCompleteTimerRef = useRef<number | null>(null);
   const clearGenerationCompleteTimer = useCallback(() => {
     if (generationCompleteTimerRef.current !== null) {
@@ -383,10 +406,7 @@ export default function DesignEditor() {
     const prompt =
       pending.prompt?.trim() || `Create an initial design for ${design.title}.`;
     const uploadedFiles = Array.isArray(pending.files) ? pending.files : [];
-    const fileContext =
-      uploadedFiles.length > 0
-        ? `\n\nThe user uploaded ${uploadedFiles.length} file(s) for context:\n${uploadedFiles.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
-        : "";
+    const fileContext = formatUploadedFileContext(uploadedFiles);
     const sourceContext = pending.source
       ? `The user picked the "${pending.source}" example template.`
       : "The user just created a new empty design.";
@@ -1241,10 +1261,7 @@ export default function DesignEditor() {
           files: UploadedFile[],
           options: PromptComposerSubmitOptions,
         ) => {
-          const fileContext =
-            files.length > 0
-              ? `\n\nThe user uploaded ${files.length} file(s) for context:\n${files.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
-              : "";
+          const fileContext = formatUploadedFileContext(files);
           const context = [
             `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
             `User request: "${prompt}"`,
