@@ -4,6 +4,13 @@ export interface CredentialKeyConfig {
   required: boolean;
 }
 
+export interface CredentialProviderConfig {
+  provider: string;
+  label: string;
+  requiredKeys: string[];
+  optionalKeys?: string[];
+}
+
 /**
  * All per-user/account credential keys. These are stored in the SQL
  * settings table, NOT as env vars. The resolveCredential() helper
@@ -97,6 +104,118 @@ export const credentialKeys: CredentialKeyConfig[] = [
   },
 ];
 
+export const credentialProviderConfigs: CredentialProviderConfig[] = [
+  {
+    provider: "google-analytics",
+    label: "Google Analytics",
+    requiredKeys: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "GA4_PROPERTY_ID"],
+  },
+  {
+    provider: "bigquery",
+    label: "BigQuery",
+    requiredKeys: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "BIGQUERY_PROJECT_ID"],
+    optionalKeys: ["ANALYTICS_BIGQUERY_EVENTS_TABLE"],
+  },
+  {
+    provider: "amplitude",
+    label: "Amplitude",
+    requiredKeys: ["AMPLITUDE_API_KEY", "AMPLITUDE_SECRET_KEY"],
+  },
+  {
+    provider: "mixpanel",
+    label: "Mixpanel",
+    requiredKeys: ["MIXPANEL_PROJECT_ID", "MIXPANEL_SERVICE_ACCOUNT"],
+  },
+  {
+    provider: "posthog",
+    label: "PostHog",
+    requiredKeys: ["POSTHOG_API_KEY", "POSTHOG_PROJECT_ID"],
+  },
+  {
+    provider: "postgres",
+    label: "PostgreSQL",
+    requiredKeys: ["POSTGRES_URL"],
+  },
+  {
+    provider: "stripe",
+    label: "Stripe",
+    requiredKeys: ["STRIPE_SECRET_KEY"],
+  },
+  {
+    provider: "hubspot",
+    label: "HubSpot",
+    requiredKeys: ["HUBSPOT_ACCESS_TOKEN"],
+  },
+  {
+    provider: "gong",
+    label: "Gong",
+    requiredKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET"],
+    optionalKeys: ["GONG_API_BASE"],
+  },
+  {
+    provider: "apollo",
+    label: "Apollo",
+    requiredKeys: ["APOLLO_API_KEY"],
+  },
+  {
+    provider: "github",
+    label: "GitHub",
+    requiredKeys: ["GITHUB_TOKEN"],
+  },
+  {
+    provider: "jira",
+    label: "Jira",
+    requiredKeys: ["JIRA_BASE_URL", "JIRA_USER_EMAIL", "JIRA_API_TOKEN"],
+  },
+  {
+    provider: "sentry",
+    label: "Sentry",
+    requiredKeys: ["SENTRY_AUTH_TOKEN"],
+    optionalKeys: ["SENTRY_ORG_SLUG", "SENTRY_SERVER_TOKEN"],
+  },
+  {
+    provider: "grafana",
+    label: "Grafana",
+    requiredKeys: ["GRAFANA_URL", "GRAFANA_API_TOKEN"],
+  },
+  {
+    provider: "gcloud",
+    label: "Google Cloud",
+    requiredKeys: ["GOOGLE_APPLICATION_CREDENTIALS_JSON"],
+  },
+  {
+    provider: "slack",
+    label: "Slack",
+    requiredKeys: ["SLACK_BOT_TOKEN"],
+    optionalKeys: ["SLACK_BOT_TOKEN_2"],
+  },
+  {
+    provider: "notion",
+    label: "Notion",
+    requiredKeys: ["NOTION_API_KEY"],
+  },
+  {
+    provider: "twitter",
+    label: "X / Twitter",
+    requiredKeys: ["TWITTER_BEARER_TOKEN"],
+  },
+  {
+    provider: "pylon",
+    label: "Pylon",
+    requiredKeys: ["PYLON_API_KEY"],
+  },
+  {
+    provider: "commonroom",
+    label: "Common Room",
+    requiredKeys: ["COMMONROOM_API_TOKEN"],
+  },
+  {
+    provider: "dataforseo",
+    label: "DataForSEO",
+    requiredKeys: ["DATAFORSEO_LOGIN", "DATAFORSEO_PASSWORD"],
+  },
+];
+
 const credentialAliases: Record<string, string[]> = {
   amplitude: ["AMPLITUDE_API_KEY", "AMPLITUDE_SECRET_KEY"],
   apollo: ["APOLLO_API_KEY"],
@@ -108,6 +227,7 @@ const credentialAliases: Record<string, string[]> = {
   commonroom: ["COMMONROOM_API_TOKEN"],
   dataforseo: ["DATAFORSEO_LOGIN", "DATAFORSEO_PASSWORD"],
   ga4: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "GA4_PROPERTY_ID"],
+  googleanalytics: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "GA4_PROPERTY_ID"],
   github: ["GITHUB_TOKEN"],
   gcloud: ["GOOGLE_APPLICATION_CREDENTIALS_JSON"],
   gong: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET", "GONG_API_BASE"],

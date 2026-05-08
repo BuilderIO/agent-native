@@ -367,7 +367,9 @@ function escapeAttachmentAttribute(value: string): string {
 }
 
 function unwrapTextAttachmentEnvelope(text: string): string {
-  const match = text.match(/^<attachment\b[^>]*>\n?([\s\S]*?)\n?<\/attachment>$/);
+  const match = text.match(
+    /^<attachment\b[^>]*>\n?([\s\S]*?)\n?<\/attachment>$/,
+  );
   return match ? match[1] : text;
 }
 
@@ -378,7 +380,10 @@ function truncateStoredAttachment(text: string): string {
   return `${unwrapped.slice(0, MAX_STORED_ATTACHMENT_CHARS)}\n\n[Attachment truncated after ${MAX_STORED_ATTACHMENT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted from persisted chat history.]`;
 }
 
-function textAttachmentEnvelope(att: AgentChatAttachment, text: string): string {
+function textAttachmentEnvelope(
+  att: AgentChatAttachment,
+  text: string,
+): string {
   const attrs = [
     `name="${escapeAttachmentAttribute(att.name || "attachment")}"`,
     att.contentType
@@ -430,7 +435,9 @@ function buildStoredAttachments(
           name: att.name,
           contentType: att.contentType,
           status: { type: "complete" },
-          content: [{ type: "text", text: textAttachmentEnvelope(att, att.text) }],
+          content: [
+            { type: "text", text: textAttachmentEnvelope(att, att.text) },
+          ],
         };
       }
       return null;
