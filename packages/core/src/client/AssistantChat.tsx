@@ -164,10 +164,7 @@ function getFileDataURL(file: File): Promise<string> {
   });
 }
 
-type QueuedAttachment = Pick<
-  Attachment,
-  "id" | "type" | "name" | "contentType" | "content"
->;
+type QueuedAttachment = CompleteAttachment;
 
 function escapeQueuedAttachmentAttribute(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
@@ -197,8 +194,11 @@ function serializeAttachmentContentPart(
     return {
       type: "file",
       data: part.data,
+      mimeType:
+        typeof part.mimeType === "string"
+          ? part.mimeType
+          : "application/octet-stream",
       ...(typeof part.filename === "string" ? { filename: part.filename } : {}),
-      ...(typeof part.mimeType === "string" ? { mimeType: part.mimeType } : {}),
     };
   }
   return null;
@@ -222,7 +222,14 @@ async function serializeQueuedAttachments(
         )
         .filter((part): part is QueuedAttachment["content"][number] => !!part);
       if (content.length > 0) {
-        queued.push({ id, type, name, contentType, content });
+        queued.push({
+          id,
+          type,
+          name,
+          contentType,
+          status: { type: "complete" },
+          content,
+        });
       }
       continue;
     }
@@ -235,6 +242,7 @@ async function serializeQueuedAttachments(
           type: "image",
           name,
           contentType: file.type,
+          status: { type: "complete" },
           content: [{ type: "image", image: await getFileDataURL(file) }],
         });
       } else if (isTextLikeFile(file)) {
@@ -243,6 +251,7 @@ async function serializeQueuedAttachments(
           type: "file",
           name,
           contentType: file.type || "text/plain",
+          status: { type: "complete" },
           content: [
             {
               type: "text",
@@ -256,6 +265,7 @@ async function serializeQueuedAttachments(
           type: "document",
           name,
           contentType: inferDocumentContentType(file),
+          status: { type: "complete" },
           content: [
             {
               type: "file",
