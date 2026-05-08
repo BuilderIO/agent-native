@@ -80,6 +80,23 @@ export {
   type PromptComposerSubmitOptions,
 } from "./composer/PromptComposer.js";
 export {
+  GuidedQuestionFlow,
+  useGuidedQuestionFlow,
+  formatGuidedAnswerValue,
+  formatGuidedAnswersForAgent,
+  getOtherGuidedAnswerText,
+  hasGuidedAnswer,
+  isOtherGuidedAnswer,
+  makeOtherGuidedAnswer,
+  normalizeGuidedAnswers,
+  type GuidedQuestion,
+  type GuidedQuestionAnswers,
+  type GuidedQuestionFlowProps,
+  type GuidedQuestionOption,
+  type GuidedQuestionType,
+  type UseGuidedQuestionFlowOptions,
+} from "./guided-questions.js";
+export {
   useChatThreads,
   type ChatThreadSummary,
   type ChatThreadData,
