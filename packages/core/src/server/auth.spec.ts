@@ -1242,14 +1242,22 @@ describe("server/auth", () => {
   });
 
   describe("onboarding Google sign-in", () => {
-    it("routes Google OAuth through the shared popup/current-tab helper", async () => {
+    it("routes Builder preview Google OAuth through a popup exchange", async () => {
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
 
       const { getOnboardingHtml } = await import("./onboarding-html.js");
       const html = getOnboardingHtml({ googleOnly: true });
 
-      expect(html).toContain("__anOpenOAuthUrl(data.url, popup)");
+      expect(html).toContain("__anStartBuilderOAuth(ret, btn, err)");
+      expect(html).toContain(
+        "__anPath('/_agent-native/auth/desktop-exchange')",
+      );
+      expect(html).toContain("params.set('desktop', '1')");
+      expect(html).toContain("params.set('flow_id', flowId)");
+      expect(html).toContain("params.set('redirect', '1')");
+      expect(html).toContain("window.open(url, '_blank'");
+      expect(html).toContain("__anOpenOAuthUrl(data.url)");
       expect(html).toContain("window.location.href = url");
       expect(html).not.toContain("window.open(data.url");
       expect(html).not.toContain("Waiting for sign-in");

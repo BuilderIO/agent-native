@@ -898,21 +898,64 @@ ${
         return false;
       }
     }
-    function __anPrepareOAuthPopup() {
-      if (!__anIsBuilderPreview()) return null;
-      try { return window.open('about:blank', '_blank', 'width=640,height=760'); } catch(e) { return null; }
+    var __anOAuthPollTimer = null;
+    function __anNewOAuthFlowId() {
+      try {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+          return window.crypto.randomUUID();
+        }
+      } catch(e) {}
+      return 'builder-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
     }
-    function __anCloseOAuthPopup(popup) {
-      try { if (popup && !popup.closed) popup.close(); } catch(e) {}
-    }
-    function __anOpenOAuthUrl(url, popup) {
-      try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
-      if (popup && !popup.closed) {
-        try {
-          popup.location.href = url;
-          return;
-        } catch(e) {}
+    function __anShowOAuthError(err, btn, message) {
+      if (__anOAuthPollTimer) {
+        clearInterval(__anOAuthPollTimer);
+        __anOAuthPollTimer = null;
       }
+      err.textContent = message;
+      err.classList.add('show');
+      btn.disabled = false;
+    }
+    function __anWaitForOAuthExchange(flowId, ret, btn, err) {
+      var started = Date.now();
+      var timeoutMs = 5 * 60 * 1000;
+      async function check() {
+        try {
+          var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + '?flow_id=' + encodeURIComponent(flowId), { credentials: 'include' });
+          var data = await res.json().catch(function() { return {}; });
+          if (data && (data.email || data.token)) {
+            if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
+            __anOAuthPollTimer = null;
+            window.location.href = ret || '/';
+            return;
+          }
+          if (data && data.error) {
+            __anShowOAuthError(err, btn, data.message || data.error);
+            return;
+          }
+        } catch(e) {}
+        if (Date.now() - started > timeoutMs) {
+          __anShowOAuthError(err, btn, 'Google sign-in did not finish. Allow popups and try again.');
+        }
+      }
+      if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
+      __anOAuthPollTimer = setInterval(check, 1000);
+      setTimeout(check, 500);
+    }
+    function __anStartBuilderOAuth(ret, btn, err) {
+      var flowId = __anNewOAuthFlowId();
+      var params = new URLSearchParams();
+      if (ret) params.set('return', ret);
+      params.set('desktop', '1');
+      params.set('flow_id', flowId);
+      params.set('redirect', '1');
+      var url = __anPath('/_agent-native/google/auth-url') + '?' + params.toString();
+      try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
+      try { window.open(url, '_blank', 'noopener,noreferrer,width=640,height=760'); } catch(e) {}
+      __anWaitForOAuthExchange(flowId, ret, btn, err);
+    }
+    function __anOpenOAuthUrl(url) {
+      try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
       window.location.href = url;
     }
     (function revealLocalNote() {
@@ -1386,24 +1429,25 @@ ${
     async function __anStartGoogleSignIn() {
     var btn = document.getElementById('google-btn');
     var err = document.getElementById('google-err');
-    var popup = __anPrepareOAuthPopup();
+    var ret = __anGetReturnPath();
     btn.disabled = true;
     err.classList.remove('show');
+    if (__anIsBuilderPreview()) {
+      __anStartBuilderOAuth(ret, btn, err);
+      return;
+    }
     try {
-      var ret = __anGetReturnPath();
       var authUrl = __anPath('/_agent-native/google/auth-url') + '?return=' + encodeURIComponent(ret);
       var res = await fetch(authUrl);
       var data = await res.json();
       if (data.url) {
-        __anOpenOAuthUrl(data.url, popup);
+        __anOpenOAuthUrl(data.url);
       } else {
-        __anCloseOAuthPopup(popup);
         err.textContent = data.message || 'Google OAuth is not configured.';
         err.classList.add('show');
         btn.disabled = false;
       }
     } catch (e) {
-      __anCloseOAuthPopup(popup);
       err.textContent = 'Failed to connect. Please try again.';
       err.classList.add('show');
       btn.disabled = false;
