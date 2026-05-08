@@ -127,7 +127,7 @@ function compareApps(a: Pick<WorkspaceApp, "id">, b: Pick<WorkspaceApp, "id">) {
 
 function isChildDevServerUrlLine(line: string): boolean {
   return /^\s*->\s+(?:Local|Network):\s+https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):\d+(?:\/\S*)?\s*$/i.test(
-    line.replace("➜", "->"),
+    line.replace(/\u279c/g, "->"),
   );
 }
 
@@ -760,10 +760,14 @@ export function runWorkspaceDev(
       app.process?.kill("SIGTERM");
     }
     if (syncTimer) clearTimeout(syncTimer);
+    process.off("SIGINT", handleSigint);
+    process.off("SIGTERM", handleSigterm);
   }
 
-  process.once("SIGINT", shutdown);
-  process.once("SIGTERM", shutdown);
+  const handleSigint = () => shutdown();
+  const handleSigterm = () => shutdown();
+  process.once("SIGINT", handleSigint);
+  process.once("SIGTERM", handleSigterm);
 
   listen(requestedPort);
 
