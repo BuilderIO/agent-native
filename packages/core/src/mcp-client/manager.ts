@@ -9,6 +9,7 @@
  */
 
 import type { McpConfig, McpServerConfig } from "./config.js";
+import { formatMcpConnectError } from "./errors.js";
 
 export const MCP_TOOL_PREFIX = "mcp__";
 
@@ -33,6 +34,8 @@ interface ServerEntry {
   tools: McpTool[];
   error?: string;
 }
+
+type ErrorSink = (error: unknown) => void;
 
 function isNode(): boolean {
   return (
@@ -87,6 +90,33 @@ function sameServerConfig(a: McpServerConfig, b: McpServerConfig): boolean {
     );
   }
   return false;
+}
+
+async function safelyClose(value: any, recordError?: ErrorSink): Promise<void> {
+  try {
+    if (value?.close) await value.close();
+  } catch (err) {
+    recordError?.(err);
+  }
+}
+
+function guardClose(
+  value: any,
+  recordError: ErrorSink,
+): (() => void) | undefined {
+  if (!value || typeof value.close !== "function") return undefined;
+  const originalClose = value.close.bind(value);
+  value.close = async (...args: unknown[]) => {
+    try {
+      return await originalClose(...args);
+    } catch (err) {
+      recordError(err);
+      return undefined;
+    }
+  };
+  return () => {
+    value.close = originalClose;
+  };
 }
 
 type SdkModules = {
@@ -272,7 +302,7 @@ export class McpClientManager {
         `[mcp-client] connected to ${id}: ${entry.tools.length} tools`,
       );
     } catch (err: any) {
-      entry.error = err?.message ?? String(err);
+      entry.error = formatMcpConnectError(err);
       console.warn(`[mcp-client] failed to connect to ${id}: ${entry.error}`);
     }
   }
@@ -339,6 +369,10 @@ export class McpClientManager {
       { name: "agent-native-mcp-client", version: "1.0.0" },
       { capabilities: {} },
     );
+    const recordConnectionError: ErrorSink = () => {};
+    const restoreClientClose = guardClose(client, recordConnectionError);
+    const restoreTransportClose = guardClose(transport, recordConnectionError);
+    client.onerror = recordConnectionError;
 
     // If connect or listTools throws, we still need to release the child
     // process (stdio) or pending HTTP session — otherwise repeated failures
@@ -364,18 +398,21 @@ export class McpClientManager {
           properties: {},
         }) as Record<string, unknown>,
       }));
+      client.onerror = (error: unknown) => {
+        entry.error = formatMcpConnectError(error);
+        if (this.debug) {
+          console.warn(
+            `[mcp-client] runtime error from ${entry.id}: ${entry.error}`,
+          );
+        }
+      };
     } catch (err) {
-      try {
-        if (client?.close) await client.close();
-      } catch {
-        // ignore
-      }
-      try {
-        if (transport?.close) await transport.close();
-      } catch {
-        // ignore
-      }
+      await safelyClose(client, recordConnectionError);
+      await safelyClose(transport, recordConnectionError);
       throw err;
+    } finally {
+      restoreClientClose?.();
+      restoreTransportClose?.();
     }
   }
 
