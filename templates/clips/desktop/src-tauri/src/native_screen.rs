@@ -283,9 +283,7 @@ pub async fn native_fullscreen_capture_thumbnail(
         )
         .await
         {
-            eprintln!(
-                "[clips-tray] native thumbnail upload failed for {recording_id}: {err}"
-            );
+            eprintln!("[clips-tray] native thumbnail upload failed for {recording_id}: {err}");
         }
     });
     Ok(())
@@ -517,8 +515,8 @@ fn capture_thumbnail_bytes(app: &AppHandle, recording_id: &str) -> Result<Vec<u8
         }
 
         let upload_path = thumbnail_file_for_upload(&path)?;
-        let bytes = std::fs::read(&upload_path)
-            .map_err(|e| format!("thumbnail read failed: {e}"))?;
+        let bytes =
+            std::fs::read(&upload_path).map_err(|e| format!("thumbnail read failed: {e}"))?;
         if upload_path != path {
             let _ = std::fs::remove_file(&upload_path);
         }
