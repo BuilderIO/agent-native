@@ -8,7 +8,6 @@ import {
   IconCalendar,
   IconCalendarOff,
   IconExternalLink,
-  IconKey,
   IconLoader2,
   IconPlugConnected,
   IconPlugOff,
@@ -30,11 +29,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -302,12 +296,10 @@ function CalendarConnectionAction({
 function ConnectCalendarEmptyState({
   onConnected,
 }: {
-  onConnected?: () => void;
+  onConnected?: () => void | Promise<void>;
 }) {
-  // Mirrors ConnectBuilderCard layout: prominent CTA card, secondary
-  // "Add API key" disclosure underneath.
   return (
-    <div className="max-w-xl mx-auto mt-12 space-y-3">
+    <div className="max-w-xl mx-auto mt-12">
       <div className="rounded-lg border border-border overflow-hidden">
         <div className="flex items-start gap-3 px-4 py-3.5 bg-gradient-to-br from-primary/5 via-transparent to-transparent">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-foreground text-background">
@@ -330,28 +322,6 @@ function ConnectCalendarEmptyState({
           </div>
         </div>
       </div>
-
-      <Collapsible>
-        <CollapsibleTrigger className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground px-1 cursor-pointer">
-          <IconKey className="h-3.5 w-3.5" />
-          Add API key instead
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <div className="mt-2 rounded-md border border-border bg-accent/20 px-3 py-2.5 text-xs text-muted-foreground space-y-1.5">
-            <p>
-              You can also paste a Google service-account or OAuth client API
-              key directly in Settings → Secrets:
-            </p>
-            <NavLink
-              to="/settings#secrets:GOOGLE_CALENDAR_API_KEY"
-              className="inline-flex items-center gap-1 text-foreground hover:underline"
-            >
-              Open settings
-              <IconExternalLink className="h-3 w-3" />
-            </NavLink>
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
     </div>
   );
 }

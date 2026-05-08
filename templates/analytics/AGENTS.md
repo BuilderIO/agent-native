@@ -37,6 +37,8 @@ Use configured data sources and actions. The generic analytics template can incl
 
 When source availability is unclear, call `data-source-status` and inspect existing dashboards, data-dictionary entries, and user/org resources before choosing a source. If multiple configured sources could answer the question, ask one concise clarification.
 
+When the user names a data source or tool, that source is authoritative for the turn. If they ask for Jira, Pylon, HubSpot, Gong, Slack, Sentry, GA4, or another provider by name, call that provider's action first and report its real result or unavailable/error state. Do not substitute BigQuery for a named provider unless the user explicitly asks for the warehouse copy, or the named provider is unavailable and the user chooses a fallback. `data-source-status --key <provider>` accepts provider aliases such as `jira`, `pylon`, `bigquery`, `hubspot`, `gong`, and `slack`.
+
 If a provider action returns an error:
 
 - **Credentials not configured** — surface the action's message and settings path when provided, and point the user at Settings → Data sources.
@@ -289,7 +291,7 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 
 | Action                         | Args / Flags                | Use For                                                                                                                                                   |
 | ------------------------------ | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `data-source-status`           | `[--key <name>]`            | Show configured data-source credentials without revealing values                                                                                          |
+| `data-source-status`           | `[--key <provider-or-key>]` | Show configured data-source credentials without revealing values. Accepts aliases like `jira`, `pylon`, `bigquery`, `hubspot`, `gong`, `slack`.           |
 | `github-prs`                   | `--org`, `--query`          | PR & issue search                                                                                                                                         |
 | `hubspot-deals`                |                             | CRM deals, pipelines                                                                                                                                      |
 | `hubspot-metrics`              |                             | CRM metrics summary                                                                                                                                       |
@@ -309,7 +311,7 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 | `seo-page-keywords`            | `--url`                     | Keywords for a specific page                                                                                                                              |
 | `seo-blog-pages`               |                             | Blog page SEO metrics                                                                                                                                     |
 | `ga4-report`                   | `--metrics`, `--dimensions` | Google Analytics reports                                                                                                                                  |
-| `bigquery`                     | `--sql`                     | Ad-hoc BigQuery queries when BigQuery is configured. Surface missing-credential or API errors; never invent warehouse data                                |
+| `bigquery`                     | `--sql`                     | Ad-hoc BigQuery/warehouse queries when BigQuery is configured. Do not use as a substitute for named provider actions like Jira or Pylon.                  |
 | `query-agent-native-analytics` | `--sql`                     | Query first-party `analytics_events` recorded via `/track`, including traffic, product events, and app/template usage collected by this analytics app     |
 | `create-analytics-public-key`  | `[--name <label>]`          | Generate a public write key for hosted apps to send events to `analytics.agent-native.com/track`                                                          |
 | `list-analytics-public-keys`   |                             | List active/revoked first-party analytics write keys                                                                                                      |
