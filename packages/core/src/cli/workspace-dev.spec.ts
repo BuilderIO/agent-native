@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import type { ChildProcess, spawn } from "node:child_process";
@@ -145,6 +146,43 @@ describe("workspace dev startup", () => {
     expect(fake.startedApps()).toEqual(["dispatch", "todo"]);
   });
 
+  it("marks a cold app ready while serving the loading page", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = runWorkspaceDev({
+      root: tmpDir,
+      env: { ...testEnv(), WORKSPACE_PROXY_READY_TIMEOUT_MS: "1000" },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    const app = handle.apps.find((candidate) => candidate.id === "dispatch");
+    expect(app).toBeDefined();
+
+    const first = await fetch(`${url}/dispatch`, {
+      headers: { accept: "text/html" },
+    });
+    expect(await first.text()).toContain("Starting Dispatch");
+
+    const upstream = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end("<h1>Dispatch ready</h1>");
+    });
+    await new Promise<void>((resolve) => {
+      upstream.listen(app!.port, "127.0.0.1", resolve);
+    });
+    try {
+      await waitUntil(() => app!.ready === true);
+
+      const second = await fetch(`${url}/dispatch`, {
+        headers: { accept: "text/html" },
+      });
+      expect(await second.text()).toContain("Dispatch ready");
+    } finally {
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  });
+
   it("runs a workspace install before starting a newly generated app without installed bins", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
@@ -251,6 +289,18 @@ function createViteBin(appDir: string): void {
   const binDir = path.join(appDir, "node_modules", ".bin");
   fs.mkdirSync(binDir, { recursive: true });
   fs.writeFileSync(path.join(binDir, "vite"), "");
+}
+
+async function waitUntil(
+  predicate: () => boolean,
+  timeoutMs = 1_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("Timed out waiting for condition");
 }
 
 function fakeSpawn(): {
