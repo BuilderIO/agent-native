@@ -318,6 +318,64 @@ function extractConstArrayLiteral(rel: string, name: string): string {
   throw new Error(`Unterminated array literal for ${name} in ${rel}`);
 }
 
+function extractConstObjectLiteral(rel: string, name: string): string {
+  const source = readLegacy(rel);
+  const start = source.indexOf(`const ${name}`);
+  if (start < 0) throw new Error(`Could not find ${name} in ${rel}`);
+  const eq = source.indexOf("=", start);
+  const objectStart = source.indexOf("{", eq);
+  if (eq < 0 || objectStart < 0)
+    throw new Error(`Could not find object literal for ${name} in ${rel}`);
+
+  let depth = 0;
+  let quote: string | null = null;
+  let escaped = false;
+  for (let i = objectStart; i < source.length; i++) {
+    const ch = source[i];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === `"` || ch === "'" || ch === "`") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "{") depth++;
+    if (ch === "}") {
+      depth--;
+      if (depth === 0) return source.slice(objectStart, i + 1);
+    }
+  }
+  throw new Error(`Unterminated object literal for ${name} in ${rel}`);
+}
+
+function extractConstTemplateLiteral(rel: string, name: string): string {
+  const source = readLegacy(rel);
+  const start = source.indexOf(`const ${name}`);
+  if (start < 0) throw new Error(`Could not find ${name} in ${rel}`);
+  const eq = source.indexOf("=", start);
+  const templateStart = source.indexOf("`", eq);
+  if (eq < 0 || templateStart < 0)
+    throw new Error(`Could not find template literal for ${name} in ${rel}`);
+
+  let escaped = false;
+  for (let i = templateStart + 1; i < source.length; i++) {
+    const ch = source[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === "`") return source.slice(templateStart + 1, i);
+  }
+  throw new Error(`Unterminated template literal for ${name} in ${rel}`);
+}
+
 function currentBigQuerySql(sql: string): string {
   return sql
     .replace(
