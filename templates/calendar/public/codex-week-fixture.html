@@ -1,0 +1,90 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Calendar Week Fixture</title>
+    <script type="module" src="/@vite/client"></script>
+    <script type="module">
+      import React from "react";
+      import { createRoot } from "react-dom/client";
+      import "/@fs/Users/steve/Projects/builder/agent-native/framework/templates/calendar/app/global.css";
+      import { WeekView } from "/@fs/Users/steve/Projects/builder/agent-native/framework/templates/calendar/app/components/calendar/WeekView.tsx";
+      import { TooltipProvider } from "/@fs/Users/steve/Projects/builder/agent-native/framework/templates/calendar/app/components/ui/tooltip.tsx";
+
+      localStorage.setItem("calendar-view-preferences", JSON.stringify({
+        colorMode: "multi",
+        singleColor: "#5B9BD5",
+        hideWeekends: false
+      }));
+
+      const selectedDate = new Date(2026, 4, 7);
+      const root = createRoot(document.getElementById("root"));
+      root.render(
+        React.createElement(TooltipProvider, { delayDuration: 0 },
+          React.createElement("div", { className: "h-screen w-screen bg-background p-6" },
+            React.createElement("div", { className: "h-[560px] w-[980px] overflow-hidden border border-border bg-card" },
+              React.createElement(WeekView, {
+                events: [],
+                selectedDate,
+                onDateSelect: () => {},
+                onDeleteEvent: () => {},
+                isLoading: false
+              })
+            )
+          )
+        )
+      );
+
+      function rounded(rect) {
+        return {
+          x: Math.round(rect.x * 100) / 100,
+          width: Math.round(rect.width * 100) / 100,
+          right: Math.round(rect.right * 100) / 100
+        };
+      }
+
+      function measure() {
+        const week = document.querySelector("#root .h-full.flex-col.overflow-hidden");
+        if (!week) return null;
+        const sticky = week.querySelector(".sticky");
+        const headerRow = sticky?.firstElementChild;
+        const scroll = Array.from(week.children).find((el) =>
+          el !== sticky && el.className.includes("overflow-y-auto")
+        );
+        const bodyRow = scroll?.firstElementChild;
+        if (!headerRow || !scroll || !bodyRow) return null;
+        const headerChildren = Array.from(headerRow.children);
+        const bodyChildren = Array.from(bodyRow.children);
+        const dayCount = bodyChildren.length - 1;
+        const headerDayRects = headerChildren.slice(1, 1 + dayCount).map((el) => rounded(el.getBoundingClientRect()));
+        const bodyDayRects = bodyChildren.slice(1).map((el) => rounded(el.getBoundingClientRect()));
+        const maxDelta = Math.max(...headerDayRects.map((rect, i) => {
+          const body = bodyDayRects[i];
+          return Math.max(Math.abs(rect.x - body.x), Math.abs(rect.width - body.width), Math.abs(rect.right - body.right));
+        }));
+        return {
+          timeGridScrollbarWidth: scroll.offsetWidth - scroll.clientWidth,
+          headerChildCount: headerChildren.length,
+          bodyChildCount: bodyChildren.length,
+          maxDelta: Math.round(maxDelta * 100) / 100,
+          firstHeaderDay: headerDayRects[0],
+          firstBodyDay: bodyDayRects[0],
+          lastHeaderDay: headerDayRects[dayCount - 1],
+          lastBodyDay: bodyDayRects[dayCount - 1]
+        };
+      }
+
+      function publish() {
+        const result = measure();
+        document.getElementById("metrics").textContent = result ? JSON.stringify(result) : "pending";
+        requestAnimationFrame(publish);
+      }
+      requestAnimationFrame(publish);
+    </script>
+  </head>
+  <body>
+    <pre id="metrics">pending</pre>
+    <div id="root"></div>
+  </body>
+</html>
