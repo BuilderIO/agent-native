@@ -45,6 +45,7 @@ import {
   sendToAgentChat,
   agentNativePath,
   appBasePath,
+  useGuidedQuestionFlow,
 } from "@agent-native/core/client";
 import type { QuestionFlowQuestion } from "@shared/api";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
@@ -72,7 +73,6 @@ const Pinpoint = lazy(() =>
 export default function DeckEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
     getDeck,
