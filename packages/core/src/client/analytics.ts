@@ -4,6 +4,10 @@ import * as Sentry from "@sentry/browser";
 declare global {
   interface Window {
     gtag?: (...args: any[]) => void;
+    __AGENT_NATIVE_CONFIG__?: {
+      sentryDsn?: string;
+      sentryEnvironment?: string;
+    };
   }
 }
 
@@ -98,13 +102,25 @@ function scrubUrl(url: string | undefined): string | undefined {
   }
 }
 
+function getClientSentryDsn(): string | undefined {
+  const env = (import.meta.env as Record<string, string | undefined>) ?? {};
+  return (
+    env.VITE_SENTRY_CLIENT_DSN ||
+    env.VITE_SENTRY_DSN ||
+    window.__AGENT_NATIVE_CONFIG__?.sentryDsn
+  );
+}
+
 function ensureSentry(): void {
   if (_sentryInitialized) return;
-  const dsn = (import.meta.env as Record<string, string | undefined>)
-    ?.VITE_SENTRY_CLIENT_DSN;
+  const dsn = getClientSentryDsn();
   if (!dsn) return;
   Sentry.init({
     dsn,
+    environment:
+      window.__AGENT_NATIVE_CONFIG__?.sentryEnvironment ||
+      (import.meta.env as Record<string, string | undefined>)?.MODE ||
+      "production",
     beforeSend(event) {
       // Strip sensitive query params from the request URL. React Router
       // history can include share tokens, ?signin=1, password reset codes,
@@ -133,6 +149,7 @@ function ensureSentry(): void {
       return event;
     },
   });
+  Sentry.setTag("runtime", "browser");
   _sentryInitialized = true;
   // Flush any user/tag that was set before init.
   if (_pendingSentryUser !== undefined) {
