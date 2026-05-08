@@ -431,7 +431,7 @@ export function MultiTabAssistantChat({
   const [availableModels, setAvailableModels] = useState<EngineModelGroup[]>(
     [],
   );
-  const [defaultModel, setDefaultModel] = useState(DEFAULT_MODEL);
+  const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
   const threadModelRef = useRef<
     Map<string, { model: string; engine?: string; effort?: ReasoningEffort }>
   >(new Map());

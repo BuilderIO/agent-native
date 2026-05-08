@@ -69,7 +69,7 @@ export function useChatModels({
   const [availableModels, setAvailableModels] = useState<EngineModelGroup[]>(
     [],
   );
-  const [defaultModel, setDefaultModel] = useState(DEFAULT_MODEL);
+  const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
 
   const initialPersisted = readPersisted(storageKey);
   const [selectedModel, setSelectedModel] = useState<string>(
