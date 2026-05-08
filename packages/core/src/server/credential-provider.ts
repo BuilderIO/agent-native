@@ -103,11 +103,11 @@ export function canUseDeployCredentialFallbackForRequest(): boolean {
 // shared fallback identity is intentional.
 // ---------------------------------------------------------------------------
 
-type BuilderCredentialSource = "user" | "org" | "env";
+type BuilderCredentialSource = "user" | "org" | "workspace" | "env";
 
 async function resolveScopedBuilderCredential(
   key: string,
-): Promise<{ value: string; source: "user" | "org" } | null> {
+): Promise<{ value: string; source: "user" | "org" | "workspace" } | null> {
   const email = getRequestUserEmail();
   if (!email) return null;
 
@@ -136,6 +136,27 @@ async function resolveScopedBuilderCredential(
         scopeId: orgId,
       });
       if (orgSecret) return { value: orgSecret.value, source: "org" };
+
+      // Older setup flows wrote shared credentials at workspace scope.
+      // Keep reading those rows so status UIs and runtime resolution agree
+      // for users who connected before org-scoped Builder credentials existed.
+      const workspaceSecret = await readAppSecret({
+        key,
+        scope: "workspace",
+        scopeId: orgId,
+      });
+      if (workspaceSecret) {
+        return { value: workspaceSecret.value, source: "workspace" };
+      }
+    } else {
+      const soloWorkspaceSecret = await readAppSecret({
+        key,
+        scope: "workspace",
+        scopeId: `solo:${email}`,
+      });
+      if (soloWorkspaceSecret) {
+        return { value: soloWorkspaceSecret.value, source: "workspace" };
+      }
     }
   } catch {
     // Secrets table not ready — treat as missing.
