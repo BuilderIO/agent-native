@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAssistantMessage,
+  buildUserMessage,
   mergeThreadDataForClientSave,
   upsertAssistantMessage,
+  upsertUserMessage,
 } from "./thread-data-builder.js";
 import type { RunEvent } from "./types.js";
 
@@ -347,5 +349,137 @@ describe("mergeThreadDataForClientSave", () => {
     const merged = mergeThreadDataForClientSave(existing, staleIncoming);
 
     expect(merged.messages).toEqual(existing.messages);
+  });
+
+  it("matches server-persisted user attachments to later client saves by attachment metadata", () => {
+    const existing = {
+      messages: [
+        buildUserMessage({
+          text: "Use the attached context.",
+          runId: "run-user",
+          attachments: [
+            {
+              type: "file",
+              name: "gong-transcript.txt",
+              contentType: "text/plain",
+              text: "truncated transcript",
+            },
+          ],
+        }),
+      ],
+    };
+    const incoming = {
+      messages: [
+        {
+          id: "client-user",
+          role: "user",
+          content: [{ type: "text", text: "Use the attached context." }],
+          attachments: [
+            {
+              id: "client-attachment",
+              type: "file",
+              name: "gong-transcript.txt",
+              contentType: "text/plain",
+              status: { type: "complete" },
+              content: [
+                {
+                  type: "text",
+                  text: '<attachment name="gong-transcript.txt">\nfull transcript\n</attachment>',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, incoming);
+
+    expect(merged.messages).toHaveLength(1);
+    expect(merged.messages[0].id).toBe("client-user");
+  });
+});
+
+describe("upsertUserMessage", () => {
+  it("persists submitted text attachments in assistant-ui attachment shape", () => {
+    const message = buildUserMessage({
+      text: "Summarize this",
+      runId: "run-submit",
+      attachments: [
+        {
+          type: "file",
+          name: "notes.txt",
+          contentType: "text/plain",
+          text: "Call notes",
+        },
+      ],
+    });
+
+    const updated = upsertUserMessage({}, message);
+
+    expect(updated.messages).toEqual([
+      expect.objectContaining({
+        id: "server-user-run-submit",
+        role: "user",
+        content: [{ type: "text", text: "Summarize this" }],
+        attachments: [
+          expect.objectContaining({
+            name: "notes.txt",
+            contentType: "text/plain",
+            content: [
+              {
+                type: "text",
+                text: '<attachment name="notes.txt" contentType="text/plain" type="file">\nCall notes\n</attachment>',
+              },
+            ],
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("does not duplicate the latest same submitted user message", () => {
+    const message = buildUserMessage({
+      text: "Use the attached context.",
+      runId: "run-submit",
+      attachments: [
+        {
+          type: "file",
+          name: "source.txt",
+          contentType: "text/plain",
+          text: "Source",
+        },
+      ],
+    });
+
+    const updated = upsertUserMessage({ messages: [message] }, message);
+
+    expect(updated.messages).toHaveLength(1);
+  });
+
+  it("still appends a repeated prompt after an assistant reply", () => {
+    const message = buildUserMessage({
+      text: "continue",
+      runId: "run-repeat",
+    });
+    const repo = {
+      messages: [
+        buildUserMessage({ text: "continue", runId: "run-old" }),
+        {
+          id: "assistant-old",
+          role: "assistant",
+          content: [{ type: "text", text: "Sure." }],
+          status: { type: "complete", reason: "stop" },
+        },
+      ],
+    };
+
+    const updated = upsertUserMessage(repo, message);
+
+    expect(updated.messages).toHaveLength(3);
+    expect(updated.messages[2]).toMatchObject({
+      id: "server-user-run-repeat",
+      role: "user",
+    });
   });
 });

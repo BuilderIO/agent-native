@@ -200,6 +200,7 @@ describe("createAgentChatAdapter", () => {
     const body = JSON.parse(init.body);
     expect(body).toMatchObject({
       message: "Review @app.tsx",
+      displayMessage: "Review @[app.tsx|file]",
       threadId: "thread-qa",
       model: "claude-sonnet-4-6",
       engine: "builder",
@@ -302,6 +303,7 @@ describe("createAgentChatAdapter", () => {
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(body.message).toBe("Use the attached context.");
+    expect(body.displayMessage).toBe("Use the attached context.");
     expect(body.attachments).toEqual([
       {
         type: "file",
@@ -388,6 +390,7 @@ describe("createAgentChatAdapter", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     const secondBody = JSON.parse(fetchSpy.mock.calls[1][1].body);
     expect(secondBody.message).toContain("Continue from where you left off");
+    expect(secondBody.internalContinuation).toBe(true);
     expect(secondBody.attachments).toEqual([
       {
         type: "file",
@@ -474,6 +477,57 @@ describe("createAgentChatAdapter", () => {
         },
       ],
     });
+  });
+
+  it("truncates large outbound text attachments before posting", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-large-attachment",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Summarize this" }],
+            attachments: [
+              {
+                name: "gong-transcript.txt",
+                contentType: "text/plain",
+                content: [{ type: "text", text: "a".repeat(60_010) }],
+              },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.attachments[0].text).toHaveLength(
+      60_000 +
+        "\n\n[Attachment truncated after 60,000 characters; 10 characters omitted from the submitted attachment.]"
+          .length,
+    );
+    expect(body.attachments[0].text).toContain(
+      "10 characters omitted from the submitted attachment",
+    );
   });
 
   it("treats authentication failures as auth errors, not AI setup", async () => {
@@ -785,6 +839,7 @@ describe("createAgentChatAdapter", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     const secondBody = JSON.parse(fetchSpy.mock.calls[1][1].body);
     expect(secondBody.message).toContain("Continue from where you left off");
+    expect(secondBody.internalContinuation).toBe(true);
     expect(secondBody.history).toEqual([
       { role: "user", content: "keep using tools" },
     ]);

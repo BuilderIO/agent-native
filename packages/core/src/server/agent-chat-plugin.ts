@@ -3287,7 +3287,8 @@ export function createAgentChatPlugin(
                 `Agent chat thread ${threadId} was not found while saving run ${run.runId}.`,
               );
             }
-            const runOwner = getRequestRunContext()?.owner ?? getRequestUserEmail();
+            const runOwner =
+              getRequestRunContext()?.owner ?? getRequestUserEmail();
             if (runOwner && thread.ownerEmail !== runOwner) {
               throw createError({
                 statusCode: 404,
@@ -3473,17 +3474,19 @@ export function createAgentChatPlugin(
         message: string;
         attachments?: AgentChatAttachment[];
       }) => {
-        if (!details.threadId) return;
-        const ownerEmail = getRequestRunContext()?.owner ?? getRequestUserEmail();
+        const threadId = details.threadId;
+        if (!threadId) return;
+        const ownerEmail =
+          getRequestRunContext()?.owner ?? getRequestUserEmail();
         if (!ownerEmail) return;
 
-        await withThreadDataLock(details.threadId, async () => {
-          let thread = await getThread(details.threadId!);
+        await withThreadDataLock(threadId, async () => {
+          let thread = await getThread(threadId);
           if (!thread) {
             try {
-              thread = await createThread(ownerEmail, { id: details.threadId });
+              thread = await createThread(ownerEmail, { id: threadId });
             } catch {
-              thread = await getThread(details.threadId!);
+              thread = await getThread(threadId);
             }
           }
           if (!thread || thread.ownerEmail !== ownerEmail) {
@@ -3511,11 +3514,13 @@ export function createAgentChatPlugin(
 
           const meta = extractThreadMeta(repo);
           await updateThreadData(
-            details.threadId,
+            threadId,
             JSON.stringify(repo),
             meta.title || thread.title,
             meta.preview || thread.preview,
-            Array.isArray(repo.messages) ? repo.messages.length : thread.messageCount,
+            Array.isArray(repo.messages)
+              ? repo.messages.length
+              : thread.messageCount,
           );
         });
       };
