@@ -358,9 +358,13 @@ class AISDKEngine implements AgentEngine {
     }
 
     const provider = createFn(config);
-    // @ai-sdk/openai@3 defaults to the Responses API; force Chat Completions
-    // so OpenAI-compatible gateways (OpenRouter, Groq, Together, …) work too.
-    return this.provider === "openai" ? provider.chat(model) : provider(model);
+    // Let first-party OpenAI use the AI SDK's default Responses path so newer
+    // GPT reasoning models get the API OpenAI recommends. If someone points
+    // the OpenAI provider at an OpenAI-compatible gateway, keep using Chat
+    // Completions because many gateway base URLs do not implement Responses.
+    return this.provider === "openai" && this.baseUrl
+      ? provider.chat(model)
+      : provider(model);
   }
 }
 
