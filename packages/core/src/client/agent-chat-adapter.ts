@@ -1125,11 +1125,9 @@ export function createAgentChatAdapter(options?: {
               if (!continuation.ok) {
                 const message =
                   "The agent connection kept failing after several automatic recovery attempts.";
-                captureChatClientError(
-                  err,
-                  "auto-continuation-exhausted",
-                  { autoContinueReason: err.reason },
-                );
+                captureChatClientError(err, "auto-continuation-exhausted", {
+                  autoContinueReason: err.reason,
+                });
                 const runError = {
                   message,
                   details: connectionRecoveryDetails(),

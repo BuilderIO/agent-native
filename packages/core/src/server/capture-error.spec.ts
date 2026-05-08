@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  captureError,
-  registerErrorCaptureProvider,
-} from "./capture-error.js";
+import { captureError, registerErrorCaptureProvider } from "./capture-error.js";
 
 describe("server captureError", () => {
   it("no-ops when no capture provider is registered", () => {

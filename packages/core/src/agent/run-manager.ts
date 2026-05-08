@@ -229,8 +229,7 @@ export function startRun(
         runStatus: run.status,
         softTimedOut: softTimedOut ? "true" : "false",
         abortReason: run.abortReason,
-        errorCode:
-          error instanceof EngineError ? error.errorCode : undefined,
+        errorCode: error instanceof EngineError ? error.errorCode : undefined,
       },
       extra: {
         runId,
