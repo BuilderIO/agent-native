@@ -535,15 +535,15 @@ function ModelSelector({
       <PopoverPrimitive.Trigger asChild>
         <button
           type="button"
-          className="shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50"
+          className="flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
-          <span>{friendlyModelName(model)}</span>
+          <span className="min-w-0 truncate">{friendlyModelName(model)}</span>
           {effortOptions.length > 0 && (
-            <span className="text-muted-foreground/70">
+            <span className="min-w-0 truncate text-muted-foreground/70">
               · {reasoningEffortLabel(effort)}
             </span>
           )}
-          <IconChevronDown className="h-3 w-3 opacity-60" />
+          <IconChevronDown className="h-3 w-3 shrink-0 opacity-60" />
         </button>
       </PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal>

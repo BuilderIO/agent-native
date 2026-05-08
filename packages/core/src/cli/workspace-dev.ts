@@ -65,8 +65,10 @@ export function initialWorkspaceAppIds(
   apps: Array<Pick<WorkspaceApp, "id">>,
   defaultApp: string,
   eager: boolean,
+  startDefault = true,
 ): string[] {
   if (eager) return apps.map((app) => app.id);
+  if (!startDefault) return [];
   return apps.some((app) => app.id === defaultApp) ? [defaultApp] : [];
 }
 
@@ -630,7 +632,12 @@ export function runWorkspaceDev(
   function startWorkspaceProcesses(): void {
     if (workspaceStarted) return;
     workspaceStarted = true;
-    for (const id of initialWorkspaceAppIds(apps, defaultApp, eager)) {
+    for (const id of initialWorkspaceAppIds(
+      apps,
+      defaultApp,
+      eager,
+      redirectRootToDefault,
+    )) {
       const app = appById.get(id);
       if (app) startApp(app);
     }
@@ -675,6 +682,7 @@ export function runWorkspaceDev(
     }
 
     if (req.url === "/_workspace/apps") {
+      syncApps();
       res.writeHead(200, { "content-type": "application/json" });
       res.end(
         JSON.stringify(
@@ -690,7 +698,11 @@ export function runWorkspaceDev(
       return;
     }
 
-    const app = appForRequest(req);
+    let app = appForRequest(req);
+    if (!app) {
+      syncApps();
+      app = appForRequest(req);
+    }
     if (!app) {
       res.writeHead(404, { "content-type": "text/html; charset=utf-8" });
       res.end(renderIndex(apps));
