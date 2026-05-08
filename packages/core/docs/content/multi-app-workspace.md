@@ -205,7 +205,7 @@ agent-native deploy
 # https://your-agents.com/forms/*      → apps/forms
 ```
 
-Each app is built with `APP_BASE_PATH=/<name>` and `VITE_APP_BASE_PATH=/<name>` and emitted into `dist/<name>/`. Cloudflare Pages is the default preset and uses a dispatcher worker at `dist/_worker.js` plus `_routes.json`. Netlify is also supported with `agent-native deploy --preset netlify`; it emits app functions under `.netlify/functions-internal/<app>-server` and generated redirects that leave static assets unforced so the CDN serves files first.
+Each app is built with `APP_BASE_PATH=/<name>` and `VITE_APP_BASE_PATH=/<name>` and emitted through the selected Nitro preset. Cloudflare Pages is the default preset and uses a dispatcher worker at `dist/_worker.js` plus `_routes.json`. Netlify is supported with `agent-native deploy --preset netlify`; it emits app functions under `.netlify/functions-internal/<app>-server` and generated redirects that leave static assets unforced so the CDN serves files first. Vercel is supported with `agent-native deploy --preset vercel`; it writes a root `.vercel/output` bundle using Vercel's Build Output API.
 
 Being on the **same origin** is where the real payoff lives:
 
@@ -219,10 +219,16 @@ Publish the `dist/` output:
 wrangler pages deploy dist
 ```
 
-For Netlify, generated workspaces already include a root `netlify.toml`. Existing workspaces can use:
+For Netlify:
 
 ```bash
 agent-native deploy --preset netlify --build-only
+```
+
+For Vercel Git deployments, set the build command to:
+
+```bash
+pnpm exec agent-native deploy --preset vercel --build-only
 ```
 
 ### Per-app independent deploy

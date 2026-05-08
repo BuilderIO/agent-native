@@ -557,6 +557,7 @@ let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
  */
 interface AuthGuardConfig {
   loginHtml: string;
+  getLoginHtml?: (event: H3Event, rawPath: string) => string;
   publicPaths: string[];
 }
 let _authGuardConfig: AuthGuardConfig | null = null;
@@ -883,11 +884,12 @@ function createAuthGuardFn(): (
   return async (event: H3Event) => {
     const config = _authGuardConfig;
     if (!config) return;
-    const { loginHtml, publicPaths } = config;
+    const { publicPaths } = config;
 
     const url = event.node?.req?.url ?? event.path ?? "/";
     const queryStart = url.indexOf("?");
     const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
+    const loginHtml = config.getLoginHtml?.(event, rawPath) ?? config.loginHtml;
     const p = stripAppBasePath(rawPath);
     const normalizedUrl = queryStart >= 0 ? `${p}${url.slice(queryStart)}` : p;
     const callbackRelay = workspaceOAuthCallbackRelayResponse(event);
@@ -1249,8 +1251,35 @@ function stripAppBasePath(pathname: string): string {
 // Login page HTML (ACCESS_TOKEN mode)
 // ---------------------------------------------------------------------------
 
-function getTokenLoginHtml(): string {
-  const configuredBasePath = getAppBasePath();
+function inferWorkspaceBasePathFromRequest(requestPath?: string): string {
+  if (
+    process.env.AGENT_NATIVE_WORKSPACE !== "1" &&
+    process.env.VITE_AGENT_NATIVE_WORKSPACE !== "1"
+  ) {
+    return "";
+  }
+  if (!requestPath || !requestPath.startsWith("/")) return "";
+  const firstSegment = requestPath.split(/[/?#]/)[1];
+  if (!firstSegment) return "";
+  const reservedRootPaths = new Set([
+    "_agent-native",
+    ".well-known",
+    "api",
+    "login",
+    "signup",
+    "apps",
+    "new-app",
+    "approval",
+    "extensions",
+  ]);
+  if (reservedRootPaths.has(firstSegment)) return "";
+  if (!isValidWorkspaceAppIdFormat(firstSegment)) return "";
+  return `/${firstSegment}`;
+}
+
+function getTokenLoginHtml(options: { requestPath?: string } = {}): string {
+  const configuredBasePath =
+    getAppBasePath() || inferWorkspaceBasePathFromRequest(options.requestPath);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1436,7 +1465,7 @@ function getTokenLoginHtml(): string {
 <div class="card">
   <div class="eyebrow">Private deployment</div>
   <h1>This app is private</h1>
-  <p class="intro">Enter the shared app access token to continue. This is the value configured for this app, not your Netlify personal access token.</p>
+  <p class="intro">Enter the shared app access token to continue. This is the value configured for this app, not your deploy provider account token.</p>
   <form id="form">
     <label for="token"><span>App ACCESS_TOKEN</span><span>Required</span></label>
     <div class="input-wrap">
@@ -1448,7 +1477,7 @@ function getTokenLoginHtml(): string {
   </form>
   <details>
     <summary>Where do I find this?</summary>
-    <p>In Netlify, create or copy the app's shared token from Site configuration, Environment variables. The key should be <code>ACCESS_TOKEN</code> for one token or <code>ACCESS_TOKENS</code> for a comma-separated list. Redeploy after changing it.</p>
+    <p>Create or copy the app's shared token from your deployment environment variables. The key should be <code>ACCESS_TOKEN</code> for one token or <code>ACCESS_TOKENS</code> for a comma-separated list. Redeploy after changing it.</p>
   </details>
 </div>
 <script>
@@ -1524,7 +1553,7 @@ function getTokenLoginHtml(): string {
         body: JSON.stringify({ token: token }),
       });
       if (!res.ok) {
-        var badTokenMessage = 'That token was not accepted. Use this app\\'s shared ACCESS_TOKEN, not a Netlify personal access token.';
+        var badTokenMessage = 'That token was not accepted. Use this app\\'s shared ACCESS_TOKEN, not your deploy provider account token.';
         if (res.status === 404) {
           badTokenMessage = 'Could not reach this app\\'s auth endpoint. If this app is mounted under a path, confirm APP_BASE_PATH and VITE_APP_BASE_PATH match the deploy path.';
         }
@@ -2292,7 +2321,12 @@ function mountTokenOnlyRoutes(
     }),
   );
 
-  _authGuardConfig = { loginHtml: getTokenLoginHtml(), publicPaths };
+  _authGuardConfig = {
+    loginHtml: getTokenLoginHtml(),
+    getLoginHtml: (_event, rawPath) =>
+      getTokenLoginHtml({ requestPath: rawPath }),
+    publicPaths,
+  };
   const guardFn = createAuthGuardFn();
   _authGuardFn = guardFn;
   app.use(defineEventHandler(guardFn));
@@ -2555,7 +2589,16 @@ export async function autoMountAuth(
     );
 
     const byoaLoginHtml = options.loginHtml ?? getTokenLoginHtml();
-    _authGuardConfig = { loginHtml: byoaLoginHtml, publicPaths };
+    _authGuardConfig = {
+      loginHtml: byoaLoginHtml,
+      ...(options.loginHtml
+        ? {}
+        : {
+            getLoginHtml: (_event, rawPath) =>
+              getTokenLoginHtml({ requestPath: rawPath }),
+          }),
+      publicPaths,
+    };
     const guardFn = createAuthGuardFn();
     _authGuardFn = guardFn;
     app.use(defineEventHandler(guardFn));

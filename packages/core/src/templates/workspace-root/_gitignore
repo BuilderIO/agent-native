@@ -1,5 +1,6 @@
 node_modules/
 .netlify/
+.vercel/
 dist/
 build/
 apps/*/dist/

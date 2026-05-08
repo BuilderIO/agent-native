@@ -18,7 +18,7 @@ agent-native deploy
 # https://your-agents.com/forms/*      → apps/forms
 ```
 
-Each app is built with `APP_BASE_PATH=/<name>` and `VITE_APP_BASE_PATH=/<name>`, then packaged into `dist/<name>/`. Cloudflare Pages is the default preset and uses a generated dispatcher worker at `dist/_worker.js`; Netlify uses one function per app in `.netlify/functions-internal/<app>-server` plus generated redirects.
+Each app is built with `APP_BASE_PATH=/<name>` and `VITE_APP_BASE_PATH=/<name>`, then packaged for the target Nitro preset. Cloudflare Pages is the default preset and uses a generated dispatcher worker at `dist/_worker.js`; Netlify uses one function per app in `.netlify/functions-internal/<app>-server` plus generated redirects; Vercel writes a workspace-level `.vercel/output` using the Build Output API.
 
 Same-origin deploy gives you two big wins for free:
 
@@ -37,7 +37,13 @@ For Netlify unified deploys, use the Netlify preset:
 agent-native deploy --preset netlify
 ```
 
-Generated workspaces include a root `netlify.toml` that runs `agent-native deploy --preset netlify --build-only`, publishes `dist`, and points Netlify at `.netlify/functions-internal`.
+For Vercel unified deploys, use the Vercel preset:
+
+```bash
+agent-native deploy --preset vercel
+```
+
+When configuring a provider build command, use the same command with `--build-only`. Vercel should run `pnpm exec agent-native deploy --preset vercel --build-only`; the command writes `.vercel/output` directly, so no `vercel.json` is required for workspace routing.
 
 Hosted workspace builds require `A2A_SECRET` in the deploy provider environment.
 This makes Slack, inbound webhooks, and cross-app A2A resume work through signed
@@ -128,6 +134,20 @@ Deploy via the Vercel CLI or git push:
 vercel deploy
 ```
 
+For a workspace, build every app into one Vercel Build Output API bundle:
+
+```bash
+agent-native deploy --preset vercel
+```
+
+For Vercel Git deployments, set the build command to:
+
+```bash
+pnpm exec agent-native deploy --preset vercel --build-only
+```
+
+The workspace build copies each app's Nitro `vercel` output into the root `.vercel/output`, gives each function its own mount-path environment, and writes the route config that serves apps at `/<app-id>`.
+
 ## Netlify {#netlify}
 
 The Nitro `netlify` preset works well and, in practice, has given us much faster cold starts than Cloudflare Pages (~200ms TTFB vs ~9s) for templates that talk to external Postgres (Neon). Either set the preset in `vite.config.ts`:
@@ -147,7 +167,7 @@ For a workspace, deploy every app from one Netlify site by running:
 agent-native deploy --preset netlify
 ```
 
-The workspace build writes static assets to `dist/<app>/` and routes each app to its own Netlify function without forced redirects, so files like `/mail/assets/...` are served statically before the server function handles app routes.
+The workspace build writes static assets under `dist/_workspace_static/` and routes each app to its own Netlify function without forced asset redirects, so files like `/mail/assets/...` are served statically before the server function handles app routes.
 
 ## Cloudflare Pages {#cloudflare-pages}
 

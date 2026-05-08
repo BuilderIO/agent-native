@@ -527,11 +527,7 @@ describe("workspace deploy", () => {
 
     const manifest = JSON.parse(
       fs.readFileSync(
-        path.join(
-          dispatchFunc,
-          ".agent-native",
-          "workspace-apps.json",
-        ),
+        path.join(dispatchFunc, ".agent-native", "workspace-apps.json"),
         "utf-8",
       ),
     );
