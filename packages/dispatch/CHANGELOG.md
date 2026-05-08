@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.2.19
+
+### Patch Changes
+
+- 9e11b24: Top-align command palettes so result count changes do not shift their viewport position.
+
 ## 0.2.18
 
 ### Patch Changes
