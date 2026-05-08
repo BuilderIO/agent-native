@@ -10,7 +10,7 @@ import { AgentPresenceChip, agentNativePath } from "@agent-native/core/client";
 import { createPortal } from "react-dom";
 import { enterSelectionMode } from "@/root";
 import type { Slide } from "@/context/DeckContext";
-import type { AspectRatio } from "@/lib/aspect-ratios";
+import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import CodeEditor from "./CodeEditor";
 import ImageOverlay from "./ImageOverlay";
@@ -26,8 +26,20 @@ import type { DesignSystemData } from "../../../shared/api";
 import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import { TAB_ID } from "@/lib/tab-id";
+import {
+  IconMaximize,
+  IconZoomIn,
+  IconZoomOut,
+} from "@tabler/icons-react";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 let builderIdCounter = 0;
+const CANVAS_ZOOM_PRESETS = [50, 75, 100, 125, 150, 200] as const;
 
 /** Stamp all elements inside a container with unique data-builder-id attributes */
 function stampBuilderIds(container: HTMLElement) {
@@ -341,6 +353,7 @@ export default function SlideEditor({
     ["blank", "section", "statement", "full-image"].includes(slide.layout);
 
   const [isHoveringText, setIsHoveringText] = useState(false);
+  const [canvasZoom, setCanvasZoom] = useState(100);
   const [imageOverlay, setImageOverlay] = useState<{
     rect: DOMRect;
     src: string;
@@ -368,6 +381,18 @@ export default function SlideEditor({
     w: number;
     h: number;
   } | null>(null);
+  const dims = getAspectRatioDims(aspectRatio);
+  const canvasWidth = Math.round(dims.width * (canvasZoom / 100));
+  const canvasZoomIn = useCallback(() => {
+    const next = CANVAS_ZOOM_PRESETS.find((preset) => preset > canvasZoom);
+    setCanvasZoom(next ?? CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1]);
+  }, [canvasZoom]);
+  const canvasZoomOut = useCallback(() => {
+    const previous = [...CANVAS_ZOOM_PRESETS]
+      .reverse()
+      .find((preset) => preset < canvasZoom);
+    setCanvasZoom(previous ?? CANVAS_ZOOM_PRESETS[0]);
+  }, [canvasZoom]);
   /** Marquee origin (viewport coords). Set on pointerdown. */
   const marqueeOriginRef = useRef<{ x: number; y: number } | null>(null);
   /**
@@ -937,42 +962,100 @@ export default function SlideEditor({
               />
             </div>
           ) : (
-            <div
-              className={`h-full flex items-center justify-center p-2 sm:p-4 md:p-8 bg-muted ${
-                drawMode ? "pb-24 sm:pb-28" : ""
-              }`}
-            >
+            <div className="relative h-full bg-muted">
+              <div className="absolute right-3 top-3 z-20 flex h-8 items-center gap-0.5 rounded-md border border-border bg-popover/95 px-1 shadow-lg backdrop-blur">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 cursor-pointer"
+                      onClick={canvasZoomOut}
+                      disabled={canvasZoom <= CANVAS_ZOOM_PRESETS[0]}
+                      aria-label="Zoom out"
+                    >
+                      <IconZoomOut className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Zoom out</TooltipContent>
+                </Tooltip>
+                <span className="w-11 text-center text-xs tabular-nums text-muted-foreground">
+                  {canvasZoom}%
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 cursor-pointer"
+                      onClick={canvasZoomIn}
+                      disabled={
+                        canvasZoom >=
+                        CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1]
+                      }
+                      aria-label="Zoom in"
+                    >
+                      <IconZoomIn className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Zoom in</TooltipContent>
+                </Tooltip>
+                <div className="mx-0.5 h-4 w-px bg-border" />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 cursor-pointer"
+                      onClick={() => setCanvasZoom(100)}
+                      aria-label="Reset zoom"
+                    >
+                      <IconMaximize className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Reset to 100%</TooltipContent>
+                </Tooltip>
+              </div>
               <div
-                ref={containerRef}
-                data-main-slide-canvas="true"
-                className="w-full max-w-4xl"
+                className={`h-full overflow-auto ${
+                  drawMode ? "pb-24 sm:pb-28" : ""
+                }`}
               >
-                <div
-                  className="slide-image-clickable relative"
-                  onClick={handleSlideClick}
-                  onContextMenu={handleSlideContextMenu}
-                  onDoubleClick={handleSlideDoubleClick}
-                  onPointerDown={handleSlidePointerDown}
-                  onMouseEnter={() => setIsHoveringText(true)}
-                  onMouseLeave={() => setIsHoveringText(false)}
-                >
-                  <SlideRenderer
-                    slide={slide}
-                    className={`shadow-2xl shadow-black/40 ${isHoveringText ? "ring-2 ring-[#609FF8]/60" : ""}`}
-                    designSystem={designSystem}
-                    aspectRatio={aspectRatio}
-                  />
-                  {/* Double-click hint — only shown for HTML slides that support inline editing */}
-                  {isHoveringText && !editingEl && isHtmlSlide && (
-                    <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs text-white/40 pointer-events-none select-none bg-black/60 px-2 py-0.5 rounded">
-                      Double-click any text to edit
+                <div className="flex min-h-full w-max min-w-full items-center justify-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16">
+                  <div
+                    ref={containerRef}
+                    data-main-slide-canvas="true"
+                    className="shrink-0"
+                    style={{ width: canvasWidth, maxWidth: canvasWidth }}
+                  >
+                    <div
+                      className="slide-image-clickable relative"
+                      onClick={handleSlideClick}
+                      onContextMenu={handleSlideContextMenu}
+                      onDoubleClick={handleSlideDoubleClick}
+                      onPointerDown={handleSlidePointerDown}
+                      onMouseEnter={() => setIsHoveringText(true)}
+                      onMouseLeave={() => setIsHoveringText(false)}
+                    >
+                      <SlideRenderer
+                        slide={slide}
+                        className={`shadow-2xl shadow-black/40 ${isHoveringText ? "ring-2 ring-[#609FF8]/60" : ""}`}
+                        designSystem={designSystem}
+                        aspectRatio={aspectRatio}
+                      />
+                      {/* Double-click hint — only shown for HTML slides that support inline editing */}
+                      {isHoveringText && !editingEl && isHtmlSlide && (
+                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded bg-black/60 px-2 py-0.5 text-xs text-white/40 pointer-events-none select-none">
+                          Double-click any text to edit
+                        </div>
+                      )}
+                      {agentActive && (
+                        <div className="absolute top-2 right-2 z-10 pointer-events-none">
+                          <AgentPresenceChip active={agentActive} />
+                        </div>
+                      )}
                     </div>
-                  )}
-                  {agentActive && (
-                    <div className="absolute top-2 right-2 z-10 pointer-events-none">
-                      <AgentPresenceChip active={agentActive} />
-                    </div>
-                  )}
+                  </div>
                 </div>
               </div>
             </div>

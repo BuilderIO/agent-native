@@ -1929,6 +1929,19 @@ function getRunErrorMetadata(message: unknown): RunErrorInfo | null {
   };
 }
 
+function getRequestModeMetadata(message: unknown): AgentRequestMode | null {
+  const meta = (message as { metadata?: unknown })?.metadata as
+    | {
+        custom?: { requestMode?: unknown };
+        requestMode?: unknown;
+      }
+    | undefined;
+  const requestMode = meta?.custom?.requestMode ?? meta?.requestMode;
+  return requestMode === "act" || requestMode === "plan"
+    ? requestMode
+    : null;
+}
+
 function isBuilderReconnectRunError(info: RunErrorInfo): boolean {
   const code = (info.errorCode ?? "").toLowerCase();
   const message = info.message.toLowerCase();
@@ -3495,14 +3508,17 @@ const AssistantChatInner = forwardRef<
     }
     return "";
   }, [messages]);
-  const latestMessageRole = messages[messages.length - 1]?.role;
+  const latestMessage = messages[messages.length - 1];
+  const latestMessageRole = latestMessage?.role;
+  const latestAssistantWasPlan =
+    latestMessageRole === "assistant" &&
+    getRequestModeMetadata(latestMessage) === "plan";
   const showPlanModeCallout =
     execMode === "plan" &&
     !planModeDisabled &&
     !isComposerDisabled &&
     !showRunningInUI;
-  const canImplementPlan =
-    showPlanModeCallout && latestMessageRole === "assistant";
+  const canImplementPlan = showPlanModeCallout && latestAssistantWasPlan;
   const handleImplementPlan = useCallback(() => {
     onExecModeChange?.("build");
     void addToQueue(

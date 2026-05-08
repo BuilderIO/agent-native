@@ -207,14 +207,11 @@ function HistoryPopover({
     };
   }, [search, onSearch]);
 
-  // Only show threads not currently open as tabs
-  const closedThreads = threads.filter(
-    (t) => !openTabIds.has(t.id) && t.messageCount > 0,
-  );
+  const visibleThreads = threads.filter((t) => t.messageCount > 0);
 
   const filtered = search.trim()
-    ? (searchResults ?? closedThreads).filter((t) => t.messageCount > 0)
-    : closedThreads;
+    ? (searchResults ?? visibleThreads).filter((t) => t.messageCount > 0)
+    : visibleThreads;
 
   const formatTime = (ts: number) => {
     const d = new Date(ts);
@@ -239,7 +236,7 @@ function HistoryPopover({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search past chats..."
+            placeholder="Search chats..."
             className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none"
           />
         </div>
@@ -250,7 +247,7 @@ function HistoryPopover({
             </div>
           ) : filtered.length === 0 ? (
             <div className="px-3 py-4 text-xs text-muted-foreground text-center">
-              {search ? "No matching chats" : "No past chats"}
+              {search ? "No matching chats" : "No chats yet"}
             </div>
           ) : (
             filtered.map((thread) => (
@@ -267,7 +264,9 @@ function HistoryPopover({
                     {thread.title || thread.preview || "Chat"}
                   </span>
                   <span className="text-[10px] text-muted-foreground shrink-0">
-                    {formatTime(thread.updatedAt)}
+                    {openTabIds.has(thread.id)
+                      ? "Open"
+                      : formatTime(thread.updatedAt)}
                   </span>
                 </div>
                 {thread.preview && thread.title !== thread.preview && (
