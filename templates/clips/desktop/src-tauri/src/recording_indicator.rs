@@ -10,12 +10,11 @@
 //! Two visual modes (driven entirely from the React side via the URL hash):
 //!
 //!   - `meeting`  — meeting-aware pill with mic + speaker waveforms.
-//!   - `clip`     — solid-mic pill for plain Clips screen-recording sessions.
+//!   - `clip`     — solid-mic pill for non-meeting recording sessions.
 //!
-//! The pill is the SINGLE recording indicator across the app — used for
-//! Clips screen recordings, Meetings, AND Wispr-style voice dictation.
-//! Anything that owns a recording lifecycle should call `recording_pill_show`
-//! at the start and `recording_pill_hide` at the end.
+//! The pill is used by meeting-aware recordings and Wispr-style voice
+//! dictation. Plain Clips screen recordings use the left-edge toolbar as their
+//! only recording indicator.
 //!
 //! Commands:
 //!

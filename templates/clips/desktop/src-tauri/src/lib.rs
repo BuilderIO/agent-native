@@ -122,6 +122,7 @@ pub fn run() {
             silence_detector::silence_detector_stop,
             // custom global shortcuts configured from Settings
             shortcuts::set_custom_shortcuts,
+            shortcuts::set_fn_shortcut_enabled,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())

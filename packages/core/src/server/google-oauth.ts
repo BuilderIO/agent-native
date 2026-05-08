@@ -39,11 +39,11 @@ function htmlResponse(html: string, status = 200): Response {
 }
 
 /** Shared markup for OAuth success "close this tab" pages. Renders a green
- *  check icon above the message, with tight spacing between the headline and
- *  the secondary line. Used by every template that goes through the shared
- *  Google OAuth flow. */
+ *  check icon above the message, with a little breathing room between the
+ *  headline and secondary line. Used by every template that goes through the
+ *  shared Google OAuth flow. */
 function oauthSuccessCloseTabHtml(headline: string, footnote: string): string {
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:14px" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2l4 -4"/></svg><p style="font-size:16px;margin:0 0 4px 0">${headline}</p><p style="font-size:13px;color:#888;margin:0">${footnote}</p></body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:14px" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2l4 -4"/></svg><p style="font-size:16px;margin:0 0 8px 0">${headline}</p><p style="font-size:13px;color:#888;margin:0">${footnote}</p></body></html>`;
 }
 
 /**
@@ -703,12 +703,7 @@ export function oauthCallbackResponse(
 export function oauthErrorPage(message: string): Response {
   const safe = escapeHtml(message);
   return htmlResponse(
-    `<!DOCTYPE html><html><body>
-    <div style="font-family:system-ui;max-width:420px;margin:30vh auto;text-align:center">
-      <p style="font-size:15px;color:#e55">${safe}</p>
-      <p style="margin-top:16px;font-size:13px;color:#888"><a href="/" style="color:#888">Back to login</a></p>
-    </div>
-  </body></html>`,
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connection failed</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:14px" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg><p style="font-size:16px;margin:0 0 8px 0;color:#ddd">${safe}</p><p style="font-size:13px;color:#888;margin:0"><a href="/" style="color:#888;text-decoration:underline;text-underline-offset:3px">Back to login</a></p></body></html>`,
     400,
   );
 }

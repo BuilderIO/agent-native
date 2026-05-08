@@ -1,4 +1,5 @@
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
@@ -19,6 +20,8 @@ fn escape_shortcut() -> Shortcut {
 
 static CUSTOM_VOICE_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
 static CUSTOM_POPOVER_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
+static FN_TAP_ENABLED: AtomicBool = AtomicBool::new(false);
+static FN_TAP_INSTALL_STARTED: AtomicBool = AtomicBool::new(false);
 
 fn custom_voice_shortcut() -> &'static Mutex<Option<Shortcut>> {
     CUSTOM_VOICE_SHORTCUT.get_or_init(|| Mutex::new(None))
@@ -118,6 +121,25 @@ pub async fn set_custom_shortcuts(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn set_fn_shortcut_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
+    FN_TAP_ENABLED.store(enabled, Ordering::SeqCst);
+    if !enabled {
+        set_dictation_active(&app, false);
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    ensure_fn_event_tap(app);
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+    }
+
+    Ok(())
+}
+
 pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // Register the global shortcut. On macOS we use Cmd+Shift+L;
     // on Windows/Linux we use Ctrl+Shift+L. Registering both is safe
@@ -139,8 +161,6 @@ pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
     if let Err(err) = gs.register(voice_ctrl_space) {
         eprintln!("[clips-tray] failed to register Ctrl+Shift+Space voice shortcut: {err}");
     }
-    #[cfg(target_os = "macos")]
-    install_fn_event_tap(app.handle().clone());
 
     Ok(())
 }
@@ -288,7 +308,7 @@ fn should_emit_delayed_voice_start(app: &tauri::AppHandle, source: &'static str)
     if !is_dictation_active(app) {
         return false;
     }
-    source != "fn" || current_fn_flag_down()
+    source != "fn" || (FN_TAP_ENABLED.load(Ordering::SeqCst) && current_fn_flag_down())
 }
 
 fn wake_popover_for_voice(app: &tauri::AppHandle) {
@@ -343,6 +363,14 @@ fn wake_popover_for_voice(app: &tauri::AppHandle) {
 /// Pattern adapted from linespeed and handy-keys (proven open-source
 /// Tauri voice-dictation apps that ship to thousands of macOS users).
 #[cfg(target_os = "macos")]
+fn ensure_fn_event_tap(app: tauri::AppHandle) {
+    if FN_TAP_INSTALL_STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    install_fn_event_tap(app);
+}
+
+#[cfg(target_os = "macos")]
 fn install_fn_event_tap(app: tauri::AppHandle) {
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::Arc;
@@ -368,7 +396,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
 
     dlog!("[clips-tray][fn-tap] install_fn_event_tap called — spawning listener thread");
 
-    thread::Builder::new()
+    if let Err(err) = thread::Builder::new()
         .name("clips-fn-key-tap".into())
         .spawn(move || {
             let app_for_cb = app.clone();
@@ -427,6 +455,11 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                         _ => return CallbackResult::Keep,
                     }
 
+                    if !FN_TAP_ENABLED.load(Ordering::SeqCst) {
+                        prev_for_cb.store(false, Ordering::SeqCst);
+                        return CallbackResult::Keep;
+                    }
+
                     let fn_down = event
                         .get_flags()
                         .contains(CGEventFlags::CGEventFlagSecondaryFn);
@@ -482,6 +515,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                     t
                 }
                 Err(()) => {
+                    FN_TAP_INSTALL_STARTED.store(false, Ordering::SeqCst);
                     eprintln!(
                         "[clips-tray][fn-tap] CGEventTapCreate returned NULL. Most likely cause: \
                          Input Monitoring is not granted to Clips. Open System Settings → \
@@ -498,6 +532,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                     s
                 }
                 Err(()) => {
+                    FN_TAP_INSTALL_STARTED.store(false, Ordering::SeqCst);
                     eprintln!("[clips-tray][fn-tap] CFMachPortCreateRunLoopSource failed");
                     return;
                 }
@@ -535,7 +570,10 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                 }
             }
         })
-        .expect("spawn clips-fn-key-tap thread");
+    {
+        FN_TAP_INSTALL_STARTED.store(false, Ordering::SeqCst);
+        eprintln!("[clips-tray][fn-tap] failed to spawn listener thread: {err}");
+    }
 }
 
 #[cfg(target_os = "macos")]

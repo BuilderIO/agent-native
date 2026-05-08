@@ -430,10 +430,7 @@ mod macos {
         }
     }
 
-    fn dict_string(
-        dict: &CFDictionary<CFString, CFType>,
-        key: &'static str,
-    ) -> Option<String> {
+    fn dict_string(dict: &CFDictionary<CFString, CFType>, key: &'static str) -> Option<String> {
         let key = CFString::from_static_string(key);
         let value = dict.find(&key)?;
         let string = value.downcast::<CFString>()?.to_string();

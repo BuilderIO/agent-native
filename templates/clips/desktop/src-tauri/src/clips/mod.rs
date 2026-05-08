@@ -311,23 +311,6 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     let _ = win.show();
     dlog!("[clips-tray] toolbar shown");
 
-    // Granola-fidelity recording UX: the bottom-center pill is the SINGLE
-    // recording indicator across Clips screen-recordings, Meetings, and
-    // Wispr-style voice dictation. Spawn it alongside the legacy left-rail
-    // toolbar so users always see the live transcript + stop control no
-    // matter which surface kicked off the recording. Errors are swallowed
-    // — the toolbar is the authoritative stop control; the pill is a
-    // quality-of-life addition.
-    let app_for_pill = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let _ = crate::recording_indicator::recording_pill_show(
-            app_for_pill,
-            None,
-            Some(crate::recording_indicator::PillMode::Clip),
-        )
-        .await;
-    });
-
     Ok(())
 }
 
@@ -423,7 +406,7 @@ pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
             let _ = w.close();
         }
     }
-    // Granola pill is part of the same recording chrome — tear it down too.
+    // A recording pill may be owned by meeting or voice flows; tear it down too.
     let _ = crate::recording_indicator::recording_pill_hide(app).await;
     Ok(())
 }
@@ -441,10 +424,8 @@ pub async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
             let _ = w.close();
         }
     }
-    // Auto-hide the Granola pill ~1s after recording stops so the user
-    // sees the timer freeze briefly before it disappears (matches Granola).
-    // The brief delay is intentional UX polish — bail early if a new
-    // recording came up in the meantime.
+    // If meeting or voice flows showed a recording pill, auto-hide it after
+    // recording stops. Bail early if a new recording came up in the meantime.
     let app_for_pill = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
