@@ -1254,13 +1254,16 @@ describe("server/auth", () => {
         "__anPath('/_agent-native/auth/desktop-exchange')",
       );
       expect(html).toContain('id="google-debug"');
-      expect(html).toContain("&debug=1");
       expect(html).toContain(
         "__anSetOAuthDebug('Google popup opened; waiting for callback', flowId)",
       );
       expect(html).toContain(
+        "Google popup was blocked. Allow popups for this site",
+      );
+      expect(html).toContain(
         "check server logs for [agent-native][google-oauth]",
       );
+      expect(html).not.toContain("&debug=1");
       expect(html).toContain("params.set('desktop', '1')");
       expect(html).toContain("params.set('flow_id', flowId)");
       expect(html).toContain("params.set('redirect', '1')");
@@ -1281,13 +1284,16 @@ describe("server/auth", () => {
 
       const loginHtml = createAuthPlugin.mock.calls[0]?.[0]?.loginHtml;
       expect(loginHtml).toContain('id="debug"');
-      expect(loginHtml).toContain("&debug=1");
       expect(loginHtml).toContain(
         "__anSetOAuthDebug('Google popup opened; waiting for callback', flowId)",
       );
       expect(loginHtml).toContain(
+        "Google popup was blocked. Allow popups for this site",
+      );
+      expect(loginHtml).toContain(
         "check server logs for [agent-native][google-oauth]",
       );
+      expect(loginHtml).not.toContain("&debug=1");
     });
 
     it("uses sign-in copy when only Google auth is enabled", async () => {

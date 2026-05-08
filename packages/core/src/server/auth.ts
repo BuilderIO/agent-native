@@ -1862,7 +1862,6 @@ async function mountBetterAuthRoutes(
       }
       const query = getQuery(event);
       const flowId = query.flow_id as string | undefined;
-      const debug = query.debug === "1" || query.debug === "true";
       if (!flowId) {
         setResponseStatus(event, 400);
         return { error: "Missing flow_id" };
@@ -1874,9 +1873,11 @@ async function mountBetterAuthRoutes(
         // OAuth callback and the polling request may hit different isolates.
         const fromDb = await consumeDesktopExchangeFromDB(flowId);
         if (!fromDb) {
-          if (debug) {
-            logGoogleOAuthDebug(event, "exchange-pending", { flowId });
-          }
+          // Don't log on the pending path — clients poll every second for up
+          // to 5 minutes, so logging here floods telemetry. The auth-url,
+          // callback-start, callback-session-created, exchange-success, and
+          // exchange-error breadcrumbs already cover every meaningful state
+          // transition.
           return { pending: true, flow: oauthDebugFlowId(flowId) };
         }
         entry =

@@ -3309,6 +3309,17 @@ const AssistantChatInner = forwardRef<
       // as the user actually sends a message so it can't be re-used.
       clearPendingSelection();
       const queuedAttachments = await serializeQueuedAttachments(attachments);
+      // Snapshot the exec mode at enqueue time when the caller didn't
+      // pass an explicit override. Without this, a plan-mode message that
+      // sits in the queue runs as 'act' if the user flips the global toggle
+      // before the queue flushes — turning a read-only message into a write.
+      const effectiveRequestMode: AgentRequestMode | undefined =
+        requestMode ??
+        (execMode === "plan"
+          ? "plan"
+          : execMode === "build"
+            ? "act"
+            : undefined);
       if (isRunning) {
         setQueuedMessages((prev) => [
           ...prev,
@@ -3321,7 +3332,7 @@ const AssistantChatInner = forwardRef<
             images,
             attachments: queuedAttachments,
             references,
-            requestMode,
+            requestMode: effectiveRequestMode,
           },
         ]);
       } else {
@@ -3339,11 +3350,11 @@ const AssistantChatInner = forwardRef<
           ...(queuedAttachments && queuedAttachments.length > 0
             ? { attachments: queuedAttachments }
             : {}),
-          ...createUserMessageRunConfig(references, requestMode),
+          ...createUserMessageRunConfig(references, effectiveRequestMode),
         } as Parameters<typeof threadRuntime.append>[0]);
       }
     },
-    [isRunning, threadRuntime],
+    [execMode, isRunning, threadRuntime],
   );
 
   // Expose imperative handle

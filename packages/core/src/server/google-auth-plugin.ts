@@ -138,7 +138,7 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
     async function check() {
       __anOAuthPollCount++;
       try {
-        var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + '?flow_id=' + encodeURIComponent(flowId) + '&debug=1', { credentials: 'include' });
+        var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + '?flow_id=' + encodeURIComponent(flowId), { credentials: 'include' });
         var data = await res.json().catch(function() { return {}; });
         if (data && (data.email || data.token)) {
           if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
@@ -181,10 +181,10 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
     try {
       var popup = window.open(url, '_blank', 'noopener,noreferrer,width=640,height=760');
       if (!popup) {
-        __anSetOAuthDebug('Google popup requested; no window handle returned', flowId);
-      } else {
-        __anSetOAuthDebug('Google popup opened; waiting for callback', flowId);
+        __anShowOAuthError(err, btn, 'Google popup was blocked. Allow popups for this site and try again (flow ' + __anFlowDebugId(flowId) + ').');
+        return;
       }
+      __anSetOAuthDebug('Google popup opened; waiting for callback', flowId);
     } catch(e) {
       __anShowOAuthError(err, btn, 'Could not open Google popup for flow ' + __anFlowDebugId(flowId) + ': ' + (e && e.message ? e.message : 'unknown error'));
       return;
