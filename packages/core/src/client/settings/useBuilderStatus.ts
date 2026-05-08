@@ -273,10 +273,12 @@ export function useBuilderConnectFlow(
       popupUrl ??
       new URL(agentNativePath("/_agent-native/builder/connect"), origin).href;
     try {
-      window.open(url, "_blank", "noopener,noreferrer");
+      const opened = window.open(url, "_blank", "noopener,noreferrer");
+      if (!opened) {
+        setError("Popup blocked. Allow popups, then click Connect Builder again.");
+      }
     } catch {
-      // Fall through — polling still detects completion if the user
-      // opens the URL themselves.
+      setError("Couldn't open Builder. Allow popups and try again.");
     }
 
     const started = Date.now();

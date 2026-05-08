@@ -665,6 +665,12 @@ function BuilderCliAuthMethod({
           "Connect Builder"
         )}
       </button>
+      {connecting && (
+        <p style={styles.methodHint}>
+          A Builder tab opened. Choose your team or app space there; setup will
+          continue here automatically.
+        </p>
+      )}
       {error && <p style={styles.errText}>{error}</p>}
     </>
   );

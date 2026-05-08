@@ -184,7 +184,7 @@ async function createWorkspaceInteractive(
 
   const s = clack.spinner();
   s.start(
-    `Preparing env... scaffolding workspace with ${templates.length} app(s).`,
+    `Working... no action needed. Scaffolding workspace with ${templates.length} app(s).`,
   );
 
   const firstApp = templates[0];
@@ -387,7 +387,9 @@ async function scaffoldOneAppIntoWorkspace(
   }
 
   const s = clack.spinner();
-  s.start(`Preparing env... scaffolding apps/${appName} from ${templateName}.`);
+  s.start(
+    `Working... no action needed. Scaffolding apps/${appName} from ${templateName}.`,
+  );
 
   try {
     await scaffoldAppTemplate(appDir, templateName);
@@ -476,7 +478,7 @@ async function createStandaloneApp(
   }
 
   const s = clack.spinner();
-  s.start("Preparing env... scaffolding your app.");
+  s.start("Working... no action needed. Scaffolding your app.");
   try {
     await scaffoldAppTemplate(targetDir, template);
     postProcessStandalone(name, targetDir, template);

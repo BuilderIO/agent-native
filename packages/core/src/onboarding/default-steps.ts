@@ -80,7 +80,7 @@ const llmStep: OnboardingStep = {
       kind: "builder-cli-auth",
       label: "Connect Builder",
       description:
-        "Free credits for Claude, GPT, Gemini, and more — no API key needed.",
+        "Connect the Builder space where this app should run. This unlocks managed LLM credits, browser automation, cloud code changes, and file uploads.",
       primary: true,
       payload: {
         scope: "llm",
