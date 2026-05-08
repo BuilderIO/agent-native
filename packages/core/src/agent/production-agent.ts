@@ -526,6 +526,7 @@ function isRetryableError(err: unknown): boolean {
   if (code === "builder_gateway_timeout") return false;
   return (
     code === "builder_gateway_error" ||
+    code === "builder_gateway_network_error" ||
     code === "http_502" ||
     code === "http_503" ||
     code === "http_504" ||
@@ -537,6 +538,8 @@ function isRetryableError(err: unknown): boolean {
     msg.includes("503") ||
     msg.includes("504") ||
     msg.includes("gateway error") ||
+    msg.includes("socket hang up") ||
+    msg.includes("connection reset") ||
     msg.includes("too many requests") ||
     msg.includes("timeout") ||
     msg.includes("gateway timeout") ||
