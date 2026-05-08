@@ -584,64 +584,6 @@ function normalizeBasePathArgs(args) {
   }
   return args;
 }
-
-function patchVercelFunctionEntry(
-  functionDir: string,
-  app: string,
-  workspaceApps: WorkspaceAppManifestEntry[],
-): void {
-  const entryPath = path.join(functionDir, "index.mjs");
-  if (!fs.existsSync(entryPath)) return;
-
-  const mainPath = path.join(functionDir, "main.mjs");
-  fs.rmSync(mainPath, { force: true });
-  fs.renameSync(entryPath, mainPath);
-
-  const basePath = `/${app}`;
-  const entry = `const basePath = ${JSON.stringify(basePath)};
-
-function setBasePathEnv() {
-  const processRef = globalThis.process ??= { env: {} };
-  processRef.env ??= {};
-  Object.assign(processRef.env, {
-    AGENT_NATIVE_WORKSPACE: "1",
-    APP_BASE_PATH: basePath,
-    VITE_AGENT_NATIVE_WORKSPACE: "1",
-    VITE_APP_BASE_PATH: basePath,
-    ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
-  });
-}
-
-function normalizeBasePathArgs(args) {
-  const request = args[0];
-  if (!request) return args;
-
-  if (typeof Request === "function" && request instanceof Request) {
-    const url = new URL(request.url);
-    if (url.pathname === basePath || url.pathname === \`\${basePath}/\`) {
-      url.pathname = \`\${basePath}//\`;
-      return [new Request(url, request), ...args.slice(1)];
-    }
-    return args;
-  }
-
-  if (typeof request.url !== "string") return args;
-  const url = new URL(request.url, "http://agent-native.local");
-  if (url.pathname === basePath || url.pathname === \`\${basePath}/\`) {
-    request.url = \`\${basePath}//\${url.search}\`;
-  }
-  return args;
-}
-
-setBasePathEnv();
-
-let cachedHandler;
-
-export default async function handler(...args) {
-  setBasePathEnv();
-  cachedHandler ??= (await import("./main.mjs")).default;
-  return cachedHandler(...normalizeBasePathArgs(args));
-}
 `;
   fs.writeFileSync(entryPath, entry);
 }
