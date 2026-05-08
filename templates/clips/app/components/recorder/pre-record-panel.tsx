@@ -540,7 +540,8 @@ export function PreRecordPanel({
                 mode,
                 displaySurface,
                 micDeviceId: micId === "default" ? null : micId,
-                cameraDeviceId: cameraId === "default" ? null : cameraId,
+                cameraDeviceId:
+                  needsCamera && cameraId !== "default" ? cameraId : null,
               })
             }
             className={cn(

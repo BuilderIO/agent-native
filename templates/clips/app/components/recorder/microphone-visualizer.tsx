@@ -162,15 +162,15 @@ export function MicrophoneVisualizer({
     const { width, height, dpr } = syncCanvasSize(canvas);
     ctx.clearRect(0, 0, width, height);
 
-    ctx.strokeStyle = "rgba(113, 113, 122, 0.22)";
+    ctx.strokeStyle = "rgba(14, 165, 233, 0.24)";
     ctx.lineWidth = Math.max(1, dpr);
     ctx.beginPath();
     ctx.moveTo(0, height / 2);
     ctx.lineTo(width, height / 2);
     ctx.stroke();
 
-    ctx.strokeStyle = "rgba(113, 113, 122, 0.38)";
-    ctx.lineWidth = Math.max(1.5, 1.5 * dpr);
+    ctx.strokeStyle = "rgba(14, 165, 233, 0.42)";
+    ctx.lineWidth = Math.max(1.75, 1.75 * dpr);
     ctx.beginPath();
     const points = 72;
     for (let i = 0; i <= points; i++) {
@@ -234,7 +234,7 @@ export function MicrophoneVisualizer({
         }
         const rms = Math.sqrt(sum / data.length);
         const now = performance.now();
-        if (rms > 0.035) {
+        if (rms > 0.022) {
           lastSignalAtRef.current = now;
           setSignal(true);
         } else if (now - lastSignalAtRef.current > 700) {
@@ -242,7 +242,7 @@ export function MicrophoneVisualizer({
         }
 
         ctx.clearRect(0, 0, width, height);
-        ctx.strokeStyle = "rgba(113, 113, 122, 0.2)";
+        ctx.strokeStyle = "rgba(14, 165, 233, 0.18)";
         ctx.lineWidth = Math.max(1, dpr);
         ctx.beginPath();
         ctx.moveTo(0, height / 2);
@@ -250,23 +250,28 @@ export function MicrophoneVisualizer({
         ctx.stroke();
 
         const gradient = ctx.createLinearGradient(0, 0, width, 0);
-        gradient.addColorStop(0, "rgba(39, 39, 42, 0.55)");
-        gradient.addColorStop(0.45, "rgba(24, 24, 27, 0.95)");
-        gradient.addColorStop(1, "rgba(39, 39, 42, 0.55)");
+        gradient.addColorStop(0, "rgba(14, 165, 233, 0.74)");
+        gradient.addColorStop(0.5, "rgba(34, 211, 238, 1)");
+        gradient.addColorStop(1, "rgba(37, 99, 235, 0.82)");
         ctx.strokeStyle = gradient;
-        ctx.lineWidth = Math.max(1.75 * dpr, Math.min(5 * dpr, rms * 22 * dpr));
+        ctx.lineWidth = Math.max(2.25 * dpr, Math.min(6 * dpr, rms * 34 * dpr));
+        ctx.shadowColor = "rgba(14, 165, 233, 0.35)";
+        ctx.shadowBlur = Math.max(4 * dpr, Math.min(12 * dpr, rms * 80 * dpr));
         ctx.lineJoin = "round";
         ctx.lineCap = "round";
         ctx.beginPath();
         const step = width / Math.max(1, data.length - 1);
+        const gain = Math.min(5.5, 2.6 + rms * 24);
         for (let i = 0; i < data.length; i++) {
           const x = i * step;
-          const normalized = (data[i] - 128) / 128;
-          const y = height / 2 + normalized * height * 0.42;
+          const normalized = ((data[i] - 128) / 128) * gain;
+          const y =
+            height / 2 + Math.max(-1, Math.min(1, normalized)) * height * 0.42;
           if (i === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
         }
         ctx.stroke();
+        ctx.shadowBlur = 0;
 
         rafRef.current = requestAnimationFrame(draw);
       };
@@ -346,7 +351,7 @@ export function MicrophoneVisualizer({
       }
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 512;
-      analyser.smoothingTimeConstant = 0.72;
+      analyser.smoothingTimeConstant = 0.55;
       source = audioContext.createMediaStreamSource(stream);
       source.connect(analyser);
 
@@ -472,7 +477,7 @@ export function MicrophoneVisualizer({
       <div
         className={cn(
           "relative overflow-hidden rounded-lg border bg-background",
-          live && hasSignal ? "border-foreground/40" : "border-border",
+          live && hasSignal ? "border-sky-400/60" : "border-border",
         )}
       >
         <canvas
@@ -484,7 +489,7 @@ export function MicrophoneVisualizer({
           <div
             className={cn(
               "pointer-events-none absolute right-2 top-2 h-2 w-2 rounded-full",
-              hasSignal ? "bg-foreground" : "bg-muted-foreground/40",
+              hasSignal ? "bg-sky-400" : "bg-muted-foreground/40",
             )}
           />
         )}
