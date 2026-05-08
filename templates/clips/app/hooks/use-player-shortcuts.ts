@@ -1,6 +1,9 @@
 import { useEffect } from "react";
 import type { VideoPlayerHandle } from "@/components/player/video-player";
-import { PLAYBACK_SPEED_OPTIONS } from "@/lib/playback-speed";
+import {
+  parsePlaybackSpeed,
+  PLAYBACK_SPEED_OPTIONS,
+} from "@/lib/playback-speed";
 
 export interface Chapter {
   startMs: number;
@@ -9,8 +12,6 @@ export interface Chapter {
 
 export interface UsePlayerShortcutsOpts {
   playerRef: React.RefObject<VideoPlayerHandle | null>;
-  speed: number;
-  setSpeed: (v: number) => void;
   chapters?: Chapter[];
   enabled?: boolean;
 }
@@ -32,7 +33,7 @@ export interface UsePlayerShortcutsOpts {
  * Ignores events when focus is inside an input/textarea/contenteditable.
  */
 export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
-  const { playerRef, speed, setSpeed, chapters = [], enabled = true } = opts;
+  const { playerRef, chapters = [], enabled = true } = opts;
 
   useEffect(() => {
     if (!enabled) return;
@@ -118,6 +119,7 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
         case ">":
         case ".": {
           e.preventDefault();
+          const speed = parsePlaybackSpeed(v.playbackRate) ?? 1.2;
           const idx = PLAYBACK_SPEED_OPTIONS.indexOf(speed);
           const next =
             idx === -1
@@ -126,12 +128,12 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
                   Math.min(PLAYBACK_SPEED_OPTIONS.length - 1, idx + 1)
                 ];
           player.setSpeed(next);
-          setSpeed(next);
           break;
         }
         case "<":
         case ",": {
           e.preventDefault();
+          const speed = parsePlaybackSpeed(v.playbackRate) ?? 1.2;
           const idx = PLAYBACK_SPEED_OPTIONS.indexOf(speed);
           const next =
             idx === -1
@@ -140,7 +142,6 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
                   .find((s) => s < speed) ?? speed)
               : PLAYBACK_SPEED_OPTIONS[Math.max(0, idx - 1)];
           player.setSpeed(next);
-          setSpeed(next);
           break;
         }
       }
@@ -148,7 +149,7 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [enabled, playerRef, speed, setSpeed, chapters]);
+  }, [enabled, playerRef, chapters]);
 }
 
 function shouldIgnore(target: EventTarget | null): boolean {
