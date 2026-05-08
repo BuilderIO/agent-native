@@ -61,12 +61,11 @@ export default defineAction({
       accessFilter(schema.recordings, schema.recordingShares),
     ];
 
-    // Org isolation — all list views are scoped to the user's active org so
-    // public recordings from other orgs don't leak across tenants.
+    // `accessFilter` already scopes org-visible rows to the active org and
+    // never includes public rows in list views. Keep owner rows visible across
+    // org switches so joining a new organization does not hide older personal
+    // recordings.
     const orgId = await getActiveOrganizationId();
-    if (orgId) {
-      whereClauses.push(eq(schema.recordings.organizationId, orgId));
-    }
 
     // Library = "Your personal recordings" — further scope to the current
     // user's own clips so org-visible recordings from teammates don't appear.
@@ -102,6 +101,9 @@ export default defineAction({
     if (args.view === "space") {
       if (!args.spaceId) {
         throw new Error("spaceId is required when view='space'");
+      }
+      if (orgId) {
+        whereClauses.push(eq(schema.recordings.organizationId, orgId));
       }
       // Match recordings where spaceIds JSON array contains spaceId.
       // Use a LIKE check — works across SQLite/Postgres without JSON ops.
