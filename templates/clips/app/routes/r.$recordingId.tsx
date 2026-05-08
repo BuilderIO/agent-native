@@ -682,7 +682,9 @@ export default function RecordingPage() {
                   editsJson={recording.editsJson}
                   thumbnailUrl={recording.thumbnailUrl}
                   role={role}
-                  defaultSpeed={parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2}
+                  defaultSpeed={
+                    parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2
+                  }
                   startMs={startMs}
                   comments={comments}
                   chapters={chapters}
