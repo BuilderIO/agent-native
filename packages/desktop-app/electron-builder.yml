@@ -22,6 +22,7 @@ protocols:
 mac:
   category: public.app-category.developer-tools
   identity: "Builder.io, Inc (W3PMF2T3MW)"
+  icon: build/agent-native.icns
   notarize: true
   target:
     - target: dmg
@@ -37,6 +38,7 @@ dmg:
   artifactName: ${productName}-${arch}.${ext}
 
 win:
+  icon: build/icon.png
   target:
     - target: nsis
       arch:
@@ -49,6 +51,7 @@ nsis:
   perMachine: false
 
 linux:
+  icon: build/icon.png
   target:
     - target: AppImage
       arch:

@@ -21,7 +21,7 @@ function bumpPoll(owner: string): void {
 
 let _initPromise: Promise<void> | undefined;
 
-export const DEFAULT_PROGRESS_RUN_STALE_MS = 30 * 60 * 1000;
+export const DEFAULT_PROGRESS_RUN_STALE_MS = 5 * 60 * 1000;
 
 function normalizeLimit(value: number | undefined, fallback = 50): number {
   if (!Number.isFinite(value) || value == null || value <= 0) return fallback;

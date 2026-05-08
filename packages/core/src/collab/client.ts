@@ -97,6 +97,44 @@ export function dedupeCollabUsersByEmail(users: CollabUser[]): CollabUser[] {
   return Array.from(byEmail.values());
 }
 
+export interface RemoteAwarenessSnapshot {
+  clientId: number;
+  state: unknown;
+}
+
+export function reconcileRemoteAwarenessStates(
+  states: Map<number, unknown>,
+  localClientId: number,
+  remoteStates: RemoteAwarenessSnapshot[],
+): { added: number[]; updated: number[]; removed: number[] } {
+  const incoming = new Set<number>();
+  const added: number[] = [];
+  const updated: number[] = [];
+  const removed: number[] = [];
+
+  for (const remote of remoteStates) {
+    if (
+      !Number.isFinite(remote.clientId) ||
+      remote.clientId === localClientId
+    ) {
+      continue;
+    }
+    incoming.add(remote.clientId);
+    const hadState = states.has(remote.clientId);
+    states.set(remote.clientId, remote.state);
+    (hadState ? updated : added).push(remote.clientId);
+  }
+
+  for (const clientId of Array.from(states.keys())) {
+    if (clientId === localClientId) continue;
+    if (incoming.has(clientId)) continue;
+    states.delete(clientId);
+    removed.push(clientId);
+  }
+
+  return { added, updated, removed };
+}
+
 // Base64 helpers
 function uint8ArrayToBase64(arr: Uint8Array): string {
   let binary = "";
@@ -322,25 +360,29 @@ export function useCollaborativeDoc(
             });
             if (awarenessRes.ok) {
               const awarenessData = await awarenessRes.json();
-              // Apply remote awareness states
+              const remoteStates: RemoteAwarenessSnapshot[] = [];
               for (const remote of awarenessData.states || []) {
                 try {
                   const remoteState = JSON.parse(remote.state);
-                  awareness.setLocalStateField(
-                    `remote_${remote.clientId}`,
-                    null,
-                  );
-                  // Manually update the awareness state map for remote clients
-                  const states = awareness.getStates();
-                  states.set(remote.clientId, remoteState);
-                  // Trigger awareness change event
-                  awareness.emit("change", [
-                    { added: [], updated: [remote.clientId], removed: [] },
-                    "remote",
-                  ]);
+                  remoteStates.push({
+                    clientId: Number(remote.clientId),
+                    state: remoteState,
+                  });
                 } catch {
                   // Invalid state — skip
                 }
+              }
+              const changes = reconcileRemoteAwarenessStates(
+                awareness.getStates() as Map<number, unknown>,
+                ydoc.clientID,
+                remoteStates,
+              );
+              if (
+                changes.added.length ||
+                changes.updated.length ||
+                changes.removed.length
+              ) {
+                awareness.emit("change", [changes, "remote"]);
               }
             }
           }

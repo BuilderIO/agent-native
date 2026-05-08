@@ -56,6 +56,7 @@ import { loadSchemaPromptBlock } from "./schema-prompt.js";
 import {
   buildAssistantMessage,
   extractThreadMeta,
+  mergeThreadDataForClientSave,
   upsertAssistantMessage,
 } from "../agent/thread-data-builder.js";
 import {
@@ -3164,7 +3165,11 @@ export function createAgentChatPlugin(
         },
       });
 
-      type OwnerContext = { owner: string; anonymous: boolean };
+      type OwnerContext = {
+        owner: string;
+        anonymous: boolean;
+        name?: string;
+      };
       const OWNER_CONTEXT_KEY = "__agentNativeOwnerContext";
 
       // Resolve owner from the H3 event's session, with an optional
@@ -3179,7 +3184,11 @@ export function createAgentChatPlugin(
 
         const session = await getSession(event);
         if (session?.email) {
-          const resolved = { owner: session.email, anonymous: false };
+          const resolved = {
+            owner: session.email,
+            anonymous: false,
+            name: session.name,
+          };
           if (eventContext) eventContext[OWNER_CONTEXT_KEY] = resolved;
           return resolved;
         }
@@ -3200,6 +3209,11 @@ export function createAgentChatPlugin(
 
       const getOwnerFromEvent = async (event: any): Promise<string> => {
         return (await resolveOwnerContext(event)).owner;
+      };
+      const getUserNameFromEvent = async (
+        event: any,
+      ): Promise<string | undefined> => {
+        return (await resolveOwnerContext(event)).name;
       };
 
       // Auto-mount template actions as HTTP endpoints under /_agent-native/actions/
@@ -3226,6 +3240,7 @@ export function createAgentChatPlugin(
         const { mountActionRoutes } = await import("./action-routes.js");
         mountActionRoutes(nitroApp, httpActions, {
           getOwnerFromEvent,
+          getUserNameFromEvent,
           resolveOrgId: options?.resolveOrgId,
         });
       }
@@ -4688,20 +4703,22 @@ export function createAgentChatPlugin(
                 }
                 const body = await readBody(event);
                 let newThreadData = body.threadData || thread.threadData;
-                // Preserve queuedMessages from the existing thread_data when the
-                // incoming blob doesn't include it. Periodic full-thread saves
-                // (exported via threadRuntime.export) don't carry the queue, and
-                // we don't want them to clobber queued-message state persisted
-                // via POST /threads/:id/queued.
+                let newMessageCount = body.messageCount ?? thread.messageCount;
+                // Merge the incoming full-thread blob over the current SQL
+                // copy. Periodic saves can be stale relative to server-side
+                // run completion, and threadRuntime.export() does not carry
+                // queuedMessages.
                 if (body.threadData) {
                   try {
                     const existing = JSON.parse(thread.threadData);
-                    if (existing.queuedMessages !== undefined) {
-                      const incoming = JSON.parse(newThreadData);
-                      if (incoming.queuedMessages === undefined) {
-                        incoming.queuedMessages = existing.queuedMessages;
-                        newThreadData = JSON.stringify(incoming);
-                      }
+                    const incoming = JSON.parse(newThreadData);
+                    const merged = mergeThreadDataForClientSave(
+                      existing,
+                      incoming,
+                    );
+                    newThreadData = JSON.stringify(merged);
+                    if (Array.isArray(merged.messages)) {
+                      newMessageCount = merged.messages.length;
                     }
                   } catch {
                     // Invalid JSON in either side — fall back to raw body blob.
@@ -4712,7 +4729,7 @@ export function createAgentChatPlugin(
                   newThreadData,
                   body.title ?? thread.title,
                   body.preview ?? thread.preview,
-                  body.messageCount || thread.messageCount,
+                  newMessageCount,
                 );
                 return { ok: true };
               });
@@ -4851,7 +4868,12 @@ export function createAgentChatPlugin(
               : undefined;
 
           return runWithRequestContext(
-            { userEmail: owner, orgId: resolvedOrgId, timezone },
+            {
+              userEmail: owner,
+              userName: ownerContext.name,
+              orgId: resolvedOrgId,
+              timezone,
+            },
             () => {
               const handler =
                 ownerContext.anonymous && anonymousHandler

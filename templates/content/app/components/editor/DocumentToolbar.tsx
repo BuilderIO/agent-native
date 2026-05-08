@@ -261,7 +261,7 @@ export function DocumentToolbar({
   };
 
   return (
-    <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5 sm:top-3 sm:right-4 sm:gap-1">
+    <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5 rounded-xl border border-border/70 bg-background/95 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:top-3 sm:right-4 sm:gap-1">
       {/* Presence — shared PresenceBar (agent + collaborator avatars) */}
       <PresenceBar
         activeUsers={activeUsers ?? []}
@@ -518,8 +518,8 @@ export function DocumentToolbar({
                   <div className="p-1.5 border-b border-border">
                     {requiresExplicitCreateParent ? (
                       <p className="px-2.5 py-2 text-xs text-muted-foreground">
-                        Choose a parent page below before creating a new Notion
-                        page.
+                        Notion API-key connections need a parent page shared
+                        with the integration. Pick where to create this page.
                       </p>
                     ) : (
                       <button

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAssistantMessage,
+  mergeThreadDataForClientSave,
   upsertAssistantMessage,
 } from "./thread-data-builder.js";
 import type { RunEvent } from "./types.js";
@@ -232,5 +233,119 @@ describe("buildAssistantMessage", () => {
       id: "server-run-new",
       content: [{ type: "text", text: "New answer." }],
     });
+  });
+
+  it("does not replace a completed different-run answer with a prefix-matching recovery answer", () => {
+    const finalMessage = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "text",
+            text: "Let me start a subagent to analyze the data. Finished.",
+          },
+        },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-new",
+    );
+    expect(finalMessage).not.toBeNull();
+
+    const repo = {
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: "Let me start a subagent to analyze the data.",
+            },
+          ],
+          status: { type: "complete", reason: "stop" },
+          metadata: { runId: "run-old" },
+        },
+      ],
+    };
+
+    const updated = upsertAssistantMessage(repo, finalMessage!);
+
+    expect(updated.messages).toHaveLength(2);
+    expect(updated.messages[0]).toMatchObject({
+      metadata: { runId: "run-old" },
+    });
+    expect(updated.messages[1]).toMatchObject({
+      id: "server-run-new",
+      content: [
+        {
+          type: "text",
+          text: "Let me start a subagent to analyze the data. Finished.",
+        },
+      ],
+    });
+  });
+});
+
+describe("mergeThreadDataForClientSave", () => {
+  it("preserves server-only assistant messages when a stale client save arrives", () => {
+    const existing = {
+      queuedMessages: [{ id: "queued", text: "next" }],
+      messages: [
+        {
+          role: "user",
+          id: "user-1",
+          content: [{ type: "text", text: "start" }],
+        },
+        {
+          role: "assistant",
+          id: "server-run-1",
+          content: [{ type: "text", text: "server answer" }],
+          status: { type: "complete", reason: "stop" },
+          metadata: { runId: "run-1" },
+        },
+      ],
+    };
+    const staleIncoming = {
+      messages: [
+        {
+          role: "user",
+          id: "user-1",
+          content: [{ type: "text", text: "start" }],
+        },
+      ],
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, staleIncoming);
+
+    expect(merged.queuedMessages).toEqual([{ id: "queued", text: "next" }]);
+    expect(merged.messages).toEqual(existing.messages);
+  });
+
+  it("keeps a terminal server message over a stale same-run partial", () => {
+    const existing = {
+      messages: [
+        {
+          role: "assistant",
+          id: "server-run-1",
+          content: [{ type: "text", text: "Final answer" }],
+          status: { type: "complete", reason: "stop" },
+          metadata: { runId: "run-1" },
+        },
+      ],
+    };
+    const staleIncoming = {
+      messages: [
+        {
+          role: "assistant",
+          id: "assistant-partial",
+          content: [{ type: "text", text: "Final" }],
+          status: { type: "running" },
+          metadata: { custom: { runId: "run-1" } },
+        },
+      ],
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, staleIncoming);
+
+    expect(merged.messages).toEqual(existing.messages);
   });
 });

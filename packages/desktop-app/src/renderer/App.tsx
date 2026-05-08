@@ -564,8 +564,10 @@ export default function App() {
         theme="dark"
         position="bottom-center"
         offset={20}
+        closeButton
         visibleToasts={1}
         toastOptions={{
+          duration: 4000,
           classNames: {
             toast: "shell-snackbar",
             title: "shell-snackbar-title",

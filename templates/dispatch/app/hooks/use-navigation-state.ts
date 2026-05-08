@@ -23,9 +23,10 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
 
   // Sync current route to application state
   useEffect(() => {
+    const localPathname = routerPath(location.pathname);
     const state: NavigationState = {
-      view: resolveView(location.pathname, extensions),
-      path: appPath(location.pathname),
+      view: resolveView(localPathname, extensions),
+      path: appPath(localPathname),
     };
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {

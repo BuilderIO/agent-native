@@ -24,6 +24,10 @@ import { getDb, schema } from "../server/db/index.js";
 import { parseSpaceIds } from "../server/lib/recordings.js";
 import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { readAppState } from "@agent-native/core/application-state";
+import {
+  normalizeTranscriptSegments,
+  parseTranscriptSegments,
+} from "../shared/transcript-segments.js";
 
 export default defineAction({
   description:
@@ -112,19 +116,11 @@ export default defineAction({
       }
     } catch {}
 
-    let transcriptSegments: { startMs: number; endMs: number; text: string }[] =
-      [];
-    if (transcript?.segmentsJson) {
-      try {
-        const parsed = JSON.parse(transcript.segmentsJson);
-        if (Array.isArray(parsed)) {
-          transcriptSegments = parsed.filter(
-            (segment) =>
-              typeof segment?.text === "string" && segment.text.trim(),
-          );
-        }
-      } catch {}
-    }
+    const transcriptSegments = normalizeTranscriptSegments({
+      segments: parseTranscriptSegments(transcript?.segmentsJson),
+      fullText: transcript?.fullText,
+      durationMs: rec.durationMs,
+    });
     const transcriptReadyButEmpty =
       transcript?.status === "ready" &&
       !transcript.fullText?.trim() &&

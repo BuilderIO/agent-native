@@ -665,6 +665,12 @@ function BuilderCliAuthMethod({
           "Connect Builder"
         )}
       </button>
+      {connecting && (
+        <p style={styles.methodHint}>
+          A Builder tab opened. Choose your team or app space there; setup will
+          continue here automatically.
+        </p>
+      )}
       {error && <p style={styles.errText}>{error}</p>}
     </>
   );
@@ -967,6 +973,7 @@ const styles: Record<string, React.CSSProperties> = {
     outline: "none",
     boxSizing: "border-box" as const,
   },
+  methodHint: { margin: 0, fontSize: 11, color: "rgba(255,255,255,0.62)" },
   errText: { margin: 0, fontSize: 11, color: "#f87171" },
   footer: {
     padding: "0 12px 10px",

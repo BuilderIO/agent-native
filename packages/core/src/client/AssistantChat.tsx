@@ -2452,6 +2452,7 @@ const AssistantChatInner = forwardRef<
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
   } | null>(null);
+  const [authSessionAvailable, setAuthSessionAvailable] = useState(false);
   const [queuedMessages, setQueuedMessages] = useState<
     Array<{
       id: string;
@@ -2882,7 +2883,6 @@ const AssistantChatInner = forwardRef<
 
     const repo = threadRuntime.export();
     const { title, preview } = extractThreadMeta(repo);
-    if (!title) return;
 
     lastSaveTimeRef.current = now;
     savedTitleRef.current = title;
@@ -3009,6 +3009,24 @@ const AssistantChatInner = forwardRef<
   }, []);
 
   // Listen for auth error events from the adapter
+  const checkAuthSession = useCallback(async () => {
+    try {
+      const res = await fetch(agentNativePath("/_agent-native/auth/session"), {
+        cache: "no-store",
+      });
+      if (!res.ok) return false;
+      const data = await res.json().catch(() => null);
+      const hasSession = !!data && !data.error;
+      setAuthSessionAvailable(hasSession);
+      if (hasSession) {
+        setAuthError(null);
+      }
+      return hasSession;
+    } catch {
+      return false;
+    }
+  }, []);
+
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as
@@ -3029,11 +3047,26 @@ const AssistantChatInner = forwardRef<
       ) {
         return;
       }
+      setAuthSessionAvailable(false);
       setAuthError({ sessionExpired: detail?.reason === "session-expired" });
+      void checkAuthSession();
     };
     window.addEventListener("agent-chat:auth-error", handler);
     return () => window.removeEventListener("agent-chat:auth-error", handler);
-  }, [tabId, threadId]);
+  }, [checkAuthSession, tabId, threadId]);
+
+  useEffect(() => {
+    if (!authError) return;
+    const handler = () => void checkAuthSession();
+    const timer = window.setTimeout(handler, 250);
+    window.addEventListener("focus", handler);
+    window.addEventListener("agent-engine:configured-changed", handler);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("focus", handler);
+      window.removeEventListener("agent-engine:configured-changed", handler);
+    };
+  }, [authError, checkAuthSession]);
 
   // Listen for loop-limit events from the adapter
   useEffect(() => {
@@ -3444,18 +3477,22 @@ const AssistantChatInner = forwardRef<
                   </div>
                   <div className="text-center max-w-[280px]">
                     <p className="text-sm font-medium text-foreground mb-1">
-                      {authError.sessionExpired
-                        ? "Session expired"
-                        : "Authentication required"}
+                      {authSessionAvailable
+                        ? "Chat session needs refresh"
+                        : authError.sessionExpired
+                          ? "Session expired"
+                          : "Authentication required"}
                     </p>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      {authError.sessionExpired
-                        ? "Your session may have expired. Log out and log back in to reconnect."
-                        : "You need to log in to use the agent."}
+                      {authSessionAvailable
+                        ? "You're signed in, but this chat connection needs to reconnect."
+                        : authError.sessionExpired
+                          ? "Your session may have expired. Log out and log back in to reconnect."
+                          : "You need to log in to use the agent."}
                     </p>
                   </div>
                   <div className="flex gap-2">
-                    {!authError.sessionExpired && (
+                    {!authError.sessionExpired && !authSessionAvailable && (
                       <button
                         onClick={() => {
                           const ret =
@@ -3469,7 +3506,7 @@ const AssistantChatInner = forwardRef<
                         Log in
                       </button>
                     )}
-                    {authError.sessionExpired && (
+                    {authError.sessionExpired && !authSessionAvailable && (
                       <button
                         onClick={async () => {
                           try {
@@ -3492,9 +3529,13 @@ const AssistantChatInner = forwardRef<
                         setAuthError(null);
                         window.location.reload();
                       }}
-                      className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md border border-border hover:bg-accent"
+                      className={
+                        authSessionAvailable
+                          ? "text-xs text-background bg-foreground hover:opacity-90 px-3 py-1.5 rounded-md"
+                          : "text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md border border-border hover:bg-accent"
+                      }
                     >
-                      Retry
+                      Refresh chat
                     </button>
                   </div>
                 </div>

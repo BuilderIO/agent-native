@@ -51,6 +51,7 @@ export interface RequestRunContext {
 
 export interface RequestContext {
   userEmail?: string;
+  userName?: string;
   orgId?: string;
   timezone?: string;
   /**
@@ -176,6 +177,19 @@ export function getRequestUserEmail(): string | undefined {
   const store = als.getStore();
   if (store !== undefined) return store.userEmail;
   return process.env.AGENT_USER_EMAIL;
+}
+
+/**
+ * Get the current request's display name, when the auth provider supplied one.
+ *
+ * The same request-context fallback rules as `getRequestUserEmail()` apply:
+ * HTTP/A2A calls only read AsyncLocalStorage, while CLI scripts may opt in via
+ * `AGENT_USER_NAME`.
+ */
+export function getRequestUserName(): string | undefined {
+  const store = als.getStore();
+  if (store !== undefined) return store.userName;
+  return process.env.AGENT_USER_NAME;
 }
 
 /**

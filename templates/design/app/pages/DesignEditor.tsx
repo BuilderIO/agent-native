@@ -214,12 +214,12 @@ export default function DesignEditor() {
     clearGenerationCompleteTimer();
     clearPendingGeneration(id);
     setHasPendingGeneration(false);
-    setGenerationIssue("Generation is taking longer than expected. Try again.");
+    setGenerationIssue(
+      "Generation may have stopped before creating files. Check the agent message or try again.",
+    );
     if (!staleToastShownRef.current) {
       staleToastShownRef.current = true;
-      toast.info(
-        "Generation is taking longer than expected. You can try again.",
-      );
+      toast.info("Generation may have stopped before creating files.");
     }
   }, [clearGenerationCompleteTimer, id]);
   const handleGenerationComplete = useCallback(() => {

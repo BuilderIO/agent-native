@@ -43,7 +43,9 @@ function ErrorScreen({
     status = error.status;
     if (error.status === 404) {
       title = "Page not found";
-      details = "This page doesn’t exist. It may have been moved or deleted.";
+      const path =
+        typeof window !== "undefined" ? window.location.pathname : "this path";
+      details = `The app does not define a route for ${path}. If this should be a workspace app, make sure it is added and enabled in Dispatch; if it is a new screen, it may need to be shipped first.`;
     } else {
       title = `${error.status} Error`;
       details = error.statusText || details;
@@ -91,6 +93,13 @@ function ErrorScreen({
             Go home
           </a>
         )}
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground shadow-sm hover:bg-accent"
+        >
+          Reload
+        </button>
         {stack && (
           <pre className="mt-6 w-full text-left text-xs overflow-auto p-4 bg-muted rounded">
             <code>{stack}</code>

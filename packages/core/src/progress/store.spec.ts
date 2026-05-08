@@ -87,7 +87,7 @@ describe("progress store", () => {
     expect(update?.sql).toMatch(/AND status = 'running'/);
     expect(update?.sql).toMatch(/AND updated_at < \?/);
     expect(update?.args).toEqual([
-      "Stopped after 30 minutes without progress.",
+      "Stopped after 5 minutes without progress.",
       now,
       now,
       "alice@example.com",

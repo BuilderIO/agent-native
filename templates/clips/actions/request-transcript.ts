@@ -48,10 +48,17 @@ import {
 } from "@agent-native/core/server/request-context";
 import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
-import regenerateTitle from "./regenerate-title.js";
+import regenerateTitle, {
+  queueTitleRegenerationRequest,
+} from "./regenerate-title.js";
 import cleanupTranscript from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 import { isAutoTitleReplaceable } from "./lib/title-source.js";
+import {
+  buildCaptionSegmentsFromText,
+  normalizeTranscriptSegments,
+  parseTranscriptSegments,
+} from "../shared/transcript-segments.js";
 
 interface SpeechToTextSegment {
   start: number; // seconds
@@ -137,13 +144,7 @@ function fullTextSegmentJson(
   text: string,
   durationMs: number | null | undefined,
 ): string {
-  return JSON.stringify([
-    {
-      startMs: 0,
-      endMs: Math.max(1000, Math.round(durationMs ?? 0)),
-      text: text.trim(),
-    },
-  ]);
+  return JSON.stringify(buildCaptionSegmentsFromText(text, durationMs));
 }
 
 function providerTranscriptText(
@@ -313,6 +314,28 @@ async function completeReadyTranscript({
     )
     .limit(1);
 
+  const normalizedSegments = normalizeTranscriptSegments({
+    segments: parseTranscriptSegments(segmentsJson),
+    fullText,
+    durationMs: recForTitle?.durationMs,
+  });
+  if (normalizedSegments.length) {
+    const normalizedSegmentsJson = JSON.stringify(normalizedSegments);
+    if (normalizedSegmentsJson !== (segmentsJson ?? "[]")) {
+      await upsertTranscriptRow(db, {
+        recordingId,
+        ownerEmail,
+        status: "ready",
+        failureReason: null,
+        language: "en",
+        segmentsJson: normalizedSegmentsJson,
+        fullText,
+        now: new Date().toISOString(),
+      });
+      segmentsJson = normalizedSegmentsJson;
+    }
+  }
+
   void cleanupNativeTranscript({
     db,
     recordingId,
@@ -331,6 +354,20 @@ async function completeReadyTranscript({
     isAutoTitleReplaceable(recForTitle.title, recForTitle.titleSource)
   );
   if (titleQueued) {
+    await queueTitleRegenerationRequest({
+      recordingId,
+      currentTitle: recForTitle.title,
+      transcriptText: fullText,
+      transcriptStatus: "ready",
+      segmentsJson,
+      ownerEmail,
+    }).catch((err) => {
+      console.warn(
+        `[clips] native-transcript title request queue failed for ${recordingId}:`,
+        (err as Error)?.message ?? String(err),
+      );
+    });
+
     void regenerateTitle
       .run({
         recordingId,

@@ -45,7 +45,26 @@ export function RunsTray({
     }
   }, [limit]);
 
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
   usePausingInterval(refresh, pollMs);
+
+  const dismissRun = useCallback(
+    async (runId: string) => {
+      setRuns((current) => current.filter((run) => run.id !== runId));
+      try {
+        await fetch(agentNativePath(`/_agent-native/runs/${runId}`), {
+          method: "DELETE",
+          headers: { "X-Agent-Native-CSRF": "1" },
+        });
+      } catch {
+        refresh();
+      }
+    },
+    [refresh],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -108,7 +127,7 @@ export function RunsTray({
           </div>
           <div className="max-h-96 divide-y divide-border overflow-y-auto">
             {runs.map((r) => (
-              <RunRow key={r.id} run={r} />
+              <RunRow key={r.id} run={r} onDismiss={dismissRun} />
             ))}
           </div>
         </div>
@@ -117,14 +136,30 @@ export function RunsTray({
   );
 }
 
-function RunRow({ run }: { run: AgentRunDto }) {
+function RunRow({
+  run,
+  onDismiss,
+}: {
+  run: AgentRunDto;
+  onDismiss: (runId: string) => void;
+}) {
   return (
     <div className="flex flex-col gap-1 px-3 py-2 text-sm">
       <div className="flex items-center justify-between gap-2">
         <span className="truncate font-medium text-foreground">
           {run.title}
         </span>
-        <StatusGlyph status={run.status} />
+        <div className="flex shrink-0 items-center gap-1">
+          <StatusGlyph status={run.status} />
+          <button
+            type="button"
+            aria-label={`Dismiss ${run.title}`}
+            className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+            onClick={() => onDismiss(run.id)}
+          >
+            <IconX size={13} aria-hidden />
+          </button>
+        </div>
       </div>
       {run.step ? (
         <span className="truncate text-xs text-muted-foreground">

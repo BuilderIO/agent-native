@@ -24,6 +24,20 @@ type AdapterHistoryMessage = {
   content: string;
 };
 
+type AssistantUiAttachment = {
+  name: string;
+  contentType?: string;
+  content: readonly Record<string, unknown>[];
+};
+
+type AgentChatAdapterAttachment = {
+  type: string;
+  name: string;
+  contentType?: string;
+  data?: string;
+  text?: string;
+};
+
 const TEXT_ATTACHMENT_CONTENT_TYPES = new Set([
   "application/json",
   "application/x-ndjson",
@@ -45,6 +59,7 @@ const MAX_STALLED_TRANSIENT_CONTINUATIONS = 8;
 const MAX_TOTAL_TRANSIENT_CONTINUATIONS = 32;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 8_000;
+const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
 
 function normalizeMentions(text: string): string {
   return text.replace(/@\[([^\]|]+)\|[^\]]+\]/g, "@$1");
@@ -85,6 +100,14 @@ function messageTextFromContent(
     .join("\n");
 }
 
+function escapeAttachmentAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function isTextAttachmentContentType(value: string | undefined): boolean {
   if (!value) return false;
   const contentType = value.split(";")[0]?.trim().toLowerCase();
@@ -118,6 +141,88 @@ function decodeTextDataUrl(dataUrl: string): string | null {
   } catch {
     return null;
   }
+}
+
+function extractAttachmentsFromMessage(message: {
+  attachments?: readonly AssistantUiAttachment[];
+}): AgentChatAdapterAttachment[] {
+  const attachments: AgentChatAdapterAttachment[] = [];
+  for (const att of message.attachments ?? []) {
+    for (const part of att.content) {
+      if (part.type === "image" && typeof part.image === "string") {
+        attachments.push({
+          type: "image",
+          name: att.name,
+          contentType: att.contentType,
+          data: part.image,
+        });
+      } else if (part.type === "file" && typeof part.data === "string") {
+        const contentType =
+          att.contentType ??
+          (typeof part.mimeType === "string" ? part.mimeType : undefined);
+        const decodedText = part.data.startsWith("data:")
+          ? decodeTextDataUrl(part.data)
+          : null;
+        attachments.push({
+          type: "file",
+          name: att.name,
+          contentType,
+          ...(decodedText !== null
+            ? { text: decodedText }
+            : part.data.startsWith("data:")
+              ? { data: part.data }
+              : { text: part.data }),
+        });
+      } else if (part.type === "text" && typeof part.text === "string") {
+        attachments.push({
+          type: "file",
+          name: att.name,
+          contentType: att.contentType,
+          text: unwrapAttachmentEnvelope(part.text),
+        });
+      }
+    }
+  }
+  return attachments;
+}
+
+function truncateHistoryAttachment(text: string): string {
+  if (text.length <= MAX_HISTORY_ATTACHMENT_CHARS) return text;
+  const omitted = text.length - MAX_HISTORY_ATTACHMENT_CHARS;
+  return `${text.slice(0, MAX_HISTORY_ATTACHMENT_CHARS)}\n\n[Attachment truncated after ${MAX_HISTORY_ATTACHMENT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted from prior chat history.]`;
+}
+
+function attachmentHistoryText(
+  attachment: AgentChatAdapterAttachment,
+): string | null {
+  if (typeof attachment.text === "string" && attachment.text.length > 0) {
+    const attrs = [
+      `name="${escapeAttachmentAttribute(attachment.name || "attachment")}"`,
+      attachment.contentType
+        ? `contentType="${escapeAttachmentAttribute(attachment.contentType)}"`
+        : null,
+      attachment.type
+        ? `type="${escapeAttachmentAttribute(attachment.type)}"`
+        : null,
+    ].filter(Boolean);
+    return `<attachment ${attrs.join(" ")}>\n${truncateHistoryAttachment(attachment.text)}\n</attachment>`;
+  }
+
+  if (attachment.name) {
+    return `[Attached ${attachment.type || "file"}: ${attachment.name}${attachment.contentType ? ` (${attachment.contentType})` : ""}]`;
+  }
+  return null;
+}
+
+function messageTextForHistory(message: {
+  content: readonly { type: string; text?: string }[];
+  attachments?: readonly AssistantUiAttachment[];
+}): string {
+  const text = messageTextFromContent(message.content);
+  const attachments = extractAttachmentsFromMessage(message)
+    .map(attachmentHistoryText)
+    .filter((part): part is string => !!part && part.trim().length > 0);
+  return [text, ...attachments].filter((part) => part.trim()).join("\n\n");
 }
 
 function isToolCallContentPart(
@@ -194,6 +299,7 @@ function assistantUiMessagesToStructuredHistory(
   messages: readonly {
     role: string;
     content: readonly any[];
+    attachments?: readonly AssistantUiAttachment[];
   }[],
 ): AgentChatStructuredMessage[] {
   let nextId = 0;
@@ -202,7 +308,7 @@ function assistantUiMessagesToStructuredHistory(
 
   for (const message of messages) {
     if (message.role === "user") {
-      const text = messageTextFromContent(message.content);
+      const text = messageTextForHistory(message);
       if (text.trim()) {
         structured.push({
           role: "user",
@@ -471,60 +577,9 @@ export function createAgentChatAdapter(options?: {
       // Extract attachments (images as base64, text as content).
       // assistant-ui puts user attachments on msg.attachments (not on content);
       // each attachment carries its own content parts from the adapter.
-      const attachments: {
-        type: string;
-        name: string;
-        contentType?: string;
-        data?: string;
-        text?: string;
-      }[] = [];
-      if (lastUserMsg && "attachments" in lastUserMsg) {
-        const msgAttachments = (
-          lastUserMsg as {
-            attachments?: readonly {
-              name: string;
-              contentType?: string;
-              content: readonly Record<string, unknown>[];
-            }[];
-          }
-        ).attachments;
-        for (const att of msgAttachments ?? []) {
-          for (const part of att.content) {
-            if (part.type === "image" && typeof part.image === "string") {
-              attachments.push({
-                type: "image",
-                name: att.name,
-                contentType: att.contentType,
-                data: part.image,
-              });
-            } else if (part.type === "file" && typeof part.data === "string") {
-              const contentType =
-                att.contentType ??
-                (typeof part.mimeType === "string" ? part.mimeType : undefined);
-              const decodedText = part.data.startsWith("data:")
-                ? decodeTextDataUrl(part.data)
-                : null;
-              attachments.push({
-                type: "file",
-                name: att.name,
-                contentType,
-                ...(decodedText !== null
-                  ? { text: decodedText }
-                  : part.data.startsWith("data:")
-                    ? { data: part.data }
-                    : { text: part.data }),
-              });
-            } else if (part.type === "text" && typeof part.text === "string") {
-              attachments.push({
-                type: "file",
-                name: att.name,
-                contentType: att.contentType,
-                text: unwrapAttachmentEnvelope(part.text),
-              });
-            }
-          }
-        }
-      }
+      const attachments = lastUserMsg
+        ? extractAttachmentsFromMessage(lastUserMsg as any)
+        : [];
       const userMessageText =
         rawMessageText.trim() || attachments.length === 0
           ? rawMessageText
@@ -535,7 +590,10 @@ export function createAgentChatAdapter(options?: {
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({
           role: m.role as "user" | "assistant",
-          content: messageTextFromContent(m.content),
+          content:
+            m.role === "user"
+              ? messageTextForHistory(m as any)
+              : messageTextFromContent(m.content),
         }))
         .filter((m) => m.content.trim());
       const structuredHistory =
@@ -908,8 +966,12 @@ export function createAgentChatAdapter(options?: {
             ...structuredCombinedHistory,
           ];
           currentMessageText = autoContinueMessage(signal);
-          includeAttachments = false;
-          includeReferences = false;
+          // Continuation requests are stateless new POSTs. If the interrupted
+          // turn depended on uploaded context, re-send that context; otherwise
+          // an attachment-only prompt degrades to "Use the attached context."
+          // with nothing attached after a stale run or reconnect recovery.
+          includeAttachments = attachments.length > 0;
+          includeReferences = Boolean(runConfig?.custom?.references);
           startupRecoveryAttempts = 0;
           clearActiveRun();
           if (!isTransient) {

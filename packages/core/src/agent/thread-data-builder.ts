@@ -232,6 +232,106 @@ function isTerminalAssistantStatus(status: unknown): boolean {
   return type === "complete" || type === "incomplete";
 }
 
+function messageIdentityKeys(message: any): string[] {
+  const keys: string[] = [];
+  if (typeof message?.id === "string" && message.id) {
+    keys.push(`id:${message.id}`);
+  }
+  const runId = getMessageRunId(message);
+  if (runId) keys.push(`run:${runId}`);
+
+  try {
+    keys.push(
+      `fingerprint:${JSON.stringify({
+        role: message?.role,
+        content: message?.content,
+        attachments: message?.attachments,
+      })}`,
+    );
+  } catch {
+    // Best effort. id/runId usually exist for persisted assistant-ui rows.
+  }
+  return keys;
+}
+
+function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
+  const existing = getStoredMessage(existingEntry);
+  const incoming = getStoredMessage(incomingEntry);
+  if (
+    existing?.role === "assistant" &&
+    incoming?.role === "assistant" &&
+    isTerminalAssistantStatus(existing?.status) &&
+    !isTerminalAssistantStatus(incoming?.status)
+  ) {
+    return existingEntry;
+  }
+  return incomingEntry;
+}
+
+/**
+ * Merge an incoming client-side full-thread save over the current SQL copy.
+ *
+ * The browser exports and PUTs the whole assistant-ui repository. If a server
+ * completion save lands first, an older browser export can otherwise replace
+ * `thread_data` wholesale and delete the assistant message the server just
+ * reconstructed from run events. Preserve server-only messages while still
+ * accepting client-only messages and metadata.
+ */
+export function mergeThreadDataForClientSave(
+  existingRepo: any,
+  incomingRepo: any,
+) {
+  const merged =
+    incomingRepo && typeof incomingRepo === "object" ? incomingRepo : {};
+  if (
+    existingRepo &&
+    typeof existingRepo === "object" &&
+    existingRepo.queuedMessages !== undefined &&
+    merged.queuedMessages === undefined
+  ) {
+    merged.queuedMessages = existingRepo.queuedMessages;
+  }
+
+  const existingMessages = Array.isArray(existingRepo?.messages)
+    ? existingRepo.messages
+    : null;
+  const incomingMessages = Array.isArray(merged.messages)
+    ? merged.messages
+    : null;
+  if (!existingMessages || !incomingMessages) return merged;
+
+  const incomingKeySets = incomingMessages.map(
+    (entry: any) => new Set(messageIdentityKeys(getStoredMessage(entry))),
+  );
+  const usedIncoming = new Set<number>();
+  const nextMessages: any[] = [];
+
+  for (const existingEntry of existingMessages) {
+    const existingKeys = messageIdentityKeys(getStoredMessage(existingEntry));
+    const incomingIndex = incomingKeySets.findIndex(
+      (keys, index) =>
+        !usedIncoming.has(index) && existingKeys.some((key) => keys.has(key)),
+    );
+
+    if (incomingIndex === -1) {
+      nextMessages.push(existingEntry);
+      continue;
+    }
+
+    usedIncoming.add(incomingIndex);
+    nextMessages.push(
+      chooseMergedMessageEntry(existingEntry, incomingMessages[incomingIndex]),
+    );
+  }
+
+  for (let index = 0; index < incomingMessages.length; index++) {
+    if (!usedIncoming.has(index)) nextMessages.push(incomingMessages[index]);
+  }
+
+  merged.messages = nextMessages;
+  return merged;
+}
+
 function shouldReplaceLastAssistant(
   lastMessage: any,
   assistantMsg: AssistantMessage,
@@ -242,6 +342,7 @@ function shouldReplaceLastAssistant(
   const lastRunId = getMessageRunId(lastMessage);
   const nextRunId = getMessageRunId(assistantMsg);
   if (lastRunId && nextRunId && lastRunId === nextRunId) return true;
+  if (lastRunId && nextRunId && lastRunId !== nextRunId) return false;
 
   const lastStatus = lastMessage?.status;
   if (lastStatus && !isTerminalAssistantStatus(lastStatus)) return true;
@@ -256,6 +357,7 @@ function shouldReplaceLastAssistant(
 
   const lastText = messageText(lastContent).trim();
   const nextText = messageText(assistantMsg.content).trim();
+  if (isTerminalAssistantStatus(lastStatus)) return false;
   return Boolean(lastText && nextText && nextText.startsWith(lastText));
 }
 

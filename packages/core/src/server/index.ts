@@ -142,6 +142,7 @@ export {
   hasRequestContext,
   getRequestContext,
   getRequestUserEmail,
+  getRequestUserName,
   getRequestOrgId,
   getRequestTimezone,
   getRequestRunContext,

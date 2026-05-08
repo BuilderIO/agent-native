@@ -166,11 +166,11 @@ function AttachmentChip({
 
   if (src) {
     return (
-      <div className="group relative h-16 w-16 overflow-hidden rounded-lg border border-border/70 bg-muted/50">
+      <div className="group relative flex h-16 min-w-16 max-w-28 items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-muted/50">
         <img
           src={src}
           alt={attachment.name}
-          className="h-full w-full object-cover"
+          className="max-h-full max-w-full object-contain p-1"
         />
         <button
           type="button"
