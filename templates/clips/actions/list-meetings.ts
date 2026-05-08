@@ -19,6 +19,7 @@ import {
   and,
   asc,
   desc,
+  eq,
   isNull,
   isNotNull,
   lt,

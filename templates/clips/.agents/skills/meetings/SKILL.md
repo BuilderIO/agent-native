@@ -146,5 +146,5 @@ These flows are common enough to memorize:
 - **Calendar-sourced list**: no "New meeting" CTA and no manual sync requirement in the Meetings list. Users connect/reconnect/disconnect the calendar from the calendar settings menu; events are fetched live from Google Calendar.
 - **Two-pane detail**: transcript (left) + AI notes (right) with a "Generate notes" button in the header.
 - **Live indicator** is a red animated dot — never a sparkle or a robot icon.
-- **Calendar empty state** mirrors `ConnectBuilderCard` layout: single CTA card + "Add API key" disclosure underneath.
+- **Calendar empty state** uses one focused Google Calendar CTA card.
 - shadcn components only. Tabler icons (`IconCalendar`, `IconMicrophone2`, `IconWand`, `IconNotes`). No emojis as icons. No sparkle/robot.
