@@ -487,6 +487,7 @@ type ListOptions = {
    */
   mode?: ListMode;
   threadFormat?: "full" | "metadata" | "minimal";
+  messageFormat?: "full" | "metadata" | "minimal";
   /**
    * Search result order from threads.list is not enough to mimic Gmail's UI:
    * an old thread can match because its first message has the search term,
@@ -497,7 +498,7 @@ type ListOptions = {
   threadCandidateLimit?: number;
 };
 
-const LIST_CACHE_TTL = 20_000;
+const LIST_CACHE_TTL = 45_000;
 const listCache = new Map<string, { result: ListResult; expiresAt: number }>();
 const listInflight = new Map<string, Promise<ListResult>>();
 const THREAD_CANDIDATE_PAGE_TTL = 5 * 60 * 1000;
@@ -1238,6 +1239,7 @@ async function fetchAccountLegacy(
   query: string,
   maxResults: number,
   pageToken: string | undefined,
+  format: "full" | "metadata" | "minimal",
   onNextPageToken: (token: string) => void,
   onEstimate: (n: number) => void,
 ): Promise<any[]> {
@@ -1256,7 +1258,7 @@ async function fetchAccountLegacy(
   const batchResults = await gmailBatchGetMessages(
     accessToken,
     messageIds.map((m: any) => m.id),
-    "full",
+    format,
   );
 
   // Gmail's batch endpoint can return per-part failures without failing the
@@ -1267,7 +1269,7 @@ async function fetchAccountLegacy(
     const refills = await Promise.all(
       missing.map(async (id) => {
         try {
-          const data = await gmailGetMessage(accessToken, id, "full");
+          const data = await gmailGetMessage(accessToken, id, format);
           return { id, data };
         } catch {
           return { id, data: null as any };
@@ -1492,6 +1494,7 @@ async function listGmailMessagesUncached(
           resolvedQuery,
           maxResults,
           pageTokens?.[email],
+          options?.messageFormat ?? "full",
           (token) => {
             nextPageTokens[email] = token;
           },

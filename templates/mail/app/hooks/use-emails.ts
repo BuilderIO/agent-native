@@ -23,6 +23,8 @@ import {
   setCachedThread,
 } from "@/lib/thread-cache";
 
+const EMAIL_PAGE_SIZE = 25;
+
 // ─── API helpers ─────────────────────────────────────────────────────────────
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
@@ -290,6 +292,7 @@ export function useEmails(
     queryKey: ["emails", view, search, label],
     queryFn: ({ pageParam }: { pageParam: string | undefined }) => {
       const params = new URLSearchParams({ view });
+      params.set("limit", String(EMAIL_PAGE_SIZE));
       if (search) params.set("q", search);
       if (label) params.set("label", label);
       if (pageParam) params.set("pageToken", pageParam);
@@ -981,7 +984,8 @@ export function useContacts() {
   return useQuery<Contact[]>({
     queryKey: ["contacts"],
     queryFn: () => apiFetch("/api/contacts"),
-    staleTime: 60_000,
+    staleTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 

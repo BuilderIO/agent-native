@@ -15,7 +15,6 @@ import {
   useSettings,
   useUpdateSettings,
   useEmails,
-  useContacts,
   useReportSpam,
   useBlockSender,
   useMuteThread,
@@ -199,7 +198,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   }, [activeSearchQuery]);
   const { data: labels = [], isLoading: labelsLoading } = useLabels();
   const { data: settings, isLoading: settingsLoading } = useSettings();
-  useContacts(); // Prefetch contacts so composer autocomplete is instant
   const updateSettings = useUpdateSettings();
   const googleStatus = useGoogleAuthStatus();
   const accounts = googleStatus.data?.accounts ?? [];
