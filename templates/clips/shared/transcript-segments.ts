@@ -48,7 +48,9 @@ export function buildCaptionSegmentsFromText(
     totalWords * ESTIMATED_MS_PER_WORD,
   );
   const totalDurationMs =
-    typeof durationMs === "number" && Number.isFinite(durationMs) && durationMs > 0
+    typeof durationMs === "number" &&
+    Number.isFinite(durationMs) &&
+    durationMs > 0
       ? Math.max(durationMs, chunks.length * MIN_CAPTION_MS)
       : estimatedDurationMs;
 
@@ -85,8 +87,15 @@ export function normalizeTranscriptSegments({
 
   const sourceText =
     fullText?.trim() ||
-    validSegments.map((segment) => segment.text.trim()).join(" ").trim();
-  return buildCaptionSegmentsFromText(sourceText, durationMs);
+    validSegments
+      .map((segment) => segment.text.trim())
+      .join(" ")
+      .trim();
+  if (validSegments.length <= 1) {
+    return buildCaptionSegmentsFromText(sourceText, durationMs);
+  }
+
+  return validSegments.flatMap(splitTimedSegmentIntoCaptions);
 }
 
 function splitIntoCaptionChunks(text: string): string[] {
@@ -103,10 +112,7 @@ function splitIntoCaptionChunks(text: string): string[] {
       current.length >= MIN_WORDS_BEFORE_PUNCTUATION_BREAK &&
       (strongBreak || softBreak);
 
-    if (
-      current.length >= MAX_WORDS_PER_CAPTION ||
-      canBreakOnPunctuation
-    ) {
+    if (current.length >= MAX_WORDS_PER_CAPTION || canBreakOnPunctuation) {
       chunks.push(current.join(" "));
       current = [];
     }
@@ -120,12 +126,48 @@ function countWords(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;
 }
 
+function splitTimedSegmentIntoCaptions(
+  segment: TranscriptSegment,
+): TranscriptSegment[] {
+  const chunks = splitIntoCaptionChunks(segment.text);
+  if (chunks.length <= 1) return [segment];
+
+  const totalWords =
+    chunks.reduce((sum, chunk) => sum + countWords(chunk), 0) || 1;
+  const durationMs = Math.max(MIN_CAPTION_MS, segment.endMs - segment.startMs);
+  const minChunkMs =
+    durationMs >= chunks.length * MIN_CAPTION_MS
+      ? MIN_CAPTION_MS
+      : Math.max(250, Math.floor(durationMs / chunks.length));
+  let cursorMs = segment.startMs;
+
+  return chunks.map((chunk, index) => {
+    const isLast = index === chunks.length - 1;
+    const rawDuration = Math.round(
+      (durationMs * countWords(chunk)) / totalWords,
+    );
+    const remainingChunks = chunks.length - index - 1;
+    const latestEndMs = segment.endMs - remainingChunks * 250;
+    const endMs = isLast
+      ? segment.endMs
+      : Math.min(
+          latestEndMs,
+          Math.max(cursorMs + minChunkMs, cursorMs + rawDuration),
+        );
+    const next = { startMs: cursorMs, endMs, text: chunk };
+    cursorMs = endMs;
+    return next;
+  });
+}
+
 function shouldRechunkSegments(
   segments: TranscriptSegment[],
   fullText: string | null | undefined,
 ): boolean {
   if (segments.length === 0) return Boolean(fullText?.trim());
-  if (segments.some((segment) => countWords(segment.text) > MAX_WORDS_PER_CAPTION))
+  if (
+    segments.some((segment) => countWords(segment.text) > MAX_WORDS_PER_CAPTION)
+  )
     return true;
   if (segments.length === 1 && countWords(segments[0].text) > 3) return true;
   return false;

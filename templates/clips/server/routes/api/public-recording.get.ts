@@ -23,6 +23,10 @@ import { asc, eq } from "drizzle-orm";
 import { getSession, signShortLivedToken } from "@agent-native/core/server";
 import { getDb, schema } from "../../db/index.js";
 import { parseSpaceIds } from "../../lib/recordings.js";
+import {
+  normalizeTranscriptSegments,
+  parseTranscriptSegments,
+} from "../../../shared/transcript-segments.js";
 
 function appPath(path: string): string {
   if (!path.startsWith("/")) return path;
@@ -122,17 +126,11 @@ export default defineEventHandler(async (event) => {
     }
   } catch {}
 
-  let transcriptSegments: {
-    startMs: number;
-    endMs: number;
-    text: string;
-  }[] = [];
-  if (transcript?.segmentsJson) {
-    try {
-      const parsed = JSON.parse(transcript.segmentsJson);
-      if (Array.isArray(parsed)) transcriptSegments = parsed;
-    } catch {}
-  }
+  const transcriptSegments = normalizeTranscriptSegments({
+    segments: parseTranscriptSegments(transcript?.segmentsJson),
+    fullText: transcript?.fullText,
+    durationMs: rec.durationMs,
+  });
 
   // Normalize the dev-fallback videoUrl:
   //   1. Rewrite the legacy `/api/uploads/:id/blob` shape to the current

@@ -40,6 +40,16 @@ export interface ListRecordingsArgs {
   offset?: number;
 }
 
+function isAwaitingAutoTitle(recording: RecordingSummary): boolean {
+  const title = (recording.title ?? "").trim();
+  return (
+    title === "" ||
+    title === "Untitled recording" ||
+    recording.titleSource === "default" ||
+    recording.titleSource === "context"
+  );
+}
+
 export function useRecordings(args: ListRecordingsArgs = {}) {
   return useActionQuery<{ recordings: RecordingSummary[] }>(
     "list-recordings",
@@ -50,8 +60,7 @@ export function useRecordings(args: ListRecordingsArgs = {}) {
           recordings: Array.isArray(data?.recordings) ? data.recordings : [],
         };
       },
-      // If any recording is still on the seeded "Untitled recording" title
-      // (i.e. the agent hasn't landed a generated title yet), keep a 3s
+      // If any recording is still on a replaceable seed title, keep a 3s
       // refetch cadence so the skeleton in `recording-card` upgrades to
       // the real title promptly even if the refresh-signal poll is missed.
       refetchInterval: (q) => {
@@ -59,10 +68,7 @@ export function useRecordings(args: ListRecordingsArgs = {}) {
           | RecordingSummary[]
           | undefined;
         if (!recs || recs.length === 0) return false;
-        const pendingTitle = recs.some((r) => {
-          const t = (r.title ?? "").trim();
-          return t === "" || t === "Untitled recording";
-        });
+        const pendingTitle = recs.some(isAwaitingAutoTitle);
         return pendingTitle ? 3000 : false;
       },
     },

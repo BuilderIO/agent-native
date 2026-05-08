@@ -187,6 +187,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [speed, setSpeed] = useState(defaultSpeed);
     const [showControls, setShowControls] = useState(true);
     const [captionsOn, setCaptionsOn] = useState(false);
+    const [hasPlaybackStarted, setHasPlaybackStarted] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isPip, setIsPip] = useState(false);
     const [canPlay, setCanPlay] = useState(false);
@@ -259,6 +260,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       isPlaying,
       resolvedVideoSrc,
     ]);
+
+    useEffect(() => {
+      setHasPlaybackStarted(false);
+    }, [activeVideoSourceIdentity]);
 
     // Hide controls after 2s of idle movement.
     const bumpControls = useCallback(() => {
@@ -738,10 +743,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             }}
             onPlay={() => {
               setIsPlaying(true);
+              setHasPlaybackStarted(true);
               onPlay?.();
             }}
             onPlaying={() => {
               setIsPlaying(true);
+              setHasPlaybackStarted(true);
               setCanPlay(true);
               setIsPreparing(false);
               setIsBuffering(false);
@@ -809,11 +816,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               if (visibleMs !== ms) {
                 v.currentTime = visibleMs / 1000;
                 setCurrentMs(visibleMs);
+                if (visibleMs > 0) setHasPlaybackStarted(true);
                 if (visibleMs > 0) setIsPreparing(false);
                 onTimeUpdate?.(visibleMs, resolvedDurationMs);
                 return;
               }
               setCurrentMs(ms);
+              if (ms > 0) setHasPlaybackStarted(true);
               if (ms > 0) setIsPreparing(false);
               onTimeUpdate?.(ms, resolvedDurationMs);
             }}
@@ -854,7 +863,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         ) : null}
 
         {/* Captions */}
-        {!hideCaptions && captionsOn && currentSegment ? (
+        {!hideCaptions && captionsOn && hasPlaybackStarted && currentSegment ? (
           <CaptionsOverlay text={currentSegment.text} />
         ) : null}
 

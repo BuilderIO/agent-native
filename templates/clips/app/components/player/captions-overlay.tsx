@@ -99,7 +99,7 @@ export function CaptionsOverlay({
     <div
       ref={ref}
       data-player-ui
-      className="absolute z-20 -translate-x-1/2 -translate-y-1/2 cursor-move select-none"
+      className="absolute z-20 w-max max-w-[min(82%,720px)] -translate-x-1/2 -translate-y-1/2 cursor-move select-none"
       style={{
         left: pos.xPct + "%",
         top: pos.yPct + "%",
@@ -107,7 +107,7 @@ export function CaptionsOverlay({
       onMouseDown={onMouseDown}
     >
       <div
-        className="rounded-md bg-black/80 text-white px-4 py-1.5 text-[15px] leading-snug font-medium max-w-[70vw] text-center"
+        className="rounded-md bg-black/85 px-4 py-1.5 text-center text-[15px] font-medium leading-snug text-white shadow-lg"
         style={{
           outline: dragging ? "2px solid hsl(var(--primary))" : undefined,
         }}

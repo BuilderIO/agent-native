@@ -24,6 +24,17 @@ export function isDefaultTitle(title: string | null | undefined): boolean {
   return trimmed === DEFAULT_TITLE;
 }
 
+export function isAutoTitleReplaceable(
+  title: string | null | undefined,
+  titleSource: string | null | undefined,
+): boolean {
+  return (
+    isDefaultTitle(title) ||
+    titleSource === "default" ||
+    titleSource === "context"
+  );
+}
+
 interface AiRequest {
   kind?: string;
   recordingId?: string;
@@ -89,6 +100,9 @@ export function useAutoTitleBridge(): void {
   const inflight = useRef<boolean>(false);
 
   const readyRecordings = recordings.filter((r) => r.status === "ready");
+  const readyRecordingsKey = readyRecordings
+    .map((r) => `${r.id}:${r.titleSource ?? ""}:${r.title}:${r.updatedAt}`)
+    .join("|");
 
   useEffect(() => {
     if (readyRecordings.length === 0) return;
@@ -129,7 +143,7 @@ export function useAutoTitleBridge(): void {
             });
 
             void clearRequest(rec.id);
-          } else if (isDefaultTitle(rec.title)) {
+          } else if (isAutoTitleReplaceable(rec.title, rec.titleSource)) {
             // No server-queued delegation. Only dispatch the fallback for
             // recordings that are old enough (>2 min) that the server has had
             // ample time to write its own clips-ai-request entry. For freshly-
@@ -165,7 +179,7 @@ export function useAutoTitleBridge(): void {
       clearInterval(handle);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readyRecordings.map((r) => r.id).join(",")]);
+  }, [readyRecordingsKey]);
 }
 
 function buildRequestContext(rec: RecordingSummary, request: AiRequest) {
