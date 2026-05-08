@@ -1721,7 +1721,11 @@ export function createProductionAgentHandler(
         if (viewScreenAction) {
           const result = await viewScreenAction.run({});
           if (result && result !== "(no output)") {
-            return `\n\n<current-screen>\n${result}\n</current-screen>`;
+            const screenText =
+              typeof result === "string"
+                ? result
+                : JSON.stringify(result, null, 2);
+            return `\n\n<current-screen>\n${screenText}\n</current-screen>`;
           }
         } else {
           const navigation = await readAppState("navigation");
