@@ -24,7 +24,6 @@ import { defaultMarkdownSerializer } from "prosemirror-markdown";
 import {
   Plugin,
   PluginKey,
-  TextSelection,
   AllSelection,
 } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
@@ -239,56 +238,13 @@ const TypographyReplacements = Extension.create({
   },
 });
 
-/**
- * Two-stage Cmd+A: first press selects the current block,
- * second press (when block is already fully selected) selects the whole document.
- */
-const SelectAllBlock = Extension.create({
-  name: "selectAllBlock",
+const SelectAllDocument = Extension.create({
+  name: "selectAllDocument",
   addKeyboardShortcuts() {
     return {
       "Mod-a": ({ editor }) => {
-        const { state } = editor;
-        const { selection, doc } = state;
-
-        // Find the nearest top-level block node containing the cursor
-        const $from = selection.$from;
-        let blockStart: number | null = null;
-        let blockEnd: number | null = null;
-
-        // Walk up to find the top-level (depth 1) block
-        for (let depth = $from.depth; depth >= 1; depth--) {
-          if (depth === 1) {
-            blockStart = $from.before(depth);
-            blockEnd = $from.after(depth);
-            break;
-          }
-        }
-
-        if (blockStart == null || blockEnd == null) {
-          // Fallback: select all
-          editor.commands.setTextSelection({ from: 0, to: doc.content.size });
-          return true;
-        }
-
-        // Check if the current block is already fully selected
-        const blockContentStart = blockStart + 1;
-        const blockContentEnd = blockEnd - 1;
-        const isBlockSelected =
-          selection.from <= blockContentStart &&
-          selection.to >= blockContentEnd;
-
-        if (isBlockSelected) {
-          // Second Cmd+A: select entire document
-          editor.commands.setTextSelection({ from: 0, to: doc.content.size });
-        } else {
-          // First Cmd+A: select current block content
-          editor.commands.setTextSelection({
-            from: blockContentStart,
-            to: blockContentEnd,
-          });
-        }
-
+        const { state, view } = editor;
+        view.dispatch(state.tr.setSelection(new AllSelection(state.doc)));
         return true;
       },
     };
@@ -506,7 +462,7 @@ export function createVisualEditorExtensions({
     DragHandle,
     TypographyReplacements,
     MarkdownPasteDetection,
-    SelectAllBlock,
+    SelectAllDocument,
     NotionBlockIndent,
     Markdown.configure({
       html: true,

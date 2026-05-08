@@ -155,7 +155,7 @@ export default function Root() {
         >
           <TooltipProvider>
             <Toaster />
-            <Sonner position="bottom-left" />
+            <Sonner closeButton position="bottom-left" />
             <PublicAgentShell>
               <Outlet />
             </PublicAgentShell>
@@ -172,7 +172,7 @@ export default function Root() {
           <AppSetup />
           <TooltipProvider>
             <Toaster />
-            <Sonner position="bottom-left" />
+            <Sonner closeButton position="bottom-left" />
             <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
               <CommandMenu.Group heading="Content">
                 <CommandMenu.Item onSelect={() => {}}>
