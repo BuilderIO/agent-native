@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import { getRequestUserEmail } from "@agent-native/core/server";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../../server/db";
 
 type LoaderData =
@@ -50,12 +50,22 @@ export async function loader({
   const id = params.id;
   if (!id) throw new Response("Not found", { status: 404 });
 
+  const db = getDb();
   if (getRequestUserEmail()) {
-    const access = await resolveAccess("deck", id);
-    if (access) throw redirect(`/deck/${id}`);
+    const [directAccess] = await db
+      .select({ id: schema.decks.id })
+      .from(schema.decks)
+      .where(
+        and(
+          eq(schema.decks.id, id),
+          accessFilter(schema.decks, schema.deckShares),
+        ),
+      )
+      .limit(1);
+    if (directAccess) throw redirect(`/deck/${id}`);
   }
 
-  const [deck] = await getDb()
+  const [deck] = await db
     .select({
       title: schema.decks.title,
       data: schema.decks.data,

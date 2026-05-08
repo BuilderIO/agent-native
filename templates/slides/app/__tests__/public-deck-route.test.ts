@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetRequestUserEmail = vi.hoisted(() => vi.fn());
-const mockResolveAccess = vi.hoisted(() => vi.fn());
-const rows = vi.hoisted(() => ({ current: [] as unknown[] }));
-const limit = vi.hoisted(() => vi.fn(async () => rows.current));
+const mockAccessFilter = vi.hoisted(() =>
+  vi.fn((_args?: unknown[]) => "access_filter"),
+);
+const resultQueue = vi.hoisted(() => ({ current: [] as unknown[][] }));
+const limit = vi.hoisted(() =>
+  vi.fn(async () => resultQueue.current.shift() ?? []),
+);
 const where = vi.hoisted(() => vi.fn(() => ({ limit })));
 const from = vi.hoisted(() => vi.fn(() => ({ where })));
 const select = vi.hoisted(() => vi.fn(() => ({ from })));
@@ -16,7 +20,7 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
-  resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
+  accessFilter: (...args: unknown[]) => mockAccessFilter(args),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -33,6 +37,7 @@ vi.mock("../../server/db", () => ({
       data: "data_col",
       visibility: "visibility_col",
     },
+    deckShares: "deck_shares_table",
   },
 }));
 
@@ -48,29 +53,12 @@ function requestFor(id = "deck-1") {
 describe("public deck route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    rows.current = [];
+    resultQueue.current = [];
     mockGetRequestUserEmail.mockReturnValue(undefined);
-    mockResolveAccess.mockResolvedValue(null);
   });
 
   it("serves a public deck without speaker notes", async () => {
-    rows.current = [
-      {
-        title: "Launch review",
-        data: JSON.stringify({
-          aspectRatio: "16:9",
-          slides: [
-            {
-              id: "slide-1",
-              content: "<h1>Launch</h1>",
-              notes: "internal talking points",
-              layout: "title",
-              background: "#111",
-            },
-          ],
-        }),
-      },
-    ];
+    resultQueue.current = [publicDeckRows()];
 
     const result = await loader(requestFor());
 
@@ -95,7 +83,7 @@ describe("public deck route", () => {
 
   it("redirects signed-in viewers with access to the editor", async () => {
     mockGetRequestUserEmail.mockReturnValue("viewer@example.com");
-    mockResolveAccess.mockResolvedValue({ role: "viewer", resource: {} });
+    resultQueue.current = [[{ id: "deck-1" }]];
 
     try {
       await loader(requestFor());
@@ -108,7 +96,37 @@ describe("public deck route", () => {
     }
   });
 
+  it("keeps signed-in public-link-only viewers on the read-only route", async () => {
+    mockGetRequestUserEmail.mockReturnValue("viewer@example.com");
+    resultQueue.current = [[], publicDeckRows()];
+
+    const result = await loader(requestFor());
+
+    expect(result.deck?.title).toBe("Launch review");
+    expect(result.deck?.slides[0]?.notes).toBe("");
+  });
+
   it("404s when the deck is not public", async () => {
     await expect(loader(requestFor())).rejects.toMatchObject({ status: 404 });
   });
 });
+
+function publicDeckRows() {
+  return [
+    {
+      title: "Launch review",
+      data: JSON.stringify({
+        aspectRatio: "16:9",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<h1>Launch</h1>",
+            notes: "internal talking points",
+            layout: "title",
+            background: "#111",
+          },
+        ],
+      }),
+    },
+  ];
+}
