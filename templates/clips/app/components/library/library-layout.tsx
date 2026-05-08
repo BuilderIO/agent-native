@@ -225,24 +225,65 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   : "-translate-x-full md:translate-x-0",
               )}
             >
-              <div className="flex h-12 shrink-0 items-center border-b border-border px-4">
-                <div className="flex min-w-0 items-center gap-2">
-                  <img
-                    src={appPath("/agent-native-icon-light.svg")}
-                    alt=""
-                    aria-hidden="true"
-                    className="block h-4 w-auto shrink-0 dark:hidden"
-                  />
-                  <img
-                    src={appPath("/agent-native-icon-dark.svg")}
-                    alt=""
-                    aria-hidden="true"
-                    className="hidden h-4 w-auto shrink-0 dark:block"
-                  />
-                  <span className="truncate text-sm font-semibold text-foreground">
-                    Clips
-                  </span>
+              <div
+                className={cn(
+                  "flex h-12 shrink-0 items-center border-b border-border",
+                  showCollapsedSidebar ? "justify-center px-2" : "px-4",
+                )}
+              >
+                <div
+                  className={cn(
+                    "flex min-w-0 items-center gap-2",
+                    !showCollapsedSidebar && "flex-1",
+                  )}
+                >
+                  {!showCollapsedSidebar && (
+                    <>
+                      <img
+                        src={appPath("/agent-native-icon-light.svg")}
+                        alt=""
+                        aria-hidden="true"
+                        className="block h-4 w-auto shrink-0 dark:hidden"
+                      />
+                      <img
+                        src={appPath("/agent-native-icon-dark.svg")}
+                        alt=""
+                        aria-hidden="true"
+                        className="hidden h-4 w-auto shrink-0 dark:block"
+                      />
+                      <span className="truncate text-sm font-semibold text-foreground">
+                        Clips
+                      </span>
+                    </>
+                  )}
                 </div>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="hidden h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground md:inline-flex"
+                      aria-label={
+                        showCollapsedSidebar
+                          ? "Expand sidebar"
+                          : "Collapse sidebar"
+                      }
+                      aria-expanded={!showCollapsedSidebar}
+                      onClick={() => setSidebarCollapsed((value) => !value)}
+                    >
+                      {showCollapsedSidebar ? (
+                        <IconLayoutSidebarLeftExpand className="h-4 w-4" />
+                      ) : (
+                        <IconLayoutSidebarLeftCollapse className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    {showCollapsedSidebar ? "Expand sidebar" : "Collapse sidebar"}
+                  </TooltipContent>
+                </Tooltip>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <div className="px-3 py-3">
