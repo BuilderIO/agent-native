@@ -15,9 +15,15 @@ import { Badge } from "@/components/ui/badge";
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { useBookings, useDeleteBooking } from "@/hooks/use-bookings";
 import { useBookingLinks } from "@/hooks/use-booking-links";
 import { toast } from "sonner";
@@ -179,23 +185,34 @@ function BookingDetails({
   }
 
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="text-xs text-muted-foreground cursor-help underline decoration-dotted">
-            {lines.length} {lines.length === 1 ? "detail" : "details"}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" className="max-w-xs">
-          <div className="space-y-1 text-xs">
-            {lines.map((line) => (
-              <div key={line.label}>
-                <span className="font-medium">{line.label}:</span> {line.value}
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="h-auto px-0 py-0 text-xs text-muted-foreground underline decoration-dotted"
+        >
+          {lines.length} {lines.length === 1 ? "detail" : "details"}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[80vh] overflow-hidden sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Booking Details</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 overflow-y-auto pr-1 text-sm">
+          {lines.map((line) => (
+            <div key={line.label} className="space-y-1">
+              <div className="text-xs font-medium text-muted-foreground">
+                {line.label}
               </div>
-            ))}
-          </div>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+              <div className="whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 text-foreground">
+                {line.value}
+              </div>
+            </div>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

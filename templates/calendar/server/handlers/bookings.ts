@@ -566,7 +566,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     const cancelToken = nanoid();
     const attendeeName = stripCrlf(body.name);
     const attendeeEmail = stripCrlf(body.email).toLowerCase();
-    const notes = stripCrlf(body.notes);
+    const notes = String(body.notes ?? "").trim();
 
     // Validate required fields
     if (!attendeeName || !attendeeEmail || !body.start || !body.end) {
@@ -794,11 +794,13 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     // host rather than relying on ambient user state.
     if (await googleCalendar.isConnected(hostEmail)) {
       try {
-        const descParts: string[] = [`Booking by ${body.name} (${body.email})`];
+        const descParts: string[] = [
+          `Booking by ${attendeeName} (${attendeeEmail})`,
+        ];
         if (bookingLink?.title) {
           descParts.push(`Meeting type: ${bookingLink.title}`);
         }
-        if (body.notes) descParts.push(`Notes: ${body.notes}`);
+        if (notes) descParts.push(`Notes: ${notes}`);
         if (customFields.length > 0 && Object.keys(fieldResponses).length > 0) {
           const fieldLines = customFields
             .filter(
@@ -860,13 +862,13 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
 
     const booking: Booking = {
       id,
-      name: body.name,
-      email: body.email,
+      name: attendeeName,
+      email: attendeeEmail,
       start: body.start,
       end: body.end,
       slug: body.slug || "",
       eventTitle,
-      notes: body.notes,
+      notes: notes || undefined,
       fieldResponses:
         Object.keys(fieldResponses).length > 0 ? fieldResponses : undefined,
       meetingLink,
@@ -892,8 +894,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         {
           bookingId: id,
           schedulingLinkSlug: body.slug || "",
-          attendeeName: body.name,
-          attendeeEmail: body.email,
+          attendeeName,
+          attendeeEmail,
           startTime: body.start,
           endTime: body.end,
           eventTitle: booking.eventTitle || "",
