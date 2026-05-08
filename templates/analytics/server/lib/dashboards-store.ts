@@ -79,6 +79,32 @@ function nanoidFallback(): string {
   );
 }
 
+function changeScope(
+  ownerEmail: string,
+  orgId: string | null,
+  visibility: "private" | "org" | "public",
+): { owner?: string; orgId?: string } {
+  if (visibility === "public") return {};
+  if (visibility === "org" && orgId) return { orgId };
+  return { owner: ownerEmail };
+}
+
+function recordScopedChange(
+  source: "dashboards" | "analyses" | "dashboard-views",
+  type: "change" | "delete",
+  key: string,
+  ownerEmail: string,
+  orgId: string | null,
+  visibility: "private" | "org" | "public",
+): void {
+  recordChange({
+    source,
+    type,
+    key,
+    ...changeScope(ownerEmail, orgId, visibility),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Dashboards
 // ---------------------------------------------------------------------------
@@ -147,7 +173,14 @@ async function migrateDashboardFromSettings(
     .select()
     .from(schema.dashboards)
     .where(eq(schema.dashboards.id, id));
-  recordChange({ source: "dashboards", type: "change", key: id });
+  recordScopedChange(
+    "dashboards",
+    "change",
+    id,
+    ownerEmail,
+    orgId,
+    visibility,
+  );
   return rowToDashboard(row);
 }
 
@@ -336,8 +369,16 @@ export async function upsertDashboard(
     .where(eq(schema.dashboards.id, id));
   // Notify any sibling tabs (sidebar list, command palette, dashboard view)
   // so create/update propagate just like delete and the legacy-migration path.
-  recordChange({ source: "dashboards", type: "change", key: id });
-  return rowToDashboard(row);
+  const dashboard = rowToDashboard(row);
+  recordScopedChange(
+    "dashboards",
+    "change",
+    dashboard.id,
+    dashboard.ownerEmail,
+    dashboard.orgId,
+    dashboard.visibility,
+  );
+  return dashboard;
 }
 
 /** Delete a dashboard. Cleans legacy keys too. Requires admin/owner. */
@@ -356,7 +397,14 @@ export async function removeDashboard(
   await db
     .delete(schema.dashboardShares)
     .where(eq(schema.dashboardShares.resourceId, id));
-  recordChange({ source: "dashboards", type: "delete", key: id });
+  recordScopedChange(
+    "dashboards",
+    "delete",
+    existing.id,
+    existing.ownerEmail,
+    existing.orgId,
+    existing.visibility,
+  );
   // Best-effort legacy cleanup.
   try {
     if (ctx.orgId) await deleteOrgSetting(ctx.orgId, `${SQL_PREFIX}${id}`);
@@ -469,7 +517,16 @@ async function migrateAnalysisFromSettings(
     .select()
     .from(schema.analyses)
     .where(eq(schema.analyses.id, id));
-  return rowToAnalysis(row);
+  const analysis = rowToAnalysis(row);
+  recordScopedChange(
+    "analyses",
+    "change",
+    analysis.id,
+    analysis.ownerEmail,
+    analysis.orgId,
+    analysis.visibility,
+  );
+  return analysis;
 }
 
 export async function getAnalysis(
@@ -614,6 +671,14 @@ export async function removeAnalysis(
   await db
     .delete(schema.analysisShares)
     .where(eq(schema.analysisShares.resourceId, id));
+  recordScopedChange(
+    "analyses",
+    "delete",
+    existing.id,
+    existing.ownerEmail,
+    existing.orgId,
+    existing.visibility,
+  );
   try {
     if (ctx.orgId) await deleteOrgSetting(ctx.orgId, `${ANALYSIS_PREFIX}${id}`);
     if (ctx.email)
@@ -691,6 +756,17 @@ export async function saveDashboardView(
     .select()
     .from(schema.dashboardViews)
     .where(eq(schema.dashboardViews.id, id));
+  const dash = await getDashboard(dashboardId, ctx);
+  if (dash) {
+    recordScopedChange(
+      "dashboard-views",
+      "change",
+      dashboardId,
+      dash.ownerEmail,
+      dash.orgId,
+      dash.visibility,
+    );
+  }
   return rowToView(row);
 }
 
@@ -707,4 +783,15 @@ export async function deleteDashboardView(
   await db
     .delete(schema.dashboardViews)
     .where(eq(schema.dashboardViews.id, viewId));
+  const dash = await getDashboard(dashboardId, ctx);
+  if (dash) {
+    recordScopedChange(
+      "dashboard-views",
+      "delete",
+      dashboardId,
+      dash.ownerEmail,
+      dash.orgId,
+      dash.visibility,
+    );
+  }
 }
