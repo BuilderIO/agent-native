@@ -34,6 +34,7 @@ export {
   type AgentMessage,
   type AgentChatRequest,
   type AgentChatEvent,
+  type AgentChatAttachment,
   type AgentChatReference,
   type MentionProvider,
   type MentionProviderItem,

@@ -32,7 +32,7 @@ async function readGmailSignature(accessToken: string, account: string) {
 
 export default defineAction({
   description:
-    "Import the user's configured Gmail signature into Mail drafting settings. Converts Gmail's HTML signature into compose-friendly Markdown while preserving links and safe images when possible.",
+    "Import the user's configured Gmail signature into Mail drafting settings. Converts Gmail's HTML signature into compose-friendly Markdown while preserving text and links.",
   schema: z.object({
     account: z
       .string()

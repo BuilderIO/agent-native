@@ -3,6 +3,7 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 import type { UserSettings } from "../shared/types.js";
+import { normalizeSignature } from "../shared/signature.js";
 
 const settingsSchema = z.object({
   name: z.string().optional().describe("Display name for local fallback mail"),
@@ -30,7 +31,9 @@ export default defineAction({
 
     const updates: Partial<UserSettings> = {};
     if (args.name !== undefined) updates.name = args.name.trim();
-    if (args.signature !== undefined) updates.signature = args.signature.trim();
+    if (args.signature !== undefined) {
+      updates.signature = normalizeSignature(args.signature);
+    }
     if (args.writingStyle !== undefined) {
       updates.writingStyle = args.writingStyle.trim();
     }

@@ -12,6 +12,7 @@ export {
   type AgentMessage,
   type AgentChatRequest,
   type AgentChatEvent,
+  type AgentChatAttachment,
   DEFAULT_MODEL,
 } from "./agent/index.js";
 export {

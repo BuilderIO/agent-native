@@ -7,6 +7,7 @@ import {
   gmailSendMessage,
   googleFetch,
 } from "../server/lib/google-api.js";
+import { invalidateListCacheForOwner } from "../server/lib/google-auth.js";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { emit } from "@agent-native/core/event-bus";
@@ -424,6 +425,7 @@ export default defineAction({
 
     try {
       const sent = await gmailSendMessage(selectedToken, raw, threadId);
+      invalidateListCacheForOwner(ownerEmail);
       if (tracking && sent?.id) {
         await persistTracking({
           pixelToken: tracking.pixelToken,

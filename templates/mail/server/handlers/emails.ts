@@ -71,6 +71,7 @@ import {
   buildRawEmail as buildOutgoingRawEmail,
   resolveComposeAttachments,
 } from "../lib/outgoing-email.js";
+import { normalizeSignature } from "../../shared/signature.js";
 import { getAppProductionUrl } from "@agent-native/core/server";
 import { isBlockedToolUrl } from "@agent-native/core/tools/url-safety";
 
@@ -348,6 +349,7 @@ async function readSettings(email: string): Promise<UserSettings> {
       ...DEFAULT_SETTINGS,
       ...(data as any),
       email: (data as any).email || email,
+      signature: normalizeSignature((data as any).signature),
     } as UserSettings;
   }
   return { ...DEFAULT_SETTINGS, email };
@@ -1505,6 +1507,7 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
         if (sent.threadId) {
           invalidateThreadCache(email, sent.threadId);
         }
+        invalidateListCacheForOwner(email);
 
         // Track contact frequency for all recipients
         const allRecipients = [to, cc, bcc]
@@ -2400,7 +2403,13 @@ export const updateSettings = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const current = await readSettings(email);
   const body = await readBody(event);
-  const updated = { ...current, ...body };
+  const updated = {
+    ...current,
+    ...body,
+    ...(body.signature !== undefined
+      ? { signature: normalizeSignature(body.signature) }
+      : {}),
+  };
   await putUserSetting(
     email,
     "mail-settings",

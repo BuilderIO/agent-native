@@ -32,6 +32,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { toast } from "@/hooks/use-toast";
 
 interface EditorSidebarProps {
   slides: Slide[];
@@ -330,9 +331,21 @@ function AddSlidePopover({
             method: "POST",
             body: formData,
           });
-          if (res.ok) uploaded = (await res.json()) as UploadedFile[];
-        } catch {
-          /* silent */
+          if (!res.ok) {
+            const data = await res.json().catch(() => null);
+            throw new Error(data?.error || "Upload failed");
+          }
+          uploaded = (await res.json()) as UploadedFile[];
+        } catch (error) {
+          toast({
+            title: "Upload failed",
+            description:
+              error instanceof Error
+                ? error.message
+                : "Could not upload the attached file.",
+            variant: "destructive",
+          });
+          return;
         }
       }
 

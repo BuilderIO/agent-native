@@ -45,19 +45,14 @@ export function htmlSignatureToMarkdown(html: string): string {
     .replace(/<style[\s\S]*?<\/style>/gi, "");
 
   next = next.replace(/<br\s*\/?>/gi, "\n");
-  next = next.replace(/<img\b[^>]*>/gi, (tag) => {
-    const src = safeUrl(attr(tag, "src"));
-    if (!src) return "";
-    const alt = attr(tag, "alt") ?? "";
-    return `![${alt.replace(/]/g, "\\]")}](${normalizeMarkdownUrl(src)})`;
-  });
+  next = next.replace(/<img\b[^>]*>/gi, "");
   next = next.replace(
     /<a\b[^>]*href\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)[^>]*>([\s\S]*?)<\/a>/gi,
     (match, label) => {
       const href = safeUrl(attr(match, "href"), true);
       if (!href) return label;
       const text = cleanMarkdown(label.replace(/<[^>]+>/g, ""));
-      if (!text) return href;
+      if (!text) return "";
       return `[${text.replace(/]/g, "\\]")}](${normalizeMarkdownUrl(href)})`;
     },
   );

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { appBasePath, PromptComposer } from "@agent-native/core/client";
 import { GoogleDocImportHint } from "./GoogleDocImportHint";
+import { toast } from "@/hooks/use-toast";
 
 export interface UploadedFile {
   path: string;
@@ -116,7 +117,10 @@ export default function PromptPopover({
           method: "POST",
           body: formData,
         });
-        if (!res.ok) return [];
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          throw new Error(data?.error || "Upload failed");
+        }
         return (await res.json()) as UploadedFile[];
       } finally {
         setUploading(false);
@@ -127,11 +131,22 @@ export default function PromptPopover({
 
   const handleSubmit = useCallback(
     async (text: string, files: File[]) => {
-      const uploaded = await uploadFiles(files);
-      const enrichedText = [text.trim(), googleDocContext]
-        .filter(Boolean)
-        .join("\n\n");
-      onSubmit(enrichedText, uploaded);
+      try {
+        const uploaded = await uploadFiles(files);
+        const enrichedText = [text.trim(), googleDocContext]
+          .filter(Boolean)
+          .join("\n\n");
+        onSubmit(enrichedText, uploaded);
+      } catch (error) {
+        toast({
+          title: "Upload failed",
+          description:
+            error instanceof Error
+              ? error.message
+              : "Could not upload the attached file.",
+          variant: "destructive",
+        });
+      }
     },
     [googleDocContext, onSubmit, uploadFiles],
   );
