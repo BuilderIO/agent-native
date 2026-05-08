@@ -50,6 +50,7 @@ If a provider action returns an error:
 - **Quota / network blip** — say so and offer to retry.
 
 After a provider error, stop using that provider for the current turn. Do not keep retrying, reformulating, or continuing into follow-up analysis unless the user explicitly asks you to.
+If the user responds with "yes", "try again", or similar after a query/API error, treat that as permission to diagnose and correct the failed query first. Do not rerun the exact same failing SQL or provider request unless the user explicitly asks for an exact rerun.
 
 For ordinary ad-hoc data questions, answer the explicit question after the first relevant successful query or bounded evidence batch. Do not turn a "what to look into next" section into more tool calls unless the user asked for a deeper investigation.
 

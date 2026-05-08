@@ -889,6 +889,47 @@ const ChatRunningContext = React.createContext(false);
 // stream path (ReconnectStreamMessage). All state is passed as props — no
 // assistant-ui hooks here.
 
+type ToolDetailSection = "input" | "result";
+
+function stringifyToolValue(value: unknown, pretty = false): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, pretty ? 2 : 0);
+  } catch {
+    return String(value ?? "");
+  }
+}
+
+function toolArgsPreview(args: Record<string, unknown>): string {
+  return Object.entries(args)
+    .map(([key, value]) => {
+      const singleLine = stringifyToolValue(value)
+        .replace(/\s+/g, " ")
+        .trim();
+      const preview =
+        singleLine.length > 96 ? `${singleLine.slice(0, 96)}...` : singleLine;
+      return `${key}=${preview}`;
+    })
+    .join(", ");
+}
+
+function toolArgsDisplayText(args: Record<string, unknown>): string {
+  const entries = Object.entries(args);
+  if (entries.length === 1) {
+    const [key, value] = entries[0]!;
+    return `${key}=\n${stringifyToolValue(value, true)}`;
+  }
+  return JSON.stringify(args, null, 2);
+}
+
+function toolArgsCopyText(args: Record<string, unknown>): string {
+  const entries = Object.entries(args);
+  if (entries.length === 1 && typeof entries[0]![1] === "string") {
+    return entries[0]![1] as string;
+  }
+  return JSON.stringify(args, null, 2);
+}
+
 function ToolCallDisplay({
   toolName,
   argsText,
@@ -905,10 +946,14 @@ function ToolCallDisplay({
   const streamRef = useRef<HTMLDivElement>(null);
   const isAgentCall = toolName.startsWith("agent:");
   const [expanded, setExpanded] = useState(isAgentCall);
+  const [copiedSection, setCopiedSection] =
+    useState<ToolDetailSection | null>(null);
+  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const agentName = isAgentCall ? toolName.slice(6) : null;
   const isAgentError = isAgentCall && result === "Error calling agent";
   const agentStreamText = isAgentCall ? (argsText ?? "") : "";
   const hasStreamText = agentStreamText.length > 0;
+  const hasArgs = !isAgentCall && Object.keys(args).length > 0;
 
   // NOTE: All hooks must be above any conditional returns
   useEffect(() => {
@@ -916,6 +961,26 @@ function ToolCallDisplay({
       streamRef.current.scrollTop = streamRef.current.scrollHeight;
     }
   }, [agentStreamText, isAgentCall, isRunning]);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetRef.current) clearTimeout(copyResetRef.current);
+    };
+  }, []);
+
+  const copyToolDetail = useCallback(
+    async (section: ToolDetailSection, text: string) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopiedSection(section);
+        if (copyResetRef.current) clearTimeout(copyResetRef.current);
+        copyResetRef.current = setTimeout(() => setCopiedSection(null), 1200);
+      } catch {
+        // Clipboard failures should not interrupt chat rendering.
+      }
+    },
+    [],
+  );
 
   // Render connect-builder as ConnectBuilderCard once the result is available
   if (toolName === "connect-builder" && result) {
@@ -977,13 +1042,11 @@ function ToolCallDisplay({
     }
   }
 
-  const argsStr = isAgentCall
-    ? ""
-    : Object.entries(args)
-        .map(
-          ([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`,
-        )
-        .join(", ");
+  const argsStr = isAgentCall ? "" : toolArgsPreview(args);
+  const inputDisplay = hasArgs ? toolArgsDisplayText(args) : "";
+  const inputCopy = hasArgs ? toolArgsCopyText(args) : "";
+  const resultDisplay =
+    result !== undefined ? stringifyToolValue(result, true) : "";
 
   const displayName = isAgentCall
     ? isRunning
@@ -993,13 +1056,14 @@ function ToolCallDisplay({
         : `Asked ${agentName}`
     : toolName;
 
-  const canExpand = isAgentCall ? hasStreamText : result !== undefined;
+  const canExpand = isAgentCall ? hasStreamText : hasArgs || result !== undefined;
   const isExpanded = isAgentCall ? hasStreamText && expanded : expanded;
 
   return (
     <div className="my-1 overflow-hidden">
       <button
         onClick={() => canExpand && setExpanded(!isExpanded)}
+        aria-expanded={canExpand ? isExpanded : undefined}
         className={cn(
           "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left overflow-hidden",
           isRunning
@@ -1022,7 +1086,7 @@ function ToolCallDisplay({
           <span className="font-medium">{displayName}</span>
           {argsStr && <span className="opacity-60 ml-1">({argsStr})</span>}
         </span>
-        {canExpand && !isRunning && (
+        {canExpand && (
           <IconChevronDown
             className={cn(
               "ml-auto h-3 w-3 shrink-0 opacity-40",
@@ -1044,11 +1108,44 @@ function ToolCallDisplay({
           </ReactMarkdown>
         </div>
       )}
-      {isExpanded && !isAgentCall && result !== undefined && (
-        <div className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs font-mono text-muted-foreground whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
-          {typeof result === "string"
-            ? result
-            : JSON.stringify(result, null, 2)}
+      {isExpanded && !isAgentCall && (hasArgs || result !== undefined) && (
+        <div className="mt-1 space-y-2 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+          {hasArgs && (
+            <div>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className="font-medium text-foreground/80">Input</span>
+                <button
+                  type="button"
+                  onClick={() => copyToolDetail("input", inputCopy)}
+                  className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 font-sans text-[11px] text-muted-foreground hover:bg-background/80 hover:text-foreground"
+                >
+                  <IconCopy size={12} />
+                  {copiedSection === "input" ? "Copied" : "Copy"}
+                </button>
+              </div>
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/50 bg-background/60 p-2 font-mono text-[11px] leading-relaxed">
+                {inputDisplay}
+              </pre>
+            </div>
+          )}
+          {result !== undefined && (
+            <div>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className="font-medium text-foreground/80">Result</span>
+                <button
+                  type="button"
+                  onClick={() => copyToolDetail("result", resultDisplay)}
+                  className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 font-sans text-[11px] text-muted-foreground hover:bg-background/80 hover:text-foreground"
+                >
+                  <IconCopy size={12} />
+                  {copiedSection === "result" ? "Copied" : "Copy"}
+                </button>
+              </div>
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/50 bg-background/60 p-2 font-mono text-[11px] leading-relaxed">
+                {resultDisplay}
+              </pre>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -3737,15 +3834,15 @@ const AssistantChatInner = forwardRef<
                       onContinue={() => {
                         setRunErrorInfo(null);
                         addToQueue(
-                          "Continue from where you stopped. Use the partial work above, verify what succeeded, and finish the original request. Prefer dedicated app actions over raw database edits when they exist.",
+                          "Continue from where you stopped. Use the partial work above, verify what succeeded, and finish the original request. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. Prefer dedicated app actions over raw database edits when they exist.",
                         );
                       }}
                       onRetry={() => {
                         setRunErrorInfo(null);
                         addToQueue(
                           lastUserText
-                            ? `Retry the previous request from a clean approach. Original request:\n\n${lastUserText}`
-                            : "Retry the previous request from a clean approach.",
+                            ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
+                            : "Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.",
                         );
                       }}
                       onFork={onForkChat}

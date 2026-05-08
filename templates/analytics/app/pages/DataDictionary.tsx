@@ -250,7 +250,7 @@ export default function DataDictionary() {
                       title={e.department}
                       className={`${ENTRY_BADGE_CLASS} ${deptClass(e.department)} border-0`}
                     >
-                      {e.department}
+                      <span className="min-w-0 truncate">{e.department}</span>
                     </Badge>
                   )}
                   {e.table && (
@@ -259,7 +259,7 @@ export default function DataDictionary() {
                       title={e.table}
                       className={`${ENTRY_BADGE_CLASS} font-mono`}
                     >
-                      {e.table}
+                      <span className="min-w-0 truncate">{e.table}</span>
                     </Badge>
                   )}
                   {e.approved && (
