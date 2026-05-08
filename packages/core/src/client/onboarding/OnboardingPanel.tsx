@@ -973,6 +973,7 @@ const styles: Record<string, React.CSSProperties> = {
     outline: "none",
     boxSizing: "border-box" as const,
   },
+  methodHint: { margin: 0, fontSize: 11, color: "rgba(255,255,255,0.62)" },
   errText: { margin: 0, fontSize: 11, color: "#f87171" },
   footer: {
     padding: "0 12px 10px",
