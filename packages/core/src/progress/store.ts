@@ -21,9 +21,20 @@ function bumpPoll(owner: string): void {
 
 let _initPromise: Promise<void> | undefined;
 
+export const DEFAULT_PROGRESS_RUN_STALE_MS = 30 * 60 * 1000;
+
 function normalizeLimit(value: number | undefined, fallback = 50): number {
   if (!Number.isFinite(value) || value == null || value <= 0) return fallback;
   return Math.min(Math.floor(value), 200);
+}
+
+function resolveProgressRunStaleMs(): number {
+  const raw = process.env.AGENT_PROGRESS_RUN_STALE_MS;
+  if (raw !== undefined) {
+    const value = Number(raw);
+    if (Number.isFinite(value) && value >= 0) return value;
+  }
+  return DEFAULT_PROGRESS_RUN_STALE_MS;
 }
 
 async function ensureTable(): Promise<void> {
@@ -210,11 +221,48 @@ function clampPercent(n: number): number {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
+export async function cancelStaleRunsForOwner(
+  owner: string,
+  staleMs: number = resolveProgressRunStaleMs(),
+): Promise<number> {
+  if (!Number.isFinite(staleMs) || staleMs <= 0) return 0;
+  await ensureTable();
+  const client = getDbExec();
+  const now = Date.now();
+  const cutoff = now - staleMs;
+  const minutes = Math.max(1, Math.round(staleMs / 60_000));
+  const res = await client.execute({
+    sql: `UPDATE progress_runs
+          SET status = 'cancelled',
+              step = ?,
+              updated_at = ?,
+              completed_at = ?
+          WHERE owner = ?
+            AND status = 'running'
+            AND updated_at < ?`,
+    args: [
+      `Stopped after ${minutes} minutes without progress.`,
+      now,
+      now,
+      owner,
+      cutoff,
+    ],
+  });
+  const rowsAffected = (res as unknown as { rowsAffected?: number })
+    .rowsAffected;
+  if (typeof rowsAffected === "number" && rowsAffected > 0) {
+    bumpPoll(owner);
+    return rowsAffected;
+  }
+  return 0;
+}
+
 export async function listRuns(
   owner: string,
   options: ListRunsOptions = {},
 ): Promise<AgentRun[]> {
   await ensureTable();
+  await cancelStaleRunsForOwner(owner);
   const client = getDbExec();
   const limit = normalizeLimit(options.limit);
   let where = `owner = ?`;
