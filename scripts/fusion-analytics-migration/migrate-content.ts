@@ -3892,67 +3892,178 @@ function discoveryCoachExtension(): string {
   const wonSignals = extractConstArrayLiteral(rel, "wonSignals");
   const lostSignals = extractConstArrayLiteral(rel, "lostSignals");
   const stages = extractConstArrayLiteral(rel, "stages");
-  return baseExtension(
-    "Discovery Coach",
-    `<script>
+  return `<script>
       function discoveryCoach() {
         return {
           tab: 'discovery',
           selectedPain: null,
+          tabs: [
+            { id: 'discovery', label: 'Discovery sequence' },
+            { id: 'painmap', label: 'Pain translation map' },
+            { id: 'signals', label: 'Win / loss signals' },
+            { id: 'opains', label: 'Operational pains' }
+          ],
           opPains: ${opPains},
           painMap: ${painMap},
           wonSignals: ${wonSignals},
           lostSignals: ${lostSignals},
-          stages: ${stages}
+          stages: ${stages},
+          stageStyle(num) {
+            const palette = {
+              '1': 'background: rgba(30, 64, 175, 0.30); color: #93c5fd',
+              '2': 'background: rgba(6, 78, 59, 0.30); color: #6ee7b7',
+              '3': 'background: rgba(76, 29, 149, 0.30); color: #c4b5fd',
+              '4': 'background: rgba(120, 53, 15, 0.30); color: #fcd34d'
+            };
+            return palette[String(num)] || palette['1'];
+          },
+          rowBorder(index, length) {
+            return index < length - 1 ? 'border-b border-border' : '';
+          },
+          escapeHtml(value) {
+            return String(value || '')
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
+          },
+          highlightSignal(value) {
+            const text = this.escapeHtml(value);
+            return text.replace(
+              /(failed[^,.]*|gold|strongest[^,.]*|urgency[^,.]*|no deal|no date|go higher|go find[^,.]*|real urgency[^,.]*)/gi,
+              '<strong class="font-medium" style="color:#1D9E75">$1</strong>'
+            );
+          }
         };
       }
     </script>
-    <div x-data="discoveryCoach()" class="space-y-4">
-      <div class="flex flex-wrap gap-2">
-        <button class="rounded border px-3 py-1.5 text-xs" x-bind:class="tab === 'discovery' && 'bg-primary text-primary-foreground'" x-on:click="tab = 'discovery'">Discovery sequence</button>
-        <button class="rounded border px-3 py-1.5 text-xs" x-bind:class="tab === 'painmap' && 'bg-primary text-primary-foreground'" x-on:click="tab = 'painmap'">Pain translation map</button>
-        <button class="rounded border px-3 py-1.5 text-xs" x-bind:class="tab === 'signals' && 'bg-primary text-primary-foreground'" x-on:click="tab = 'signals'">Win/loss signals</button>
-        <button class="rounded border px-3 py-1.5 text-xs" x-bind:class="tab === 'opains' && 'bg-primary text-primary-foreground'" x-on:click="tab = 'opains'">Operational pains</button>
+    <div x-data="discoveryCoach()" class="mx-auto max-w-5xl p-6 text-sm text-foreground">
+      <header>
+        <h1 class="text-xl font-bold text-foreground">Fusion Discovery Coach</h1>
+        <p class="mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground">Find and translate customer pain - from operational symptoms to business consequences. Built from 12 won and 73 lost Fusion deals.</p>
+      </header>
+
+      <div class="mt-6 flex flex-wrap gap-1.5">
+        <template x-for="item in tabs" :key="item.id">
+          <button
+            class="rounded-md border px-4 py-1.5 text-sm transition"
+            x-bind:class="tab === item.id ? 'border-[#1D9E75] bg-[#1D9E75] text-white' : 'border-border bg-card text-muted-foreground hover:bg-muted'"
+            x-on:click="tab = item.id"
+            x-text="item.label"
+          ></button>
+        </template>
       </div>
-      <section x-show="tab === 'discovery'" class="space-y-3">
+
+      <section x-show="tab === 'discovery'" class="mt-6 space-y-3">
+        <p class="mb-5 text-sm leading-relaxed text-muted-foreground">Four-stage discovery sequence. Each stage builds on the last - don't jump to business pain before operational pain is confirmed.</p>
         <template x-for="stage in stages" :key="stage.num">
-          <div class="rounded border p-3">
-            <div class="flex gap-3"><span class="flex h-7 w-7 items-center justify-center rounded bg-muted text-xs font-semibold" x-text="stage.num"></span><div><h2 class="font-medium" x-text="stage.title"></h2><p class="text-xs text-muted-foreground" x-text="stage.sub"></p></div></div>
-            <div class="mt-3 space-y-2 pl-10"><template x-for="item in stage.qs" :key="item.q"><div class="rounded bg-muted p-3 text-sm"><p x-text="'“' + item.q + '”'"></p><p class="mt-1 text-xs text-muted-foreground" x-text="item.signal"></p></div></template></div>
+          <div class="overflow-hidden rounded-lg border border-border bg-card">
+            <div class="flex items-center gap-3 px-4 py-3.5">
+              <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-medium" x-bind:style="stageStyle(stage.num)" x-text="stage.num"></div>
+              <div>
+                <div class="text-sm font-medium text-foreground" x-text="stage.title"></div>
+                <div class="mt-0.5 text-xs text-muted-foreground" x-text="stage.sub"></div>
+              </div>
+            </div>
+            <div class="space-y-0 pb-3.5 pl-14 pr-4">
+              <template x-for="(item, index) in stage.qs" :key="item.q">
+                <div class="relative py-2.5 pl-4 text-sm leading-relaxed text-foreground" x-bind:class="rowBorder(index, stage.qs.length)">
+                  <span class="absolute left-0 font-medium" style="color:#1D9E75">›</span>
+                  <span>"</span><span x-text="item.q"></span><span>"</span>
+                  <span class="mt-1 block text-xs text-muted-foreground" x-html="highlightSignal(item.signal)"></span>
+                </div>
+              </template>
+            </div>
           </div>
         </template>
       </section>
-      <section x-show="tab === 'painmap'" class="space-y-2">
+
+      <section x-show="tab === 'painmap'" class="mt-6">
+        <p class="mb-5 text-sm leading-relaxed text-muted-foreground">When a developer or designer says X, here is the business pain to investigate and the person who owns it. Reps stop at the left column - the close happens in the middle and right.</p>
+        <div class="mb-1.5 hidden grid-cols-[1fr_20px_1fr_20px_1fr] gap-0 lg:grid">
+          <span class="px-3 text-[10px] font-medium uppercase tracking-wider text-blue-400">They say (operational)</span>
+          <span></span>
+          <span class="px-3 text-[10px] font-medium uppercase tracking-wider text-emerald-400">Business pain to find</span>
+          <span></span>
+          <span class="px-3 text-[10px] font-medium uppercase tracking-wider text-orange-400">Go find this person</span>
+        </div>
+        <div class="space-y-2">
         <template x-for="row in painMap" :key="row.op">
-          <div class="grid gap-2 md:grid-cols-3">
-            <div class="rounded border p-3 text-sm" x-text="row.op"></div>
-            <div class="rounded border p-3 text-sm" x-text="row.biz"></div>
-            <div class="rounded border p-3 text-sm font-medium" x-text="row.who"></div>
+          <div class="grid grid-cols-1 items-start gap-2 lg:grid-cols-[1fr_20px_1fr_20px_1fr] lg:gap-0">
+            <div class="rounded-md border border-border bg-card px-3 py-2.5 text-xs leading-relaxed text-foreground" style="border-left-width:3px;border-left-color:#3b82f6" x-text="row.op"></div>
+            <div class="hidden pt-2.5 text-center text-sm text-muted-foreground lg:block">›</div>
+            <div class="rounded-md border border-border bg-card px-3 py-2.5 text-xs leading-relaxed text-foreground" style="border-left-width:3px;border-left-color:#1D9E75" x-text="row.biz"></div>
+            <div class="hidden pt-2.5 text-center text-sm text-muted-foreground lg:block">›</div>
+            <div class="rounded-md border border-border bg-card px-3 py-2.5 text-xs font-medium leading-relaxed text-foreground" style="border-left-width:3px;border-left-color:#f97316" x-text="row.who"></div>
           </div>
         </template>
+        </div>
       </section>
-      <section x-show="tab === 'signals'" class="grid gap-3 md:grid-cols-2">
-        <div class="rounded border p-3"><h2 class="font-medium">Won deals</h2><ul class="mt-2 list-disc space-y-1 pl-5 text-sm"><template x-for="signal in wonSignals" :key="signal"><li x-text="signal"></li></template></ul></div>
-        <div class="rounded border p-3"><h2 class="font-medium">Lost deals</h2><ul class="mt-2 list-disc space-y-1 pl-5 text-sm"><template x-for="signal in lostSignals" :key="signal"><li x-text="signal"></li></template></ul></div>
+
+      <section x-show="tab === 'signals'" class="mt-6">
+        <p class="mb-5 text-sm leading-relaxed text-muted-foreground">Patterns from 12 won deals vs 73 lost deals. What separates documented pain in closed deals from lost deals.</p>
+        <div class="grid gap-3 md:grid-cols-2">
+          <div class="rounded-lg border border-border border-t-[3px] bg-card p-4" style="border-top-color:#1D9E75">
+            <div class="mb-3 text-[11px] font-medium uppercase tracking-wider" style="color:#1D9E75">Won deals - what the pain had</div>
+            <template x-for="(signal, index) in wonSignals" :key="signal">
+              <div class="relative py-2 pl-4 text-xs leading-relaxed text-foreground" x-bind:class="rowBorder(index, wonSignals.length)">
+                <span class="absolute left-0 top-2 text-base leading-none" style="color:#1D9E75">•</span>
+                <span x-text="signal"></span>
+              </div>
+            </template>
+          </div>
+          <div class="rounded-lg border border-border border-t-[3px] bg-card p-4" style="border-top-color:#ef4444">
+            <div class="mb-3 text-[11px] font-medium uppercase tracking-wider text-red-400">Lost deals - what the pain lacked</div>
+            <template x-for="(signal, index) in lostSignals" :key="signal">
+              <div class="relative py-2 pl-4 text-xs leading-relaxed text-foreground" x-bind:class="rowBorder(index, lostSignals.length)">
+                <span class="absolute left-0 top-2 text-base leading-none text-red-400">•</span>
+                <span x-text="signal"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+        <div class="mt-4 rounded-lg bg-muted p-4">
+          <div class="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">The single biggest pattern</div>
+          <p class="text-sm leading-relaxed text-foreground">
+            In every won deal, the operational pain was connected to a named business program or deadline. In lost deals where reps found operational pain but no business pain - OpenGov, Wells Fargo, Quest Diagnostics, Vagaro, Lenovo - the rep had a solid designer or developer conversation and stopped. Nobody asked:
+            <em class="font-medium not-italic" style="color:#1D9E75">"What happens to the business if this doesn't change?"</em>
+          </p>
+        </div>
       </section>
-      <section x-show="tab === 'opains'" class="space-y-3">
-        <div class="grid gap-2 md:grid-cols-2">
+
+      <section x-show="tab === 'opains'" class="mt-6">
+        <p class="mb-5 text-sm leading-relaxed text-muted-foreground">Eight operational pains found across your lost deal dataset. Select one to see the follow-up questions that translate it to business pain.</p>
+        <div class="mb-4 grid gap-2.5 md:grid-cols-2">
           <template x-for="(pain, index) in opPains" :key="pain.title">
-            <button class="rounded border p-3 text-left hover:bg-accent" x-on:click="selectedPain = selectedPain === index ? null : index">
-              <p class="font-medium" x-text="pain.title"></p>
-              <p class="text-xs text-muted-foreground" x-text="pain.count"></p>
+            <button
+              class="rounded-lg border bg-card p-3.5 text-left transition hover:border-muted-foreground/40"
+              x-bind:class="selectedPain === index ? 'border-[#1D9E75]' : 'border-border'"
+              x-on:click="selectedPain = selectedPain === index ? null : index"
+            >
+              <span class="mb-2 inline-block rounded-full bg-blue-900/40 px-2 py-0.5 text-[11px] font-medium text-blue-300">Operational</span>
+              <div class="text-sm font-medium leading-snug text-foreground" x-text="pain.title"></div>
+              <div class="mt-1 text-[11px] text-muted-foreground" x-text="pain.count"></div>
             </button>
           </template>
         </div>
         <template x-if="selectedPain !== null">
-          <div class="rounded border bg-muted p-4">
-            <h2 class="font-medium" x-text="opPains[selectedPain].title"></h2>
-            <div class="mt-3 space-y-2"><template x-for="item in opPains[selectedPain].questions" :key="item.q"><div class="rounded bg-background p-3 text-sm"><p x-text="'“' + item.q + '”'"></p><p class="mt-1 text-xs text-muted-foreground" x-text="'Listen for: ' + item.listen"></p></div></template></div>
+          <div class="rounded-lg bg-muted p-5">
+            <h3 class="mb-4 text-sm font-medium text-foreground" x-text="opPains[selectedPain].title"></h3>
+            <div class="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Translation questions - what to ask next</div>
+            <div class="space-y-0">
+              <template x-for="(item, index) in opPains[selectedPain].questions" :key="item.q">
+                <div class="relative py-2.5 pl-5 text-sm leading-relaxed text-foreground" x-bind:class="rowBorder(index, opPains[selectedPain].questions.length)">
+                  <span class="absolute left-0 font-medium" style="color:#1D9E75">›</span>
+                  <span>"</span><span x-text="item.q"></span><span>"</span>
+                  <span class="mt-1 block text-xs text-muted-foreground">Listen for: <strong class="font-medium" style="color:#1D9E75" x-text="item.listen"></strong></span>
+                </div>
+              </template>
+            </div>
           </div>
         </template>
       </section>
-    </div>`,
-  );
+    </div>`;
 }
 
 function gcnExtension(): string {

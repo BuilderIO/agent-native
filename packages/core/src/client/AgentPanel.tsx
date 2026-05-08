@@ -77,7 +77,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router";
 import { cn } from "./utils.js";
 import { agentNativePath } from "./api-path.js";
-import { getFrameOrigin, isTrustedFrameMessage } from "./frame.js";
+import { getFrameOrigin, isInFrame, isTrustedFrameMessage } from "./frame.js";
 import {
   getInitialAgentSidebarOpen,
   SIDEBAR_OPEN_KEY,
@@ -90,6 +90,11 @@ const AgentTerminal = lazy(() =>
 
 function parentFrameTargetOrigin(): string {
   return getFrameOrigin() ?? window.location.origin;
+}
+
+function isAgentNativeDesktop() {
+  if (typeof navigator === "undefined") return false;
+  return /AgentNativeDesktop/i.test(navigator.userAgent);
 }
 
 // Lazy-load ResourcesPanel to avoid bundling when not needed
@@ -499,7 +504,9 @@ function AgentPanelInner({
   const selectedLabel =
     availableClis.find((c) => c.command === selectedCli)?.label || selectedCli;
   const { isDevMode, canToggle, setDevMode } = useDevMode(apiUrl);
-  const codeAccessEnabled = codeAccess?.enabled !== false;
+  const inferredCodeAccessEnabled =
+    !isDevMode || isAgentNativeDesktop() || isInFrame();
+  const codeAccessEnabled = codeAccess?.enabled ?? inferredCodeAccessEnabled;
   const codeUnavailableTitle =
     codeAccess?.unavailableTitle ?? "Open Desktop to edit code";
   const codeUnavailableDescription =
