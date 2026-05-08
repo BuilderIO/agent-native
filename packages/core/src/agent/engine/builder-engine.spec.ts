@@ -94,7 +94,7 @@ describe("createBuilderEngine", () => {
     const engine = createBuilderEngine();
     expect(engine.name).toBe("builder");
     expect(engine.defaultModel).toBe(BUILDER_DEFAULT_MODEL);
-    expect(engine.defaultModel).toBe("gpt-5-5");
+    expect(engine.defaultModel).toBe("claude-sonnet-4-6");
     expect(engine.capabilities).toMatchObject(BUILDER_CAPABILITIES);
     expect(engine.supportedModels).toContain("claude-sonnet-4-6");
     expect(engine.supportedModels).toContain("gpt-5-5");

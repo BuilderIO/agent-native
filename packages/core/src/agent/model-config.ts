@@ -7,7 +7,6 @@
  * in this one file.
  */
 
-const FRAMEWORK_DEFAULT_OPENAI_MODEL = "gpt-5.5";
 const ANTHROPIC_DEFAULT_MODEL_ID = "claude-sonnet-4-6";
 
 function builderGatewayModelId(model: string): string {
@@ -18,7 +17,9 @@ function openRouterModelId(provider: string, model: string): string {
   return `${provider}/${model}`;
 }
 
-const FRAMEWORK_DEFAULT_BUILDER_MODEL = builderGatewayModelId(
+const FRAMEWORK_DEFAULT_OPENAI_MODEL = "gpt-5.5";
+const FRAMEWORK_DEFAULT_BUILDER_MODEL = ANTHROPIC_DEFAULT_MODEL_ID;
+const FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL = builderGatewayModelId(
   FRAMEWORK_DEFAULT_OPENAI_MODEL,
 );
 const FRAMEWORK_DEFAULT_OPENROUTER_MODEL = openRouterModelId(
@@ -31,9 +32,9 @@ export const AGENT_MODEL_CONFIG = {
     defaultModel: FRAMEWORK_DEFAULT_BUILDER_MODEL,
     supportedModels: [
       "claude-opus-4-7",
-      "claude-sonnet-4-6",
-      "claude-haiku-4-5",
       FRAMEWORK_DEFAULT_BUILDER_MODEL,
+      "claude-haiku-4-5",
+      FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL,
       "gpt-5-4",
       "gpt-5-4-mini",
       "gpt-5-1-codex-mini",
