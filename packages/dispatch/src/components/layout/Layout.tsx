@@ -3,6 +3,7 @@ import { NavLink, useLocation } from "react-router";
 import {
   AgentSidebar,
   FeedbackButton,
+  appBasePath,
   appPath,
   useActionQuery,
 } from "@agent-native/core/client";
@@ -206,6 +207,26 @@ function navItemsForSection(
   return items.filter((item) => sectionFor(item) === section);
 }
 
+function localDispatchPath(pathname: string): string {
+  const basePath = appBasePath();
+  if (!basePath) return pathname;
+  if (pathname === basePath) return "/";
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length) || "/";
+  }
+  return pathname;
+}
+
+function dispatchNavLinkTarget(path: string): string {
+  if (typeof window === "undefined") return path;
+  const basePath = appBasePath();
+  if (!basePath) return path;
+  const context = (
+    window as Window & { __reactRouterContext?: { basename?: string } }
+  ).__reactRouterContext;
+  return context?.basename === basePath ? path : appPath(path);
+}
+
 export function NavContent({
   onNavigate,
   extensions,
@@ -230,8 +251,9 @@ export function NavContent({
     ...OPERATIONS_NAV_ITEMS,
     ...navItemsForSection(extensionNavItems, "operations"),
   ];
+  const localPathname = localDispatchPath(location.pathname);
   const operationsOpen = operationsNavItems.some((item) =>
-    navItemMatchesPath(item, location.pathname),
+    navItemMatchesPath(item, localPathname),
   );
 
   const renderNavItem = (item: DispatchNavItem) => {
@@ -239,11 +261,10 @@ export function NavContent({
     return (
       <li key={item.id}>
         <NavLink
-          to={item.to}
+          to={dispatchNavLinkTarget(item.to)}
           onClick={onNavigate}
           className={({ isActive }) => {
-            const active =
-              isActive || navItemMatchesPath(item, location.pathname);
+            const active = isActive || navItemMatchesPath(item, localPathname);
             return cn(
               "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
               active

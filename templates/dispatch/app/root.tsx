@@ -199,7 +199,7 @@ export default function Root() {
             <AppLayout extensions={dispatchExtensions}>
               <Outlet />
             </AppLayout>
-            <Toaster richColors position="bottom-left" />
+            <Toaster closeButton richColors position="bottom-left" />
           </TooltipProvider>
         </QueryClientProvider>
       </ThemeProvider>
