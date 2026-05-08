@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
   NO_MIC_DEVICE_ID,
@@ -203,6 +204,7 @@ export function PreRecordPanel({
 
   const needsCamera = mode === "camera" || mode === "screen+camera";
   const needsScreen = mode === "screen" || mode === "screen+camera";
+  const audioEnabled = micId !== NO_MIC_DEVICE_ID;
 
   const selectedMicLabel = useMemo(() => {
     if (micId === NO_MIC_DEVICE_ID) return "No microphone";
@@ -230,10 +232,10 @@ export function PreRecordPanel({
   }, [displaySurface]);
 
   const deviceSummary = useMemo(() => {
-    const parts = [selectedMicLabel];
+    const parts = [audioEnabled ? selectedMicLabel : "No audio"];
     if (needsCamera && selectedCameraLabel) parts.push(selectedCameraLabel);
     return parts.filter(Boolean).join(" • ");
-  }, [needsCamera, selectedCameraLabel, selectedMicLabel]);
+  }, [audioEnabled, needsCamera, selectedCameraLabel, selectedMicLabel]);
 
   const handleMicStatusChange = useCallback(
     (status: MicrophoneTestStatus, detail?: { error?: string | null }) => {
@@ -275,7 +277,7 @@ export function PreRecordPanel({
       view: "record",
       mode,
       microphone: {
-        enabled: micId !== NO_MIC_DEVICE_ID,
+        enabled: audioEnabled,
         selected:
           micId === NO_MIC_DEVICE_ID
             ? "none"
@@ -306,6 +308,7 @@ export function PreRecordPanel({
     cameraTest.error,
     cameraTest.hasPreview,
     cameraTest.status,
+    audioEnabled,
     micId,
     micTest.error,
     micTest.hasSignal,
@@ -460,16 +463,37 @@ export function PreRecordPanel({
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="space-y-4 px-6 pb-5">
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background px-3 py-2.5">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-foreground">
+                  Include audio
+                </div>
+                <div className="text-xs leading-snug text-muted-foreground">
+                  {audioEnabled
+                    ? "Microphone and available tab audio will be recorded."
+                    : "Create a silent clip for quick visual notes."}
+                </div>
+              </div>
+              <Switch
+                checked={audioEnabled}
+                onCheckedChange={(checked) =>
+                  setMicId(checked ? "default" : NO_MIC_DEVICE_ID)
+                }
+                disabled={busy}
+                aria-label="Include audio in this recording"
+              />
+            </div>
+
             <div className="flex items-center gap-3">
               <IconMicrophone className="h-4 w-4 text-muted-foreground" />
               <Select value={micId} onValueChange={setMicId}>
-                <SelectTrigger className="flex-1">
+                <SelectTrigger className="flex-1" disabled={!audioEnabled}>
                   <SelectValue placeholder="Default mic" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="default">Default microphone</SelectItem>
                   <SelectItem value={NO_MIC_DEVICE_ID}>
-                    No microphone
+                    No audio
                   </SelectItem>
                   {mics.map((m) => (
                     <SelectItem key={m.deviceId} value={m.deviceId}>
@@ -482,7 +506,7 @@ export function PreRecordPanel({
 
             <MicrophoneVisualizer
               deviceId={micId === "default" ? null : micId}
-              disabled={busy || micId === NO_MIC_DEVICE_ID}
+              disabled={busy || !audioEnabled}
               selectedLabel={selectedMicLabel}
               onStatusChange={handleMicStatusChange}
               onSignalChange={handleMicSignalChange}
