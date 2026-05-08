@@ -96,10 +96,13 @@ Use `writeAppState("show-questions", ...)` or the equivalent HTTP PUT:
 
 ```json
 {
+  "title": "Tune the video before generation",
+  "description": "A few choices help me pick the right animation, timing, and audience.",
   "questions": [
     {
       "id": "style",
       "type": "text-options",
+      "header": "Animation style",
       "question": "What animation style are you going for?",
       "options": [
         { "label": "Cinematic & Epic", "value": "cinematic" },
@@ -154,6 +157,8 @@ Use `writeAppState("show-questions", ...)` or the equivalent HTTP PUT:
 }
 ```
 
+The payload can also include `skipLabel` and `submitLabel` when the default buttons need clearer wording.
+
 #### Question Types
 
 | Type            | UI             | Use for                                     |
@@ -165,6 +170,7 @@ Use `writeAppState("show-questions", ...)` or the equivalent HTTP PUT:
 | `freeform`      | Text input     | Brand details, specific requirements, notes |
 
 For `text-options`, provide 2-4 meaningful choices. Put the recommended/default option first, or mark it with `recommended: true` when the choice has a sensible default. Use short descriptions when the tradeoff is not obvious.
+Questions can include optional `header` text. `text-options` may use `options` or `choices`.
 
 The UI automatically appends "Other..." with a custom text box, plus "Explore a few options" and "Decide for me" choices, to every `text-options` question. Do not add those manually.
 

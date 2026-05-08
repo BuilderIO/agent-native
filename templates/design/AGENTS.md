@@ -512,10 +512,13 @@ Use the `show-questions` application state key to trigger the question flow over
 
 ```json
 {
+  "title": "Shape the design first",
+  "description": "A few choices help me pick the right visual direction before generating.",
   "questions": [
     {
       "id": "style",
       "type": "text-options",
+      "header": "Visual direction",
       "question": "What visual direction are you going for?",
       "options": [
         {
@@ -584,6 +587,8 @@ Use the `show-questions` application state key to trigger the question flow over
 }
 ```
 
+The payload can also include `skipLabel` and `submitLabel` when the default buttons need clearer wording.
+
 ### Question Types
 
 | Type            | UI             | Use for                                  |
@@ -595,6 +600,7 @@ Use the `show-questions` application state key to trigger the question flow over
 | `freeform`      | Text input     | Brand description, specific requirements |
 
 For `text-options`, provide 2-4 meaningful choices. Put the recommended/default option first, or mark it with `recommended: true` when the choice has a sensible default. Use short descriptions when the tradeoff is not obvious.
+Questions can include optional `header` text. `text-options` may use `options` or `choices`.
 
 The UI automatically appends `Other...` with a custom text box, plus `Explore a few options` and `Decide for me`, to every `text-options` question. Do not add those manually.
 

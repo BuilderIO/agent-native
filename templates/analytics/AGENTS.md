@@ -138,15 +138,19 @@ Users can tune this section in `AGENTS.md`:
 Default mode: `balanced`.
 
 Use 2-4 meaningful options for `text-options`. Put the recommended/default option first, or mark it with `recommended: true`. The UI automatically appends "Other..." with a custom text box, plus "Explore a few options" and "Decide for me"; do not add those manually.
+Questions can include optional `header` text. `text-options` may use `options` or `choices`. The payload can also include `title`, `description`, `skipLabel`, and `submitLabel`.
 
 Example:
 
 ```json
 {
+  "title": "Clarify the dashboard",
+  "description": "A few choices help me pick the right source, metrics, cuts, and layout.",
   "questions": [
     {
       "id": "scope",
       "type": "text-options",
+      "header": "Dashboard intent",
       "question": "What should this dashboard optimize for?",
       "options": [
         {

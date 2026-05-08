@@ -90,10 +90,13 @@ Default mode: `balanced`.
 
 ```json
 {
+  "title": "Shape the deck first",
+  "description": "A few choices help me choose the right story and visual system.",
   "questions": [
     {
       "id": "audience",
       "type": "text-options",
+      "header": "Audience",
       "question": "Who is the primary audience?",
       "options": [
         { "label": "Investors / Board", "value": "investors" },
@@ -144,6 +147,8 @@ Default mode: `balanced`.
 }
 ```
 
+The payload can also include `skipLabel` and `submitLabel` when the default buttons need clearer wording.
+
 #### Question Types
 
 | Type            | UI             | Use for                                |
@@ -157,6 +162,7 @@ Default mode: `balanced`.
 Each question has: `id` (unique key), `type`, `question` (label shown to user), optional `description`, optional `required` flag.
 For `text-options` and `color-options`: provide `options` array with `label`/`value` (and `color` for color-options). Set `multiSelect: true` for multi-pick.
 For `text-options`, provide 2-4 meaningful choices. Put the recommended/default option first, or mark it with `recommended: true` when the choice has a sensible default. Use short descriptions when the tradeoff is not obvious.
+Questions can include optional `header` text. `text-options` may use `options` or `choices`.
 When a deck has an active design system, color questions must use colors from that design system (primary, secondary, accent, surface/background) instead of generic moods.
 For `slider`: provide `min`/`max`.
 
