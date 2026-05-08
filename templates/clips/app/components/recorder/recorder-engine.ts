@@ -121,6 +121,56 @@ function makeAbortError(message: string): Error {
   return error;
 }
 
+type CapturePolicyFeature = "camera" | "microphone" | "display-capture";
+
+function isBrowserSecureContext(): boolean {
+  if (typeof window === "undefined") return true;
+  return window.isSecureContext;
+}
+
+function isCaptureFeatureBlockedByPolicy(
+  feature: CapturePolicyFeature,
+): boolean {
+  if (typeof document === "undefined") return false;
+  const policy =
+    (
+      document as Document & {
+        permissionsPolicy?: { allowsFeature: (feature: string) => boolean };
+        featurePolicy?: { allowsFeature: (feature: string) => boolean };
+      }
+    ).permissionsPolicy ??
+    (
+      document as Document & {
+        featurePolicy?: { allowsFeature: (feature: string) => boolean };
+      }
+    ).featurePolicy;
+  if (!policy?.allowsFeature) return false;
+  try {
+    return !policy.allowsFeature(feature);
+  } catch {
+    return false;
+  }
+}
+
+function capturePolicyBlockMessage(source: CaptureSource): string | null {
+  if (
+    source === "screen" &&
+    isCaptureFeatureBlockedByPolicy("display-capture")
+  ) {
+    return "This page is blocking screen recording via Permissions-Policy. Open Clips directly in a browser tab, or use a frame that allows screen capture, camera, and microphone.";
+  }
+  if (source === "camera" && isCaptureFeatureBlockedByPolicy("camera")) {
+    return "This page is blocking camera access via Permissions-Policy. Open Clips directly in a browser tab, or use a frame that allows camera and microphone.";
+  }
+  if (
+    source === "microphone" &&
+    isCaptureFeatureBlockedByPolicy("microphone")
+  ) {
+    return "This page is blocking microphone access via Permissions-Policy. Open Clips directly in a browser tab, or use a frame that allows camera and microphone.";
+  }
+  return null;
+}
+
 function isHardScreenPermissionError(err: unknown): boolean {
   const combined = `${errorName(err)} ${errorMessage(err)}`;
   return /permission denied by system|blocked by system|system settings|screen recording|screen capture|screen & system audio|privacy|could not start video source|notreadableerror/i.test(
@@ -278,6 +328,11 @@ export class RecorderEngine {
     const wantsMic = this.opts.micDeviceId !== NO_MIC_DEVICE_ID;
 
     try {
+      if (!isBrowserSecureContext()) {
+        throw new Error(
+          "Camera, microphone, and screen recording prompts require HTTPS or localhost. Open Clips on a secure URL, then try again.",
+        );
+      }
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error(
           "Your browser doesn't support camera or microphone capture. Try a recent Brave, Chrome, Edge, Safari, or Firefox.",
@@ -287,6 +342,13 @@ export class RecorderEngine {
         throw new Error(
           "Your browser doesn't support screen capture. Try a recent Brave, Chrome, Edge, Safari, or Firefox.",
         );
+      }
+      const policyBlock =
+        (wantsDisplay && capturePolicyBlockMessage("screen")) ||
+        (wantsCamera && capturePolicyBlockMessage("camera")) ||
+        (wantsMic && capturePolicyBlockMessage("microphone"));
+      if (policyBlock) {
+        throw new Error(policyBlock);
       }
 
       // Start every browser media request synchronously before the first
@@ -1230,6 +1292,13 @@ export class RecorderEngine {
     const name = errorName(err);
     const message = errorMessage(err);
     const combined = `${name} ${message}`;
+    const policyBlock = capturePolicyBlockMessage(source);
+    if (policyBlock) return new Error(policyBlock);
+    if (!isBrowserSecureContext()) {
+      return new Error(
+        "Camera, microphone, and screen recording prompts require HTTPS or localhost. Open Clips on a secure URL, then try again.",
+      );
+    }
 
     if (source === "screen") {
       if (isScreenPickerDismissal(err)) {
@@ -1241,7 +1310,7 @@ export class RecorderEngine {
         )
       ) {
         return new Error(
-          "Screen recording is blocked for this browser. Chrome camera and microphone permissions can be allowed while macOS still blocks Screen & System Audio Recording. Open macOS System Settings > Privacy & Security > Screen & System Audio Recording, enable your browser, then quit and reopen it.",
+          "Screen recording is blocked by the browser, macOS, or this app frame.",
         );
       }
     }
@@ -1254,7 +1323,7 @@ export class RecorderEngine {
       }
       if (/Permission denied|NotAllowedError|denied|blocked/i.test(combined)) {
         return new Error(
-          "Camera access is blocked for this browser or by macOS. Check this site's Camera permission, then check macOS System Settings > Privacy & Security > Camera for your browser and reload Clips.",
+          "Camera access is blocked by the browser, macOS, or this app frame.",
         );
       }
     }
@@ -1267,14 +1336,14 @@ export class RecorderEngine {
       }
       if (/Permission denied|NotAllowedError|denied|blocked/i.test(combined)) {
         return new Error(
-          "Microphone access is blocked for this browser or by macOS. Check this site's Microphone permission, then check macOS System Settings > Privacy & Security > Microphone for your browser and reload Clips.",
+          "Microphone access is blocked by the browser, macOS, or this app frame.",
         );
       }
     }
 
     if (/Permission denied|NotAllowedError|denied/i.test(combined)) {
       return new Error(
-        "Screen, camera, or microphone access was blocked. Open this site's browser permissions and allow Camera and Microphone. On macOS, also check System Settings > Privacy & Security for Screen & System Audio Recording, Camera, and Microphone, then quit and reopen the browser.",
+        "Screen, camera, or microphone access was blocked by the browser, macOS, or this app frame.",
       );
     }
     if (/NotFoundError|no device/i.test(combined)) {

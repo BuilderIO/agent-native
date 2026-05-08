@@ -6,12 +6,17 @@ import {
   IconArrowLeft,
   IconCamera,
   IconDeviceDesktop,
+  IconExternalLink,
   IconMicrophone,
   IconRefresh,
   IconVideo,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { agentNativePath, appBasePath } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  appBasePath,
+  captureClientException,
+} from "@agent-native/core/client";
 import { RequireActiveOrg } from "@agent-native/core/client/org";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
@@ -31,6 +36,12 @@ import {
   defaultRecordingTitle,
   inferWindowTitleFromDisplayStream,
 } from "@/lib/recording-title";
+import {
+  COMPRESS_THRESHOLD_BYTES,
+  MAX_UPLOAD_BYTES,
+  compressBlobIfTooLarge,
+  formatMb,
+} from "@/lib/compress";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
 // and cannot be bundled for the browser).
@@ -130,6 +141,12 @@ function isPermissionError(message: string): boolean {
   );
 }
 
+function isPolicyPermissionError(message: string): boolean {
+  return /permissions-policy|app frame|embedding frame|frame that allows/i.test(
+    message,
+  );
+}
+
 function isScreenPermissionError(message: string): boolean {
   return (
     isPermissionError(message) &&
@@ -149,6 +166,9 @@ function isMicrophonePermissionError(message: string): boolean {
 
 function permissionGuidance(message: string): string | null {
   if (!isPermissionError(message)) return null;
+  if (isPolicyPermissionError(message)) {
+    return "Browser site permissions are not the blocker here. Open Clips directly in a browser tab, or use an app frame that delegates camera, microphone, and screen capture.";
+  }
   if (isScreenPermissionError(message)) {
     if (isMacPlatform()) {
       return "Chrome can have Camera and Microphone allowed while macOS still blocks screen capture. Enable your browser in System Settings > Privacy & Security > Screen & System Audio Recording, then quit and reopen it.";
@@ -173,6 +193,14 @@ function permissionGuidance(message: string): string | null {
   return "Open this site's browser settings and allow Camera and Microphone, then reload this page.";
 }
 
+function permissionSettingsUrl(message: string): string | null {
+  if (!isMacPlatform() || isPolicyPermissionError(message)) return null;
+  if (isScreenPermissionError(message)) return MAC_SCREEN_RECORDING_PREF_URL;
+  if (isCameraPermissionError(message)) return MAC_CAMERA_PREF_URL;
+  if (isMicrophonePermissionError(message)) return MAC_MICROPHONE_PREF_URL;
+  return MAC_SCREEN_RECORDING_PREF_URL;
+}
+
 function isDismissedCapturePicker(err: unknown, message: string): boolean {
   const name = err instanceof Error ? err.name : "";
   return (
@@ -191,6 +219,12 @@ function getRecordingModeParam(value: string | null): RecordingMode | null {
     return "screen+camera";
   }
   return null;
+}
+
+function makeAbortError(message: string): Error {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
 }
 
 function getDisplaySurfaceParam(value: string | null): DisplaySurface | null {
@@ -296,6 +330,9 @@ function RecordingErrorCard({
 }) {
   const guidance = permissionGuidance(error);
   const permissionError = isPermissionError(error);
+  const policyError = isPolicyPermissionError(error);
+  const directUrl =
+    typeof window !== "undefined" ? window.location.href : "/record";
 
   return (
     <div className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
@@ -327,7 +364,15 @@ function RecordingErrorCard({
           <IconRefresh className="h-4 w-4" />
           Try again
         </Button>
-        {permissionError && isMacPlatform() && (
+        {policyError && (
+          <Button asChild className="w-full gap-2">
+            <a href={directUrl} target="_blank" rel="noreferrer">
+              <IconExternalLink className="h-4 w-4" />
+              Open in tab
+            </a>
+          </Button>
+        )}
+        {permissionError && isMacPlatform() && !policyError && (
           <div className="grid grid-cols-3 gap-2">
             <Button
               variant="ghost"
@@ -439,6 +484,7 @@ export default function RecordRoute() {
   } | null>(null);
   const tickRef = useRef<number | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
+  const fileUploadAbortRef = useRef<AbortController | null>(null);
   // Bumped by doCancel() to invalidate any in-flight startFlow().
   const startSessionRef = useRef(0);
 
@@ -478,18 +524,18 @@ export default function RecordRoute() {
 
   const showRecordingErrorToast = useCallback((message: string) => {
     const guidance = permissionGuidance(message);
+    const settingsUrl = permissionSettingsUrl(message);
     toast.error("Couldn't start recording", {
       description: guidance ?? message,
       duration: guidance ? 20_000 : 10_000,
-      action:
-        guidance && isMacPlatform()
-          ? {
-              label: "Open settings",
-              onClick: () => {
-                window.location.href = MAC_SCREEN_RECORDING_PREF_URL;
-              },
-            }
-          : undefined,
+      action: settingsUrl
+        ? {
+            label: "Open settings",
+            onClick: () => {
+              window.location.href = settingsUrl;
+            },
+          }
+        : undefined,
     });
   }, []);
 
@@ -772,8 +818,16 @@ export default function RecordRoute() {
 
   const uploadFile = useCallback(
     async (file: File) => {
+      const session = startSessionRef.current + 1;
+      startSessionRef.current = session;
+      const isStale = () => startSessionRef.current !== session;
+      const abort = new AbortController();
+      fileUploadAbortRef.current?.abort(makeAbortError("Upload cancelled"));
+      fileUploadAbortRef.current = abort;
+
       setError(null);
       setUiState("uploading");
+      setCompressionProgress(null);
 
       const acceptedMime = new Set([
         "video/mp4",
@@ -793,6 +847,9 @@ export default function RecordRoute() {
       if (!mimeType) {
         const message =
           "That file type isn't supported. Try MP4, WebM, or MOV.";
+        if (fileUploadAbortRef.current === abort) {
+          fileUploadAbortRef.current = null;
+        }
         setError(message);
         setUiState("error");
         toast.error(message);
@@ -802,12 +859,82 @@ export default function RecordRoute() {
       let createdId: string | null = null;
       try {
         const meta = await probeVideoMetadata(file);
+        if (isStale()) return;
+
+        let uploadBlob: Blob = file;
+        let uploadMimeType = mimeType;
+        let compressionError: {
+          message: string;
+          stderrTail: string[];
+          elapsedMs: number;
+        } | null = null;
+
+        if (file.size > COMPRESS_THRESHOLD_BYTES) {
+          setUiState("compressing");
+          const compression = await compressBlobIfTooLarge(file, mimeType, {
+            width: meta.width,
+            height: meta.height,
+            signal: abort.signal,
+            onProgress: ({ stage, progress }) => {
+              if (stage === "encoding" && typeof progress === "number") {
+                setCompressionProgress(progress);
+              } else if (stage === "finalizing") {
+                setCompressionProgress(1);
+              } else {
+                setCompressionProgress(null);
+              }
+            },
+            onError: (err) => {
+              compressionError = err;
+              captureClientException(
+                new Error(`Upload compression failed: ${err.message}`),
+                {
+                  tags: {
+                    uploadStep: "local-file-compression",
+                    mimeType,
+                  },
+                  extra: {
+                    filename: file.name,
+                    fileBytes: file.size,
+                    width: meta.width,
+                    height: meta.height,
+                    stderrTail: err.stderrTail,
+                    elapsedMs: err.elapsedMs,
+                  },
+                },
+              );
+            },
+          });
+          if (isStale()) return;
+
+          uploadBlob = compression.blob;
+          uploadMimeType = compression.outputMimeType || mimeType;
+          if (compressionError) {
+            console.warn(
+              "[recorder] upload compression failed, falling back to source file",
+              compressionError,
+            );
+          }
+          if (uploadBlob.size > MAX_UPLOAD_BYTES) {
+            const detail = compression.compressed
+              ? `${formatMb(uploadBlob.size)} after compression`
+              : `${formatMb(uploadBlob.size)}`;
+            throw new Error(
+              `Video is too large to upload (${detail}, limit is ${formatMb(
+                MAX_UPLOAD_BYTES,
+              )}). Try a shorter recording or lower the screen resolution / frame rate.`,
+            );
+          }
+          setCompressionProgress(null);
+          setUiState("uploading");
+        }
 
         const res = await fetch(
           agentNativePath("/_agent-native/actions/create-recording"),
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            signal: abort.signal,
             body: JSON.stringify({
               title:
                 file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle(),
@@ -847,23 +974,25 @@ export default function RecordRoute() {
           throw new Error("create-recording did not return an id");
         }
         createdId = info.id;
+        if (isStale()) throw makeAbortError("Upload cancelled");
         const uploadBase = `${appBasePath()}${info.uploadChunkUrl}`;
 
         const totalChunks = Math.max(
           1,
-          Math.ceil(file.size / UPLOAD_CHUNK_BYTES),
+          Math.ceil(uploadBlob.size / UPLOAD_CHUNK_BYTES),
         );
         let finalChunkResult: Record<string, unknown> | null = null;
         for (let i = 0; i < totalChunks; i++) {
+          if (isStale()) throw makeAbortError("Upload cancelled");
           const start = i * UPLOAD_CHUNK_BYTES;
-          const end = Math.min(start + UPLOAD_CHUNK_BYTES, file.size);
-          const slice = file.slice(start, end, mimeType);
+          const end = Math.min(start + UPLOAD_CHUNK_BYTES, uploadBlob.size);
+          const slice = uploadBlob.slice(start, end, uploadMimeType);
           const isFinal = i === totalChunks - 1;
           const params = new URLSearchParams({
             index: String(i),
             total: String(totalChunks),
             isFinal: isFinal ? "1" : "0",
-            mimeType,
+            mimeType: uploadMimeType,
           });
           if (isFinal) {
             params.set("durationMs", String(meta.durationMs));
@@ -874,8 +1003,9 @@ export default function RecordRoute() {
           }
           const chunkRes = await fetch(`${uploadBase}?${params.toString()}`, {
             method: "POST",
-            headers: { "Content-Type": mimeType },
+            headers: { "Content-Type": uploadMimeType },
             body: await slice.arrayBuffer(),
+            signal: abort.signal,
           });
           if (!chunkRes.ok) {
             const text = await chunkRes.text().catch(() => "");
@@ -916,6 +1046,7 @@ export default function RecordRoute() {
         }, 50);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Upload failed";
+        const aborted = err instanceof Error && err.name === "AbortError";
         if (createdId) {
           fetch(`${appBasePath()}/api/uploads/${createdId}/abort`, {
             method: "POST",
@@ -923,6 +1054,7 @@ export default function RecordRoute() {
             body: JSON.stringify({ reason: message }),
           }).catch(() => {});
         }
+        if (aborted || isStale()) return;
         setError(message);
         setUiState("error");
         if (message !== "SESSION_EXPIRED") {
@@ -932,6 +1064,11 @@ export default function RecordRoute() {
             duration: 12_000,
           });
         }
+      } finally {
+        if (fileUploadAbortRef.current === abort) {
+          fileUploadAbortRef.current = null;
+        }
+        setCompressionProgress(null);
       }
     },
     [navigate, probeVideoMetadata],
@@ -1100,6 +1237,10 @@ export default function RecordRoute() {
   const doCancel = useCallback(async () => {
     // Invalidate any in-flight startFlow().
     startSessionRef.current += 1;
+    if (fileUploadAbortRef.current) {
+      fileUploadAbortRef.current.abort(makeAbortError("Upload cancelled"));
+      fileUploadAbortRef.current = null;
+    }
     const engine = engineRef.current;
     const pendingId = pendingRef.current?.id;
     liveTranscription.stop();

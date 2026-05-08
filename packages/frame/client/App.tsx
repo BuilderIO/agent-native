@@ -40,6 +40,7 @@ const FRAME_MODE_KEY = "frame-mode";
 const SIDEBAR_OPEN_KEY = "frame-sidebar-open";
 const SIDEBAR_FULLSCREEN_KEY = "frame-sidebar-fullscreen";
 const DESKTOP_APP_NUDGE_DISMISSED_KEY = "frame.desktop-app-nudge.dismissed";
+const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
 
 function getAppId(): string {
   const params = new URLSearchParams(window.location.search);
@@ -386,7 +387,7 @@ export function App() {
           src={appUrl}
           className="w-full h-full border-none"
           title={app?.label || "App"}
-          allow="fullscreen"
+          allow={APP_IFRAME_ALLOW}
         />
         {/* Overlay during drag to prevent iframe from capturing mouse events */}
         {isDragging && (
