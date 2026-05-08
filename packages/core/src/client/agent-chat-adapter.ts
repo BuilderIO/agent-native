@@ -11,6 +11,7 @@ import {
 } from "./sse-event-processor.js";
 import { agentNativePath } from "./api-path.js";
 import { normalizeChatError } from "./error-format.js";
+import { unwrapAttachmentEnvelope } from "./composer/pasted-text.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import type {
   AgentChatStructuredContentPart,
@@ -21,6 +22,18 @@ type AdapterHistoryMessage = {
   role: "user" | "assistant";
   content: string;
 };
+
+const TEXT_ATTACHMENT_CONTENT_TYPES = new Set([
+  "application/json",
+  "application/x-ndjson",
+  "text/csv",
+  "text/css",
+  "text/html",
+  "text/json",
+  "text/markdown",
+  "text/plain",
+  "text/xml",
+]);
 
 const AUTO_CONTINUE_PROMPT =
   "Continue from where you left off and finish the user's original request. Do not repeat completed work, do not mention internal reconnects, time limits, or step limits, and continue as if this is the same uninterrupted run.";
@@ -69,6 +82,38 @@ function messageTextFromContent(
     .filter((p): p is { type: "text"; text: string } => p.type === "text")
     .map((p) => normalizeMentions(p.text))
     .join("\n");
+}
+
+function isTextAttachmentContentType(value: string | undefined): boolean {
+  if (!value) return false;
+  const contentType = value.split(";")[0]?.trim().toLowerCase();
+  return (
+    !!contentType &&
+    (contentType.startsWith("text/") ||
+      TEXT_ATTACHMENT_CONTENT_TYPES.has(contentType))
+  );
+}
+
+function decodeTextDataUrl(dataUrl: string): string | null {
+  const match = dataUrl.match(/^data:([^;,]+)(?:;charset=[^;,]+)?(;base64)?,(.*)$/i);
+  if (!match || !isTextAttachmentContentType(match[1])) return null;
+
+  try {
+    const payload = match[3] ?? "";
+    if (match[2]) {
+      if (typeof atob === "function") {
+        return decodeURIComponent(
+          Array.from(atob(payload), (char) =>
+            `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`,
+          ).join(""),
+        );
+      }
+      return null;
+    }
+    return decodeURIComponent(payload.replace(/\+/g, "%20"));
+  } catch {
+    return null;
+  }
 }
 
 function isToolCallContentPart(
@@ -449,24 +494,28 @@ export function createAgentChatAdapter(options?: {
                 data: part.image,
               });
             } else if (part.type === "file" && typeof part.data === "string") {
+              const contentType =
+                att.contentType ??
+                (typeof part.mimeType === "string" ? part.mimeType : undefined);
+              const decodedText = part.data.startsWith("data:")
+                ? decodeTextDataUrl(part.data)
+                : null;
               attachments.push({
                 type: "file",
                 name: att.name,
-                contentType:
-                  att.contentType ??
-                  (typeof part.mimeType === "string"
-                    ? part.mimeType
-                    : undefined),
-                ...(part.data.startsWith("data:")
-                  ? { data: part.data }
-                  : { text: part.data }),
+                contentType,
+                ...(decodedText !== null
+                  ? { text: decodedText }
+                  : part.data.startsWith("data:")
+                    ? { data: part.data }
+                    : { text: part.data }),
               });
             } else if (part.type === "text" && typeof part.text === "string") {
               attachments.push({
                 type: "file",
                 name: att.name,
                 contentType: att.contentType,
-                text: part.text,
+                text: unwrapAttachmentEnvelope(part.text),
               });
             }
           }
