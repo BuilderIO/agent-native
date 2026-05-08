@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.2.16
+
+### Patch Changes
+
+- 3b88628: Fix lazy workspace dev root routing, live app discovery, and generated app dependency startup.
+
 ## 0.2.15
 
 ### Patch Changes
