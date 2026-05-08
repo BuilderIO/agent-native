@@ -60,15 +60,29 @@ const NATIVE_FULLSCREEN_RECORDING_FLAG = "clips:native-fullscreen-recording";
 const DEV_SYNTHETIC_CAPTURE_FLAG = "clips:dev-synthetic-capture";
 const LEGACY_DEV_REAL_CAPTURE_FLAG = "clips:dev-real-capture";
 
+function isMacPlatform(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const platform =
+    (navigator as { userAgentData?: { platform?: string } }).userAgentData
+      ?.platform ||
+    navigator.platform ||
+    navigator.userAgent;
+  return /mac/i.test(platform);
+}
+
 export function shouldUseNativeFullscreenRecording(
   source: CaptureSource | undefined,
 ): boolean {
   if (source !== "full-screen") return false;
   if (typeof localStorage === "undefined") return false;
-  // Native ScreenCaptureKit direct-to-file recording has no pause primitive:
-  // stopping the stream finishes the recording file. Keep it as an explicit
-  // development escape hatch until native pause can segment + stitch safely.
-  return localStorage.getItem(NATIVE_FULLSCREEN_RECORDING_FLAG) === "1";
+  const saved = localStorage.getItem(NATIVE_FULLSCREEN_RECORDING_FLAG);
+  if (saved !== null) {
+    return saved === "1" || saved === "true";
+  }
+  // Full-screen mode should be one-click on macOS. The native recorder avoids
+  // WebKit's old screen/window picker entirely. Set this flag to "0" locally
+  // to fall back to getDisplayMedia while debugging that path.
+  return isMacPlatform();
 }
 
 function shouldUseDevSyntheticCapture(): boolean {
@@ -763,6 +777,44 @@ async function saveNativeTranscript(
   }
 }
 
+async function saveNativeTranscriptFailure(
+  serverUrl: string,
+  recordingId: string,
+  failureReason: string,
+  authToken?: string,
+): Promise<void> {
+  const reason = failureReason.trim();
+  if (!reason) return;
+
+  const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/save-browser-transcript`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: buildRetryHeaders("application/json", authToken),
+      credentials: "include",
+      body: JSON.stringify({
+        recordingId,
+        fullText: "",
+        source: "macos-native",
+        failureReason: reason,
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.warn(
+        "[clips-recorder] save native transcript failure failed:",
+        res.status,
+        body.slice(0, 200),
+      );
+    }
+  } catch (err) {
+    console.warn(
+      "[clips-recorder] save native transcript failure failed:",
+      err,
+    );
+  }
+}
+
 const THUMBNAIL_PROBE_WIDTH = 40;
 const THUMBNAIL_MIN_MEAN_LUMA = 8;
 const THUMBNAIL_MIN_MAX_LUMA = 28;
@@ -1050,6 +1102,17 @@ async function startNativeFullscreenRecording(
   const streamCleanups: Array<() => void> = [recordingStartCue.cleanup];
   let id = "";
   let nativeTranscriptCapture: NativeTranscriptCapture | null = null;
+  let nativeTranscriptFailureSaved = false;
+  const saveTranscriptFailure = async (failureReason: string) => {
+    if (!wantsAudio || nativeTranscriptFailureSaved || !id) return;
+    nativeTranscriptFailureSaved = true;
+    await saveNativeTranscriptFailure(
+      params.serverUrl,
+      id,
+      failureReason,
+      params.authToken,
+    );
+  };
 
   try {
     await invoke("park_popover_offscreen").catch(() => {});
@@ -1094,6 +1157,11 @@ async function startNativeFullscreenRecording(
     nativeTranscriptCapture = wantsAudio
       ? await startNativeTranscriptCapture()
       : null;
+    if (wantsAudio && !nativeTranscriptCapture) {
+      void saveTranscriptFailure(
+        "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
+      );
+    }
   } catch (err) {
     await nativeTranscriptCapture?.cancel().catch(() => {});
     streamCleanups.forEach((cleanup) => cleanup());
@@ -1153,6 +1221,10 @@ async function startNativeFullscreenRecording(
               id,
               nativeTranscript,
               params.authToken,
+            );
+          } else if (wantsAudio) {
+            await saveTranscriptFailure(
+              "No speech was captured by macOS Speech during this recording. If you spoke, check Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
             );
           }
 
@@ -1739,6 +1811,17 @@ async function startNativeRecordingInner(
     id,
   );
   console.log("[clips-recorder] recording row created", { id });
+  let nativeTranscriptFailureSaved = false;
+  const saveTranscriptFailure = async (failureReason: string) => {
+    if (!wantsAudio || nativeTranscriptFailureSaved) return;
+    nativeTranscriptFailureSaved = true;
+    await saveNativeTranscriptFailure(
+      params.serverUrl,
+      id,
+      failureReason,
+      params.authToken,
+    );
+  };
 
   // 4. Start MediaRecorder with a 2-second timeslice — each `ondataavailable`
   //    streams a chunk to the server, so we don't hold 5-min buffers in memory.
@@ -1900,6 +1983,11 @@ async function startNativeRecordingInner(
   nativeTranscriptCapture = wantsAudio
     ? await startNativeTranscriptCapture()
     : null;
+  if (wantsAudio && !nativeTranscriptCapture) {
+    void saveTranscriptFailure(
+      "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
+    );
+  }
   recorder.start(2_000);
   recordingStartCue.play();
   // The toolbar is already open (the popover's bubble-session effect
@@ -1976,6 +2064,10 @@ async function startNativeRecordingInner(
           id,
           nativeTranscript,
           params.authToken,
+        );
+      } else if (wantsAudio) {
+        await saveTranscriptFailure(
+          "No speech was captured by macOS Speech during this recording. If you spoke, check Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
         );
       }
       await thumbnailUploadPromise;
