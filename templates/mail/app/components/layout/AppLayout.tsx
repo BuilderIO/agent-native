@@ -1480,26 +1480,26 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           </>
         )}
 
-        <InvitationBanner />
+        <div
+          className={cn(
+            "flex min-h-0 flex-1 flex-col",
+            sidebarPinned && !isMobile && "pl-64",
+          )}
+        >
+          <InvitationBanner />
 
-        {/* Show full-page takeover when no accounts connected (except on settings page) */}
-        {!googleStatus.isLoading &&
-        !googleStatus.isError &&
-        !hasAccounts &&
-        !hasLocalMailboxData &&
-        view !== "settings" &&
-        view !== "draft-queue" ? (
-          <GoogleConnectBanner variant="hero" />
-        ) : (
-          <main
-            className={cn(
-              "flex flex-1 overflow-hidden",
-              sidebarPinned && !isMobile && "pl-64",
-            )}
-          >
-            {children}
-          </main>
-        )}
+          {/* Show full-page takeover when no accounts connected (except on settings page) */}
+          {!googleStatus.isLoading &&
+          !googleStatus.isError &&
+          !hasAccounts &&
+          !hasLocalMailboxData &&
+          view !== "settings" &&
+          view !== "draft-queue" ? (
+            <GoogleConnectBanner variant="hero" />
+          ) : (
+            <main className="flex flex-1 overflow-hidden">{children}</main>
+          )}
+        </div>
       </div>
 
       {(() => {
