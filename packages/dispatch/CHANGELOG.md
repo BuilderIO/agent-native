@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.2.17
+
+### Patch Changes
+
+- 0d95d53: Resolve Slack dispatch requests to the verified sender owner when possible so delegated app artifacts remain visible to that user.
+
 ## 0.2.16
 
 ### Patch Changes
