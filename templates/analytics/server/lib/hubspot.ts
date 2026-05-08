@@ -98,9 +98,34 @@ export interface Deal {
   };
 }
 
+export interface HubSpotOwner {
+  id: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  userId?: number;
+}
+
+export interface HubSpotDealProperty {
+  name: string;
+  label: string;
+  type?: string;
+  fieldType?: string;
+  description?: string;
+}
+
 interface HubSpotListResponse {
   results: Deal[];
   paging?: { next?: { after: string } };
+}
+
+interface HubSpotOwnerListResponse {
+  results: HubSpotOwner[];
+  paging?: { next?: { after: string } };
+}
+
+interface HubSpotDealPropertyListResponse {
+  results: HubSpotDealProperty[];
 }
 
 interface PipelineListResponse {
@@ -118,7 +143,7 @@ interface PipelineListResponse {
 
 // -- API functions --
 
-const DEAL_PROPERTIES = [
+const REQUIRED_DEAL_PROPERTIES = [
   "dealname",
   "dealstage",
   "amount",
@@ -128,10 +153,54 @@ const DEAL_PROPERTIES = [
   "pipeline",
   "hubspot_owner_id",
   "hs_deal_stage_probability",
+];
+
+const OPTIONAL_DEAL_PROPERTIES = [
+  "hs_object_id",
+  "associatedcompanyid",
+  "company_name",
+  "hs_primary_company_name",
+  "hs_manual_forecast_category",
+  "nbm_meeting_booked_date",
+  "nbm_meeting_complete_date",
   // POV stage entry dates (hs_v2_date_entered_{stageId})
   "hs_v2_date_entered_2121599", // Enterprise: New Business — S2 - Proof of Value
   "hs_v2_date_entered_1166928645", // Enterprise: Expansion — S2 - Proof of Value
 ];
+
+function uniqueProperties(properties: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const property of properties) {
+    const trimmed = property.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+  return result;
+}
+
+export async function getDealProperties(): Promise<HubSpotDealProperty[]> {
+  const data = await apiGet<HubSpotDealPropertyListResponse>(
+    "/crm/v3/properties/deals",
+    "deal-properties",
+  );
+  return data.results;
+}
+
+async function getAvailableDealPropertyNames(): Promise<Set<string>> {
+  const definitions = await getDealProperties();
+  return new Set(definitions.map((property) => property.name));
+}
+
+async function resolveDealProperties(extraProperties: string[] = []) {
+  const available = await getAvailableDealPropertyNames();
+  return uniqueProperties([
+    ...REQUIRED_DEAL_PROPERTIES,
+    ...OPTIONAL_DEAL_PROPERTIES,
+    ...extraProperties,
+  ]).filter((property) => available.has(property));
+}
 
 export async function getDealPipelines(): Promise<Pipeline[]> {
   const data = await apiGet<PipelineListResponse>(
@@ -183,10 +252,46 @@ export function getMetricsPipelines(pipelines: Pipeline[]): Pipeline[] {
   );
 }
 
-export async function getAllDeals(): Promise<Deal[]> {
+export async function getDealOwners(): Promise<Record<string, string>> {
+  const fullCacheKey = scopedCredentialCacheKey(
+    "owners-full",
+    "HUBSPOT_ACCESS_TOKEN",
+  );
+  const cached = cache.get(fullCacheKey);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    return cached.data as Record<string, string>;
+  }
+
+  const owners: Record<string, string> = {};
+  let after: string | undefined;
+  for (let i = 0; i < 100; i++) {
+    const url = `/crm/v3/owners?limit=100&archived=false${after ? `&after=${after}` : ""}`;
+    const res = await hubspotFetch(`${API_BASE}${url}`, {
+      headers: { Authorization: `Bearer ${await getToken()}` },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`HubSpot API error ${res.status}: ${text}`);
+    }
+    const data = (await res.json()) as HubSpotOwnerListResponse;
+    for (const owner of data.results) {
+      const name = [owner.firstName, owner.lastName].filter(Boolean).join(" ");
+      owners[owner.id] = name || owner.email || owner.id;
+    }
+    after = data.paging?.next?.after;
+    if (!after) break;
+  }
+
+  cache.set(fullCacheKey, { data: owners, ts: Date.now() });
+  return owners;
+}
+
+export async function getAllDeals(extraProperties: string[] = []): Promise<Deal[]> {
+  const properties = await resolveDealProperties(extraProperties);
+  const propertyKey = properties.slice().sort().join(",");
   // Check full-result cache first
   const fullCacheKey = scopedCredentialCacheKey(
-    "all-deals-full",
+    `all-deals-full:${propertyKey}`,
     "HUBSPOT_ACCESS_TOKEN",
   );
   const cached = cache.get(fullCacheKey);
@@ -196,7 +301,7 @@ export async function getAllDeals(): Promise<Deal[]> {
 
   const all: Deal[] = [];
   let after: string | undefined;
-  const props = DEAL_PROPERTIES.join(",");
+  const props = properties.join(",");
 
   // Paginate through all deals (up to 10K)
   for (let i = 0; i < 100; i++) {
