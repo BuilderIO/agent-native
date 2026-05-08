@@ -903,9 +903,7 @@ function stringifyToolValue(value: unknown, pretty = false): string {
 function toolArgsPreview(args: Record<string, unknown>): string {
   return Object.entries(args)
     .map(([key, value]) => {
-      const singleLine = stringifyToolValue(value)
-        .replace(/\s+/g, " ")
-        .trim();
+      const singleLine = stringifyToolValue(value).replace(/\s+/g, " ").trim();
       const preview =
         singleLine.length > 96 ? `${singleLine.slice(0, 96)}...` : singleLine;
       return `${key}=${preview}`;
@@ -946,8 +944,9 @@ function ToolCallDisplay({
   const streamRef = useRef<HTMLDivElement>(null);
   const isAgentCall = toolName.startsWith("agent:");
   const [expanded, setExpanded] = useState(isAgentCall);
-  const [copiedSection, setCopiedSection] =
-    useState<ToolDetailSection | null>(null);
+  const [copiedSection, setCopiedSection] = useState<ToolDetailSection | null>(
+    null,
+  );
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const agentName = isAgentCall ? toolName.slice(6) : null;
   const isAgentError = isAgentCall && result === "Error calling agent";
@@ -1056,7 +1055,9 @@ function ToolCallDisplay({
         : `Asked ${agentName}`
     : toolName;
 
-  const canExpand = isAgentCall ? hasStreamText : hasArgs || result !== undefined;
+  const canExpand = isAgentCall
+    ? hasStreamText
+    : hasArgs || result !== undefined;
   const isExpanded = isAgentCall ? hasStreamText && expanded : expanded;
 
   return (
@@ -2034,9 +2035,7 @@ function getRequestModeMetadata(message: unknown): AgentRequestMode | null {
       }
     | undefined;
   const requestMode = meta?.custom?.requestMode ?? meta?.requestMode;
-  return requestMode === "act" || requestMode === "plan"
-    ? requestMode
-    : null;
+  return requestMode === "act" || requestMode === "plan" ? requestMode : null;
 }
 
 function isBuilderReconnectRunError(info: RunErrorInfo): boolean {
