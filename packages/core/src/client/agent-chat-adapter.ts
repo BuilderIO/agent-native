@@ -814,6 +814,7 @@ export function createAgentChatAdapter(options?: {
                 clearActiveRun();
                 return true;
               }
+              lastActiveRunError = activeErr;
               await retryDelay(attempt, abortSignal);
             }
           }
@@ -1124,6 +1125,11 @@ export function createAgentChatAdapter(options?: {
               if (!continuation.ok) {
                 const message =
                   "The agent connection kept failing after several automatic recovery attempts.";
+                captureChatClientError(
+                  err,
+                  "auto-continuation-exhausted",
+                  { autoContinueReason: err.reason },
+                );
                 const runError = {
                   message,
                   details: connectionRecoveryDetails(),
@@ -1218,6 +1224,7 @@ export function createAgentChatAdapter(options?: {
               if (!continuation.ok) {
                 const message =
                   "The agent connection kept failing after several automatic recovery attempts.";
+                captureChatClientError(err, "recovery-exhausted");
                 const runError = {
                   message,
                   details: connectionRecoveryDetails(),
@@ -1269,6 +1276,9 @@ export function createAgentChatAdapter(options?: {
             }
 
             // No partial work exists, so this is still a real startup failure.
+            captureChatClientError(err, "startup-failed", {
+              retryableStartupError: isRetryableStartupError(errMsg),
+            });
             const normalized = normalizeChatError(errMsg);
             const runError = {
               message: normalized.message,
