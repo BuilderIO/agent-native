@@ -58,6 +58,19 @@ describe("AISDKEngine OpenAI model selection", () => {
     );
   });
 
+  it("passes an empty apiKey when env fallback is disabled", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-deploy");
+    mockAiSdk();
+    const { createOpenAI } = mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { allowEnvFallback: false });
+
+    await drain(engine.stream(BASE_STREAM_OPTIONS));
+
+    expect(createOpenAI).toHaveBeenCalledWith({ apiKey: "" });
+  });
+
   it("keeps Chat Completions for custom OpenAI-compatible base URLs", async () => {
     const { streamText } = mockAiSdk();
     const { createOpenAI, provider, chatModel } = mockOpenAIProvider();
