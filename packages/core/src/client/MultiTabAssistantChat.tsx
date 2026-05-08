@@ -207,14 +207,11 @@ function HistoryPopover({
     };
   }, [search, onSearch]);
 
-  // Only show threads not currently open as tabs
-  const closedThreads = threads.filter(
-    (t) => !openTabIds.has(t.id) && t.messageCount > 0,
-  );
+  const visibleThreads = threads.filter((t) => t.messageCount > 0);
 
   const filtered = search.trim()
-    ? (searchResults ?? closedThreads).filter((t) => t.messageCount > 0)
-    : closedThreads;
+    ? (searchResults ?? visibleThreads).filter((t) => t.messageCount > 0)
+    : visibleThreads;
 
   const formatTime = (ts: number) => {
     const d = new Date(ts);
@@ -239,7 +236,7 @@ function HistoryPopover({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search past chats..."
+            placeholder="Search chats..."
             className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none"
           />
         </div>
@@ -250,7 +247,7 @@ function HistoryPopover({
             </div>
           ) : filtered.length === 0 ? (
             <div className="px-3 py-4 text-xs text-muted-foreground text-center">
-              {search ? "No matching chats" : "No past chats"}
+              {search ? "No matching chats" : "No chats yet"}
             </div>
           ) : (
             filtered.map((thread) => (
@@ -267,7 +264,9 @@ function HistoryPopover({
                     {thread.title || thread.preview || "Chat"}
                   </span>
                   <span className="text-[10px] text-muted-foreground shrink-0">
-                    {formatTime(thread.updatedAt)}
+                    {openTabIds.has(thread.id)
+                      ? "Open"
+                      : formatTime(thread.updatedAt)}
                   </span>
                 </div>
                 {thread.preview && thread.title !== thread.preview && (
@@ -301,7 +300,7 @@ function HelpPopover({ onClose }: { onClose: () => void }) {
       description: "Start a new chat (keeps current chat in history)",
     },
     { name: "/new", description: "Same as /clear" },
-    { name: "/history", description: "Browse and search past chats" },
+    { name: "/history", description: "Browse all chats" },
     { name: "/plan", description: "Switch to read-only planning" },
     { name: "/act", description: "Switch back to acting" },
     { name: "/help", description: "Show this list of commands" },
@@ -1417,7 +1416,7 @@ export function MultiTabAssistantChat({
                           <TooltipTrigger asChild>
                             <button
                               onClick={() => setShowHistory(!showHistory)}
-                              aria-label="Chat history"
+                              aria-label="All chats"
                               className={cn(
                                 "flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50",
                                 showHistory && "bg-accent text-foreground",
@@ -1426,7 +1425,7 @@ export function MultiTabAssistantChat({
                               <IconHistory size={12} />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent>Chat history</TooltipContent>
+                          <TooltipContent>All chats</TooltipContent>
                         </Tooltip>
                       </div>
                     </TooltipProvider>

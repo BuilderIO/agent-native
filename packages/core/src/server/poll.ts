@@ -13,6 +13,7 @@
  * are picked up even though they don't call recordChange() in this process.
  */
 
+import { EventEmitter } from "node:events";
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 import { getAppStateEmitter } from "../application-state/emitter.js";
 import { getDbExec } from "../db/client.js";
@@ -42,6 +43,9 @@ export interface ChangeEvent {
 const MAX_BUFFER = 200;
 let _version = 0;
 const _buffer: ChangeEvent[] = [];
+export const POLL_CHANGE_EVENT = "poll-change";
+const _pollEmitter = new EventEmitter();
+_pollEmitter.setMaxListeners(0);
 
 /**
  * Whether we've seeded _version from the DB. In serverless (Netlify,
@@ -87,6 +91,22 @@ export function getVersion(): number {
   return _version;
 }
 
+export function getPollEmitter(): EventEmitter {
+  return _pollEmitter;
+}
+
+export function canSeeChangeForUser(
+  event: ChangeEvent,
+  userEmail: string,
+  orgId: string | undefined,
+): boolean {
+  // Global / unowned events: every authenticated user gets them.
+  if (!event.owner && !event.orgId) return true;
+  if (event.owner && event.owner === userEmail) return true;
+  if (event.orgId && orgId && event.orgId === orgId) return true;
+  return false;
+}
+
 /** Record a change event. Called by emitter listeners. */
 export function recordChange(event: {
   source: string;
@@ -103,6 +123,7 @@ export function recordChange(event: {
   if (_buffer.length > MAX_BUFFER) {
     _buffer.splice(0, _buffer.length - MAX_BUFFER);
   }
+  _pollEmitter.emit(POLL_CHANGE_EVENT, entry);
 }
 
 /** Get all changes after a given version. */
@@ -136,14 +157,9 @@ export function getChangesSinceForUser(
   if (since >= _version) {
     return { version: _version, events: [] };
   }
-  const events = _buffer.filter((e) => {
-    if (e.version <= since) return false;
-    // Global / unowned events: every authenticated user gets them.
-    if (!e.owner && !e.orgId) return true;
-    if (e.owner && e.owner === userEmail) return true;
-    if (e.orgId && orgId && e.orgId === orgId) return true;
-    return false;
-  });
+  const events = _buffer.filter(
+    (e) => e.version > since && canSeeChangeForUser(e, userEmail, orgId),
+  );
   return { version: _version, events };
 }
 

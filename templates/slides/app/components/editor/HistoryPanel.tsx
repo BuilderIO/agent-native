@@ -2,6 +2,7 @@ import { useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { IconHistory } from "@tabler/icons-react";
 import { useDecks, type HistoryEntry } from "@/context/DeckContext";
+import { shortcutLabel } from "@/lib/utils";
 
 interface HistoryPanelProps {
   open: boolean;
@@ -74,7 +75,7 @@ export default function HistoryPanel({
           Edit IconHistory
         </span>
         <span className="text-[10px] text-muted-foreground ml-auto">
-          Cmd+Z / Cmd+Shift+Z
+          {shortcutLabel("cmd+z")} / {shortcutLabel("cmd+shift+z")}
         </span>
       </div>
 

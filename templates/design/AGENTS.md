@@ -481,14 +481,29 @@ This bypasses the tweak-merge logic, so use it for cosmetic fixes — full regen
 
 ## Question Flow Protocol
 
+Agents can ask structured, multiple-choice questions by writing to `show-questions`. Use this for non-trivial net-new creation where the first answer materially changes the design direction. Skip it for obvious tweaks, repair requests, or prompts that already include enough constraints.
+
+### Question Intensity
+
+Users can tune this section in `AGENTS.md`:
+
+| Mode       | Behavior                                                                 |
+| ---------- | ------------------------------------------------------------------------ |
+| `off`      | Never show guided questions; infer reasonable defaults.                  |
+| `light`    | Ask only 1-2 blockers before high-effort generation.                     |
+| `balanced` | Default. Ask 2-4 compact questions for ambiguous net-new designs.        |
+| `deep`     | Ask 5-8 questions when brand, audience, content, and format are unclear. |
+
+Default mode: `balanced`.
+
 ### When to Ask Questions
 
 | Scenario                                                          | Questions                              |
 | ----------------------------------------------------------------- | -------------------------------------- |
-| Complex/ambiguous request ("design me an app")                    | Ask 8-12 structured questions          |
-| Specific request with clear direction ("landing page for a SaaS") | Ask 3-5 clarifying questions           |
+| Complex/ambiguous request ("design me an app")                    | Ask 3-5 structured questions           |
+| Specific request with clear direction ("landing page for a SaaS") | Ask 1-3 clarifying questions           |
 | Simple tweaks/follow-ups ("make the header bigger")               | Skip questions, just do it             |
-| "Make me a prototype of X"                                        | Light questioning (3-4 questions)      |
+| "Make me a prototype of X"                                        | Light questioning (2-3 questions)      |
 | "Decide for me" / "surprise me"                                   | Zero questions — pick a bold direction |
 
 ### Sending Questions to the UI
@@ -497,18 +512,36 @@ Use the `show-questions` application state key to trigger the question flow over
 
 ```json
 {
+  "title": "Shape the design first",
+  "description": "A few choices help me pick the right visual direction before generating.",
   "questions": [
     {
       "id": "style",
       "type": "text-options",
+      "header": "Visual direction",
       "question": "What visual direction are you going for?",
       "options": [
-        { "label": "Clean & Minimal", "value": "minimal" },
-        { "label": "Bold & Expressive", "value": "bold" },
-        { "label": "Professional & Corporate", "value": "corporate" },
-        { "label": "Dark & Atmospheric", "value": "dark" },
-        { "label": "Explore a few options", "value": "explore" },
-        { "label": "Decide for me", "value": "auto" }
+        {
+          "label": "Clean & Minimal",
+          "value": "minimal",
+          "description": "Quiet interface, generous whitespace, restrained palette",
+          "recommended": true
+        },
+        {
+          "label": "Bold & Expressive",
+          "value": "bold",
+          "description": "Stronger visual personality and more editorial contrast"
+        },
+        {
+          "label": "Professional & Corporate",
+          "value": "corporate",
+          "description": "Trustworthy, polished, and conservative"
+        },
+        {
+          "label": "Dark & Atmospheric",
+          "value": "dark",
+          "description": "Immersive dark UI with cinematic contrast"
+        }
       ],
       "multiSelect": false
     },
@@ -554,6 +587,8 @@ Use the `show-questions` application state key to trigger the question flow over
 }
 ```
 
+The payload can also include `skipLabel` and `submitLabel` when the default buttons need clearer wording.
+
 ### Question Types
 
 | Type            | UI             | Use for                                  |
@@ -563,6 +598,11 @@ Use the `show-questions` application state key to trigger the question flow over
 | `slider`        | Range slider   | Density, intensity, number of sections   |
 | `file`          | File upload    | Logo, brand assets, reference images     |
 | `freeform`      | Text input     | Brand description, specific requirements |
+
+For `text-options`, provide 2-4 meaningful choices. Put the recommended/default option first, or mark it with `recommended: true` when the choice has a sensible default. Use short descriptions when the tradeoff is not obvious.
+Questions can include optional `header` text. `text-options` may use `options` or `choices`.
+
+The UI automatically appends `Other...` with a custom text box, plus `Explore a few options` and `Decide for me`, to every `text-options` question. Do not add those manually.
 
 ### Standard Question Categories
 

@@ -16,6 +16,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { isMacPlatform } from "@/lib/utils";
 
 export interface RecordingToolbarProps {
   elapsedMs: number;
@@ -191,7 +192,9 @@ export function RecordingToolbar({
             <IconConfetti className="h-4 w-4" />
           </button>
         </TooltipTrigger>
-        <TooltipContent>Confetti (⌃⌘C)</TooltipContent>
+        <TooltipContent>
+          Confetti ({isMacPlatform() ? "Ctrl+\u2318+C" : "Ctrl+Alt+C"})
+        </TooltipContent>
       </Tooltip>
 
       <Tooltip>

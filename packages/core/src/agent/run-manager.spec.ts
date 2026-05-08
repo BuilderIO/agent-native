@@ -214,6 +214,49 @@ describe("run manager soft timeout", () => {
     expect(resolveCompletedRunRetentionMs()).toBe(60000);
   });
 
+  it("persists terminal error events before marking errored runs complete", async () => {
+    let releaseTerminalEvent!: () => void;
+    const terminalEventPersisted = new Promise<void>((resolve) => {
+      releaseTerminalEvent = resolve;
+    });
+    vi.mocked(insertRunEvent).mockImplementation(
+      async (_runId, _seq, eventData) => {
+        const event = JSON.parse(eventData);
+        if (event.type === "error") {
+          await terminalEventPersisted;
+        }
+      },
+    );
+
+    startRun(
+      "run-terminal-event-order",
+      "thread-terminal-event-order",
+      async () => {
+        throw new Error("boom");
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.waitFor(() => {
+      expect(insertRunEvent).toHaveBeenCalledWith(
+        "run-terminal-event-order",
+        0,
+        expect.stringContaining('"type":"error"'),
+      );
+    });
+    expect(updateRunStatus).not.toHaveBeenCalled();
+
+    releaseTerminalEvent();
+
+    await vi.waitFor(() => {
+      expect(updateRunStatus).toHaveBeenCalledWith(
+        "run-terminal-event-order",
+        "errored",
+      );
+    });
+  });
+
   it("retires explicitly aborted in-memory runs while preserving completion callbacks", async () => {
     const onComplete = vi.fn();
     const terminalEvents: AgentChatEvent[] = [];

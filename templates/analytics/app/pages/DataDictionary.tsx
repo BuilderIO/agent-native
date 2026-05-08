@@ -17,6 +17,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -110,9 +115,36 @@ const DEPARTMENT_BADGE: Record<string, string> = {
   Engineering: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
 };
 
+const ENTRY_BADGE_CLASS =
+  "max-w-full min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[10px] px-1.5 py-0";
+
 function deptClass(dept?: string): string {
   if (!dept) return "bg-muted text-muted-foreground";
   return DEPARTMENT_BADGE[dept] ?? "bg-muted text-muted-foreground";
+}
+
+function DictionaryBadge({
+  children,
+  tooltip,
+  className,
+}: {
+  children: React.ReactNode;
+  tooltip: string;
+  className?: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          variant="outline"
+          className={`${ENTRY_BADGE_CLASS} ${className ?? ""}`}
+        >
+          <span className="min-w-0 truncate">{children}</span>
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 export default function DataDictionary() {
@@ -242,25 +274,22 @@ export default function DataDictionary() {
               <CardContent className="pt-0 space-y-2">
                 <div className="flex flex-wrap gap-1.5">
                   {e.department && (
-                    <Badge
-                      variant="outline"
-                      className={`text-[10px] px-1.5 py-0 ${deptClass(e.department)} border-0`}
+                    <DictionaryBadge
+                      tooltip={e.department}
+                      className={`${deptClass(e.department)} border-0`}
                     >
                       {e.department}
-                    </Badge>
+                    </DictionaryBadge>
                   )}
                   {e.table && (
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] px-1.5 py-0 font-mono"
-                    >
+                    <DictionaryBadge tooltip={e.table} className="font-mono">
                       {e.table}
-                    </Badge>
+                    </DictionaryBadge>
                   )}
                   {e.approved && (
                     <Badge
                       variant="outline"
-                      className="text-[10px] px-1.5 py-0 bg-green-500/10 text-green-600 dark:text-green-400 border-0"
+                      className={`${ENTRY_BADGE_CLASS} bg-green-500/10 text-green-600 dark:text-green-400 border-0`}
                     >
                       approved
                     </Badge>
@@ -268,7 +297,7 @@ export default function DataDictionary() {
                   {e.aiGenerated && (
                     <Badge
                       variant="outline"
-                      className="text-[10px] px-1.5 py-0 bg-purple-500/10 text-purple-600 dark:text-purple-400 border-0"
+                      className={`${ENTRY_BADGE_CLASS} bg-purple-500/10 text-purple-600 dark:text-purple-400 border-0`}
                     >
                       AI
                     </Badge>

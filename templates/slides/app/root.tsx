@@ -134,7 +134,13 @@ function AppContent() {
   const qc = useQueryClient();
   useDbSync({
     queryClient: qc,
-    queryKeys: ["action", "app-state", "navigate-command", "show-questions"],
+    queryKeys: [
+      "action",
+      "app-state",
+      "navigate-command",
+      "show-questions",
+      "env-status",
+    ],
     ignoreSource: TAB_ID,
   });
   const { resolvedTheme, setTheme } = useTheme();

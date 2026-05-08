@@ -163,6 +163,18 @@ function DbSyncSetup() {
     }) => {
       // Ignore events we caused — the mutation's onSettled handles our own updates
       const isOwnEvent = data.requestSource === TAB_ID;
+      const invalidateSettingsSurfaces = () => {
+        qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+        qc.invalidateQueries({ queryKey: ["automations"] });
+        qc.invalidateQueries({ queryKey: ["gmail-filters"] });
+        qc.invalidateQueries({ queryKey: ["apollo-status"] });
+        qc.invalidateQueries({ queryKey: ["integration-status"] });
+        qc.invalidateQueries({ queryKey: ["integration-data"] });
+        qc.invalidateQueries({ queryKey: ["google-status"] });
+        qc.invalidateQueries({ queryKey: ["automation-settings"] });
+        qc.invalidateQueries({ queryKey: ["framework-triggers-mail"] });
+        qc.invalidateQueries({ queryKey: ["agent-engines"] });
+      };
 
       if (data.source === "app-state") {
         if (
@@ -190,6 +202,7 @@ function DbSyncSetup() {
           qc.invalidateQueries({ queryKey: ["labels"] });
           qc.invalidateQueries({ queryKey: ["emails"] });
           qc.invalidateQueries({ queryKey: ["email"] });
+          invalidateSettingsSurfaces();
         }
       } else if (data.source === "action") {
         if (!isOwnEvent) {
@@ -197,6 +210,7 @@ function DbSyncSetup() {
           qc.invalidateQueries({ queryKey: ["emails"] });
           qc.invalidateQueries({ queryKey: ["email"] });
           qc.invalidateQueries({ queryKey: ["labels"] });
+          invalidateSettingsSurfaces();
         }
       } else if (!isOwnEvent) {
         qc.invalidateQueries({ queryKey: ["action"] });
@@ -205,6 +219,7 @@ function DbSyncSetup() {
         qc.invalidateQueries({ queryKey: ["labels"] });
         qc.invalidateQueries({ queryKey: ["settings"] });
         qc.invalidateQueries({ queryKey: ["aliases"] });
+        invalidateSettingsSurfaces();
       }
     },
   });

@@ -83,7 +83,7 @@ export function canSubmitComposerContent(options: {
 const BUILT_IN_COMMANDS: SlashCommand[] = [
   { name: "clear", description: "Start a new chat", icon: "clear" },
   { name: "new", description: "Start a new chat", icon: "new" },
-  { name: "history", description: "Browse chat history", icon: "history" },
+  { name: "history", description: "Browse all chats", icon: "history" },
   { name: "plan", description: "Switch to read-only planning", icon: "plan" },
   { name: "act", description: "Switch back to acting", icon: "act" },
   { name: "help", description: "Show available commands", icon: "help" },

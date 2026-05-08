@@ -25,6 +25,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useUpdateEvent, useDeleteEvent } from "@/hooks/use-events";
 import { getEventDisplayColor } from "@/lib/event-colors";
+import { shortcutModifierLabel } from "@/lib/utils";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { toast } from "sonner";
 import type { CalendarEvent } from "@shared/api";
@@ -221,7 +222,7 @@ export function EventDialog({
             <p className="text-xs text-muted-foreground">
               Press{" "}
               <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                ⌘↵
+                {shortcutModifierLabel()}+↵
               </kbd>{" "}
               to save
             </p>

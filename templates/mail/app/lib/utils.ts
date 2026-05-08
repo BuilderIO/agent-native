@@ -206,13 +206,28 @@ export function truncate(str: string, maxLen: number): string {
 }
 
 export function isMac(): boolean {
-  return navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+  return (
+    typeof navigator !== "undefined" &&
+    navigator.platform.toUpperCase().indexOf("MAC") >= 0
+  );
 }
 
 export function formatShortcut(key: string): string {
+  const isMacPlatform = isMac();
   const mod = isMac() ? "⌘" : "Ctrl";
   return key
-    .replace("cmd", mod)
-    .replace("ctrl", "Ctrl")
-    .replace("alt", isMac() ? "⌥" : "Alt");
+    .split("+")
+    .map((part) => {
+      const token = part.trim();
+      const lower = token.toLowerCase();
+      if (lower === "cmd" || lower === "meta") return mod;
+      if (lower === "ctrl" || lower === "control") return "Ctrl";
+      if (lower === "alt" || lower === "option")
+        return isMacPlatform ? "⌥" : "Alt";
+      if (lower === "shift") return isMacPlatform ? "⇧" : "Shift";
+      if (lower === "enter") return "Enter";
+      if (lower === "space") return "Space";
+      return token.length === 1 ? token.toUpperCase() : token;
+    })
+    .join("+");
 }

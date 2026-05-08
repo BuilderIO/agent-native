@@ -62,12 +62,27 @@ Views: `"list"` (deck list), `"editor"` (editing a deck), `"present"` (presentat
 
 Write to `show-questions` to trigger a full-panel question overlay in the deck editor. The UI polls this key every 2 seconds. When questions are present, the overlay appears instead of the slide editor. When the user submits answers or skips, the UI sends the answers to agent chat and deletes the key.
 
+Use guided questions for non-trivial net-new deck creation where audience, narrative, format, evidence, or visual direction would substantially change the output. Skip it for clear asks, small edits, or when the user explicitly says to decide.
+
+#### Question Intensity
+
+Users can tune this section in `AGENTS.md`:
+
+| Mode       | Behavior                                                                  |
+| ---------- | ------------------------------------------------------------------------- |
+| `off`      | Never show guided questions; infer reasonable defaults.                   |
+| `light`    | Ask only 1-2 blockers before high-effort generation.                      |
+| `balanced` | Default. Ask 2-4 compact questions for ambiguous net-new decks.           |
+| `deep`     | Ask 5-8 questions when audience, story, data, and design are all unclear. |
+
+Default mode: `balanced`.
+
 #### When to Ask Questions
 
 | Scenario                                                      | Questions                              |
 | ------------------------------------------------------------- | -------------------------------------- |
-| Complex/ambiguous request ("make me a deck about X")          | Ask 4-8 structured questions           |
-| Specific request with clear direction ("10-slide sales deck") | Ask 2-4 clarifying questions           |
+| Complex/ambiguous request ("make me a deck about X")          | Ask 3-5 structured questions           |
+| Specific request with clear direction ("10-slide sales deck") | Ask 1-3 clarifying questions           |
 | Simple tweaks/follow-ups ("add a slide about Y")              | Skip questions, just do it             |
 | "Decide for me" / "surprise me"                               | Zero questions — pick a bold direction |
 
@@ -75,10 +90,13 @@ Write to `show-questions` to trigger a full-panel question overlay in the deck e
 
 ```json
 {
+  "title": "Shape the deck first",
+  "description": "A few choices help me choose the right story and visual system.",
   "questions": [
     {
       "id": "audience",
       "type": "text-options",
+      "header": "Audience",
       "question": "Who is the primary audience?",
       "options": [
         { "label": "Investors / Board", "value": "investors" },
@@ -129,6 +147,8 @@ Write to `show-questions` to trigger a full-panel question overlay in the deck e
 }
 ```
 
+The payload can also include `skipLabel` and `submitLabel` when the default buttons need clearer wording.
+
 #### Question Types
 
 | Type            | UI             | Use for                                |
@@ -141,10 +161,12 @@ Write to `show-questions` to trigger a full-panel question overlay in the deck e
 
 Each question has: `id` (unique key), `type`, `question` (label shown to user), optional `description`, optional `required` flag.
 For `text-options` and `color-options`: provide `options` array with `label`/`value` (and `color` for color-options). Set `multiSelect: true` for multi-pick.
+For `text-options`, provide 2-4 meaningful choices. Put the recommended/default option first, or mark it with `recommended: true` when the choice has a sensible default. Use short descriptions when the tradeoff is not obvious.
+Questions can include optional `header` text. `text-options` may use `options` or `choices`.
 When a deck has an active design system, color questions must use colors from that design system (primary, secondary, accent, surface/background) instead of generic moods.
 For `slider`: provide `min`/`max`.
 
-The UI automatically appends "Explore a few options" and "Decide for me" choices to every `text-options` question.
+The UI automatically appends "Other..." with a custom text box, plus "Explore a few options" and "Decide for me" choices, to every `text-options` question. Do not add those manually.
 
 #### Writing show-questions from an action or script
 
@@ -240,6 +262,8 @@ If a metric or source would make the slide stronger but is not available, use qu
 2. Otherwise, create an empty deck: `create-deck --title "X" --slides '[]'`, then `navigate --deckId=<returned-id>`.
 3. For decks larger than a few slides, start a `manage-progress` run so the header runs tray shows visible progress outside the chat pane. Update it after each slide and complete it when the requested slide count is reached.
 4. Call `add-slide --deckId=<id> --content="<html>"` once per slide. Add slide 1 as soon as it is ready, wait for the action result, then add slide 2, and continue one-by-one in slide order until the requested slide count is reached. Do not fire multiple `add-slide` calls in parallel for the same deck; sequential writes are more reliable and still let the user watch the deck build live.
+
+If the request is for a standalone visual, hero image, diagram, one-pager, poster, or only a couple visuals, make only the requested one/few polished visual slides. Do not pad the output into a conventional presentation.
 
 **Why add-slide is preferred over create-deck with all slides:**
 

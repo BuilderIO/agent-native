@@ -8,7 +8,7 @@ import {
   IconPencil,
   IconLoader2,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { cn, formatShortcut } from "@/lib/utils";
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Tooltip,
@@ -342,7 +342,9 @@ export function ComposeBubbleToolbar({
                     Generate
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Generate (⌘Enter)</TooltipContent>
+                <TooltipContent>
+                  Generate ({formatShortcut("cmd+enter")})
+                </TooltipContent>
               </Tooltip>
             </>
           )}

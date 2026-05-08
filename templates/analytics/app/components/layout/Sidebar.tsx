@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useLocation } from "react-router";
 import { useTheme } from "next-themes";
-import { cn } from "@/lib/utils";
+import { cn, shortcutModifierLabel } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1459,20 +1459,18 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     <TooltipTrigger asChild>
                       <button
                         onClick={() =>
-                          document.dispatchEvent(
-                            new KeyboardEvent("keydown", {
-                              key: "p",
-                              metaKey: true,
-                            }),
+                          window.dispatchEvent(
+                            new CustomEvent("analytics:open-command-palette"),
                           )
                         }
+                        aria-label="Search"
                         className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
                       >
                         <IconSearch className="h-4 w-4" />
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="top">
-                      <p>Search (\u2318P)</p>
+                      <p>Search ({shortcutModifierLabel()}+K)</p>
                     </TooltipContent>
                   </Tooltip>
                   <Popover open={logoutOpen} onOpenChange={setLogoutOpen}>

@@ -32,7 +32,15 @@ function StudioContent({
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const initialSidebarSet = useRef(false);
-  const { questions, handleSubmit, handleSkip } = useQuestionFlow();
+  const {
+    questions,
+    title: questionsTitle,
+    description: questionsDescription,
+    skipLabel: questionsSkipLabel,
+    submitLabel: questionsSubmitLabel,
+    handleSubmit,
+    handleSkip,
+  } = useQuestionFlow();
 
   useEffect(() => {
     if (!initialSidebarSet.current && isMobile) {
@@ -104,6 +112,10 @@ function StudioContent({
                     questions={questions}
                     onSubmit={handleSubmit}
                     onSkip={handleSkip}
+                    title={questionsTitle}
+                    description={questionsDescription}
+                    skipLabel={questionsSkipLabel}
+                    submitLabel={questionsSubmitLabel}
                   />
                 </div>
               ) : null}

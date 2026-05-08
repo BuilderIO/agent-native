@@ -21,7 +21,7 @@ const DASHBOARD_CONTEXT =
   "Call `data-source-status` if you need to see which data sources are connected. " +
   "Refer to AGENTS.md, .agents/skills, the data dictionary, and connected data-source instructions for SQL patterns and table names. " +
   "NO code files need to be created — only the dashboard config JSON via `update-dashboard`. " +
-  "After saving, the dashboard will be accessible at /adhoc/{id}.";
+  "After saving, call the `navigate` action with view='adhoc' and dashboardId so the new dashboard opens immediately.";
 
 export function NewDashboardDialog() {
   const [open, setOpen] = useState(false);

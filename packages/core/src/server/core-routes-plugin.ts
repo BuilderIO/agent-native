@@ -17,7 +17,7 @@ import {
 import type { H3Event } from "h3";
 import path from "node:path";
 import { createPollHandler } from "./poll.js";
-import { createSSEHandler } from "./sse.js";
+import { createPollEventsHandler } from "./poll-events.js";
 import { upsertEnvFile } from "./create-server.js";
 import type { EnvKeyConfig } from "./create-server.js";
 import { readBody } from "./h3-helpers.js";
@@ -483,7 +483,7 @@ export function createCoreRoutesPlugin(
     // SSE
     if (!options.disableSSE) {
       const sseRoute = options.sseRoute ?? `${P}/events`;
-      getH3App(nitroApp).use(sseRoute, createSSEHandler());
+      getH3App(nitroApp).use(sseRoute, createPollEventsHandler());
     }
 
     // Ping

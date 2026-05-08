@@ -59,6 +59,7 @@ import {
   validateAttachmentDrafts,
 } from "@/lib/event-form-utils";
 import { getGoogleEventColorHex } from "@/lib/event-colors";
+import { shortcutModifierLabel } from "@/lib/utils";
 
 type VideoProvider = "none" | "google_meet" | "zoom";
 type EventType = "default" | "outOfOffice" | "focusTime" | "workingLocation";
@@ -732,7 +733,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
           <div className="flex items-center justify-between pt-1">
             <p className="text-[10px] text-muted-foreground/60">
               <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                ⌘↵
+                {shortcutModifierLabel()}+↵
               </kbd>{" "}
               to save
             </p>

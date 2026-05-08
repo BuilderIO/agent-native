@@ -15,6 +15,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { shortcutLabel } from "@/lib/utils";
 
 interface BlockBubbleMenuProps {
   /** The element currently in contentEditable mode. Menu only shows while selection is inside it. */
@@ -166,17 +167,17 @@ export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
     >
       <ToolbarButton
         icon={IconBold}
-        tooltip="Bold (Cmd+B)"
+        tooltip={`Bold (${shortcutLabel("cmd+b")})`}
         onClick={() => runCommand("bold")}
       />
       <ToolbarButton
         icon={IconItalic}
-        tooltip="Italic (Cmd+I)"
+        tooltip={`Italic (${shortcutLabel("cmd+i")})`}
         onClick={() => runCommand("italic")}
       />
       <ToolbarButton
         icon={IconUnderline}
-        tooltip="Underline (Cmd+U)"
+        tooltip={`Underline (${shortcutLabel("cmd+u")})`}
         onClick={() => runCommand("underline")}
       />
       <ToolbarButton

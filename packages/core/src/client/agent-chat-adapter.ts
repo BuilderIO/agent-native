@@ -640,6 +640,24 @@ export function createAgentChatAdapter(options?: {
               ? "act"
               : undefined;
 
+      const withRequestModeMetadata = (
+        result: ChatModelRunResult,
+      ): ChatModelRunResult => {
+        if (!requestMode) return result;
+        const metadata = (result.metadata ?? {}) as Record<string, unknown>;
+        const custom =
+          metadata.custom && typeof metadata.custom === "object"
+            ? (metadata.custom as Record<string, unknown>)
+            : {};
+        return {
+          ...result,
+          metadata: {
+            ...metadata,
+            custom: { ...custom, requestMode },
+          },
+        };
+      };
+
       // Extract attachments (images as base64, text as content).
       // assistant-ui puts user attachments on msg.attachments (not on content);
       // each attachment carries its own content parts from the adapter.
@@ -837,7 +855,7 @@ export function createAgentChatAdapter(options?: {
                 break;
               }
 
-              yield* readSSEStream(
+              for await (const result of readSSEStream(
                 reconnectRes.body,
                 content,
                 toolCallCounter,
@@ -847,7 +865,9 @@ export function createAgentChatAdapter(options?: {
                   if (threadId) updateActiveRunSeq(seq);
                 },
                 runId,
-              );
+              )) {
+                yield withRequestModeMetadata(result);
+              }
               clearActiveRun();
               return true;
             } catch (reconnectErr: unknown) {
@@ -1234,7 +1254,7 @@ export function createAgentChatAdapter(options?: {
               setActiveRun({ threadId, runId, lastSeq: -1 });
             }
 
-            yield* readSSEStream(
+            for await (const result of readSSEStream(
               res.body,
               content,
               toolCallCounter,
@@ -1246,7 +1266,9 @@ export function createAgentChatAdapter(options?: {
                 }
               },
               runId,
-            );
+            )) {
+              yield withRequestModeMetadata(result);
+            }
 
             // Run completed normally — clear active run state
             clearActiveRun();

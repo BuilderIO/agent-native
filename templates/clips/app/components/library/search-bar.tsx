@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { IconClock, IconSearch, IconX } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { cn, shortcutLabel } from "@/lib/utils";
 import {
   Popover,
   PopoverTrigger,
@@ -143,7 +143,7 @@ export function SearchBar({ className }: SearchBarProps) {
               </button>
             ) : (
               <span className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">
-                ⌘K
+                {shortcutLabel("cmd+k")}
               </span>
             )}
           </div>

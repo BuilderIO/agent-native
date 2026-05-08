@@ -254,7 +254,10 @@ export function startRun(
     });
   };
 
-  const emitRunEvent = (runEvent: RunEvent) => {
+  const emitRunEvent = (
+    runEvent: RunEvent,
+    options?: { surfacePersistenceError?: boolean },
+  ): Promise<void> => {
     run.events.push(runEvent);
 
     // Notify in-memory subscribers (same isolate, fast path)
@@ -266,12 +269,20 @@ export function startRun(
       }
     }
 
-    // Persist event to SQL (fire-and-forget)
-    insertRunEvent(runId, runEvent.seq, JSON.stringify(runEvent.event)).catch(
-      () => {},
+    // Persist event to SQL. Ordinary streaming events are fire-and-forget, but
+    // terminal events are awaited before final status is persisted so reconnects
+    // never observe status='errored' without the actual terminal error payload.
+    const persistence = insertRunEvent(
+      runId,
+      runEvent.seq,
+      JSON.stringify(runEvent.event),
     );
+    if (!options?.surfacePersistenceError) {
+      persistence.catch(() => {});
+    }
 
     checkSqlAbort();
+    return persistence;
   };
 
   const send = (event: AgentChatEvent) => {
@@ -326,6 +337,7 @@ export function startRun(
       //    still ticking so the run doesn't look stale to any concurrent
       //    /runs/active check while we wait for SQL writes to land.
       let completionError: unknown = null;
+      let terminalPersistenceError: unknown = null;
       if (
         onComplete &&
         !(run.status === "aborted" && run.abortReason === "no_progress")
@@ -379,7 +391,16 @@ export function startRun(
                 };
         const last = run.events[run.events.length - 1];
         if (!last || !isTerminalRunEvent(last.event)) {
-          emitRunEvent(terminal);
+          try {
+            await emitRunEvent(terminal, { surfacePersistenceError: true });
+          } catch (err) {
+            terminalPersistenceError = err;
+            captureRunError(err, "completion");
+            console.error(
+              "[run-manager] terminal event persistence error:",
+              err instanceof Error ? err.message : err,
+            );
+          }
         }
       }
       for (const subscriber of run.subscribers) {
@@ -393,7 +414,9 @@ export function startRun(
       // 5. Persist final status to SQL.
       try {
         await insertRunPromise;
-        await updateRunStatus(runId, finalStatus);
+        if (!terminalPersistenceError) {
+          await updateRunStatus(runId, finalStatus);
+        }
       } catch {
         // Best-effort — reapIfStale will eventually clean this up via
         // the heartbeat-stale path.
