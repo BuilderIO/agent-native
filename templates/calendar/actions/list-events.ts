@@ -272,7 +272,14 @@ export async function listCalendarEvents(
 
   const icalResults = await Promise.allSettled(
     externalCalendars.map((cal) =>
-      fetchICalEvents(cal.id, cal.name, cal.url, cal.color, range.from, range.to),
+      fetchICalEvents(
+        cal.id,
+        cal.name,
+        cal.url,
+        cal.color,
+        range.from,
+        range.to,
+      ),
     ),
   );
 

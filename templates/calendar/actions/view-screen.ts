@@ -10,7 +10,10 @@ import {
 } from "../shared/calendar-view-preferences.js";
 import type { CalendarEvent } from "../shared/api.js";
 
-async function fetchEventsForRange(from: string, to: string): Promise<{
+async function fetchEventsForRange(
+  from: string,
+  to: string,
+): Promise<{
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
   googleConnected: boolean;
@@ -98,8 +101,7 @@ export default defineAction({
         googleConnected: eventResult.googleConnected,
         count: compact.length,
         items: compact,
-        errors:
-          eventResult.errors.length > 0 ? eventResult.errors : undefined,
+        errors: eventResult.errors.length > 0 ? eventResult.errors : undefined,
       };
 
       if (!eventResult.googleConnected) {
