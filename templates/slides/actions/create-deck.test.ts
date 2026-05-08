@@ -9,13 +9,27 @@ const mockGetUserEmail = vi.fn(() => "owner@example.com");
 const mockGetOrgId = vi.fn(() => null);
 
 let existingDeckRow: { id: string; data: string } | undefined = undefined;
+let defaultDesignSystemId: string | undefined = undefined;
 let insertedRow: Record<string, unknown> | undefined = undefined;
 let updatedFields: Record<string, unknown> | undefined = undefined;
 
 // db.select().from(...).where(...).limit(...)
 const limitFn = vi.fn(async () => (existingDeckRow ? [existingDeckRow] : []));
-const whereSelectFn = vi.fn(() => ({ limit: limitFn }));
-const fromFn = vi.fn(() => ({ where: whereSelectFn }));
+const defaultDesignSystemLimitFn = vi.fn(async () =>
+  defaultDesignSystemId ? [{ id: defaultDesignSystemId }] : [],
+);
+const deckTable = { id: "id_col", data: "data_col", updatedAt: "ua_col" };
+const designSystemsTable = {
+  id: "ds_id_col",
+  ownerEmail: "owner_email_col",
+  isDefault: "is_default_col",
+};
+const whereSelectFn = vi.fn((_condition: unknown, table?: unknown) => ({
+  limit: table === designSystemsTable ? defaultDesignSystemLimitFn : limitFn,
+}));
+const fromFn = vi.fn((table: unknown) => ({
+  where: (condition: unknown) => whereSelectFn(condition, table),
+}));
 const selectFn = vi.fn(() => ({ from: fromFn }));
 
 // db.insert().values(...)
@@ -37,7 +51,8 @@ const mockDb = { select: selectFn, insert: insertFn, update: updateFn };
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mockDb,
   schema: {
-    decks: { id: "id_col", data: "data_col", updatedAt: "ua_col" },
+    decks: deckTable,
+    designSystems: designSystemsTable,
   },
 }));
 
@@ -59,6 +74,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...conditions: unknown[]) => ({ and: conditions }),
   eq: (col: unknown, val: unknown) => ({ col, val }),
 }));
 
@@ -68,6 +84,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
   existingDeckRow = undefined;
+  defaultDesignSystemId = undefined;
   insertedRow = undefined;
   updatedFields = undefined;
   mockGetUserEmail.mockReturnValue("owner@example.com");
@@ -86,6 +103,35 @@ describe("create-deck — aspectRatio", () => {
     await action.run({ title: "T", slides: [], aspectRatio: "9:16" });
     const data = JSON.parse(insertedRow!.data as string);
     expect(data.aspectRatio).toBe("9:16");
+  });
+
+  it("uses the user's default design system when creating a new deck without an explicit one", async () => {
+    defaultDesignSystemId = "ds-default";
+
+    await action.run({ title: "T", slides: [] });
+
+    expect(insertedRow!.designSystemId).toBe("ds-default");
+    const data = JSON.parse(insertedRow!.data as string);
+    expect(data.designSystemId).toBe("ds-default");
+  });
+
+  it("uses an explicit design system instead of the default", async () => {
+    defaultDesignSystemId = "ds-default";
+
+    await action.run({
+      title: "T",
+      slides: [],
+      designSystemId: "ds-explicit",
+    });
+
+    expect(mockAssertAccess).toHaveBeenCalledWith(
+      "design-system",
+      "ds-explicit",
+      "viewer",
+    );
+    expect(insertedRow!.designSystemId).toBe("ds-explicit");
+    const data = JSON.parse(insertedRow!.data as string);
+    expect(data.designSystemId).toBe("ds-explicit");
   });
 
   it("returns a workspace-scoped deck URL when the app is mounted under a base path", async () => {
