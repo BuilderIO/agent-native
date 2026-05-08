@@ -22,6 +22,10 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const {
     questions: guidedQuestions,
+    title: guidedTitle,
+    description: guidedDescription,
+    skipLabel: guidedSkipLabel,
+    submitLabel: guidedSubmitLabel,
     handleSubmit: handleGuidedSubmit,
     handleSkip: handleGuidedSkip,
   } = useGuidedQuestionFlow({
@@ -83,8 +87,13 @@ export function Layout({ children }: LayoutProps) {
                   questions={guidedQuestions}
                   onSubmit={handleGuidedSubmit}
                   onSkip={handleGuidedSkip}
-                  title="Clarify the dashboard"
-                  description="A few choices help the agent pick the right source, metrics, cuts, and layout before it writes SQL."
+                  title={guidedTitle ?? "Clarify the dashboard"}
+                  description={
+                    guidedDescription ??
+                    "A few choices help the agent pick the right source, metrics, cuts, and layout before it writes SQL."
+                  }
+                  skipLabel={guidedSkipLabel}
+                  submitLabel={guidedSubmitLabel}
                 />
               </div>
             )}
