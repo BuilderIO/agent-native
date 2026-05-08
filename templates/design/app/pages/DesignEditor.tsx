@@ -201,7 +201,7 @@ export default function DesignEditor() {
     hasFreshPendingGeneration(id),
   );
   const [generationIssue, setGenerationIssue] = useState<string | null>(null);
-const generationOutputReadyRef = useRef(false);
+  const generationOutputReadyRef = useRef(false);
   const generationCompleteTimerRef = useRef<number | null>(null);
   const clearGenerationCompleteTimer = useCallback(() => {
     if (generationCompleteTimerRef.current !== null) {

@@ -2070,6 +2070,9 @@ importers:
       nanoid:
         specifier: ^5.1.9
         version: 5.1.9
+      pdf-parse:
+        specifier: ^2.4.5
+        version: 2.4.5
       zod:
         specifier: ^4.3.6
         version: 4.3.6
