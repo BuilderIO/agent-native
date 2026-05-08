@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.2.14
+
+### Patch Changes
+
+- 27c3dbc: Improve chat run completion durability and clarify mounted workspace app routing.
+
 ## 0.2.13
 
 ### Patch Changes
