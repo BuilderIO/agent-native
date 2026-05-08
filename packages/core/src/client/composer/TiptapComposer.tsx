@@ -372,13 +372,7 @@ function ModeSelector({
                 : "hover:bg-accent/50"
             }`}
           >
-            <IconClipboardList
-              className={`h-4 w-4 shrink-0 ${
-                planModeDisabled
-                  ? "text-muted-foreground"
-                  : "text-muted-foreground"
-              }`}
-            />
+            <IconClipboardList className="h-4 w-4 shrink-0 text-muted-foreground" />
             <div className="flex-1 min-w-0">
               <span className="font-medium text-foreground text-[13px]">
                 Plan
