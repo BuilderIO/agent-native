@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Document } from "@shared/api";
 import {
@@ -83,7 +83,6 @@ export function DocumentSidebar({
   onResize,
 }: DocumentSidebarProps) {
   const navigate = useNavigate();
-  const location = useLocation();
   const queryClient = useQueryClient();
   const { data: documents = [], isLoading } = useDocuments();
   const createDocument = useCreateDocument();
@@ -170,6 +169,13 @@ export function DocumentSidebar({
     forceUpdate((n) => n + 1);
   }, []);
 
+  const navigateToDocument = useCallback(
+    (id: string) => {
+      navigate(`/page/${id}`, { flushSync: true });
+    },
+    [navigate],
+  );
+
   const handleCreatePage = useCallback(
     async (parentId?: string) => {
       const id = nanoid();
@@ -194,7 +200,7 @@ export function DocumentSidebar({
       });
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
 
-      navigate(`/page/${id}`);
+      navigateToDocument(id);
       onNavigate?.();
 
       try {
@@ -218,7 +224,7 @@ export function DocumentSidebar({
         });
       }
     },
-    [createDocument, navigate, onNavigate, queryClient],
+    [createDocument, navigate, navigateToDocument, onNavigate, queryClient],
   );
 
   const handleDelete = useCallback(
@@ -435,7 +441,7 @@ export function DocumentSidebar({
                         : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                     )}
                     onClick={() => {
-                      navigate(`/page/${doc.id}`);
+                      navigateToDocument(doc.id);
                       setIsSearching(false);
                       setSearchQuery("");
                       onNavigate?.();
@@ -468,7 +474,7 @@ export function DocumentSidebar({
                           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                       )}
                       onClick={() => {
-                        navigate(`/page/${doc.id}`);
+                        navigateToDocument(doc.id);
                         onNavigate?.();
                       }}
                     >
@@ -517,7 +523,7 @@ export function DocumentSidebar({
                       expandedIds={expandedIds}
                       onToggleExpanded={handleToggleExpanded}
                       onSelect={(id) => {
-                        navigate(`/page/${id}`);
+                        navigateToDocument(id);
                         onNavigate?.();
                       }}
                       onCreateChild={(parentId) => handleCreatePage(parentId)}

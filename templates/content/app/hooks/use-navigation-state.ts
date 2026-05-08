@@ -74,7 +74,7 @@ export function useNavigationState() {
       headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
 
-    navigate(navCommand.path);
+    navigate(navCommand.path, { flushSync: true });
     qc.setQueryData(["navigate-command"], null);
   }, [navCommand, navigate, qc]);
 }

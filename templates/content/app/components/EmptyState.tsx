@@ -43,7 +43,7 @@ export function EmptyState() {
       },
     );
     queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
-    navigate(`/page/${id}`);
+    navigate(`/page/${id}`, { flushSync: true });
 
     try {
       await createDocument.mutateAsync({ id, title: "" });

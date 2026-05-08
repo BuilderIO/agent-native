@@ -2,7 +2,6 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
 import { useDocuments } from "@/hooks/use-documents";
 
 export function meta() {
@@ -17,11 +16,7 @@ export function meta() {
 }
 
 export function HydrateFallback() {
-  return (
-    <div className="flex items-center justify-center h-screen w-full">
-      <Spinner className="size-8 text-foreground" />
-    </div>
-  );
+  return <DocumentSkeleton />;
 }
 
 function DocumentSkeleton() {
@@ -52,7 +47,7 @@ export default function IndexRoute() {
     if (documents && documents.length > 0) {
       const firstFavorite = documents.find((d) => d.isFavorite);
       const target = firstFavorite ?? documents[0];
-      navigate(`/page/${target.id}`, { replace: true });
+      navigate(`/page/${target.id}`, { replace: true, flushSync: true });
     }
   }, [documents, navigate]);
 
