@@ -112,23 +112,39 @@ function isMacPlatform(): boolean {
 }
 
 function isPermissionError(message: string): boolean {
+  // Device-busy errors ("That camera is busy in another app", "Microphone is
+  // currently in use") mention the device name but are not permission failures
+  // — sending the user to enable a permission they already have wastes their
+  // time. Require an explicit permission/denied/blocked keyword to qualify.
+  const isDeviceBusy =
+    /\b(busy|in use|already in use|in another (app|application|tab)|currently used|conflicting)\b/i.test(
+      message,
+    );
+  const hasPermissionKeyword =
+    /\b(permission|blocked|denied|not allowed|privacy|allow|disable[d]?|enable)\b/i.test(
+      message,
+    );
+  if (isDeviceBusy && !hasPermissionKeyword) return false;
   return /screen|camera|microphone|mic|permission|blocked|denied|not allowed|privacy/i.test(
     message,
   );
 }
 
 function isScreenPermissionError(message: string): boolean {
-  return /screen|display|share|system audio|screen recording|Screen & System Audio Recording/i.test(
-    message,
+  return (
+    isPermissionError(message) &&
+    /screen|display|share|system audio|screen recording|Screen & System Audio Recording/i.test(
+      message,
+    )
   );
 }
 
 function isCameraPermissionError(message: string): boolean {
-  return /camera/i.test(message);
+  return isPermissionError(message) && /camera/i.test(message);
 }
 
 function isMicrophonePermissionError(message: string): boolean {
-  return /microphone|mic/i.test(message);
+  return isPermissionError(message) && /microphone|mic/i.test(message);
 }
 
 function permissionGuidance(message: string): string | null {
@@ -1449,7 +1465,9 @@ export default function RecordRoute() {
             <RecordingErrorCard
               error={error}
               onTryAgain={() => {
-                void doCancel();
+                // Re-run the same flow with the current mode/surface — users
+                // expect "Try again" to retry, not to wipe their selections.
+                void restart();
               }}
             />
           )}

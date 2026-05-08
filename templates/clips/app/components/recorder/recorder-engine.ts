@@ -131,12 +131,19 @@ function isHardScreenPermissionError(err: unknown): boolean {
 function isScreenPickerDismissal(err: unknown): boolean {
   const name = errorName(err);
   const message = errorMessage(err);
-  if (name === "AbortError" || /cancelled|canceled|dismissed/i.test(message)) {
+  if (name === "AbortError") return true;
+  if (/cancelled|canceled|dismissed/i.test(message)) return true;
+  // Chromium reports a user-cancelled screen picker as NotAllowedError with
+  // a "by user" / "user denied" signal in the message. A bare NotAllowedError
+  // without that signal can be an enterprise-policy block or other genuine
+  // denial — surface those as errors instead of silently swallowing them.
+  if (
+    name === "NotAllowedError" &&
+    /by user|user (cancelled|canceled|denied|dismissed)/i.test(message)
+  ) {
     return true;
   }
-  // Chromium reports a closed screen picker as NotAllowedError. Only show the
-  // permission-repair path when the browser includes a hard OS/privacy signal.
-  return name === "NotAllowedError" && !isHardScreenPermissionError(err);
+  return false;
 }
 
 /** Pick a MediaRecorder mimeType the current browser actually supports. */
@@ -332,7 +339,9 @@ export class RecorderEngine {
           ? { source: "screen", reason: displayResult.reason }
           : wantsCamera && cameraResult.status === "rejected"
             ? { source: "camera", reason: cameraResult.reason }
-            : null;
+            : wantsMic && micResult.status === "rejected"
+              ? { source: "microphone", reason: micResult.reason }
+              : null;
       if (requiredFailure) {
         for (const stream of settledStreams) {
           for (const track of stream.getTracks()) {
@@ -353,7 +362,9 @@ export class RecorderEngine {
         displayResult.status === "fulfilled" ? displayResult.value : null;
       this.cameraStream =
         cameraResult.status === "fulfilled" ? cameraResult.value : null;
-      // Mic is optional — if denied we still record without it.
+      // If the user explicitly picked a microphone and getUserMedia rejected,
+      // we threw above. The only way this lands is wantsMic=false (user chose
+      // "No microphone") — micResult fulfills with null in that case.
       this.micStream =
         micResult.status === "fulfilled" ? micResult.value : null;
 
