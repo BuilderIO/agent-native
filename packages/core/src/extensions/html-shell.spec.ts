@@ -59,6 +59,14 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("_appendActionQuery(path, params)");
   });
 
+  it("routes extension navigate calls through the app-state command endpoint", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
+
+    expect(html).toContain("if (name === 'navigate')");
+    expect(html).toContain("'/_agent-native/application-state/navigate'");
+    expect(html).toContain("method: 'PUT'");
+  });
+
   it("serializes authenticated extension binding metadata", () => {
     const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1", {
       authorEmail: "owner+qa@example.test",

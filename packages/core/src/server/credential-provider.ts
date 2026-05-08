@@ -19,6 +19,7 @@
  */
 
 import { getRequestUserEmail, getRequestOrgId } from "./request-context.js";
+import { isLocalDatabase } from "../db/client.js";
 
 /**
  * Decide which `app_secrets` scope a Builder/credential write should use.
@@ -68,6 +69,23 @@ export class FeatureNotConfiguredError extends Error {
  */
 export function readDeployCredentialEnv(key: string): string | undefined {
   return process.env[key] || undefined;
+}
+
+/**
+ * Deployment-level credentials are safe as a runtime fallback only in local /
+ * single-tenant contexts. In hosted production with a shared database, every
+ * signed-in user needs their own user/org/workspace credential so one deploy
+ * key does not silently power another tenant's chat.
+ */
+export function isDeployCredentialFallbackAllowed(): boolean {
+  if (process.env.NODE_ENV !== "production") return true;
+  return isLocalDatabase();
+}
+
+export function canUseDeployCredentialFallbackForRequest(): boolean {
+  const email = getRequestUserEmail();
+  if (!email) return true;
+  return isDeployCredentialFallbackAllowed();
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +154,7 @@ export async function resolveBuilderCredential(
 ): Promise<string | null> {
   const scoped = await resolveScopedBuilderCredential(key);
   if (scoped) return scoped.value;
+  if (!canUseDeployCredentialFallbackForRequest()) return null;
   return readDeployCredentialEnv(key) ?? null;
 }
 
@@ -365,8 +384,11 @@ export async function resolveSecret(key: string): Promise<string | null> {
     }
     // Authenticated multi-tenant context: never fall back to process.env.
     // The deploy-level value would silently impersonate the actual key
-    // owner across every tenant.
-    return null;
+    // owner across every tenant. Local/single-tenant deployments keep the
+    // original env fallback for BYO-server workflows.
+    return canUseDeployCredentialFallbackForRequest()
+      ? process.env[key] || null
+      : null;
   }
   // Unauthenticated / local-dev / CLI / background context: env fallback
   // is safe because there's no user to mis-identify.
