@@ -15,7 +15,11 @@ import {
   startBubbleWebrtc,
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
-import { startNativeRecording, type RecorderHandle } from "./lib/recorder";
+import {
+  shouldUseNativeFullscreenRecording,
+  startNativeRecording,
+  type RecorderHandle,
+} from "./lib/recorder";
 import {
   installDesktopVoiceDictation,
   type VoiceMode,
@@ -24,7 +28,12 @@ import {
 } from "./lib/voice-dictation";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { useFeatureConfig } from "./shared/config";
-import { IconArrowLeft, IconInfoCircle } from "@tabler/icons-react";
+import {
+  IconArrowLeft,
+  IconInfoCircle,
+  IconRefresh,
+  IconUpload,
+} from "@tabler/icons-react";
 
 interface RecordingSummary {
   id: string;
@@ -32,6 +41,21 @@ interface RecordingSummary {
   durationMs: number;
   thumbnailUrl: string | null;
   updatedAt: string;
+}
+
+interface PendingNativeUpload {
+  recordingId: string;
+  serverUrl: string;
+  durationMs: number;
+  width?: number | null;
+  height?: number | null;
+  bytes: number;
+  hasAudio: boolean;
+  hasCamera: boolean;
+  savedAt: string;
+  lastAttemptAt?: string | null;
+  lastError?: string | null;
+  retryCount: number;
 }
 
 type CaptureMode = "screen" | "screen-camera" | "camera";
@@ -272,6 +296,12 @@ function formatAgo(iso: string): string {
   }
 }
 
+function formatFileSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "";
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
 function measurePopoverHeight(el: HTMLElement): number {
   const rect = el.getBoundingClientRect();
   const style = window.getComputedStyle(el);
@@ -424,6 +454,10 @@ export function App() {
   );
 
   const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
+  const [pendingUploads, setPendingUploads] = useState<PendingNativeUpload[]>(
+    [],
+  );
+  const [retryingUploadId, setRetryingUploadId] = useState<string | null>(null);
   const [showRecent, setShowRecent] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
@@ -878,24 +912,23 @@ export function App() {
 
   // ---- camera bubble session ---------------------------------------------
   // The bubble overlay (small circular PiP in the bottom-left of the screen
-  // showing the user's face) uses two paths. Browser/window capture keeps the
-  // camera in this popover for the entire session because WebKit can mute
-  // capture tracks across same-process webviews. Native full-screen capture
-  // does not use WebKit display capture, so the bubble window can own its own
-  // local camera stream and avoid the hidden-popover relay during recording.
+  // showing the user's face) uses two paths. Browser capture keeps the camera
+  // in this popover for the entire session because WebKit can mute capture
+  // tracks across same-process webviews. Native full-screen capture only uses
+  // a local bubble camera when the explicit development flag is enabled.
   //
   // Lifecycle:
   //   - Popover visible + camera mode + cameraOn → acquire camera, call
   //     show_bubble, then either start the WebRTC/canvas relay
-  //     (window/browser capture) or tell the bubble to start its local camera
-  //     (native full-screen capture). User sees their face in the bottom-left
-  //     corner.
+  //     (default browser capture) or tell the bubble to start its local camera
+  //     (explicit native full-screen capture). User sees their face in the
+  //     bottom-left corner.
   //   - User clicks Start Recording → popover hides, recording begins.
   //     `isRecording` becomes true, so this effect's deps still say
   //     "active" — the stream + bubble + pump keep running. The recorder
   //     just borrows the video track for MediaRecorder (see
-  //     `preAcquiredCameraStream` in recorder.ts). Full-screen mode leaves
-  //     the bubble's local camera stream alone.
+  //     `preAcquiredCameraStream` in recorder.ts). Explicit native full-screen
+  //     mode leaves the bubble's local camera stream alone.
   //   - Recording stops → `isRecording` flips back to false, popover
   //     usually hides too, so the effect cleans up: stop tracks, hide
   //     overlays (which closes the bubble window).
@@ -910,7 +943,7 @@ export function App() {
   // symptoms). Reset to false once the recording is fully torn down.
   const bubbleStreamTransferredToRecorder = useRef(false);
   const wantsCamera = mode !== "screen" && cameraOn;
-  const bubbleUsesLocalCamera = source === "full-screen";
+  const bubbleUsesLocalCamera = shouldUseNativeFullscreenRecording(source);
   // Ref mirror of `isRecording || recordingFlowActive` so cleanup (which
   // captures the dep-snapshot value) can still see the CURRENT flow state
   // at the moment it actually runs. Without this, if `recordingFlowActive`
@@ -1212,9 +1245,25 @@ export function App() {
     }
   }, [serverUrl, authStatus]);
 
+  const loadPendingUploads = useCallback(async () => {
+    try {
+      const list = await invoke<PendingNativeUpload[]>(
+        "native_fullscreen_pending_uploads",
+      );
+      setPendingUploads(Array.isArray(list) ? list : []);
+    } catch (err) {
+      console.warn("[clips-tray] pending upload lookup failed:", err);
+      setPendingUploads([]);
+    }
+  }, []);
+
   useEffect(() => {
     fetchRecent();
   }, [fetchRecent]);
+
+  useEffect(() => {
+    loadPendingUploads();
+  }, [loadPendingUploads, popoverVisible]);
 
   // ---- persist selections -------------------------------------------------
 
@@ -1253,6 +1302,35 @@ export function App() {
     openExternal(href).catch((err) => {
       console.error("[clips-tray] open failed:", err);
     });
+  }
+
+  async function retryPendingUpload(upload: PendingNativeUpload) {
+    if (retryingUploadId) return;
+    const targetServerUrl = (upload.serverUrl || serverUrl).replace(/\/+$/, "");
+    setRecError(null);
+    setRetryingUploadId(upload.recordingId);
+    try {
+      await invoke("native_fullscreen_recording_retry_upload", {
+        serverUrl: targetServerUrl,
+        recordingId: upload.recordingId,
+        authToken: loadDesktopAuthToken(targetServerUrl),
+        cookie: typeof document !== "undefined" ? document.cookie || "" : "",
+      });
+      await loadPendingUploads();
+      await fetchRecent();
+      await openExternal(`${targetServerUrl}/r/${upload.recordingId}`);
+      getCurrentWindow()
+        .hide()
+        .catch(() => {});
+      emit("clips:popover-visible", false).catch(() => {});
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[clips-tray] retry saved upload failed:", err);
+      setRecError(message);
+      await loadPendingUploads();
+    } finally {
+      setRetryingUploadId(null);
+    }
   }
 
   async function startRecording() {
@@ -1462,13 +1540,17 @@ export function App() {
     };
     track(
       listen("clips:recorder-stop", async () => {
+        let stopFailed = false;
         try {
           const { recordingId } = await recorder.stop();
           if (cancelled) return;
           setLastRecordingId(recordingId);
         } catch (err) {
-          if (!cancelled)
+          stopFailed = true;
+          if (!cancelled) {
             setRecError(err instanceof Error ? err.message : String(err));
+            await loadPendingUploads();
+          }
         } finally {
           if (!cancelled) {
             // Clear the force-alive flag — recording is done, the pump
@@ -1484,13 +1566,17 @@ export function App() {
             setRecorder(null);
             setRecordingFlowActive(false);
             invoke("set_recording_state", { active: false }).catch(() => {});
-            // Close the popover — recorder.stop() already opened the
-            // recording's page in the default browser. The popover doesn't
-            // need to hang around.
-            getCurrentWindow()
-              .hide()
-              .catch(() => {});
-            emit("clips:popover-visible", false).catch(() => {});
+            if (stopFailed) {
+              invoke("show_popover").catch(() => {});
+            } else {
+              // Close the popover — recorder.stop() already opened the
+              // recording's page in the default browser. The popover doesn't
+              // need to hang around.
+              getCurrentWindow()
+                .hide()
+                .catch(() => {});
+              emit("clips:popover-visible", false).catch(() => {});
+            }
             fetchRecent();
           }
         }
@@ -1527,7 +1613,7 @@ export function App() {
       });
       unlisteners.length = 0;
     };
-  }, [recorder, fetchRecent]);
+  }, [recorder, fetchRecent, loadPendingUploads]);
 
   // Auto-hide on blur is handled on the Rust side (tauri::WindowEvent::Focused).
 
@@ -1632,6 +1718,14 @@ export function App() {
     <div className="app" ref={appRef}>
       <Header mode={mode} onModeChange={setMode} />
       <UpdateBanner />
+
+      {pendingUploads.length > 0 ? (
+        <PendingUploadBanner
+          uploads={pendingUploads}
+          retryingUploadId={retryingUploadId}
+          onRetry={retryPendingUpload}
+        />
+      ) : null}
 
       <div className="panel">
         {showSourceRow ? (
@@ -1774,6 +1868,56 @@ function PermissionErrorBanner({
           Screen
         </button>
       </div>
+    </div>
+  );
+}
+
+function PendingUploadBanner({
+  uploads,
+  retryingUploadId,
+  onRetry,
+}: {
+  uploads: PendingNativeUpload[];
+  retryingUploadId: string | null;
+  onRetry: (upload: PendingNativeUpload) => void;
+}) {
+  const latest = uploads[0];
+  if (!latest) return null;
+
+  const retrying = retryingUploadId === latest.recordingId;
+  const savedLabel =
+    uploads.length === 1
+      ? "1 Clip saved locally"
+      : `${uploads.length} Clips saved locally`;
+  const details = [
+    latest.savedAt ? `saved ${formatAgo(latest.savedAt)}` : null,
+    formatFileSize(latest.bytes),
+  ].filter(Boolean);
+  const errorText = latest.lastError
+    ? latest.lastError.replace(/\s+/g, " ").slice(0, 140)
+    : null;
+
+  return (
+    <div className="pending-upload-banner">
+      <div className="pending-upload-icon" aria-hidden>
+        <IconUpload size={17} stroke={1.8} />
+      </div>
+      <div className="pending-upload-copy">
+        <div className="pending-upload-title">{savedLabel}</div>
+        <div className="pending-upload-sub">
+          {details.join(" · ")}
+          {errorText ? ` · ${errorText}` : ""}
+        </div>
+      </div>
+      <button
+        type="button"
+        className="pending-upload-retry"
+        disabled={!!retryingUploadId}
+        onClick={() => onRetry(latest)}
+      >
+        <IconRefresh size={14} stroke={2} />
+        {retrying ? "Retrying" : "Retry"}
+      </button>
     </div>
   );
 }

@@ -205,6 +205,11 @@ interface TiptapComposerProps {
     references: Reference[],
     attachments?: ReadonlyArray<unknown>,
   ) => void;
+  /**
+   * Clear the editor after an onSubmit handler runs. Standalone workflows that
+   * may fail outside the composer can keep the draft visible for quick edits.
+   */
+  clearOnSubmit?: boolean;
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
   /** Custom action button (e.g. stop button) to render instead of the default send button. */
@@ -304,24 +309,19 @@ function ModeSelector({
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
       <PopoverPrimitive.Trigger asChild>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label={mode === "build" ? "Act mode" : "Plan mode"}
-              className={`shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium hover:bg-accent/50 ${
-                mode === "plan"
-                  ? "text-amber-700 dark:text-amber-300"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <ActiveIcon className="h-3.5 w-3.5" />
-              {mode === "build" ? "Act" : "Plan"}
-              <IconChevronDown className="h-3 w-3 opacity-60" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Shift+Tab toggles Act and Plan</TooltipContent>
-        </Tooltip>
+        <button
+          type="button"
+          aria-label={mode === "build" ? "Act mode" : "Plan mode"}
+          className={`shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium hover:bg-accent/50 ${
+            mode === "plan"
+              ? "text-amber-700 dark:text-amber-300"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <ActiveIcon className="h-3.5 w-3.5" />
+          {mode === "build" ? "Act" : "Plan"}
+          <IconChevronDown className="h-3 w-3 opacity-60" />
+        </button>
       </PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
@@ -522,6 +522,13 @@ function ModelSelector({
     builderFlow.hasFetchedStatus &&
     !builderFlow.configured &&
     !builderFlow.envManaged;
+  const openLlmSettings = useCallback(() => {
+    try {
+      window.location.hash = "llm";
+    } catch {}
+    window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
+    setOpen(false);
+  }, []);
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
@@ -602,12 +609,7 @@ function ModelSelector({
                     <button
                       type="button"
                       className="text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pr-3 py-1.5"
-                      onClick={() => {
-                        window.dispatchEvent(
-                          new CustomEvent("agent-panel:open-settings"),
-                        );
-                        setOpen(false);
-                      }}
+                      onClick={openLlmSettings}
                     >
                       needs API key
                     </button>
@@ -620,10 +622,7 @@ function ModelSelector({
                       type="button"
                       onClick={() => {
                         if (!group.configured) {
-                          window.dispatchEvent(
-                            new CustomEvent("agent-panel:open-settings"),
-                          );
-                          setOpen(false);
+                          openLlmSettings();
                           return;
                         }
                         onChange(m, group.engine);
@@ -696,6 +695,7 @@ export function TiptapComposer({
   disabled = false,
   focusRef,
   onSubmit,
+  clearOnSubmit = true,
   onTextChange,
   actionButton,
   extraActionButton,
@@ -982,7 +982,7 @@ export function TiptapComposer({
           }
         }
 
-        // Shift+Tab toggles Act/Plan mode
+        // Keyboard shortcut toggles Act/Plan mode from inside the editor.
         if (event.key === "Tab" && event.shiftKey) {
           event.preventDefault();
           const current = execModeRef.current;
@@ -1344,6 +1344,10 @@ export function TiptapComposer({
       onSubmit(text, references, attachments);
       // Clear any pending attachments now that the host has them.
       void composerRuntime.clearAttachments().catch(() => {});
+      if (!clearOnSubmit) {
+        closePopover();
+        return;
+      }
     } else {
       composerRuntime.send();
     }
@@ -1359,6 +1363,7 @@ export function TiptapComposer({
     composerRuntime,
     editor,
     interceptBuildRequestsForBuilder,
+    clearOnSubmit,
     onSubmit,
     syncComposerState,
   ]);

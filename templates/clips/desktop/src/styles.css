@@ -1097,6 +1097,80 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: var(--surface-hover);
 }
 
+.pending-upload-banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius);
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.pending-upload-icon {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+  flex-shrink: 0;
+}
+
+.pending-upload-copy {
+  min-width: 0;
+}
+
+.pending-upload-title {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.pending-upload-sub {
+  margin-top: 2px;
+  color: #3b5f9a;
+  font-size: 11px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-upload-retry {
+  height: 28px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-sm);
+  background: white;
+  color: #1d4ed8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 700;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    opacity 120ms;
+}
+
+.pending-upload-retry:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.pending-upload-retry:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .error-banner {
   background: #fef2f2;
   color: #b91c1c;
@@ -1138,6 +1212,32 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 @media (prefers-color-scheme: dark) {
+  .pending-upload-banner {
+    background: rgba(29, 78, 216, 0.16);
+    border-color: rgba(96, 165, 250, 0.42);
+    color: #bfdbfe;
+  }
+
+  .pending-upload-icon {
+    background: rgba(96, 165, 250, 0.14);
+    color: #93c5fd;
+  }
+
+  .pending-upload-sub {
+    color: #93c5fd;
+  }
+
+  .pending-upload-retry {
+    background: rgba(15, 23, 42, 0.7);
+    border-color: rgba(96, 165, 250, 0.38);
+    color: #dbeafe;
+  }
+
+  .pending-upload-retry:hover {
+    background: rgba(30, 64, 175, 0.34);
+    border-color: rgba(147, 197, 253, 0.62);
+  }
+
   .error-banner {
     background: rgba(185, 28, 28, 0.14);
     border-color: rgba(239, 68, 68, 0.5);

@@ -248,7 +248,7 @@ Hard rules:
 - Use only read-only tools. Do not edit files, write resources, run shell commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, call external agents, or change external systems.
 - If a needed detail is unclear, ask a concise clarifying question before proposing a plan.
 - When ready, present a concrete plan with the files/tools you expect to touch, the intended changes, validation steps, and notable risks.
-- Do not treat approval as implicit while Plan mode is still active. Tell the user to switch to Act mode with the mode selector, Shift+Tab, or /act before implementation.`;
+- Do not treat approval as implicit while Plan mode is still active. Tell the user to switch to Act mode with the mode selector or /act before implementation.`;
 
 const PLAN_MODE_BLOCKED_READONLY_TOOLS = new Set([
   "refresh-screen",

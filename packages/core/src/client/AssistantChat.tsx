@@ -1664,6 +1664,9 @@ function BuilderSetupCard({
   bouncePulse?: number;
 }) {
   const openSettings = useCallback(() => {
+    try {
+      window.location.hash = "llm";
+    } catch {}
     window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
   }, []);
 

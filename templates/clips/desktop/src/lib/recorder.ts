@@ -56,6 +56,19 @@ import { buildCaptureTitle, type CaptureTitleResult } from "./recording-title";
 export type CaptureMode = "screen" | "screen-camera" | "camera";
 export type CaptureSource = "full-screen" | "window";
 
+const NATIVE_FULLSCREEN_RECORDING_FLAG = "clips:native-fullscreen-recording";
+
+export function shouldUseNativeFullscreenRecording(
+  source: CaptureSource | undefined,
+): boolean {
+  if (source !== "full-screen") return false;
+  if (typeof localStorage === "undefined") return false;
+  // Native ScreenCaptureKit direct-to-file recording has no pause primitive:
+  // stopping the stream finishes the recording file. Keep it as an explicit
+  // development escape hatch until native pause can segment + stitch safely.
+  return localStorage.getItem(NATIVE_FULLSCREEN_RECORDING_FLAG) === "1";
+}
+
 export interface StartParams {
   serverUrl: string; // e.g. http://localhost:8080
   mode: CaptureMode;
@@ -983,7 +996,7 @@ async function startNativeRecordingInner(
     wantsAudio,
   });
 
-  if (wantsScreen && captureSource === "full-screen") {
+  if (wantsScreen && shouldUseNativeFullscreenRecording(captureSource)) {
     return startNativeFullscreenRecording(
       params,
       wantsCamera,

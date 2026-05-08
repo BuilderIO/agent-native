@@ -858,6 +858,7 @@ function buildWorkspaceAppPrompt(input: {
       `App name: ${appId}`,
       `Template to start from: ${input.template || "starter"}`,
       `User prompt: ${input.prompt.trim()}`,
+      "If the user mentions a product or company such as Granola, Loom, Superhuman, Linear, or Notion, treat it as product inspiration unless they explicitly ask to connect to that service. Do not invent or require third-party API keys like GRANOLA_API_KEY just because a product is named.",
       selectedKeys.length
         ? `Dispatch vault keys selected for this app: ${selectedKeys.join(", ")}`
         : "Dispatch vault keys selected for this app: none",
