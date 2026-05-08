@@ -145,12 +145,16 @@ For a single event's actual Google Calendar color, use `create-event` or `update
 
 ### Availability & Booking
 
-| Action                   | Args                                                      | Purpose                                              |
-| ------------------------ | --------------------------------------------------------- | ---------------------------------------------------- |
-| `check-availability`     | `--date`, `--duration`                                    | Show available time slots                            |
-| `list-booking-links`     |                                                           | List booking links                                   |
-| `create-booking-link`    | `--title`, `--slug`, `--duration`, optional `--durations` | Create a booking link                                |
-| `duplicate-booking-link` | `--sourceId` or `--sourceSlug`, `--copies`                | Duplicate one booking link into one or more variants |
+| Action                   | Args                                                                                                                                                                    | Purpose                                              |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `get-availability`       |                                                                                                                                                                         | Read booking availability settings                   |
+| `update-availability`    | `--timezone`, `--weeklySchedule`, `--bufferMinutes`, `--minNoticeHours`, `--maxAdvanceDays`, `--slotDurationMinutes`, `--bookingPageSlug`, optional `--bookingUsername` | Update booking availability / working hours          |
+| `check-availability`     | `--date`, `--duration`                                                                                                                                                  | Show available time slots                            |
+| `list-booking-links`     |                                                                                                                                                                         | List booking links                                   |
+| `create-booking-link`    | `--title`, `--slug`, `--duration`, optional `--durations`                                                                                                               | Create a booking link                                |
+| `duplicate-booking-link` | `--sourceId` or `--sourceSlug`, `--copies`                                                                                                                              | Duplicate one booking link into one or more variants |
+
+For requests like "update my availability Monday-Friday to 9am to 4:30pm", call `get-availability` first, preserve the existing non-mentioned fields, then call `update-availability` with the complete weekly schedule.
 
 For booking-link creation or duplication, use the dedicated actions above. Do **not** use `db-exec` to insert `booking_links`; the actions handle IDs, ownership, slug collisions, JSON fields, and timestamps.
 
