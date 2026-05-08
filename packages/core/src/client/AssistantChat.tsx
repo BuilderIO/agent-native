@@ -28,7 +28,6 @@ import type {
 } from "@assistant-ui/react";
 import {
   SimpleImageAttachmentAdapter,
-  SimpleTextAttachmentAdapter,
   CompositeAttachmentAdapter,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
@@ -43,6 +42,7 @@ import {
   readSSEStreamRaw,
 } from "./sse-event-processor.js";
 import { cn } from "./utils.js";
+import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
@@ -3868,7 +3868,7 @@ export const AssistantChat = forwardRef<
       new CompositeAttachmentAdapter([
         new SimpleImageAttachmentAdapter(),
         new BinaryDocumentAttachmentAdapter(),
-        new SimpleTextAttachmentAdapter(),
+        new TextAttachmentAdapter(),
       ]),
     [],
   );

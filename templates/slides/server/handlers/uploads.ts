@@ -8,22 +8,12 @@ import fs from "fs";
 import crypto from "crypto";
 import { nanoid } from "nanoid";
 import { getSession } from "@agent-native/core/server";
+import {
+  SLIDES_REFERENCE_FILE_ERROR_LABEL,
+  isSlidesReferenceFileExtension,
+} from "../../shared/upload-types";
 
 const UPLOADS_ROOT = path.join(process.cwd(), "data", "uploads");
-const ALLOWED_EXTENSIONS = new Set([
-  ".pptx",
-  ".docx",
-  ".pdf",
-  ".txt",
-  ".md",
-  ".csv",
-  ".json",
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".webp",
-  ".gif",
-]);
 
 function tenantUploadDir(email: string): string {
   const key = crypto
@@ -36,7 +26,7 @@ function tenantUploadDir(email: string): string {
 
 function safeFilename(originalName: string): string | null {
   const ext = path.extname(originalName).toLowerCase();
-  if (!ALLOWED_EXTENSIONS.has(ext)) return null;
+  if (!isSlidesReferenceFileExtension(ext)) return null;
   // Filename uniqueness comes from nanoid (~21 chars, ~126 bits of entropy),
   // not `Date.now()` — second-resolution timestamps are guessable and let
   // someone with the per-tenant URL prefix probe the upload window. The
@@ -117,7 +107,7 @@ export const uploadFiles = defineEventHandler(async (event) => {
         const filename = safeFilename(originalName);
         if (!filename) {
           throw new Error(
-            "Unsupported file type. Allowed: pptx, docx, pdf, text, JSON, CSV, and raster images.",
+            `Unsupported file type. Allowed: ${SLIDES_REFERENCE_FILE_ERROR_LABEL}.`,
           );
         }
         const ext = path.extname(filename).toLowerCase();

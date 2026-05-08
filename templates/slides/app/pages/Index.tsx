@@ -81,7 +81,8 @@ function describeUploadedFilesForAgent(
     "",
     "File handling rules:",
     `- PPTX files: call \`import-pptx --filePath "<path>" --deckId ${deckId}\` before adding or editing slides.`,
-    `- PDF, DOCX, and text-like files: call \`import-file --filePath "<path>" --format auto --deckId ${deckId}\` and use the returned content as source material.`,
+    `- PDF and DOCX files: call \`import-file --filePath "<path>" --format auto --deckId ${deckId}\` and use the returned content as source material.`,
+    "- Text-like files: use the uploaded-text-file blocks already included in the prompt; do not call import-file for them.",
     "- Image files: treat them as visual/reference assets only; do not claim to have processed a PPTX/PDF/DOCX unless the relevant import action succeeds.",
   ].join("\n");
 }
