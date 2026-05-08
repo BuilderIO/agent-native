@@ -1,7 +1,9 @@
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
 
-export const PENDING_GENERATION_STALE_MS = 120_000;
+// Pending generation state is a UI recovery aid, not a generation deadline.
+// Keep it long enough for thorough designs while still clearing abandoned runs.
+export const PENDING_GENERATION_STALE_MS = 30 * 60_000;
 
 export interface PendingGeneration {
   prompt?: string;
