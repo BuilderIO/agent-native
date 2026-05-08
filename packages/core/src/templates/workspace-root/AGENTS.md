@@ -56,7 +56,9 @@ in `apps/<app>/AGENTS.md`; shared cross-app behavior belongs in
 - In local development, scaffold the app from the workspace root with
   `pnpm exec agent-native create <app-id> --template=<template>`. In production
   Dispatch posts the request to Builder branch creation; the Builder branch
-  should still create the separate workspace app, not patch starter.
+  should still create the separate workspace app, not patch starter. The local
+  workspace gateway detects new app directories automatically and starts each
+  app server lazily on first visit.
 
 ## Workspace Identity
 

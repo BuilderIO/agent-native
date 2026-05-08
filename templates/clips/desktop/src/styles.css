@@ -162,6 +162,18 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   transform: translateY(-50%);
 }
 
+.header.header-centered .header-feedback {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: auto;
+  gap: 5px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
 .logo {
   width: 28px;
   height: 28px;
@@ -232,6 +244,182 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .icon-button:hover {
   background: var(--surface-hover);
   color: var(--fg);
+}
+
+.icon-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Feedback popover                                                           */
+/* ------------------------------------------------------------------------- */
+
+.feedback-popover-content {
+  width: min(320px, calc(100vw - 36px));
+  z-index: 50;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: var(--shadow-md);
+  padding: 12px;
+  outline: none;
+  transform-origin: var(--radix-popover-content-transform-origin);
+}
+
+.feedback-popover-content[data-state="open"] {
+  animation: feedback-popover-in 120ms ease-out;
+}
+
+.feedback-popover-content[data-state="closed"] {
+  animation: feedback-popover-out 90ms ease-in;
+}
+
+.feedback-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.feedback-textarea {
+  width: 100%;
+  min-height: 108px;
+  resize: none;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.4;
+  outline: none;
+}
+
+.feedback-textarea::placeholder {
+  color: var(--fg-subtle);
+}
+
+.feedback-textarea:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.feedback-honeypot {
+  position: absolute;
+  left: -10000px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.feedback-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.feedback-hint {
+  min-width: 0;
+  color: var(--fg-subtle);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.feedback-hint.is-error {
+  color: #b91c1c;
+}
+
+.feedback-submit {
+  flex-shrink: 0;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--bg);
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 120ms,
+    opacity 120ms,
+    transform 80ms;
+}
+
+.feedback-submit:hover:not(:disabled) {
+  background: var(--brand-hover);
+}
+
+.feedback-submit:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.feedback-submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.feedback-submit:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+}
+
+.feedback-success {
+  min-height: 142px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.feedback-success-icon {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.feedback-success-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+@media (prefers-color-scheme: dark) {
+  .feedback-success-icon {
+    background: rgba(34, 197, 94, 0.14);
+    color: #4ade80;
+  }
+}
+
+@keyframes feedback-popover-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes feedback-popover-out {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98) translateY(-2px);
+  }
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1097,6 +1285,80 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: var(--surface-hover);
 }
 
+.pending-upload-banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius);
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.pending-upload-icon {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+  flex-shrink: 0;
+}
+
+.pending-upload-copy {
+  min-width: 0;
+}
+
+.pending-upload-title {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.pending-upload-sub {
+  margin-top: 2px;
+  color: #3b5f9a;
+  font-size: 11px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-upload-retry {
+  height: 28px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-sm);
+  background: white;
+  color: #1d4ed8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 700;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    opacity 120ms;
+}
+
+.pending-upload-retry:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.pending-upload-retry:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .error-banner {
   background: #fef2f2;
   color: #b91c1c;
@@ -1138,6 +1400,32 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 @media (prefers-color-scheme: dark) {
+  .pending-upload-banner {
+    background: rgba(29, 78, 216, 0.16);
+    border-color: rgba(96, 165, 250, 0.42);
+    color: #bfdbfe;
+  }
+
+  .pending-upload-icon {
+    background: rgba(96, 165, 250, 0.14);
+    color: #93c5fd;
+  }
+
+  .pending-upload-sub {
+    color: #93c5fd;
+  }
+
+  .pending-upload-retry {
+    background: rgba(15, 23, 42, 0.7);
+    border-color: rgba(96, 165, 250, 0.38);
+    color: #dbeafe;
+  }
+
+  .pending-upload-retry:hover {
+    background: rgba(30, 64, 175, 0.34);
+    border-color: rgba(147, 197, 253, 0.62);
+  }
+
   .error-banner {
     background: rgba(185, 28, 28, 0.14);
     border-color: rgba(239, 68, 68, 0.5);

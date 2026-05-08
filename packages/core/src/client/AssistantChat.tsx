@@ -1664,6 +1664,9 @@ function BuilderSetupCard({
   bouncePulse?: number;
 }) {
   const openSettings = useCallback(() => {
+    try {
+      window.location.hash = "llm";
+    } catch {}
     window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
   }, []);
 
@@ -2144,6 +2147,10 @@ export interface AssistantChatProps {
   onGenerateTitle?: (threadId: string, message: string) => void;
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
+  /** Disable the composer for capability-gated surfaces while still showing history. */
+  composerDisabled?: boolean;
+  /** Placeholder to show while the composer is disabled by the host surface. */
+  composerDisabledPlaceholder?: string;
   /** When true, skip the restore skeleton (used for freshly created threads with no messages) */
   isNewThread?: boolean;
   /** Called when a slash command (e.g. /clear, /help) is executed */
@@ -2239,6 +2246,8 @@ const AssistantChatInner = forwardRef<
     onSaveThread,
     onGenerateTitle,
     composerSlot,
+    composerDisabled = false,
+    composerDisabledPlaceholder,
     isNewThread,
     onSlashCommand,
     execMode,
@@ -2260,6 +2269,7 @@ const AssistantChatInner = forwardRef<
   const isRuntimeRunning = thread.isRunning;
   const messages = thread.messages;
   const [missingApiKey, setMissingApiKey] = useState(false);
+  const isComposerDisabled = missingApiKey || composerDisabled;
   // Increments each time the user clicks the (disabled) composer while no LLM
   // is connected — `BuilderSetupCard` watches this to replay a one-shot bounce.
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
@@ -3476,7 +3486,8 @@ const AssistantChatInner = forwardRef<
             <div
               className={cn(
                 "agent-composer-area shrink-0 px-3 py-2",
-                missingApiKey && "cursor-pointer opacity-70",
+                missingApiKey && "cursor-pointer",
+                isComposerDisabled && "opacity-70",
               )}
               onClick={
                 missingApiKey
@@ -3494,15 +3505,18 @@ const AssistantChatInner = forwardRef<
                 <ComposerAttachmentPreviewStrip />
                 <TiptapComposer
                   focusRef={tiptapRef}
-                  disabled={missingApiKey}
+                  disabled={isComposerDisabled}
                   placeholder={
                     missingApiKey
                       ? "Connect an AI engine above to start chatting…"
-                      : isRunning
-                        ? queuedMessages.length > 0
-                          ? `${queuedMessages.length} queued — type another...`
-                          : "Queue a message..."
-                        : undefined
+                      : composerDisabled
+                        ? (composerDisabledPlaceholder ??
+                          "Open Desktop to use this chat.")
+                        : isRunning
+                          ? queuedMessages.length > 0
+                            ? `${queuedMessages.length} queued — type another...`
+                            : "Queue a message..."
+                          : undefined
                   }
                   onSubmit={
                     isRunning

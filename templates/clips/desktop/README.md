@@ -25,6 +25,17 @@ pnpm tauri:dev    # start the tray app against the local dev server
 pnpm tauri:build  # produce a .dmg / .msi
 ```
 
+Dev builds use the real macOS screen/camera/microphone permission flow by
+default so failures show up in the popover instead of saving a fake recording.
+For automation-only sessions that need a generated screen stream, run this in
+the tray devtools console:
+
+```js
+localStorage.setItem("clips:dev-synthetic-capture", "1");
+```
+
+Remove that key to return to real capture.
+
 ## First-run configuration
 
 On first launch the popover asks for the URL of your Clips server. This is stored in `localStorage` (default: `http://localhost:8080`). You can change it at any time from the popover's "Server" link.

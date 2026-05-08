@@ -60,10 +60,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <HeaderActionsProvider>
       <div className="flex h-screen w-full overflow-hidden bg-background">
-        <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-sidebar-background/50 px-2 py-3">
+        <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-sidebar-background/50">
           <Link
             to="/"
-            className="mx-1 mb-3 flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-semibold hover:bg-muted/60"
+            className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4 text-sm font-semibold hover:bg-muted/60"
           >
             <span className="flex h-6 w-6 items-center justify-center rounded-md bg-foreground text-background">
               <img
@@ -81,7 +81,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </span>
             Scheduling
           </Link>
-          <nav className="flex flex-1 flex-col gap-0.5">
+          <nav className="flex flex-1 flex-col gap-0.5 px-2 py-3">
             {NAV.map((item) => {
               const Icon = item.icon;
               return (

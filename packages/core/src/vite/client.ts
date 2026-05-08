@@ -760,23 +760,31 @@ function portExposer(): Plugin {
 }
 
 /**
- * Silence benign `read ECONNRESET` noise from Vite's dev middleware.
+ * Silence benign connection-reset noise from Vite's dev middleware.
  * Fires when a browser closes/reloads/navigates mid-request — the peer has
  * already gone away, there's nothing to fix, and Vite's error middleware
- * spams the terminal with "Internal server error: read ECONNRESET". Our H3
- * server layer already swallows this (create-server.ts onError); this plugin
- * does the same for Vite's own connect pipeline.
+ * spams the terminal and browser HMR overlay with errors like
+ * "read ECONNRESET" and "socket hang up". Our H3 server layer already
+ * swallows these (create-server.ts onError); this plugin does the same for
+ * Vite's own connect pipeline.
  */
 function silenceConnectionResets(): Plugin {
   const isBenign = (err: unknown) => {
-    const e = err as NodeJS.ErrnoException | undefined;
+    const e = err as
+      | (NodeJS.ErrnoException & { cause?: NodeJS.ErrnoException })
+      | undefined;
     const code = e?.code || (e?.cause as NodeJS.ErrnoException)?.code;
+    const message = String(e?.message ?? "");
     return (
       code === "ECONNRESET" ||
       code === "ECONNABORTED" ||
       code === "EPIPE" ||
-      e?.message === "aborted"
+      /^(read ECONNRESET|socket hang up|aborted|write EPIPE)$/i.test(message)
     );
+  };
+  const isBenignErrorPayload = (payload: unknown) => {
+    const p = payload as { type?: string; err?: unknown } | undefined;
+    return p?.type === "error" && isBenign(p.err);
   };
   return {
     name: "agent-native-silence-connection-resets",
@@ -794,12 +802,40 @@ function silenceConnectionResets(): Plugin {
         const text = typeof msg === "string" ? msg : String(msg ?? "");
         if (
           (opts?.error && isBenign(opts.error)) ||
-          /Internal server error:\s*(read ECONNRESET|aborted|EPIPE)/i.test(text)
+          /Internal server error:\s*(read ECONNRESET|socket hang up|aborted|EPIPE)/i.test(
+            text,
+          )
         ) {
           return;
         }
         origError(msg, opts);
       };
+
+      // Vite's error middleware sends these same benign errors to the HMR
+      // client, which turns them into the full-screen browser overlay.
+      // Suppress just those payloads while leaving real transform/runtime
+      // errors untouched.
+      const hot = (
+        server as unknown as {
+          environments?: { client?: { hot?: { send?: Function } } };
+        }
+      ).environments?.client?.hot;
+      if (hot?.send) {
+        const origHotSend = hot.send.bind(hot);
+        hot.send = (payload: unknown, ...args: unknown[]) => {
+          if (isBenignErrorPayload(payload)) return;
+          return origHotSend(payload, ...args);
+        };
+      }
+
+      const ws = (server as unknown as { ws?: { send?: Function } }).ws;
+      if (ws?.send) {
+        const origWsSend = ws.send.bind(ws);
+        ws.send = (payload: unknown, ...args: unknown[]) => {
+          if (isBenignErrorPayload(payload)) return;
+          return origWsSend(payload, ...args);
+        };
+      }
     },
   };
 }

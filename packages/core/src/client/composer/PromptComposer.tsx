@@ -49,6 +49,8 @@ export interface PromptComposerProps {
   className?: string;
   /** Forwarded to TiptapComposer for draft persistence. */
   draftScope?: string;
+  /** Keep the submitted prompt in the editor. Default: false. */
+  preserveDraftOnSubmit?: boolean;
   /** Show the model selector (default: true). */
   showModelSelector?: boolean;
   /** Show the voice dictation button (default: true). */
@@ -224,6 +226,7 @@ function PromptComposerInner({
   autoFocus,
   className,
   draftScope,
+  preserveDraftOnSubmit = false,
   showModelSelector = true,
   voiceEnabled = true,
   attachmentsEnabled = true,
@@ -308,6 +311,7 @@ function PromptComposerInner({
           disabled={disabled}
           placeholder={placeholder}
           onSubmit={handleSubmit}
+          clearOnSubmit={!preserveDraftOnSubmit}
           plusMenuMode={attachmentsEnabled ? "upload-only" : "hidden"}
           voiceEnabled={voiceEnabled}
           onTextChange={onTextChange}

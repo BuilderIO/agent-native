@@ -98,6 +98,7 @@ function buildAppCreationPrompt(input: {
     ``,
     `Suggested app name: ${input.appId} (you may adjust the slug if it conflicts)`,
     `User prompt: ${input.prompt.trim()}`,
+    `If the user mentions a product or company such as Granola, Loom, Superhuman, Linear, or Notion, treat it as product inspiration unless they explicitly ask to connect to that service. Do not invent or require third-party API keys like GRANOLA_API_KEY just because a product is named.`,
     grantRequest,
     `Requested Dispatch workspace resources for this app:\n${resourceList}`,
     ``,
@@ -323,6 +324,7 @@ export function CreateAppFlow({
             disabled={isSubmitting}
             placeholder="Describe the app your teammate should be able to use..."
             draftScope="dispatch:create-app"
+            preserveDraftOnSubmit
             onSubmit={(text) => {
               setPrompt(text);
               submit(text);

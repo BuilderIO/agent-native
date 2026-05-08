@@ -92,12 +92,7 @@ export default function TrashRoute() {
   return (
     <div className="flex flex-1 flex-col min-h-0">
       <PageHeader>
-        <div>
-          <h1 className="text-base font-semibold text-foreground">Trash</h1>
-          <p className="text-xs text-muted-foreground">
-            Recordings are permanently removed after 30 days
-          </p>
-        </div>
+        <h1 className="text-base font-semibold text-foreground">Trash</h1>
         <div className="ml-auto flex items-center gap-2">
           {selectedIds.length > 0 && (
             <>

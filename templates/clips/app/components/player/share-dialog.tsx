@@ -35,6 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 type Visibility = "private" | "org" | "public";
 type Role = "viewer" | "editor" | "admin";
@@ -128,7 +129,10 @@ export function ShareRecordingPopover({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent align="end" className="w-[440px] p-0">
+      <PopoverContent
+        align="end"
+        className="w-[440px] max-w-[calc(100vw-1rem)] overflow-hidden p-0"
+      >
         <ShareRecordingContent
           recordingId={recordingId}
           recordingTitle={recordingTitle}
@@ -155,7 +159,7 @@ export function ShareRecordingDialog({
 }: ShareRecordingDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[440px] p-0">
+      <DialogContent className="w-[calc(100vw-2rem)] overflow-hidden p-0 sm:max-w-[440px]">
         <DialogTitle className="sr-only">
           {recordingTitle ? `Share ${recordingTitle}` : "Share recording"}
         </DialogTitle>
@@ -164,6 +168,7 @@ export function ShareRecordingDialog({
           recordingTitle={recordingTitle}
           videoUrl={videoUrl}
           animatedThumbnailUrl={animatedThumbnailUrl}
+          reserveCloseButton
         />
       </DialogContent>
     </Dialog>
@@ -175,11 +180,13 @@ function ShareRecordingContent({
   recordingTitle,
   videoUrl,
   animatedThumbnailUrl,
+  reserveCloseButton = false,
 }: {
   recordingId: string;
   recordingTitle?: string;
   videoUrl?: string | null;
   animatedThumbnailUrl?: string | null;
+  reserveCloseButton?: boolean;
 }) {
   const shareUrl =
     typeof window === "undefined"
@@ -197,8 +204,16 @@ function ShareRecordingContent({
 
   return (
     <>
-      <div className="px-4 pt-3 pb-3 border-b border-border">
-        <div className="truncate text-sm font-semibold" title={titleText}>
+      <div
+        className={cn(
+          "min-w-0 border-b border-border px-4 pb-3 pt-3",
+          reserveCloseButton && "pr-12",
+        )}
+      >
+        <div
+          className="min-w-0 truncate text-sm font-semibold"
+          title={titleText}
+        >
           {titleText}
         </div>
         {sharesQuery.data?.ownerEmail ? (
@@ -208,7 +223,7 @@ function ShareRecordingContent({
         ) : null}
       </div>
 
-      <Tabs defaultValue="link" className="px-4 py-3">
+      <Tabs defaultValue="link" className="min-w-0 px-4 py-3">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="link" className="gap-1.5">
             <IconLink size={14} />

@@ -44,10 +44,10 @@ pnpm dev               # starts the workspace gateway; opens Dispatch when prese
 
 The dev gateway serves Dispatch at `/dispatch` when you keep the recommended
 Dispatch app selected, and every app at its own path such as `/starter`. It
-watches `apps/`, so newly-created apps are detected and started without
-restarting `pnpm dev`. App links should stay relative, such as `/starter` or
-`/<app-id>`; do not hardcode localhost or dev ports because the active gateway
-origin owns the port.
+watches `apps/`, so newly-created apps are detected without restarting
+`pnpm dev`. App servers start lazily the first time you visit their path. App
+links should stay relative, such as `/starter` or `/<app-id>`; do not hardcode
+localhost or dev ports because the active gateway origin owns the port.
 
 ## Workspace org identity
 

@@ -436,6 +436,7 @@ export function MultiTabAssistantChat({
   const bumpModelSelectionVersion = useCallback(() => {
     setModelSelectionVersion((version) => version + 1);
   }, []);
+  const postMessageSubmissionsDisabled = props.composerDisabled === true;
 
   const resolveThreadModelSelection = useCallback(
     (threadId: string) =>
@@ -848,6 +849,7 @@ export function MultiTabAssistantChat({
       if (openSidebar !== false && !background) {
         window.dispatchEvent(new CustomEvent("agent-panel:open"));
       }
+      if (postMessageSubmissionsDisabled) return;
 
       // Plan mode is sent as request metadata by the chat adapter. Keep the
       // user-visible message clean so mode instructions never enter history.
@@ -905,7 +907,13 @@ export function MultiTabAssistantChat({
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [availableModels, bumpModelSelectionVersion, createThread, switchThread]);
+  }, [
+    availableModels,
+    bumpModelSelectionVersion,
+    createThread,
+    postMessageSubmissionsDisabled,
+    switchThread,
+  ]);
 
   // Process pending sends when refs mount
   useEffect(() => {
