@@ -33,10 +33,14 @@ import { ShareButton, appApiPath } from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import Markdown from "@/components/Markdown";
+import LegacyFusionAnalysis, {
+  isLegacyFusionAnalysis,
+} from "./LegacyFusionAnalysis";
 import {
   useSetPageTitle,
   useSetHeaderActions,
 } from "@/components/layout/HeaderActions";
+import { cn } from "@/lib/utils";
 
 interface Analysis {
   id: string;
@@ -201,10 +205,17 @@ export default function AnalysisDetail() {
     );
   }
 
+  const showLegacyFusionDashboard = isLegacyFusionAnalysis(analysis.id);
+
   return (
     <>
       {codeRequiredDialog}
-      <div className="space-y-6 max-w-4xl">
+      <div
+        className={cn(
+          "space-y-6",
+          showLegacyFusionDashboard ? "max-w-6xl" : "max-w-4xl",
+        )}
+      >
         {/* Header */}
         <div>
           <Link
@@ -250,9 +261,13 @@ export default function AnalysisDetail() {
         </div>
 
         {/* Results */}
-        <div className="prose prose-sm dark:prose-invert max-w-none">
-          <Markdown content={analysis.resultMarkdown} />
-        </div>
+        {showLegacyFusionDashboard ? (
+          <LegacyFusionAnalysis analysis={analysis} />
+        ) : (
+          <div className="prose prose-sm dark:prose-invert max-w-none">
+            <Markdown content={analysis.resultMarkdown} />
+          </div>
+        )}
       </div>
     </>
   );

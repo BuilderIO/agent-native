@@ -100,6 +100,15 @@ interface AnalysisMigration {
   resultData?: Record<string, unknown>;
 }
 
+interface AnalysisMeta {
+  id: string;
+  name: string;
+  description: string;
+  author: string;
+  sourcePath: string;
+  dataSources: string[];
+}
+
 interface ExtensionMigration {
   id: string;
   name: string;
@@ -130,19 +139,30 @@ const TARGET_ROOT = path.resolve("templates", "analytics");
 const argv = process.argv.slice(2);
 const write = argv.includes("--write");
 const validateSql = argv.includes("--validate-sql");
+const onlyAnalysesArg = argv.find((arg) => arg.startsWith("--only-analyses="));
+const onlyAnalysisIds = onlyAnalysesArg
+  ? new Set(
+      onlyAnalysesArg
+        .replace("--only-analyses=", "")
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    )
+  : null;
 const REMOVED_LEGACY_IDS = ["fusion-developer-pain", "tech-partners"];
 
 const DATE_START = "{{dateStart}}";
 const DATE_END = "{{dateEnd}}";
 
 if (argv.includes("--help")) {
-  console.log(`Usage: pnpm exec tsx scripts/fusion-analytics-migration/migrate-content.ts [--write] [--validate-sql]
+  console.log(`Usage: pnpm exec tsx scripts/fusion-analytics-migration/migrate-content.ts [--write] [--validate-sql] [--only-analyses=id,id]
 
 Migrates legacy ../fusion-analytics dashboards, analyses, and tools into the
 Agent-Native Analytics production SQL database for the Builder.io org.
 
 Default is dry-run. Pass --write to upsert SQL resources. Pass --validate-sql
-to dry-run migrated BigQuery panels after writing/generating configs.`);
+to dry-run migrated BigQuery panels after writing/generating configs. Use
+--only-analyses to upsert only selected saved-analysis rows.`);
   process.exit(0);
 }
 
@@ -156,10 +176,21 @@ async function main() {
   const db = await connect(env.databaseUrl, env.databaseAuthToken);
   try {
     const orgId = await resolveBuilderOrgId(db);
-    const dashboards = await buildDashboards();
-    const analyses = buildAnalyses();
-    const extensions = buildExtensions();
-    const explorerSettings = buildExplorerSettings();
+    const dashboards = onlyAnalysisIds ? [] : await buildDashboards();
+    const allAnalyses = buildAnalyses();
+    const analyses = onlyAnalysisIds
+      ? allAnalyses.filter((analysis) => onlyAnalysisIds.has(analysis.id))
+      : allAnalyses;
+    const extensions = onlyAnalysisIds ? [] : buildExtensions();
+    const explorerSettings = onlyAnalysisIds ? [] : buildExplorerSettings();
+
+    if (onlyAnalysisIds) {
+      const found = new Set(analyses.map((analysis) => analysis.id));
+      const missing = [...onlyAnalysisIds].filter((id) => !found.has(id));
+      if (missing.length) {
+        throw new Error(`Unknown analysis id(s): ${missing.join(", ")}`);
+      }
+    }
 
     console.log(
       `${write ? "Writing" : "Dry run"} Fusion migration into ${ORG_NAME} (${orgId})`,
@@ -174,18 +205,22 @@ async function main() {
 
     if (write) {
       await ensureTables(db);
-      await pruneRemovedLegacyResources(db);
-      for (const dashboard of dashboards) {
-        await upsertDashboard(db, dashboard, orgId);
+      if (!onlyAnalysisIds) {
+        await pruneRemovedLegacyResources(db);
+        for (const dashboard of dashboards) {
+          await upsertDashboard(db, dashboard, orgId);
+        }
       }
       for (const analysis of analyses) {
         await upsertAnalysis(db, analysis, orgId);
       }
-      for (const extension of extensions) {
-        await upsertExtension(db, extension, orgId);
-      }
-      for (const setting of explorerSettings) {
-        await upsertExplorerSetting(db, setting, orgId);
+      if (!onlyAnalysisIds) {
+        for (const extension of extensions) {
+          await upsertExtension(db, extension, orgId);
+        }
+        for (const setting of explorerSettings) {
+          await upsertExplorerSetting(db, setting, orgId);
+        }
       }
     }
 
@@ -275,6 +310,10 @@ async function legacyQueryModule(rel: string): Promise<Record<string, any>> {
 
 function readLegacy(rel: string): string {
   return fs.readFileSync(path.resolve(LEGACY_ROOT, rel), "utf8");
+}
+
+function readLegacyJson<T>(rel: string): T {
+  return JSON.parse(readLegacy(rel)) as T;
 }
 
 function extractConstSql(rel: string, name: string): string {
@@ -1747,14 +1786,7 @@ function readExplorerDashboards(): DashboardMigration[] {
 }
 
 function buildAnalyses(): AnalysisMigration[] {
-  const metas: Array<{
-    id: string;
-    name: string;
-    description: string;
-    author: string;
-    sourcePath: string;
-    dataSources: string[];
-  }> = [
+  const metas: AnalysisMeta[] = [
     {
       id: "conversion-analysis",
       name: "Traffic to Signup Conversion Analysis",
@@ -1973,6 +2005,12 @@ function buildAnalyses(): AnalysisMigration[] {
 
   const generated = metas.map((meta) => {
     const sourceInfo = sourceSnapshot(meta.sourcePath);
+    if (meta.id === "fusion-closed-lost-analysis") {
+      return buildFusionClosedLostAnalysis(meta, sourceInfo);
+    }
+    if (meta.id === "fusion-closed-won-analysis") {
+      return buildFusionClosedWonAnalysis(meta, sourceInfo);
+    }
     return {
       ...meta,
       question: meta.description,
@@ -1998,6 +2036,7 @@ function buildAnalyses(): AnalysisMigration[] {
       resultData: {
         migration: "fusion-analytics",
         source: sourceInfo,
+        renderingStatus: "source-only",
       },
     };
   });
