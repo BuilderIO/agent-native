@@ -467,7 +467,8 @@ function RecordingErrorCard({
   const guidance = permissionGuidance(error, { mode, micDeviceId });
   const permissionError = isPermissionError(error);
   const policyError = isPolicyPermissionError(error);
-  const embeddedScreenError = isEmbeddedWindow() && isScreenPermissionError(error);
+  const embeddedScreenError =
+    isEmbeddedWindow() && isScreenPermissionError(error);
   const settings = getModePermissionLabels(mode, micDeviceId);
   const directUrl = directRecorderUrl();
 
@@ -707,6 +708,21 @@ export default function RecordRoute() {
       micDeviceId: string | null;
       cameraDeviceId: string | null;
     }) => {
+      const blockedFeature = isEmbeddedWindow()
+        ? getPolicyBlockedCaptureLabel({
+            mode: opts.mode,
+            micDeviceId: opts.micDeviceId,
+          })
+        : null;
+      if (blockedFeature) {
+        openUrlFromUserGesture(directRecorderUrl(opts));
+        toast.info("Opened recorder in a new tab", {
+          description: `Chrome is blocking ${blockedFeature} access in this embedded web client.`,
+          duration: 8000,
+        });
+        return;
+      }
+
       // Claim a session id; doCancel() bumps the ref to invalidate us.
       const session = startSessionRef.current + 1;
       startSessionRef.current = session;
