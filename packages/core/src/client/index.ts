@@ -93,6 +93,7 @@ export {
   type GuidedQuestionAnswers,
   type GuidedQuestionFlowProps,
   type GuidedQuestionOption,
+  type GuidedQuestionPayload,
   type GuidedQuestionType,
   type UseGuidedQuestionFlowOptions,
 } from "./guided-questions.js";

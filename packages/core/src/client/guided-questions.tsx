@@ -681,7 +681,7 @@ export function useGuidedQuestionFlow({
   buildSkipContext,
 }: UseGuidedQuestionFlowOptions = {}) {
   const queryClient = useQueryClient();
-  const [questions, setQuestions] = useState<GuidedQuestion[] | null>(null);
+  const [payload, setPayload] = useState<GuidedQuestionPayload | null>(null);
   const endpoint = agentNativePath(
     `/_agent-native/application-state/${stateKey}`,
   );
@@ -696,7 +696,9 @@ export function useGuidedQuestionFlow({
       try {
         const parsed = JSON.parse(text);
         if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) {
-          return { ...parsed, _ts: Date.now() };
+          return { ...parsed, _ts: Date.now() } as GuidedQuestionPayload & {
+            _ts: number;
+          };
         }
       } catch {
         return null;
@@ -709,14 +711,14 @@ export function useGuidedQuestionFlow({
 
   useEffect(() => {
     if (Array.isArray(data?.questions) && data.questions.length > 0) {
-      setQuestions(data.questions);
+      setPayload(data);
     } else {
-      setQuestions(null);
+      setPayload(null);
     }
   }, [data]);
 
   const clear = useCallback(() => {
-    setQuestions(null);
+    setPayload(null);
     queryClient.setQueryData(queryKey, null);
     fetch(endpoint, {
       method: "DELETE",
@@ -750,5 +752,15 @@ export function useGuidedQuestionFlow({
     clear();
   }, [buildSkipContext, clear, skipMessage]);
 
-  return { questions, clear, handleSubmit, handleSkip };
+  return {
+    payload,
+    questions: payload?.questions ?? null,
+    title: payload?.title,
+    description: payload?.description,
+    skipLabel: payload?.skipLabel,
+    submitLabel: payload?.submitLabel,
+    clear,
+    handleSubmit,
+    handleSkip,
+  };
 }

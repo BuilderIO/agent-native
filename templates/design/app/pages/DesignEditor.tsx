@@ -249,6 +249,10 @@ export default function DesignEditor() {
   // Question flow + variant flow — full-canvas overlays driven by the agent.
   const {
     questions: pendingQuestions,
+    title: pendingQuestionsTitle,
+    description: pendingQuestionsDescription,
+    skipLabel: pendingQuestionsSkipLabel,
+    submitLabel: pendingQuestionsSubmitLabel,
     handleSubmit: handleQuestionsSubmit,
     handleSkip: handleQuestionsSkip,
   } = useQuestionFlow(id);
@@ -1081,6 +1085,10 @@ export default function DesignEditor() {
                 questions={pendingQuestions}
                 onSubmit={handleQuestionsSubmit}
                 onSkip={handleQuestionsSkip}
+                title={pendingQuestionsTitle}
+                description={pendingQuestionsDescription}
+                skipLabel={pendingQuestionsSkipLabel}
+                submitLabel={pendingQuestionsSubmitLabel}
               />
             </div>
           )}

@@ -10,6 +10,10 @@ interface QuestionFlowProps {
   onSubmit: (answers: Record<string, any>) => void;
   onSkip: () => void;
   designSystem?: DesignSystemData;
+  title?: string;
+  description?: string;
+  skipLabel?: string;
+  submitLabel?: string;
 }
 
 const DESIGN_SYSTEM_COLOR_KEYS: Array<
@@ -55,6 +59,10 @@ export function QuestionFlow({
   onSubmit,
   onSkip,
   designSystem,
+  title,
+  description,
+  skipLabel,
+  submitLabel,
 }: QuestionFlowProps) {
   const visibleQuestions = useMemo(
     () =>
@@ -78,8 +86,13 @@ export function QuestionFlow({
         questions={visibleQuestions as GuidedQuestion[]}
         onSubmit={onSubmit}
         onSkip={onSkip}
-        title="Shape the deck first"
-        description="Answer the choices that matter. Use Other for a custom direction, or let the agent decide."
+        title={title ?? "Shape the deck first"}
+        description={
+          description ??
+          "Answer the choices that matter. Use Other for a custom direction, or let the agent decide."
+        }
+        skipLabel={skipLabel}
+        submitLabel={submitLabel}
       />
     </div>
   );
