@@ -396,6 +396,7 @@ describe("run manager soft timeout", () => {
   });
 
   it("marks runs errored when completion persistence fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     const events: AgentChatEvent[] = [];
     const run = startRun(
       "run-completion-failed",
@@ -424,6 +425,7 @@ describe("run manager soft timeout", () => {
         error: "Agent response could not be saved.",
       }),
     );
+    consoleError.mockRestore();
   });
 
   it("normalizes missing SQL abort reasons to user aborts", async () => {

@@ -422,6 +422,58 @@ describe("SSE event processor error classification", () => {
     );
   });
 
+  it("dispatches visible activity for tool starts", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "create-document",
+            input: { title: "Plan" },
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-tool-start",
+      ),
+    );
+
+    expect(results[0]).toEqual({
+      content: [
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "create-document",
+        }),
+      ],
+    });
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:activity",
+        detail: {
+          label: "Running create-document",
+          tool: "create-document",
+          tabId: "tab-tool-start",
+        },
+      }),
+    );
+  });
+
   it("auto-continues bare gateway errors instead of surfacing a dead-end card", async () => {
     const err = await readSSEStream(
       eventStream([

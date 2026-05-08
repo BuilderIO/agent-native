@@ -224,6 +224,12 @@ describe("NewWorkspaceAppFlow", () => {
     expect(message).toContain("apps/quality/package.json exists");
     expect(message).toContain("Do not hardcode localhost");
     expect(message).toContain("appBasePath()");
+    expect(message).toContain(
+      'Use <Link to="/review"> and navigate("/review"), not "/quality/review"',
+    );
+    expect(message).toContain(
+      'agentNativePath("/_agent-native/actions/<name>")',
+    );
     expect(message).toContain("Do not add lucide-react");
     expect(message).toContain("manifest/package/deploy metadata");
     expect(message).toContain("agent card/A2A metadata");
