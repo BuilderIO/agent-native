@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.12.20
+
+### Patch Changes
+
+- 715eda8: Fix sidebar popover clipping, terminal startup visibility, automation test routing, and tiny usage rounding.
+- 715eda8: Add Vercel workspace deploy packaging and make the shared-token login gate provider-neutral.
+- 715eda8: Reduce noisy CLI Sentry reports for handled workspace watcher limits and skip first-party agent symlinks during GitHub tarball extraction on Windows.
+- 715eda8: Collect browser and server Sentry errors from shared DSN deploy configuration.
+- 715eda8: Add `vercel` as a third workspace-deploy preset alongside `cloudflare_pages` and `netlify`. When `preset=vercel`, the build emits into `.vercel/output` so the standard Vercel build pipeline picks it up unmodified.
+
 ## 0.12.19
 
 ### Patch Changes
