@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import { appBasePath, PromptComposer } from "@agent-native/core/client";
+import {
+  appBasePath,
+  PromptComposer,
+  type PromptComposerSubmitOptions,
+} from "@agent-native/core/client";
 
 export interface UploadedFile {
   path: string;
@@ -17,7 +21,11 @@ interface PromptPopoverProps {
   placeholder?: string;
   onSkip?: () => void;
   skipLabel?: string;
-  onSubmit: (prompt: string, files: UploadedFile[]) => void;
+  onSubmit: (
+    prompt: string,
+    files: UploadedFile[],
+    options: PromptComposerSubmitOptions,
+  ) => void;
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
@@ -78,6 +86,8 @@ export default function PromptPopover({
   useEffect(() => {
     if (!open) return;
     const handleClick = (e: MouseEvent) => {
+      const target = e.target as Element | null;
+      if (target?.closest("[data-agent-native-composer-popover]")) return;
       if (
         panelRef.current &&
         !panelRef.current.contains(e.target as Node) &&
@@ -118,9 +128,14 @@ export default function PromptPopover({
   );
 
   const handleSubmit = useCallback(
-    async (text: string, files: File[]) => {
+    async (
+      text: string,
+      files: File[],
+      _references: unknown,
+      options: PromptComposerSubmitOptions,
+    ) => {
       const uploaded = await uploadFiles(files);
-      onSubmit(text.trim(), uploaded);
+      onSubmit(text.trim(), uploaded, options);
     },
     [onSubmit, uploadFiles],
   );

@@ -8,6 +8,7 @@
  */
 
 import { getFrameOrigin, isTrustedFrameMessage } from "./frame.js";
+import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   isInBuilderFrame,
   isTrustedBuilderMessage,
@@ -44,6 +45,10 @@ export interface AgentChatMessage {
   requiresCode?: boolean;
   /** Model preference for this sub-agent (e.g. "claude-haiku-4-5"). Uses default if omitted */
   model?: string;
+  /** Engine preference paired with model for cross-provider switches. */
+  engine?: string;
+  /** Reasoning effort preference paired with model. */
+  effort?: ReasoningEffort;
   /** Scoped system prompt additions for this sub-agent */
   instructions?: string;
   /**

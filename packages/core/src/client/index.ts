@@ -77,6 +77,7 @@ export {
   PromptComposer,
   type PromptComposerProps,
   type PromptComposerFile,
+  type PromptComposerSubmitOptions,
 } from "./composer/PromptComposer.js";
 export {
   useChatThreads,
