@@ -83,7 +83,7 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
     } catch(e) {}
     try {
       var ref = document.referrer || '';
-      return ref.indexOf('builder.io') !== -1 || ref.indexOf('builder.my') !== -1;
+      return ref.indexOf('builder.io') !== -1 || ref.indexOf('builder.my') !== -1 || ref.indexOf('builderio.xyz') !== -1;
     } catch(e) {
       return false;
     }
