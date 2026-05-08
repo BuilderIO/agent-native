@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.12.32
+
+### Patch Changes
+
+- 8a83abd: Use redirect sign-in inside Builder.io desktop and harden Builder Google popup opening.
+- 8a83abd: Move the extensions sidebar explainer from a click popover to an interactive hovercard.
+
 ## 0.12.31
 
 ### Patch Changes
