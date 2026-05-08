@@ -21,11 +21,7 @@ import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
 import { Markdown } from "tiptap-markdown";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
-import {
-  Plugin,
-  PluginKey,
-  AllSelection,
-} from "@tiptap/pm/state";
+import { Plugin, PluginKey, AllSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { useEffect, useRef, useMemo, useState } from "react";
 import { IconPhoto } from "@tabler/icons-react";

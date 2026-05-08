@@ -275,7 +275,9 @@ export function useBuilderConnectFlow(
     try {
       const opened = window.open(url, "_blank", "noopener,noreferrer");
       if (!opened) {
-        setError("Popup blocked. Allow popups, then click Connect Builder again.");
+        setError(
+          "Popup blocked. Allow popups, then click Connect Builder again.",
+        );
       }
     } catch {
       setError("Couldn't open Builder. Allow popups and try again.");
