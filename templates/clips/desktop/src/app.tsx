@@ -838,9 +838,7 @@ export function App() {
       const existing = meetingTranscriptionRef.current;
       if (existing && !existing.stopping) {
         if (existing.meetingId === meetingId) {
-          emit("meetings:transcription-started", { meetingId }).catch(
-            () => {},
-          );
+          emit("meetings:transcription-started", { meetingId }).catch(() => {});
           return;
         }
         await stopMeetingTranscription("replaced");
@@ -881,7 +879,10 @@ export function App() {
         const addUnlisten = (promise: Promise<() => void>) => {
           promise
             .then((unlisten) => {
-              if (meetingTranscriptionRef.current !== session || session.stopping) {
+              if (
+                meetingTranscriptionRef.current !== session ||
+                session.stopping
+              ) {
                 unlisten();
                 return;
               }
@@ -978,11 +979,7 @@ export function App() {
         }).catch(() => {});
       }
     },
-    [
-      callClipsAction,
-      flushMeetingTranscript,
-      stopMeetingTranscription,
-    ],
+    [callClipsAction, flushMeetingTranscript, stopMeetingTranscription],
   );
 
   useEffect(() => {

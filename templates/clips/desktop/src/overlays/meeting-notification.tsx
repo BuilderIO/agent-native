@@ -110,18 +110,24 @@ export function MeetingNotification() {
       }),
     );
     trackListen(
-      listen<TranscriptionStatusPayload>("meetings:transcription-started", (ev) => {
-        if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
-        dismiss();
-      }),
+      listen<TranscriptionStatusPayload>(
+        "meetings:transcription-started",
+        (ev) => {
+          if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
+          dismiss();
+        },
+      ),
     );
     trackListen(
-      listen<TranscriptionStatusPayload>("meetings:transcription-error", (ev) => {
-        if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
-        setPending(false);
-        setError(ev.payload.error || "Could not start notes.");
-        scheduleDismiss(15_000);
-      }),
+      listen<TranscriptionStatusPayload>(
+        "meetings:transcription-error",
+        (ev) => {
+          if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
+          setPending(false);
+          setError(ev.payload.error || "Could not start notes.");
+          scheduleDismiss(15_000);
+        },
+      ),
     );
 
     return () => {
