@@ -17,6 +17,7 @@
  */
 import { createRequestHandler } from "react-router";
 import { defineEventHandler } from "h3";
+import { getSentryClientConfigScript } from "./sentry-config.js";
 
 function normalizeAppBasePath(value: string | undefined): string {
   if (!value || value === "/") return "";
@@ -111,6 +112,13 @@ function prefixMountedHtml(html: string, basePath: string): string {
     });
 }
 
+function injectHeadScript(html: string, script: string | null): string {
+  if (!script) return html;
+  const headCloseIdx = html.indexOf("</head>");
+  if (headCloseIdx === -1) return html;
+  return html.slice(0, headCloseIdx) + script + html.slice(headCloseIdx);
+}
+
 function isFrameworkOrAssetPath(pathname: string): boolean {
   return (
     pathname.startsWith("/.well-known/") ||
@@ -133,7 +141,8 @@ async function rewriteMountedResponse(
   response: Response,
   basePath: string,
 ): Promise<Response> {
-  if (!basePath) return response;
+  const sentryClientConfigScript = getSentryClientConfigScript();
+  if (!basePath && !sentryClientConfigScript) return response;
 
   const headers = new Headers(response.headers);
   const location = headers.get("location");
@@ -152,11 +161,14 @@ async function rewriteMountedResponse(
 
   const html = await response.text();
   headers.delete("content-length");
-  return new Response(prefixMountedHtml(html, basePath), {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
+  return new Response(
+    injectHeadScript(prefixMountedHtml(html, basePath), sentryClientConfigScript),
+    {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    },
+  );
 }
 
 /**
