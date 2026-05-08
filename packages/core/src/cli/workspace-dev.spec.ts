@@ -91,7 +91,9 @@ describe("workspace dev startup", () => {
     const { url } = await handle.ready;
     makeApp(tmpDir, "todo");
 
-    const apps = (await (await fetch(`${url}/_workspace/apps`)).json()) as Array<{
+    const apps = (await (
+      await fetch(`${url}/_workspace/apps`)
+    ).json()) as Array<{
       id: string;
       running: boolean;
     }>;

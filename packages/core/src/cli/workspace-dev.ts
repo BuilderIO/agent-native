@@ -311,7 +311,8 @@ export function runWorkspaceDev(
       ? env.WORKSPACE_DEFAULT_APP
       : null;
   const hasDispatch = appById.has("dispatch");
-  const defaultApp = explicitDefaultApp ?? (hasDispatch ? "dispatch" : apps[0].id);
+  const defaultApp =
+    explicitDefaultApp ?? (hasDispatch ? "dispatch" : apps[0].id);
   const redirectRootToDefault = Boolean(explicitDefaultApp || hasDispatch);
 
   let syncTimer: NodeJS.Timeout | undefined;
@@ -359,10 +360,8 @@ export function runWorkspaceDev(
   }
 
   function appForRequest(req: http.IncomingMessage): WorkspaceApp | null {
-    const params = new URL(
-      req.url || "/",
-      "http://workspace.local",
-    ).searchParams;
+    const params = new URL(req.url || "/", "http://workspace.local")
+      .searchParams;
     const explicit = params.get("_app");
     if (explicit && appById.has(explicit)) return appById.get(explicit) ?? null;
 
