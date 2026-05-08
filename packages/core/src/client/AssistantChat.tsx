@@ -2159,6 +2159,10 @@ export interface AssistantChatProps {
   execMode?: "build" | "plan";
   /** Callback to change execution mode */
   onExecModeChange?: (mode: "build" | "plan") => void;
+  /** Disable Plan mode while leaving Act mode available. */
+  planModeDisabled?: boolean;
+  /** Explanation shown next to the disabled Plan option. */
+  planModeDisabledReason?: string;
   /** Selected model override for this conversation (undefined = use server default) */
   selectedModel?: string;
   /** Default model from server config (shown in picker when no override is set) */
@@ -2252,6 +2256,8 @@ const AssistantChatInner = forwardRef<
     onSlashCommand,
     execMode,
     onExecModeChange,
+    planModeDisabled,
+    planModeDisabledReason,
     selectedModel,
     defaultModel,
     selectedEngine,
@@ -3531,6 +3537,8 @@ const AssistantChatInner = forwardRef<
                   onSlashCommand={onSlashCommand}
                   execMode={execMode}
                   onExecModeChange={onExecModeChange}
+                  planModeDisabled={planModeDisabled}
+                  planModeDisabledReason={planModeDisabledReason}
                   selectedModel={selectedModel ?? defaultModel}
                   selectedEffort={selectedEffort}
                   availableModels={availableModels}
