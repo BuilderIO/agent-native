@@ -11,6 +11,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { DesignSystemData, QuestionFlowQuestion } from "@shared/api";
+import {
+  SLIDES_REFERENCE_FILE_ACCEPT,
+  SLIDES_REFERENCE_FILE_LABEL,
+} from "@shared/upload-types";
 
 interface QuestionFlowProps {
   questions: QuestionFlowQuestion[];
@@ -436,14 +440,14 @@ function FileDropZone({
             <input
               type="file"
               multiple
-              accept="image/*,.pdf,.pptx,.docx"
+              accept={SLIDES_REFERENCE_FILE_ACCEPT}
               onChange={handleFileInput}
               className="hidden"
             />
           </label>
         </p>
         <p className="mt-1 text-[10px] text-muted-foreground/70">
-          Images, PDFs, PPTX, DOCX
+          {SLIDES_REFERENCE_FILE_LABEL}
         </p>
       </div>
 

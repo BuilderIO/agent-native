@@ -15,8 +15,7 @@
  */
 
 import path from "path";
-import { createClient } from "@libsql/client";
-import { getDatabaseUrl, getDatabaseAuthToken } from "../../db/client.js";
+import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
 import {
   buildScopingPostgres,
@@ -24,6 +23,7 @@ import {
   type ScopingContext,
 } from "./scoping.js";
 import { assertNoSensitiveFrameworkTables } from "./safety.js";
+import { createSqliteScriptClient } from "./sqlite-client.js";
 
 function isPostgresUrl(url: string): boolean {
   return url.startsWith("postgres://") || url.startsWith("postgresql://");
@@ -692,10 +692,7 @@ Options:
   }
 
   // libsql / SQLite path
-  const client = createClient({
-    url,
-    authToken: getDatabaseAuthToken(),
-  });
+  const client = await createSqliteScriptClient(url);
 
   try {
     // Set up user-scoped temp views in production

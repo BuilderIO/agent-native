@@ -1,6 +1,13 @@
 import { drizzle as drizzleD1 } from "drizzle-orm/d1";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
-import { getDialect, getDatabaseUrl, getDatabaseAuthToken } from "./client.js";
+import {
+  getDialect,
+  getDatabaseUrl,
+  getDatabaseAuthToken,
+  isLocalSqliteUrl,
+  prepareLocalSqliteUrl,
+  sqliteFilenameFromUrl,
+} from "./client.js";
 
 // Lazy driver loaders — cached promises so dynamic import only runs once.
 let _pgDrizzle: Promise<{ drizzle: any; postgres: any }> | undefined;
@@ -48,14 +55,28 @@ export function isNeonUrl(url: string): boolean {
   return /\.neon\.tech([:/?]|$)/.test(url);
 }
 
-let _libsqlDrizzle: Promise<{ drizzle: any }> | undefined;
-function getLibsqlDrizzle() {
-  if (!_libsqlDrizzle) {
-    _libsqlDrizzle = import("drizzle-orm/libsql").then((mod) => ({
+let _libsqlWebDrizzle: Promise<{ drizzle: any }> | undefined;
+function getLibsqlWebDrizzle() {
+  if (!_libsqlWebDrizzle) {
+    _libsqlWebDrizzle = import("drizzle-orm/libsql/web").then((mod) => ({
       drizzle: mod.drizzle,
     }));
   }
-  return _libsqlDrizzle;
+  return _libsqlWebDrizzle;
+}
+
+let _betterSqliteDrizzle: Promise<{ drizzle: any; Database: any }> | undefined;
+function getBetterSqliteDrizzle() {
+  if (!_betterSqliteDrizzle) {
+    _betterSqliteDrizzle = Promise.all([
+      import("drizzle-orm/better-sqlite3"),
+      import("better-sqlite3"),
+    ]).then(([drizzleMod, sqliteMod]) => ({
+      drizzle: drizzleMod.drizzle,
+      Database: sqliteMod.default,
+    }));
+  }
+  return _betterSqliteDrizzle;
 }
 
 export function createGetDb<T extends Record<string, unknown>>(schema: T) {
@@ -96,8 +117,17 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
           _db = drizzle(client, { schema });
         });
       }
+    } else if (isLocalSqliteUrl(url)) {
+      _dbReady = Promise.all([
+        prepareLocalSqliteUrl(url.startsWith("file:") ? url : `file:${url}`),
+        getBetterSqliteDrizzle(),
+      ]).then(([sqliteUrl, { drizzle, Database }]) => {
+        const sqlite = new Database(sqliteFilenameFromUrl(sqliteUrl));
+        sqlite.pragma("journal_mode = WAL");
+        _db = drizzle(sqlite, { schema });
+      });
     } else {
-      _dbReady = getLibsqlDrizzle().then(({ drizzle }) => {
+      _dbReady = getLibsqlWebDrizzle().then(({ drizzle }) => {
         _db = drizzle({
           connection: { url, authToken: getDatabaseAuthToken() },
           schema,

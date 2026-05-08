@@ -17,7 +17,6 @@ import type {
 import {
   CompositeAttachmentAdapter,
   SimpleImageAttachmentAdapter,
-  SimpleTextAttachmentAdapter,
 } from "@assistant-ui/react";
 import { IconX } from "@tabler/icons-react";
 import { cn } from "../utils.js";
@@ -27,6 +26,10 @@ import { useChatModels } from "../use-chat-models.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { isPastedTextAttachmentName } from "./pasted-text.js";
 import { PastedTextChip } from "./PastedTextChip.js";
+import {
+  PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
+  TextAttachmentAdapter,
+} from "./attachment-accept.js";
 
 const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
 
@@ -81,13 +84,12 @@ const NOOP_ADAPTER: ChatModelAdapter = {
 };
 
 /**
- * Local clone of AssistantChat's BinaryDocumentAttachmentAdapter so PDFs and
- * PPTX files can be attached without dragging the whole assistant chat module
- * into bundles that just want a prompt popover.
+ * Local binary document adapter so reference PDFs, decks, and docs can be
+ * attached without dragging the whole assistant chat module into bundles that
+ * just want a prompt popover.
  */
 class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
-  public accept =
-    "application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,.pdf,.pptx";
+  public accept = PROMPT_DOCUMENT_ATTACHMENT_ACCEPT;
 
   public async add(state: { file: File }): Promise<PendingAttachment> {
     return {
@@ -118,7 +120,9 @@ class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
 function isInlineableTextFile(file: File): boolean {
   if (file.type.startsWith("text/")) return true;
   if (file.type === "application/json") return true;
-  return /\.(txt|md|markdown|csv|json|yaml|yml)$/i.test(file.name);
+  return /\.(txt|md|markdown|csv|json|yaml|yml|html?|css|xml)$/i.test(
+    file.name,
+  );
 }
 
 function formatInlineTextFile(name: string, text: string): string {
@@ -364,7 +368,7 @@ export function PromptComposer(props: PromptComposerProps) {
       new CompositeAttachmentAdapter([
         new SimpleImageAttachmentAdapter(),
         new BinaryDocumentAttachmentAdapter(),
-        new SimpleTextAttachmentAdapter(),
+        new TextAttachmentAdapter(),
       ]),
     [],
   );

@@ -76,7 +76,8 @@ function UploadOnlyAttachButton() {
           </button>
         </TooltipTrigger>
         <TooltipContent>
-          Upload image, PDF, text, Markdown, JSON, CSV, HTML, CSS, or XML
+          Upload image, PDF, PPTX, DOCX, text, Markdown, JSON, CSV, HTML, CSS,
+          or XML
         </TooltipContent>
       </Tooltip>
     </>

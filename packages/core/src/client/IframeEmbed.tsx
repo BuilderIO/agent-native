@@ -84,6 +84,7 @@ export function IframeEmbed({ src, aspect, title, height }: IframeEmbedProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const resolvedAspect =
     aspect && ALLOWED_ASPECTS.has(aspect) ? aspect : "16/9";
+  const displayTitle = title?.trim() || "Embedded content";
   const paddingBottom = useMemo(
     () => aspectToPaddingBottom(resolvedAspect),
     [resolvedAspect],
@@ -117,25 +118,34 @@ export function IframeEmbed({ src, aspect, title, height }: IframeEmbedProps) {
     : { paddingBottom };
 
   return (
-    <div
-      className={cn(
-        "my-2 rounded-lg border border-border overflow-hidden bg-muted/20 relative w-full",
-      )}
-      style={style}
-    >
-      {!loaded && (
-        <div className="absolute inset-0 animate-pulse bg-muted/40" />
-      )}
-      <iframe
-        ref={iframeRef}
-        src={src}
-        title={title || "Embedded content"}
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-        referrerPolicy="same-origin"
-        loading="lazy"
-        onLoad={() => setLoaded(true)}
-        className="absolute inset-0 w-full h-full border-0 bg-transparent"
-      />
+    <div className="my-2 w-full overflow-hidden rounded-lg border border-border bg-background/60">
+      <div className="flex min-h-8 items-center gap-2 border-b border-border bg-muted/30 px-3 py-1.5">
+        <span className="shrink-0 text-[10px] font-medium uppercase text-muted-foreground">
+          Preview
+        </span>
+        <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border" />
+        <span
+          className="min-w-0 flex-1 truncate text-xs font-medium text-foreground"
+          title={displayTitle}
+        >
+          {displayTitle}
+        </span>
+      </div>
+      <div className="relative w-full bg-muted/20" style={style}>
+        {!loaded && (
+          <div className="absolute inset-0 animate-pulse bg-muted/40" />
+        )}
+        <iframe
+          ref={iframeRef}
+          src={src}
+          title={displayTitle}
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          referrerPolicy="same-origin"
+          loading="lazy"
+          onLoad={() => setLoaded(true)}
+          className="absolute inset-0 h-full w-full border-0 bg-transparent"
+        />
+      </div>
     </div>
   );
 }
