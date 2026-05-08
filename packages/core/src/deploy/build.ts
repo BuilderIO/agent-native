@@ -251,8 +251,60 @@ function prefixMountedHtml(html, basePath) {
     });
 }
 
+function firstNonEmpty() {
+  for (const value of arguments) {
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    if (trimmed) return trimmed;
+  }
+}
+
+function getSentryClientConfigScript() {
+  const env = globalThis.process?.env || {};
+  const key = firstNonEmpty(env.SENTRY_CLIENT_KEY, env.VITE_SENTRY_CLIENT_KEY);
+  const projectId = firstNonEmpty(
+    env.SENTRY_PROJECT_ID,
+    env.VITE_SENTRY_PROJECT_ID,
+  );
+  const host = firstNonEmpty(
+    env.SENTRY_INGEST_HOST,
+    env.VITE_SENTRY_INGEST_HOST,
+  );
+  const dsn =
+    firstNonEmpty(
+      env.SENTRY_CLIENT_DSN,
+      env.VITE_SENTRY_CLIENT_DSN,
+      env.VITE_SENTRY_DSN,
+      env.SENTRY_DSN,
+    ) || (key && projectId && host ? "https://" + key + "@" + host + "/" + projectId : undefined);
+  if (!dsn) return null;
+  const config = {
+    sentryDsn: dsn,
+    sentryEnvironment:
+      firstNonEmpty(
+        env.SENTRY_ENVIRONMENT,
+        env.NETLIFY_CONTEXT,
+        env.VERCEL_ENV,
+        env.NODE_ENV,
+      ) || "production",
+  };
+  return (
+    '<script data-agent-native-sentry-config>' +
+    'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
+    JSON.stringify(config) +
+    ");</script>"
+  );
+}
+
+function injectHeadScript(html, script) {
+  if (!script) return html;
+  const headCloseIdx = html.indexOf("</head>");
+  if (headCloseIdx === -1) return html;
+  return html.slice(0, headCloseIdx) + script + html.slice(headCloseIdx);
+}
+
 async function rewriteMountedResponse(response, basePath) {
-  if (!basePath) return response;
+  const sentryClientConfigScript = getSentryClientConfigScript();
+  if (!basePath && !sentryClientConfigScript) return response;
 
   const headers = new Headers(response.headers);
   const location = headers.get("location");
@@ -271,11 +323,14 @@ async function rewriteMountedResponse(response, basePath) {
 
   const html = await response.text();
   headers.delete("content-length");
-  return new Response(prefixMountedHtml(html, basePath), {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
+  return new Response(
+    injectHeadScript(prefixMountedHtml(html, basePath), sentryClientConfigScript),
+    {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    },
+  );
 }
 
 function requestWithMethod(request, method) {
