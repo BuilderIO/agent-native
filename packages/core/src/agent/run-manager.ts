@@ -217,11 +217,9 @@ export function startRun(
           abort.abort();
         }, softTimeoutMs)
       : null;
+  let pendingTerminalEvent: RunEvent | null = null;
 
-  const send = (event: AgentChatEvent) => {
-    if (run.status === "aborted" && abort.signal.aborted) return;
-
-    const runEvent: RunEvent = { seq: run.events.length, event };
+  const emitRunEvent = (runEvent: RunEvent) => {
     run.events.push(runEvent);
 
     // Notify in-memory subscribers (same isolate, fast path)
@@ -234,9 +232,23 @@ export function startRun(
     }
 
     // Persist event to SQL (fire-and-forget)
-    insertRunEvent(runId, runEvent.seq, JSON.stringify(event)).catch(() => {});
+    insertRunEvent(runId, runEvent.seq, JSON.stringify(runEvent.event)).catch(
+      () => {},
+    );
 
     checkSqlAbort();
+  };
+
+  const send = (event: AgentChatEvent) => {
+    if (run.status === "aborted" && abort.signal.aborted) return;
+
+    const runEvent: RunEvent = { seq: run.events.length, event };
+    if (isTerminalRunEvent(event)) {
+      pendingTerminalEvent = runEvent;
+      return;
+    }
+
+    emitRunEvent(runEvent);
   };
 
   // Run in background — intentionally detached from any HTTP connection
@@ -274,39 +286,7 @@ export function startRun(
       // fetch thread_data" without polling/retrying for a race window
       // where onComplete was still pending.
 
-      // 1. Emit terminal event to live subscribers + SQL event log so
-      //    in-flight SSE streams close promptly. Thread-data save below
-      //    runs in parallel with subscribers disconnecting.
-      if (run.status === "errored" || run.status === "completed") {
-        const terminal: RunEvent = {
-          seq: run.events.length,
-          event:
-            run.status === "errored"
-              ? { type: "error", error: "Agent run ended unexpectedly" }
-              : { type: "done" },
-        };
-        const last = run.events[run.events.length - 1];
-        if (!last || !isTerminalRunEvent(last.event)) {
-          run.events.push(terminal);
-          insertRunEvent(
-            runId,
-            terminal.seq,
-            JSON.stringify(terminal.event),
-          ).catch(() => {});
-          for (const subscriber of run.subscribers) {
-            try {
-              subscriber(terminal);
-            } catch {
-              // ignore — subscriber will be cleaned up below
-            }
-          }
-        }
-      }
-      for (const subscriber of run.subscribers) {
-        run.subscribers.delete(subscriber);
-      }
-
-      // 2. Await the completion callback (thread_data save). Heartbeat is
+      // 1. Await the completion callback (thread_data save). Heartbeat is
       //    still ticking so the run doesn't look stale to any concurrent
       //    /runs/active check while we wait for SQL writes to land.
       let completionError: unknown = null;
@@ -315,7 +295,10 @@ export function startRun(
         !(run.status === "aborted" && run.abortReason === "no_progress")
       ) {
         try {
-          await onComplete(run);
+          const completionRun: ActiveRun = pendingTerminalEvent
+            ? { ...run, events: [...run.events, pendingTerminalEvent] }
+            : run;
+          await onComplete(completionRun);
         } catch (err) {
           completionError = err;
           console.error(
@@ -325,19 +308,52 @@ export function startRun(
         }
       }
 
-      // 3. Stop the heartbeat — all liveness writes are done.
-      clearInterval(heartbeatTimer);
-      if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
-
-      // 4. Persist final status to SQL. If the completion callback threw,
-      //    we'd rather mark the run errored than claim success with
-      //    incomplete thread_data.
+      // 2. Compute final status. If the completion callback threw, we'd
+      //    rather mark the run errored than claim success with incomplete
+      //    thread_data.
       const finalStatus =
         run.status === "aborted"
           ? "aborted"
           : run.status === "errored" || completionError
             ? "errored"
             : "completed";
+
+      // 3. Emit the terminal event only after thread_data is durable. Live
+      //    SSE clients close on this event and usually fetch thread_data
+      //    immediately, so emitting it earlier recreates the final-message
+      //    race this manager is meant to avoid.
+      if (finalStatus === "completed" || finalStatus === "errored") {
+        const terminal: RunEvent =
+          finalStatus === "completed"
+            ? (pendingTerminalEvent ?? {
+                seq: run.events.length,
+                event: { type: "done" },
+              })
+            : pendingTerminalEvent?.event.type === "error"
+              ? pendingTerminalEvent
+              : {
+                  seq: pendingTerminalEvent?.seq ?? run.events.length,
+                  event: {
+                    type: "error",
+                    error: completionError
+                      ? "Agent response could not be saved."
+                      : "Agent run ended unexpectedly",
+                  },
+                };
+        const last = run.events[run.events.length - 1];
+        if (!last || !isTerminalRunEvent(last.event)) {
+          emitRunEvent(terminal);
+        }
+      }
+      for (const subscriber of run.subscribers) {
+        run.subscribers.delete(subscriber);
+      }
+
+      // 4. Stop the heartbeat — all liveness writes are done.
+      clearInterval(heartbeatTimer);
+      if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
+
+      // 5. Persist final status to SQL.
       try {
         await insertRunPromise;
         await updateRunStatus(runId, finalStatus);
@@ -346,7 +362,7 @@ export function startRun(
         // the heartbeat-stale path.
       }
 
-      // 5. Schedule in-memory cleanup + opportunistic old-run pruning.
+      // 6. Schedule in-memory cleanup + opportunistic old-run pruning.
       setTimeout(() => {
         activeRuns.delete(runId);
         if (threadToRun.get(threadId) === runId) {

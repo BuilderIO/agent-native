@@ -46,6 +46,8 @@ export function useChatThreads(
     try {
       if (activeThreadId) {
         localStorage.setItem(activeThreadKey, activeThreadId);
+      } else {
+        localStorage.removeItem(activeThreadKey);
       }
     } catch {}
   }, [activeThreadId, activeThreadKey]);
@@ -113,10 +115,25 @@ export function useChatThreads(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
-      }).catch(() => {
-        // If server fails, remove the optimistic thread
-        setThreads((prev) => prev.filter((t) => t.id !== id));
-      });
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            throw new Error(`Thread create failed with ${res.status}`);
+          }
+          const created = (await res.json().catch(() => null)) as
+            | ChatThreadSummary
+            | null;
+          if (!created) return;
+          setThreads((prev) =>
+            prev.map((thread) => (thread.id === id ? created : thread)),
+          );
+        })
+        .catch(() => {
+          // If server fails, remove the optimistic thread instead of leaving a
+          // phantom active tab that disappears on the next refresh.
+          setThreads((prev) => prev.filter((t) => t.id !== id));
+          setActiveThreadId((current) => (current === id ? null : current));
+        });
 
       return Promise.resolve(id);
     },
