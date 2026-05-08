@@ -277,7 +277,10 @@ function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
  * reconstructed from run events. Preserve server-only messages while still
  * accepting client-only messages and metadata.
  */
-export function mergeThreadDataForClientSave(existingRepo: any, incomingRepo: any) {
+export function mergeThreadDataForClientSave(
+  existingRepo: any,
+  incomingRepo: any,
+) {
   const merged =
     incomingRepo && typeof incomingRepo === "object" ? incomingRepo : {};
   if (
@@ -297,8 +300,8 @@ export function mergeThreadDataForClientSave(existingRepo: any, incomingRepo: an
     : null;
   if (!existingMessages || !incomingMessages) return merged;
 
-  const incomingKeySets = incomingMessages.map((entry: any) =>
-    new Set(messageIdentityKeys(getStoredMessage(entry))),
+  const incomingKeySets = incomingMessages.map(
+    (entry: any) => new Set(messageIdentityKeys(getStoredMessage(entry))),
   );
   const usedIncoming = new Set<number>();
   const nextMessages: any[] = [];
@@ -307,8 +310,7 @@ export function mergeThreadDataForClientSave(existingRepo: any, incomingRepo: an
     const existingKeys = messageIdentityKeys(getStoredMessage(existingEntry));
     const incomingIndex = incomingKeySets.findIndex(
       (keys, index) =>
-        !usedIncoming.has(index) &&
-        existingKeys.some((key) => keys.has(key)),
+        !usedIncoming.has(index) && existingKeys.some((key) => keys.has(key)),
     );
 
     if (incomingIndex === -1) {

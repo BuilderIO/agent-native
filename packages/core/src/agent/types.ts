@@ -87,6 +87,11 @@ export interface AgentChatAttachment {
 
 export interface AgentChatRequest {
   message: string;
+  /**
+   * User-visible text to persist in chat history. `message` may be normalized
+   * for the model (for example mention markup or internal continuation text).
+   */
+  displayMessage?: string;
   history?: AgentMessage[];
   /**
    * Provider-neutral transcript used for run recovery. Unlike `history`,
@@ -97,6 +102,8 @@ export interface AgentChatRequest {
   references?: AgentChatReference[];
   threadId?: string;
   attachments?: AgentChatAttachment[];
+  /** Internal retry/continuation requests should not create visible user turns. */
+  internalContinuation?: boolean;
   /** Execution mode for this turn. Plan mode is read-only and proposes before acting. */
   mode?: "act" | "plan";
   /** Per-request model override (ephemeral, from the composer model picker). */
