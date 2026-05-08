@@ -1,12 +1,19 @@
 import { agentNativePath } from "@agent-native/core/client";
 import {
   IconCheck,
+  IconInfoCircle,
   IconLoader2,
   IconPlus,
   IconTrash,
   IconUpload,
 } from "@tabler/icons-react";
-import { useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -162,6 +169,10 @@ export function AttachmentControls({
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<{
+    configured: boolean;
+    activeProvider?: { id: string; name: string } | null;
+  } | null>(null);
   const activeAttachments =
     attachments.length > 0 ? attachments : [createAttachmentDraft()];
   const blankAttachmentIndex = activeAttachments.findIndex(
@@ -170,6 +181,33 @@ export function AttachmentControls({
   const canAddAttachment =
     activeAttachments.length < MAX_EVENT_ATTACHMENTS ||
     blankAttachmentIndex >= 0;
+  const uploadUnavailable = uploadStatus?.configured === false;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchUploadStatus() {
+      try {
+        const response = await fetch(
+          agentNativePath("/_agent-native/file-upload/status"),
+        );
+        if (!response.ok) return;
+        const status = (await response.json()) as {
+          configured: boolean;
+          activeProvider?: { id: string; name: string } | null;
+        };
+        if (!cancelled) setUploadStatus(status);
+      } catch {
+        // Status is only used to improve the UI. The upload request still
+        // reports the authoritative error if this check is unavailable.
+      }
+    }
+
+    void fetchUploadStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function updateAttachment(id: string, patch: Partial<AttachmentDraft>) {
     onChange(
@@ -238,9 +276,14 @@ export function AttachmentControls({
       }
       toast.success("Attachment uploaded");
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not upload attachment.",
-      );
+      const message =
+        error instanceof Error ? error.message : "Could not upload attachment.";
+      const permissionMessage = /403|permission|forbidden|unauthorized/i.test(
+        message,
+      )
+        ? "File upload is not available with the current upload provider credentials. Check Builder.io permissions in Settings, or paste a Drive/HTTPS URL instead."
+        : message;
+      toast.error(permissionMessage);
     } finally {
       setUploading(false);
     }
@@ -321,8 +364,16 @@ export function AttachmentControls({
           variant="ghost"
           size="sm"
           className="h-7 px-1.5 text-xs text-muted-foreground"
-          disabled={!canAddAttachment || uploading}
-          onClick={() => fileInputRef.current?.click()}
+          disabled={!canAddAttachment || uploading || uploadUnavailable}
+          onClick={() => {
+            if (uploadUnavailable) {
+              toast.error(
+                "File uploads are not configured. Paste a Drive or HTTPS URL instead.",
+              );
+              return;
+            }
+            fileInputRef.current?.click();
+          }}
         >
           {uploading ? (
             <IconLoader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
@@ -332,6 +383,13 @@ export function AttachmentControls({
           {uploading ? "Uploading" : "Upload file"}
         </Button>
       </div>
+      {uploadUnavailable && (
+        <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+          <IconInfoCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          File uploads need a configured upload provider. Paste a Drive or HTTPS
+          URL for now.
+        </p>
+      )}
     </div>
   );
 }
