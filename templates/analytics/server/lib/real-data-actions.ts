@@ -141,7 +141,10 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   }
 
   if (ANALYTICS_RESULT_TERMS.test(lower)) return true;
-  if (ANALYTICS_INTENT_TERMS.test(lower) && /\b(data|source|table|sql)\b/.test(lower)) {
+  if (
+    ANALYTICS_INTENT_TERMS.test(lower) &&
+    /\b(data|source|table|sql)\b/.test(lower)
+  ) {
     return true;
   }
   return (

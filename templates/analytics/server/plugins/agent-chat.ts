@@ -11,6 +11,7 @@ import {
 } from "../lib/scoped-settings";
 import {
   hasDataQueryAttempt,
+  isSafeNoDataAnalyticsResponse,
   looksLikeAnalyticsDataRequest,
 } from "../lib/real-data-actions";
 
@@ -36,12 +37,13 @@ function realDataFinalGuard(context: AgentLoopFinalResponseGuardContext) {
   const userText = latestUserText(context.messages ?? []);
   if (!looksLikeAnalyticsDataRequest(userText)) return null;
   if (hasDataQueryAttempt(context.toolResults)) return null;
+  if (isSafeNoDataAnalyticsResponse(context.text)) return null;
 
   return {
     retryMessage:
-      "This analytics request requires real evidence before the answer can be final. Run at least one data-source action or connected provider MCP tool now. If the user named a source or tool (for example Jira, Pylon, HubSpot, Gong, Slack, Sentry, GA4, or BigQuery), use that named provider first; for HubSpot, use `hubspot-records` or a HubSpot MCP search tool for contacts/companies/tickets/general CRM records and `hubspot-deals`/`hubspot-metrics` for pipeline metrics. Do not substitute BigQuery for provider-specific data unless the user explicitly asks for a warehouse copy. Structured tables and unstructured records such as HubSpot CRM records, Pylon tickets, Jira issues, Gong calls/transcripts, and Slack messages all count as real evidence. `data-source-status`, `list-data-dictionary`, `update-dashboard`, `save-analysis`, and `generate-chart` do not count. If no source can answer, call the most relevant named source action/tool and report its exact unavailable/error result instead of inventing data.",
+      "This looks like an analytics result request, but no real source query ran. If you are making data claims, run one relevant data-source action or connected provider MCP tool now and answer from that result. If the right response is a clarification, plan, or explicit unavailable/credentials-missing message with no metrics or source-record claims, finalize that directly instead.",
     fallbackMessage:
-      "I stopped before finalizing because this analytics request requires real source evidence, and no data-source action or connected provider tool ran. I won't invent analytics results.",
+      "I can't provide a grounded analytics result yet because no real data-source query ran successfully. Tell me which source to use or connect the missing source, and I'll run it before giving numbers or source-record conclusions.",
   };
 }
 
@@ -98,6 +100,7 @@ export default createAgentChatPlugin({
     // having credentials or workspace-specific schemas configured.
     const sourceGuidance =
       "<data-source-guidance>\n" +
+      "Apply real-data requirements only when presenting analytics results, source records, or derived metrics. Do not call data-source tools for workflow migration, recurring-job setup, UI/code fixes, settings help, conceptual planning, or other non-data tasks unless the user explicitly asks for data. " +
       "Use configured data sources and actions only. Call `data-source-status` when you need to know which providers are connected, and treat provider actions as unavailable for analysis if they return missing credentials, permission, syntax, quota, or network errors. " +
       "When the user names a provider or tool such as Jira, Pylon, HubSpot, Gong, Slack, Sentry, GA4, or BigQuery, that named source is authoritative for the turn: check that provider and call its action or connected MCP tool first. For HubSpot, call `hubspot-records` or a HubSpot MCP search tool for contacts, companies, tickets, or broad CRM lookup; call `hubspot-deals`, `hubspot-metrics`, or `hubspot-pipelines` for deal pipeline analysis. Do not substitute BigQuery for Pylon, Jira, HubSpot, or another provider unless the user explicitly asks for the warehouse copy or the named provider is unavailable and the user chooses a fallback. " +
       "When the user refers to the current analysis, this analysis, this project, or asks to spin off, adapt, modify, or reuse a saved analysis, call `view-screen` first and use the returned analysis details; if an analysis id or @mention is provided, call `get-analysis` before responding. " +
@@ -105,7 +108,7 @@ export default createAgentChatPlugin({
       "For ordinary ad-hoc data questions, answer the explicit question after the first relevant successful query or bounded evidence batch instead of continuing into suggested follow-up investigations. " +
       "Unstructured source records are valid analytics evidence: Pylon tickets, Jira issues, Gong calls/transcripts, Slack messages, and similar text records may be coded for themes, mention counts, sentiment, objections, and qualitative patterns as long as the answer states the inspected sample size and does not imply unsupported statistical certainty. " +
       "For schema questions, prefer data-dictionary entries and configured warehouse schemas over assumptions. " +
-      "Never substitute fabricated numbers for a failed query or unavailable provider.\n" +
+      "Never substitute fabricated numbers for a failed query or unavailable provider. It is fine to ask a clarifying question, provide a plan, or say exactly which source is unavailable as long as you do not present metrics or source-record conclusions without evidence.\n" +
       "</data-source-guidance>";
 
     try {

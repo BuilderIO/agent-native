@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   hasDataQueryAttempt,
+  isSafeNoDataAnalyticsResponse,
   looksLikeAnalyticsDataRequest,
   stripInjectedAnalyticsGuardContext,
 } from "./real-data-actions";
@@ -75,5 +76,37 @@ describe("analytics data request classification", () => {
     expect(looksLikeAnalyticsDataRequest("fix the dashboard layout")).toBe(
       false,
     );
+  });
+
+  it("does not classify generic chat/message bug reports as data requests", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "the chat keeps typing long messages that disappear",
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("safe no-data analytics responses", () => {
+  it("allows explicit unavailable-source answers without forcing another retry", () => {
+    expect(
+      isSafeNoDataAnalyticsResponse(
+        "I can't retrieve this data right now because BigQuery credentials are not configured.",
+      ),
+    ).toBe(true);
+  });
+
+  it("allows clarification questions without unsupported result claims", () => {
+    expect(
+      isSafeNoDataAnalyticsResponse(
+        "Which data source should I use for signups: GA4 or BigQuery?",
+      ),
+    ).toBe(true);
+  });
+
+  it("blocks unsupported metric claims", () => {
+    expect(
+      isSafeNoDataAnalyticsResponse("The data shows 42 signups last week."),
+    ).toBe(false);
   });
 });
