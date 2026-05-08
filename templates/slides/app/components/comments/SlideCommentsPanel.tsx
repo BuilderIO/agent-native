@@ -513,18 +513,39 @@ export function SlideCommentsPanel({
         )}
 
         {/* Empty state */}
-        {!showInput && visibleThreads.length === 0 && (
-          <div className="text-center py-10">
-            <IconMessageCircle
-              size={28}
-              className="mx-auto mb-2 text-muted-foreground/60"
-            />
-            <p className="text-[12px] text-muted-foreground">No comments yet</p>
-            <p className="text-[11px] text-muted-foreground/70 mt-1">
-              Select text and click the comment icon to add one
-            </p>
-          </div>
-        )}
+        {!showInput &&
+          visibleThreads.length === 0 &&
+          (deckId && slideId ? (
+            <button
+              type="button"
+              onClick={() => setAddingComment(true)}
+              className="w-full text-center py-10 rounded-lg border border-dashed border-border/70 hover:border-[#609FF8]/50 hover:bg-accent transition-colors"
+            >
+              <IconMessageCircle
+                size={28}
+                className="mx-auto mb-2 text-muted-foreground/60"
+              />
+              <p className="text-[12px] text-muted-foreground">
+                No comments yet
+              </p>
+              <p className="text-[11px] text-muted-foreground/70 mt-1">
+                Click to add a comment
+              </p>
+            </button>
+          ) : (
+            <div className="text-center py-10">
+              <IconMessageCircle
+                size={28}
+                className="mx-auto mb-2 text-muted-foreground/60"
+              />
+              <p className="text-[12px] text-muted-foreground">
+                No comments yet
+              </p>
+              <p className="text-[11px] text-muted-foreground/70 mt-1">
+                Select a slide to add one
+              </p>
+            </div>
+          ))}
       </div>
     </div>
   );
