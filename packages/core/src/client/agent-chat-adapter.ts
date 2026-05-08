@@ -168,17 +168,17 @@ function extractAttachmentsFromMessage(message: {
           name: att.name,
           contentType,
           ...(decodedText !== null
-            ? { text: decodedText }
+            ? { text: truncateOutboundAttachment(decodedText) }
             : part.data.startsWith("data:")
               ? { data: part.data }
-              : { text: part.data }),
+              : { text: truncateOutboundAttachment(part.data) }),
         });
       } else if (part.type === "text" && typeof part.text === "string") {
         attachments.push({
           type: "file",
           name: att.name,
           contentType: att.contentType,
-          text: unwrapAttachmentEnvelope(part.text),
+          text: truncateOutboundAttachment(unwrapAttachmentEnvelope(part.text)),
         });
       }
     }
@@ -190,6 +190,12 @@ function truncateHistoryAttachment(text: string): string {
   if (text.length <= MAX_HISTORY_ATTACHMENT_CHARS) return text;
   const omitted = text.length - MAX_HISTORY_ATTACHMENT_CHARS;
   return `${text.slice(0, MAX_HISTORY_ATTACHMENT_CHARS)}\n\n[Attachment truncated after ${MAX_HISTORY_ATTACHMENT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted from prior chat history.]`;
+}
+
+function truncateOutboundAttachment(text: string): string {
+  if (text.length <= MAX_HISTORY_ATTACHMENT_CHARS) return text;
+  const omitted = text.length - MAX_HISTORY_ATTACHMENT_CHARS;
+  return `${text.slice(0, MAX_HISTORY_ATTACHMENT_CHARS)}\n\n[Attachment truncated after ${MAX_HISTORY_ATTACHMENT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted from the submitted attachment.]`;
 }
 
 function attachmentHistoryText(
@@ -618,6 +624,7 @@ export function createAgentChatAdapter(options?: {
         structuredHistory;
       let includeAttachments = attachments.length > 0;
       let includeReferences = Boolean(runConfig?.custom?.references);
+      let internalContinuationRequest = false;
       let startupRecoveryAttempts = 0;
       let staleRunContinuationAttempts = 0;
       let stalledTransientContinuationAttempts = 0;
@@ -972,6 +979,7 @@ export function createAgentChatAdapter(options?: {
           // with nothing attached after a stale run or reconnect recovery.
           includeAttachments = attachments.length > 0;
           includeReferences = Boolean(runConfig?.custom?.references);
+          internalContinuationRequest = true;
           startupRecoveryAttempts = 0;
           clearActiveRun();
           if (!isTransient) {
@@ -993,9 +1001,13 @@ export function createAgentChatAdapter(options?: {
               headers,
               body: JSON.stringify({
                 message: currentMessageText,
+                displayMessage: userMessageText,
                 history: currentHistory,
                 structuredHistory: currentStructuredHistory,
                 ...(threadId ? { threadId } : {}),
+                ...(internalContinuationRequest
+                  ? { internalContinuation: true }
+                  : {}),
                 ...(requestMode ? { mode: requestMode } : {}),
                 ...(modelRef?.current ? { model: modelRef.current } : {}),
                 ...(engineRef?.current ? { engine: engineRef.current } : {}),

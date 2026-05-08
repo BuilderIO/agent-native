@@ -55,10 +55,14 @@ export function RunsTray({
     async (runId: string) => {
       setRuns((current) => current.filter((run) => run.id !== runId));
       try {
-        await fetch(agentNativePath(`/_agent-native/runs/${runId}`), {
-          method: "DELETE",
-          headers: { "X-Agent-Native-CSRF": "1" },
-        });
+        const res = await fetch(
+          agentNativePath(`/_agent-native/runs/${runId}`),
+          {
+            method: "DELETE",
+            headers: { "X-Agent-Native-CSRF": "1" },
+          },
+        );
+        if (!res.ok) throw new Error(`Dismiss failed (${res.status})`);
       } catch {
         refresh();
       }
