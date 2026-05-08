@@ -105,6 +105,29 @@ describe("buildUserContentWithAttachments", () => {
     );
   });
 
+  it("unwraps and truncates oversized text attachments before model input", () => {
+    const longBody = "A".repeat(60_010);
+    const content = buildUserContentWithAttachments({
+      text: "Summarize the transcript",
+      attachments: [
+        {
+          type: "file",
+          name: "transcript.txt",
+          contentType: "text/plain",
+          text: `<attachment name=transcript.txt>\n${longBody}\n</attachment>`,
+        },
+      ],
+    });
+
+    const text = content[0].type === "text" ? content[0].text : "";
+    expect(text).toContain("A".repeat(60_000));
+    expect(text).toContain(
+      "[Attachment truncated after 60,000 characters; 10 characters omitted",
+    );
+    expect(text).not.toContain("<attachment name=transcript.txt>");
+    expect(text).toContain("Summarize the transcript");
+  });
+
   it("adds binary file attachments before the prompt text", () => {
     expect(
       buildUserContentWithAttachments({

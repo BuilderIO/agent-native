@@ -95,7 +95,9 @@ function isTextAttachmentContentType(value: string | undefined): boolean {
 }
 
 function decodeTextDataUrl(dataUrl: string): string | null {
-  const match = dataUrl.match(/^data:([^;,]+)(?:;charset=[^;,]+)?(;base64)?,(.*)$/i);
+  const match = dataUrl.match(
+    /^data:([^;,]+)(?:;charset=[^;,]+)?(;base64)?,(.*)$/i,
+  );
   if (!match || !isTextAttachmentContentType(match[1])) return null;
 
   try {
@@ -103,8 +105,9 @@ function decodeTextDataUrl(dataUrl: string): string | null {
     if (match[2]) {
       if (typeof atob === "function") {
         return decodeURIComponent(
-          Array.from(atob(payload), (char) =>
-            `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`,
+          Array.from(
+            atob(payload),
+            (char) => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`,
           ).join(""),
         );
       }
