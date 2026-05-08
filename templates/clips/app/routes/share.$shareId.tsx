@@ -32,6 +32,10 @@ import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { getDb, schema } from "../../server/db";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
+import {
+  parsePlaybackSpeed,
+  readPlaybackSpeedPreference,
+} from "@/lib/playback-speed";
 
 type SharePageMetaRecording = {
   id: string;
@@ -164,7 +168,7 @@ export default function ShareRoute() {
   });
   const [pwError, setPwError] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(0);
-  const [speed, setSpeed] = useState(1.2);
+  const [speed, setSpeed] = useState(() => readPlaybackSpeedPreference(1.2));
   const { session } = useSession();
   const [signInIntent, setSignInIntent] = useState<"comment" | "react" | null>(
     null,
@@ -219,8 +223,8 @@ export default function ShareRoute() {
 
   useEffect(() => {
     if (!recording) return;
-    const s = parseFloat(recording.defaultSpeed || "1.2");
-    if (!Number.isNaN(s)) setSpeed(s);
+    const s = parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2;
+    setSpeed(readPlaybackSpeedPreference(s));
   }, [recording?.defaultSpeed]);
 
   usePlayerShortcuts({ playerRef, speed, setSpeed });
@@ -448,6 +452,7 @@ export default function ShareRoute() {
               reactions={reactions}
               transcriptSegments={transcriptSegments}
               cta={firstCta}
+              onSpeedChange={setSpeed}
               onCtaClick={() => tracking.reportCtaClick()}
               onTimeUpdate={(ms) => setCurrentMs(ms)}
               className="w-full h-full"

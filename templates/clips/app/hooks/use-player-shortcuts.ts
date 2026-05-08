@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { VideoPlayerHandle } from "@/components/player/video-player";
-import { SPEED_OPTIONS } from "@/components/player/player-controls";
+import { PLAYBACK_SPEED_OPTIONS } from "@/lib/playback-speed";
 
 export interface Chapter {
   startMs: number;
@@ -118,11 +118,13 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
         case ">":
         case ".": {
           e.preventDefault();
-          const idx = SPEED_OPTIONS.indexOf(speed);
+          const idx = PLAYBACK_SPEED_OPTIONS.indexOf(speed);
           const next =
             idx === -1
-              ? (SPEED_OPTIONS.find((s) => s > speed) ?? speed)
-              : SPEED_OPTIONS[Math.min(SPEED_OPTIONS.length - 1, idx + 1)];
+              ? (PLAYBACK_SPEED_OPTIONS.find((s) => s > speed) ?? speed)
+              : PLAYBACK_SPEED_OPTIONS[
+                  Math.min(PLAYBACK_SPEED_OPTIONS.length - 1, idx + 1)
+                ];
           player.setSpeed(next);
           setSpeed(next);
           break;
@@ -130,13 +132,13 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
         case "<":
         case ",": {
           e.preventDefault();
-          const idx = SPEED_OPTIONS.indexOf(speed);
+          const idx = PLAYBACK_SPEED_OPTIONS.indexOf(speed);
           const next =
             idx === -1
-              ? (SPEED_OPTIONS.slice()
+              ? (PLAYBACK_SPEED_OPTIONS.slice()
                   .reverse()
                   .find((s) => s < speed) ?? speed)
-              : SPEED_OPTIONS[Math.max(0, idx - 1)];
+              : PLAYBACK_SPEED_OPTIONS[Math.max(0, idx - 1)];
           player.setSpeed(next);
           setSpeed(next);
           break;

@@ -25,8 +25,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { PLAYBACK_SPEED_OPTIONS } from "@/lib/playback-speed";
 
-export const SPEED_OPTIONS = [0.5, 0.8, 1, 1.2, 1.5, 1.7, 2, 2.5];
+export const SPEED_OPTIONS = PLAYBACK_SPEED_OPTIONS;
 
 export interface PlayerControlsProps {
   isPlaying: boolean;
