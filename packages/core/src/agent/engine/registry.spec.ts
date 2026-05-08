@@ -13,11 +13,11 @@ describe("AgentEngine registry", () => {
     // Clear env vars that influence resolveEngine
     delete process.env.AGENT_ENGINE;
     delete process.env.AGENT_ENGINE_PREFER_BYO_KEY;
-    delete process.env.ANTHROPIC_API_KEY;
-    delete process.env.OPENAI_API_KEY;
-    delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-    delete process.env.BUILDER_PRIVATE_KEY;
-    delete process.env.BUILDER_PUBLIC_KEY;
+    delete process.env.ANTHROPIC_API_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
+    delete process.env.OPENAI_API_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
+    delete process.env.GOOGLE_GENERATIVE_AI_API_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
+    delete process.env.BUILDER_PRIVATE_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
+    delete process.env.BUILDER_PUBLIC_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
   });
 
   it("registers and retrieves an engine", async () => {
@@ -537,7 +537,7 @@ describe("AgentEngine registry", () => {
     });
 
     it("resolveEngine prefers connected Builder over a stale stored provider env key", async () => {
-      process.env.OPENAI_API_KEY = "sk-ant-wrong-provider";
+      process.env.OPENAI_API_KEY = "sk-ant-wrong-provider"; // guard:allow-env-credential — fixture: simulate a stale deploy env key
       vi.doMock("../../settings/store.js", () => ({
         getSetting: vi.fn().mockResolvedValue({
           engine: "ai-sdk:openai",
@@ -686,7 +686,7 @@ describe("AgentEngine registry", () => {
 
     it("does not auto-detect deploy-level provider env keys for signed-in production shared-database users", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      process.env.OPENAI_API_KEY = "sk-deploy";
+      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — fixture: prove signed-in users do NOT pick up deploy env
       vi.doMock("../../settings/store.js", () => ({
         getSetting: vi.fn().mockResolvedValue(null),
       }));
@@ -744,7 +744,7 @@ describe("AgentEngine registry", () => {
 
     it("disables deploy env fallback for explicitly selected engines in signed-in production shared-database requests", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      process.env.OPENAI_API_KEY = "sk-deploy";
+      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — fixture: prove explicit engine selection does NOT fall back to deploy env
       vi.doMock("../../server/request-context.js", () => ({
         getRequestUserEmail: () => "new@example.com",
         getRequestOrgId: () => "org-1",
