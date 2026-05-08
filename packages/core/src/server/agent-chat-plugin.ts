@@ -32,6 +32,7 @@ import {
 } from "../agent/engine/index.js";
 import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import type {
+  AgentChatAttachment,
   AgentChatEvent,
   ActionTool,
   MentionProvider,
@@ -55,11 +56,14 @@ import { discoverAgents } from "./agent-discovery.js";
 import { loadSchemaPromptBlock } from "./schema-prompt.js";
 import {
   buildAssistantMessage,
+  buildUserMessage,
   extractThreadMeta,
   mergeThreadDataForClientSave,
   upsertAssistantMessage,
+  upsertUserMessage,
 } from "../agent/thread-data-builder.js";
 import {
+  createError,
   defineEventHandler,
   setResponseStatus,
   setResponseHeader,
@@ -3283,6 +3287,13 @@ export function createAgentChatPlugin(
                 `Agent chat thread ${threadId} was not found while saving run ${run.runId}.`,
               );
             }
+            const runOwner = getRequestRunContext()?.owner ?? getRequestUserEmail();
+            if (runOwner && thread.ownerEmail !== runOwner) {
+              throw createError({
+                statusCode: 404,
+                statusMessage: "Thread not found",
+              });
+            }
 
             const assistantMsg = buildAssistantMessage(
               run.events ?? [],
@@ -3454,6 +3465,59 @@ export function createAgentChatPlugin(
             }
           }
         })();
+      };
+
+      const persistSubmittedUserMessage = async (details: {
+        runId: string;
+        threadId: string | undefined;
+        message: string;
+        attachments?: AgentChatAttachment[];
+      }) => {
+        if (!details.threadId) return;
+        const ownerEmail = getRequestRunContext()?.owner ?? getRequestUserEmail();
+        if (!ownerEmail) return;
+
+        await withThreadDataLock(details.threadId, async () => {
+          let thread = await getThread(details.threadId!);
+          if (!thread) {
+            try {
+              thread = await createThread(ownerEmail, { id: details.threadId });
+            } catch {
+              thread = await getThread(details.threadId!);
+            }
+          }
+          if (!thread || thread.ownerEmail !== ownerEmail) {
+            throw createError({
+              statusCode: 404,
+              statusMessage: "Thread not found",
+            });
+          }
+
+          let repo: any;
+          try {
+            repo = JSON.parse(thread.threadData || "{}");
+          } catch {
+            repo = {};
+          }
+
+          repo = upsertUserMessage(
+            repo,
+            buildUserMessage({
+              text: details.message,
+              attachments: details.attachments,
+              runId: details.runId,
+            }),
+          );
+
+          const meta = extractThreadMeta(repo);
+          await updateThreadData(
+            details.threadId,
+            JSON.stringify(repo),
+            meta.title || thread.title,
+            meta.preview || thread.preview,
+            Array.isArray(repo.messages) ? repo.messages.length : thread.messageCount,
+          );
+        });
       };
 
       // ─── Agent Teams: per-run send reference ─────────────────────────
@@ -3654,6 +3718,7 @@ export function createAgentChatPlugin(
             runCtx.model = model;
           }
         },
+        onRunPrepared: persistSubmittedUserMessage,
         onRunStart: async (
           send: (event: import("../agent/types.js").AgentChatEvent) => void,
           threadId: string,
@@ -3695,6 +3760,7 @@ export function createAgentChatPlugin(
                   runCtx.model = model;
                 }
               },
+              onRunPrepared: persistSubmittedUserMessage,
               onRunStart: async (
                 send: (
                   event: import("../agent/types.js").AgentChatEvent,
@@ -3791,6 +3857,7 @@ export function createAgentChatPlugin(
               runCtx.model = model;
             }
           },
+          onRunPrepared: persistSubmittedUserMessage,
           onRunStart: async (
             send: (event: import("../agent/types.js").AgentChatEvent) => void,
             threadId: string,
