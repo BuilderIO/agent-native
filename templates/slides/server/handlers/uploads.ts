@@ -5,23 +5,20 @@ import {
 } from "h3";
 import path from "path";
 import fs from "fs";
-import crypto from "crypto";
 import { nanoid } from "nanoid";
 import { getSession } from "@agent-native/core/server";
+import { tenantUploadDir } from "../lib/tenant-files.js";
 import {
   SLIDES_REFERENCE_FILE_ERROR_LABEL,
   isSlidesReferenceFileExtension,
 } from "../../shared/upload-types";
 
-const UPLOADS_ROOT = path.join(process.cwd(), "data", "uploads");
-
-function tenantUploadDir(email: string): string {
-  const key = crypto
-    .createHash("sha256")
-    .update(email.trim().toLowerCase())
-    .digest("hex")
-    .slice(0, 24);
-  return path.join(UPLOADS_ROOT, key);
+export interface UploadedReferenceFile {
+  path: string;
+  originalName: string;
+  filename: string;
+  type: string;
+  size: number;
 }
 
 function safeFilename(originalName: string): string | null {
@@ -67,6 +64,43 @@ function hasExpectedSignature(ext: string, data: Uint8Array): boolean {
   return !data.subarray(0, 4096).includes(0);
 }
 
+function pathForAgent(absPath: string): string {
+  const relative = path.relative(process.cwd(), absPath);
+  if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) {
+    return relative.split(path.sep).join("/");
+  }
+  return absPath;
+}
+
+export async function saveUploadedReferenceFile(args: {
+  email: string;
+  originalName: string;
+  data: Uint8Array;
+  type?: string;
+}): Promise<UploadedReferenceFile> {
+  const filename = safeFilename(args.originalName);
+  if (!filename) {
+    throw new Error(
+      `Unsupported file type. Allowed: ${SLIDES_REFERENCE_FILE_ERROR_LABEL}.`,
+    );
+  }
+  const ext = path.extname(filename).toLowerCase();
+  if (!hasExpectedSignature(ext, args.data)) {
+    throw new Error(`File contents do not match ${ext} upload type`);
+  }
+  const uploadDir = tenantUploadDir(args.email);
+  await fs.promises.mkdir(uploadDir, { recursive: true });
+  const destPath = path.join(uploadDir, filename);
+  await fs.promises.writeFile(destPath, args.data);
+  return {
+    path: pathForAgent(destPath),
+    originalName: args.originalName,
+    filename,
+    type: args.type || "application/octet-stream",
+    size: args.data.length,
+  };
+}
+
 // Upload one or more files
 export const uploadFiles = defineEventHandler(async (event) => {
   const session = await getSession(event).catch(() => null);
@@ -103,31 +137,12 @@ export const uploadFiles = defineEventHandler(async (event) => {
   try {
     results = await Promise.all(
       fileParts.map(async (part) => {
-        const originalName = part.filename || "upload";
-        const filename = safeFilename(originalName);
-        if (!filename) {
-          throw new Error(
-            `Unsupported file type. Allowed: ${SLIDES_REFERENCE_FILE_ERROR_LABEL}.`,
-          );
-        }
-        const ext = path.extname(filename).toLowerCase();
-        if (!hasExpectedSignature(ext, part.data)) {
-          throw new Error(`File contents do not match ${ext} upload type`);
-        }
-        const uploadDir = tenantUploadDir(session.email);
-        await fs.promises.mkdir(uploadDir, { recursive: true });
-        const destPath = path.join(uploadDir, filename);
-        await fs.promises.writeFile(destPath, part.data);
-        return {
-          path: path
-            .relative(process.cwd(), destPath)
-            .split(path.sep)
-            .join("/"),
-          originalName,
-          filename,
-          type: part.type || "application/octet-stream",
-          size: part.data.length,
-        };
+        return saveUploadedReferenceFile({
+          email: session.email,
+          originalName: part.filename || "upload",
+          data: part.data,
+          type: part.type,
+        });
       }),
     );
   } catch (err) {

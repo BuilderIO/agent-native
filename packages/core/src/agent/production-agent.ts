@@ -452,6 +452,36 @@ export interface ProductionAgentOptions {
     message: string;
     attachments?: AgentChatAttachment[];
   }) => void | Promise<void>;
+  /**
+   * Optional per-template request normalizer. Runs after owner resolution and
+   * before system/context assembly so templates can materialize uploaded chat
+   * attachments or append app-specific, non-visible instructions.
+   */
+  prepareRequest?: (details: {
+    event: any;
+    ownerEmail: string | null;
+    message: string;
+    displayMessage?: string;
+    attachments: AgentChatAttachment[];
+    references: AgentChatReference[];
+    threadId?: string;
+    internalContinuation?: boolean;
+    mode: AgentExecutionMode;
+  }) =>
+    | void
+    | {
+        message?: string;
+        displayMessage?: string;
+        attachments?: AgentChatAttachment[];
+      }
+    | Promise<
+        | void
+        | {
+            message?: string;
+            displayMessage?: string;
+            attachments?: AgentChatAttachment[];
+          }
+      >;
   /** Optional per-app agent run chunk budget in milliseconds. Defaults to
    *  AGENT_RUN_SOFT_TIMEOUT_MS when set, otherwise no framework-imposed
    *  timeout. When reached, the client receives an internal auto-continuation
@@ -1632,14 +1662,41 @@ export function createProductionAgentHandler(
       setResponseStatus(event, 400);
       return { error: "message is required" };
     }
-    const requestMessage = hasMessageText
+    let requestMessage = hasMessageText
       ? message
       : "Use the attached context.";
+    let requestAttachments = Array.isArray(attachments) ? attachments : [];
+    let requestDisplayMessage = displayMessage;
 
     // Resolve owner first so we can look up a per-owner API key. Users
     // who bring their own key use their key for this request (durable
     // across serverless cold starts via the settings table).
     const ownerEmail = await resolveAgentOwnerEmail(options, event);
+    const preparedRequest = await options.prepareRequest?.({
+      event,
+      ownerEmail,
+      message: requestMessage,
+      displayMessage: requestDisplayMessage,
+      attachments: requestAttachments,
+      references,
+      threadId,
+      internalContinuation: Boolean(internalContinuation),
+      mode: requestMode,
+    });
+    if (preparedRequest) {
+      if (
+        typeof preparedRequest.message === "string" &&
+        preparedRequest.message.trim().length > 0
+      ) {
+        requestMessage = preparedRequest.message;
+      }
+      if (typeof preparedRequest.displayMessage === "string") {
+        requestDisplayMessage = preparedRequest.displayMessage;
+      }
+      if (Array.isArray(preparedRequest.attachments)) {
+        requestAttachments = preparedRequest.attachments;
+      }
+    }
 
     // When a per-request engine override is specified, resolve the API key
     // for that provider instead of the global active engine's provider.
@@ -1976,7 +2033,7 @@ export function createProductionAgentHandler(
 
     const userContent = buildUserContentWithAttachments({
       text: enrichedMessage + screenContext + filesContext + planModeAgentNote,
-      attachments,
+      attachments: requestAttachments,
     });
 
     const historyMessages =
@@ -2012,14 +2069,15 @@ export function createProductionAgentHandler(
     const runId = generateRunId();
     if (options.onRunPrepared && !internalContinuation) {
       const messageToPersist =
-        typeof displayMessage === "string" && displayMessage.trim().length > 0
-          ? displayMessage
+        typeof requestDisplayMessage === "string" &&
+        requestDisplayMessage.trim().length > 0
+          ? requestDisplayMessage
           : requestMessage;
       await options.onRunPrepared({
         runId,
         threadId,
         message: messageToPersist,
-        attachments: Array.isArray(attachments) ? attachments : [],
+        attachments: requestAttachments,
       });
     }
     startRun(

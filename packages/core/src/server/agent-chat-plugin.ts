@@ -34,6 +34,7 @@ import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import type {
   AgentChatAttachment,
   AgentChatEvent,
+  AgentChatReference,
   ActionTool,
   MentionProvider,
   MentionProviderItem,
@@ -1417,6 +1418,36 @@ export interface AgentChatPluginOptions {
    * real data-source tool calls for analytics requests.
    */
   finalResponseGuard?: import("../agent/production-agent.js").AgentLoopFinalResponseGuard;
+  /**
+   * Optional per-template request normalizer. Runs after authentication and
+   * before the model sees the message, so apps can translate chat attachments
+   * into template-native file handles while preserving the user's visible text.
+   */
+  prepareRequest?: (details: {
+    event: any;
+    ownerEmail: string | null;
+    message: string;
+    displayMessage?: string;
+    attachments: AgentChatAttachment[];
+    references: AgentChatReference[];
+    threadId?: string;
+    internalContinuation?: boolean;
+    mode: "act" | "plan";
+  }) =>
+    | void
+    | {
+        message?: string;
+        displayMessage?: string;
+        attachments?: AgentChatAttachment[];
+      }
+    | Promise<
+        | void
+        | {
+            message?: string;
+            displayMessage?: string;
+            attachments?: AgentChatAttachment[];
+          }
+      >;
   /**
    * Use ONLY the template's `systemPrompt` and the actions list — skip the
    * framework prompt wrapper, resource loading (AGENTS.md/LEARNINGS.md/
@@ -3715,6 +3746,7 @@ export function createAgentChatPlugin(
         apiKey: options?.apiKey,
         runSoftTimeoutMs: options?.runSoftTimeoutMs,
         finalResponseGuard: options?.finalResponseGuard,
+        prepareRequest: options?.prepareRequest,
         skipFilesContext: leanPrompt,
         onEngineResolved: (engine, model) => {
           const runCtx = ensureRequestRunContext();
@@ -3757,6 +3789,7 @@ export function createAgentChatPlugin(
               apiKey: options?.apiKey,
               runSoftTimeoutMs: options?.runSoftTimeoutMs,
               finalResponseGuard: options?.finalResponseGuard,
+              prepareRequest: options?.prepareRequest,
               skipFilesContext: true,
               onEngineResolved: (engine, model) => {
                 const runCtx = ensureRequestRunContext();
@@ -3854,6 +3887,7 @@ export function createAgentChatPlugin(
           apiKey: options?.apiKey,
           runSoftTimeoutMs: options?.runSoftTimeoutMs,
           finalResponseGuard: options?.finalResponseGuard,
+          prepareRequest: options?.prepareRequest,
           skipFilesContext: leanPrompt,
           onEngineResolved: (engine, model) => {
             const runCtx = ensureRequestRunContext();
