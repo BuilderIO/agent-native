@@ -1,5 +1,19 @@
 # @agent-native/core
 
+## 0.12.27
+
+### Patch Changes
+
+- 08d4113: Broaden composer upload filters so Markdown, JSON, CSV, DOCX, and PPTX reference files are selectable in native file pickers.
+- 08d4113: Buffer streamed assistant text until the final-response guard approves it, so rejected answers never flash before the corrective retry. Removes the `clear` event the UI used to swallow.
+- 08d4113: Improve assistant chat embed previews and sub-agent task card labels.
+- 08d4113: Clear stale chat activity when corrective agent retries discard partial output.
+- 08d4113: Add Preview header bar to IframeEmbed showing the embed's title above the iframe.
+- c195ddd: Include installed libsql native packages in Node serverless bundles so hosted apps do not fail loading local SQLite/libsql fallbacks.
+- 08d4113: Use better-sqlite3 for local SQLite file URLs and `@libsql/client/web` for remote libsql/Turso URLs so serverless bundles no longer depend on libsql's platform-specific native packages. The deploy bundler still copies any installed `@libsql/<platform>` natives into Netlify/Vercel/Lambda outputs as a safety net.
+- 08d4113: Bundle agent chat feedback controls with the main client entry so missing lazy chunks cannot crash the agent panel.
+- 08d4113: Show visible assistant error text for chat authentication failures instead of blank messages.
+
 ## 0.12.26
 
 ### Patch Changes
