@@ -272,20 +272,38 @@ describe("resolveBuilderCredential", () => {
     expect(mockReadAppSecret).toHaveBeenCalledTimes(1);
   });
 
-  it("returns null when neither user nor org scope has the key", async () => {
+  it("returns null when no scoped Builder row has the key", async () => {
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
     mockReadAppSecret.mockResolvedValue(null);
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
   });
 
-  it("does not check org scope when caller has no active org", async () => {
+  it("checks solo workspace scope when caller has no active org", async () => {
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockGetRequestOrgId.mockReturnValue(undefined);
-    mockReadAppSecret.mockResolvedValue(null);
-    expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
-    expect(mockReadAppSecret).toHaveBeenCalledTimes(1);
-    expect(mockReadAppSecret.mock.calls[0][0].scope).toBe("user");
+    mockReadAppSecret
+      .mockResolvedValueOnce(null) // user scope miss
+      .mockResolvedValueOnce({
+        value: "solo-workspace-key",
+        last4: "-key",
+        updatedAt: 1,
+      });
+    expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
+      "solo-workspace-key",
+    );
+    expect(mockReadAppSecret.mock.calls.map((c) => c[0])).toEqual([
+      {
+        key: "BUILDER_PRIVATE_KEY",
+        scope: "user",
+        scopeId: "a@b.com",
+      },
+      {
+        key: "BUILDER_PRIVATE_KEY",
+        scope: "workspace",
+        scopeId: "solo:a@b.com",
+      },
+    ]);
   });
 
   it("reports the effective credential source", async () => {
@@ -296,6 +314,20 @@ describe("resolveBuilderCredential", () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ value: "org-key", last4: "-key", updatedAt: 1 });
     expect(await resolveBuilderCredentialSource()).toBe("org");
+  });
+
+  it("reports workspace as the credential source for legacy shared Builder rows", async () => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        value: "workspace-key",
+        last4: "-key",
+        updatedAt: 1,
+      });
+    expect(await resolveBuilderCredentialSource()).toBe("workspace");
   });
 
   it("reports env as the credential source when scoped credentials are missing", async () => {
