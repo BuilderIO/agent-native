@@ -11,7 +11,7 @@ import {
 } from "../lib/scoped-settings";
 import {
   hasDataQueryAttempt,
-  REAL_DATA_REQUIRED_MARKER,
+  looksLikeAnalyticsDataRequest,
 } from "../lib/real-data-actions";
 
 const SQL_DASHBOARD_PREFIX = "sql-dashboard-";
@@ -30,28 +30,6 @@ function latestUserText(
     if (text.trim()) return text;
   }
   return "";
-}
-
-function looksLikeAnalyticsDataRequest(text: string): boolean {
-  const lower = text.toLowerCase();
-  if (lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase())) return true;
-  if (
-    /\b(open|navigate|go to|rename|delete|share|favorite|unfavorite)\b/.test(
-      lower,
-    )
-  ) {
-    return false;
-  }
-  if (
-    /\b(fix|bug|layout|style|component|route|code|source code|integration|connect|configure|settings)\b/.test(
-      lower,
-    )
-  ) {
-    return false;
-  }
-  return /\b(analy[sz]e|analysis|dashboard|panel|metric|metrics|count|total|trend|breakdown|conversion|funnel|revenue|traffic|pageviews?|signups?|events?|users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|messages?|sentiment|themes?|objections?)\b/.test(
-    lower,
-  );
 }
 
 function realDataFinalGuard(context: AgentLoopFinalResponseGuardContext) {

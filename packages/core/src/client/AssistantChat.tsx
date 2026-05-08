@@ -3137,6 +3137,18 @@ const AssistantChatInner = forwardRef<
   }, [tabId]);
 
   useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { tabId?: string };
+      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
+      setActivityLabel(null);
+      setActivitySteps([]);
+    };
+    window.addEventListener("agent-chat:activity-clear", handler);
+    return () =>
+      window.removeEventListener("agent-chat:activity-clear", handler);
+  }, [tabId]);
+
+  useEffect(() => {
     if (!showRunningInUI) {
       setActivityLabel(null);
       setActivitySteps([]);
