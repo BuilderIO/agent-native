@@ -25,7 +25,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
+import { cn, shortcutLabel, shortcutModifierLabel } from "@/lib/utils";
 import { DayHeader } from "@/components/meetings/day-header";
 import { PageHeader } from "@/components/library/page-header";
 import {
@@ -164,7 +164,7 @@ function sourceMeta(source: string | undefined): {
       };
     case "cmd-shift-space":
       return {
-        label: "Cmd+Shift+Space",
+        label: shortcutLabel("cmd+shift+space"),
         icon: <IconCommand className="h-3 w-3" />,
       };
     case "manual":
@@ -234,8 +234,9 @@ function HowToCard({ defaultOpen = true }: { defaultOpen?: boolean }) {
               <span className="text-xs font-medium">Desktop shortcuts</span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Hold <Kbd>Fn</Kbd> anywhere on your Mac, or use <Kbd>⌘</Kbd>{" "}
-              <Kbd>⇧</Kbd> <Kbd>Space</Kbd>, in the desktop app.
+              Hold <Kbd>Fn</Kbd> anywhere on your Mac, or use{" "}
+              <Kbd>{shortcutModifierLabel()}</Kbd> <Kbd>⇧</Kbd>{" "}
+              <Kbd>Space</Kbd>, in the desktop app.
             </p>
           </div>
         </div>
@@ -257,7 +258,7 @@ function FilterTabs({
     { id: "all", label: "All" },
     { id: "manual", label: "Browser" },
     { id: "fn-hold", label: "Hold Fn" },
-    { id: "cmd-shift-space", label: "Cmd+Shift+Space" },
+    { id: "cmd-shift-space", label: shortcutLabel("cmd+shift+space") },
   ];
   return (
     <div className="flex items-center gap-1 mb-3">
@@ -320,7 +321,7 @@ function WebDictationPanel({
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             Press{" "}
             <span className="inline-flex items-center gap-1">
-              <Kbd>⌘</Kbd>
+              <Kbd>{shortcutModifierLabel()}</Kbd>
               <Kbd>⇧</Kbd>
               <Kbd>Space</Kbd>
             </span>{" "}
@@ -595,7 +596,8 @@ function EmptyState({ isDesktopApp }: { isDesktopApp: boolean }) {
       {isDesktopApp ? (
         <>
           <p className="mt-1 text-xs text-muted-foreground max-w-sm mx-auto leading-relaxed">
-            Hold <Kbd>Fn</Kbd> anywhere on your Mac, or press <Kbd>⌘</Kbd>
+            Hold <Kbd>Fn</Kbd> anywhere on your Mac, or press{" "}
+            <Kbd>{shortcutModifierLabel()}</Kbd>
             <Kbd>⇧</Kbd>
             <Kbd>Space</Kbd>. Your history will live here.
           </p>
@@ -618,7 +620,7 @@ function EmptyState({ isDesktopApp }: { isDesktopApp: boolean }) {
             <Kbd>Fn</Kbd>
             <span className="text-muted-foreground/60">hold to dictate</span>
             <span className="text-muted-foreground/40">·</span>
-            <Kbd>⌘</Kbd>
+            <Kbd>{shortcutModifierLabel()}</Kbd>
             <Kbd>⇧</Kbd>
             <Kbd>Space</Kbd>
             <span className="text-muted-foreground/60">toggle</span>
@@ -638,7 +640,7 @@ function DownloadDesktopAppCard() {
           Dictate from anywhere with the desktop app
         </div>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          Hold <Kbd>Fn</Kbd> or press <Kbd>⌘</Kbd>
+          Hold <Kbd>Fn</Kbd> or press <Kbd>{shortcutModifierLabel()}</Kbd>
           <Kbd>⇧</Kbd>
           <Kbd>Space</Kbd> in any app. Browser dictation is unreliable — the
           desktop app is the way to use this.

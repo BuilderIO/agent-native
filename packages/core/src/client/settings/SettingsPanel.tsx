@@ -1518,6 +1518,74 @@ export interface SettingsPanelProps {
   onToggleDevMode: () => void;
   showDevToggle: boolean;
   devAppUrl?: string;
+  initialSection?: string | null;
+}
+
+type SettingsSectionId =
+  | "account"
+  | "llm"
+  | "limits"
+  | "voice"
+  | "automations"
+  | "secrets"
+  | "hosting"
+  | "database"
+  | "uploads"
+  | "auth"
+  | "email"
+  | "browser"
+  | "background"
+  | "integrations"
+  | "usage"
+  | "a2a";
+
+const SETTINGS_SECTION_IDS = new Set<SettingsSectionId>([
+  "account",
+  "llm",
+  "limits",
+  "voice",
+  "automations",
+  "secrets",
+  "hosting",
+  "database",
+  "uploads",
+  "auth",
+  "email",
+  "browser",
+  "background",
+  "integrations",
+  "usage",
+  "a2a",
+]);
+
+function normalizeSettingsSection(value?: string | null): SettingsSectionId | null {
+  const normalized = value?.replace(/^#/, "").toLowerCase() ?? "";
+  if (!normalized) return null;
+  if (normalized.startsWith("secrets")) return "secrets";
+  if (
+    normalized === "workspace" ||
+    normalized === "workspace-settings" ||
+    normalized === "organization" ||
+    normalized === "org"
+  ) {
+    return "secrets";
+  }
+  if (normalized === "agent-engine") return "llm";
+  if (normalized === "agent-limits" || normalized === "loop-settings") {
+    return "limits";
+  }
+  return SETTINGS_SECTION_IDS.has(normalized as SettingsSectionId)
+    ? (normalized as SettingsSectionId)
+    : null;
+}
+
+function settingsSectionDomId(section: SettingsSectionId): string {
+  return `agent-settings-section-${section}`;
+}
+
+function initialOpenSection(): SettingsSectionId {
+  if (typeof window === "undefined") return "llm";
+  return normalizeSettingsSection(window.location.hash) ?? "llm";
 }
 
 const environmentOptions: SettingsSelectOption[] = [
@@ -1639,6 +1707,7 @@ export function SettingsPanel({
   onToggleDevMode,
   showDevToggle,
   devAppUrl,
+  initialSection,
 }: SettingsPanelProps) {
   const { status: builder, loading: builderLoading } = useBuilderStatus();
   const connected = builder?.configured ?? false;
@@ -1656,9 +1725,35 @@ export function SettingsPanel({
   );
 
   // Accordion: only one section open at a time (null = all closed)
-  const [openSection, setOpenSection] = useState<string | null>("llm");
+  const [openSection, setOpenSection] = useState<string | null>(
+    initialOpenSection,
+  );
   const toggle = (id: string) =>
     setOpenSection((prev) => (prev === id ? null : id));
+
+  const scrollSectionIntoView = useCallback((section: SettingsSectionId) => {
+    window.requestAnimationFrame(() => {
+      document.getElementById(settingsSectionDomId(section))?.scrollIntoView({
+        block: "start",
+        behavior: "smooth",
+      });
+    });
+  }, []);
+
+  const openSettingsSection = useCallback(
+    (section: SettingsSectionId, scroll = false) => {
+      setOpenSection(section);
+      if (scroll) scrollSectionIntoView(section);
+    },
+    [scrollSectionIntoView],
+  );
+
+  useEffect(() => {
+    const section = normalizeSettingsSection(initialSection);
+    if (!section) return;
+    if (section !== "secrets") setFocusSecretKey(undefined);
+    openSettingsSection(section, true);
+  }, [initialSection, openSettingsSection]);
 
   // Support `#secrets:<KEY>` hash fragments from the onboarding CTA — opens
   // the section and focuses the matching input.
@@ -1666,24 +1761,20 @@ export function SettingsPanel({
     if (typeof window === "undefined") return;
     const handleHash = () => {
       const hash = window.location.hash?.replace(/^#/, "") ?? "";
+      const section = normalizeSettingsSection(hash);
+      if (!section) return;
       if (hash.startsWith("secrets:") || hash === "secrets") {
-        setOpenSection("secrets");
         const key = hash.slice("secrets:".length);
         setFocusSecretKey(key || undefined);
-      } else if (hash === "llm" || hash === "agent-engine") {
-        setOpenSection("llm");
-      } else if (
-        hash === "agent-limits" ||
-        hash === "limits" ||
-        hash === "loop-settings"
-      ) {
-        setOpenSection("limits");
+      } else {
+        setFocusSecretKey(undefined);
       }
+      openSettingsSection(section, true);
     };
     handleHash();
     window.addEventListener("hashchange", handleHash);
     return () => window.removeEventListener("hashchange", handleHash);
-  }, []);
+  }, [openSettingsSection]);
 
   return (
     <div
@@ -1774,6 +1865,7 @@ export function SettingsPanel({
 
       {/* API Keys & Connections */}
       <SettingsSection
+        id={settingsSectionDomId("secrets")}
         icon={<IconKey size={14} />}
         title="API Keys & Connections"
         subtitle="Service credentials and automation keys."

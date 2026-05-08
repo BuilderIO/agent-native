@@ -62,12 +62,27 @@ Views: `"list"` (deck list), `"editor"` (editing a deck), `"present"` (presentat
 
 Write to `show-questions` to trigger a full-panel question overlay in the deck editor. The UI polls this key every 2 seconds. When questions are present, the overlay appears instead of the slide editor. When the user submits answers or skips, the UI sends the answers to agent chat and deletes the key.
 
+Use guided questions for non-trivial net-new deck creation where audience, narrative, format, evidence, or visual direction would substantially change the output. Skip it for clear asks, small edits, or when the user explicitly says to decide.
+
+#### Question Intensity
+
+Users can tune this section in `AGENTS.md`:
+
+| Mode       | Behavior                                                                   |
+| ---------- | -------------------------------------------------------------------------- |
+| `off`      | Never show guided questions; infer reasonable defaults.                    |
+| `light`    | Ask only 1-2 blockers before high-effort generation.                       |
+| `balanced` | Default. Ask 2-4 compact questions for ambiguous net-new decks.            |
+| `deep`     | Ask 5-8 questions when audience, story, data, and design are all unclear. |
+
+Default mode: `balanced`.
+
 #### When to Ask Questions
 
 | Scenario                                                      | Questions                              |
 | ------------------------------------------------------------- | -------------------------------------- |
-| Complex/ambiguous request ("make me a deck about X")          | Ask 4-8 structured questions           |
-| Specific request with clear direction ("10-slide sales deck") | Ask 2-4 clarifying questions           |
+| Complex/ambiguous request ("make me a deck about X")          | Ask 3-5 structured questions           |
+| Specific request with clear direction ("10-slide sales deck") | Ask 1-3 clarifying questions           |
 | Simple tweaks/follow-ups ("add a slide about Y")              | Skip questions, just do it             |
 | "Decide for me" / "surprise me"                               | Zero questions — pick a bold direction |
 
@@ -141,10 +156,11 @@ Write to `show-questions` to trigger a full-panel question overlay in the deck e
 
 Each question has: `id` (unique key), `type`, `question` (label shown to user), optional `description`, optional `required` flag.
 For `text-options` and `color-options`: provide `options` array with `label`/`value` (and `color` for color-options). Set `multiSelect: true` for multi-pick.
+For `text-options`, provide 2-4 meaningful choices. Put the recommended/default option first, or mark it with `recommended: true` when the choice has a sensible default. Use short descriptions when the tradeoff is not obvious.
 When a deck has an active design system, color questions must use colors from that design system (primary, secondary, accent, surface/background) instead of generic moods.
 For `slider`: provide `min`/`max`.
 
-The UI automatically appends "Other..." with a custom text box, plus "Explore a few options" and "Decide for me" choices, to every `text-options` question.
+The UI automatically appends "Other..." with a custom text box, plus "Explore a few options" and "Decide for me" choices, to every `text-options` question. Do not add those manually.
 
 #### Writing show-questions from an action or script
 

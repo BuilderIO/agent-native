@@ -8,7 +8,12 @@ import {
   Fragment,
 } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
-import { cn, formatEmailDate, formatFileSize } from "@/lib/utils";
+import {
+  cn,
+  formatEmailDate,
+  formatFileSize,
+  formatShortcut,
+} from "@/lib/utils";
 import { useTheme } from "next-themes";
 import { useComposeState } from "@/hooks/use-compose-state";
 import { useAccountFilter } from "@/hooks/use-account-filter";
@@ -1210,7 +1215,7 @@ export function EmailThread({
                     >
                       View Pull Request
                       <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1 text-[10px] text-muted-foreground">
-                        ⌘
+                        {formatShortcut("cmd")}
                       </kbd>
                       <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1.5 text-[10px] text-muted-foreground">
                         O

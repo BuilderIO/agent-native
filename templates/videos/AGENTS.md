@@ -66,12 +66,27 @@ When the open composition is filed in a library folder, `folderId` and `folderNa
 
 Write to `show-questions` to present structured questions before generating a complex composition. The UI renders a full-screen overlay; the user's answers are sent back to the agent chat automatically.
 
+Use guided questions for non-trivial net-new video/composition creation where animation style, duration, audience, format, or assets would materially change the output. Skip it for clear asks, small edits, or when the user explicitly says to decide.
+
+#### Question Intensity
+
+Users can tune this section in `AGENTS.md`:
+
+| Mode       | Behavior                                                                      |
+| ---------- | ----------------------------------------------------------------------------- |
+| `off`      | Never show guided questions; infer reasonable defaults.                       |
+| `light`    | Ask only 1-2 blockers before high-effort generation.                          |
+| `balanced` | Default. Ask 2-4 compact questions for ambiguous net-new videos.              |
+| `deep`     | Ask 5-7 questions when style, audience, timing, and assets are all unclear.   |
+
+Default mode: `balanced`.
+
 #### When to Ask Questions
 
 | Scenario                                                            | Questions                              |
 | ------------------------------------------------------------------- | -------------------------------------- |
-| Complex/ambiguous request ("make me a video")                       | Ask 6-10 structured questions          |
-| Specific request with clear direction ("logo reveal for Acme Corp") | Ask 3-5 clarifying questions           |
+| Complex/ambiguous request ("make me a video")                       | Ask 3-5 structured questions           |
+| Specific request with clear direction ("logo reveal for Acme Corp") | Ask 1-3 clarifying questions           |
 | Simple tweaks/follow-ups ("make the text bigger")                   | Skip questions, just do it             |
 | "Decide for me" / "surprise me"                                     | Zero questions — pick a bold direction |
 
@@ -148,6 +163,10 @@ Use `writeAppState("show-questions", ...)` or the equivalent HTTP PUT:
 | `slider`        | Range slider   | Duration, speed, intensity, element count   |
 | `file`          | File upload    | Logo, brand assets, reference videos/images |
 | `freeform`      | Text input     | Brand details, specific requirements, notes |
+
+For `text-options`, provide 2-4 meaningful choices. Put the recommended/default option first, or mark it with `recommended: true` when the choice has a sensible default. Use short descriptions when the tradeoff is not obvious.
+
+The UI automatically appends "Other..." with a custom text box, plus "Explore a few options" and "Decide for me" choices, to every `text-options` question. Do not add those manually.
 
 When the user clicks **Continue**, their answers are sent to the agent chat as a structured message. When they click **Skip**, a "decide for me" message is sent instead.
 

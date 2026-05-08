@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { IconChevronDown, IconCheck } from "@tabler/icons-react";
 
 interface SettingsSectionProps {
+  id?: string;
   icon: ReactNode;
   title: string;
   subtitle?: string;
@@ -18,6 +19,7 @@ interface SettingsSectionProps {
  * Controlled via `open` / `onToggle` for accordion behaviour.
  */
 export function SettingsSection({
+  id,
   icon,
   title,
   subtitle,
@@ -29,7 +31,7 @@ export function SettingsSection({
   children,
 }: SettingsSectionProps) {
   return (
-    <div className="rounded-lg border border-border bg-background/50">
+    <div id={id} className="rounded-lg border border-border bg-background/50">
       <button
         type="button"
         onClick={onToggle}
