@@ -102,6 +102,32 @@ function scrubUrl(url: string | undefined): string | undefined {
   }
 }
 
+function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
+  const exceptionText = (event.exception?.values ?? [])
+    .map((value) => `${value.type ?? ""} ${value.value ?? ""}`)
+    .join(" ")
+    .toLowerCase();
+  const requestUrl = event.request?.url?.toLowerCase() ?? "";
+  const breadcrumbText = (event.breadcrumbs ?? [])
+    .map((crumb) => {
+      const data = crumb.data as Record<string, unknown> | undefined;
+      return [
+        crumb.category,
+        crumb.message,
+        typeof data?.url === "string" ? data.url : "",
+      ].join(" ");
+    })
+    .join(" ")
+    .toLowerCase();
+  const combined = `${exceptionText} ${requestUrl} ${breadcrumbText}`;
+  return (
+    combined.includes("api2.amplitude.com") &&
+    (combined.includes("failed to fetch") ||
+      combined.includes("networkerror") ||
+      combined.includes("load failed"))
+  );
+}
+
 function getClientSentryDsn(): string | undefined {
   const env = (import.meta.env as Record<string, string | undefined>) ?? {};
   return (
@@ -122,6 +148,9 @@ function ensureSentry(): void {
       (import.meta.env as Record<string, string | undefined>)?.MODE ||
       "production",
     beforeSend(event) {
+      if (shouldDropBrowserSentryNoise(event)) {
+        return null;
+      }
       // Strip sensitive query params from the request URL. React Router
       // history can include share tokens, ?signin=1, password reset codes,
       // public-share password params (audit F-07), etc.
