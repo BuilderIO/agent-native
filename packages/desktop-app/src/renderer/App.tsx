@@ -46,6 +46,29 @@ function initAppTabs(
   return state;
 }
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  return Boolean(target.closest("input, textarea, select, [contenteditable]"));
+}
+
+function isShellShortcut(e: KeyboardEvent): boolean {
+  if (!e.metaKey && !e.ctrlKey) return false;
+
+  const key = e.key.toLowerCase();
+  if (e.altKey && (key === "arrowup" || key === "arrowdown")) return true;
+
+  return (
+    key === "f" ||
+    key === "l" ||
+    key === "r" ||
+    key === "t" ||
+    key === "[" ||
+    key === "]" ||
+    (key >= "1" && key <= "9")
+  );
+}
+
 export default function App() {
   const [apps, setApps] = useState<AppConfig[]>([]);
   const [loading, setLoading] = useState(true);
@@ -347,7 +370,7 @@ export default function App() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (!e.metaKey && !e.ctrlKey) return;
+      if (!isShellShortcut(e) || isEditableTarget(e.target)) return;
       e.preventDefault();
       handleShortcut(e.key, e.shiftKey, e.altKey);
     };

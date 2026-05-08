@@ -16,10 +16,28 @@ export interface FrameSettings {
   prodUrl?: string;
 }
 
-const DEFAULT_FRAME_SETTINGS: FrameSettings = {
-  enabled: true,
-  mode: "prod",
-};
+function defaultFrameSettings(): FrameSettings {
+  return {
+    enabled: true,
+    mode: app.isPackaged ? "prod" : "dev",
+  };
+}
+
+function defaultApps(): AppConfig[] {
+  return DEFAULT_APPS.map((def) => ({
+    ...def,
+    mode: app.isPackaged ? (def.mode ?? "prod") : "dev",
+  }));
+}
+
+function canonicalizeDefaultApp(appConfig: AppConfig, def: AppConfig) {
+  return {
+    ...def,
+    enabled: appConfig.enabled ?? def.enabled,
+    mode: appConfig.mode ?? def.mode,
+    devCommand: def.devCommand ?? appConfig.devCommand,
+  };
+}
 
 function getFrameStorePath(): string {
   return path.join(app.getPath("userData"), FRAME_STORE_FILE);
@@ -28,9 +46,9 @@ function getFrameStorePath(): string {
 export function loadFrameSettings(): FrameSettings {
   try {
     const raw = fs.readFileSync(getFrameStorePath(), "utf-8");
-    return { ...DEFAULT_FRAME_SETTINGS, ...JSON.parse(raw) };
+    return { ...defaultFrameSettings(), ...JSON.parse(raw) };
   } catch {
-    return { ...DEFAULT_FRAME_SETTINGS };
+    return defaultFrameSettings();
   }
 }
 
@@ -59,7 +77,8 @@ export function loadApps(): AppConfig[] {
     let migrated = false;
 
     // Build a lookup of canonical built-in app defaults by id
-    const defaultsById = new Map(DEFAULT_APPS.map((d) => [d.id, d]));
+    const defaults = defaultApps();
+    const defaultsById = new Map(defaults.map((d) => [d.id, d]));
     const persistedIds = new Set(apps.map((a) => a.id));
 
     // Remove stale built-in apps that no longer exist in DEFAULT_APPS
@@ -68,14 +87,15 @@ export function loadApps(): AppConfig[] {
     if (apps.length !== before) migrated = true;
 
     // Add new built-in apps that aren't in the persisted config
-    for (const def of DEFAULT_APPS) {
+    for (const def of defaults) {
       if (!persistedIds.has(def.id)) {
         apps.push({ ...def });
         migrated = true;
       }
     }
 
-    for (const app of apps) {
+    for (let i = 0; i < apps.length; i++) {
+      const app = apps[i];
       // Migrate legacy useCliHarness field → mode
       if ((app as any).useCliHarness !== undefined) {
         app.mode = (app as any).useCliHarness ? "dev" : "prod";
@@ -87,23 +107,14 @@ export function loadApps(): AppConfig[] {
         migrated = true;
       }
 
-      // Sync built-in app fields with latest defaults
+      // Sync any app whose id matches a default back to canonical built-in
+      // metadata. Older persisted configs could keep stale placeholder/URL
+      // fields and leave apps such as Starter or Dispatch non-rendering.
       const def = defaultsById.get(app.id);
-      if (def && app.isBuiltIn) {
-        if (def.url && app.url !== def.url) {
-          app.url = def.url;
-          migrated = true;
-        }
-        if (def.devUrl && app.devUrl !== def.devUrl) {
-          app.devUrl = def.devUrl;
-          migrated = true;
-        }
-        if (def.icon !== app.icon) {
-          app.icon = def.icon;
-          migrated = true;
-        }
-        if (def.name !== app.name) {
-          app.name = def.name;
+      if (def) {
+        const canonical = canonicalizeDefaultApp(app, def);
+        if (JSON.stringify(app) !== JSON.stringify(canonical)) {
+          apps[i] = canonical;
           migrated = true;
         }
       }
@@ -112,8 +123,9 @@ export function loadApps(): AppConfig[] {
     return apps;
   } catch {
     // First launch or corrupted — seed with defaults
-    saveApps(DEFAULT_APPS);
-    return DEFAULT_APPS;
+    const apps = defaultApps();
+    saveApps(apps);
+    return apps;
   }
 }
 
@@ -148,6 +160,7 @@ export function updateApp(
 }
 
 export function resetToDefaults(): AppConfig[] {
-  saveApps(DEFAULT_APPS);
-  return DEFAULT_APPS;
+  const apps = defaultApps();
+  saveApps(apps);
+  return apps;
 }

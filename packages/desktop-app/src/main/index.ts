@@ -46,7 +46,26 @@ if (IS_DEV) {
 }
 
 let pendingDeepLink: string | null = null;
+let mainWindow: BrowserWindow | null = null;
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+
+function isDeepLinkArg(arg: string): boolean {
+  return arg.startsWith(`${DEEP_LINK_PROTOCOL}:`);
+}
+
+const singleInstanceLock = app.requestSingleInstanceLock();
+if (!singleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, argv) => {
+    const deepLink = argv.find(isDeepLinkArg);
+    if (deepLink) {
+      void handleDeepLink(deepLink);
+    } else {
+      focusMainWindow();
+    }
+  });
+}
 
 interface OAuthInjectionTarget {
   appId?: string | null;
@@ -191,6 +210,21 @@ function consumeOAuthState(state: string | null): OAuthInjectionTarget | null {
   return pending;
 }
 
+function focusMainWindow() {
+  const win =
+    mainWindow && !mainWindow.isDestroyed()
+      ? mainWindow
+      : BrowserWindow.getAllWindows()[0];
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    return;
+  }
+
+  if (app.isReady()) createWindow();
+}
+
 async function handleDeepLink(url: string) {
   try {
     const parsed = new URL(url);
@@ -223,6 +257,12 @@ async function handleDeepLink(url: string) {
           );
         }
       }
+      focusMainWindow();
+      return;
+    }
+
+    if (parsed.host === "open") {
+      focusMainWindow();
     }
   } catch {
     // Malformed URL — ignore
@@ -457,6 +497,10 @@ ipcMain.handle(IPC.UPDATE_INSTALL, () => {
 });
 
 function createWindow(): BrowserWindow {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    return mainWindow;
+  }
+
   const isMac = process.platform === "darwin";
 
   const win = new BrowserWindow({
@@ -493,6 +537,11 @@ function createWindow(): BrowserWindow {
   } else {
     win.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
+
+  mainWindow = win;
+  win.on("closed", () => {
+    if (mainWindow === win) mainWindow = null;
+  });
 
   return win;
 }
@@ -618,6 +667,17 @@ function canOpenExternalUrl(url: string): boolean {
 function openExternalUrl(url: string) {
   if (!canOpenExternalUrl(url)) return;
   shell.openExternal(url).catch(() => {});
+}
+
+function handleDesktopProtocolUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== `${DEEP_LINK_PROTOCOL}:`) return false;
+    void handleDeepLink(url);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function cleanContextMenuTemplate(
@@ -1163,6 +1223,10 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
   webviewOAuthNavigationHandlers.add(contents);
 
   contents.on("will-frame-navigate", (event) => {
+    if (handleDesktopProtocolUrl(event.url)) {
+      event.preventDefault();
+      return;
+    }
     if (!openOAuthFromWebviewNavigation(event.url, contents)) return;
     event.preventDefault();
   });
@@ -1186,6 +1250,10 @@ app.on("web-contents-created", (_event, contents) => {
       installWebviewOAuthNavigationHandler(wc);
 
       wc.setWindowOpenHandler(({ url }: any) => {
+        if (handleDesktopProtocolUrl(url)) {
+          return { action: "deny" as const };
+        }
+
         try {
           const parsed = new URL(url);
           if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
@@ -1210,6 +1278,10 @@ app.on("web-contents-created", (_event, contents) => {
   installWebviewOAuthNavigationHandler(contents);
 
   contents.setWindowOpenHandler(({ url }) => {
+    if (handleDesktopProtocolUrl(url)) {
+      return { action: "deny" };
+    }
+
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {

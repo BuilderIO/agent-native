@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { appBasePath } from "@agent-native/core/client";
 import { trackEvent } from "../components/TemplateCard";
 import {
+  IconAppWindow,
   IconBrandApple,
   IconBrandGithub,
   IconBrandWindows,
@@ -12,6 +13,7 @@ import {
 const LATEST_JSON_URL = `${appBasePath()}/api/desktop-latest.json`;
 const RELEASES =
   "https://github.com/BuilderIO/agent-native/releases?q=Agent-Native";
+const OPEN_DESKTOP_URL = "agentnative://open";
 
 type Platform = "mac" | "windows" | "linux";
 type DesktopAssetKind =
@@ -112,9 +114,11 @@ export default function DownloadPage() {
   const [platform, setPlatform] = useState<Platform>("mac");
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
+  const [isDesktopApp, setIsDesktopApp] = useState(false);
 
   useEffect(() => {
     setPlatform(detectPlatform());
+    setIsDesktopApp(/AgentNativeDesktop/i.test(navigator.userAgent));
   }, []);
 
   useEffect(() => {
@@ -151,6 +155,10 @@ export default function DownloadPage() {
 
   function handleDownload(label: string) {
     trackEvent("desktop download", { platform, label });
+  }
+
+  function handleOpenDesktop() {
+    trackEvent("desktop open", { platform });
   }
 
   return (
@@ -191,24 +199,56 @@ export default function DownloadPage() {
 
       {/* Download section */}
       <div className="mx-auto mt-8 max-w-2xl text-center">
-        {primaryAsset || manifestError ? (
-          <a
-            href={primaryAsset?.url ?? RELEASES}
-            onClick={() => handleDownload(info.primary.label)}
-            className="inline-flex items-center gap-2.5 rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] no-underline hover:opacity-85 hover:no-underline"
-          >
-            <IconDownload size={18} />
-            {info.primary.label}
-          </a>
-        ) : (
-          <button
-            disabled
-            className="inline-flex items-center gap-2.5 rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] opacity-60"
-          >
-            <IconDownload size={18} />
-            Loading latest release...
-          </button>
-        )}
+        <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
+          {isDesktopApp && (
+            <a
+              href={OPEN_DESKTOP_URL}
+              onClick={handleOpenDesktop}
+              className="inline-flex items-center gap-2.5 rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] no-underline hover:opacity-85 hover:no-underline"
+            >
+              <IconAppWindow size={18} />
+              Open Agent Native
+            </a>
+          )}
+
+          {!isDesktopApp && (
+            <a
+              href={OPEN_DESKTOP_URL}
+              onClick={handleOpenDesktop}
+              className="inline-flex items-center gap-2.5 rounded-lg border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline hover:bg-[var(--sidebar-hover)] hover:no-underline"
+            >
+              <IconAppWindow size={17} />
+              Open installed app
+            </a>
+          )}
+
+          {primaryAsset || manifestError ? (
+            <a
+              href={primaryAsset?.url ?? RELEASES}
+              onClick={() => handleDownload(info.primary.label)}
+              className={
+                isDesktopApp
+                  ? "inline-flex items-center gap-2.5 rounded-lg border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline hover:bg-[var(--sidebar-hover)] hover:no-underline"
+                  : "inline-flex items-center gap-2.5 rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] no-underline hover:opacity-85 hover:no-underline"
+              }
+            >
+              <IconDownload size={18} />
+              {isDesktopApp ? "Download installer" : info.primary.label}
+            </a>
+          ) : (
+            <button
+              disabled
+              className={
+                isDesktopApp
+                  ? "inline-flex items-center gap-2.5 rounded-lg border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] opacity-60"
+                  : "inline-flex items-center gap-2.5 rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] opacity-60"
+              }
+            >
+              <IconDownload size={18} />
+              Loading latest release...
+            </button>
+          )}
+        </div>
 
         {info.secondary && (
           <div className="mt-3">
