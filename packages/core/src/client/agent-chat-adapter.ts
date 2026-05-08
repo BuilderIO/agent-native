@@ -10,7 +10,7 @@ import {
   readSSEStream,
 } from "./sse-event-processor.js";
 import { agentNativePath } from "./api-path.js";
-import { normalizeChatError } from "./error-format.js";
+import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import { captureError } from "./analytics.js";
 import { unwrapAttachmentEnvelope } from "./composer/pasted-text.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
@@ -529,6 +529,30 @@ function isMissingCredentialMessage(message: string): boolean {
     msg.includes("no llm provider") ||
     msg.includes("llm provider is connected")
   );
+}
+
+function missingCredentialErrorText(message: string): string {
+  try {
+    const parsed = JSON.parse(message) as {
+      error?: unknown;
+      message?: unknown;
+      upgradeUrl?: unknown;
+      errorCode?: unknown;
+    };
+    const raw =
+      typeof parsed.error === "string"
+        ? parsed.error
+        : typeof parsed.message === "string"
+          ? parsed.message
+          : message;
+    return formatChatErrorText(
+      raw,
+      typeof parsed.upgradeUrl === "string" ? parsed.upgradeUrl : undefined,
+      typeof parsed.errorCode === "string" ? parsed.errorCode : undefined,
+    );
+  } catch {
+    return formatChatErrorText(message);
+  }
 }
 
 /**
@@ -1129,7 +1153,10 @@ export function createAgentChatAdapter(options?: {
                       new Event("agent-chat:missing-api-key"),
                     );
                   }
-                  content.push({ type: "text", text: "" });
+                  content.push({
+                    type: "text",
+                    text: missingCredentialErrorText(body),
+                  });
                   yield {
                     content: [...content],
                     status: {
@@ -1269,7 +1296,10 @@ export function createAgentChatAdapter(options?: {
               if (typeof window !== "undefined") {
                 window.dispatchEvent(new Event("agent-chat:missing-api-key"));
               }
-              content.push({ type: "text", text: "" });
+              content.push({
+                type: "text",
+                text: missingCredentialErrorText(errMsg),
+              });
               yield {
                 content: [...content],
                 status: {
