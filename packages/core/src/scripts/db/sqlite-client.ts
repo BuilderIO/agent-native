@@ -19,10 +19,11 @@ export interface SqliteScriptClient {
   close(): void | Promise<void>;
 }
 
-function sqliteRowsToLibsqlShape(rows: Record<string, unknown>[]) {
-  const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+function sqliteRowsToLibsqlShape(rows: unknown[]) {
+  const records = rows as Record<string, unknown>[];
+  const columns = records.length > 0 ? Object.keys(records[0]) : [];
   return {
-    rows: rows.map((row) => {
+    rows: records.map((row) => {
       const values = columns.map((column) => row[column]) as any[];
       return Object.assign(values, row);
     }),
@@ -44,8 +45,7 @@ export async function createSqliteScriptClient(
 
     return {
       async execute(stmtOrSql) {
-        const sql =
-          typeof stmtOrSql === "string" ? stmtOrSql : stmtOrSql.sql;
+        const sql = typeof stmtOrSql === "string" ? stmtOrSql : stmtOrSql.sql;
         const args =
           typeof stmtOrSql === "string" ? [] : (stmtOrSql.args ?? []);
         const stmt = sqlite.prepare(sql);
