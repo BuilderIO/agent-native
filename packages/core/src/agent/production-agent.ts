@@ -142,10 +142,8 @@ export function engineToProvider(engineName: string): string {
  * Returns true when this process should block generic deploy-level provider
  * credentials for signed-in chat requests.
  *
- * Self-hosted single-tenant deployments and explicitly opted-in hosted
- * deployments keep the env-var fallback so BYO-server and intentionally
- * deploy-managed chat setups continue to work. Builder's deploy-managed
- * gateway has a narrower key-pair gate in `credential-provider.ts`.
+ * Self-hosted single-tenant deployments keep the env-var fallback so the
+ * original BYO-server UX continues to work without a per-user key.
  */
 function shouldBlockDeployCredentialFallback(): boolean {
   return !isDeployCredentialFallbackAllowed();
@@ -154,16 +152,14 @@ function shouldBlockDeployCredentialFallback(): boolean {
 /**
  * Resolve the active engine's provider and look up the user's API key for it.
  *
- * In shared hosted deploys we deliberately refuse the deploy-level
- * fallback for authenticated users unless the deploy explicitly opted in.
- * Without that gate any
+ * In shared hosted deploys we deliberately refuse the deploy-level fallback
+ * for authenticated users. Without that gate any
  * signed-in user who hasn't configured their own provider key would silently
  * inherit the deployment's key (uncapped billing on the owner's account,
  * prompt logging tied to the deployment owner) — exactly the prior-incident
  * pattern we hit on 2026-04-29.
  *
- * Single-tenant (local-dev, self-hosted SQLite) and explicit opt-in deploys
- * keep the env fallback.
+ * Single-tenant (local-dev, self-hosted SQLite) keeps the env fallback.
  *
  * Callers in `agent-chat-plugin.ts`, `triggers/dispatcher.ts`,
  * `jobs/scheduler.ts`, and `integrations/plugin.ts` historically layer
@@ -1618,10 +1614,10 @@ export function createProductionAgentHandler(
       const provider = engineToProvider(requestEngine);
       userApiKey = await getOwnerApiKey(provider, ownerEmail);
       if (!userApiKey && !shouldBlockDeployCredentialFallback()) {
-        // Single-tenant or explicit opt-in only: env fallback for the
-        // requested provider. Shared hosted deploys never silently substitute
-        // the deploy-level key for an authenticated user (see
-        // getOwnerActiveApiKey for the full rationale).
+        // Single-tenant only: env fallback for the requested provider. Shared
+        // hosted deploys never silently substitute the deploy-level key for
+        // an authenticated user (see getOwnerActiveApiKey for the full
+        // rationale).
         const envVar = PROVIDER_TO_ENV[provider];
         userApiKey = envVar ? readDeployCredentialEnv(envVar) : undefined;
       }

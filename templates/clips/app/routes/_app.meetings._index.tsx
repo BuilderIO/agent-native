@@ -311,7 +311,7 @@ function ConnectCalendarEmptyState({
             </div>
             <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
               See your upcoming meetings, get a notification a few minutes
-              before, and one-click record + transcribe.
+              before, and one-click notes + transcription.
             </p>
             <div className="mt-3">
               <CalendarConnectionAction
@@ -617,7 +617,7 @@ function MeetingsHeader({
               </NavLink>
             </Button>
             <p className="max-w-56 text-[11px] leading-snug text-muted-foreground">
-              Required for meeting reminders and recording.
+              Required for meeting reminders and transcription.
             </p>
           </div>
         )}

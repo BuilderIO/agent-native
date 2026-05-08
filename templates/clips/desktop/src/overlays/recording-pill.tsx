@@ -259,6 +259,8 @@ export function RecordingPill() {
 
   const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const ss = String(elapsed % 60).padStart(2, "0");
+  const stopLabel =
+    ctx.mode === "meeting" ? "Stop transcription" : "Stop recording";
 
   return (
     <div className="flex h-full w-full items-stretch justify-stretch">
@@ -306,7 +308,7 @@ export function RecordingPill() {
             />
           )}
           <span className="ml-auto truncate text-[12px] text-zinc-300">
-            {ctx.mode === "meeting" ? "Meeting" : "Recording"}
+            {ctx.mode === "meeting" ? "Meeting notes" : "Recording"}
           </span>
           <button
             type="button"
@@ -314,8 +316,8 @@ export function RecordingPill() {
             disabled={stopping}
             data-no-drag
             className="ml-1 inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-60"
-            aria-label="Stop recording"
-            title="Stop recording"
+            aria-label={stopLabel}
+            title={stopLabel}
           >
             <IconPlayerStopFilled size={14} />
           </button>
@@ -373,6 +375,7 @@ export function RecordingPill() {
                 disabled={stopping}
                 data-no-drag
                 className="ml-auto inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full bg-red-500 px-3 text-[12px] font-medium text-white hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label={stopLabel}
               >
                 <IconPlayerStopFilled size={14} />
                 Stop

@@ -124,7 +124,7 @@ export function TranscriptBubbles({
         <IconNotes className="h-6 w-6 text-muted-foreground/50" />
         <span>No transcript yet.</span>
         <span className="text-xs">
-          Recording will appear here once the meeting starts.
+          The live transcript will appear here once notes start.
         </span>
       </div>
     );
