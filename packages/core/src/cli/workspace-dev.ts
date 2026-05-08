@@ -530,10 +530,7 @@ export function runWorkspaceDev(
 
   function ensureReadinessProbe(app: WorkspaceApp): void {
     if (app.ready || app.readinessProbe) return;
-    app.readinessProbe = waitForPort(
-      app.port,
-      Date.now() + proxyReadyTimeoutMs,
-    )
+    app.readinessProbe = waitForPort(app.port, Date.now() + proxyReadyTimeoutMs)
       .then((ready) => {
         if (ready) app.ready = true;
       })
