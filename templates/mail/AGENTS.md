@@ -440,15 +440,15 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 
 ### Reading & Searching
 
-| Action              | Args                                                                                               | Purpose                                       |
-| ------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `view-screen`       | `[--full]`                                                                                         | See what the user is looking at right now     |
-| `view-composer`     | `[--id=<draft-id>]`                                                                                | See all open compose drafts                   |
-| `get-mail-settings` | none                                                                                               | Read signature and writing style              |
-| `list-emails`       | `--view <inbox\|unread\|starred\|sent\|...> --q <term> [--account <email>] [--includeCounts=true]` | List and search emails (uses Gmail via API)   |
-| `search-emails`     | `--q <term> [--view <name>] [--account <email>] [--includeCounts=true]`                            | Search emails across all views (requires --q) |
-| `get-email`         | `--id <email-id>`                                                                                  | Get a single email by ID                      |
-| `get-thread`        | `--id <thread-id> [--compact]`                                                                     | Get all messages in a thread                  |
+| Action                | Args                                                                                               | Purpose                                       |
+| --------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `view-screen`         | `[--full]`                                                                                         | See what the user is looking at right now     |
+| `view-composer`       | `[--id=<draft-id>]`                                                                                | See all open compose drafts                   |
+| `get-mail-settings`   | none                                                                                               | Read signature and writing style              |
+| `list-emails`         | `--view <inbox\|unread\|starred\|sent\|...> --q <term> [--account <email>] [--includeCounts=true]` | List and search emails (uses Gmail via API)   |
+| `search-emails`       | `--q <term> [--view <name>] [--account <email>] [--includeCounts=true]`                            | Search emails across all views (requires --q) |
+| `get-email`           | `--id <email-id>`                                                                                  | Get a single email by ID                      |
+| `get-thread`          | `--id <thread-id> [--compact]`                                                                     | Get all messages in a thread                  |
 | `get-hubspot-contact` | `--email <email>`                                                                                  | Look up HubSpot contact, deals, and tickets   |
 
 ### Actions
