@@ -516,15 +516,24 @@ ipcMain.on(
 
 function getActiveWebviewContents() {
   const allContents = webContents.getAllWebContents();
-  const webviewContents = allContents.filter(
-    (wc) => wc.getType() === "webview",
-  );
+  const liveWebviewContents = (contents?: Electron.WebContents | null) => {
+    if (!contents) return undefined;
+    try {
+      if (contents.isDestroyed()) return undefined;
+      return contents.getType() === "webview" ? contents : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const webviewContents = allContents.filter((wc) => liveWebviewContents(wc));
 
   const activeTarget =
     activeWebviewContentsId &&
-    webContents.fromId(activeWebviewContentsId)?.getType() === "webview"
-      ? webContents.fromId(activeWebviewContentsId)
-      : undefined;
+    liveWebviewContents(webContents.fromId(activeWebviewContentsId));
+
+  if (activeWebviewContentsId && !activeTarget) {
+    activeWebviewContentsId = undefined;
+  }
 
   // Fall back to the currently focused guest, then to the active app by URL.
   return (

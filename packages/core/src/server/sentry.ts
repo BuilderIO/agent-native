@@ -9,19 +9,22 @@
  *
  * This module is the third Sentry init point in the framework:
  *   - cli/index.ts          → @sentry/node, hardcoded DSN, "agent-native-cli"
- *   - client/analytics.ts   → @sentry/browser, VITE_SENTRY_CLIENT_DSN
- *   - server/sentry.ts      → @sentry/node, SENTRY_SERVER_DSN
+ *   - client/analytics.ts   → @sentry/browser, VITE_SENTRY_CLIENT_DSN / runtime config
+ *   - server/sentry.ts      → @sentry/node, SENTRY_SERVER_DSN / SENTRY_DSN
  *
- * Each maps to a different Sentry project so we can route errors to the
- * right team without one project drowning out the others. Don't wire the
- * three together — they share the SDK package but live in different
- * processes / runtimes / call sites.
+ * The browser and server can share a Sentry project/DSN. Separate projects
+ * are an operational choice for noise, ownership, or quotas; not a runtime
+ * requirement.
  */
 import * as Sentry from "@sentry/node";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { AuthSession } from "./auth.js";
+import {
+  resolveSentryEnvironment,
+  resolveServerSentryDsn,
+} from "./sentry-config.js";
 
 let _initStarted = false;
 let _initSucceeded = false;
@@ -62,20 +65,20 @@ function parseTracesSampleRate(): number {
  * plugin entrypoints. Returns `true` if initialization actually happened
  * (DSN was set), `false` if Sentry is disabled (no DSN).
  *
- * No DSN is hardcoded: unlike the CLI (a published binary that always
- * wants to phone home crashes), the server runs in customer environments.
- * Operators set `SENTRY_SERVER_DSN` when they want their own Sentry
- * project to receive these events; without it the module no-ops.
+ * No DSN is hardcoded: unlike the CLI (a published binary that always wants
+ * to phone home crashes), the server runs in customer environments. Operators
+ * set `SENTRY_SERVER_DSN` or the common `SENTRY_DSN` when they want their own
+ * Sentry project to receive these events; without one the module no-ops.
  */
 export function initServerSentry(): boolean {
   if (_initStarted) return _initSucceeded;
   _initStarted = true;
 
-  const dsn = process.env.SENTRY_SERVER_DSN;
+  const dsn = resolveServerSentryDsn();
   if (!dsn) {
     if (process.env.DEBUG) {
       console.log(
-        "[agent-native] SENTRY_SERVER_DSN not set — server Sentry disabled.",
+        "[agent-native] SENTRY_SERVER_DSN/SENTRY_DSN not set — server Sentry disabled.",
       );
     }
     return false;
@@ -83,7 +86,7 @@ export function initServerSentry(): boolean {
 
   Sentry.init({
     dsn,
-    environment: process.env.NODE_ENV || "production",
+    environment: resolveSentryEnvironment(),
     release: resolveServerRelease(),
     tracesSampleRate: parseTracesSampleRate(),
     // sendDefaultPii MUST stay false — the framework runs inside customer

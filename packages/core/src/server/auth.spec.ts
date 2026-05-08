@@ -268,11 +268,34 @@ describe("server/auth", () => {
 
       const html = await (result as Response).text();
       expect(html).toContain("This app is private");
-      expect(html).toContain("not your Netlify personal access token");
+      expect(html).toContain("not your deploy provider account token");
       expect(html).toContain('var configuredBasePath = "/demo";');
       expect(html).toContain("__anPath('/_agent-native/auth/login')");
       expect(html).toContain("__anPath('/_agent-native/auth/session')");
       expect(html).toContain("The token was accepted, but the browser");
+    });
+
+    it("infers mounted workspace auth paths when APP_BASE_PATH is absent", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      delete process.env.APP_BASE_PATH;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const result = await guard(createMockEvent({ path: "/starter" }));
+      expect(result).toBeInstanceOf(Response);
+
+      const html = await (result as Response).text();
+      expect(html).toContain('var configuredBasePath = "/starter";');
+      expect(html).toContain("__anPath('/_agent-native/auth/login')");
     });
 
     it("recognizes auth routes under APP_BASE_PATH in the global guard", async () => {

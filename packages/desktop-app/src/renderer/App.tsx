@@ -153,13 +153,18 @@ export default function App() {
 
   const handleTabSelect = useCallback(
     (tabId: string) => {
-      setAppTabs((prev) => ({
-        ...prev,
-        [activeSidebarAppId]: {
-          ...prev[activeSidebarAppId],
-          activeTabId: tabId,
-        },
-      }));
+      setAppTabs((prev) => {
+        const appState = prev[activeSidebarAppId];
+        if (!appState?.tabs.some((tab) => tab.id === tabId)) return prev;
+
+        return {
+          ...prev,
+          [activeSidebarAppId]: {
+            ...appState,
+            activeTabId: tabId,
+          },
+        };
+      });
     },
     [activeSidebarAppId],
   );
@@ -177,7 +182,11 @@ export default function App() {
 
       setAppTabs((prev) => {
         const prevAppState = prev[activeSidebarAppId];
+        if (!prevAppState) return prev;
+
         const idx = prevAppState.tabs.findIndex((t) => t.id === tabId);
+        if (idx === -1) return prev;
+
         const next = prevAppState.tabs.filter((t) => t.id !== tabId);
 
         if (next.length === 0) {
@@ -208,27 +217,39 @@ export default function App() {
   const handleReopenTab = useCallback(() => {
     const entry = closedTabsRef.current.pop();
     if (!entry) return;
+    if (!enabledApps.some((app) => app.id === entry.appId)) return;
+
     setActiveSidebarAppId(entry.appId);
-    setAppTabs((prev) => ({
-      ...prev,
-      [entry.appId]: {
-        tabs: [...prev[entry.appId].tabs, entry.tab],
-        activeTabId: entry.tab.id,
-      },
-    }));
-  }, []);
+    setAppTabs((prev) => {
+      const appState = prev[entry.appId];
+      if (!appState) return prev;
+
+      return {
+        ...prev,
+        [entry.appId]: {
+          tabs: [...appState.tabs, entry.tab],
+          activeTabId: entry.tab.id,
+        },
+      };
+    });
+  }, [enabledApps]);
 
   const handleNewTab = useCallback(() => {
     const app = enabledApps.find((a) => a.id === activeSidebarAppId);
     if (!app) return;
     const tab = createTab(app);
-    setAppTabs((prev) => ({
-      ...prev,
-      [activeSidebarAppId]: {
-        tabs: [...prev[activeSidebarAppId].tabs, tab],
-        activeTabId: tab.id,
-      },
-    }));
+    setAppTabs((prev) => {
+      const appState = prev[activeSidebarAppId];
+      if (!appState) return prev;
+
+      return {
+        ...prev,
+        [activeSidebarAppId]: {
+          tabs: [...appState.tabs, tab],
+          activeTabId: tab.id,
+        },
+      };
+    });
   }, [activeSidebarAppId, enabledApps]);
 
   const handleCopyCurrentUrl = useCallback(async () => {

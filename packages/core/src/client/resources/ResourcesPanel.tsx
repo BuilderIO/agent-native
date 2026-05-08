@@ -56,6 +56,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
 
 const WORKSPACE_DOCS_URL = "https://agent-native.com/docs/workspace";
 
@@ -155,8 +160,6 @@ function CreateMenu({
     message: string;
   } | null>(null);
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (open) {
@@ -195,38 +198,6 @@ function CreateMenu({
     setMcpError(null);
     setMcpTestResult(null);
   };
-
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      if (
-        popoverRef.current &&
-        !popoverRef.current.contains(e.target as Node) &&
-        buttonRef.current &&
-        !buttonRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        if (view !== "menu") {
-          if (view === "mcp-server") clearMcpFeedback();
-          setView("menu");
-        } else {
-          setOpen(false);
-        }
-      }
-    }
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [open, view]);
 
   const submitFile = () => {
     const trimmed = value.trim();
@@ -544,406 +515,405 @@ The result should be a reusable agent profile, not a one-off task response.`,
   ];
 
   return (
-    <div className="relative">
+    <Popover open={open} onOpenChange={setOpen}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            ref={buttonRef}
-            onClick={() => setOpen(!open)}
-            className={cn(
-              "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
-              open && "bg-accent/50 text-foreground",
-            )}
-          >
-            <IconPlus className="h-3.5 w-3.5" />
-          </button>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                open && "bg-accent/50 text-foreground",
+              )}
+            >
+              <IconPlus className="h-3.5 w-3.5" />
+            </button>
+          </PopoverTrigger>
         </TooltipTrigger>
         <TooltipContent>Create new...</TooltipContent>
       </Tooltip>
-      {open && (
-        <div
-          ref={popoverRef}
-          className="absolute right-0 top-full mt-1.5 z-[220] rounded-lg border border-border bg-popover shadow-lg"
-          style={{
-            width: view === "menu" || view === "file" ? 260 : 380,
-            fontSize: 13,
-            lineHeight: "normal",
-          }}
-        >
-          {view === "menu" && (
-            <div className="py-1">
-              {menuItems.map((item) => (
-                <button
-                  key={item.label}
-                  onClick={item.action}
-                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50"
-                >
-                  <span className="text-muted-foreground">{item.icon}</span>
-                  <div className="min-w-0">
-                    <div className="text-[12px] font-medium text-foreground">
-                      {item.label}
-                    </div>
-                    <div className="mt-0.5 text-[10px] text-muted-foreground/60">
-                      {item.desc}
-                    </div>
+      <PopoverContent
+        align="end"
+        sideOffset={6}
+        collisionPadding={8}
+        className={cn(
+          "z-[260] p-0 text-[13px] leading-normal",
+          view === "menu" || view === "file"
+            ? "w-[260px]"
+            : "max-h-[70vh] w-[calc(100vw-24px)] max-w-[380px] overflow-y-auto",
+        )}
+      >
+        {view === "menu" && (
+          <div className="py-1">
+            {menuItems.map((item) => (
+              <button
+                key={item.label}
+                onClick={item.action}
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50"
+              >
+                <span className="text-muted-foreground">{item.icon}</span>
+                <div className="min-w-0">
+                  <div className="text-[12px] font-medium text-foreground">
+                    {item.label}
                   </div>
-                </button>
-              ))}
-            </div>
-          )}
+                  <div className="mt-0.5 text-[10px] text-muted-foreground/60">
+                    {item.desc}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
 
-          {view === "file" && (
-            <div className="p-3">
-              <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
-                File path
-              </label>
+        {view === "file" && (
+          <div className="p-3">
+            <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
+              File path
+            </label>
+            <input
+              ref={inputRef as React.RefObject<HTMLInputElement>}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submitFile();
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  setView("menu");
+                }
+              }}
+              className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+              placeholder="notes/ideas.md"
+            />
+            <div className="mt-2.5 flex justify-end">
+              <button
+                onClick={submitFile}
+                disabled={!value.trim()}
+                className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        )}
+
+        {view === "skill" && (
+          <div className="p-3">
+            <label className="mb-1 block text-[11px] font-semibold text-foreground">
+              Create Skill
+            </label>
+            <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
+              Describe what kind of skill you want and the agent will create it.
+            </p>
+            <PromptComposer
+              autoFocus
+              placeholder="e.g. A skill that reviews PRs for security issues and OWASP top 10 vulnerabilities"
+              draftScope="resources:create-skill"
+              onSubmit={(text) => submitSkill(text)}
+            />
+          </div>
+        )}
+
+        {view === "job" && (
+          <div className="p-3">
+            <label className="mb-1 block text-[11px] font-semibold text-foreground">
+              Scheduled Task
+            </label>
+            <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
+              Describe what should happen and when.
+            </p>
+            <PromptComposer
+              autoFocus
+              placeholder="e.g. Every weekday at 9am, check for overdue scorecards and send a Slack update"
+              draftScope="resources:create-job"
+              onSubmit={(text) => submitJob(text)}
+            />
+          </div>
+        )}
+
+        {view === "agent-mode" && (
+          <div className="p-3">
+            <label className="mb-1 block text-[11px] font-semibold text-foreground">
+              Create Agent
+            </label>
+            <p className="mb-2 text-[10px] leading-relaxed text-muted-foreground/60">
+              Build a reusable sub-agent profile for this workspace.
+            </p>
+            <div className="space-y-2">
+              <button
+                onClick={() => setView("agent-prompt")}
+                className="flex w-full items-start gap-2 rounded-md border border-border px-3 py-2 text-left hover:bg-accent/40"
+              >
+                <IconPencil className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <div>
+                  <div className="text-[12px] font-medium text-foreground">
+                    Describe It
+                  </div>
+                  <div className="text-[10px] text-muted-foreground/60">
+                    Let the agent draft the profile from a prompt.
+                  </div>
+                </div>
+              </button>
+              <button
+                onClick={() => setView("agent-form")}
+                className="flex w-full items-start gap-2 rounded-md border border-border px-3 py-2 text-left hover:bg-accent/40"
+              >
+                <IconMessageChatbot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <div>
+                  <div className="text-[12px] font-medium text-foreground">
+                    Fill Form
+                  </div>
+                  <div className="text-[10px] text-muted-foreground/60">
+                    Set the fields manually and start with a markdown template.
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {view === "agent-prompt" && (
+          <div className="p-3">
+            <label className="mb-1 block text-[11px] font-semibold text-foreground">
+              Create Agent From Prompt
+            </label>
+            <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
+              Describe the agent you want. It will be saved under{" "}
+              <code>agents/</code>.
+            </p>
+            <PromptComposer
+              autoFocus
+              placeholder="e.g. A design agent that critiques layouts, suggests UI direction, and prefers concise product reasoning"
+              draftScope="resources:create-agent"
+              onSubmit={(text) => submitAgentPrompt(text)}
+            />
+          </div>
+        )}
+
+        {view === "agent-form" && (
+          <div className="p-3">
+            <label className="mb-2 block text-[11px] font-semibold text-foreground">
+              Create Agent Manually
+            </label>
+            <div className="space-y-2">
               <input
-                ref={inputRef as React.RefObject<HTMLInputElement>}
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") submitFile();
-                  if (e.key === "Escape") {
-                    e.stopPropagation();
-                    setView("menu");
-                  }
+                value={agentName}
+                onChange={(e) => setAgentName(e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                placeholder="Agent name"
+              />
+              <input
+                value={agentDescription}
+                onChange={(e) => setAgentDescription(e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                placeholder="Short description"
+              />
+              <label className="block text-[11px] font-medium text-muted-foreground">
+                Model
+              </label>
+              <select
+                value={agentModel}
+                onChange={(e) => setAgentModel(e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none focus:ring-1 focus:ring-accent"
+              >
+                {AGENT_MODEL_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <label className="block text-[11px] font-medium text-muted-foreground">
+                Instructions
+              </label>
+              <textarea
+                value={agentInstructions}
+                onChange={(e) => setAgentInstructions(e.target.value)}
+                rows={8}
+                className="w-full resize-y rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                style={{
+                  fontFamily:
+                    'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                  lineHeight: 1.5,
+                }}
+              />
+            </div>
+            <div className="mt-2.5 flex justify-end">
+              <button
+                onClick={submitAgentManual}
+                disabled={
+                  !agentName.trim() ||
+                  !agentDescription.trim() ||
+                  !agentInstructions.trim()
+                }
+                className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        )}
+
+        {view === "mcp-server" && (
+          <div className="p-3">
+            <label className="mb-1 block text-[11px] font-semibold text-foreground">
+              Connect MCP Server
+            </label>
+            <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
+              Point at any Streamable HTTP MCP server (Zapier, Cloudflare,
+              internal tools). Its tools become available to the agent. Use
+              Personal for private or staging servers; use Organization only for
+              vetted servers the whole org should share.{" "}
+              <a
+                href="https://agent-native.com/docs/mcp-clients#remote-via-ui"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-0.5 text-muted-foreground/80 underline hover:text-foreground"
+              >
+                Learn more
+                <IconExternalLink className="inline h-2.5 w-2.5" />
+              </a>
+            </p>
+            <div className="space-y-2">
+              <div className="flex gap-1 rounded-md border border-border p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setMcpScope("user")}
+                  className={cn(
+                    "flex-1 rounded px-2 py-1 text-[11px] font-medium",
+                    mcpScope === "user"
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  Personal
+                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        hasOrg && canCreateOrgMcp && setMcpScope("org")
+                      }
+                      disabled={!hasOrg || !canCreateOrgMcp}
+                      className={cn(
+                        "flex-1 rounded px-2 py-1 text-[11px] font-medium",
+                        mcpScope === "org"
+                          ? "bg-accent text-foreground"
+                          : "text-muted-foreground hover:text-foreground",
+                        (!hasOrg || !canCreateOrgMcp) &&
+                          "cursor-not-allowed opacity-50 hover:text-muted-foreground",
+                      )}
+                    >
+                      Organization
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {!hasOrg
+                      ? "Join an organization to share MCP servers"
+                      : !canCreateOrgMcp
+                        ? "Only owners and admins can add org-scope servers"
+                        : undefined}
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <input
+                value={mcpName}
+                onChange={(e) => {
+                  setMcpName(e.target.value);
+                  clearMcpFeedback();
                 }}
                 className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                placeholder="notes/ideas.md"
+                placeholder="Server name (e.g. zapier-staging)"
               />
-              <div className="mt-2.5 flex justify-end">
-                <button
-                  onClick={submitFile}
-                  disabled={!value.trim()}
-                  className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
-                >
-                  Create
-                </button>
-              </div>
-            </div>
-          )}
-
-          {view === "skill" && (
-            <div className="p-3">
-              <label className="mb-1 block text-[11px] font-semibold text-foreground">
-                Create Skill
-              </label>
-              <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
-                Describe what kind of skill you want and the agent will create
-                it.
-              </p>
-              <PromptComposer
-                autoFocus
-                placeholder="e.g. A skill that reviews PRs for security issues and OWASP top 10 vulnerabilities"
-                draftScope="resources:create-skill"
-                onSubmit={(text) => submitSkill(text)}
+              <input
+                value={mcpUrl}
+                onChange={(e) => {
+                  setMcpUrl(e.target.value);
+                  clearMcpFeedback();
+                }}
+                className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                placeholder="https://mcp.example.com/"
               />
-            </div>
-          )}
-
-          {view === "job" && (
-            <div className="p-3">
-              <label className="mb-1 block text-[11px] font-semibold text-foreground">
-                Scheduled Task
-              </label>
-              <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
-                Describe what should happen and when.
-              </p>
-              <PromptComposer
-                autoFocus
-                placeholder="e.g. Every weekday at 9am, check for overdue scorecards and send a Slack update"
-                draftScope="resources:create-job"
-                onSubmit={(text) => submitJob(text)}
+              <input
+                value={mcpDescription}
+                onChange={(e) => {
+                  setMcpDescription(e.target.value);
+                  clearMcpFeedback();
+                }}
+                className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                placeholder="Description (optional)"
               />
-            </div>
-          )}
-
-          {view === "agent-mode" && (
-            <div className="p-3">
-              <label className="mb-1 block text-[11px] font-semibold text-foreground">
-                Create Agent
-              </label>
-              <p className="mb-2 text-[10px] leading-relaxed text-muted-foreground/60">
-                Build a reusable sub-agent profile for this workspace.
-              </p>
-              <div className="space-y-2">
-                <button
-                  onClick={() => setView("agent-prompt")}
-                  className="flex w-full items-start gap-2 rounded-md border border-border px-3 py-2 text-left hover:bg-accent/40"
-                >
-                  <IconPencil className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <div>
-                    <div className="text-[12px] font-medium text-foreground">
-                      Describe It
-                    </div>
-                    <div className="text-[10px] text-muted-foreground/60">
-                      Let the agent draft the profile from a prompt.
-                    </div>
-                  </div>
-                </button>
-                <button
-                  onClick={() => setView("agent-form")}
-                  className="flex w-full items-start gap-2 rounded-md border border-border px-3 py-2 text-left hover:bg-accent/40"
-                >
-                  <IconMessageChatbot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <div>
-                    <div className="text-[12px] font-medium text-foreground">
-                      Fill Form
-                    </div>
-                    <div className="text-[10px] text-muted-foreground/60">
-                      Set the fields manually and start with a markdown
-                      template.
-                    </div>
-                  </div>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {view === "agent-prompt" && (
-            <div className="p-3">
-              <label className="mb-1 block text-[11px] font-semibold text-foreground">
-                Create Agent From Prompt
-              </label>
-              <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
-                Describe the agent you want. It will be saved under{" "}
-                <code>agents/</code>.
-              </p>
-              <PromptComposer
-                autoFocus
-                placeholder="e.g. A design agent that critiques layouts, suggests UI direction, and prefers concise product reasoning"
-                draftScope="resources:create-agent"
-                onSubmit={(text) => submitAgentPrompt(text)}
-              />
-            </div>
-          )}
-
-          {view === "agent-form" && (
-            <div className="p-3">
-              <label className="mb-2 block text-[11px] font-semibold text-foreground">
-                Create Agent Manually
-              </label>
-              <div className="space-y-2">
-                <input
-                  value={agentName}
-                  onChange={(e) => setAgentName(e.target.value)}
-                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                  placeholder="Agent name"
-                />
-                <input
-                  value={agentDescription}
-                  onChange={(e) => setAgentDescription(e.target.value)}
-                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                  placeholder="Short description"
-                />
-                <label className="block text-[11px] font-medium text-muted-foreground">
-                  Model
+              <div>
+                <label className="block text-[10px] font-medium text-foreground">
+                  Headers
                 </label>
-                <select
-                  value={agentModel}
-                  onChange={(e) => setAgentModel(e.target.value)}
-                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none focus:ring-1 focus:ring-accent"
-                >
-                  {AGENT_MODEL_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <label className="block text-[11px] font-medium text-muted-foreground">
-                  Instructions
-                </label>
-                <textarea
-                  value={agentInstructions}
-                  onChange={(e) => setAgentInstructions(e.target.value)}
-                  rows={8}
-                  className="w-full resize-y rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                  style={{
-                    fontFamily:
-                      'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-                    lineHeight: 1.5,
-                  }}
-                />
+                <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground/70">
+                  Optional. One per line, for example Authorization: Bearer
+                  sk-...
+                </p>
               </div>
-              <div className="mt-2.5 flex justify-end">
-                <button
-                  onClick={submitAgentManual}
-                  disabled={
-                    !agentName.trim() ||
-                    !agentDescription.trim() ||
-                    !agentInstructions.trim()
-                  }
-                  className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
-                >
-                  Create
-                </button>
-              </div>
-            </div>
-          )}
-
-          {view === "mcp-server" && (
-            <div className="p-3">
-              <label className="mb-1 block text-[11px] font-semibold text-foreground">
-                Connect MCP Server
-              </label>
-              <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
-                Point at any Streamable HTTP MCP server (Zapier, Cloudflare,
-                internal tools). Its tools become available to the agent. Use
-                Personal for private or staging servers; use Organization only
-                for vetted servers the whole org should share.{" "}
-                <a
-                  href="https://agent-native.com/docs/mcp-clients#remote-via-ui"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-0.5 text-muted-foreground/80 underline hover:text-foreground"
-                >
-                  Learn more
-                  <IconExternalLink className="inline h-2.5 w-2.5" />
-                </a>
-              </p>
-              <div className="space-y-2">
-                <div className="flex gap-1 rounded-md border border-border p-0.5">
-                  <button
-                    type="button"
-                    onClick={() => setMcpScope("user")}
-                    className={cn(
-                      "flex-1 rounded px-2 py-1 text-[11px] font-medium",
-                      mcpScope === "user"
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    Personal
-                  </button>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          hasOrg && canCreateOrgMcp && setMcpScope("org")
-                        }
-                        disabled={!hasOrg || !canCreateOrgMcp}
-                        className={cn(
-                          "flex-1 rounded px-2 py-1 text-[11px] font-medium",
-                          mcpScope === "org"
-                            ? "bg-accent text-foreground"
-                            : "text-muted-foreground hover:text-foreground",
-                          (!hasOrg || !canCreateOrgMcp) &&
-                            "cursor-not-allowed opacity-50 hover:text-muted-foreground",
-                        )}
-                      >
-                        Organization
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {!hasOrg
-                        ? "Join an organization to share MCP servers"
-                        : !canCreateOrgMcp
-                          ? "Only owners and admins can add org-scope servers"
-                          : undefined}
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-                <input
-                  value={mcpName}
-                  onChange={(e) => {
-                    setMcpName(e.target.value);
-                    clearMcpFeedback();
-                  }}
-                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                  placeholder="Server name (e.g. zapier-staging)"
-                />
-                <input
-                  value={mcpUrl}
-                  onChange={(e) => {
-                    setMcpUrl(e.target.value);
-                    clearMcpFeedback();
-                  }}
-                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                  placeholder="https://mcp.example.com/"
-                />
-                <input
-                  value={mcpDescription}
-                  onChange={(e) => {
-                    setMcpDescription(e.target.value);
-                    clearMcpFeedback();
-                  }}
-                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                  placeholder="Description (optional)"
-                />
-                <div>
-                  <label className="block text-[10px] font-medium text-foreground">
-                    Headers
-                  </label>
-                  <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground/70">
-                    Optional. One per line, for example Authorization: Bearer
-                    sk-...
-                  </p>
-                </div>
-                <textarea
-                  value={mcpHeadersText}
-                  onChange={(e) => {
-                    setMcpHeadersText(e.target.value);
-                    clearMcpFeedback();
-                  }}
-                  rows={2}
-                  className="w-full resize-y rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                  style={{
-                    fontFamily:
-                      'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-                  }}
-                  placeholder="Authorization: Bearer sk-..."
-                />
-                {mcpTestResult && (
-                  <div
-                    className={cn(
-                      "flex items-start gap-1 text-[11px] leading-snug",
-                      mcpTestResult.ok
-                        ? "text-green-600 dark:text-green-400"
-                        : "text-red-600 dark:text-red-400",
-                    )}
-                  >
-                    {mcpTestResult.ok && (
-                      <IconCheck className="mt-0.5 h-3 w-3 shrink-0" />
-                    )}
-                    <span className="min-w-0 break-words">
-                      {mcpTestResult.message}
-                    </span>
-                  </div>
-                )}
-                {mcpError && (
-                  <div className="break-words text-[11px] leading-snug text-red-600 dark:text-red-400">
-                    {mcpError}
-                  </div>
-                )}
-              </div>
-              <div className="mt-2.5 flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={runMcpTest}
-                  disabled={!mcpUrl.trim() || mcpBusy}
-                  className="rounded-md border border-border bg-background px-2.5 py-1.5 text-[11px] font-medium text-foreground hover:bg-accent disabled:opacity-40 disabled:pointer-events-none"
-                >
-                  Test
-                </button>
-                <button
-                  type="button"
-                  onClick={submitMcpServer}
-                  disabled={!mcpName.trim() || !mcpUrl.trim() || mcpBusy}
-                  className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
-                >
-                  {mcpBusy ? (
-                    <IconLoader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    "Connect"
+              <textarea
+                value={mcpHeadersText}
+                onChange={(e) => {
+                  setMcpHeadersText(e.target.value);
+                  clearMcpFeedback();
+                }}
+                rows={2}
+                className="w-full resize-y rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                style={{
+                  fontFamily:
+                    'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                }}
+                placeholder="Authorization: Bearer sk-..."
+              />
+              {mcpTestResult && (
+                <div
+                  className={cn(
+                    "flex items-start gap-1 text-[11px] leading-snug",
+                    mcpTestResult.ok
+                      ? "text-green-600 dark:text-green-400"
+                      : "text-red-600 dark:text-red-400",
                   )}
-                </button>
-              </div>
+                >
+                  {mcpTestResult.ok && (
+                    <IconCheck className="mt-0.5 h-3 w-3 shrink-0" />
+                  )}
+                  <span className="min-w-0 break-words">
+                    {mcpTestResult.message}
+                  </span>
+                </div>
+              )}
+              {mcpError && (
+                <div className="break-words text-[11px] leading-snug text-red-600 dark:text-red-400">
+                  {mcpError}
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      )}
-    </div>
+            <div className="mt-2.5 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={runMcpTest}
+                disabled={!mcpUrl.trim() || mcpBusy}
+                className="rounded-md border border-border bg-background px-2.5 py-1.5 text-[11px] font-medium text-foreground hover:bg-accent disabled:opacity-40 disabled:pointer-events-none"
+              >
+                Test
+              </button>
+              <button
+                type="button"
+                onClick={submitMcpServer}
+                disabled={!mcpName.trim() || !mcpUrl.trim() || mcpBusy}
+                className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
+              >
+                {mcpBusy ? (
+                  <IconLoader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  "Connect"
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 

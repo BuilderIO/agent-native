@@ -199,25 +199,60 @@ export function AgentTerminal({
       term.loadAddon(webLinksAddon);
       term.open(container);
 
-      requestAnimationFrame(() => {
-        try {
-          fitAddon.fit();
-        } catch {}
-      });
-
-      // Resize observer for auto-fitting
-      const resizeObserver = new ResizeObserver(() => {
+      let fitPending = false;
+      function fitAndResize() {
+        if (fitPending) return;
+        fitPending = true;
         requestAnimationFrame(() => {
+          fitPending = false;
+          if (
+            disposed ||
+            !container.isConnected ||
+            container.clientWidth <= 0 ||
+            container.clientHeight <= 0
+          ) {
+            return;
+          }
           try {
             fitAddon.fit();
             sendResize();
           } catch {}
         });
+      }
+
+      fitAndResize();
+      const initialFitTimers = [
+        setTimeout(fitAndResize, 50),
+        setTimeout(fitAndResize, 250),
+      ];
+
+      const handleVisibilityOrFocus = () => fitAndResize();
+      window.addEventListener("focus", handleVisibilityOrFocus);
+      document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+
+      // Resize observer for auto-fitting
+      const resizeObserver = new ResizeObserver(() => {
+        fitAndResize();
       });
       resizeObserver.observe(container);
 
+      let terminalDisposed = false;
+      function disposeTerminal() {
+        if (terminalDisposed) return;
+        terminalDisposed = true;
+        initialFitTimers.forEach(clearTimeout);
+        window.removeEventListener("focus", handleVisibilityOrFocus);
+        document.removeEventListener(
+          "visibilitychange",
+          handleVisibilityOrFocus,
+        );
+        resizeObserver.disconnect();
+        term.dispose();
+      }
+
       // Discover WebSocket URL
       let wsUrl = wsUrlProp;
+      let resolvedCommand = command;
       if (!wsUrl) {
         try {
           const res = await fetch(
@@ -226,26 +261,32 @@ export function AgentTerminal({
           const info: TerminalInfo = await res.json();
           if (!info.available) {
             setError(info.error || "Agent terminal not available");
+            disposeTerminal();
             return;
           }
           const protocol = location.protocol === "https:" ? "wss:" : "ws:";
           const host = formatWebSocketHostname(location.hostname);
           wsUrl = `${protocol}//${host}:${info.wsPort}/ws`;
-          if (!command && info.command) {
-            command = info.command;
+          if (!resolvedCommand && info.command) {
+            resolvedCommand = info.command;
           }
         } catch (err) {
           setError("Failed to discover terminal server");
+          disposeTerminal();
           return;
         }
       }
 
       // Build WebSocket URL with query params
       const qs = new URLSearchParams();
-      if (command) qs.set("command", command);
+      if (resolvedCommand) qs.set("command", resolvedCommand);
       if (flags) qs.set("flags", flags);
       const qsStr = qs.toString();
       const fullWsUrl = qsStr ? `${wsUrl}?${qsStr}` : wsUrl;
+
+      term.write(
+        `\x1b[2m[terminal] Starting ${resolvedCommand || "CLI"}...\x1b[0m\r\n`,
+      );
 
       // Connect WebSocket
       let agentRunning = false;
@@ -382,12 +423,11 @@ export function AgentTerminal({
         disposed = true;
         connectionId++;
         if (idleTimer) clearTimeout(idleTimer);
-        resizeObserver.disconnect();
+        disposeTerminal();
         if (ws) {
           ws.close();
           ws = null;
         }
-        term.dispose();
       };
     }
 

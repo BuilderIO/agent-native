@@ -45,6 +45,10 @@ describe("server/sentry", () => {
   describe("initServerSentry", () => {
     it("does not call Sentry.init when SENTRY_SERVER_DSN is unset", async () => {
       delete process.env.SENTRY_SERVER_DSN;
+      delete process.env.SENTRY_DSN;
+      delete process.env.SENTRY_CLIENT_KEY;
+      delete process.env.SENTRY_PROJECT_ID;
+      delete process.env.SENTRY_INGEST_HOST;
       const { initServerSentry, isServerSentryEnabled } =
         await import("./sentry.js");
 
@@ -68,6 +72,31 @@ describe("server/sentry", () => {
       expect(cfg.tracesSampleRate).toBe(0);
       expect(typeof cfg.beforeSend).toBe("function");
       expect(isServerSentryEnabled()).toBe(true);
+    });
+
+    it("falls back to the common SENTRY_DSN when SENTRY_SERVER_DSN is unset", async () => {
+      delete process.env.SENTRY_SERVER_DSN;
+      process.env.SENTRY_DSN = "https://common@example/456";
+      const { initServerSentry } = await import("./sentry.js");
+
+      expect(initServerSentry()).toBe(true);
+      expect(sentryMock.init.mock.calls[0][0].dsn).toBe(
+        "https://common@example/456",
+      );
+    });
+
+    it("can construct a DSN from Netlify client key and project env vars", async () => {
+      delete process.env.SENTRY_SERVER_DSN;
+      delete process.env.SENTRY_DSN;
+      process.env.SENTRY_CLIENT_KEY = "public_key";
+      process.env.SENTRY_PROJECT_ID = "4511270423822336";
+      process.env.SENTRY_INGEST_HOST = "o1.ingest.us.sentry.io";
+      const { initServerSentry } = await import("./sentry.js");
+
+      expect(initServerSentry()).toBe(true);
+      expect(sentryMock.init.mock.calls[0][0].dsn).toBe(
+        "https://public_key@o1.ingest.us.sentry.io/4511270423822336",
+      );
     });
 
     it("respects SENTRY_SERVER_TRACES_SAMPLE_RATE override", async () => {
@@ -187,6 +216,7 @@ describe("server/sentry", () => {
   describe("setSentryUserForRequest", () => {
     it("no-ops when Sentry isn't initialized", async () => {
       delete process.env.SENTRY_SERVER_DSN;
+      delete process.env.SENTRY_DSN;
       const { setSentryUserForRequest } = await import("./sentry.js");
       setSentryUserForRequest({ email: "a@b.com" });
       expect(sentryMock.mockScope.setUser).not.toHaveBeenCalled();
@@ -251,6 +281,7 @@ describe("server/sentry", () => {
   describe("captureRouteError", () => {
     it("no-ops when Sentry isn't initialized", async () => {
       delete process.env.SENTRY_SERVER_DSN;
+      delete process.env.SENTRY_DSN;
       const { captureRouteError } = await import("./sentry.js");
       const result = captureRouteError(new Error("boom"));
       expect(result).toBeUndefined();

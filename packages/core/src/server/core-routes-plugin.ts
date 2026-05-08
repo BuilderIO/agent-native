@@ -1858,7 +1858,8 @@ export function createCoreRoutesPlugin(
       `${P}/automations`,
       defineEventHandler(async (event: H3Event) => {
         const method = getMethod(event);
-        const pathname = (event.url?.pathname || "")
+        const pathname = (event.path || event.url?.pathname || "")
+          .split("?")[0]
           .replace(/^\/+/, "")
           .replace(/\/+$/, "");
 
@@ -1873,7 +1874,10 @@ export function createCoreRoutesPlugin(
           return { error: "Unauthenticated" };
         }
 
-        if (pathname === "fire-test" && method === "POST") {
+        if (
+          (pathname === "fire-test" || pathname.endsWith("/fire-test")) &&
+          method === "POST"
+        ) {
           try {
             const { emit } = await import("../event-bus/index.js");
             const body = (await readBody(event).catch(() => ({}))) as Record<

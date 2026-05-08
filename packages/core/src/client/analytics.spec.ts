@@ -1,5 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const sentryMock = vi.hoisted(() => ({
+  init: vi.fn(),
+  setTag: vi.fn(),
+  setUser: vi.fn(),
+  withScope: vi.fn((fn: (scope: any) => unknown) =>
+    fn({
+      setTag: vi.fn(),
+      setExtra: vi.fn(),
+      setContext: vi.fn(),
+    }),
+  ),
+  captureException: vi.fn(() => "event_id"),
+}));
+
+vi.mock("@sentry/browser", () => sentryMock);
+
 const pageviewStateKey = Symbol.for("agent-native.client.pageviewTracking");
 
 function resetPageviewState() {
@@ -83,6 +99,11 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
 describe("browser analytics pageviews", () => {
   afterEach(() => {
     resetPageviewState();
+    sentryMock.init.mockClear();
+    sentryMock.setTag.mockClear();
+    sentryMock.setUser.mockClear();
+    sentryMock.withScope.mockClear();
+    sentryMock.captureException.mockClear();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -160,5 +181,24 @@ describe("browser analytics pageviews", () => {
     await tick();
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("initializes browser Sentry from SSR runtime config", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+
+    expect(sentryMock.init).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dsn: "https://public@example/4511270423822336",
+        environment: "production",
+      }),
+    );
+    expect(sentryMock.setTag).toHaveBeenCalledWith("runtime", "browser");
   });
 });

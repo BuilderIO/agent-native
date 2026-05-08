@@ -21,6 +21,10 @@ const __dirname = path.dirname(__filename);
 const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
+const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
+  "*/CLAUDE.md",
+  "*/.claude/skills",
+];
 
 /**
  * Tagged error for input that fails CLI-level validation (repo names, app
@@ -906,6 +910,7 @@ export {
   getGitHubTemplateRef as _getGitHubTemplateRef,
   getGitHubTemplateRefCandidates as _getGitHubTemplateRefCandidates,
   shouldSkipScaffoldEntry as _shouldSkipScaffoldEntry,
+  tarExtractArgs as _tarExtractArgs,
 };
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -920,7 +925,25 @@ function validateRepoName(repo: string): void {
   }
 }
 
-function downloadAndExtract(url: string, destDir: string): void {
+function tarExtractArgs(
+  tarPath: string,
+  destDir: string,
+  options: { skipAgentSymlinks?: boolean } = {},
+): string[] {
+  const excludes = options.skipAgentSymlinks
+    ? FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES.flatMap((pattern) => [
+        "--exclude",
+        pattern,
+      ])
+    : [];
+  return ["xzf", tarPath, "--strip-components=1", ...excludes, "-C", destDir];
+}
+
+function downloadAndExtract(
+  url: string,
+  destDir: string,
+  options: { skipAgentSymlinks?: boolean } = {},
+): void {
   fs.mkdirSync(destDir, { recursive: true });
   // --fail-with-body so curl exits non-zero on HTTP 4xx/5xx instead of writing
   // the error body (HTML/JSON) to disk where tar then fails with the opaque
@@ -931,11 +954,9 @@ function downloadAndExtract(url: string, destDir: string): void {
   const tarPath = path.join(destDir, ".download.tar.gz");
   fs.writeFileSync(tarPath, tarball);
   try {
-    execFileSync(
-      "tar",
-      ["xzf", tarPath, "--strip-components=1", "-C", destDir],
-      { stdio: "pipe" },
-    );
+    execFileSync("tar", tarExtractArgs(tarPath, destDir, options), {
+      stdio: "pipe",
+    });
   } finally {
     fs.unlinkSync(tarPath);
   }
@@ -957,7 +978,7 @@ async function downloadGitHubSubdir(
       `.agent-native-tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     );
     try {
-      downloadAndExtract(tarUrl, tmpDir);
+      downloadAndExtract(tarUrl, tmpDir, { skipAgentSymlinks: repo === REPO });
       const srcDir = path.join(tmpDir, subdir);
       if (!fs.existsSync(srcDir)) {
         throw new Error(

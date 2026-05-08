@@ -6,6 +6,7 @@ import type { ChildProcess, spawn } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   initialWorkspaceAppIds,
+  isWorkspaceWatcherLimitError,
   runWorkspaceDev,
   shouldEagerStartWorkspaceApps,
   type WorkspaceDevHandle,
@@ -202,6 +203,12 @@ describe("workspace dev helpers", () => {
       "dispatch",
       "starter",
     ]);
+  });
+
+  it("treats file watcher limit errors as handled polling fallback", () => {
+    expect(isWorkspaceWatcherLimitError({ code: "ENOSPC" })).toBe(true);
+    expect(isWorkspaceWatcherLimitError({ code: "EMFILE" })).toBe(true);
+    expect(isWorkspaceWatcherLimitError({ code: "EACCES" })).toBe(false);
   });
 });
 

@@ -110,7 +110,9 @@ function BidirectionalTabs() {
       if (!video) return;
       if (i === activeTab) {
         video.currentTime = 0;
-        video.play();
+        void video.play().catch(() => {
+          // Browsers reject play() if the tab/video unmounts mid-request.
+        });
       } else {
         video.pause();
       }

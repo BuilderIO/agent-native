@@ -28,6 +28,7 @@ import {
   _getGitHubTemplateRef,
   _getGitHubTemplateRefCandidates,
   _shouldSkipScaffoldEntry,
+  _tarExtractArgs,
 } from "./create.js";
 import { workspacifyApp } from "./workspacify.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
@@ -477,6 +478,24 @@ describe("workspace scaffold defaults", () => {
 
   it("does not copy local agent-native runtime state", () => {
     expect(_shouldSkipScaffoldEntry(".agent-native")).toBe(true);
+  });
+
+  it("can skip first-party agent symlinks while extracting GitHub tarballs", () => {
+    expect(
+      _tarExtractArgs("/tmp/archive.tar.gz", "/tmp/out", {
+        skipAgentSymlinks: true,
+      }),
+    ).toEqual([
+      "xzf",
+      "/tmp/archive.tar.gz",
+      "--strip-components=1",
+      "--exclude",
+      "*/CLAUDE.md",
+      "--exclude",
+      "*/.claude/skills",
+      "-C",
+      "/tmp/out",
+    ]);
   });
 });
 

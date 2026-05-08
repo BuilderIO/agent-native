@@ -175,14 +175,12 @@ export function calculateCost(
   cacheWriteTokens = 0,
 ): number {
   const p = pricingFor(model);
-  const toX100 = (tokens: number, costPerM: number) =>
-    Math.round((tokens / 1_000_000) * costPerM * 100);
-  return (
-    toX100(inputTokens, p.input) +
-    toX100(outputTokens, p.output) +
-    toX100(cacheReadTokens, p.cacheRead) +
-    toX100(cacheWriteTokens, p.cacheWrite)
-  );
+  const rawCenticents =
+    (inputTokens / 1_000_000) * p.input * 100 +
+    (outputTokens / 1_000_000) * p.output * 100 +
+    (cacheReadTokens / 1_000_000) * p.cacheRead * 100 +
+    (cacheWriteTokens / 1_000_000) * p.cacheWrite * 100;
+  return rawCenticents > 0 ? Math.max(1, Math.round(rawCenticents)) : 0;
 }
 
 /**

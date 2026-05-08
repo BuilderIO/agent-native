@@ -23,9 +23,13 @@ export default function CodeBlock({
         light: "github-light-default",
         dark: "github-dark-default",
       },
-    }).then((result) => {
-      if (!cancelled) setHtml(result);
-    });
+    })
+      .then((result) => {
+        if (!cancelled) setHtml(result);
+      })
+      .catch(() => {
+        if (!cancelled) setHtml("");
+      });
     return () => {
       cancelled = true;
     };

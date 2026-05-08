@@ -1,5 +1,5 @@
 import { agentNativePath } from "../api-path.js";
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   IconBolt,
   IconClock,
@@ -15,6 +15,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
 
 interface TreeNode {
   name: string;
@@ -231,35 +236,6 @@ export function AutomationsSection() {
   const [newScope, setNewScope] = useState<"personal" | "organization">(
     "personal",
   );
-  const newPopoverRef = useRef<HTMLDivElement>(null);
-  const newButtonRef = useRef<HTMLButtonElement>(null);
-
-  // Close popover on outside click
-  useEffect(() => {
-    if (!newOpen) return;
-    function handleClick(e: MouseEvent) {
-      if (
-        newPopoverRef.current &&
-        !newPopoverRef.current.contains(e.target as Node) &&
-        newButtonRef.current &&
-        !newButtonRef.current.contains(e.target as Node)
-      ) {
-        setNewOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [newOpen]);
-
-  // Close popover on Escape
-  useEffect(() => {
-    if (!newOpen) return;
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setNewOpen(false);
-    }
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [newOpen]);
 
   const handleNewSubmit = useCallback(
     (text: string) => {
@@ -301,53 +277,55 @@ export function AutomationsSection() {
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-1.5">
-        <div className="relative">
+        <Popover open={newOpen} onOpenChange={setNewOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/40"
+            >
+              <IconPlus size={10} />
+              New Automation
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            sideOffset={6}
+            collisionPadding={8}
+            className="z-[260] w-[calc(100vw-24px)] max-w-[380px] p-3"
+          >
+            <p className="px-1 pb-2 text-sm font-semibold text-foreground">
+              New automation
+            </p>
+            <PromptComposer
+              autoFocus
+              placeholder="Describe what you want to automate..."
+              draftScope="automations:create"
+              onSubmit={handleNewSubmit}
+            />
+            <div className="mt-2">
+              <select
+                value={newScope}
+                onChange={(e) =>
+                  setNewScope(e.target.value as "personal" | "organization")
+                }
+                className="w-full cursor-pointer rounded-md border border-input bg-background px-3 py-1.5 text-[12px] text-foreground"
+              >
+                <option value="personal">Personal</option>
+                <option value="organization">Organization</option>
+              </select>
+            </div>
+          </PopoverContent>
+        </Popover>
+        {automations.length > 0 && (
           <button
-            ref={newButtonRef}
             type="button"
-            onClick={() => setNewOpen(!newOpen)}
+            onClick={handleFireTestEvent}
             className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/40"
           >
-            <IconPlus size={10} />
-            New Automation
+            <IconPlayerPlay size={10} />
+            Fire Test Event
           </button>
-          {newOpen && (
-            <div
-              ref={newPopoverRef}
-              className="absolute left-0 top-full mt-1.5 z-[220] w-[380px] rounded-lg border border-border bg-popover p-3 shadow-lg"
-            >
-              <p className="px-1 pb-2 text-sm font-semibold text-foreground">
-                New automation
-              </p>
-              <PromptComposer
-                autoFocus
-                placeholder="Describe what you want to automate..."
-                draftScope="automations:create"
-                onSubmit={handleNewSubmit}
-              />
-              <div className="mt-2">
-                <select
-                  value={newScope}
-                  onChange={(e) =>
-                    setNewScope(e.target.value as "personal" | "organization")
-                  }
-                  className="w-full cursor-pointer rounded-md border border-input bg-background px-3 py-1.5 text-[12px] text-foreground"
-                >
-                  <option value="personal">Personal</option>
-                  <option value="organization">Organization</option>
-                </select>
-              </div>
-            </div>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={handleFireTestEvent}
-          className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/40"
-        >
-          <IconPlayerPlay size={10} />
-          Fire Test Event
-        </button>
+        )}
       </div>
 
       {automations.length === 0 ? (
