@@ -122,8 +122,10 @@ export interface PendingBrowserRecordingUpload {
   mimeType: string;
 }
 
-interface BrowserRecordingBackupMeta
-  extends Omit<PendingBrowserRecordingUpload, "kind"> {}
+interface BrowserRecordingBackupMeta extends Omit<
+  PendingBrowserRecordingUpload,
+  "kind"
+> {}
 
 interface BrowserRecordingBackupChunk {
   recordingId: string;
@@ -262,7 +264,9 @@ async function getBrowserRecordingBackupChunks(
   }
 }
 
-async function deleteBrowserRecordingBackup(recordingId: string): Promise<void> {
+async function deleteBrowserRecordingBackup(
+  recordingId: string,
+): Promise<void> {
   if (!backupDbAvailable()) return;
   const db = await openBackupDb();
   try {
@@ -271,9 +275,7 @@ async function deleteBrowserRecordingBackup(recordingId: string): Promise<void> 
       "readwrite",
     );
     tx.objectStore(BACKUP_META_STORE).delete(recordingId);
-    const chunkIndex = tx
-      .objectStore(BACKUP_CHUNK_STORE)
-      .index("recordingId");
+    const chunkIndex = tx.objectStore(BACKUP_CHUNK_STORE).index("recordingId");
     const cursorRequest = chunkIndex.openCursor(IDBKeyRange.only(recordingId));
     cursorRequest.onsuccess = () => {
       const cursor = cursorRequest.result;
@@ -337,13 +339,18 @@ async function postBackupChunk(
 ): Promise<void> {
   const res = await fetch(url, {
     method: "POST",
-    headers: buildRetryHeaders(blob.type || "application/octet-stream", authToken),
+    headers: buildRetryHeaders(
+      blob.type || "application/octet-stream",
+      authToken,
+    ),
     credentials: "include",
     body: blob,
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`Upload retry failed (${res.status}): ${body.slice(0, 200)}`);
+    throw new Error(
+      `Upload retry failed (${res.status}): ${body.slice(0, 200)}`,
+    );
   }
   await res.text().catch(() => {});
 }
@@ -1806,7 +1813,10 @@ async function startNativeRecordingInner(
         mimeType: finalMimeType,
         lastError: null,
       }).catch((err) => {
-        console.warn("[clips-recorder] local backup final metadata failed:", err);
+        console.warn(
+          "[clips-recorder] local backup final metadata failed:",
+          err,
+        );
       });
 
       // Null the data handler so the final MediaRecorder teardown
