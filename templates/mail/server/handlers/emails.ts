@@ -390,9 +390,7 @@ function isGmailQuotaError(message: string): boolean {
   );
 }
 
-function retryAfterSecondsFromErrors(
-  errors: Array<{ error: string }>,
-): number {
+function retryAfterSecondsFromErrors(errors: Array<{ error: string }>): number {
   let retryAfter = 60;
   for (const { error } of errors) {
     const match = error.match(/retry in\s+(\d+)s/i);
