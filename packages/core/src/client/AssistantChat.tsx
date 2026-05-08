@@ -175,9 +175,7 @@ function createUserMessageRunConfig(
   if (requestMode) {
     custom.requestMode = requestMode;
   }
-  return Object.keys(custom).length > 0
-    ? { runConfig: { custom } }
-    : {};
+  return Object.keys(custom).length > 0 ? { runConfig: { custom } } : {};
 }
 
 function escapeQueuedAttachmentAttribute(value: string): string {
@@ -3488,11 +3486,12 @@ const AssistantChatInner = forwardRef<
   }, [messages]);
   const latestMessageRole = messages[messages.length - 1]?.role;
   const showPlanModeCallout =
-    execMode === "plan" && !planModeDisabled && !isComposerDisabled;
+    execMode === "plan" &&
+    !planModeDisabled &&
+    !isComposerDisabled &&
+    !showRunningInUI;
   const canImplementPlan =
-    showPlanModeCallout &&
-    !showRunningInUI &&
-    latestMessageRole === "assistant";
+    showPlanModeCallout && latestMessageRole === "assistant";
   const handleImplementPlan = useCallback(() => {
     onExecModeChange?.("build");
     void addToQueue(
