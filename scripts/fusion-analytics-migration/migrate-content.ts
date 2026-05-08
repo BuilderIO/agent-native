@@ -2043,6 +2043,652 @@ function buildAnalyses(): AnalysisMigration[] {
   return [...generated, ...memoAnalyses()];
 }
 
+function buildFusionClosedLostAnalysis(
+  meta: AnalysisMeta,
+  sourceInfo: ReturnType<typeof sourceSnapshot>,
+): AnalysisMigration {
+  const gong = readLegacyJson<FusionMatchedDataset>(
+    "data/fusion-gong-matched.json",
+  );
+  const businessPain = readLegacyJson<FusionBusinessPainDataset>(
+    "data/fusion-business-pain.json",
+  );
+  const deals = (gong.deals ?? []).map((deal) =>
+    compactDeal(deal, {
+      emailCount: collectionCount(gong.emailsByDeal?.[deal.dealId]),
+      slackMessageCount: collectionCount(gong.slackByDeal?.[deal.dealId]),
+    }),
+  );
+  const liveDealIds = new Set(deals.map((deal) => deal.dealId));
+  const stageData = summarizeStageData(deals);
+  const compactPainDeals = (businessPain.deals ?? [])
+    .filter((deal) => !deal.dealId || liveDealIds.has(deal.dealId))
+    .map((deal) => ({
+      dealId: deal.dealId,
+      dealName: deal.dealName,
+      amount: numberValue(deal.amount),
+      businessPain: truncateText(deal.businessPain, 900),
+      operationalPain: truncateText(deal.operationalPain, 900),
+      assessedPainSummary: truncateText(deal.assessedPainSummary, 900),
+      painCategories: deal.painCategories ?? [],
+    }));
+
+  return {
+    ...meta,
+    question: meta.description,
+    instructions: legacyFusionInstructions(meta),
+    resultMarkdown: closedLostMarkdown({
+      meta,
+      summary: gong.summary ?? {},
+      deals,
+      stageData,
+      lossThemes: CLOSED_LOST_THEMES,
+      topPains: businessPain.topPains ?? [],
+      businessPains: businessPain.businessPains ?? [],
+    }),
+    resultData: {
+      migration: "fusion-analytics",
+      source: sourceInfo,
+      legacyFusion: {
+        type: "closed-lost",
+        generatedAt: gong.generatedAt,
+        analysisAsOf: gong.analysisAsOf,
+        summary: gong.summary,
+        deals,
+        stageData,
+        lossThemes: CLOSED_LOST_THEMES,
+        businessPain: {
+          generatedAt: businessPain.generatedAt,
+          totalDeals: businessPain.totalDeals,
+          topPains: (businessPain.topPains ?? [])
+            .slice(0, 8)
+            .map(compactPainTheme),
+          businessPains: (businessPain.businessPains ?? [])
+            .slice(0, 8)
+            .map(compactPainTheme),
+          deals: compactPainDeals,
+        },
+      },
+    },
+  };
+}
+
+function buildFusionClosedWonAnalysis(
+  meta: AnalysisMeta,
+  sourceInfo: ReturnType<typeof sourceSnapshot>,
+): AnalysisMigration {
+  const gong = readLegacyJson<FusionMatchedDataset>(
+    "data/fusion-won-gong-matched.json",
+  );
+  const deals = (gong.deals ?? []).map((deal) =>
+    compactDeal(deal, {
+      emailCount: collectionCount(gong.emailsByDeal?.[deal.dealId]),
+      slackMessageCount: collectionCount(gong.slackByDeal?.[deal.dealId]),
+      personaCount: collectionCount(gong.personasByDeal?.[deal.dealId]),
+    }),
+  );
+  const dealNames = new Map(deals.map((deal) => [deal.dealId, deal.dealName]));
+  const personas = Object.entries(gong.personasByDeal ?? {}).flatMap(
+    ([dealId, rows]) =>
+      rows.map((persona) => ({
+        dealId,
+        dealName: dealNames.get(dealId),
+        email: persona.email,
+        name: persona.name,
+        company: persona.company,
+      })),
+  );
+
+  return {
+    ...meta,
+    question: meta.description,
+    instructions: legacyFusionInstructions(meta),
+    resultMarkdown: closedWonMarkdown({
+      meta,
+      summary: gong.summary ?? {},
+      deals,
+      winThemes: CLOSED_WON_WIN_THEMES,
+    }),
+    resultData: {
+      migration: "fusion-analytics",
+      source: sourceInfo,
+      legacyFusion: {
+        type: "closed-won",
+        generatedAt: gong.generatedAt,
+        analysisAsOf: gong.analysisAsOf,
+        summary: gong.summary,
+        deals,
+        personas,
+        winThemes: CLOSED_WON_WIN_THEMES,
+        operationalThemes: CLOSED_WON_OPERATIONAL_THEMES,
+        businessThemes: CLOSED_WON_BUSINESS_THEMES,
+      },
+    },
+  };
+}
+
+function legacyFusionInstructions(meta: AnalysisMeta): string {
+  return [
+    `Re-run the legacy Fusion analysis "${meta.name}" using these sources: ${meta.dataSources.join(", ")}.`,
+    `Use ${meta.sourcePath} and the compact legacyFusion resultData payload as the baseline for the dashboard shape.`,
+    "Save the refreshed analysis with structured resultData.legacyFusion so charts and tables render in the analysis detail page.",
+    "When provider credentials or tables are unavailable, record the concrete provider error instead of fabricating values.",
+  ].join("\n");
+}
+
+interface FusionMatchedDataset {
+  generatedAt?: string;
+  analysisAsOf?: string;
+  summary?: Record<string, unknown>;
+  deals?: FusionMatchedDeal[];
+  transcriptsByCallId?: Record<string, unknown>;
+  emailsByDeal?: Record<string, unknown[]>;
+  slackByDeal?: Record<string, unknown[]>;
+  personasByDeal?: Record<string, FusionPersona[]>;
+}
+
+interface FusionMatchedDeal {
+  dealId: string;
+  dealName: string;
+  amount?: number;
+  closeDate?: string;
+  furthestStage?: string;
+  closedLostReason?: string;
+  contacts?: unknown[];
+  matchedCalls?: unknown[];
+  gongCallCount?: number;
+}
+
+interface FusionPersona {
+  email?: string;
+  name?: string;
+  company?: string;
+}
+
+interface FusionBusinessPainDataset {
+  generatedAt?: string;
+  totalDeals?: number;
+  topPains?: FusionPainTheme[];
+  businessPains?: FusionPainTheme[];
+  deals?: FusionPainDeal[];
+}
+
+interface FusionPainTheme {
+  rank?: number;
+  pain?: string;
+  description?: string;
+  businessImpact?: string;
+  dealCount?: number;
+  representativeDeals?: string[];
+}
+
+interface FusionPainDeal {
+  dealId?: string;
+  dealName: string;
+  amount?: number;
+  threeWhysSummary?: string;
+  assessedPainSummary?: string;
+  painCategories?: string[];
+  businessPain?: string;
+  operationalPain?: string;
+}
+
+interface CompactFusionDeal {
+  dealId: string;
+  dealName: string;
+  amount: number;
+  closeDate?: string;
+  furthestStage?: string;
+  closedLostReason?: string;
+  gongCallCount: number;
+  matchedCallCount: number;
+  contactCount: number;
+  emailCount: number;
+  slackMessageCount: number;
+  personaCount?: number;
+}
+
+function compactDeal(
+  deal: FusionMatchedDeal,
+  counts: {
+    emailCount?: number;
+    slackMessageCount?: number;
+    personaCount?: number;
+  } = {},
+): CompactFusionDeal {
+  return {
+    dealId: deal.dealId,
+    dealName: deal.dealName,
+    amount: numberValue(deal.amount),
+    closeDate: deal.closeDate,
+    furthestStage: deal.furthestStage,
+    closedLostReason: truncateText(deal.closedLostReason, 900),
+    gongCallCount: numberValue(deal.gongCallCount),
+    matchedCallCount: collectionCount(deal.matchedCalls),
+    contactCount: collectionCount(deal.contacts),
+    emailCount: counts.emailCount ?? 0,
+    slackMessageCount: counts.slackMessageCount ?? 0,
+    ...(counts.personaCount !== undefined
+      ? { personaCount: counts.personaCount }
+      : {}),
+  };
+}
+
+function compactPainTheme(theme: FusionPainTheme) {
+  return {
+    rank: theme.rank,
+    pain: theme.pain,
+    description: truncateText(theme.description, 1_100),
+    businessImpact: theme.businessImpact,
+    dealCount: theme.dealCount,
+    representativeDeals: (theme.representativeDeals ?? []).slice(0, 10),
+  };
+}
+
+function summarizeStageData(deals: CompactFusionDeal[]) {
+  const buckets = new Map<string, { stage: string; deals: number; value: number }>();
+  for (const deal of deals) {
+    const stage = deal.furthestStage || "Unknown";
+    const current = buckets.get(stage) ?? { stage, deals: 0, value: 0 };
+    current.deals += 1;
+    current.value += deal.amount;
+    buckets.set(stage, current);
+  }
+  return [...buckets.values()]
+    .map((stage) => ({
+      ...stage,
+      avgDeal: stage.deals ? Math.round(stage.value / stage.deals) : 0,
+    }))
+    .sort((a, b) => b.value - a.value);
+}
+
+function closedLostMarkdown({
+  meta,
+  summary,
+  deals,
+  stageData,
+  lossThemes,
+  topPains,
+  businessPains,
+}: {
+  meta: AnalysisMeta;
+  summary: Record<string, unknown>;
+  deals: CompactFusionDeal[];
+  stageData: ReturnType<typeof summarizeStageData>;
+  lossThemes: typeof CLOSED_LOST_THEMES;
+  topPains: FusionPainTheme[];
+  businessPains: FusionPainTheme[];
+}) {
+  const totalValue = deals.reduce((sum, deal) => sum + deal.amount, 0);
+  return [
+    `# ${meta.name}`,
+    "",
+    meta.description,
+    "",
+    "## Executive Summary",
+    "",
+    `The migrated dashboard now carries the compact structured dataset needed to render the original chart/table experience inside Agent-Native Analytics. It covers ${numberForMarkdown(metric(summary, "totalDeals") ?? deals.length)} closed-lost deals, ${moneyForMarkdown(totalValue)} of lost pipeline, ${numberForMarkdown(metric(summary, "totalCallsMatched") ?? 0)} matched Gong calls, and ${numberForMarkdown(metric(summary, "emailsFetched") ?? 0)} matched emails.`,
+    "",
+    "## Metrics",
+    "",
+    "| Metric | Value |",
+    "| --- | ---: |",
+    `| Deals | ${numberForMarkdown(metric(summary, "totalDeals") ?? deals.length)} |`,
+    `| Deals with calls | ${numberForMarkdown(metric(summary, "dealsWithCalls") ?? 0)} |`,
+    `| Matched Gong calls | ${numberForMarkdown(metric(summary, "totalCallsMatched") ?? 0)} |`,
+    `| Transcripts fetched | ${numberForMarkdown(metric(summary, "transcriptsFetched") ?? 0)} |`,
+    `| Emails fetched | ${numberForMarkdown(metric(summary, "emailsFetched") ?? 0)} |`,
+    `| Lost pipeline | ${moneyForMarkdown(totalValue)} |`,
+    "",
+    "## Stage Leakage",
+    "",
+    "| Stage | Deals | Value | Avg Deal |",
+    "| --- | ---: | ---: | ---: |",
+    ...stageData.map(
+      (stage) =>
+        `| ${stage.stage} | ${numberForMarkdown(stage.deals)} | ${moneyForMarkdown(stage.value)} | ${moneyForMarkdown(stage.avgDeal)} |`,
+    ),
+    "",
+    "## Top Loss Themes",
+    "",
+    ...lossThemes.map(
+      (theme) =>
+        `- **${theme.theme}**: ${theme.deals} deals, ${moneyForMarkdown(theme.value)}. ${theme.definition}`,
+    ),
+    "",
+    "## Top Operational Pains",
+    "",
+    ...topPains
+      .slice(0, 5)
+      .map((theme) => `- **${theme.pain}**: ${theme.dealCount} deals.`),
+    "",
+    "## Top Business Pains",
+    "",
+    ...businessPains
+      .slice(0, 5)
+      .map(
+        (theme) =>
+          `- **${theme.pain}**: ${theme.businessImpact ?? "No impact recorded"}.`,
+      ),
+  ].join("\n");
+}
+
+function closedWonMarkdown({
+  meta,
+  summary,
+  deals,
+  winThemes,
+}: {
+  meta: AnalysisMeta;
+  summary: Record<string, unknown>;
+  deals: CompactFusionDeal[];
+  winThemes: typeof CLOSED_WON_WIN_THEMES;
+}) {
+  const totalValue = deals.reduce((sum, deal) => sum + deal.amount, 0);
+  const topDeals = [...deals]
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 10);
+  return [
+    `# ${meta.name}`,
+    "",
+    meta.description,
+    "",
+    "## Executive Summary",
+    "",
+    `The migrated dashboard now carries the compact structured dataset needed to render the original chart/table experience inside Agent-Native Analytics. It covers ${numberForMarkdown(metric(summary, "totalDeals") ?? deals.length)} closed-won deals, ${moneyForMarkdown(totalValue)} of won ARR, ${numberForMarkdown(metric(summary, "totalCallsMatched") ?? 0)} matched Gong calls, and ${numberForMarkdown(metric(summary, "emailsFetched") ?? 0)} matched emails.`,
+    "",
+    "## Metrics",
+    "",
+    "| Metric | Value |",
+    "| --- | ---: |",
+    `| Deals | ${numberForMarkdown(metric(summary, "totalDeals") ?? deals.length)} |`,
+    `| Deals with calls | ${numberForMarkdown(metric(summary, "dealsWithCalls") ?? 0)} |`,
+    `| Matched Gong calls | ${numberForMarkdown(metric(summary, "totalCallsMatched") ?? 0)} |`,
+    `| Transcripts fetched | ${numberForMarkdown(metric(summary, "transcriptsFetched") ?? 0)} |`,
+    `| Emails fetched | ${numberForMarkdown(metric(summary, "emailsFetched") ?? 0)} |`,
+    `| Won ARR | ${moneyForMarkdown(totalValue)} |`,
+    "",
+    "## Largest Wins",
+    "",
+    "| Deal | ARR | Closed | Gong Calls |",
+    "| --- | ---: | --- | ---: |",
+    ...topDeals.map(
+      (deal) =>
+        `| ${deal.dealName} | ${moneyForMarkdown(deal.amount)} | ${shortDateForMarkdown(deal.closeDate)} | ${numberForMarkdown(deal.gongCallCount)} |`,
+    ),
+    "",
+    "## Win Themes",
+    "",
+    ...winThemes.map((theme) => `- **${theme.title}**: ${theme.detail}`),
+  ].join("\n");
+}
+
+function metric(summary: Record<string, unknown>, key: string): number | undefined {
+  const raw = summary[key];
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string") {
+    const parsed = Number(raw.replace(/[%,$]/g, ""));
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function collectionCount(value: unknown): number {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function truncateText(value: unknown, maxLength = 600): string | undefined {
+  if (typeof value !== "string" || !value) return undefined;
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 1).trim()}...`;
+}
+
+function numberForMarkdown(value: number): string {
+  return new Intl.NumberFormat("en-US").format(Math.round(value));
+}
+
+function moneyForMarkdown(value: number | undefined): string {
+  const amount = numberValue(value);
+  if (Math.abs(amount) >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(amount) >= 1_000) return `$${Math.round(amount / 1_000)}K`;
+  return `$${Math.round(amount)}`;
+}
+
+function shortDateForMarkdown(value: string | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toISOString().slice(0, 10);
+}
+
+const CLOSED_LOST_THEMES = [
+  {
+    theme: "Stale / Inherited Pipeline",
+    deals: 16,
+    value: 1_243_500,
+    pct: 22.5,
+    definition:
+      "Deals inherited from a departing rep or dormant long enough that no real sales motion happened. These were closed for CRM hygiene, but some still have reopen paths.",
+    examples: [
+      "AWS Help Me Build - security approval created a legitimate reopen path.",
+      "New York Life - inherited opportunity with no prospect response after initial contact.",
+      "OpenGov - originally a Develop deal repositioned as Fusion with no new champion found.",
+    ],
+  },
+  {
+    theme: "Competitive Displacement",
+    deals: 12,
+    value: 830_000,
+    pct: 16.4,
+    definition:
+      "Prospects chose named alternatives such as Lovable, Cursor, Claude Code, Bolt, Google Stitch, or Figma MCP while Builder was still trying to start or complete evaluation.",
+    examples: [
+      "UBER - explicit tool saturation with Lovable for product/design and Cursor for engineering.",
+      "Conservice - Claude Code adoption filled the gap during slow setup.",
+      "GE HealthCare - Bolt validated while Builder was blocked in security review.",
+    ],
+  },
+  {
+    theme: "POV / Product Friction",
+    deals: 13,
+    value: 680_000,
+    pct: 15.1,
+    definition:
+      "Setup failures, output-quality gaps, and workflow mismatches prevented the evaluation from becoming a confident enterprise purchase.",
+    examples: [
+      "Conservice - authentication and container setup failures persisted for weeks.",
+      "Cobalt - post-POC critique cited instability, inconsistent output, and setup time.",
+      "Allianz - competitor generated more complete features by default.",
+    ],
+  },
+  {
+    theme: "Not Ready / Wrong Timing",
+    deals: 11,
+    value: 585_000,
+    pct: 13,
+    definition:
+      "Genuine interest existed, but budget freezes, architecture uncertainty, or deferred evaluations paused the motion instead of killing it outright.",
+    examples: [
+      "Cisco - strong fit, then hiring freeze and budget cuts.",
+      "Snowflake - positive relationship but pausing to roll out Cursor.",
+      "Vagaro - still interested, likely revisiting in Q3.",
+    ],
+  },
+  {
+    theme: "Security Blockers",
+    deals: 9,
+    value: 700_000,
+    pct: 12.7,
+    definition:
+      "Security or compliance requirements blocked evaluation. The dangerous pattern is competitors filling the gap while Builder waits on review.",
+    examples: [
+      "Groupe Mutuel - DMZ policy blocked both cloud container and local connection paths.",
+      "AllianceBernstein - VPN restrictions blocked both cloud and local approaches.",
+      "Capital One - stalled during NDA execution.",
+    ],
+  },
+  {
+    theme: "Org / Personnel Changes",
+    deals: 8,
+    value: 620_000,
+    pct: 12.3,
+    definition:
+      "Champions left, were laid off, or new leadership reversed decisions after technical progress had already been made.",
+    examples: [
+      "SailPoint - new VP of Design put the project on hold after workshops.",
+      "Tekion - CTO changed direction at contract signing.",
+      "HP - reorg eliminated the active champion path.",
+    ],
+  },
+  {
+    theme: "Budget & Pricing",
+    deals: 8,
+    value: 420_000,
+    pct: 11.3,
+    definition:
+      "Price, budget authority, or wrong-persona selling blocked enterprise approval even when the team saw product value.",
+    examples: [
+      "Wells Fargo - champion had interest but could not get budget approved.",
+      "ZS - compared Builder to Lovable and went dark after platform pricing.",
+      "Altimetrik - reached S3 but downgraded to Team plan.",
+    ],
+  },
+] as const;
+
+const CLOSED_WON_WIN_THEMES = [
+  {
+    number: 1,
+    title:
+      "Developer Productivity Is the Universal Opener - Design System Depth Is What Closes",
+    detail:
+      "Every deal started with the same hook: a live Figma-to-code demo promising faster UI delivery. What closed each deal was proving Builder understood the customer's specific design system and production codebase.",
+    deals: ["Optum UHG", "Netflix", "Sony Pictures", "Omnicell", "Acuity Brands"],
+  },
+  {
+    number: 2,
+    title: "Every Win Had One Internal Champion",
+    detail:
+      "Each deal was carried by one identifiable champion with personal urgency, from a trade-fair deadline to a modernization mandate or a CI/CD AI bet.",
+    deals: ["Netflix", "Volue", "tiszasoft.com", "Acuity Brands", "Yotpo"],
+  },
+  {
+    number: 3,
+    title:
+      "SSO and Enterprise Security Review Were the Main Delay After Verbal Yes",
+    detail:
+      "At least three large wins had commercial agreement before weeks of SSO or enterprise security work. Product fit was decided; implementation and compliance extended the cycle.",
+    deals: ["Optum UHG", "Sony Pictures", "Thales"],
+  },
+  {
+    number: 4,
+    title: "Structured POC Converted Technical Skeptics",
+    detail:
+      "Large wins used formal trials to prove design-system fidelity, real repo compatibility, and stakeholder value. CE intervention mattered when the POC hit production-toolchain friction.",
+    deals: ["Optum UHG", "Acuity Brands", "Weedmaps", "Volue", "Porch.com"],
+  },
+  {
+    number: 5,
+    title: "Fusion Is Winning Against Internal Tools and Manual Dev",
+    detail:
+      "The transcripts show the main competitor was the status quo: manual front-end implementation, internal scripts, and design-engineering queues, not a named vendor in most cycles.",
+    deals: ["Netflix", "Omnicell", "Optum UHG", "ServiceNow"],
+  },
+  {
+    number: 6,
+    title: "AI-Native Coding Agent Framing Drives Expansion Potential",
+    detail:
+      "The initial Figma-to-code pitch opens the door, while deeper coding-agent workflows create stickiness once teams see Builder handling review, docs, repo context, and CI/CD-style tasks.",
+    deals: ["tiszasoft.com", "ServiceNow", "Weedmaps", "Yotpo"],
+  },
+] as const;
+
+const CLOSED_WON_OPERATIONAL_THEMES = [
+  {
+    number: 1,
+    title: "Manual Figma-to-Code Handoffs Blocked Design Teams",
+    detail:
+      "Designers could not convert Figma designs to production code without engineering tickets or developer availability.",
+    deals: ["Yotpo", "Weedmaps", "Porch.com", "Sony Pictures", "Optum UHG"],
+  },
+  {
+    number: 2,
+    title: "Generic AI Code Generators Failed Against Production Design Systems",
+    detail:
+      "Teams had tried tools that generated code, but the output did not match their component library, tokens, or repo conventions.",
+    deals: ["Yotpo", "ServiceNow", "Acuity Brands", "Weedmaps", "Thales"],
+  },
+  {
+    number: 3,
+    title: "Monorepo and Enterprise Toolchain Complexity Broke Standard Tools",
+    detail:
+      "Microfrontends, port conflicts, unsupported source control, and SSO friction made simplified demos insufficient.",
+    deals: ["Volue", "Omnicell", "Porch.com"],
+  },
+  {
+    number: 4,
+    title: "No Shared Source of Truth Between Design and Code",
+    detail:
+      "Teams described constant rework from designers and developers working from different references.",
+    deals: ["Netflix", "Sony Pictures", "Thales", "tiszasoft.com"],
+  },
+  {
+    number: 5,
+    title: "Prototyping Was Developer-Gated",
+    detail:
+      "Non-developers could not produce realistic prototypes with live components without waiting on engineering.",
+    deals: ["Volue", "Netflix", "Weedmaps", "Porch.com"],
+  },
+] as const;
+
+const CLOSED_WON_BUSINESS_THEMES = [
+  {
+    number: 1,
+    title: "Engineering Bandwidth Was Consumed by UI Work That Should Be Automated",
+    detail:
+      "Large deals articulated senior engineering time spent on design-to-code translation, component maintenance, or pixel-level QA.",
+    deals: ["Omnicell", "Optum UHG", "Thales", "ServiceNow", "Acuity Brands"],
+  },
+  {
+    number: 2,
+    title: "Design Engineering Was Too Small for the Product Portfolio",
+    detail:
+      "Design engineering teams were structurally too small to support the full application portfolio without automation.",
+    deals: ["Netflix"],
+  },
+  {
+    number: 3,
+    title: "Strategic AI and Modernization Initiatives Needed Production ROI",
+    detail:
+      "Buyers had AI productivity mandates, consolidation programs, or internal-tooling resets that had not delivered production-ready output.",
+    deals: ["Thales", "Acuity Brands", "ServiceNow"],
+  },
+  {
+    number: 4,
+    title: "Feature Velocity Was Too Slow for Real Business Deadlines",
+    detail:
+      "Several wins had deadlines tied to launches, trade fairs, modernization programs, or revenue-facing product areas.",
+    deals: ["Optum UHG", "Volue", "Netflix", "Sony Pictures"],
+  },
+  {
+    number: 5,
+    title: "Prior AI and Design Tool Investment Had Not Produced Production Code",
+    detail:
+      "Teams had spent budget and credibility on AI/design tooling that still required engineering cleanup or could not pass security.",
+    deals: ["Yotpo", "Weedmaps", "Netflix", "Acuity Brands"],
+  },
+  {
+    number: 6,
+    title: "Design Inconsistency at Scale Was a Platform Quality Problem",
+    detail:
+      "Multiple teams building independently created drift across surfaces, raising maintenance cost and customer-trust risk.",
+    deals: ["Sony Pictures", "Acuity Brands", "Omnicell"],
+  },
+] as const;
+
 function memoAnalyses(): AnalysisMigration[] {
   return [
     memoAnalysis(
