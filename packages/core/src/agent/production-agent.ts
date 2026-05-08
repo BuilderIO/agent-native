@@ -444,7 +444,7 @@ export interface ProductionAgentOptions {
     | AgentEngine
     | string
     | { name: string; config: Record<string, unknown> };
-  /** Model to use. Default: claude-sonnet-4-6 */
+  /** Model to use. Defaults to the resolved engine's default model. */
   model?: string;
   /** Default reasoning effort for requests that do not supply an override. */
   reasoningEffort?: ReasoningEffort;

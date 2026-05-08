@@ -1,20 +1,19 @@
 /**
- * The framework-wide default model.
+ * The framework-wide default model for the managed Builder gateway.
  *
- * One place to bump the default when a new Claude model ships. Everything
- * that needs a default model fallback (agent chat, A2A handler, integration
- * agent, MCP askAgent, etc.) imports this constant — there are no hardcoded
- * model ID literals scattered across the codebase.
+ * Builder gateway public model IDs use hyphenated version numbers. Direct
+ * provider SDKs can use provider-native IDs, so keep those in separate
+ * constants below.
  *
  * Templates and apps can still override per-call by passing `model: "..."`
  * in their plugin options; this is just the value used when no override is
  * provided.
- *
- * Why sonnet (not haiku): the agent makes user-facing decisions (URLs, IDs,
- * delegated answers). Haiku is fast and cheap but hallucinates slugs and
- * paths in user-facing text often enough that we hit it during normal use
- * (e.g. a Slack reply with a deck URL pointing to a host that doesn't exist).
- * Sonnet's accuracy at the same task is dramatically better and the latency
- * cost is acceptable for the cross-app A2A path.
  */
-export const DEFAULT_MODEL = "claude-sonnet-4-6";
+export const DEFAULT_MODEL = "gpt-5-5";
+
+/**
+ * Provider-native IDs for direct BYOK engines. These must stay valid for
+ * their provider even when the framework-wide managed default changes.
+ */
+export const DEFAULT_OPENAI_MODEL = "gpt-5.5";
+export const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6";

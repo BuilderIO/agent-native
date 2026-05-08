@@ -30,7 +30,7 @@ export const tool: ActionTool = {
       model: {
         type: "string",
         description:
-          "Model ID (e.g. 'claude-sonnet-4-6', 'gpt-4o'). Optional for \"set\" and \"test\"; defaults to the engine's default model.",
+          "Model ID (e.g. 'gpt-5.5', 'claude-sonnet-4-6'). Optional for \"set\" and \"test\"; defaults to the engine's default model.",
       },
     },
     required: ["action"],

@@ -54,6 +54,7 @@ export const BUILDER_SUPPORTED_MODELS = [
   "claude-opus-4-7",
   "claude-sonnet-4-6",
   "claude-haiku-4-5",
+  "gpt-5-5",
   "gpt-5-4",
   "gpt-5-4-mini",
   "gpt-5-1-codex-mini",
@@ -71,8 +72,7 @@ export const BUILDER_SUPPORTED_MODELS = [
 const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
 const MAX_BUILDER_GATEWAY_TIMEOUT_MS = 55_000;
 
-// Inherits from agent/default-model.ts — single source of truth so a
-// new model release is a one-line bump.
+// Builder gateway public IDs are provider-neutral aliases owned by the gateway.
 import { DEFAULT_MODEL } from "../default-model.js";
 export const BUILDER_DEFAULT_MODEL = DEFAULT_MODEL;
 

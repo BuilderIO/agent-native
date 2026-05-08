@@ -25,7 +25,10 @@ import {
   aiSdkPartToEngineEvents,
   aiSdkStepToAssistantContent,
 } from "./translate-ai-sdk.js";
-import { DEFAULT_MODEL } from "../default-model.js";
+import {
+  DEFAULT_ANTHROPIC_MODEL,
+  DEFAULT_OPENAI_MODEL,
+} from "../default-model.js";
 import { readDeployCredentialEnv } from "../../server/credential-provider.js";
 import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
 
@@ -103,9 +106,9 @@ const PROVIDER_CAPABILITIES: Record<AISDKProvider, EngineCapabilities> = {
 };
 
 const PROVIDER_DEFAULT_MODELS: Record<AISDKProvider, string> = {
-  anthropic: DEFAULT_MODEL,
-  openai: "gpt-5.4",
-  openrouter: "anthropic/claude-sonnet-4.6",
+  anthropic: DEFAULT_ANTHROPIC_MODEL,
+  openai: DEFAULT_OPENAI_MODEL,
+  openrouter: "openai/gpt-5.5",
   google: "gemini-3-flash-preview",
   groq: "llama-3.3-70b-versatile",
   mistral: "mistral-large-latest",
@@ -123,6 +126,7 @@ const PROVIDER_SUPPORTED_MODELS: Record<AISDKProvider, readonly string[]> = {
   openrouter: [
     "anthropic/claude-opus-4.7",
     "anthropic/claude-sonnet-4.6",
+    "openai/gpt-5.5",
     "openai/gpt-5.4",
     "google/gemini-2.5-flash",
   ],
