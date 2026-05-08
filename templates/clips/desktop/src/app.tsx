@@ -65,6 +65,24 @@ interface PendingNativeUpload {
 
 type PendingDesktopUpload = PendingNativeUpload | PendingBrowserRecordingUpload;
 
+type TranscriptSource = "mic" | "system";
+
+interface MeetingTranscriptionPayload {
+  meetingId: string;
+  joinUrl?: string | null;
+  reason?: "user" | "calendar-auto" | string;
+}
+
+interface MeetingTranscriptionSession {
+  meetingId: string;
+  recordingId: string;
+  lines: string[];
+  unlisten: Array<() => void>;
+  flushTimer: ReturnType<typeof setTimeout> | null;
+  stopping: boolean;
+  audioMode: "mic-system" | "mic-only";
+}
+
 type CaptureMode = "screen" | "screen-camera" | "camera";
 type CaptureSource = "full-screen" | "window";
 
@@ -528,6 +546,9 @@ export function App() {
   const signInInflightRef = useRef(false);
   // Stored so Cancel can stop the polling loop.
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const meetingTranscriptionRef = useRef<MeetingTranscriptionSession | null>(
+    null,
+  );
   const isRecording = recorder !== null;
   const voiceDictationEnabled = featureConfig?.voiceEnabled !== false;
   const fnShortcutEnabled =

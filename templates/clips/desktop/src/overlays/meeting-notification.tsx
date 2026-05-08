@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -11,71 +10,27 @@ interface NotificationData {
   subtitle: string;
   meetingId: string;
   joinUrl?: string | null;
+  autoStart?: boolean;
 }
 
 interface StartRecordingPayload {
   meetingId: string;
   joinUrl?: string | null;
+  reason?: string;
 }
 
-const STORAGE_KEY = "clips:server-url";
+interface TranscriptionStatusPayload {
+  meetingId: string;
+  error?: string;
+}
+
 const DEFAULT_DISMISS_MS = 30_000;
 const SNOOZE_MS = 5 * 60_000;
-
-function getServerUrl(): string | null {
-  try {
-    const v = localStorage.getItem(STORAGE_KEY);
-    if (v && v.trim()) return v.replace(/\/+$/, "");
-  } catch {
-    // ignore
-  }
-  return null;
-}
-
-/**
- * Call the start-meeting-recording action and surface a useful error if it
- * fails. Returns null on success, or a short user-visible error string on
- * failure (so the banner can render it).
- */
-async function callStartMeetingRecording(
-  meetingId: string,
-): Promise<{ error: string | null; meetingId?: string }> {
-  const base = getServerUrl();
-  if (!base) {
-    return { error: "No server configured" };
-  }
-  try {
-    const resp = await fetch(
-      `${base}/_agent-native/actions/start-meeting-recording`,
-      {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ meetingId }),
-      },
-    );
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => "");
-      return {
-        error:
-          resp.status === 401
-            ? "Sign in to record meetings"
-            : `Couldn't start recording (${resp.status})${text ? `: ${text.slice(0, 120)}` : ""}`,
-      };
-    }
-    const payload = await resp.json().catch(() => null);
-    const result = payload?.result ?? payload;
-    return { error: null, meetingId: result?.meetingId ?? meetingId };
-  } catch (err) {
-    console.error("[clips-tray] start-meeting-recording fetch failed:", err);
-    return { error: "Network error — couldn't reach server" };
-  }
-}
 
 /**
  * Open a meeting join URL via the Tauri shell plugin. Centralized here so
  * both the notification's "Take Notes" and the watcher's
- * `meetings:start-recording` event use the same path.
+ * `meetings:start-transcription` event use the same path.
  */
 async function openJoinUrl(url: string | null | undefined): Promise<void> {
   if (!url) return;
@@ -91,14 +46,14 @@ async function openJoinUrl(url: string | null | undefined): Promise<void> {
  * Variants:
  *
  *   - Calendar event: solid left bar (green), meeting title, time,
- *     "Take Notes" + "Snooze 5 min" buttons.
+ *     "Start notes" + "Snooze 5 min" buttons.
  *   - Ad-hoc call: dashed left bar (slate), "Call detected", app name,
  *     same controls.
  *
  * Data arrives via Tauri event `meetings:show-notification`. Auto-dismisses
- * after 30s by default. Hover pauses the auto-dismiss timer. Errors from
- * `start-meeting-recording` surface inline beneath the title so the user
- * isn't left wondering why nothing happened.
+ * after 30s by default. Hover pauses the auto-dismiss timer. Errors from the
+ * persistent popover transcription session surface inline beneath the title
+ * so the user isn't left wondering why nothing happened.
  */
 export function MeetingNotification() {
   const [data, setData] = useState<NotificationData | null>(null);
@@ -137,35 +92,35 @@ export function MeetingNotification() {
       listen<NotificationData>("meetings:show-notification", (ev) => {
         setData(ev.payload);
         setError(null);
-        setPending(false);
+        setPending(!!ev.payload.autoStart);
         scheduleDismiss(DEFAULT_DISMISS_MS);
       }),
     );
 
-    // The Rust meetings_watcher (and the notifications module) fire
-    // `meetings:start-recording` when the user accepts a meeting reminder.
-    // Wire it directly to the start-meeting-recording action, surface any
-    // error, and open the join URL via tauri-plugin-shell.
+    // Legacy bridge: older Rust builds emitted `meetings:start-recording`.
+    // Re-route to the persistent popover-owned transcription session so this
+    // overlay can close without losing the transcript.
     trackListen(
       listen<StartRecordingPayload>("meetings:start-recording", (ev) => {
         const { meetingId, joinUrl } = ev.payload;
         if (!meetingId) return;
-        if (joinUrl) {
-          openJoinUrl(joinUrl);
-          // Keep the legacy event around for any other listeners that
-          // care about it (host integrations, analytics, etc.).
-          emit("meetings:open-join-url", { joinUrl }).catch(() => {});
-        }
-        callStartMeetingRecording(meetingId).then((result) => {
-          if (result.error) {
-            setError(result.error);
-            return;
-          }
-          invoke("recording_pill_show", {
-            meetingId: result.meetingId ?? meetingId,
-            mode: "meeting",
-          }).catch(() => {});
-        });
+        emit("meetings:start-transcription", { meetingId, joinUrl }).catch(
+          () => {},
+        );
+      }),
+    );
+    trackListen(
+      listen<TranscriptionStatusPayload>("meetings:transcription-started", (ev) => {
+        if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
+        dismiss();
+      }),
+    );
+    trackListen(
+      listen<TranscriptionStatusPayload>("meetings:transcription-error", (ev) => {
+        if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
+        setPending(false);
+        setError(ev.payload.error || "Could not start notes.");
+        scheduleDismiss(15_000);
       }),
     );
 
@@ -213,20 +168,14 @@ export function MeetingNotification() {
       openJoinUrl(data.joinUrl);
     }
     emit("meetings:take-notes", { meetingId: data.meetingId }).catch(() => {});
-    const result = await callStartMeetingRecording(data.meetingId);
-    setPending(false);
-    if (result.error) {
-      setError(result.error);
-      // Keep the banner up so the user can see the error — re-arm with a
-      // longer auto-dismiss so they have time to read it.
-      scheduleDismiss(15_000);
-      return;
-    }
-    invoke("recording_pill_show", {
-      meetingId: result.meetingId ?? data.meetingId,
-      mode: "meeting",
-    }).catch(() => {});
-    dismiss();
+    emit("meetings:start-transcription", {
+      meetingId: data.meetingId,
+      joinUrl: data.joinUrl,
+      reason: "user",
+    }).catch((err) => {
+      setPending(false);
+      setError((err as Error)?.message ?? "Could not start notes.");
+    });
   }
 
   function snooze() {
@@ -292,7 +241,7 @@ export function MeetingNotification() {
             disabled={pending}
             data-no-drag
           >
-            {pending ? "Starting…" : "Take Notes"}
+            {pending ? "Starting…" : "Start notes"}
           </button>
           <button
             className="meeting-notification-btn meeting-notification-btn-secondary"
