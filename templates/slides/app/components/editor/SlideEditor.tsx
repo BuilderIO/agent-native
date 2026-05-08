@@ -26,11 +26,7 @@ import type { DesignSystemData } from "../../../shared/api";
 import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import { TAB_ID } from "@/lib/tab-id";
-import {
-  IconMaximize,
-  IconZoomIn,
-  IconZoomOut,
-} from "@tabler/icons-react";
+import { IconMaximize, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
