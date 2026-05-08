@@ -14,6 +14,13 @@ import {
 } from "@/components/ui/select";
 import type { CustomField } from "@shared/api";
 
+export interface BookingFormValue {
+  name: string;
+  email: string;
+  notes: string;
+  fieldResponses: Record<string, string | boolean>;
+}
+
 interface BookingFormProps {
   onSubmit: (data: {
     name: string;
@@ -22,26 +29,30 @@ interface BookingFormProps {
     captchaToken?: string;
     fieldResponses?: Record<string, string | boolean>;
   }) => void;
+  value: BookingFormValue;
+  onChange: (value: BookingFormValue) => void;
   loading?: boolean;
   customFields?: CustomField[];
 }
 
 export function BookingForm({
   onSubmit,
+  value,
+  onChange,
   loading,
   customFields = [],
 }: BookingFormProps) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [notes, setNotes] = useState("");
   const [captchaToken, setCaptchaToken] = useState<string | undefined>();
-  const [fieldValues, setFieldValues] = useState<
-    Record<string, string | boolean>
-  >({});
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  function setFieldValue(id: string, value: string | boolean) {
-    setFieldValues((prev) => ({ ...prev, [id]: value }));
+  function updateValue(patch: Partial<BookingFormValue>) {
+    onChange({ ...value, ...patch });
+  }
+
+  function setFieldValue(id: string, fieldValue: string | boolean) {
+    updateValue({
+      fieldResponses: { ...value.fieldResponses, [id]: fieldValue },
+    });
     setFieldErrors((prev) => {
       const next = { ...prev };
       delete next[id];
@@ -52,7 +63,7 @@ export function BookingForm({
   function validateFields(): boolean {
     const errors: Record<string, string> = {};
     for (const field of customFields) {
-      const value = fieldValues[field.id];
+      const value = fieldResponses[field.id];
       if (field.required) {
         if (
           value === undefined ||
@@ -85,7 +96,7 @@ export function BookingForm({
     if (!validateFields()) return;
 
     const fieldResponses =
-      customFields.length > 0 ? { ...fieldValues } : undefined;
+      customFields.length > 0 ? { ...value.fieldResponses } : undefined;
 
     onSubmit({
       name: name.trim(),
@@ -96,6 +107,8 @@ export function BookingForm({
     });
   }
 
+  const { name, email, notes, fieldResponses } = value;
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
@@ -103,7 +116,7 @@ export function BookingForm({
         <Input
           id="booking-name"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => updateValue({ name: e.target.value })}
           placeholder="Your name"
           required
         />
@@ -115,7 +128,7 @@ export function BookingForm({
           id="booking-email"
           type="email"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => updateValue({ email: e.target.value })}
           placeholder="you@example.com"
           required
         />
@@ -125,7 +138,7 @@ export function BookingForm({
         <CustomFieldInput
           key={field.id}
           field={field}
-          value={fieldValues[field.id]}
+          value={fieldResponses[field.id]}
           error={fieldErrors[field.id]}
           onChange={(val) => setFieldValue(field.id, val)}
         />
@@ -136,7 +149,7 @@ export function BookingForm({
         <Textarea
           id="booking-notes"
           value={notes}
-          onChange={(e) => setNotes(e.target.value)}
+          onChange={(e) => updateValue({ notes: e.target.value })}
           placeholder="Anything you'd like to share"
           rows={3}
         />
