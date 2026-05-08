@@ -33,8 +33,8 @@ export function createRequestHandler() {
       });
     }
     return new Response(
-      '<a href="/next">next</a><form action="/api/search"></form><style>.hero{background:url("/hero.png")}</style>' +
-        request.method + ' ' + url.pathname,
+      '<html><head></head><body><a href="/next">next</a><form action="/api/search"></form><style>.hero{background:url("/hero.png")}</style>' +
+        request.method + ' ' + url.pathname + '</body></html>',
       { headers: { "content-type": "text/html; charset=utf-8" } },
     );
   };
@@ -159,6 +159,20 @@ export default (event) =>
     );
     expect(redirect.status).toBe(302);
     expect(redirect.headers.get("location")).toBe("/docs/login");
+  });
+
+  it("injects runtime browser Sentry config into generated worker SSR HTML", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      { SENTRY_DSN: "https://public@example/4511270423822336" },
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain("data-agent-native-sentry-config");
+    expect(html).toContain("https://public@example/4511270423822336");
   });
 
   it("keeps mounted SSR HEAD responses bodyless and leaves missing API paths as 404", async () => {
