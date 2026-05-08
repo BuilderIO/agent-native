@@ -39,6 +39,7 @@ beforeEach(() => {
   } else {
     process.env.NODE_ENV = ORIGINAL_NODE_ENV;
   }
+  delete process.env.AGENT_ENGINE;
   delete process.env.BUILDER_PRIVATE_KEY;
   delete process.env.BUILDER_PUBLIC_KEY;
   delete process.env.OPENAI_API_KEY;
@@ -192,7 +193,7 @@ describe("resolveBuilderCredential", () => {
     expect(mockReadAppSecret).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to env when no user/org scoped Builder key exists", async () => {
+  it("falls back to env when no scoped Builder key exists", async () => {
     process.env.BUILDER_PRIVATE_KEY = "deploy-key";
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
@@ -200,7 +201,7 @@ describe("resolveBuilderCredential", () => {
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
       "deploy-key",
     );
-    expect(mockReadAppSecret).toHaveBeenCalledTimes(2);
+    expect(mockReadAppSecret).toHaveBeenCalledTimes(3);
   });
 
   it("does not use deploy-level Builder keys for signed-in users on production shared databases", async () => {
@@ -237,6 +238,27 @@ describe("resolveBuilderCredential", () => {
     });
   });
 
+  it("falls back to workspace scope for legacy shared Builder rows", async () => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret
+      .mockResolvedValueOnce(null) // user scope miss
+      .mockResolvedValueOnce(null) // org scope miss
+      .mockResolvedValueOnce({
+        value: "workspace-key",
+        last4: "-key",
+        updatedAt: 1,
+      });
+    expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
+      "workspace-key",
+    );
+    expect(mockReadAppSecret.mock.calls.map((c) => c[0].scope)).toEqual([
+      "user",
+      "org",
+      "workspace",
+    ]);
+  });
+
   it("user-scope override wins over org-scope row", async () => {
     mockGetRequestUserEmail.mockReturnValue("dev@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
@@ -251,20 +273,38 @@ describe("resolveBuilderCredential", () => {
     expect(mockReadAppSecret).toHaveBeenCalledTimes(1);
   });
 
-  it("returns null when neither user nor org scope has the key", async () => {
+  it("returns null when no scoped Builder row has the key", async () => {
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
     mockReadAppSecret.mockResolvedValue(null);
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
   });
 
-  it("does not check org scope when caller has no active org", async () => {
+  it("checks solo workspace scope when caller has no active org", async () => {
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockGetRequestOrgId.mockReturnValue(undefined);
-    mockReadAppSecret.mockResolvedValue(null);
-    expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
-    expect(mockReadAppSecret).toHaveBeenCalledTimes(1);
-    expect(mockReadAppSecret.mock.calls[0][0].scope).toBe("user");
+    mockReadAppSecret
+      .mockResolvedValueOnce(null) // user scope miss
+      .mockResolvedValueOnce({
+        value: "solo-workspace-key",
+        last4: "-key",
+        updatedAt: 1,
+      });
+    expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
+      "solo-workspace-key",
+    );
+    expect(mockReadAppSecret.mock.calls.map((c) => c[0])).toEqual([
+      {
+        key: "BUILDER_PRIVATE_KEY",
+        scope: "user",
+        scopeId: "a@b.com",
+      },
+      {
+        key: "BUILDER_PRIVATE_KEY",
+        scope: "workspace",
+        scopeId: "solo:a@b.com",
+      },
+    ]);
   });
 
   it("reports the effective credential source", async () => {
@@ -275,6 +315,20 @@ describe("resolveBuilderCredential", () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ value: "org-key", last4: "-key", updatedAt: 1 });
     expect(await resolveBuilderCredentialSource()).toBe("org");
+  });
+
+  it("reports workspace as the credential source for legacy shared Builder rows", async () => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        value: "workspace-key",
+        last4: "-key",
+        updatedAt: 1,
+      });
+    expect(await resolveBuilderCredentialSource()).toBe("workspace");
   });
 
   it("reports env as the credential source when scoped credentials are missing", async () => {
@@ -363,6 +417,19 @@ describe("resolveSecret (generic)", () => {
     mockIsLocalDatabase.mockReturnValue(false);
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockReadAppSecret.mockResolvedValue(null);
+    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
+  });
+
+  it("keeps deploy env secrets blocked for signed-in production shared-database users even when AGENT_ENGINE is set", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_ENGINE = "builder";
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    process.env.BUILDER_PUBLIC_KEY = "space-id";
+    process.env.OPENAI_API_KEY = "openai-deploy-key";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockReadAppSecret.mockResolvedValue(null);
+
     expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
   });
 

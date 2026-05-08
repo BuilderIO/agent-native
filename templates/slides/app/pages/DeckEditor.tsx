@@ -672,11 +672,20 @@ export default function DeckEditor() {
           </>
         )}
 
-        {isNewDeckGenerating && deck.slides.length === 0 && (
-          <GeneratingOverlay />
+        {showQuestionFlow && (
+          <QuestionFlow
+            questions={questionFlowData!.questions}
+            onSubmit={handleQuestionSubmit}
+            onSkip={handleQuestionSkip}
+            designSystem={deck.designSystemId ? designSystem : undefined}
+          />
         )}
 
-        {isNewDeckGenerating && deck.slides.length > 0 && (
+        {isNewDeckGenerating &&
+          deck.slides.length === 0 &&
+          !showQuestionFlow && <GeneratingOverlay />}
+
+        {isNewDeckGenerating && deck.slides.length > 0 && !showQuestionFlow && (
           <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-lg border border-border bg-popover/95 px-3 py-2 text-sm text-popover-foreground shadow-lg backdrop-blur">
             <span className="font-medium">Building deck</span>
             <span className="ml-2 text-muted-foreground">
@@ -684,15 +693,6 @@ export default function DeckEditor() {
               added
             </span>
           </div>
-        )}
-
-        {showQuestionFlow && !isNewDeckGenerating && (
-          <QuestionFlow
-            questions={questionFlowData!.questions}
-            onSubmit={handleQuestionSubmit}
-            onSkip={handleQuestionSkip}
-            designSystem={deck.designSystemId ? designSystem : undefined}
-          />
         )}
 
         {!(isNewDeckGenerating && deck.slides.length === 0) &&

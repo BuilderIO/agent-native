@@ -586,7 +586,7 @@ export default function MeetingDetailRoute() {
                 <AlertDialogTitle>Remove this meeting?</AlertDialogTitle>
                 <AlertDialogDescription>
                   This removes the meeting from Clips. It will not delete any
-                  linked recording or change your Google Calendar.
+                  linked transcript or change your Google Calendar.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -652,7 +652,7 @@ export default function MeetingDetailRoute() {
             className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-0.5 hover:text-foreground hover:bg-accent/40 cursor-pointer"
           >
             <IconVideo className="h-3.5 w-3.5" />
-            Open recording
+            Open transcript source
             {recordingDuration && (
               <span className="tabular-nums text-muted-foreground/80">
                 · {recordingDuration}

@@ -392,6 +392,8 @@ Clips has a **Meetings** tab (`/meetings`) and a **Dictate** tab (`/dictate`):
 
 **Audio capture: mic + system, tagged.** Meeting capture records two streams (`mic` and `system`) and tags every transcript segment with its `source`, so per-attendee action items can attribute speech to remote attendees. Mic-only recordings make remote attendees silent — call this out whenever the user expects coverage of people on the other end of a Zoom/Meet/Teams call. Dictations are mic-only by design.
 
+**Meeting transcription UX language.** User-facing meeting controls should say **Start notes**, **Transcribe**, **Live transcript**, or **Stop transcription**. Avoid saying "record" for Granola-style meeting notes unless referring to the internal linked `recordings` row or to a Clip video. The desktop meeting preference is `meetingTranscriptionMode` (`ask`, `auto`, `manual`) plus `showMeetingWidgetEnabled`.
+
 **Bidirectional recording↔meeting link.** A meeting recording sets `meetings.recordingId` AND `recordings.meeting_id`, so a recording opened from the Library can also be recognized as a meeting (and vice versa). When a recording row's `meeting_id` is non-null, both the Clips and Meetings answers are valid.
 
 **Calendar reminders fire 5 minutes before the meeting starts.** The desktop tray (`desktop/src-tauri/`) polls the live `list-meetings` action and filters locally for near-start reminders; `calendar_events` is only a snapshot/materialization table for meetings that have been recorded or edited. Agents do not need to schedule reminders manually.

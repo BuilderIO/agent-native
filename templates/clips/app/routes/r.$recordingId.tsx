@@ -45,6 +45,7 @@ import { ShareRecordingPopover } from "@/components/player/share-dialog";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
+import { parsePlaybackSpeed } from "@/lib/playback-speed";
 
 export function meta({ params }: { params: { recordingId?: string } }) {
   return [{ title: "Clip recording · Clips" }];
@@ -121,7 +122,6 @@ export default function RecordingPage() {
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
-  const [speed, setSpeed] = useState(1.2);
   const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
   // 'ready', stop spinning forever and surface an error banner so the user
@@ -271,12 +271,6 @@ export default function RecordingPage() {
 
   useEffect(() => {
     if (!recording) return;
-    const s = parseFloat(recording.defaultSpeed || "1.2");
-    if (!Number.isNaN(s)) setSpeed(s);
-  }, [recording?.defaultSpeed]);
-
-  useEffect(() => {
-    if (!recording) return;
     document.title = isDefaultTitle(recording.title)
       ? "Clip recording · Clips"
       : `${recording.title.trim()} · Clips`;
@@ -341,7 +335,7 @@ export default function RecordingPage() {
     }).catch(() => {});
   }, [panel, recordingId, search, startMs]);
 
-  usePlayerShortcuts({ playerRef, speed, setSpeed, chapters });
+  usePlayerShortcuts({ playerRef, chapters });
 
   const tracking = useViewTracking({
     recordingId: recordingId ?? "",
@@ -688,7 +682,9 @@ export default function RecordingPage() {
                   editsJson={recording.editsJson}
                   thumbnailUrl={recording.thumbnailUrl}
                   role={role}
-                  defaultSpeed={speed}
+                  defaultSpeed={
+                    parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2
+                  }
                   startMs={startMs}
                   comments={comments}
                   chapters={chapters}

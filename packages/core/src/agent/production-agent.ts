@@ -4,8 +4,10 @@ import {
   setResponseStatus,
   getMethod,
 } from "h3";
-import { isLocalDatabase } from "../db/client.js";
-import { readDeployCredentialEnv } from "../server/credential-provider.js";
+import {
+  isDeployCredentialFallbackAllowed,
+  readDeployCredentialEnv,
+} from "../server/credential-provider.js";
 import type { EventHandler as H3EventHandler } from "h3";
 import type {
   ActionTool,
@@ -137,31 +139,21 @@ export function engineToProvider(engineName: string): string {
 }
 
 /**
- * Returns true when this process is acting as a multi-tenant deployment —
- * i.e. a hosted shared-DB environment where one user's identity must NOT be
- * silently substituted with the deploy-level API key.
+ * Returns true when this process should block generic deploy-level provider
+ * credentials for signed-in chat requests.
  *
- * Mirrors the gate in `resolveBuilderCredential` (server/credential-provider.ts).
- *
- * Heuristic:
- *   - `NODE_ENV === "production"`, AND
- *   - The DB is not a local file (i.e. it's Neon/Postgres/Turso/D1 — any
- *     backend that could be shared across multiple users).
- *
- * Self-hosted single-tenant deployments (a local sqlite file, or NODE_ENV
- * unset/development) keep the env-var fallback so the original BYO-server
- * UX continues to work without a per-user key.
+ * Self-hosted single-tenant deployments keep the env-var fallback so the
+ * original BYO-server UX continues to work without a per-user key.
  */
-function isMultiTenantDeploy(): boolean {
-  if (process.env.NODE_ENV !== "production") return false;
-  return !isLocalDatabase();
+function shouldBlockDeployCredentialFallback(): boolean {
+  return !isDeployCredentialFallbackAllowed();
 }
 
 /**
  * Resolve the active engine's provider and look up the user's API key for it.
  *
- * In multi-tenant deploys we deliberately refuse the deploy-level
- * deploy-level fallback for authenticated users. Without that gate any
+ * In shared hosted deploys we deliberately refuse the deploy-level fallback
+ * for authenticated users. Without that gate any
  * signed-in user who hasn't configured their own provider key would silently
  * inherit the deployment's key (uncapped billing on the owner's account,
  * prompt logging tied to the deployment owner) — exactly the prior-incident
@@ -184,11 +176,12 @@ export async function getOwnerActiveApiKey(
     const provider = engineToProvider(activeEngine);
     const userKey = await getOwnerApiKey(provider, ownerEmail);
     if (userKey) return userKey;
-    if (isMultiTenantDeploy()) {
-      // Multi-tenant: refuse the env fallback. A null user (unauthenticated /
-      // background context with no owner) gets undefined here too — there's
-      // no user to bill, and the call site must surface a "configure a key"
-      // error to the requester rather than silently using the deploy key.
+    if (shouldBlockDeployCredentialFallback()) {
+      // Shared hosted default: refuse the env fallback. A null user
+      // (unauthenticated / background context with no owner) gets undefined
+      // here too — there's no user to bill, and the call site must surface a
+      // "configure a key" error to the requester rather than silently using
+      // the deploy key.
       return undefined;
     }
     const envVar = PROVIDER_TO_ENV[provider];
@@ -1620,11 +1613,11 @@ export function createProductionAgentHandler(
     if (requestEngine) {
       const provider = engineToProvider(requestEngine);
       userApiKey = await getOwnerApiKey(provider, ownerEmail);
-      if (!userApiKey && !isMultiTenantDeploy()) {
-        // Single-tenant only: env fallback for the requested provider.
-        // Multi-tenant deploys never silently substitute the deploy-level
-        // key for an authenticated user (see getOwnerActiveApiKey for the
-        // full rationale).
+      if (!userApiKey && !shouldBlockDeployCredentialFallback()) {
+        // Single-tenant only: env fallback for the requested provider. Shared
+        // hosted deploys never silently substitute the deploy-level key for
+        // an authenticated user (see getOwnerActiveApiKey for the full
+        // rationale).
         const envVar = PROVIDER_TO_ENV[provider];
         userApiKey = envVar ? readDeployCredentialEnv(envVar) : undefined;
       }
@@ -1633,11 +1626,12 @@ export function createProductionAgentHandler(
     }
 
     // `options.apiKey` is the value the template constructed the plugin with
-    // (e.g. wired from a deployment env var). On a multi-tenant deploy this
+    // (e.g. wired from a deployment env var). On a shared hosted deploy this
     // is the same cross-tenant hazard as any deploy-level provider key:
     // accepting it as the final fallback would silently bill every key-less
-    // user to the deployment's account. Only honour it in single-tenant mode.
-    const effectiveApiKey = isMultiTenantDeploy()
+    // user to the deployment's account. Honour it only when the generic
+    // deploy fallback policy allows it.
+    const effectiveApiKey = shouldBlockDeployCredentialFallback()
       ? userApiKey
       : (userApiKey ??
         options.apiKey ??

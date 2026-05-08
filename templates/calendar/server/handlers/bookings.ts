@@ -94,17 +94,25 @@ function displayNameFromEmail(email: string): string {
   return parts.map(titleCaseToken).join(" ");
 }
 
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 function buildBookingEventTitle({
   explicitTitle,
+  bookingTitle,
   hostEmail,
   attendeeName,
 }: {
   explicitTitle?: unknown;
+  bookingTitle?: unknown;
   hostEmail: string;
   attendeeName: unknown;
 }) {
   const explicit = stripCrlf(explicitTitle);
   if (explicit) return explicit;
+  const meetingType = stripCrlf(bookingTitle);
+  if (meetingType) return meetingType;
 
   const hostName = displayNameFromEmail(hostEmail);
   const guestName = stripCrlf(attendeeName) || "Guest";
@@ -556,11 +564,18 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     const now = new Date().toISOString();
     const id = nanoid();
     const cancelToken = nanoid();
+    const attendeeName = stripCrlf(body.name);
+    const attendeeEmail = stripCrlf(body.email).toLowerCase();
+    const notes = String(body.notes ?? "").trim();
 
     // Validate required fields
-    if (!body.name || !body.email || !body.start || !body.end) {
+    if (!attendeeName || !attendeeEmail || !body.start || !body.end) {
       setResponseStatus(event, 400);
       return { error: "name, email, start, and end are required" };
+    }
+    if (!isValidEmail(attendeeEmail)) {
+      setResponseStatus(event, 400);
+      return { error: "Enter a valid email address" };
     }
 
     const bookingLink =
@@ -586,8 +601,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
 
     const eventTitle = buildBookingEventTitle({
       explicitTitle: body.eventTitle,
+      bookingTitle: bookingLink?.title,
       hostEmail,
-      attendeeName: body.name,
+      attendeeName,
     });
 
     // Validate custom field responses
@@ -635,6 +651,15 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       ) {
         setResponseStatus(event, 400);
         return { error: `${field.label} must be true or false` };
+      }
+      if (
+        field.type === "email" &&
+        typeof value === "string" &&
+        value &&
+        !isValidEmail(value.trim())
+      ) {
+        setResponseStatus(event, 400);
+        return { error: `${field.label} must be a valid email address` };
       }
       if (field.pattern && typeof value === "string" && value) {
         // Cap input length to mitigate ReDoS on user-defined patterns
@@ -690,13 +715,13 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
 
       await tx.insert(schema.bookings).values({
         id,
-        name: body.name,
-        email: body.email,
+        name: attendeeName,
+        email: attendeeEmail,
         start: body.start,
         end: body.end,
         slug: body.slug || "",
         eventTitle,
-        notes: body.notes || null,
+        notes: notes || null,
         fieldResponses:
           Object.keys(fieldResponses).length > 0
             ? JSON.stringify(fieldResponses)
@@ -769,11 +794,13 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     // host rather than relying on ambient user state.
     if (await googleCalendar.isConnected(hostEmail)) {
       try {
-        const descParts: string[] = [`Booking by ${body.name} (${body.email})`];
+        const descParts: string[] = [
+          `Booking by ${attendeeName} (${attendeeEmail})`,
+        ];
         if (bookingLink?.title) {
           descParts.push(`Meeting type: ${bookingLink.title}`);
         }
-        if (body.notes) descParts.push(`Notes: ${body.notes}`);
+        if (notes) descParts.push(`Notes: ${notes}`);
         if (customFields.length > 0 && Object.keys(fieldResponses).length > 0) {
           const fieldLines = customFields
             .filter(
@@ -835,13 +862,13 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
 
     const booking: Booking = {
       id,
-      name: body.name,
-      email: body.email,
+      name: attendeeName,
+      email: attendeeEmail,
       start: body.start,
       end: body.end,
       slug: body.slug || "",
       eventTitle,
-      notes: body.notes,
+      notes: notes || undefined,
       fieldResponses:
         Object.keys(fieldResponses).length > 0 ? fieldResponses : undefined,
       meetingLink,
@@ -867,8 +894,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         {
           bookingId: id,
           schedulingLinkSlug: body.slug || "",
-          attendeeName: body.name,
-          attendeeEmail: body.email,
+          attendeeName,
+          attendeeEmail,
           startTime: body.start,
           endTime: body.end,
           eventTitle: booking.eventTitle || "",

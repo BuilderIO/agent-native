@@ -12,7 +12,10 @@ import {
   PROVIDER_ENV_META,
   PROVIDER_ENV_VARS,
 } from "../agent/engine/provider-env-vars.js";
-import { isAgentEngineSettingConfigured } from "../agent/engine/registry.js";
+import {
+  detectEngineFromUserSecrets,
+  isAgentEngineSettingConfigured,
+} from "../agent/engine/registry.js";
 import { getSetting } from "../settings/store.js";
 
 type LlmKeyMethod = {
@@ -115,6 +118,11 @@ const llmStep: OnboardingStep = {
       if (await resolveHasBuilderPrivateKey()) return true;
     } catch {
       if (process.env.BUILDER_PRIVATE_KEY) return true;
+    }
+    try {
+      if (await detectEngineFromUserSecrets()) return true;
+    } catch {
+      // Fall through to legacy/env detection.
     }
     if (PROVIDER_ENV_VARS.some((k) => !!process.env[k])) return true;
     try {

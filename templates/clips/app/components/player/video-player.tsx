@@ -32,6 +32,11 @@ import {
   thumbnailUrlHasVisibleContent,
   uploadRecordingThumbnail,
 } from "@/lib/thumbnail-capture";
+import {
+  parsePlaybackSpeed,
+  readPlaybackSpeedPreference,
+  savePlaybackSpeedPreference,
+} from "@/lib/playback-speed";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -121,6 +126,7 @@ export interface VideoPlayerProps {
   onPlay?: () => void;
   onPause?: () => void;
   onSeek?: (ms: number) => void;
+  onSpeedChange?: (rate: number) => void;
   onEnded?: () => void;
   className?: string;
   /** When true the controls never hide (useful for embed with showControls). */
@@ -160,6 +166,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       onPlay,
       onPause,
       onSeek,
+      onSpeedChange,
       onEnded,
       className,
       alwaysShowControls,
@@ -184,7 +191,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [currentMs, setCurrentMs] = useState(startMs ?? 0);
     const [volume, setVolume] = useState(1);
     const [muted, setMuted] = useState(false);
-    const [speed, setSpeed] = useState(defaultSpeed);
+    const [speed, setSpeed] = useState(() =>
+      readPlaybackSpeedPreference(defaultSpeed),
+    );
     const [showControls, setShowControls] = useState(true);
     const [captionsOn, setCaptionsOn] = useState(false);
     const [hasPlaybackStarted, setHasPlaybackStarted] = useState(false);
@@ -361,10 +370,30 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       requestPlay();
     }, [isPlaying, pauseVideo, requestPlay]);
 
-    const applySpeed = useCallback((rate: number) => {
-      if (videoRef.current) videoRef.current.playbackRate = rate;
-      setSpeed(rate);
-    }, []);
+    const applySpeed = useCallback(
+      (rate: number) => {
+        const nextSpeed = parsePlaybackSpeed(rate) ?? defaultSpeed;
+        const v = videoRef.current;
+        const shouldKeepPlaying = Boolean(
+          v &&
+          !v.ended &&
+          (isPlaying || playAttemptPendingRef.current || !v.paused),
+        );
+
+        if (v) v.playbackRate = nextSpeed;
+        setSpeed(nextSpeed);
+        savePlaybackSpeedPreference(nextSpeed);
+        onSpeedChange?.(nextSpeed);
+
+        if (shouldKeepPlaying && typeof window !== "undefined") {
+          window.requestAnimationFrame(() => {
+            const current = videoRef.current;
+            if (current && current.paused && !current.ended) requestPlay();
+          });
+        }
+      },
+      [defaultSpeed, isPlaying, onSpeedChange, requestPlay],
+    );
 
     const seekToVisibleMs = useCallback(
       (ms: number) => {
@@ -411,8 +440,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     useEffect(() => {
       const v = videoRef.current;
       if (!v) return;
-      v.playbackRate = defaultSpeed;
-      setSpeed(defaultSpeed);
+      const initialSpeed = readPlaybackSpeedPreference(defaultSpeed);
+      v.playbackRate = initialSpeed;
+      setSpeed(initialSpeed);
+      onSpeedChange?.(initialSpeed);
       if (startMs && startMs > 0) {
         const visibleMs = clampSeek(
           skipExcludedRange(startMs, excludedRanges, resolvedDurationMs),
@@ -426,6 +457,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       activeVideoSrc,
       defaultSpeed,
       excludedRanges,
+      onSpeedChange,
       resolvedDurationMs,
       startMs,
     ]);

@@ -86,6 +86,88 @@ function sanitizeUrl(url: string, kind: "link" | "image" = "link"): string {
   return trimmed;
 }
 
+const ALLOWED_EMBED_ASPECTS = new Set([
+  "16/9",
+  "4/3",
+  "1/1",
+  "21/9",
+  "3/2",
+  "2/1",
+]);
+
+function parseEmbedBody(body: string): {
+  src?: string;
+  aspect?: string;
+  title?: string;
+  height?: number;
+} {
+  const out: {
+    src?: string;
+    aspect?: string;
+    title?: string;
+    height?: number;
+  } = {};
+  for (const raw of body.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const idx = line.indexOf(":");
+    if (idx <= 0) continue;
+    const key = line.slice(0, idx).trim().toLowerCase();
+    const value = line.slice(idx + 1).trim();
+    if (!value) continue;
+    if (key === "src") out.src = value;
+    else if (key === "aspect") out.aspect = value;
+    else if (key === "title") out.title = value;
+    else if (key === "height") {
+      const n = Number(value);
+      if (Number.isFinite(n) && n > 0) out.height = Math.min(2000, n);
+    }
+  }
+  return out;
+}
+
+function sanitizeEmbedSrc(src: string | undefined): string | null {
+  if (!src) return null;
+  const trimmed = src.trim();
+  if (!trimmed || trimmed.startsWith("//")) return null;
+  if (
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("./") ||
+    trimmed.startsWith("../")
+  ) {
+    return trimmed;
+  }
+  return null;
+}
+
+function renderEmbedBlock(body: string): string {
+  const parsed = parseEmbedBody(body);
+  const safeSrc = sanitizeEmbedSrc(parsed.src);
+  if (!safeSrc) {
+    return [
+      '<div class="my-3 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">',
+      '<strong class="text-foreground">Embed blocked</strong>',
+      '<div class="mt-1">Only same-origin embed paths are allowed.</div>',
+      parsed.src
+        ? `<div class="mt-1 truncate font-mono text-[10px]">${escapeHtml(parsed.src)}</div>`
+        : "",
+      "</div>",
+    ].join("");
+  }
+  const aspect =
+    parsed.aspect && ALLOWED_EMBED_ASPECTS.has(parsed.aspect)
+      ? parsed.aspect
+      : "16/9";
+  const style = parsed.height
+    ? `height:${parsed.height}px`
+    : `aspect-ratio:${aspect.replace("/", " / ")}`;
+  return [
+    `<div class="my-4 overflow-hidden rounded-lg border border-border bg-muted/20" style="${style}">`,
+    `<iframe src="${escapeHtml(safeSrc)}" title="${escapeHtml(parsed.title || "Embedded content")}" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" referrerpolicy="same-origin" loading="lazy" class="h-full w-full border-0 bg-transparent"></iframe>`,
+    "</div>",
+  ].join("");
+}
+
 function renderInline(text: string): string {
   // Escape the raw text before applying markdown replacements so any
   // HTML the agent emits is inert. Note: markdown tokens like `**` and
@@ -141,12 +223,16 @@ export function renderMarkdown(md: string): string {
       const codeLines: string[] = [];
       i++;
       while (i < lines.length && !lines[i].startsWith("```")) {
-        codeLines.push(escapeHtml(lines[i]));
+        codeLines.push(lines[i]);
         i++;
       }
       i++; // skip closing ```
+      if (safeLang === "embed") {
+        out.push(renderEmbedBlock(codeLines.join("\n")));
+        continue;
+      }
       out.push(
-        `<pre><code${safeLang ? ` class="language-${escapeHtml(safeLang)}"` : ""}>${codeLines.join("\n")}</code></pre>`,
+        `<pre><code${safeLang ? ` class="language-${escapeHtml(safeLang)}"` : ""}>${codeLines.map(escapeHtml).join("\n")}</code></pre>`,
       );
       continue;
     }

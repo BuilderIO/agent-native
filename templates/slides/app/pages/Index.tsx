@@ -37,6 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { toast } from "@/hooks/use-toast";
 
 const MAX_SOURCE_CONTEXT_CHARS = 60_000;
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
@@ -226,7 +227,6 @@ export default function Index() {
     });
     if (!deck) return;
     setNewDeckPromptOpen(false);
-    navigate(`/deck/${deck.id}?generating=1`);
 
     const trimmedPrompt = prompt.trim();
     const sourceForContext = truncateSourceForContext(trimmedPrompt);
@@ -283,7 +283,22 @@ export default function Index() {
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, resource-read, or search-files.",
     ].join("\n");
 
-    await waitForDeckServerRow(deck.id);
+    const persisted = await waitForDeckServerRow(deck.id);
+    if (!persisted) {
+      try {
+        sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
+      } catch {}
+      deleteDeck(deck.id);
+      toast({
+        title: "Couldn't start deck generation",
+        description:
+          "The new deck did not finish saving, so the agent was not started against a missing deck. Your prompt was saved so you can try again.",
+      });
+      setShowNewDeckPrompt(true);
+      return;
+    }
+
+    navigate(`/deck/${deck.id}?generating=1`);
     agentSubmit(
       `Create deck: ${summarizePromptForChat(trimmedPrompt)}`,
       context,

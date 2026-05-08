@@ -1,12 +1,21 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { endOfMonth, format, startOfMonth } from "date-fns";
+import {
+  addMinutes,
+  endOfMonth,
+  format,
+  parseISO,
+  startOfMonth,
+} from "date-fns";
 import { IconCalendar } from "@tabler/icons-react";
 import { OpenSourceBadge, PoweredByBadge } from "@agent-native/core/client";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { DatePicker } from "@/components/booking/DatePicker";
 import { TimeSlotPicker } from "@/components/booking/TimeSlotPicker";
-import { BookingForm } from "@/components/booking/BookingForm";
+import {
+  BookingForm,
+  type BookingFormValue,
+} from "@/components/booking/BookingForm";
 import { BookingConfirmation } from "@/components/booking/BookingConfirmation";
 import {
   usePublicSettings,
@@ -60,6 +69,12 @@ export default function BookingPage() {
   );
   const [selectedDuration, setSelectedDuration] = useState<number | null>(null);
   const [viewMonth, setViewMonth] = useState(() => new Date());
+  const [bookingForm, setBookingForm] = useState<BookingFormValue>({
+    name: "",
+    email: "",
+    notes: "",
+    fieldResponses: {},
+  });
 
   const dateStr = selectedDate ? format(selectedDate, "yyyy-MM-dd") : "";
   const durationOptions =
@@ -88,6 +103,14 @@ export default function BookingPage() {
       step === "date" && !!availability,
     );
   const createBooking = useCreateBooking();
+  const selectedSlotRange = selectedSlot
+    ? {
+        start: selectedSlot,
+        end:
+          slots.find((slot) => slot.start === selectedSlot)?.end ??
+          addMinutes(parseISO(selectedSlot), duration).toISOString(),
+      }
+    : null;
 
   function handleDateSelect(date: Date) {
     setSelectedDate(date);
@@ -142,6 +165,7 @@ export default function BookingPage() {
     setSelectedSlot(null);
     setSelectedDuration(null);
     setConfirmedBooking(null);
+    setBookingForm({ name: "", email: "", notes: "", fieldResponses: {} });
   }
 
   function handleStepNavigation(target: Step) {
@@ -362,8 +386,24 @@ export default function BookingPage() {
                   Change time
                 </Button>
               </div>
+              {selectedSlotRange && (
+                <div className="mb-4 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Confirming
+                  </div>
+                  <div className="mt-1 font-medium text-foreground">
+                    {format(parseISO(selectedSlotRange.start), "EEEE, MMMM d")}
+                  </div>
+                  <div className="text-muted-foreground">
+                    {format(parseISO(selectedSlotRange.start), "h:mm a")} -{" "}
+                    {format(parseISO(selectedSlotRange.end), "h:mm a")}
+                  </div>
+                </div>
+              )}
               <BookingForm
                 onSubmit={handleBookingSubmit}
+                value={bookingForm}
+                onChange={setBookingForm}
                 loading={createBooking.isPending}
                 customFields={bookingLink?.customFields}
               />

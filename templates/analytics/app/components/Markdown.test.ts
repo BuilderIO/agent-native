@@ -24,4 +24,29 @@ describe("renderMarkdown", () => {
       'href="https://example.com"',
     );
   });
+
+  it("renders same-origin embed fences as iframes", () => {
+    const html = renderMarkdown(
+      [
+        "```embed",
+        "src: /api/media/chart.png",
+        "title: Revenue chart",
+        "aspect: 4/3",
+        "```",
+      ].join("\n"),
+    );
+
+    expect(html).toContain('<iframe src="/api/media/chart.png"');
+    expect(html).toContain('title="Revenue chart"');
+    expect(html).not.toContain("<pre>");
+  });
+
+  it("blocks cross-origin embed fences", () => {
+    const html = renderMarkdown(
+      ["```embed", "src: https://example.com/chart", "```"].join("\n"),
+    );
+
+    expect(html).toContain("Embed blocked");
+    expect(html).not.toContain("<iframe");
+  });
 });

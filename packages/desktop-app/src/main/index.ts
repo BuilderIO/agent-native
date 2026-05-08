@@ -937,8 +937,8 @@ ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
 interface OAuthProvider {
   name: string;
   matches: (url: URL, context?: OAuthMatchContext) => boolean;
-  /** Substring to look for in the navigation URL to detect callback arrival. */
-  callbackPathFragment: string;
+  /** Substrings to look for in the navigation URL to detect callback arrival. */
+  callbackPathFragments: string[];
 }
 
 interface OAuthMatchContext {
@@ -985,7 +985,7 @@ const OAUTH_PROVIDERS: OAuthProvider[] = [
     matches: (u, context) =>
       u.hostname === "accounts.google.com" ||
       isTrustedGoogleOAuthStarter(u, context),
-    callbackPathFragment: "google/callback",
+    callbackPathFragments: ["google/callback", "google/add-account/callback"],
   },
   {
     name: "builder",
@@ -1009,7 +1009,7 @@ const OAUTH_PROVIDERS: OAuthProvider[] = [
         host === "builder.io" || host.endsWith(".builder.io");
       return isBuilderDomain && u.pathname.startsWith("/cli-auth");
     },
-    callbackPathFragment: "/_agent-native/builder/callback",
+    callbackPathFragments: ["/_agent-native/builder/callback"],
   },
 ];
 
@@ -1106,7 +1106,11 @@ function openOAuthWindow(
       rememberOAuthStateFromNavigation(provider, navUrl, injectionTarget);
       // Detect the OAuth callback (works for both /api/google/callback and
       // /_agent-native/google/callback).
-      if (parsed.pathname.includes(provider.callbackPathFragment)) {
+      if (
+        provider.callbackPathFragments.some((fragment) =>
+          parsed.pathname.includes(fragment),
+        )
+      ) {
         scheduleClose();
       }
       // Detect agentnative:// deep link — handle it and close the popup.

@@ -198,7 +198,7 @@ describe("SSE event processor error classification", () => {
       },
     );
 
-    await drain(
+    const results = await drain(
       readSSEStream(
         eventStream([{ type: "error", error: "Authentication required" }]),
         [],
@@ -240,7 +240,7 @@ describe("SSE event processor error classification", () => {
       },
     );
 
-    await drain(
+    const results = await drain(
       readSSEStream(
         eventStream([
           {
@@ -357,7 +357,7 @@ describe("SSE event processor error classification", () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
 
-    await drain(
+    const results = await drain(
       readSSEStream(
         eventStream([
           {
@@ -375,6 +375,10 @@ describe("SSE event processor error classification", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:missing-api-key" }),
     );
+    expect(results[0]).toEqual({
+      content: [{ type: "text", text: "Error: No LLM provider is connected" }],
+      status: { type: "incomplete", reason: "error" },
+    });
   });
 
   it("dispatches activity events without adding visible content", async () => {

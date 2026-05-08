@@ -1,13 +1,13 @@
 /**
- * Granola-style auto-record prompt banner.
+ * Granola-style auto-start notes prompt banner.
  *
  * Appears at the top of the meeting detail page when the meeting's
  * `scheduledStart` is within ±2 minutes of now and `actualStart` is null.
  *
  * Behavior (matches Granola: "starts at calendar time if you're viewing the
  * event"):
- *   1. Banner appears — primary "Start recording" button.
- *   2. After 30 seconds of no interaction, recording auto-starts.
+ *   1. Banner appears — primary "Start notes" button.
+ *   2. After 30 seconds of no interaction, transcription auto-starts.
  *   3. For the first 5 seconds after auto-fire, a "Cancel" link is visible
  *      so the user can abort if they didn't notice.
  *
@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { IconClock, IconPlayerRecord, IconX } from "@tabler/icons-react";
+import { IconClock, IconPlayerPlayFilled, IconX } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAutoFireCountdown, useAutoRecord } from "@/hooks/use-auto-record";
@@ -87,7 +87,7 @@ export function AutoRecordPrompt({
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60" />
           <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
         </span>
-        <span className="text-sm">Recording started.</span>
+        <span className="text-sm">Notes started.</span>
         <button
           type="button"
           onClick={cancel}
@@ -111,7 +111,7 @@ export function AutoRecordPrompt({
     >
       <IconClock className="h-4 w-4 shrink-0 text-primary" />
       <span className="text-sm font-medium">
-        It's time for this meeting — start recording?
+        It's time for this meeting — start notes?
       </span>
       <span className="text-xs text-muted-foreground">
         Auto-starts in {secondsRemaining}s
@@ -125,8 +125,8 @@ export function AutoRecordPrompt({
           }}
           className="cursor-pointer h-8 gap-1.5"
         >
-          <IconPlayerRecord className="h-3.5 w-3.5" />
-          Start recording
+          <IconPlayerPlayFilled className="h-3.5 w-3.5" />
+          Start notes
         </Button>
         <button
           type="button"

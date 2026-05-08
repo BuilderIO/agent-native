@@ -587,11 +587,32 @@ Write a short, useful meeting description. If I ask you to apply it, update this
 
   const handleSaveLocation = useCallback(() => {
     const trimmed = editLocation.trim();
+    const locationContainsMeetingLink =
+      !!meetingLink && event.location?.includes(meetingLink.url);
+    if (locationContainsMeetingLink && !trimmed) {
+      setEditLocation(event.location || "");
+      setEditingField(null);
+      return;
+    }
     if (trimmed !== (event.location || "").trim()) {
-      saveField({ location: trimmed });
+      const updates: Partial<CalendarEvent> = { location: trimmed };
+      if (
+        locationContainsMeetingLink &&
+        meetingLink &&
+        !event.description?.includes(meetingLink.url)
+      ) {
+        const label =
+          meetingLink.type === "zoom"
+            ? "Zoom"
+            : getMeetingLabel(meetingLink.type);
+        updates.description = event.description?.trim()
+          ? `${event.description.trim()}\n\n${label}: ${meetingLink.url}`
+          : `${label}: ${meetingLink.url}`;
+      }
+      saveField(updates);
     }
     setEditingField(null);
-  }, [editLocation, event.location, saveField]);
+  }, [editLocation, event.description, event.location, meetingLink, saveField]);
 
   const handleSaveTime = useCallback(() => {
     const allDayEnd = new Date(`${editEndDate}T00:00:00`);
@@ -1358,10 +1379,48 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                   </span>
                 )}
               </div>
+            ) : locationIsMeetingLink && meetingLink ? (
+              <>
+                <div className="flex items-start gap-3 px-4 py-1.5 rounded-md">
+                  <IconVideo className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <a
+                      href={meetingLink.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block max-w-full truncate text-sm text-primary hover:underline"
+                    >
+                      {getMeetingLabel(meetingLink.type)}
+                    </a>
+                    <div className="text-xs text-muted-foreground">
+                      Saved as this event's video link
+                    </div>
+                  </div>
+                </div>
+                {!isOverlay && (
+                  <div
+                    className="flex items-center gap-3 px-4 py-1.5 cursor-pointer hover:bg-muted/50 rounded-md"
+                    onClick={() => {
+                      setEditLocation("");
+                      setEditingField("location");
+                    }}
+                  >
+                    <IconMapPin className="h-4 w-4 shrink-0 text-muted-foreground/40" />
+                    <span className="text-sm text-muted-foreground/40">
+                      Add location
+                    </span>
+                  </div>
+                )}
+              </>
             ) : !isOverlay ? (
               <div
                 className="flex items-center gap-3 px-4 py-1.5 cursor-pointer hover:bg-muted/50 rounded-md"
-                onClick={() => setEditingField("location")}
+                onClick={() => {
+                  setEditLocation(
+                    locationIsMeetingLink ? "" : event.location || "",
+                  );
+                  setEditingField("location");
+                }}
               >
                 <IconMapPin className="h-4 w-4 shrink-0 text-muted-foreground/40" />
                 <span className="text-sm text-muted-foreground/40">

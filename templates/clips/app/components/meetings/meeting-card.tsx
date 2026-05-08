@@ -156,7 +156,7 @@ export function MeetingCard({ meeting }: { meeting: MeetingCardData }) {
             {meeting.recordingId && (
               <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                 <IconVideo className="h-3 w-3" />
-                Recording
+                Transcript source
               </span>
             )}
           </div>

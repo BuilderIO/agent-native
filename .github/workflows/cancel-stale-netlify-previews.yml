@@ -1,0 +1,84 @@
+name: Cancel stale Netlify previews
+
+on:
+  pull_request:
+    types: [synchronize, closed]
+
+permissions:
+  contents: read
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          NETLIFY_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          BRANCH: ${{ github.head_ref }}
+          LATEST_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGED: ${{ github.event.pull_request.merged }}
+          ACTION: ${{ github.event.action }}
+        with:
+          script: |
+            const SITES = [
+              ['images',        '5868670b-649a-4a45-9e34-45ef3e75f3fd'],
+              ['design',        '1e6bd63d-2972-4272-86bd-7b33f493606d'],
+              ['voice',         '65ba35b8-8b97-4711-bad2-dc66ff1fe245'],
+              ['meeting-notes', '500f9618-f9a1-49ba-b533-7700ab667844'],
+              ['scheduling',    'ce197d9f-7153-40b5-a5f4-062327f05e15'],
+              ['clips',         '7e3f4fee-258d-4d16-9aaf-154a714e87e2'],
+              ['videos',        '3f0c2cd2-06cd-4ab8-bfb4-c199430d1dac'],
+              ['starter',       '864ab6ba-0889-4265-99c0-7a18d1888585'],
+              ['recruiting',    'eb4de782-2d5f-4db9-b22d-e383af2556fb'],
+              ['slides',        'fd5deb5b-5539-47e1-830c-e5fb5e105efd'],
+              ['mail',          'dee98bb0-6143-4205-8c04-afe7bf83d5b5'],
+              ['issues',        '76b94d46-f566-43cd-bddd-01123137ab9a'],
+              ['macros',        '0700a8ac-6a9f-4834-80dd-734102228132'],
+              ['forms',         'aa0b2020-9983-4d6c-8fb0-65462f960fc4'],
+              ['dispatch',      '1171ef84-ed50-418b-bced-e19470475e49'],
+              ['content',       '5c2198f5-bee4-41c3-8a6d-4869f400eec2'],
+              ['calendar',      '954fe53b-052e-4401-aac2-2e973e498af8'],
+              ['analytics',     'ba983662-dac4-478d-a481-5079e67e4d33'],
+              ['fw',            '33249da7-8dca-47f9-b61f-3a5eba3116e2'],
+            ];
+
+            const token = process.env.NETLIFY_TOKEN;
+            if (!token) { core.setFailed('NETLIFY_AUTH_TOKEN secret not set'); return; }
+
+            const branch = process.env.BRANCH;
+            const latestSha = process.env.LATEST_SHA;
+            const closed = process.env.ACTION === 'closed';
+            const headers = { Authorization: `Bearer ${token}` };
+
+            // On close (merged or not), cancel every non-terminal preview for this branch.
+            // On synchronize, cancel only deploys whose commit_ref differs from the latest SHA.
+            const STALE_STATES = new Set(['new', 'enqueued', 'building', 'uploading', 'uploaded', 'preparing', 'prepared', 'processing']);
+
+            const results = await Promise.all(SITES.map(async ([name, id]) => {
+              const url = `https://api.netlify.com/api/v1/sites/${id}/deploys?branch=${encodeURIComponent(branch)}&per_page=100`;
+              const r = await fetch(url, { headers });
+              if (!r.ok) return { name, error: `list ${r.status}` };
+              const deploys = await r.json();
+              const stale = deploys.filter(d =>
+                d.context === 'deploy-preview' &&
+                STALE_STATES.has(d.state) &&
+                (closed || d.commit_ref !== latestSha)
+              );
+              const cancelled = await Promise.all(stale.map(async d => {
+                const c = await fetch(`https://api.netlify.com/api/v1/deploys/${d.id}/cancel`, { method: 'POST', headers });
+                return { id: d.id, ok: c.ok, status: c.status, sha: (d.commit_ref || '').slice(0, 7), state: d.state };
+              }));
+              return { name, total: stale.length, cancelled };
+            }));
+
+            let total = 0;
+            for (const r of results) {
+              if (r.error) { core.warning(`[${r.name}] ${r.error}`); continue; }
+              if (!r.total) continue;
+              total += r.total;
+              core.info(`[${r.name}] cancelled ${r.cancelled.filter(x => x.ok).length}/${r.total}`);
+              for (const c of r.cancelled) {
+                core.info(`  ${c.ok ? 'OK' : 'FAIL'} ${c.id} ${c.sha} (${c.state})`);
+              }
+            }
+            core.info(`Total cancelled: ${total} (action=${process.env.ACTION}, branch=${branch})`);

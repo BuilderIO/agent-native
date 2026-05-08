@@ -32,6 +32,7 @@ import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { getDb, schema } from "../../server/db";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { parsePlaybackSpeed } from "@/lib/playback-speed";
 
 type SharePageMetaRecording = {
   id: string;
@@ -164,7 +165,6 @@ export default function ShareRoute() {
   });
   const [pwError, setPwError] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(0);
-  const [speed, setSpeed] = useState(1.2);
   const { session } = useSession();
   const [signInIntent, setSignInIntent] = useState<"comment" | "react" | null>(
     null,
@@ -217,13 +217,7 @@ export default function ShareRoute() {
     document.title = pageTitle(recording.title);
   }, [recording?.title]);
 
-  useEffect(() => {
-    if (!recording) return;
-    const s = parseFloat(recording.defaultSpeed || "1.2");
-    if (!Number.isNaN(s)) setSpeed(s);
-  }, [recording?.defaultSpeed]);
-
-  usePlayerShortcuts({ playerRef, speed, setSpeed });
+  usePlayerShortcuts({ playerRef });
 
   const tracking = useViewTracking({
     recordingId: shareId ?? "",
@@ -442,7 +436,7 @@ export default function ShareRoute() {
               durationMs={recording.durationMs}
               editsJson={recording.editsJson}
               thumbnailUrl={recording.thumbnailUrl}
-              defaultSpeed={speed}
+              defaultSpeed={parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2}
               comments={comments}
               chapters={chapters}
               reactions={reactions}

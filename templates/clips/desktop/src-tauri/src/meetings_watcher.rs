@@ -33,6 +33,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::config::{feature_config, MeetingTranscriptionMode};
 use crate::dlog;
 use crate::tray_meetings::MeetingItem as TrayMeetingItem;
 
@@ -164,6 +165,11 @@ async fn run_watcher(app: AppHandle) {
 }
 
 async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), String> {
+    let config = feature_config(app);
+    if !config.meetings_enabled {
+        return Ok(());
+    }
+
     let (server_url, cookie, auth_token) = {
         let state = app
             .try_state::<MeetingsWatcherState>()
@@ -250,32 +256,57 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
         if already {
             continue;
         }
+        if config.meeting_transcription_mode == MeetingTranscriptionMode::Manual
+            && !config.show_meeting_widget_enabled
+        {
+            continue;
+        }
         let title = m.title.clone().unwrap_or_else(|| "Meeting".to_string());
         let join_url = m.join_url.clone();
-        let _ = app.emit(
-            "meetings:show-notification",
-            serde_json::json!({
-                "type": "calendar",
-                "title": title,
-                "subtitle": format!("Starting in {} min", (secs_until / 60).max(1)),
-                "meetingId": m.id,
-                "joinUrl": join_url,
-            }),
-        );
-        let app_clone = app.clone();
-        let id_clone = m.id.clone();
-        let title_clone = title.clone();
-        let join_clone = join_url.clone();
-        tauri::async_runtime::spawn(async move {
-            let _ = crate::notifications::notify_meeting_starting(
-                app_clone,
-                id_clone,
-                title_clone,
-                secs_until,
-                join_clone,
-            )
-            .await;
-        });
+        let subtitle = if config.meeting_transcription_mode == MeetingTranscriptionMode::Auto {
+            "Starting notes now".to_string()
+        } else {
+            format!("Starting in {} min", (secs_until / 60).max(1))
+        };
+        if config.show_meeting_widget_enabled
+            || config.meeting_transcription_mode == MeetingTranscriptionMode::Auto
+        {
+            let _ = app.emit(
+                "meetings:show-notification",
+                serde_json::json!({
+                    "type": "calendar",
+                    "title": title.clone(),
+                    "subtitle": subtitle.clone(),
+                    "meetingId": m.id.clone(),
+                    "joinUrl": join_url.clone(),
+                    "autoStart": config.meeting_transcription_mode == MeetingTranscriptionMode::Auto,
+                }),
+            );
+            let app_clone = app.clone();
+            let id_clone = m.id.clone();
+            let title_clone = title.clone();
+            let join_clone = join_url.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = crate::notifications::notify_meeting_starting(
+                    app_clone,
+                    id_clone,
+                    title_clone,
+                    secs_until,
+                    join_clone,
+                )
+                .await;
+            });
+        }
+        if config.meeting_transcription_mode == MeetingTranscriptionMode::Auto {
+            let _ = app.emit(
+                "meetings:start-transcription",
+                serde_json::json!({
+                    "meetingId": m.id.clone(),
+                    "joinUrl": join_url.clone(),
+                    "reason": "calendar-auto",
+                }),
+            );
+        }
     }
 
     Ok(())

@@ -8,6 +8,8 @@ interface FeatureConfig {
   voiceEnabled: boolean;
   launchAtLoginEnabled: boolean;
   autoHidePopoverEnabled: boolean;
+  meetingTranscriptionMode: "manual" | "ask" | "auto";
+  showMeetingWidgetEnabled: boolean;
   onboardingComplete: boolean;
 }
 
