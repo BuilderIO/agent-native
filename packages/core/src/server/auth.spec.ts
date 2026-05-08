@@ -1415,6 +1415,7 @@ describe("server/auth", () => {
       expect(response).toBeInstanceOf(Response);
       const html = await (response as Response).text();
       expect(html).toContain("return to Mail");
+      expect(html).toContain("window.close()");
       expect(html).not.toContain("return to Clips");
     });
 
@@ -1474,6 +1475,7 @@ describe("server/auth", () => {
       const html = await (response as Response).text();
       expect(html).not.toContain("agentnative://oauth-complete");
       expect(html).toContain("return to Mail");
+      expect(html).toContain("window.close()");
     });
 
     it("uses a deep link for the no-flowId desktop login when UA marks AgentNativeDesktop", async () => {
