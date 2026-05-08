@@ -77,7 +77,7 @@ function DbSyncSetup() {
   const qc = useQueryClient();
   useDbSync({
     queryClient: qc,
-    queryKeys: ["forms", "responses", "settings"],
+    queryKeys: ["forms", "responses", "settings", "env-status", "public-form"],
     ignoreSource: TAB_ID,
   });
   return null;

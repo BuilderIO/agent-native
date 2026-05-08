@@ -73,7 +73,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 function AppContent() {
   useNavigationState();
   const qc = useQueryClient();
-  useDbSync({ queryClient: qc, queryKeys: ["action"] });
+  useDbSync({ queryClient: qc, queryKeys: ["action", "env-status"] });
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [cmdkOpen, setCmdkOpen] = useState(false);

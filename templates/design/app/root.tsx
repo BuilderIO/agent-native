@@ -77,7 +77,12 @@ function DbSyncSetup() {
   const qc = useQueryClient();
   useDbSync({
     queryClient: qc,
-    queryKeys: ["designs", "design-systems", "design-files"],
+    queryKeys: [
+      "designs",
+      "design-systems",
+      "design-files",
+      "design-variants",
+    ],
     ignoreSource: TAB_ID,
   });
   return null;
