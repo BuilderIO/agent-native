@@ -41,6 +41,12 @@ When the user asks to create, build, make, scaffold, or generate a new app from 
 
 Do not satisfy a new-app request by adding a route, page, component, or file inside this starter app. Only edit `apps/starter` when the user explicitly asks to change the starter app itself.
 
+## Mounted Workspace Routing
+
+This app is mounted at `/starter` in a workspace. Inside app source, React Router paths are app-local: use `<Link to="/new-app">` and `navigate("/new-app")`, not `/starter/new-app`. The workspace gateway and `APP_BASE_PATH` add the mounted prefix in the browser; hardcoding it inside React Router links causes doubled URLs such as `/starter/starter/new-app`.
+
+For raw paths outside React Router, use the core helpers: `appPath()` for static assets or normal hrefs, `appApiPath()` for `/api/*`, and `agentNativePath()` for `/_agent-native/*`.
+
 ## Agent Operations
 
 The current screen state is automatically included with each message as a `<current-screen>` block. You don't need to call `view-screen` before every action — use it only when you need a refreshed snapshot mid-conversation.

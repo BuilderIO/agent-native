@@ -30,6 +30,7 @@ import {
 import {
   getRunAbortState,
   insertRun,
+  insertRunEvent,
   getRunById,
   getRunByThread,
   getRunEventsSince,
@@ -99,7 +100,9 @@ describe("run manager soft timeout", () => {
     vi.mocked(getRunById).mockResolvedValue(null);
     vi.mocked(getRunEventsSince).mockResolvedValue([]);
     vi.mocked(insertRun).mockResolvedValue(undefined);
+    vi.mocked(insertRunEvent).mockResolvedValue(undefined);
     vi.mocked(markRunAborted).mockClear();
+    vi.mocked(insertRunEvent).mockClear();
     vi.mocked(updateRunStatus).mockClear();
   });
 
@@ -330,6 +333,96 @@ describe("run manager soft timeout", () => {
         "run-insert-race",
         "completed",
       ),
+    );
+  });
+
+  it("emits terminal events only after the completion callback resolves", async () => {
+    let resolveComplete!: () => void;
+    const onComplete = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveComplete = resolve;
+        }),
+    );
+    const events: AgentChatEvent[] = [];
+
+    const run = startRun(
+      "run-terminal-after-save",
+      "thread-terminal-after-save",
+      async (send) => {
+        send({ type: "text", text: "saved first" });
+        send({ type: "done" });
+      },
+      onComplete,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(run.status).toBe("completed");
+    expect(events).toEqual([{ type: "text", text: "saved first" }]);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    expect(onComplete.mock.calls[0][0].events.map((event) => event.event)).toEqual(
+      [
+        { type: "text", text: "saved first" },
+        { type: "done" },
+      ],
+    );
+    expect(insertRunEvent).toHaveBeenCalledTimes(1);
+    expect(insertRunEvent).toHaveBeenCalledWith(
+      "run-terminal-after-save",
+      0,
+      JSON.stringify({ type: "text", text: "saved first" }),
+    );
+    expect(updateRunStatus).not.toHaveBeenCalledWith(
+      "run-terminal-after-save",
+      "completed",
+    );
+
+    resolveComplete();
+
+    await vi.waitFor(() => expect(events).toContainEqual({ type: "done" }));
+    expect(insertRunEvent).toHaveBeenCalledWith(
+      "run-terminal-after-save",
+      1,
+      JSON.stringify({ type: "done" }),
+    );
+    expect(updateRunStatus).toHaveBeenCalledWith(
+      "run-terminal-after-save",
+      "completed",
+    );
+  });
+
+  it("marks runs errored when completion persistence fails", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-completion-failed",
+      "thread-completion-failed",
+      async (send) => {
+        send({ type: "text", text: "not durable yet" });
+        send({ type: "done" });
+      },
+      async () => {
+        throw new Error("thread_data write failed");
+      },
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.waitFor(() =>
+      expect(updateRunStatus).toHaveBeenCalledWith(
+        "run-completion-failed",
+        "errored",
+      ),
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        error: "Agent response could not be saved.",
+      }),
     );
   });
 

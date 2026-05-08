@@ -107,7 +107,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 
 As you build out this app, follow this checklist for each new feature:
 
-1. **Add navigation state entries** -- create or extend `app/hooks/use-navigation-state.ts` to track new routes
+1. **Add navigation state entries** -- extend `app/hooks/use-navigation-state.ts` to track new routes
 2. **Enhance view-screen** -- make the view-screen script return relevant context for the new view
 3. **Create domain actions** -- add scripts for CRUD operations on new data models
 4. **Create domain skills** -- add `.agents/skills/<feature>/SKILL.md` documenting the data model, storage patterns, and agent operations
