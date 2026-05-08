@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.12.29
+
+### Patch Changes
+
+- 4c90b33: Use Claude Sonnet as the default Builder gateway chat model.
+
 ## 0.12.28
 
 ### Patch Changes
