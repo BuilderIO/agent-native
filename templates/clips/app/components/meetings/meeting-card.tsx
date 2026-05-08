@@ -69,6 +69,16 @@ export function MeetingCard({ meeting }: { meeting: MeetingCardData }) {
   const transcriptReady = meeting.transcriptStatus === "ready";
   const hasNotes = !!meeting.summaryMd;
   const preview = buildPreview(meeting);
+  const now = Date.now();
+  const scheduledEndMs = Date.parse(
+    meeting.scheduledEnd ?? meeting.scheduledStart,
+  );
+  const meetingHasEnded =
+    !!meeting.actualEnd ||
+    (!Number.isNaN(scheduledEndMs) && scheduledEndMs < now);
+  const shouldShowMissingSummary =
+    !preview &&
+    (meetingHasEnded || !!meeting.recordingId || transcriptReady || isLive);
 
   return (
     <NavLink
@@ -132,11 +142,11 @@ export function MeetingCard({ meeting }: { meeting: MeetingCardData }) {
             <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
               {preview}
             </p>
-          ) : (
+          ) : shouldShowMissingSummary ? (
             <p className="text-xs text-muted-foreground/60 italic leading-relaxed">
               No summary yet
             </p>
-          )}
+          ) : null}
 
           <div className="flex items-center justify-between gap-2 pt-1">
             <AttendeeStack
