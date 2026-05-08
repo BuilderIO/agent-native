@@ -48,11 +48,11 @@
  */
 
 import path from "path";
-import { createClient } from "@libsql/client";
-import { getDatabaseUrl, getDatabaseAuthToken } from "../../db/client.js";
+import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
 import { assertNoSensitiveFrameworkTables } from "./safety.js";
 import { buildScopingPostgres, buildScopingSqlite } from "./scoping.js";
+import { createSqliteScriptClient } from "./sqlite-client.js";
 
 interface TextEdit {
   find: string;
@@ -626,10 +626,7 @@ async function runPostgres(opts: RunOpts): Promise<void> {
 // ─── SQLite / libSQL path ───────────────────────────────────────────────────
 
 async function runSqlite(opts: RunOpts): Promise<void> {
-  const client = createClient({
-    url: opts.url,
-    authToken: getDatabaseAuthToken(),
-  });
+  const client = await createSqliteScriptClient(opts.url);
   try {
     const scoping = await buildScopingSqlite(client);
     for (const stmt of scoping.setup) {
