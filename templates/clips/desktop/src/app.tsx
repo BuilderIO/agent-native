@@ -2016,6 +2016,13 @@ function recordingSummaryParts({
   return parts;
 }
 
+type ReadinessItem = {
+  label: string;
+  detail: string;
+  pane: MacosPrivacyPane;
+  active: boolean;
+};
+
 function readinessItems({
   mode,
   cameraOn,
@@ -2026,13 +2033,8 @@ function readinessItems({
   cameraOn: boolean;
   micOn: boolean;
   includeFnMonitoring: boolean;
-}): Array<{
-  label: string;
-  detail: string;
-  pane: MacosPrivacyPane;
-  active: boolean;
-}> {
-  return [
+}): ReadinessItem[] {
+  const items: ReadinessItem[] = [
     {
       label: "Screen Recording",
       detail: "Needed for screen or window capture.",
@@ -2063,7 +2065,9 @@ function readinessItems({
       pane: "input-monitoring",
       active: includeFnMonitoring,
     },
-  ].filter((item) => item.active);
+  ];
+
+  return items.filter((item) => item.active);
 }
 
 function ReadinessPanel({
