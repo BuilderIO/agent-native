@@ -1,4 +1,6 @@
-function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
+function firstNonEmpty(
+  ...values: Array<string | undefined>
+): string | undefined {
   for (const value of values) {
     const trimmed = value?.trim();
     if (trimmed) return trimmed;
@@ -62,7 +64,7 @@ export function getSentryClientConfigScript(): string | null {
   };
 
   return [
-    '<script data-agent-native-sentry-config>',
+    "<script data-agent-native-sentry-config>",
     "window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,",
     JSON.stringify(config),
     ");",

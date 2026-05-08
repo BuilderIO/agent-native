@@ -162,7 +162,10 @@ async function rewriteMountedResponse(
   const html = await response.text();
   headers.delete("content-length");
   return new Response(
-    injectHeadScript(prefixMountedHtml(html, basePath), sentryClientConfigScript),
+    injectHeadScript(
+      prefixMountedHtml(html, basePath),
+      sentryClientConfigScript,
+    ),
     {
       status: response.status,
       statusText: response.statusText,
