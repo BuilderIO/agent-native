@@ -945,6 +945,78 @@ function copyDir(src: string, dest: string) {
   }
 }
 
+const LIBSQL_NATIVE_PACKAGE_NAMES = [
+  "darwin-arm64",
+  "darwin-x64",
+  "linux-arm-gnueabihf",
+  "linux-arm-musleabihf",
+  "linux-arm64-gnu",
+  "linux-arm64-musl",
+  "linux-x64-gnu",
+  "linux-x64-musl",
+  "win32-x64-msvc",
+];
+
+function nodeModulesAncestors(startDir: string): string[] {
+  const dirs: string[] = [];
+  let current = path.resolve(startDir);
+  while (true) {
+    const candidate = path.join(current, "node_modules");
+    if (fs.existsSync(candidate)) dirs.push(candidate);
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return dirs;
+}
+
+function findInstalledLibsqlNativePackage(
+  nodeModulesRoots: string[],
+  packageName: string,
+): string | null {
+  for (const root of nodeModulesRoots) {
+    const direct = path.join(root, "@libsql", packageName);
+    if (fs.existsSync(path.join(direct, "index.node"))) return direct;
+
+    const pnpmRoot = path.join(root, ".pnpm");
+    if (!fs.existsSync(pnpmRoot)) continue;
+    const pnpmPrefix = `@libsql+${packageName}@`;
+    for (const entry of fs.readdirSync(pnpmRoot)) {
+      if (!entry.startsWith(pnpmPrefix)) continue;
+      const nested = path.join(
+        pnpmRoot,
+        entry,
+        "node_modules",
+        "@libsql",
+        packageName,
+      );
+      if (fs.existsSync(path.join(nested, "index.node"))) return nested;
+    }
+  }
+  return null;
+}
+
+function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
+  if (!serverDir || !fs.existsSync(serverDir)) return;
+  const nodeModulesRoots = nodeModulesAncestors(cwd);
+  const destScopeDir = path.join(serverDir, "node_modules", "@libsql");
+  let copied = 0;
+
+  for (const packageName of LIBSQL_NATIVE_PACKAGE_NAMES) {
+    const src = findInstalledLibsqlNativePackage(nodeModulesRoots, packageName);
+    if (!src) continue;
+
+    copyDir(src, path.join(destScopeDir, packageName));
+    copied += 1;
+  }
+
+  if (copied > 0) {
+    console.log(
+      `[deploy] Copied ${copied} installed libsql native package(s) into the server bundle.`,
+    );
+  }
+}
+
 /**
  * Create stub directories for dangling platform-specific optional dependency
  * symlinks in the pnpm store.
@@ -1199,6 +1271,10 @@ export default bundle;
     console.log(
       `[deploy] Copied client assets to ${path.relative(cwd, publicOutputDir)}`,
     );
+  }
+
+  if (preset === "netlify" || preset === "vercel" || preset === "aws-lambda") {
+    copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);
   }
 
   // Resolve remaining bare npm imports by bundling them into _libs/.

@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getDbExec } from "@agent-native/core/db";
 import { z } from "zod";
 
 export default defineAction({
@@ -10,15 +11,11 @@ export default defineAction({
     const isLocal = url.startsWith("file:");
 
     try {
-      const { createClient } = await import("@libsql/client");
-      const client = createClient({
-        url,
-        authToken: process.env.DATABASE_AUTH_TOKEN,
-      });
+      const db = getDbExec();
 
-      await client.execute("SELECT 1");
+      await db.execute("SELECT 1");
 
-      const result = await client.execute(
+      const result = await db.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '__%' ORDER BY name",
       );
       const tables = result.rows.map((r) => r.name as string);
