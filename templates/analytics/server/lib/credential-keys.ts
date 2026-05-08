@@ -113,7 +113,10 @@ export const credentialProviderConfigs: CredentialProviderConfig[] = [
   {
     provider: "bigquery",
     label: "BigQuery",
-    requiredKeys: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "BIGQUERY_PROJECT_ID"],
+    requiredKeys: [
+      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+      "BIGQUERY_PROJECT_ID",
+    ],
     optionalKeys: ["ANALYTICS_BIGQUERY_EVENTS_TABLE"],
   },
   {

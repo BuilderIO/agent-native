@@ -278,12 +278,12 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 
 ### Ad-Hoc Analysis
 
-| Action            | Args                                                                                                                                        | Purpose                                                                                   |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Action            | Args                                                                                                                                                                | Purpose                                                                                   |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | `save-analysis`   | `--id <id> --name <name> --description <summary> --question <q> --instructions <steps> --resultMarkdown <md> --dataSources <json-array> --resultData <json-object>` | Save or update a reusable analysis with structured evidence from real data-source actions |
-| `get-analysis`    | `--id <id>`                                                                                                                                 | Retrieve a saved analysis                                                                 |
-| `list-analyses`   |                                                                                                                                             | List all saved analyses                                                                   |
-| `delete-analysis` | `--id <id>`                                                                                                                                 | Delete a saved analysis                                                                   |
+| `get-analysis`    | `--id <id>`                                                                                                                                                         | Retrieve a saved analysis                                                                 |
+| `list-analyses`   |                                                                                                                                                                     | List all saved analyses                                                                   |
+| `delete-analysis` | `--id <id>`                                                                                                                                                         | Delete a saved analysis                                                                   |
 
 **Read the `adhoc-analysis` skill** before running an analysis. The key workflow: gather data from multiple sources → synthesize findings → save with `save-analysis` (including re-run instructions) → navigate the user to `/analyses/{id}`.
 
