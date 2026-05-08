@@ -222,11 +222,7 @@ export const credentialProviderConfigs: CredentialProviderConfig[] = [
 const credentialAliases: Record<string, string[]> = {
   amplitude: ["AMPLITUDE_API_KEY", "AMPLITUDE_SECRET_KEY"],
   apollo: ["APOLLO_API_KEY"],
-  bigquery: [
-    "GOOGLE_APPLICATION_CREDENTIALS_JSON",
-    "BIGQUERY_PROJECT_ID",
-    "ANALYTICS_BIGQUERY_EVENTS_TABLE",
-  ],
+  bigquery: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "BIGQUERY_PROJECT_ID"],
   commonroom: ["COMMONROOM_API_TOKEN"],
   dataforseo: ["DATAFORSEO_LOGIN", "DATAFORSEO_PASSWORD"],
   ga4: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "GA4_PROPERTY_ID"],

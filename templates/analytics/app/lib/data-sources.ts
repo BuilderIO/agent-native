@@ -141,7 +141,7 @@ export const dataSources: DataSource[] = [
   {
     id: "bigquery",
     name: "BigQuery",
-    description: "Query your data warehouse directly with SQL",
+    description: "Query your data warehouse datasets directly with SQL",
     category: "analytics",
     icon: IconDatabase,
     envKeys: [
@@ -191,13 +191,14 @@ export const dataSources: DataSource[] = [
         inputType: "text",
       },
       {
-        title: "Optional: set the application events table",
+        title: "Optional: set the default app events table alias",
         description:
-          "Used for first-party event examples and Explorer event discovery. Leave blank to use analytics.events_partitioned in the project above.",
+          "Used only for the @app_events shortcut in examples and Explorer event discovery. Leave blank to use analytics.events_partitioned in the project above.",
         inputKey: "ANALYTICS_BIGQUERY_EVENTS_TABLE",
-        inputLabel: "Events Table",
+        inputLabel: "Default App Events Table",
         inputPlaceholder: "analytics.events_partitioned",
         inputType: "text",
+        optional: true,
       },
     ],
   },

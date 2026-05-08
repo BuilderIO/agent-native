@@ -301,17 +301,17 @@ To override the default org plugin (e.g. to add custom validation or extra handl
 
 ## Production Environment Variables
 
-| Var                                   | Required for                                                                                                                 |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                        | All deployments — Neon Postgres URL                                                                                          |
-| `BETTER_AUTH_SECRET`                  | Auth — random 32-byte hex string                                                                                             |
-| `BETTER_AUTH_URL`                     | Auth — `https://analytics.agent-native.com`                                                                                  |
-| `GOOGLE_CLIENT_ID`                    | Google sign-in (OAuth 2.0 Client ID, NOT the SA)                                                                             |
-| `GOOGLE_CLIENT_SECRET`                | Google sign-in                                                                                                               |
-| `BIGQUERY_PROJECT_ID`                 | BigQuery panels — configured GCP project ID                                                                                  |
-| `GOOGLE_APPLICATION_CREDENTIALS_JSON` | BigQuery service-account JSON (single line)                                                                                  |
-| `ANALYTICS_BIGQUERY_EVENTS_TABLE`     | Optional BigQuery table for first-party/app event examples; defaults to `<BIGQUERY_PROJECT_ID>.analytics.events_partitioned` |
-| `ANTHROPIC_API_KEY`                   | Agent chat                                                                                                                   |
+| Var                                   | Required for                                                                                                 |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`                        | All deployments — Neon Postgres URL                                                                          |
+| `BETTER_AUTH_SECRET`                  | Auth — random 32-byte hex string                                                                             |
+| `BETTER_AUTH_URL`                     | Auth — `https://analytics.agent-native.com`                                                                  |
+| `GOOGLE_CLIENT_ID`                    | Google sign-in (OAuth 2.0 Client ID, NOT the SA)                                                             |
+| `GOOGLE_CLIENT_SECRET`                | Google sign-in                                                                                               |
+| `BIGQUERY_PROJECT_ID`                 | BigQuery panels — configured GCP project ID                                                                  |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON` | BigQuery service-account JSON (single line)                                                                  |
+| `ANALYTICS_BIGQUERY_EVENTS_TABLE`     | Optional `@app_events` alias for first-party/app event examples; not required for BigQuery connection status |
+| `ANTHROPIC_API_KEY`                   | Agent chat                                                                                                   |
 
 The OAuth 2.0 Client ID for Google sign-in is a **separate credential** from the BigQuery service account. Create it in GCP Console → APIs & Services → Credentials → OAuth client ID → Web application, with redirect URIs `https://analytics.agent-native.com/_agent-native/auth/ba/callback/google` and `http://localhost:3000/_agent-native/auth/ba/callback/google`.
 
@@ -347,6 +347,8 @@ The data dictionary is the canonical catalog of the metrics, tables, columns, an
 **Workflow for "build me a dashboard":**
 
 A `<data-dictionary>` block is injected into your system prompt with the approved entries for this workspace. Read it before you write any SQL. If the entry you need is there, you MUST use its `table` and `columns` values verbatim — column names in the underlying warehouse use prefixes (`hs_`, `m_`, `sfdc_`, etc.) that you cannot guess. Making them up produces `Unrecognized name` errors and a broken dashboard.
+
+**BigQuery is a warehouse, not a single table.** Treat `BIGQUERY_PROJECT_ID` + `GOOGLE_APPLICATION_CREDENTIALS_JSON` as the connection. `ANALYTICS_BIGQUERY_EVENTS_TABLE` only powers the optional `@app_events` shortcut for examples and event discovery; its absence does not mean BigQuery is disconnected, and its presence does not mean all warehouse data lives there. For warehouse questions, use approved data-dictionary entries, existing dashboard SQL, or `INFORMATION_SCHEMA` discovery to find the real datasets, tables, and columns.
 
 1. If the user's request is materially ambiguous, write 2-4 guided questions to `show-questions` before doing expensive dashboard work.
 2. **Check the `<data-dictionary>` block** in your system prompt for entries that match the user's request.
@@ -402,7 +404,7 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 | `seo-page-keywords`            | `--url`                     | Keywords for a specific page                                                                                                                              |
 | `seo-blog-pages`               |                             | Blog page SEO metrics                                                                                                                                     |
 | `ga4-report`                   | `--metrics`, `--dimensions` | Google Analytics reports                                                                                                                                  |
-| `bigquery`                     | `--sql`                     | Ad-hoc BigQuery/warehouse queries when BigQuery is configured. Do not use as a substitute for named provider actions like Jira or Pylon.                  |
+| `bigquery`                     | `--sql`                     | Ad-hoc BigQuery/warehouse queries across configured datasets and tables. Do not use as a substitute for named provider actions like Jira or Pylon.        |
 | `query-agent-native-analytics` | `--sql`                     | Query first-party `analytics_events` recorded via `/track`, including traffic, product events, and app/template usage collected by this analytics app     |
 | `create-analytics-public-key`  | `[--name <label>]`          | Generate a public write key for hosted apps to send events to `analytics.agent-native.com/track`                                                          |
 | `list-analytics-public-keys`   |                             | List active/revoked first-party analytics write keys                                                                                                      |

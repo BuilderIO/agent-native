@@ -45,6 +45,7 @@ import {
   type WalkthroughStep,
 } from "@/lib/data-sources";
 import {
+  getOptionalCredentialKeys,
   isSourceConfigured,
   type EnvKeyStatus,
 } from "@/lib/data-source-status";
@@ -329,6 +330,7 @@ function ConnectedView({
         .map((other) => other.name),
     ),
   );
+  const optionalKeys = getOptionalCredentialKeys(source);
 
   const handleDisconnect = () => {
     if (sharedCredentialKeys.length > 0) {
@@ -457,6 +459,7 @@ function ConnectedView({
             {source.envKeys.map((key) => {
               const configured =
                 envStatus.find((s) => s.key === key)?.configured ?? false;
+              const optional = optionalKeys.has(key);
               return (
                 <div
                   key={key}
@@ -469,6 +472,11 @@ function ConnectedView({
                     <span className="flex items-center gap-1 whitespace-nowrap text-emerald-500">
                       <IconCheck className="h-3 w-3" />
                       Configured
+                    </span>
+                  ) : optional ? (
+                    <span className="flex items-center gap-1 whitespace-nowrap text-muted-foreground">
+                      <IconCircle className="h-3 w-3" />
+                      Optional
                     </span>
                   ) : (
                     <span className="flex items-center gap-1 whitespace-nowrap text-rose-400">
@@ -1167,7 +1175,7 @@ export default function DataSources() {
       {/* Filtered results */}
       {filteredSources !== null ? (
         filteredSources.length > 0 ? (
-          <div className="grid gap-3 lg:grid-cols-2">
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,24rem),1fr))]">
             {filteredSources.map((source) => (
               <DataSourceCard
                 key={source.id}
@@ -1193,7 +1201,7 @@ export default function DataSources() {
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
                 {categoryLabels[category]}
               </h3>
-              <div className="grid gap-3 lg:grid-cols-2">
+              <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,24rem),1fr))]">
                 {category === "analytics" && <FirstPartyAnalyticsCard />}
                 {sources.map((source) => (
                   <DataSourceCard
