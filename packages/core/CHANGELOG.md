@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.12.16
+
+### Patch Changes
+
+- 27c3dbc: Submit a pending email invite when closing the share popover with Done.
+- 27c3dbc: Clarify provider-specific tool routing so named external sources win over generic warehouse tools.
+- 27c3dbc: Improve chat run completion durability and clarify mounted workspace app routing.
+- 27c3dbc: Preserve public forwarded host/protocol headers when proxying workspace apps so Google OAuth redirect URIs use the stable gateway origin instead of internal app dev ports.
+
 ## 0.12.15
 
 ### Patch Changes
