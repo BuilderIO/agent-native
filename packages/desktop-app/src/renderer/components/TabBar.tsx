@@ -3,7 +3,7 @@ import {
   IconCalendar,
   IconFileText,
   IconChartBar,
-  IconLayoutGrid,
+  IconPresentation,
   IconStack2,
   IconVideo,
   IconBrandJira,
@@ -14,6 +14,12 @@ import {
   IconPlus,
   IconScreenShare,
   IconBrush,
+  IconMessageCircle,
+  IconPhone,
+  IconNote,
+  IconMicrophone,
+  IconCalendarTime,
+  IconPhoto,
 } from "@tabler/icons-react";
 import type { Tab } from "../App.js";
 
@@ -22,7 +28,7 @@ const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
   CalendarDays: IconCalendar,
   FileText: IconFileText,
   BarChart2: IconChartBar,
-  GalleryHorizontal: IconLayoutGrid,
+  GalleryHorizontal: IconPresentation,
   Code: IconCode,
   Video: IconVideo,
   BrandJira: IconBrandJira,
@@ -30,6 +36,12 @@ const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
   Users: IconUsers,
   ScreenShare: IconScreenShare,
   Brush: IconBrush,
+  MessageCircle: IconMessageCircle,
+  Phone: IconPhone,
+  Note: IconNote,
+  Microphone: IconMicrophone,
+  CalendarTime: IconCalendarTime,
+  Photo: IconPhoto,
 };
 
 interface TabBarProps {
@@ -51,12 +63,14 @@ export default function TabBar({
     <div className="tabbar">
       {tabs.map((tab) => {
         const isActive = tab.id === activeTabId;
+        const Icon = ICON_MAP[tab.icon] ?? IconStack2;
 
         return (
           <button
             key={tab.id}
             className={`tab${isActive ? " tab--active" : ""}`}
             tabIndex={-1}
+            aria-label={tab.title}
             onClick={() => onTabSelect(tab.id)}
             onMouseDown={(e) => {
               // Middle-click to close
@@ -67,7 +81,9 @@ export default function TabBar({
             }}
             title={tab.title}
           >
-            <span className="tab-label">{tab.title}</span>
+            <span className="tab-icon" aria-hidden="true">
+              <Icon size={15} strokeWidth={1.8} />
+            </span>
             <span
               className="tab-close"
               onClick={(e) => {
@@ -76,6 +92,8 @@ export default function TabBar({
               }}
               role="button"
               tabIndex={-1}
+              title={`Close ${tab.title}`}
+              aria-label={`Close ${tab.title}`}
             >
               <IconX size={10} strokeWidth={2} />
             </span>

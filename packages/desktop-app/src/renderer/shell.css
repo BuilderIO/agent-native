@@ -149,11 +149,15 @@ body {
 }
 
 .tab {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 14px;
+  justify-content: center;
+  padding: 0;
   height: 100%;
+  width: 44px;
+  min-width: 44px;
+  max-width: 44px;
   background: var(--tab-bg);
   border: none;
   border-right: 1px solid var(--separator);
@@ -166,8 +170,6 @@ body {
     background var(--ease),
     color var(--ease);
   -webkit-app-region: no-drag;
-  min-width: 0;
-  max-width: 200px;
 }
 
 .tab:hover {
@@ -182,6 +184,9 @@ body {
 
 .tab-icon {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   opacity: 0.5;
 }
 
@@ -189,15 +194,12 @@ body {
   opacity: 0.8;
 }
 
-.tab-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .tab-close {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  width: 14px;
+  height: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -212,8 +214,7 @@ body {
     background var(--ease);
 }
 
-.tab:hover .tab-close,
-.tab--active .tab-close {
+.tab:hover .tab-close {
   opacity: 0.5;
 }
 
