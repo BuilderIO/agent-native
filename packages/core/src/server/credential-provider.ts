@@ -198,7 +198,10 @@ export async function resolveHasBuilderPrivateKey(): Promise<boolean> {
 export async function resolveBuilderCredentialSource(): Promise<BuilderCredentialSource | null> {
   const scoped = await resolveScopedBuilderCredential("BUILDER_PRIVATE_KEY");
   if (scoped) return scoped.source;
-  return process.env.BUILDER_PRIVATE_KEY ? "env" : null;
+  return canUseDeployCredentialFallbackForRequest() &&
+    process.env.BUILDER_PRIVATE_KEY
+    ? "env"
+    : null;
 }
 
 /**

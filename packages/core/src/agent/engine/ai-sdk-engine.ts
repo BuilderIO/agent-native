@@ -164,6 +164,8 @@ export interface AISDKEngineConfig {
   model?: string;
   /** API key — falls back to the provider-specific env var if omitted. */
   apiKey?: string;
+  /** Set false in request-scoped multi-tenant runs so provider packages cannot fall back to process.env. */
+  allowEnvFallback?: boolean;
   /** Override the provider base URL (useful for proxies or OpenAI-compatible gateways). */
   baseUrl?: string;
   /** OpenRouter: `X-OpenRouter-Title` header for dashboard attribution. */
@@ -192,7 +194,9 @@ class AISDKEngine implements AgentEngine {
     this.defaultModel = config.model ?? PROVIDER_DEFAULT_MODELS[provider];
     this.supportedModels = PROVIDER_SUPPORTED_MODELS[provider];
     this.capabilities = PROVIDER_CAPABILITIES[provider];
-    this.apiKey = config.apiKey ?? getProviderApiKey(provider);
+    this.apiKey =
+      config.apiKey ??
+      (config.allowEnvFallback === false ? "" : getProviderApiKey(provider));
     this.baseUrl = config.baseUrl;
     this.appName = config.appName;
     this.appUrl = config.appUrl;
@@ -349,7 +353,7 @@ class AISDKEngine implements AgentEngine {
     }
 
     const config: Record<string, unknown> = {};
-    if (this.apiKey) config.apiKey = this.apiKey;
+    if (this.apiKey !== undefined) config.apiKey = this.apiKey;
     if (this.baseUrl) config.baseURL = this.baseUrl;
     // Scoped to openrouter — other providers' factories may reject unknown keys.
     if (this.provider === "openrouter") {

@@ -5,6 +5,7 @@ const mockWriteAppSecret = vi.fn();
 const mockDeleteAppSecret = vi.fn();
 const mockGetRequestUserEmail = vi.fn<[], string | undefined>();
 const mockGetRequestOrgId = vi.fn<[], string | undefined>();
+const mockIsLocalDatabase = vi.fn<[], boolean>();
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
@@ -15,8 +16,12 @@ vi.mock("./request-context.js", () => ({
   getRequestUserEmail: () => mockGetRequestUserEmail(),
   getRequestOrgId: () => mockGetRequestOrgId(),
 }));
+vi.mock("../db/client.js", () => ({
+  isLocalDatabase: () => mockIsLocalDatabase(),
+}));
 
 import {
+  canUseDeployCredentialFallbackForRequest,
   resolveCredentialWriteScope,
   writeBuilderCredentials,
   deleteBuilderCredentials,
@@ -25,15 +30,24 @@ import {
   resolveSecret,
 } from "./credential-provider.js";
 
+const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+
 beforeEach(() => {
   vi.clearAllMocks();
+  if (ORIGINAL_NODE_ENV === undefined) {
+    delete process.env.NODE_ENV;
+  } else {
+    process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+  }
   delete process.env.BUILDER_PRIVATE_KEY;
   delete process.env.BUILDER_PUBLIC_KEY;
+  delete process.env.OPENAI_API_KEY;
   mockReadAppSecret.mockResolvedValue(null);
   mockWriteAppSecret.mockResolvedValue("id");
   mockDeleteAppSecret.mockResolvedValue(true);
   mockGetRequestUserEmail.mockReturnValue(undefined);
   mockGetRequestOrgId.mockReturnValue(undefined);
+  mockIsLocalDatabase.mockReturnValue(true);
 });
 
 describe("resolveCredentialWriteScope", () => {
@@ -189,6 +203,18 @@ describe("resolveBuilderCredential", () => {
     expect(mockReadAppSecret).toHaveBeenCalledTimes(2);
   });
 
+  it("does not use deploy-level Builder keys for signed-in users on production shared databases", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
+    expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
+  });
+
   it("falls back to org scope when no user-scope row exists", async () => {
     mockGetRequestUserEmail.mockReturnValue("member@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
@@ -258,6 +284,17 @@ describe("resolveBuilderCredential", () => {
     mockReadAppSecret.mockResolvedValue(null);
     expect(await resolveBuilderCredentialSource()).toBe("env");
   });
+
+  it("does not report env as the credential source for signed-in production shared-database users", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveBuilderCredentialSource()).toBeNull();
+  });
 });
 
 describe("resolveSecret (generic)", () => {
@@ -321,11 +358,21 @@ describe("resolveSecret (generic)", () => {
   });
 
   it("does not consult process.env in an authenticated request", async () => {
+    process.env.NODE_ENV = "production";
     process.env.OPENAI_API_KEY = "deploy-key";
+    mockIsLocalDatabase.mockReturnValue(false);
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockReadAppSecret.mockResolvedValue(null);
     expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
-    delete process.env.OPENAI_API_KEY;
+  });
+
+  it("uses process.env for authenticated requests on local/single-tenant databases", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.OPENAI_API_KEY = "deploy-key";
+    mockIsLocalDatabase.mockReturnValue(true);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockReadAppSecret.mockResolvedValue(null);
+    expect(await resolveSecret("OPENAI_API_KEY")).toBe("deploy-key");
   });
 
   it("uses process.env outside an authenticated request (CLI / unauth)", async () => {
