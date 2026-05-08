@@ -1289,6 +1289,7 @@ export async function runAgentLoop(opts: {
             retryCount: finalGuardRetries,
           })
         : null;
+      let guardEmittedFallback = false;
       if (guard) {
         const retryMessage =
           typeof guard === "string" ? guard : guard.retryMessage;
@@ -1303,8 +1304,25 @@ export async function runAgentLoop(opts: {
           continue;
         }
         send({ type: "text", text: fallbackMessage ?? retryMessage });
+        guardEmittedFallback = true;
       } else {
         flushBufferedAssistantText();
+      }
+      // Some providers (notably OpenAI Responses for gpt-5+) can stream a
+      // successful turn that contains only reasoning content and zero output
+      // text — typically when reasoning consumes the entire output-token
+      // budget. Without a final text part the SSE stream still ends with a
+      // clean `done`, which renders as a totally empty assistant bubble.
+      // Surface a plain-language error so the user knows what happened.
+      if (
+        !guardEmittedFallback &&
+        collectTextParts(assistantContentForHistory).trim().length === 0 &&
+        bufferedAssistantText.trim().length === 0
+      ) {
+        send({
+          type: "text",
+          text: "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
+        });
       }
       break;
     }

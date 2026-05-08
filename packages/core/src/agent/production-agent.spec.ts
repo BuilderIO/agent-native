@@ -1330,6 +1330,91 @@ describe("runAgentLoop", () => {
     expect(events.at(-1)).toEqual({ type: "done" });
   });
 
+  it("surfaces a fallback message when the engine ends with no text or tool calls", async () => {
+    // Mirrors OpenAI Responses gpt-5+ producing reasoning-only content with
+    // zero `output_text` items: the engine still emits a clean `end_turn`
+    // stop, but parts contains only thinking. Without the fallback the run
+    // would render as a silent empty assistant bubble.
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: true,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield { type: "thinking-delta", text: "thinking out loud..." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "thinking" as const, text: "thinking out loud..." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const textEvents = events.filter((e) => e.type === "text");
+    expect(textEvents).toHaveLength(1);
+    expect(textEvents[0].text).toMatch(/empty response/i);
+    expect(textEvents[0].text).toMatch(/different model/i);
+  });
+
+  it("does not surface the empty-response fallback when text was streamed", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield { type: "text-delta", text: "Real answer." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "Real answer." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const textEvents = events.filter((e) => e.type === "text");
+    expect(textEvents).toHaveLength(1);
+    expect(textEvents[0].text).toBe("Real answer.");
+  });
+
   it("does not retry Builder gateway timeouts inside one serverless run", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
