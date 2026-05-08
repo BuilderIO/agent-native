@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.2.15
+
+### Patch Changes
+
+- ad7006d: Keep workspace app creation prompts editable after submit and clarify that named products are design references, not implied API-key requirements.
+
 ## 0.2.14
 
 ### Patch Changes

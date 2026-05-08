@@ -1,5 +1,15 @@
 # @agent-native/frame
 
+## 0.1.31
+
+### Patch Changes
+
+- Updated dependencies [ad7006d]
+- Updated dependencies [ad7006d]
+- Updated dependencies [ad7006d]
+- Updated dependencies [ad7006d]
+  - @agent-native/core@0.12.17
+
 ## 0.1.30
 
 ### Patch Changes
