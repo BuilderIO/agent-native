@@ -52,6 +52,12 @@ const DEFAULT_APP_PORT_START = 8100;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
 
+export function isWorkspaceWatcherLimitError(
+  err: Pick<NodeJS.ErrnoException, "code">,
+): boolean {
+  return err.code === "ENOSPC" || err.code === "EMFILE";
+}
+
 export function shouldEagerStartWorkspaceApps(
   args: string[] = [],
   env: NodeJS.ProcessEnv = process.env,
@@ -632,19 +638,18 @@ export function runWorkspaceDev(
   }
 
   function handleWatcherError(err: NodeJS.ErrnoException): void {
-    if (err.code === "ENOSPC") {
+    if (isWorkspaceWatcherLimitError(err)) {
       stderr.write(
-        `[workspace] Recursive file watcher hit the system limit (ENOSPC). ` +
+        `[workspace] Recursive file watcher hit the system limit (${err.code}). ` +
           `New apps will still be detected via polling every ~2s. ` +
-          `On Linux you can raise the limit with ` +
-          `\`sudo sysctl fs.inotify.max_user_watches=524288\` ` +
-          `(persist via /etc/sysctl.d/*.conf). On macOS/Windows this usually ` +
+          (err.code === "ENOSPC"
+            ? `On Linux you can raise the limit with ` +
+              `\`sudo sysctl fs.inotify.max_user_watches=524288\` ` +
+              `(persist via /etc/sysctl.d/*.conf). `
+            : `Try closing other dev servers or raising your open-file limit. `) +
+          `On macOS/Windows this usually ` +
           `means too many other watchers are running.\n`,
       );
-      Sentry.captureException(err, {
-        tags: { handled: "dev-watch-enospc" },
-        level: "warning",
-      });
       return;
     }
     if (err.code === "ENOENT") {

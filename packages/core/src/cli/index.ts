@@ -626,7 +626,7 @@ Options:
                                 github:user/repo for community templates
   --standalone                  Scaffold a single standalone app (no workspace)
   --preset <name>               Workspace deploy preset:
-                                cloudflare_pages (default) or netlify
+                                cloudflare_pages (default), netlify, or vercel
   --build-only                  Build workspace deploy artifacts without publishing
   --eager                       With workspace dev, start every app immediately
 
