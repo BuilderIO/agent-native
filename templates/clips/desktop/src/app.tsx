@@ -1884,7 +1884,6 @@ export function App() {
 
       <ReadinessPanel
         mode={mode}
-        source={source}
         cameraOn={cameraOn}
         micOn={micOn}
         includeFnMonitoring={fnShortcutEnabled}
@@ -2012,29 +2011,6 @@ function permissionPaneLabel(pane: MacosPrivacyPane): string {
   }[pane];
 }
 
-function captureModeLabel(mode: CaptureMode, source: CaptureSource): string {
-  if (mode === "camera") return "Camera";
-  const base = source === "window" ? "Window" : "Full screen";
-  return mode === "screen-camera" ? `${base} + camera` : base;
-}
-
-function recordingSummaryParts({
-  mode,
-  source,
-  cameraOn,
-  micOn,
-}: {
-  mode: CaptureMode;
-  source: CaptureSource;
-  cameraOn: boolean;
-  micOn: boolean;
-}): string[] {
-  const parts = [captureModeLabel(mode, source)];
-  if (mode !== "screen") parts.push(cameraOn ? "Camera on" : "Camera off");
-  parts.push(micOn ? "Mic on" : "Mic off");
-  return parts;
-}
-
 type ReadinessItem = {
   label: string;
   detail: string;
@@ -2091,7 +2067,6 @@ function readinessItems({
 
 function ReadinessPanel({
   mode,
-  source,
   cameraOn,
   micOn,
   includeFnMonitoring,
@@ -2100,7 +2075,6 @@ function ReadinessPanel({
   onOpenPermission,
 }: {
   mode: CaptureMode;
-  source: CaptureSource;
   cameraOn: boolean;
   micOn: boolean;
   includeFnMonitoring: boolean;
@@ -2114,12 +2088,6 @@ function ReadinessPanel({
     micOn,
     includeFnMonitoring,
   });
-  const summary = recordingSummaryParts({
-    mode,
-    source,
-    cameraOn,
-    micOn,
-  }).join(" · ");
 
   return (
     <div className={`readiness ${open ? "readiness-open" : ""}`}>
@@ -2130,7 +2098,6 @@ function ReadinessPanel({
         onClick={() => onOpenChange(!open)}
       >
         <span className="readiness-title">Setup</span>
-        <span className="readiness-copy">{summary}</span>
         <span className="readiness-action">{open ? "Hide" : "Review"}</span>
       </button>
       {open ? (

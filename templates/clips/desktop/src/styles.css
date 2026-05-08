@@ -821,7 +821,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .readiness-summary {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   width: 100%;
@@ -860,16 +860,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .readiness-open .readiness-title {
   color: var(--fg);
-}
-
-.readiness-copy {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--fg-muted);
-  font-size: 12px;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .readiness-action {
