@@ -13,10 +13,30 @@ pub struct FeatureConfig {
     pub launch_at_login_enabled: bool,
     #[serde(default)]
     pub auto_hide_popover_enabled: bool,
+    #[serde(default = "default_meeting_transcription_mode")]
+    pub meeting_transcription_mode: MeetingTranscriptionMode,
+    #[serde(default = "default_show_meeting_widget_enabled")]
+    pub show_meeting_widget_enabled: bool,
     pub onboarding_complete: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MeetingTranscriptionMode {
+    Manual,
+    Ask,
+    Auto,
+}
+
 fn default_launch_at_login_enabled() -> bool {
+    true
+}
+
+fn default_meeting_transcription_mode() -> MeetingTranscriptionMode {
+    MeetingTranscriptionMode::Ask
+}
+
+fn default_show_meeting_widget_enabled() -> bool {
     true
 }
 
@@ -28,6 +48,8 @@ impl Default for FeatureConfig {
             voice_enabled: true,
             launch_at_login_enabled: true,
             auto_hide_popover_enabled: false,
+            meeting_transcription_mode: default_meeting_transcription_mode(),
+            show_meeting_widget_enabled: default_show_meeting_widget_enabled(),
             onboarding_complete: false,
         }
     }
@@ -109,6 +131,10 @@ pub fn sync_launch_at_login(app: &AppHandle) {
 
 pub fn auto_hide_popover_enabled(app: &AppHandle) -> bool {
     load_config(app).auto_hide_popover_enabled
+}
+
+pub fn feature_config(app: &AppHandle) -> FeatureConfig {
+    load_config(app)
 }
 
 /// Load feature config from disk and return it to the frontend.

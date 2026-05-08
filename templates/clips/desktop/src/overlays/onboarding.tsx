@@ -25,6 +25,9 @@ export function Onboarding() {
           meetingsEnabled: meetings,
           voiceEnabled: voice,
           launchAtLoginEnabled: true,
+          autoHidePopoverEnabled: false,
+          meetingTranscriptionMode: "ask",
+          showMeetingWidgetEnabled: true,
           onboardingComplete: true,
         },
       });
