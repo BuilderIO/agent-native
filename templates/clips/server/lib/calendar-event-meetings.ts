@@ -241,9 +241,7 @@ export function calendarEventToMeetingView(args: {
     recordingId: meeting?.recordingId ?? null,
     transcriptStatus: meeting?.transcriptStatus ?? "idle",
     summaryMd: meeting?.summaryMd ?? "",
-    summaryPreview: summary
-      ? summary.replace(/\s+/g, " ").slice(0, 100)
-      : null,
+    summaryPreview: summary ? summary.replace(/\s+/g, " ").slice(0, 100) : null,
     userNotesMd: meeting?.userNotesMd ?? "",
     reminderFiredAt: meeting?.reminderFiredAt ?? null,
     participants: calendarEventParticipants(args.event),

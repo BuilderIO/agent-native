@@ -96,3 +96,61 @@ export const credentialKeys: CredentialKeyConfig[] = [
     required: false,
   },
 ];
+
+const credentialAliases: Record<string, string[]> = {
+  amplitude: ["AMPLITUDE_API_KEY", "AMPLITUDE_SECRET_KEY"],
+  apollo: ["APOLLO_API_KEY"],
+  bigquery: [
+    "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+    "BIGQUERY_PROJECT_ID",
+    "ANALYTICS_BIGQUERY_EVENTS_TABLE",
+  ],
+  commonroom: ["COMMONROOM_API_TOKEN"],
+  dataforseo: ["DATAFORSEO_LOGIN", "DATAFORSEO_PASSWORD"],
+  ga4: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "GA4_PROPERTY_ID"],
+  github: ["GITHUB_TOKEN"],
+  gcloud: ["GOOGLE_APPLICATION_CREDENTIALS_JSON"],
+  gong: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET", "GONG_API_BASE"],
+  grafana: ["GRAFANA_URL", "GRAFANA_API_TOKEN"],
+  hubspot: ["HUBSPOT_ACCESS_TOKEN"],
+  jira: ["JIRA_BASE_URL", "JIRA_USER_EMAIL", "JIRA_API_TOKEN"],
+  mixpanel: ["MIXPANEL_PROJECT_ID", "MIXPANEL_SERVICE_ACCOUNT"],
+  notion: ["NOTION_API_KEY"],
+  postgres: ["POSTGRES_URL"],
+  postgresql: ["POSTGRES_URL"],
+  posthog: ["POSTHOG_API_KEY", "POSTHOG_PROJECT_ID"],
+  pylon: ["PYLON_API_KEY"],
+  sentry: ["SENTRY_AUTH_TOKEN", "SENTRY_ORG_SLUG", "SENTRY_SERVER_TOKEN"],
+  slack: ["SLACK_BOT_TOKEN", "SLACK_BOT_TOKEN_2"],
+  stripe: ["STRIPE_SECRET_KEY"],
+  twitter: ["TWITTER_BEARER_TOKEN"],
+  x: ["TWITTER_BEARER_TOKEN"],
+};
+
+function normalizeLookup(value: string): string {
+  return value.toLowerCase().replace(/[\s_-]+/g, "");
+}
+
+export function resolveCredentialConfigs(key?: string): {
+  configs: CredentialKeyConfig[];
+  known: boolean;
+} {
+  if (!key) return { configs: credentialKeys, known: true };
+
+  const normalized = normalizeLookup(key);
+  const aliasKeys = credentialAliases[normalized];
+  if (aliasKeys) {
+    const wanted = new Set(aliasKeys);
+    return {
+      configs: credentialKeys.filter((cfg) => wanted.has(cfg.key)),
+      known: true,
+    };
+  }
+
+  const configs = credentialKeys.filter(
+    (cfg) =>
+      normalizeLookup(cfg.key) === normalized ||
+      normalizeLookup(cfg.label) === normalized,
+  );
+  return { configs, known: configs.length > 0 };
+}

@@ -1,11 +1,12 @@
 ---
 name: meetings
 description: >-
-  Calendar-synced meetings in Clips — upcoming meetings, live transcripts with
-  mic + system-audio capture, AI summary / bullets / per-attendee action items,
-  and the bidirectional recording↔meeting link. Use when listing meetings,
-  opening a meeting detail, finalizing notes, connecting a calendar, or working
-  with attendee-tagged transcript segments.
+  Live calendar-backed meetings in Clips — upcoming Google Calendar events,
+  desktop join/record reminders, live transcripts with mic + system-audio
+  capture, AI summary / bullets / per-attendee action items, and the
+  bidirectional recording↔meeting link. Use when listing meetings, opening a
+  meeting detail, finalizing notes, connecting a calendar, or working with
+  attendee-tagged transcript segments.
 ---
 
 # Meetings
@@ -34,7 +35,7 @@ The Meetings tab intentionally mirrors **Granola**: card grid grouped by day, tw
 - **`meeting_participants`** — meetingId + email + name + isOrganizer + attendedAt.
 - **`meeting_action_items`** — meetingId, assigneeEmail, text, dueDate, completedAt.
 - **`calendar_accounts`** — provider, externalAccountId, secret refs, lastSyncedAt. (See onboarding-calendar plugin.)
-- **`calendar_events`** — synced events; auto-promote to a `meetings` row N min before start.
+- **`calendar_events`** — compatibility snapshot for events that have been recorded or edited; the visible list reads Google Calendar live.
 - **`recordings`** — when a meeting is recorded, the resulting recording row carries `meeting_id` (non-null) so we keep a bidirectional link. See the `recording` skill for the inverse direction.
 
 ## Audio capture: mic + system, tagged
@@ -57,13 +58,13 @@ Both fields are set by `start-meeting-recording`. Agents that operate on a recor
 
 ## Calendar reminders
 
-Calendar events fire a desktop notification **5 minutes before** the meeting start (consumer: the desktop tray in `src-tauri/`). A recurring job (`calendar-jobs.ts`) keeps `calendar_events` fresh; the tray subscribes via the framework's polling layer. Agents do not need to schedule reminders manually.
+Calendar events fire a desktop notification **5 minutes before** the meeting start (consumer: the desktop tray in `src-tauri/`). The tray polls `list-meetings`, which reads Google Calendar live, so upcoming reminders do not depend on a manual sync or pre-created `meetings` rows. Agents do not need to schedule reminders manually.
 
 ## Actions
 
 | Action                    | What it does                                                          |
 | ------------------------- | --------------------------------------------------------------------- |
-| `list-meetings`           | Upcoming + past, scoped via `accessFilter`                            |
+| `list-meetings`           | Upcoming + past, scoped via `accessFilter`; reads connected Google Calendar live |
 | `get-meeting`             | One meeting + participants + segments + notes                         |
 | `create-meeting`          | Internal/escape-hatch meeting row creation; the visible Meetings UI is calendar-sourced |
 | `update-meeting`          | Inline title edit, notes edits                                        |
@@ -74,7 +75,7 @@ Calendar events fire a desktop notification **5 minutes before** the meeting sta
 | `cleanup-transcript`      | Shared cleanup pipeline (used by Clips, Meetings, Dictate)            |
 | `connect-calendar`        | Returns OAuth URL for Google Calendar                                 |
 | `list-calendar-accounts`  | What's connected                                                      |
-| `sync-calendars`          | Force-refresh `calendar_events`                                       |
+| `sync-calendars`          | Compatibility refresh for `calendar_events`; not needed for the visible list |
 | `disconnect-calendar`     | Revoke + clear secret refs                                            |
 
 All actions go through `accessFilter` / `assertAccess`. AI work delegates via `sendToAgentChat` per the `delegate-to-agent` skill — never inline LLM calls.
@@ -142,7 +143,7 @@ These flows are common enough to memorize:
 ## UI conventions (don't break)
 
 - **Card grid** for meeting lists, grouped by day with a date header (Today / Tomorrow / Weekday Date).
-- **Calendar-sourced list**: no "New meeting" CTA in the Meetings list. Users connect/reconnect/sync/disconnect the calendar from the calendar settings menu.
+- **Calendar-sourced list**: no "New meeting" CTA and no manual sync requirement in the Meetings list. Users connect/reconnect/disconnect the calendar from the calendar settings menu; events are fetched live from Google Calendar.
 - **Two-pane detail**: transcript (left) + AI notes (right) with a "Generate notes" button in the header.
 - **Live indicator** is a red animated dot — never a sparkle or a robot icon.
 - **Calendar empty state** mirrors `ConnectBuilderCard` layout: single CTA card + "Add API key" disclosure underneath.

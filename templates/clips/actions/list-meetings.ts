@@ -69,8 +69,9 @@ export default defineAction({
     const now = new Date();
     const nowIso = now.toISOString();
     const upcomingWindowMaxIso = args.upcomingWithinMin
-      ? new Date(now.getTime() + args.upcomingWithinMin * 60 * 1000)
-          .toISOString()
+      ? new Date(
+          now.getTime() + args.upcomingWithinMin * 60 * 1000,
+        ).toISOString()
       : null;
 
     const whereClauses = [accessFilter(schema.meetings, schema.meetingShares)];
@@ -176,8 +177,8 @@ export default defineAction({
           const timeMax =
             args.view === "past"
               ? nowIso
-              : upcomingWindowMaxIso ??
-                new Date(now.getTime() + THIRTY_DAYS_MS).toISOString();
+              : (upcomingWindowMaxIso ??
+                new Date(now.getTime() + THIRTY_DAYS_MS).toISOString());
 
           const [{ items }, cachedEvents] = await Promise.all([
             listEvents({

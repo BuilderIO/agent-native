@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { resolveCredentialConfigs } from "./data-source-status";
+import { resolveCredentialConfigs } from "./credential-keys";
 
 function keysFor(key: string): string[] {
   return resolveCredentialConfigs(key).configs.map((cfg) => cfg.key);
 }
 
-describe("data-source-status credential lookup", () => {
+describe("credential key lookup", () => {
   it("accepts provider aliases for named source checks", () => {
     expect(keysFor("pylon")).toEqual(["PYLON_API_KEY"]);
     expect(keysFor("jira")).toEqual([

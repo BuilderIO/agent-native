@@ -1,6 +1,10 @@
 import { useParams } from "react-router";
 import { DocumentEditor } from "@/components/editor/DocumentEditor";
 
+export function meta() {
+  return [{ title: "Agent-Native Content" }];
+}
+
 export default function DocumentPage() {
   const { id } = useParams<{ id: string }>();
 
