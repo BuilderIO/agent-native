@@ -69,6 +69,16 @@ function isAgentNativeDesktop() {
   return /AgentNativeDesktop/i.test(navigator.userAgent);
 }
 
+function useAgentNativeDesktop() {
+  const [isDesktop, setIsDesktop] = useState(isAgentNativeDesktop);
+
+  useEffect(() => {
+    setIsDesktop(isAgentNativeDesktop());
+  }, []);
+
+  return isDesktop;
+}
+
 function DesktopAppNudge() {
   const [visible, setVisible] = useState(false);
 
@@ -97,9 +107,10 @@ function DesktopAppNudge() {
         <IconAppWindow className="mt-0.5 h-3.5 w-3.5 shrink-0 text-foreground/70" />
         <p className="min-w-0 flex-1">
           <span className="font-medium text-foreground">
-            Using local dev agents?
+            Code editing needs Desktop.
           </span>{" "}
-          The desktop app keeps this chat together while your app reloads.{" "}
+          Source edits, CLI, and Workspace files are disabled in this browser
+          frame.{" "}
           <a
             href="https://agent-native.com/download"
             target="_blank"
@@ -125,6 +136,7 @@ function DesktopAppNudge() {
 
 export function App() {
   const [appId] = useState(getAppId);
+  const isDesktop = useAgentNativeDesktop();
   const [frameMode, setFrameMode] = useState<FrameMode>(() => {
     try {
       const saved = localStorage.getItem(FRAME_MODE_KEY);
@@ -155,6 +167,13 @@ export function App() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const appUrl = getAppDevUrl(appId);
   const app = getTemplate(appId);
+  const suggestions = isDesktop
+    ? [
+        "What does this app do?",
+        "Show me the current screen",
+        "Add a new feature",
+      ]
+    : undefined;
 
   // (The `frame_active_app` cookie is set synchronously by getAppId() on
   // first render, before any child effect can fetch /_agent-native/**.)
@@ -411,18 +430,28 @@ export function App() {
               }
             >
               <AgentPanel
-                emptyStateText={`Ask me anything about ${app?.label || "your app"}`}
-                suggestions={[
-                  "What does this app do?",
-                  "Show me the current screen",
-                  "Add a new feature",
-                ]}
+                emptyStateText={
+                  isDesktop
+                    ? `Ask me anything about ${app?.label || "your app"}`
+                    : "Open Agent Native Desktop to edit code, use CLI, or browse Workspace files."
+                }
+                suggestions={suggestions}
                 onCollapse={() => setSidebarOpen(false)}
                 isFullscreen={sidebarFullscreen}
                 onToggleFullscreen={() => setSidebarFullscreen((prev) => !prev)}
                 devAppUrl={appUrl}
                 storageKey={appId}
                 chatNotice={<DesktopAppNudge />}
+                codeAccess={{
+                  enabled: isDesktop,
+                  unavailableTitle: "Open Desktop to edit code",
+                  unavailableDescription:
+                    "Source edits, CLI, and Workspace files run in Agent Native Desktop. This browser frame is preview-only for code changes.",
+                  unavailableCtaLabel: "Download Desktop",
+                  unavailableCtaHref: "https://agent-native.com/download",
+                  unavailableComposerPlaceholder:
+                    "Open Desktop to edit code or run CLI.",
+                }}
               />
             </Suspense>
           </div>

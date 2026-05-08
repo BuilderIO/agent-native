@@ -146,6 +146,44 @@ function fullTextSegmentJson(
   ]);
 }
 
+function providerTranscriptText(
+  text: string | null | undefined,
+  segments: Array<{ text: string }>,
+): string {
+  return (
+    text?.trim() || segments.map((segment) => segment.text.trim()).join(" ")
+  ).trim();
+}
+
+async function failEmptyProviderTranscript({
+  db,
+  recordingId,
+  ownerEmail,
+  providerName,
+  now,
+}: {
+  db: ReturnType<typeof getDb>;
+  recordingId: string;
+  ownerEmail: string;
+  providerName: string;
+  now: string;
+}) {
+  const reason = `No speech was detected by ${providerName} transcription. Check microphone and speech permissions, then retry transcription.`;
+  await upsertTranscriptRow(db, {
+    recordingId,
+    ownerEmail,
+    status: "failed",
+    failureReason: reason,
+    now,
+  });
+  await writeAppState("refresh-signal", { ts: Date.now() });
+  return {
+    recordingId,
+    status: "failed" as const,
+    failureReason: reason,
+  };
+}
+
 async function transcriptCleanupEnabled(): Promise<boolean> {
   const settings = await getSetting(CLIPS_USER_PREFS_KEY).catch(() => null);
   return settings?.transcriptCleanupEnabled !== false;
@@ -577,11 +615,14 @@ export default defineAction({
           diarize: false,
         });
 
-        const segments = (builderResult.segments ?? []).map((s) => ({
-          startMs: s.startMs,
-          endMs: s.endMs,
-          text: s.text.trim(),
-        }));
+        const segments = (builderResult.segments ?? [])
+          .map((s) => ({
+            startMs: s.startMs,
+            endMs: s.endMs,
+            text: s.text.trim(),
+          }))
+          .filter((segment) => segment.text);
+        const fullText = providerTranscriptText(builderResult.text, segments);
 
         const preserved = await preserveReadyTranscriptIfAvailable({
           db,
@@ -590,6 +631,16 @@ export default defineAction({
         });
         if (preserved) return preserved;
 
+        if (!fullText) {
+          return failEmptyProviderTranscript({
+            db,
+            recordingId: args.recordingId,
+            ownerEmail,
+            providerName: "Builder",
+            now,
+          });
+        }
+
         await upsertTranscriptRow(db, {
           recordingId: args.recordingId,
           ownerEmail,
@@ -597,7 +648,7 @@ export default defineAction({
           failureReason: null,
           language: builderResult.language ?? "en",
           segmentsJson: JSON.stringify(segments),
-          fullText: builderResult.text ?? "",
+          fullText,
           now,
         });
         await writeAppState("refresh-signal", { ts: Date.now() });
@@ -835,11 +886,14 @@ export default defineAction({
       }
       const data = (await res.json()) as SpeechToTextResponse;
 
-      const segments = (data.segments ?? []).map((s) => ({
-        startMs: Math.max(0, Math.round(s.start * 1000)),
-        endMs: Math.max(0, Math.round(s.end * 1000)),
-        text: s.text.trim(),
-      }));
+      const segments = (data.segments ?? [])
+        .map((s) => ({
+          startMs: Math.max(0, Math.round(s.start * 1000)),
+          endMs: Math.max(0, Math.round(s.end * 1000)),
+          text: s.text.trim(),
+        }))
+        .filter((segment) => segment.text);
+      const fullText = providerTranscriptText(data.text, segments);
 
       const preserved = await preserveReadyTranscriptIfAvailable({
         db,
@@ -848,6 +902,16 @@ export default defineAction({
       });
       if (preserved) return preserved;
 
+      if (!fullText) {
+        return failEmptyProviderTranscript({
+          db,
+          recordingId: args.recordingId,
+          ownerEmail,
+          providerName: provider.name,
+          now,
+        });
+      }
+
       await upsertTranscriptRow(db, {
         recordingId: args.recordingId,
         ownerEmail,
@@ -855,7 +919,7 @@ export default defineAction({
         failureReason: null,
         language: data.language ?? "en",
         segmentsJson: JSON.stringify(segments),
-        fullText: data.text ?? "",
+        fullText,
         now,
       });
 

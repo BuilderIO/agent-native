@@ -36,8 +36,9 @@ function useBuilderConnected() {
 }
 
 /**
- * Modal shown when a user tries to use a code-requiring feature in production.
- * Offers two paths: local development or Builder.io agent.
+ * Modal shown when a user tries to use a code-requiring feature where local
+ * source access is unavailable. Offers two paths: Agent Native Desktop or the
+ * Builder.io agent.
  * Uses inline styles (no Radix/Tailwind dependency).
  */
 export function CodeRequiredDialog({
@@ -150,10 +151,10 @@ export function CodeRequiredDialog({
               <IconCode size={24} />
             </div>
             <div style={s.optionText}>
-              <span style={s.optionTitle}>Use local development</span>
+              <span style={s.optionTitle}>Use Agent Native Desktop</span>
               <span style={s.optionDesc}>
-                Run the app locally with <code style={s.code}>pnpm dev</code> to
-                enable full code modification by the AI agent.
+                Open the project in the desktop app to enable source edits,
+                Workspace files, and CLI access.
               </span>
             </div>
           </button>

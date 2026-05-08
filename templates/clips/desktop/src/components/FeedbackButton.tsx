@@ -165,6 +165,7 @@ export function FeedbackButton({ submitterEmail }: FeedbackButtonProps) {
           title="Feedback"
         >
           <IconMessage2 size={15} stroke={2} />
+          <span>Feedback</span>
         </button>
       </PopoverPrimitive.Trigger>
       <PopoverPrimitive.Content

@@ -6,6 +6,25 @@ Agent-native is a framework for building apps where the AI agent and the UI are 
 
 The agent can also see what the user is looking at. If an email is open, the agent knows which email. If a slide is selected, the agent knows which slide. If the user selects text and hits Cmd+I to focus the agent, the agent knows what text is selected and can act on just that.
 
+## Response Status Indicator
+
+Every final response must end with a status block so the user can quickly tell whether they need to act:
+
+```md
+---
+
+⠀
+🟢 Implemented the requested change
+```
+
+Use exactly `---`, then one blank line, then a line containing only the braille blank character `⠀`, then one status line.
+
+- **🟢 Green means the requested coding/work unit is actually finished.** Use green when the implementation or concrete task is complete on the current branch, even if routine ship steps like commit, PR, deploy, or CI remain.
+- **🟡 Yellow means something non-routine is still pending.** Use yellow when the response is only advice, a proposal, or a recommended plan and still needs the user's "go ahead" before implementation; when coding work is intentionally left incomplete; when a specific manual configuration step is needed; or when monitoring/verification is still in progress.
+- **🔴 Red means the work cannot continue without user input.** Use red only for a hard blocker such as a missing credential, required decision, or unanswered question.
+
+Do not mark advisory-only answers green. If the user asked "what should we do?" and the answer is a recommendation that still needs approval before code changes, the status must be yellow.
+
 ## The Six Rules
 
 1. **Data lives in SQL** — via Drizzle ORM. Any SQL database (SQLite/Postgres/D1/Turso/Supabase/Neon). See `portability` skill.

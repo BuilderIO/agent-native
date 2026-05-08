@@ -82,6 +82,7 @@ pub fn run() {
             native_speech::native_speech_stop,
             native_speech::native_speech_cancel,
             native_speech::native_speech_set_vocabulary,
+            native_speech::native_speech_request_permission,
             // native full-screen recording (macOS screencapture, no picker)
             native_screen::native_fullscreen_recording_available,
             native_screen::native_fullscreen_recording_start,

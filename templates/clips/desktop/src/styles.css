@@ -167,6 +167,11 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   left: 0;
   top: 50%;
   transform: translateY(-50%);
+  width: auto;
+  gap: 5px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .logo {

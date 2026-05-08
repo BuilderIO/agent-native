@@ -37,7 +37,6 @@ interface LibraryGridProps {
   /** What empty-state illustration to render. Defaults from `view`. */
   emptyKind?: "library" | "folder" | "space" | "archive" | "trash";
   title?: string;
-  subtitle?: string;
   tagFilter?: string | null;
   onClearTag?: () => void;
   extraActions?: React.ReactNode;
@@ -61,7 +60,6 @@ export function LibraryGrid({
   spaceId = null,
   emptyKind,
   title,
-  subtitle,
   tagFilter,
   onClearTag,
   extraActions,
@@ -214,17 +212,14 @@ export function LibraryGrid({
 
       {/* Page header — rendered into the top app bar */}
       <PageHeader>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           {title && (
             <h1 className="text-base font-semibold text-foreground truncate">
               {title}
             </h1>
           )}
-          {subtitle && (
-            <p className="text-xs text-muted-foreground">{subtitle}</p>
-          )}
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           {extraActions}
           <Button
             variant={selectionMode ? "default" : "outline"}

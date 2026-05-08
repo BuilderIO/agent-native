@@ -880,7 +880,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     <AccountFilterContext.Provider value={accountFilterValue}>
       <div className="relative flex flex-1 flex-col overflow-hidden bg-background">
         {/* Top nav bar */}
-        <header className="relative z-20 flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2 inbox-zero-header">
+        <header className="relative z-20 flex h-12 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2 inbox-zero-header">
           {/* Hamburger menu */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -1244,11 +1244,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               className={cn(
                 "flex w-64 flex-col overflow-hidden bg-background/85 backdrop-blur-2xl border-r border-border/30 shadow-2xl",
                 sidebarPinned && !isMobile
-                  ? "absolute left-0 top-11 bottom-0 z-10"
+                  ? "absolute left-0 top-12 bottom-0 z-10"
                   : "fixed left-0 top-0 bottom-0 z-40",
               )}
             >
-              <div className="flex items-center justify-between border-b border-border/20 px-4 py-3">
+              <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/20 px-4">
                 <span className="text-[13px] font-medium text-foreground">
                   Mail
                 </span>

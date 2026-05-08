@@ -95,6 +95,8 @@ const DEFAULT_URL = import.meta.env.DEV
 
 const MACOS_CAPTURE_PERMISSION_MESSAGE =
   "Recording permission is blocked. Try starting again so macOS can show the Camera and Microphone prompts, then open System Settings → Privacy & Security and enable Clips for Camera, Microphone, and Screen & System Audio Recording. In Tauri dev, macOS may list the debug binary separately from Ghostty or node, so restart Clips after granting it.";
+const MACOS_SPEECH_PERMISSION_MESSAGE =
+  "Speech recognition permission is blocked. Open System Settings → Privacy & Security → Speech Recognition and enable Clips, then start a new recording.";
 
 function isHardCapturePermissionError(message: string): boolean {
   return /permission denied by system|blocked by system|system settings|screen recording|privacy|sandbox/i.test(
@@ -934,6 +936,7 @@ export function App() {
   // with no visible app context and can interfere with the tray icon and
   // subsequent popover shows.
   const deviceLabelsUnlocked = useRef(false);
+  const speechPermissionChecked = useRef(false);
   useEffect(() => {
     loadDevices();
     if (popoverVisible && !deviceLabelsUnlocked.current) {
@@ -941,6 +944,20 @@ export function App() {
       unlockDeviceLabels();
     }
   }, [loadDevices, unlockDeviceLabels, popoverVisible]);
+
+  useEffect(() => {
+    if (!popoverVisible || !micOn || speechPermissionChecked.current) return;
+    speechPermissionChecked.current = true;
+    invoke<boolean>("native_speech_request_permission").catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn("[clips-popover] speech permission preflight failed:", err);
+      setRecError(
+        /speech recognition|speech/i.test(message)
+          ? MACOS_SPEECH_PERMISSION_MESSAGE
+          : `Speech recognition unavailable: ${message}`,
+      );
+    });
+  }, [micOn, popoverVisible]);
 
   // ---- camera bubble session ---------------------------------------------
   // The bubble overlay (small circular PiP in the bottom-left of the screen
@@ -1813,6 +1830,8 @@ export function App() {
       {recError ? (
         recError === MACOS_CAPTURE_PERMISSION_MESSAGE ? (
           <PermissionErrorBanner message={recError} defaultPane="screen" />
+        ) : recError === MACOS_SPEECH_PERMISSION_MESSAGE ? (
+          <PermissionErrorBanner message={recError} defaultPane="speech" />
         ) : (
           <div className="error-banner">{recError}</div>
         )

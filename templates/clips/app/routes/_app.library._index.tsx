@@ -5,12 +5,5 @@ export function meta() {
 }
 
 export default function LibraryIndexRoute() {
-  return (
-    <LibraryGrid
-      view="library"
-      folderId={null}
-      title="Library"
-      subtitle="Your personal recordings"
-    />
-  );
+  return <LibraryGrid view="library" folderId={null} title="Library" />;
 }
