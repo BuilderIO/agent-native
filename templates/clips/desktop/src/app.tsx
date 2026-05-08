@@ -1746,11 +1746,7 @@ export function App() {
 
   return (
     <div className="app" ref={appRef}>
-      <Header
-        mode={mode}
-        onModeChange={setMode}
-        submitterEmail={signedInAs}
-      />
+      <Header mode={mode} onModeChange={setMode} submitterEmail={signedInAs} />
       <UpdateBanner />
 
       {pendingUploads.length > 0 ? (
