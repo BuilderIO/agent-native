@@ -1,37 +1,39 @@
 ---
 name: real-time-sync
 description: >-
-  How to keep the UI in sync with agent changes via polling. Use when wiring
-  query invalidation for new data models, debugging UI not updating, or
-  understanding jitter prevention.
+  How to keep the UI in sync with agent changes via SSE plus polling fallback.
+  Use when wiring query invalidation for new data models, debugging UI not
+  updating, or understanding jitter prevention.
 ---
 
-# Real-Time Sync (Polling)
+# Real-Time Sync
 
 ## Rule
 
-The UI stays in sync with agent/script changes through database polling. When the agent writes to the database, the UI detects the change and updates automatically — no manual refresh needed.
+The UI stays in sync with agent/script changes through `useDbSync()`. In-process writes stream over `/_agent-native/events` first; `/_agent-native/poll` remains the cross-process/serverless fallback. When the agent writes to the database, the UI detects the change and updates automatically — no manual refresh needed.
 
 ## Why
 
-The agent modifies data in SQL, but the UI runs in the browser. Polling bridges this gap: every database write increments a version counter, the `useDbSync()` hook polls for version changes, and React Query invalidates the relevant caches. This is what makes database writes feel real-time.
+The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same-process writes immediately; polling bridges anything SSE cannot see, such as another serverless invocation, cron job, or external script. Every visible write increments a version counter, `useDbSync()` receives the change, and React Query invalidates the relevant caches. This is what makes database writes feel real-time without relying on aggressive polling.
 
 ## How It Works
 
-1. **Server** increments a version counter on every database write. The `/_agent-native/poll` endpoint returns the current version and any events since the last poll.
+1. **Server** increments a version counter on every database write. In-process events stream through the authenticated `/_agent-native/events` endpoint.
 
-2. **Client** polls for changes and invalidates React Query caches:
+2. **Client** listens for SSE changes and invalidates React Query caches:
 
    ```ts
    import { useDbSync } from "@agent-native/core";
    useDbSync({ queryClient, queryKeys: ["items", "settings"] });
    ```
 
-3. When the agent writes to the database, the version increments, polling detects it, and React Query refetches the affected queries.
+3. **Fallback** polling calls `/_agent-native/poll?since=N`. It runs every 2 seconds until SSE is connected, then relaxes to 15 seconds. If SSE is disabled or unavailable, polling continues at the normal cadence.
+
+4. When the agent writes to the database, the version increments, SSE/polling detects it, and React Query refetches the affected queries.
 
 ## Don't
 
-- Don't create manual polling loops — `useDbSync()` handles it (polls every 2 seconds by default)
+- Don't create manual polling loops — `useDbSync()` handles SSE plus fallback polling
 - Don't create your own fetch-based polling alongside `useDbSync` — use the `onEvent` callback for custom handling
 
 ## Query Key Mapping
@@ -70,6 +72,7 @@ useQuery({
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | UI not updating after agent writes | Is `useDbSync` called with the correct `queryClient`? Are the `queryKeys` matching your `useQuery` keys?       |
 | Poll endpoint not responding       | Is `/_agent-native/poll` accessible? Is the server running?                                                    |
+| SSE not connecting                 | Is `/_agent-native/events` accessible and authenticated? Polling should still keep the UI fresh as fallback.  |
 | High CPU / event storms            | The agent is writing rapidly. Add `staleTime` to queries and use event-based filtering.                        |
 
 ## Jitter Prevention
@@ -80,7 +83,7 @@ When the agent writes to application-state via script helpers (`writeAppState`, 
 
 1. **Agent writes** are tagged: the script helpers in `@agent-native/core/application-state` pass `{ requestSource: "agent" }` to the store.
 2. **UI writes** are tagged: templates send a per-tab ID via the `X-Request-Source` header on PUT/DELETE requests to application-state endpoints.
-3. **Polling filters**: `useDbSync()` accepts an `ignoreSource` option. The UI passes its own tab ID so it ignores events from its own writes — but still picks up events from agents, other tabs, and scripts.
+3. **Sync filters**: `useDbSync()` accepts an `ignoreSource` option. The UI passes its own tab ID so it ignores events from its own writes — but still picks up events from agents, other tabs, and scripts.
 
 ### Template setup
 
@@ -102,11 +105,11 @@ The `use-navigation-state.ts` hook sends the same `TAB_ID` in the `X-Request-Sou
 
 ### Why this matters
 
-Without jitter prevention, a cycle occurs: the UI writes state, polling detects the change, the UI refetches and re-renders, potentially overwriting what the user is actively editing. With `ignoreSource`, the UI only reacts to changes from other sources (agent scripts, other browser tabs, other users).
+Without jitter prevention, a cycle occurs: the UI writes state, sync detects the change, the UI refetches and re-renders, potentially overwriting what the user is actively editing. With `ignoreSource`, the UI only reacts to changes from other sources (agent scripts, other browser tabs, other users).
 
 ## Action Routes and Polling
 
-Action routes (`/_agent-native/actions/:name`) work with the same polling system. When a POST/PUT/DELETE action writes to the database, the version counter increments and `useDbSync` picks up the change. Frontend mutations via `useActionMutation` automatically invalidate `["action"]` query keys on success, triggering refetches of `useActionQuery` hooks.
+Action routes (`/_agent-native/actions/:name`) work with the same sync system. When a POST/PUT/DELETE action writes to the database, the version counter increments and `useDbSync` picks up the change. Frontend mutations via `useActionMutation` automatically invalidate `["action"]` query keys on success, triggering refetches of `useActionQuery` hooks.
 
 ### Auto-emit on mutating actions
 

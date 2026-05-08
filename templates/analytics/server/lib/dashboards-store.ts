@@ -173,14 +173,7 @@ async function migrateDashboardFromSettings(
     .select()
     .from(schema.dashboards)
     .where(eq(schema.dashboards.id, id));
-  recordScopedChange(
-    "dashboards",
-    "change",
-    id,
-    ownerEmail,
-    orgId,
-    visibility,
-  );
+  recordScopedChange("dashboards", "change", id, ownerEmail, orgId, visibility);
   return rowToDashboard(row);
 }
 

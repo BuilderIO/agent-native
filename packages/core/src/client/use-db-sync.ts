@@ -153,10 +153,13 @@ export function useDbSync(
       if (stopped) return;
       if (pauseWhenHidden && isDocumentHidden()) return;
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        timer = null;
-        void poll();
-      }, sseConnected ? fallbackInterval : interval);
+      timer = setTimeout(
+        () => {
+          timer = null;
+          void poll();
+        },
+        sseConnected ? fallbackInterval : interval,
+      );
     }
 
     function invalidateForEvents(events: SyncEvent[]) {
@@ -310,7 +313,14 @@ export function useDbSync(
       window.removeEventListener("focus", pollNow);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [pollUrl, sseUrl, queryClient, interval, fallbackInterval, pauseWhenHidden]);
+  }, [
+    pollUrl,
+    sseUrl,
+    queryClient,
+    interval,
+    fallbackInterval,
+    pauseWhenHidden,
+  ]);
 }
 
 /** @deprecated Use useDbSync instead */
@@ -368,10 +378,13 @@ export function useScreenRefreshKey(
       if (stopped) return;
       if (pauseWhenHidden && isDocumentHidden()) return;
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        timer = null;
-        void poll();
-      }, sseConnected ? fallbackInterval : interval);
+      timer = setTimeout(
+        () => {
+          timer = null;
+          void poll();
+        },
+        sseConnected ? fallbackInterval : interval,
+      );
     }
 
     function applyEvents(events: SyncEvent[], version?: number) {
