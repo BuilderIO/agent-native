@@ -458,7 +458,7 @@ export default defineAction({
       // carries through to async continuations started before this run()
       // returns. Without this the transcript row stays in `pending` forever and
       // the UI shows an infinite "Transcribing…" spinner.
-      void requestTranscript.run({ recordingId: id }).catch((err) => {
+      void requestTranscript.run({ recordingId: id, force: true }).catch((err) => {
         console.error("[finalize] background transcript failed", {
           id,
           error: err instanceof Error ? err.message : String(err),
