@@ -3,7 +3,7 @@
  * user context.
  *
  * Wires three pieces:
- *   1. On startup, `initServerSentry()` reads `SENTRY_SERVER_DSN` and arms
+ *   1. On startup, `initServerSentry()` reads `SENTRY_SERVER_DSN`/`SENTRY_DSN` and arms
  *      the SDK (no-op when the env var is unset).
  *   2. On every request, hook into Nitro's `request` event: resolve the
  *      session via `getSession(event)` and tag the per-request isolation
@@ -127,7 +127,7 @@ export function createSentryPlugin(): NitroPluginDef {
 
 /**
  * Default Sentry plugin — auto-mounts when a template doesn't define its
- * own `server/plugins/sentry.ts`. Reads `SENTRY_SERVER_DSN` from env and
+ * own `server/plugins/sentry.ts`. Reads `SENTRY_SERVER_DSN`/`SENTRY_DSN` from env and
  * silently no-ops when it's unset, so this is safe to default-mount in
  * every template (including local dev with no DSN configured).
  */
