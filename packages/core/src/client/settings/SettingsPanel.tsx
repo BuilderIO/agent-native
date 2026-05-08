@@ -1519,6 +1519,7 @@ export interface SettingsPanelProps {
   showDevToggle: boolean;
   devAppUrl?: string;
   initialSection?: string | null;
+  sectionRequestKey?: number;
 }
 
 type SettingsSectionId =
@@ -1558,7 +1559,9 @@ const SETTINGS_SECTION_IDS = new Set<SettingsSectionId>([
   "a2a",
 ]);
 
-function normalizeSettingsSection(value?: string | null): SettingsSectionId | null {
+function normalizeSettingsSection(
+  value?: string | null,
+): SettingsSectionId | null {
   const normalized = value?.replace(/^#/, "").toLowerCase() ?? "";
   if (!normalized) return null;
   if (normalized.startsWith("secrets")) return "secrets";
@@ -1708,6 +1711,7 @@ export function SettingsPanel({
   showDevToggle,
   devAppUrl,
   initialSection,
+  sectionRequestKey,
 }: SettingsPanelProps) {
   const { status: builder, loading: builderLoading } = useBuilderStatus();
   const connected = builder?.configured ?? false;
@@ -1753,7 +1757,7 @@ export function SettingsPanel({
     if (!section) return;
     if (section !== "secrets") setFocusSecretKey(undefined);
     openSettingsSection(section, true);
-  }, [initialSection, openSettingsSection]);
+  }, [initialSection, sectionRequestKey, openSettingsSection]);
 
   // Support `#secrets:<KEY>` hash fragments from the onboarding CTA — opens
   // the section and focuses the matching input.

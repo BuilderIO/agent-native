@@ -44,7 +44,10 @@ export function KeyboardShortcutsHelp({
     {
       category: "Search & Quick Actions",
       shortcuts: [
-        { keys: [shortcutModifierLabel(), "K"], description: "Open command palette" },
+        {
+          keys: [shortcutModifierLabel(), "K"],
+          description: "Open command palette",
+        },
         { keys: ["/"], description: "Open command palette" },
         { keys: ["?"], description: "Show keyboard shortcuts" },
       ],

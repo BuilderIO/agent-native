@@ -10,9 +10,7 @@ import {
 describe("guided question answers", () => {
   it("requires Other answers to include custom text", () => {
     expect(hasGuidedAnswer(makeOtherGuidedAnswer())).toBe(false);
-    expect(hasGuidedAnswer(makeOtherGuidedAnswer("bold editorial"))).toBe(
-      true,
-    );
+    expect(hasGuidedAnswer(makeOtherGuidedAnswer("bold editorial"))).toBe(true);
     expect(getOtherGuidedAnswerText(makeOtherGuidedAnswer("custom"))).toBe(
       "custom",
     );

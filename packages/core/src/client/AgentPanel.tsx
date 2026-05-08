@@ -437,7 +437,10 @@ function AgentPanelInner({
       localStorage.setItem(panelModeKey, mode);
     } catch {}
   }, [mode, panelModeKey]);
-  const [settingsSection, setSettingsSection] = useState<string | null>(null);
+  const [settingsSection, setSettingsSection] = useState<{
+    section: string | null;
+    requestKey: number;
+  }>({ section: null, requestKey: 0 });
   const switchMode = useCallback((m: PanelMode) => {
     startTransition(() => setMode(m));
   }, []);
@@ -465,7 +468,10 @@ function AgentPanelInner({
     function handleOpenSettings(event: Event) {
       const section = (event as CustomEvent<{ section?: string }>).detail
         ?.section;
-      setSettingsSection(section ?? null);
+      setSettingsSection((prev) => ({
+        section: section ?? null,
+        requestKey: prev.requestKey + 1,
+      }));
       switchMode("settings");
     }
     window.addEventListener("agent-panel:open-settings", handleOpenSettings);
@@ -1337,7 +1343,8 @@ function AgentPanelInner({
               onToggleDevMode={() => setDevMode(!isDevMode)}
               showDevToggle={showDevToggle}
               devAppUrl={devAppUrl}
-              initialSection={settingsSection}
+              initialSection={settingsSection.section}
+              sectionRequestKey={settingsSection.requestKey}
             />
           </Suspense>
         </div>

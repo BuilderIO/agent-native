@@ -235,8 +235,8 @@ function HowToCard({ defaultOpen = true }: { defaultOpen?: boolean }) {
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
               Hold <Kbd>Fn</Kbd> anywhere on your Mac, or use{" "}
-              <Kbd>{shortcutModifierLabel()}</Kbd> <Kbd>⇧</Kbd>{" "}
-              <Kbd>Space</Kbd>, in the desktop app.
+              <Kbd>{shortcutModifierLabel()}</Kbd> <Kbd>⇧</Kbd> <Kbd>Space</Kbd>
+              , in the desktop app.
             </p>
           </div>
         </div>

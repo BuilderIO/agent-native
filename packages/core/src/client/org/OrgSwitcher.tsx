@@ -59,6 +59,10 @@ const ITEM_CLASS =
 const SECTION_LABEL_CLASS =
   "px-2.5 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground";
 
+function workspaceSettingsPath(path: string): string {
+  return `${path.replace(/#.*$/, "")}#workspace-settings`;
+}
+
 /**
  * Compact org switcher button. Shows the active org (or "Personal" when the
  * user has none); opens a popover with the user's other orgs, pending
@@ -302,9 +306,11 @@ export function OrgSwitcher({
                     setOpen(false);
                     window.dispatchEvent(new CustomEvent("agent-panel:open"));
                     window.dispatchEvent(
-                      new CustomEvent("agent-panel:open-settings"),
+                      new CustomEvent("agent-panel:open-settings", {
+                        detail: { section: "workspace-settings" },
+                      }),
                     );
-                    navigate(settingsPath);
+                    navigate(workspaceSettingsPath(settingsPath));
                   }}
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >

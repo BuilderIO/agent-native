@@ -300,7 +300,7 @@ function HelpPopover({ onClose }: { onClose: () => void }) {
       description: "Start a new chat (keeps current chat in history)",
     },
     { name: "/new", description: "Same as /clear" },
-    { name: "/history", description: "Browse and search past chats" },
+    { name: "/history", description: "Browse all chats" },
     { name: "/plan", description: "Switch to read-only planning" },
     { name: "/act", description: "Switch back to acting" },
     { name: "/help", description: "Show this list of commands" },
@@ -1416,7 +1416,7 @@ export function MultiTabAssistantChat({
                           <TooltipTrigger asChild>
                             <button
                               onClick={() => setShowHistory(!showHistory)}
-                              aria-label="Chat history"
+                              aria-label="All chats"
                               className={cn(
                                 "flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50",
                                 showHistory && "bg-accent text-foreground",
@@ -1425,7 +1425,7 @@ export function MultiTabAssistantChat({
                               <IconHistory size={12} />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent>Chat history</TooltipContent>
+                          <TooltipContent>All chats</TooltipContent>
                         </Tooltip>
                       </div>
                     </TooltipProvider>

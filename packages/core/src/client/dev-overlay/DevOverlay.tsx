@@ -107,6 +107,11 @@ function DevOverlayPanel({ onClose }: { onClose: () => void }) {
     listDevPanels,
     listDevPanels,
   );
+  const shortcutHint =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.userAgent)
+      ? "Cmd+Ctrl+A"
+      : "Ctrl+Alt+A";
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -114,7 +119,9 @@ function DevOverlayPanel({ onClose }: { onClose: () => void }) {
         <div style={styles.header}>
           <div>
             <div style={styles.headerTitle}>Dev Overlay</div>
-            <div style={styles.headerSub}>Cmd+Ctrl+A · localStorage-backed</div>
+            <div style={styles.headerSub}>
+              {shortcutHint} · localStorage-backed
+            </div>
           </div>
           <Tooltip>
             <TooltipTrigger asChild>

@@ -30,9 +30,11 @@ export interface GuidedQuestionOption {
 export interface GuidedQuestion {
   id: string;
   type: GuidedQuestionType;
+  header?: string;
   question: string;
   description?: string;
   options?: GuidedQuestionOption[];
+  choices?: GuidedQuestionOption[];
   multiSelect?: boolean;
   min?: number;
   max?: number;
@@ -45,6 +47,14 @@ export interface GuidedQuestion {
 }
 
 export type GuidedQuestionAnswers = Record<string, unknown>;
+
+export interface GuidedQuestionPayload {
+  questions: GuidedQuestion[];
+  title?: string;
+  description?: string;
+  skipLabel?: string;
+  submitLabel?: string;
+}
 
 const OTHER_OPTION_PREFIX = "__other__:";
 const EXPLORE_OPTION: GuidedQuestionOption = {
@@ -130,7 +140,7 @@ function optionKey(option: GuidedQuestionOption): string {
 }
 
 function withDefaultOptions(question: GuidedQuestion): GuidedQuestionOption[] {
-  const base = question.options ?? [];
+  const base = question.options ?? question.choices ?? [];
   const seen = new Set(base.map(optionKey));
   const result = [...base];
   const maybePush = (option: GuidedQuestionOption, enabled: boolean) => {
@@ -280,6 +290,11 @@ function QuestionCard({
           {index + 1}
         </div>
         <div className="min-w-0">
+          {question.header && (
+            <p className="mb-1 text-[11px] font-medium uppercase text-muted-foreground">
+              {question.header}
+            </p>
+          )}
           <h3 className="text-sm font-medium leading-5 text-foreground">
             {question.question}
             {question.required && (
@@ -451,7 +466,7 @@ function OptionButton({
         <span className="flex flex-wrap items-center gap-1.5 text-sm font-medium leading-5">
           {option.label}
           {option.recommended && (
-            <span className="rounded-sm bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+            <span className="rounded-sm bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium uppercase text-primary">
               Recommended
             </span>
           )}
@@ -475,7 +490,7 @@ function ColorOptions({
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
-  const options = question.options ?? [];
+  const options = question.options ?? question.choices ?? [];
   const multiSelect = question.multiSelect === true;
   const selectedValues = Array.isArray(value) ? value : [];
   const isSelected = (optionValue: string) =>
@@ -608,7 +623,8 @@ function FileDropZone({
               type="file"
               multiple
               onChange={(event) => {
-                if (event.target.files) addFiles(Array.from(event.target.files));
+                if (event.target.files)
+                  addFiles(Array.from(event.target.files));
                 event.currentTarget.value = "";
               }}
               className="hidden"
@@ -666,7 +682,9 @@ export function useGuidedQuestionFlow({
 }: UseGuidedQuestionFlowOptions = {}) {
   const queryClient = useQueryClient();
   const [questions, setQuestions] = useState<GuidedQuestion[] | null>(null);
-  const endpoint = agentNativePath(`/_agent-native/application-state/${stateKey}`);
+  const endpoint = agentNativePath(
+    `/_agent-native/application-state/${stateKey}`,
+  );
 
   const { data } = useQuery({
     queryKey,

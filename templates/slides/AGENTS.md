@@ -68,11 +68,11 @@ Use guided questions for non-trivial net-new deck creation where audience, narra
 
 Users can tune this section in `AGENTS.md`:
 
-| Mode       | Behavior                                                                   |
-| ---------- | -------------------------------------------------------------------------- |
-| `off`      | Never show guided questions; infer reasonable defaults.                    |
-| `light`    | Ask only 1-2 blockers before high-effort generation.                       |
-| `balanced` | Default. Ask 2-4 compact questions for ambiguous net-new decks.            |
+| Mode       | Behavior                                                                  |
+| ---------- | ------------------------------------------------------------------------- |
+| `off`      | Never show guided questions; infer reasonable defaults.                   |
+| `light`    | Ask only 1-2 blockers before high-effort generation.                      |
+| `balanced` | Default. Ask 2-4 compact questions for ambiguous net-new decks.           |
 | `deep`     | Ask 5-8 questions when audience, story, data, and design are all unclear. |
 
 Default mode: `balanced`.

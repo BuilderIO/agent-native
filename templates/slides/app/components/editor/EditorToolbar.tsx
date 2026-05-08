@@ -798,9 +798,7 @@ graph TD
               <IconArrowForwardUp className="w-3.5 h-3.5 text-muted-foreground" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>
-            Redo ({shortcutLabel("cmd+shift+z")})
-          </TooltipContent>
+          <TooltipContent>Redo ({shortcutLabel("cmd+shift+z")})</TooltipContent>
         </Tooltip>
       </div>
 

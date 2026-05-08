@@ -72,12 +72,12 @@ Use guided questions for non-trivial net-new video/composition creation where an
 
 Users can tune this section in `AGENTS.md`:
 
-| Mode       | Behavior                                                                      |
-| ---------- | ----------------------------------------------------------------------------- |
-| `off`      | Never show guided questions; infer reasonable defaults.                       |
-| `light`    | Ask only 1-2 blockers before high-effort generation.                          |
-| `balanced` | Default. Ask 2-4 compact questions for ambiguous net-new videos.              |
-| `deep`     | Ask 5-7 questions when style, audience, timing, and assets are all unclear.   |
+| Mode       | Behavior                                                                    |
+| ---------- | --------------------------------------------------------------------------- |
+| `off`      | Never show guided questions; infer reasonable defaults.                     |
+| `light`    | Ask only 1-2 blockers before high-effort generation.                        |
+| `balanced` | Default. Ask 2-4 compact questions for ambiguous net-new videos.            |
+| `deep`     | Ask 5-7 questions when style, audience, timing, and assets are all unclear. |
 
 Default mode: `balanced`.
 

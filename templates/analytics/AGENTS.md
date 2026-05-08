@@ -103,10 +103,11 @@ For code editing and development guidance, read `DEVELOPING.md`.
 
 Ephemeral UI state is stored in the SQL `application_state` table. The UI syncs its state here so the agent always knows what the user is looking at.
 
-| State Key    | Purpose                     | Direction                  |
-| ------------ | --------------------------- | -------------------------- |
-| `navigation` | Current view, dashboard ID  | UI -> Agent (read-only)    |
-| `navigate`   | Navigate command (one-shot) | Agent -> UI (auto-deleted) |
+| State Key        | Purpose                      | Direction                                    |
+| ---------------- | ---------------------------- | -------------------------------------------- |
+| `navigation`     | Current view, dashboard ID   | UI -> Agent (read-only)                      |
+| `navigate`       | Navigate command (one-shot)  | Agent -> UI (auto-deleted)                   |
+| `show-questions` | Guided clarification overlay | Agent -> UI (auto-deleted after answer/skip) |
 
 ### Navigation state (read what the user sees)
 
@@ -120,6 +121,83 @@ Ephemeral UI state is stored in the SQL `application_state` table. The UI syncs 
 Views: `overview`, `adhoc` (with `dashboardId`), `analyses` (with optional `analysisId`), `extensions` (with optional `extensionId`), `data-dictionary`, `data-sources`, `settings`.
 
 **Do NOT write to `navigation`** — it is overwritten by the UI. Use `navigate` to control the UI.
+
+### Guided Questions
+
+Write to `show-questions` when a non-trivial dashboard or analysis request is under-specified and the answers would materially change the work. Good uses: dashboard audience, source of truth, metric set, time grain, breakdowns/cuts, layout density, and whether the user wants an exploratory first pass or a production-ready dashboard. Skip guided questions for simple factual data questions, one-off SQL/debugging asks, obvious dashboard edits, or prompts that already name the source and metrics.
+
+Users can tune this section in `AGENTS.md`:
+
+| Mode       | Behavior                                                                  |
+| ---------- | ------------------------------------------------------------------------- |
+| `off`      | Never show guided questions; infer reasonable defaults when safe.         |
+| `light`    | Ask only 1-2 blockers before dashboard/analysis creation.                 |
+| `balanced` | Default. Ask 2-4 compact questions for ambiguous net-new dashboards.      |
+| `deep`     | Ask 5-7 questions when source, metrics, audience, and layout are unclear. |
+
+Default mode: `balanced`.
+
+Use 2-4 meaningful options for `text-options`. Put the recommended/default option first, or mark it with `recommended: true`. The UI automatically appends "Other..." with a custom text box, plus "Explore a few options" and "Decide for me"; do not add those manually.
+
+Example:
+
+```json
+{
+  "questions": [
+    {
+      "id": "scope",
+      "type": "text-options",
+      "question": "What should this dashboard optimize for?",
+      "options": [
+        {
+          "label": "Executive overview",
+          "value": "executive",
+          "description": "Top KPIs, trends, and clear variance callouts",
+          "recommended": true
+        },
+        {
+          "label": "Operator workflow",
+          "value": "operator",
+          "description": "Drilldowns, filters, and exception lists"
+        },
+        {
+          "label": "Exploration",
+          "value": "exploration",
+          "description": "Broad cuts to discover the useful views"
+        }
+      ],
+      "required": true
+    },
+    {
+      "id": "source",
+      "type": "text-options",
+      "question": "Which source of truth should I start with?",
+      "options": [
+        {
+          "label": "Use configured dictionary/source",
+          "value": "auto",
+          "recommended": true
+        },
+        { "label": "First-party events", "value": "first-party" },
+        { "label": "Warehouse / BigQuery", "value": "bigquery" },
+        { "label": "Product analytics provider", "value": "product-analytics" }
+      ]
+    },
+    {
+      "id": "breakdowns",
+      "type": "text-options",
+      "question": "Which breakdowns matter most?",
+      "options": [
+        { "label": "Time and funnel stage", "value": "time-funnel" },
+        { "label": "Account segment", "value": "segment" },
+        { "label": "Channel/source", "value": "channel" },
+        { "label": "Owner/team", "value": "owner" }
+      ],
+      "multiSelect": true
+    }
+  ]
+}
+```
 
 ## Architecture
 
@@ -266,12 +344,13 @@ The data dictionary is the canonical catalog of the metrics, tables, columns, an
 
 A `<data-dictionary>` block is injected into your system prompt with the approved entries for this workspace. Read it before you write any SQL. If the entry you need is there, you MUST use its `table` and `columns` values verbatim — column names in the underlying warehouse use prefixes (`hs_`, `m_`, `sfdc_`, etc.) that you cannot guess. Making them up produces `Unrecognized name` errors and a broken dashboard.
 
-1. **Check the `<data-dictionary>` block** in your system prompt for entries that match the user's request.
-2. If something looks relevant but you need the full entry (example output, join pattern, etc.), call `list-data-dictionary --search <topic>`.
-3. If relevant entries exist, use their `queryTemplate`, `table`, `columns`, and `cuts` **verbatim** — never rename or guess column names.
-4. If the user mentions a metric that isn't in the dictionary, do NOT invent column names. Instead: (a) ask the user for the table/columns, OR (b) run an exploratory BigQuery query against `INFORMATION_SCHEMA.COLUMNS` to discover the real column names before writing the panel SQL, then propose an entry via `save-data-dictionary-entry` (set `aiGenerated: true`, `approved: false` for human review).
-5. Obey `knownGotchas` from any entry you use — note them to the user if the data has limitations.
-6. The dashboard save endpoint now dry-runs every panel's SQL through BigQuery before persisting. If a panel fails validation you'll get a 400 with the BigQuery error text (e.g. `Unrecognized name: is_closed; Did you mean hs_is_closed?`) — fix the SQL and retry; never try to persist broken SQL.
+1. If the user's request is materially ambiguous, write 2-4 guided questions to `show-questions` before doing expensive dashboard work.
+2. **Check the `<data-dictionary>` block** in your system prompt for entries that match the user's request.
+3. If something looks relevant but you need the full entry (example output, join pattern, etc.), call `list-data-dictionary --search <topic>`.
+4. If relevant entries exist, use their `queryTemplate`, `table`, `columns`, and `cuts` **verbatim** — never rename or guess column names.
+5. If the user mentions a metric that isn't in the dictionary, do NOT invent column names. Instead: (a) ask the user for the table/columns, OR (b) run an exploratory BigQuery query against `INFORMATION_SCHEMA.COLUMNS` to discover the real column names before writing the panel SQL, then propose an entry via `save-data-dictionary-entry` (set `aiGenerated: true`, `approved: false` for human review).
+6. Obey `knownGotchas` from any entry you use — note them to the user if the data has limitations.
+7. The dashboard save endpoint now dry-runs every panel's SQL through BigQuery before persisting. If a panel fails validation you'll get a 400 with the BigQuery error text (e.g. `Unrecognized name: is_closed; Did you mean hs_is_closed?`) — fix the SQL and retry; never try to persist broken SQL.
 
 **Panel `source` is a backend, not a table.** The `source` field on every panel must be exactly `"bigquery"`, `"ga4"`, `"amplitude"`, or `"first-party"` — it selects _which backend_ the query runs against. For `bigquery` the `sql` is literal warehouse SQL; for `ga4` the `sql` is a JSON descriptor of a GA4 Data API call (e.g. `{"metrics":["activeUsers"],"dimensions":["date"],"days":30}`); for `amplitude` the `sql` is a JSON descriptor of an Amplitude query; for `first-party` the `sql` is read-only SQL over `analytics_events` only. Table/dataset references (e.g. `analytics.pageviews`) go inside the `sql` string. Writing the table name into `source` produces `Invalid source` errors on every render.
 
@@ -355,7 +434,7 @@ pnpm action commonroom-members --query="enterprise" --limit=10
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | "What am I looking at?"              | `view-screen`                                                                                                                                                                |
 | "Show weekly signup trends"          | Query the configured signup source, then emit a live `/chart` embed (see Inline Charts in Chat). Do **not** use `generate-chart` — that's for saved analyses only.           |
-| "Create a dashboard for X"           | Use `update-dashboard`, then navigate to it                                                                                                                                  |
+| "Create a dashboard for X"           | If ambiguous, use guided questions; then consult the data dictionary, use `update-dashboard`, and navigate to it                                                             |
 | "How many open bugs?"                | `jira-search --jql="issuetype = Bug AND resolution = Unresolved"`                                                                                                            |
 | "Find deals over $50k"               | `hubspot-deals`, then filter returned deals by `amount` and cite the matching records                                                                                        |
 | "Find this customer/contact/company" | `hubspot-records --objectType=companies --query="<name-or-domain>"` or `hubspot-records --objectType=contacts --query="<email-or-name>"`                                     |
@@ -368,7 +447,7 @@ pnpm action commonroom-members --query="enterprise" --limit=10
 | "Analyze our closed-lost deals"      | Read `adhoc-analysis` skill, gather data, save with `save-analysis`                                                                                                          |
 | "Re-run this analysis"               | Read saved instructions, re-gather data, update with `save-analysis`                                                                                                         |
 | "Show me my analyses"                | `navigate --view=analyses`                                                                                                                                                   |
-| "Build me a dashboard for X"         | `list-data-dictionary --search=X` FIRST, then compose from entries                                                                                                           |
+| "Build me a dashboard for X"         | If ambiguous, use guided questions; then `list-data-dictionary --search=X` FIRST and compose from entries                                                                    |
 | "Document this metric"               | `save-data-dictionary-entry --metric="…" --definition="…" …`                                                                                                                 |
 | "Populate the data dictionary"       | Ask where definitions live, fetch them, loop over `save-data-dictionary-entry`                                                                                               |
 
