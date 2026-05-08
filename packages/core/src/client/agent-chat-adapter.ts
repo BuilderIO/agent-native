@@ -687,13 +687,30 @@ export function createAgentChatAdapter(options?: {
           unknown
         > {
           if (!runId) return false;
+          let lastReconnectError: unknown = null;
+          let reconnectErrorCaptured = false;
           for (let attempt = 0; attempt < MAX_RECONNECT_ATTEMPTS; attempt++) {
             try {
               const reconnectRes = await fetch(
                 `${apiUrl}/runs/${encodeURIComponent(runId)}/events?after=${lastSeq + 1}`,
                 { signal: abortSignal },
               );
-              if (!reconnectRes.ok || !reconnectRes.body) break;
+              if (!reconnectRes.ok || !reconnectRes.body) {
+                lastReconnectError = new Error(
+                  `Reconnect failed: ${reconnectRes.status}`,
+                );
+                captureChatClientError(
+                  lastReconnectError,
+                  "reconnect-current-response",
+                  {
+                    status: reconnectRes.status,
+                    hasBody: Boolean(reconnectRes.body),
+                    attempt,
+                  },
+                );
+                reconnectErrorCaptured = true;
+                break;
+              }
 
               yield* readSSEStream(
                 reconnectRes.body,
@@ -722,8 +739,15 @@ export function createAgentChatAdapter(options?: {
                 }
                 return false;
               }
+              lastReconnectError = reconnectErr;
               await retryDelay(attempt, abortSignal);
             }
+          }
+          if (lastReconnectError && !reconnectErrorCaptured) {
+            captureChatClientError(
+              lastReconnectError,
+              "reconnect-current-failed",
+            );
           }
           return false;
         };
@@ -751,13 +775,24 @@ export function createAgentChatAdapter(options?: {
           unknown
         > {
           if (!threadId) return false;
+          let lastActiveRunError: unknown = null;
           for (let attempt = 0; attempt < MAX_RECONNECT_ATTEMPTS; attempt++) {
             try {
               const activeRes = await fetch(
                 `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
                 { signal: abortSignal },
               );
-              if (!activeRes.ok) return false;
+              if (!activeRes.ok) {
+                lastActiveRunError = new Error(
+                  `Active run lookup failed: ${activeRes.status}`,
+                );
+                captureChatClientError(
+                  lastActiveRunError,
+                  "reconnect-active-response",
+                  { status: activeRes.status, attempt },
+                );
+                return false;
+              }
               const active = await activeRes.json();
               if (active?.active && active.runId) {
                 const activeRunId = String(active.runId);
@@ -781,6 +816,12 @@ export function createAgentChatAdapter(options?: {
               }
               await retryDelay(attempt, abortSignal);
             }
+          }
+          if (lastActiveRunError) {
+            captureChatClientError(
+              lastActiveRunError,
+              "reconnect-active-failed",
+            );
           }
           return false;
         };
