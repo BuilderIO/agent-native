@@ -2882,7 +2882,6 @@ const AssistantChatInner = forwardRef<
 
     const repo = threadRuntime.export();
     const { title, preview } = extractThreadMeta(repo);
-    if (!title) return;
 
     lastSaveTimeRef.current = now;
     savedTitleRef.current = title;

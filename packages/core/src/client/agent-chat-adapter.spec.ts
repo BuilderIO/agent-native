@@ -312,6 +312,100 @@ describe("createAgentChatAdapter", () => {
     ]);
   });
 
+  it("keeps attachments and references when auto-continuing an interrupted attachment turn", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: "text", text: "I found 700 readings." },
+          {
+            type: "error",
+            error: "The worker was interrupted.",
+            errorCode: "stale_run",
+            recoverable: true,
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "text", text: "finished" }, { type: "done" }]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-attachment-recovery",
+      threadId: "thread-attachment-recovery",
+    });
+
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "" }],
+            attachments: [
+              {
+                name: "readings.csv",
+                contentType: "text/csv",
+                content: [{ type: "text", text: "time,value\n1,42" }],
+              },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+        runConfig: {
+          custom: {
+            references: [
+              {
+                type: "file",
+                path: "scripts/import-readings.ts",
+                name: "import-readings.ts",
+                source: "codebase",
+              },
+            ],
+          },
+        },
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await promise;
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const secondBody = JSON.parse(fetchSpy.mock.calls[1][1].body);
+    expect(secondBody.message).toContain("Continue from where you left off");
+    expect(secondBody.attachments).toEqual([
+      {
+        type: "file",
+        name: "readings.csv",
+        contentType: "text/csv",
+        text: "time,value\n1,42",
+      },
+    ]);
+    expect(secondBody.references).toEqual([
+      {
+        type: "file",
+        path: "scripts/import-readings.ts",
+        name: "import-readings.ts",
+        source: "codebase",
+      },
+    ]);
+  });
+
   it("treats authentication failures as auth errors, not AI setup", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });

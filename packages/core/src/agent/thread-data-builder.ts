@@ -242,6 +242,7 @@ function shouldReplaceLastAssistant(
   const lastRunId = getMessageRunId(lastMessage);
   const nextRunId = getMessageRunId(assistantMsg);
   if (lastRunId && nextRunId && lastRunId === nextRunId) return true;
+  if (lastRunId && nextRunId && lastRunId !== nextRunId) return false;
 
   const lastStatus = lastMessage?.status;
   if (lastStatus && !isTerminalAssistantStatus(lastStatus)) return true;
@@ -256,6 +257,7 @@ function shouldReplaceLastAssistant(
 
   const lastText = messageText(lastContent).trim();
   const nextText = messageText(assistantMsg.content).trim();
+  if (isTerminalAssistantStatus(lastStatus)) return false;
   return Boolean(lastText && nextText && nextText.startsWith(lastText));
 }
 

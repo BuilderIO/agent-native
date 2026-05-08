@@ -2,7 +2,10 @@
 
 import { describe, expect, it } from "vitest";
 import { Editor } from "@tiptap/core";
-import { createTiptapComposerExtensions } from "./TiptapComposer.js";
+import {
+  canSubmitComposerContent,
+  createTiptapComposerExtensions,
+} from "./TiptapComposer.js";
 
 describe("createTiptapComposerExtensions", () => {
   it("keeps the prompt composer schema minimal and restores legacy draft HTML", () => {
@@ -37,5 +40,21 @@ describe("createTiptapComposerExtensions", () => {
     expect(editor.getHTML()).toContain('data-type="file-reference"');
 
     editor.destroy();
+  });
+
+  it("allows sending an attachment-only prompt", () => {
+    expect(
+      canSubmitComposerContent({
+        hasEditorContent: false,
+        attachmentCount: 1,
+      }),
+    ).toBe(true);
+    expect(
+      canSubmitComposerContent({
+        hasEditorContent: false,
+        attachmentCount: 1,
+        disabled: true,
+      }),
+    ).toBe(false);
   });
 });

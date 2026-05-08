@@ -908,8 +908,12 @@ export function createAgentChatAdapter(options?: {
             ...structuredCombinedHistory,
           ];
           currentMessageText = autoContinueMessage(signal);
-          includeAttachments = false;
-          includeReferences = false;
+          // Continuation requests are stateless new POSTs. If the interrupted
+          // turn depended on uploaded context, re-send that context; otherwise
+          // an attachment-only prompt degrades to "Use the attached context."
+          // with nothing attached after a stale run or reconnect recovery.
+          includeAttachments = attachments.length > 0;
+          includeReferences = Boolean(runConfig?.custom?.references);
           startupRecoveryAttempts = 0;
           clearActiveRun();
           if (!isTransient) {

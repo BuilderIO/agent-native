@@ -69,6 +69,17 @@ export interface TiptapComposerHandle {
   focus(): void;
 }
 
+export function canSubmitComposerContent(options: {
+  hasEditorContent: boolean;
+  attachmentCount: number;
+  disabled?: boolean;
+}): boolean {
+  return (
+    !options.disabled &&
+    (options.hasEditorContent || options.attachmentCount > 0)
+  );
+}
+
 const BUILT_IN_COMMANDS: SlashCommand[] = [
   { name: "clear", description: "Start a new chat", icon: "clear" },
   { name: "new", description: "Start a new chat", icon: "new" },
@@ -735,7 +746,12 @@ export function TiptapComposer({
   const composerRuntime = useComposerRuntime();
   const [editorHasText, setEditorHasText] = useState(false);
   const composerText = useComposer((state) => state.text);
-  const canSend = editorHasText && !disabled;
+  const composerAttachments = useComposer((state) => state.attachments);
+  const canSend = canSubmitComposerContent({
+    hasEditorContent: editorHasText,
+    attachmentCount: composerAttachments.length,
+    disabled,
+  });
   const [composerMode, setComposerMode] = useState<ComposerMode | null>(null);
   const composerModeRef = useRef<ComposerMode | null>(null);
   const isMac =

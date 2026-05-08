@@ -233,4 +233,53 @@ describe("buildAssistantMessage", () => {
       content: [{ type: "text", text: "New answer." }],
     });
   });
+
+  it("does not replace a completed different-run answer with a prefix-matching recovery answer", () => {
+    const finalMessage = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "text",
+            text: "Let me start a subagent to analyze the data. Finished.",
+          },
+        },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-new",
+    );
+    expect(finalMessage).not.toBeNull();
+
+    const repo = {
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: "Let me start a subagent to analyze the data.",
+            },
+          ],
+          status: { type: "complete", reason: "stop" },
+          metadata: { runId: "run-old" },
+        },
+      ],
+    };
+
+    const updated = upsertAssistantMessage(repo, finalMessage!);
+
+    expect(updated.messages).toHaveLength(2);
+    expect(updated.messages[0]).toMatchObject({
+      metadata: { runId: "run-old" },
+    });
+    expect(updated.messages[1]).toMatchObject({
+      id: "server-run-new",
+      content: [
+        {
+          type: "text",
+          text: "Let me start a subagent to analyze the data. Finished.",
+        },
+      ],
+    });
+  });
 });
