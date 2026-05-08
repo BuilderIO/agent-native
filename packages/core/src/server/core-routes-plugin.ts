@@ -89,7 +89,7 @@ import {
   getAgentEngineEntry,
   detectEngineFromEnv,
   detectEngineFromUserSecrets,
-  isStoredEngineUsable,
+  isStoredEngineUsableForRequest,
 } from "../agent/engine/registry.js";
 import { registerBuiltinEngines } from "../agent/engine/builtin.js";
 import { getOrgContext } from "../org/context.js";
@@ -115,13 +115,6 @@ async function detectUsageEngineName(
     if (isAgentEngineSettingConfigured(stored)) {
       return (stored as { engine: string }).engine;
     }
-    if (stored && typeof stored.engine === "string") {
-      const entry = getAgentEngineEntry(stored.engine);
-      if (entry && isStoredEngineUsable(stored, entry)) {
-        return stored.engine;
-      }
-    }
-
     let orgId: string | undefined;
     if (userEmail) {
       try {
@@ -135,6 +128,19 @@ async function detectUsageEngineName(
       { userEmail, orgId },
       () => detectEngineFromUserSecrets(),
     );
+    if (detectedFromUser?.name === "builder") return detectedFromUser.name;
+
+    if (stored && typeof stored.engine === "string") {
+      const entry = getAgentEngineEntry(stored.engine);
+      if (
+        entry &&
+        (await runWithRequestContext({ userEmail, orgId }, () =>
+          isStoredEngineUsableForRequest(stored, entry),
+        ))
+      ) {
+        return stored.engine;
+      }
+    }
     if (detectedFromUser) return detectedFromUser.name;
 
     return detectEngineFromEnv()?.name ?? null;
@@ -1397,6 +1403,15 @@ export function createCoreRoutesPlugin(
         try {
           const session = await getSession(event).catch(() => null);
           const userEmail = session?.email;
+          let orgId: string | undefined;
+          if (userEmail) {
+            try {
+              const orgCtx = await getOrgContext(event);
+              orgId = orgCtx.orgId ?? undefined;
+            } catch {
+              /* org module not present in this template */
+            }
+          }
           const stored = (await getSetting("agent-engine")) as {
             engine?: string;
           } | null;
@@ -1407,9 +1422,30 @@ export function createCoreRoutesPlugin(
               source: "settings" as const,
             };
           }
+          // Per-user app_secrets — a user who connected Builder (or pasted
+          // their own provider key) may not have any deploy-level env vars
+          // set, so check their per-user secret store before reporting "no
+          // engine configured" and re-showing the onboarding gate.
+          const detectedFromUser = await runWithRequestContext(
+            { userEmail, orgId },
+            () => detectEngineFromUserSecrets(),
+          );
+          if (detectedFromUser?.name === "builder") {
+            return {
+              configured: true,
+              engine: detectedFromUser.name,
+              source: "app_secrets" as const,
+              envVar: detectedFromUser.requiredEnvVars[0],
+            };
+          }
           if (stored && typeof stored.engine === "string") {
             const entry = getAgentEngineEntry(stored.engine);
-            if (entry && isStoredEngineUsable(stored, entry)) {
+            if (
+              entry &&
+              (await runWithRequestContext({ userEmail, orgId }, () =>
+                isStoredEngineUsableForRequest(stored, entry),
+              ))
+            ) {
               return {
                 configured: true,
                 engine: stored.engine,
@@ -1418,14 +1454,6 @@ export function createCoreRoutesPlugin(
               };
             }
           }
-          // Per-user app_secrets — a user who connected Builder (or pasted
-          // their own provider key) may not have any deploy-level env vars
-          // set, so check their per-user secret store before reporting "no
-          // engine configured" and re-showing the onboarding gate.
-          const detectedFromUser = await runWithRequestContext(
-            { userEmail },
-            () => detectEngineFromUserSecrets(),
-          );
           if (detectedFromUser) {
             return {
               configured: true,

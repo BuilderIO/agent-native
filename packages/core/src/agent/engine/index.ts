@@ -27,6 +27,7 @@ export {
   detectEngineFromUserSecrets,
   isAgentEngineSettingConfigured,
   isStoredEngineUsable,
+  isStoredEngineUsableForRequest,
   type AgentEngineEntry,
   type ResolveEngineConfig,
 } from "./registry.js";
