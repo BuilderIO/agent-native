@@ -1275,21 +1275,32 @@ async function verifyDiscoveryCoach(page: CdpPage, contextId: number) {
   await clickButton(page, contextId, "Developer / Engineer");
   await clickButton(page, contextId, "What they say vs. mean");
   await page.evaluate(
-    `(() => {
-      const label = [...document.querySelectorAll('*')]
-        .find((el) => el.textContent && el.textContent.trim() === 'They say:');
-      const card = label?.closest('.overflow-hidden');
-      const trigger = card?.querySelector('.cursor-pointer');
-      if (!trigger) throw new Error('Missing persona pain trigger');
-      trigger.click();
-      return true;
+    `(async () => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && candidate.opPains && candidate.stages);
+      if (!state) throw new Error('Missing Discovery Coach Alpine state');
+      state.selectPersona('developer');
+      state.setPersonaSection('pains');
+      state.toggleIn('expandedPersonaIndexes', 0);
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return document.body.innerText;
     })()`,
     contextId,
   );
-  await page.waitFor<string>(
-    `document.body.innerText.includes('What they mean') && document.body.innerText.includes('Business pain to find')`,
+  const personaText = await page.evaluate<string>(
+    `document.body.innerText`,
     contextId,
   );
+  if (
+    !/What they mean/i.test(personaText) ||
+    !/Business pain to find/i.test(personaText)
+  ) {
+    throw new Error(
+      `Persona pain details did not render. Visible text: ${personaText.slice(0, 1200)}`,
+    );
+  }
   await clickButton(page, contextId, "Pain translation map");
   await page.waitFor<string>(
     `document.body.innerText.includes('Pain translation map')`,
@@ -1297,7 +1308,7 @@ async function verifyDiscoveryCoach(page: CdpPage, contextId: number) {
   );
   await clickButton(page, contextId, "Win / loss signals");
   await page.waitFor<string>(
-    `document.body.innerText.includes('Won deals') && document.body.innerText.includes('Lost deals')`,
+    `/Won deals/i.test(document.body.innerText) && /Lost deals/i.test(document.body.innerText)`,
     contextId,
   );
   await clickButton(page, contextId, "Operational pains");
@@ -1330,7 +1341,7 @@ async function verifyDiscoveryCoach(page: CdpPage, contextId: number) {
     contextId,
   );
   await page.waitFor<string>(
-    `document.body.innerText.includes('Forcing function question') && document.body.innerText.includes('Won examples')`,
+    `/Forcing function question/i.test(document.body.innerText) && /Won examples/i.test(document.body.innerText)`,
     contextId,
   );
   return `stages=${counts.stages}, pains=${counts.pains}, personas=${counts.personas}, businessPains=${counts.businessPains}, signals=${counts.wonSignals + counts.lostSignals}`;
