@@ -24,6 +24,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   NO_MIC_DEVICE_ID,
@@ -350,23 +355,25 @@ export function PreRecordPanel({
             const Icon = opt.icon;
             const active = opt.value === mode;
             return (
-              <button
-                key={opt.value}
-                type="button"
-                title={opt.sub}
-                onClick={() => setMode(opt.value)}
-                className={cn(
-                  "flex h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-2 text-center text-[11px] font-medium leading-none transition-colors",
-                  active
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
-                )}
-                aria-label={`${opt.label}: ${opt.sub}`}
-                aria-pressed={active}
-              >
-                <Icon className="h-4 w-4 shrink-0" />
-                <span>{opt.label}</span>
-              </button>
+              <Tooltip key={opt.value}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setMode(opt.value)}
+                    className={cn(
+                      "flex h-11 min-w-0 items-center justify-center rounded-lg px-2 transition-colors",
+                      active
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
+                    )}
+                    aria-label={`${opt.label}: ${opt.sub}`}
+                    aria-pressed={active}
+                  >
+                    <Icon className="h-5 w-5 shrink-0" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{opt.label}</TooltipContent>
+              </Tooltip>
             );
           })}
         </div>

@@ -16,7 +16,6 @@ import UpdatePrompt from "./components/UpdatePrompt.js";
 export interface Tab {
   id: string;
   appId: string;
-  icon: string;
   title: string;
 }
 
@@ -26,7 +25,6 @@ function createTab(app: AppDefinition | AppConfig): Tab {
   return {
     id: `tab-${nextTabId++}`,
     appId: app.id,
-    icon: app.icon,
     title: app.name,
   };
 }
