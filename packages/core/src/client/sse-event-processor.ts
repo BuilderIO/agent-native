@@ -444,7 +444,10 @@ export function processEvent(
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("agent-chat:missing-api-key"));
       }
-      content.push({ type: "text", text: "" });
+      content.push({
+        type: "text",
+        text: formatChatErrorText(errMsg, ev.upgradeUrl, ev.errorCode),
+      });
       return {
         action: "missing_api_key",
         result: {
