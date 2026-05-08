@@ -21,17 +21,21 @@ export function credentialRowsFromStatus(
   return data?.credentials ?? [];
 }
 
-export function isSourceConfigured(
-  source: DataSource,
-  envStatus: EnvKeyStatus[],
-): boolean {
-  const statusMap = new Map(envStatus.map((s) => [s.key, s.configured]));
-  const optionalKeys = new Set(
+export function getOptionalCredentialKeys(source: DataSource): Set<string> {
+  return new Set(
     source.walkthroughSteps
       .filter((step) => step.optional)
       .map((step) => step.inputKey)
       .filter(Boolean),
   );
+}
+
+export function isSourceConfigured(
+  source: DataSource,
+  envStatus: EnvKeyStatus[],
+): boolean {
+  const statusMap = new Map(envStatus.map((s) => [s.key, s.configured]));
+  const optionalKeys = getOptionalCredentialKeys(source);
   return source.envKeys
     .filter((key) => !optionalKeys.has(key))
     .every((key) => statusMap.get(key) === true);

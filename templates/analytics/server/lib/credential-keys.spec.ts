@@ -19,7 +19,6 @@ describe("credential key lookup", () => {
     expect(keysFor("bigquery")).toEqual([
       "GOOGLE_APPLICATION_CREDENTIALS_JSON",
       "BIGQUERY_PROJECT_ID",
-      "ANALYTICS_BIGQUERY_EVENTS_TABLE",
     ]);
     expect(keysFor("google-analytics")).toEqual([
       "GOOGLE_APPLICATION_CREDENTIALS_JSON",
