@@ -21,9 +21,7 @@ vi.mock("../db/client.js", () => ({
 }));
 
 import {
-  canUseBuilderDeployCredentialFallbackForRequest,
   canUseDeployCredentialFallbackForRequest,
-  isDeployCredentialFallbackAllowed,
   resolveCredentialWriteScope,
   writeBuilderCredentials,
   deleteBuilderCredentials,
@@ -42,7 +40,6 @@ beforeEach(() => {
     process.env.NODE_ENV = ORIGINAL_NODE_ENV;
   }
   delete process.env.AGENT_ENGINE;
-  delete process.env.AGENT_NATIVE_ALLOW_DEPLOY_CREDENTIAL_FALLBACK;
   delete process.env.BUILDER_PRIVATE_KEY;
   delete process.env.BUILDER_PUBLIC_KEY;
   delete process.env.OPENAI_API_KEY;
@@ -217,23 +214,6 @@ describe("resolveBuilderCredential", () => {
 
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
     expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
-  });
-
-  it("uses deploy-level Builder keys when a production shared-database deploy explicitly selects Builder", async () => {
-    process.env.NODE_ENV = "production";
-    process.env.AGENT_ENGINE = "builder";
-    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
-    process.env.BUILDER_PUBLIC_KEY = "space-id";
-    mockIsLocalDatabase.mockReturnValue(false);
-    mockGetRequestUserEmail.mockReturnValue("a@b.com");
-    mockGetRequestOrgId.mockReturnValue("builder_io");
-    mockReadAppSecret.mockResolvedValue(null);
-
-    expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
-    expect(canUseBuilderDeployCredentialFallbackForRequest()).toBe(true);
-    expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
-      "deploy-key",
-    );
   });
 
   it("falls back to org scope when no user-scope row exists", async () => {
@@ -440,7 +420,7 @@ describe("resolveSecret (generic)", () => {
     expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
   });
 
-  it("keeps non-Builder deploy env secrets blocked when only the Builder engine is deploy-managed", async () => {
+  it("keeps deploy env secrets blocked for signed-in production shared-database users even when AGENT_ENGINE is set", async () => {
     process.env.NODE_ENV = "production";
     process.env.AGENT_ENGINE = "builder";
     process.env.BUILDER_PRIVATE_KEY = "deploy-key";
@@ -451,18 +431,6 @@ describe("resolveSecret (generic)", () => {
     mockReadAppSecret.mockResolvedValue(null);
 
     expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
-  });
-
-  it("uses process.env in authenticated production shared-database requests with explicit deploy fallback opt-in", async () => {
-    process.env.NODE_ENV = "production";
-    process.env.AGENT_NATIVE_ALLOW_DEPLOY_CREDENTIAL_FALLBACK = "true";
-    process.env.OPENAI_API_KEY = "deploy-key";
-    mockIsLocalDatabase.mockReturnValue(false);
-    mockGetRequestUserEmail.mockReturnValue("a@b.com");
-    mockReadAppSecret.mockResolvedValue(null);
-
-    expect(isDeployCredentialFallbackAllowed()).toBe(true);
-    expect(await resolveSecret("OPENAI_API_KEY")).toBe("deploy-key");
   });
 
   it("uses process.env for authenticated requests on local/single-tenant databases", async () => {
