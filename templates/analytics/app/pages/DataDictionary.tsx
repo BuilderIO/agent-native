@@ -17,6 +17,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -116,6 +121,30 @@ const ENTRY_BADGE_CLASS =
 function deptClass(dept?: string): string {
   if (!dept) return "bg-muted text-muted-foreground";
   return DEPARTMENT_BADGE[dept] ?? "bg-muted text-muted-foreground";
+}
+
+function DictionaryBadge({
+  children,
+  tooltip,
+  className,
+}: {
+  children: React.ReactNode;
+  tooltip: string;
+  className?: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          variant="outline"
+          className={`${ENTRY_BADGE_CLASS} ${className ?? ""}`}
+        >
+          <span className="min-w-0 truncate">{children}</span>
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 export default function DataDictionary() {
@@ -245,22 +274,17 @@ export default function DataDictionary() {
               <CardContent className="pt-0 space-y-2">
                 <div className="flex flex-wrap gap-1.5">
                   {e.department && (
-                    <Badge
-                      variant="outline"
-                      title={e.department}
-                      className={`${ENTRY_BADGE_CLASS} ${deptClass(e.department)} border-0`}
+                    <DictionaryBadge
+                      tooltip={e.department}
+                      className={`${deptClass(e.department)} border-0`}
                     >
-                      <span className="min-w-0 truncate">{e.department}</span>
-                    </Badge>
+                      {e.department}
+                    </DictionaryBadge>
                   )}
                   {e.table && (
-                    <Badge
-                      variant="outline"
-                      title={e.table}
-                      className={`${ENTRY_BADGE_CLASS} font-mono`}
-                    >
-                      <span className="min-w-0 truncate">{e.table}</span>
-                    </Badge>
+                    <DictionaryBadge tooltip={e.table} className="font-mono">
+                      {e.table}
+                    </DictionaryBadge>
                   )}
                   {e.approved && (
                     <Badge

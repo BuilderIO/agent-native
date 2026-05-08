@@ -3,7 +3,11 @@ import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
-import { AgentSidebar } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  GuidedQuestionFlow,
+  useGuidedQuestionFlow,
+} from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 
@@ -16,6 +20,25 @@ const BARE_ROUTES = new Set(["/chart"]);
 export function Layout({ children }: LayoutProps) {
   useNavigationState();
   const location = useLocation();
+  const {
+    questions: guidedQuestions,
+    handleSubmit: handleGuidedSubmit,
+    handleSkip: handleGuidedSkip,
+  } = useGuidedQuestionFlow({
+    submitMessage: "Here are my answers — go ahead.",
+    skipMessage: "Skip the questions — decide for me.",
+    buildSubmitContext: ({ formattedAnswers }) =>
+      [
+        "The user answered guided clarification questions for an analytics task.",
+        "",
+        "Answers:",
+        formattedAnswers,
+        "",
+        "Use these answers to choose the dashboard scope, data source, metrics, breakdowns, and layout. For dashboards, consult the data dictionary before writing SQL and only ask another question if a required source/table/metric is still genuinely ambiguous.",
+      ].join("\n"),
+    buildSkipContext: () =>
+      "The user skipped the guided analytics questions. Proceed with reasonable defaults, consult the data dictionary before writing SQL, and ask again only if a required source/table/metric is still genuinely ambiguous.",
+  });
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
   }
@@ -54,6 +77,17 @@ export function Layout({ children }: LayoutProps) {
             >
               {children}
             </main>
+            {guidedQuestions && (
+              <div className="fixed inset-0 z-[260] bg-background">
+                <GuidedQuestionFlow
+                  questions={guidedQuestions}
+                  onSubmit={handleGuidedSubmit}
+                  onSkip={handleGuidedSkip}
+                  title="Clarify the dashboard"
+                  description="A few choices help the agent pick the right source, metrics, cuts, and layout before it writes SQL."
+                />
+              </div>
+            )}
           </div>
         </AgentSidebar>
       </div>

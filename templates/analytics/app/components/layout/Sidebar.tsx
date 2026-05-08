@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useLocation } from "react-router";
 import { useTheme } from "next-themes";
-import { cn } from "@/lib/utils";
+import { cn, shortcutModifierLabel } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1470,7 +1470,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="top">
-                      <p>Search (⌘K)</p>
+                      <p>Search ({shortcutModifierLabel()}+K)</p>
                     </TooltipContent>
                   </Tooltip>
                   <Popover open={logoutOpen} onOpenChange={setLogoutOpen}>
