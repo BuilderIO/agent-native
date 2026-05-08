@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.12.25
+
+### Patch Changes
+
+- 1155964: Close Google OAuth success popups after Builder workspace sign-in completes.
+- 1155964: Keep hosted chat credential isolation intact and show visible missing-credential errors.
+- 1155964: Read legacy workspace-scoped Builder credentials so users who connected before org scoping no longer see "missing key" errors.
+
 ## 0.12.24
 
 ### Patch Changes
