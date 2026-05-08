@@ -47,13 +47,13 @@ export default defineAction({
       .string()
       .trim()
       .max(200)
-      .optional()
+      .nullish()
       .describe("Captured application name, when known"),
     sourceWindowTitle: z
       .string()
       .trim()
       .max(500)
-      .optional()
+      .nullish()
       .describe("Captured window or browser tab title, when known"),
     folderId: z.string().nullish().describe("Optional folder ID"),
     organizationId: z
