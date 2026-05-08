@@ -6,6 +6,13 @@
     <title>Calendar Week Fixture</title>
     <script type="module" src="/@vite/client"></script>
     <script type="module">
+      import RefreshRuntime from "/@id/__x00__virtual:react-router/hmr-runtime";
+      RefreshRuntime.injectIntoGlobalHook(window);
+      window.$RefreshReg$ = () => {};
+      window.$RefreshSig$ = () => (type) => type;
+      window.__vite_plugin_react_preamble_installed__ = true;
+    </script>
+    <script type="module">
       import React from "/node_modules/.vite/deps/react.js";
       import ReactDOMClient from "/node_modules/.vite/deps/react-dom_client.js";
       const { createRoot } = ReactDOMClient;
@@ -83,7 +90,7 @@
       }
       requestAnimationFrame(publish);
     </script>
-  </head>
+  <style>#root .overflow-y-auto { scrollbar-gutter: stable; }</style></head>
   <body>
     <pre id="metrics">pending</pre>
     <div id="root"></div>

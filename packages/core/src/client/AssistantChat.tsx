@@ -1521,6 +1521,39 @@ function AssistantMessage() {
 
 // ─── Thinking Indicator ─────────────────────────────────────────────────────
 
+interface ActivityStep {
+  id: string;
+  label: string;
+  tool?: string;
+}
+
+function ActivitySteps({ steps }: { steps: ActivityStep[] }) {
+  if (steps.length === 0) return null;
+  const visibleSteps = steps.slice(-4);
+  return (
+    <div
+      className="max-w-[85%] rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground"
+      aria-live="polite"
+    >
+      <div className="space-y-1">
+        {visibleSteps.map((step, index) => {
+          const isCurrent = index === visibleSteps.length - 1;
+          return (
+            <div key={step.id} className="flex min-w-0 items-center gap-2">
+              {isCurrent ? (
+                <IconLoader2 className="h-3 w-3 shrink-0 animate-spin" />
+              ) : (
+                <IconCheck className="h-3 w-3 shrink-0 text-emerald-500" />
+              )}
+              <span className="truncate">{step.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ThinkingIndicator({ label = "Thinking" }: { label?: string } = {}) {
   const [dots, setDots] = useState(0);
   useEffect(() => {
