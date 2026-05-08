@@ -886,6 +886,35 @@ ${
       } catch(e) {}
       return window.location.pathname + window.location.search;
     }
+    function __anIsBuilderPreview() {
+      try {
+        var params = new URLSearchParams(window.location.search);
+        if (params.has('builder.preview') || params.has('builder.frameEditing') || params.has('__builder_editing__')) return true;
+      } catch(e) {}
+      try {
+        var ref = document.referrer || '';
+        return ref.indexOf('builder.io') !== -1 || ref.indexOf('builder.my') !== -1;
+      } catch(e) {
+        return false;
+      }
+    }
+    function __anPrepareOAuthPopup() {
+      if (!__anIsBuilderPreview()) return null;
+      try { return window.open('about:blank', '_blank', 'width=640,height=760'); } catch(e) { return null; }
+    }
+    function __anCloseOAuthPopup(popup) {
+      try { if (popup && !popup.closed) popup.close(); } catch(e) {}
+    }
+    function __anOpenOAuthUrl(url, popup) {
+      try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
+      if (popup && !popup.closed) {
+        try {
+          popup.location.href = url;
+          return;
+        } catch(e) {}
+      }
+      window.location.href = url;
+    }
     (function revealLocalNote() {
     var h = location.hostname;
     if (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.local')) {
@@ -1357,6 +1386,7 @@ ${
     async function __anStartGoogleSignIn() {
     var btn = document.getElementById('google-btn');
     var err = document.getElementById('google-err');
+    var popup = __anPrepareOAuthPopup();
     btn.disabled = true;
     err.classList.remove('show');
     try {
@@ -1365,14 +1395,15 @@ ${
       var res = await fetch(authUrl);
       var data = await res.json();
       if (data.url) {
-        try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
-        window.location.href = data.url;
+        __anOpenOAuthUrl(data.url, popup);
       } else {
+        __anCloseOAuthPopup(popup);
         err.textContent = data.message || 'Google OAuth is not configured.';
         err.classList.add('show');
         btn.disabled = false;
       }
     } catch (e) {
+      __anCloseOAuthPopup(popup);
       err.textContent = 'Failed to connect. Please try again.';
       err.classList.add('show');
       btn.disabled = false;
