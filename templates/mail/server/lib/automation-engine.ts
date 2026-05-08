@@ -313,6 +313,55 @@ interface AutomationModelSettings {
   model?: string;
 }
 
+const MODEL_AVAILABILITY_CACHE_TTL_MS = 5 * 60 * 1000;
+const modelAvailabilityCache = new Map<
+  string,
+  { ok: boolean; expiresAt: number; error?: string }
+>();
+
+function isMissingProviderError(message: string): boolean {
+  return /No LLM provider is connected|Connect an LLM provider|missing_credentials/i.test(
+    message,
+  );
+}
+
+async function canUseAutomationModel(
+  ownerEmail: string,
+  settings: AutomationModelSettings,
+): Promise<boolean> {
+  const cacheKey = `${ownerEmail}:${settings.engine ?? ""}:${settings.model ?? ""}`;
+  const cached = modelAvailabilityCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.ok;
+
+  try {
+    registerBuiltinEngines();
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      const anthropicKey =
+        !settings.engine || settings.engine === "anthropic"
+          ? await resolveAnthropicKey(ownerEmail)
+          : undefined;
+      await resolveEngine({
+        engineOption: settings.engine,
+        apiKey: anthropicKey,
+      });
+    });
+    modelAvailabilityCache.set(cacheKey, {
+      ok: true,
+      expiresAt: Date.now() + MODEL_AVAILABILITY_CACHE_TTL_MS,
+    });
+    return true;
+  } catch (err: any) {
+    const message = err?.message || "Automation model unavailable";
+    if (!isMissingProviderError(message)) throw err;
+    modelAvailabilityCache.set(cacheKey, {
+      ok: false,
+      error: message,
+      expiresAt: Date.now() + MODEL_AVAILABILITY_CACHE_TTL_MS,
+    });
+    return false;
+  }
+}
+
 async function callModel(
   prompt: string,
   ownerEmail: string,
@@ -522,6 +571,10 @@ export async function processAutomationsForAccount(
   // 2. Resolve model settings. Credentials are resolved by the selected engine
   // under the owner's request context, so Builder-managed models work here too.
   const modelSettings = await getAutomationModelSettings(ownerEmail);
+  if (!(await canUseAutomationModel(ownerEmail, modelSettings))) {
+    result.errors = 1;
+    return result;
+  }
 
   // 3. Get watermark and processed IDs
   const watermark = await getWatermark(ownerEmail);
