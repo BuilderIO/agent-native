@@ -977,15 +977,15 @@ export function App() {
   // The bubble overlay (small circular PiP in the bottom-left of the screen
   // showing the user's face) uses two paths. Browser capture keeps the camera
   // in this popover for the entire session because WebKit can mute capture
-  // tracks across same-process webviews. Native full-screen capture only uses
-  // a local bubble camera when the explicit development flag is enabled.
+  // tracks across same-process webviews. Native full-screen capture uses a
+  // local bubble camera because the native screen recorder captures that
+  // overlay directly.
   //
   // Lifecycle:
   //   - Popover visible + camera mode + cameraOn → acquire camera, call
-  //     show_bubble, then either start the WebRTC/canvas relay
-  //     (default browser capture) or tell the bubble to start its local camera
-  //     (explicit native full-screen capture). User sees their face in the
-  //     bottom-left corner.
+  //     show_bubble, then either start the WebRTC/canvas relay (browser
+  //     capture) or tell the bubble to start its local camera (native
+  //     full-screen capture). User sees their face in the bottom-left corner.
   //   - User clicks Start Recording → popover hides, recording begins.
   //     `isRecording` becomes true, so this effect's deps still say
   //     "active" — the stream + bubble + pump keep running. The recorder
