@@ -98,6 +98,14 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
       return false;
     }
   }
+  function __anIsBuilderDesktop() {
+    try {
+      var ua = navigator.userAgent || '';
+      return ua.indexOf('Electron') !== -1 && ua.indexOf('AgentNativeDesktop') === -1;
+    } catch(e) {
+      return false;
+    }
+  }
   var __anOAuthPollTimer = null;
   var __anOAuthPollCount = 0;
   function __anNewOAuthFlowId() {
@@ -179,9 +187,17 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
     try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
     __anSetOAuthDebug('Opening Google sign-in popup', flowId);
     try {
-      var popup = window.open(url, '_blank', 'noopener,noreferrer,width=640,height=760');
+      var popup = window.open('', '_blank', 'width=640,height=760');
       if (!popup) {
         __anShowOAuthError(err, btn, 'Google popup was blocked. Allow popups for this site and try again (flow ' + __anFlowDebugId(flowId) + ').');
+        return;
+      }
+      try { popup.opener = null; } catch(e) {}
+      try {
+        popup.location.href = url;
+      } catch(e) {
+        try { popup.close(); } catch(closeErr) {}
+        __anShowOAuthError(err, btn, 'Could not navigate Google popup for flow ' + __anFlowDebugId(flowId) + ': ' + (e && e.message ? e.message : 'unknown error'));
         return;
       }
       __anSetOAuthDebug('Google popup opened; waiting for callback', flowId);
@@ -201,7 +217,7 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
     var ret = window.location.pathname + window.location.search;
     btn.disabled = true;
     err.classList.remove('show');
-    if (__anIsBuilderPreview()) {
+    if (__anIsBuilderPreview() && !__anIsBuilderDesktop()) {
       __anStartBuilderOAuth(ret, btn, err);
       return;
     }

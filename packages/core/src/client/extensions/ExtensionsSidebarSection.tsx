@@ -10,6 +10,7 @@ import {
   IconStarFilled,
   IconTrash,
   IconDots,
+  IconInfoCircle,
   IconPencil,
   IconGripVertical,
   IconTool,
@@ -22,6 +23,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "../components/ui/hover-card.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -409,50 +415,63 @@ export function ExtensionsSidebarSection() {
             extensionsOpen && sortedTools.length > 0 && "mb-1",
           )}
         >
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="flex min-w-0 flex-1 items-center gap-3 px-3 py-1.5 pr-24 text-left"
-                aria-label="About extensions"
+          <button
+            type="button"
+            onClick={toggleExtensionsOpen}
+            className="absolute inset-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={
+              extensionsOpen ? "Collapse extensions" : "Expand extensions"
+            }
+            aria-expanded={extensionsOpen}
+          />
+          <div className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center gap-3 px-3 py-1.5 pr-24">
+            <IconTool className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 whitespace-nowrap">Extensions</span>
+            <HoverCard openDelay={250} closeDelay={120}>
+              <HoverCardTrigger asChild>
+                <button
+                  type="button"
+                  className="pointer-events-auto -ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label="About extensions"
+                >
+                  <IconInfoCircle className="h-3.5 w-3.5" />
+                </button>
+              </HoverCardTrigger>
+              <HoverCardContent
+                side="right"
+                align="start"
+                sideOffset={8}
+                className="w-72 space-y-3 p-3"
               >
-                <IconTool className="h-4 w-4 shrink-0" />
-                <span className="min-w-0 whitespace-nowrap">Extensions</span>
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              side="right"
-              align="start"
-              className="w-72 space-y-3 p-3"
-            >
-              <div>
-                <p className="text-sm font-semibold text-foreground">
-                  Extensions
-                </p>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  Build small sandboxed apps that can read app data, call
-                  actions, and save their own state.
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Link
-                  to="/extensions"
-                  className="inline-flex h-8 items-center rounded-md border px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
-                >
-                  Open extensions
-                </Link>
-                <a
-                  href="https://agent-native.com/docs/extensions"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex h-8 items-center rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                >
-                  Learn more
-                </a>
-              </div>
-            </PopoverContent>
-          </Popover>
-          <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    Extensions
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    Build small sandboxed apps that can read app data, call
+                    actions, and save their own state.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Link
+                    to="/extensions"
+                    className="inline-flex h-8 items-center rounded-md border px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+                  >
+                    Open extensions
+                  </Link>
+                  <a
+                    href="https://agent-native.com/docs/extensions"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex h-8 items-center rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    Learn more
+                  </a>
+                </div>
+              </HoverCardContent>
+            </HoverCard>
+          </div>
+          <div className="absolute right-1 top-1/2 z-20 flex -translate-y-1/2 items-center">
             <ExtensionSortMenu
               value={sortModeState}
               onChange={setExtensionSortMode}

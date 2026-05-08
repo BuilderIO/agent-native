@@ -34,6 +34,7 @@ import {
   IconPlus,
   IconKey,
   IconCopy,
+  IconDotsVertical,
 } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
@@ -59,6 +60,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface AnalyticsPublicKeyRow {
   id: string;
@@ -443,90 +451,95 @@ function ConnectedView({
 
   return (
     <>
-      <div className="space-y-3 py-3">
-        {/* Credential summary */}
-        <div className="space-y-2">
-          {source.envKeys.map((key) => {
-            const configured =
-              envStatus.find((s) => s.key === key)?.configured ?? false;
-            return (
-              <div
-                key={key}
-                className="flex items-center justify-between text-xs"
-              >
-                <span className="text-muted-foreground">
-                  {keyLabels[key] || key}
-                </span>
-                {configured ? (
-                  <span className="text-emerald-500 flex items-center gap-1">
-                    <IconCheck className="h-3 w-3" />
-                    Configured
+      <div className="space-y-3">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1 space-y-2">
+            {source.envKeys.map((key) => {
+              const configured =
+                envStatus.find((s) => s.key === key)?.configured ?? false;
+              return (
+                <div
+                  key={key}
+                  className="flex items-center justify-between gap-4 text-xs"
+                >
+                  <span className="text-muted-foreground">
+                    {keyLabels[key] || key}
                   </span>
-                ) : (
-                  <span className="text-rose-400 flex items-center gap-1">
-                    <IconAlertCircle className="h-3 w-3" />
-                    Missing
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                  {configured ? (
+                    <span className="flex items-center gap-1 whitespace-nowrap text-emerald-500">
+                      <IconCheck className="h-3 w-3" />
+                      Configured
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 whitespace-nowrap text-rose-400">
+                      <IconAlertCircle className="h-3 w-3" />
+                      Missing
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
 
-        {/* Actions */}
-        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/30">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              setTestResult(null);
-              testMutation.mutate();
-            }}
-            disabled={testMutation.isPending}
-            className="text-xs"
-          >
-            {testMutation.isPending ? (
-              <>
-                <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
-                Testing...
-              </>
-            ) : (
-              "Test Connection"
-            )}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setEditing(true)}
-            className="text-xs"
-          >
-            <IconPencil className="h-3 w-3 mr-1.5" />
-            Edit
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={handleDisconnect}
-            disabled={disconnectMutation.isPending}
-            className="text-xs text-destructive hover:text-destructive"
-          >
-            {disconnectMutation.isPending ? (
-              <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
-            ) : (
-              <IconTrash className="h-3 w-3 mr-1.5" />
-            )}
-            Disconnect
-          </Button>
-          {source.docsUrl && (
-            <a
-              href={source.docsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 ml-auto"
-            >
-              Docs <IconExternalLink className="h-3 w-3" />
-            </a>
-          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="-mr-1 -mt-1 h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                aria-label={`${source.name} actions`}
+              >
+                <IconDotsVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem
+                onSelect={() => {
+                  setTestResult(null);
+                  testMutation.mutate();
+                }}
+                disabled={testMutation.isPending}
+              >
+                {testMutation.isPending ? (
+                  <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <IconCheck className="mr-2 h-4 w-4" />
+                )}
+                {testMutation.isPending ? "Testing..." : "Test connection"}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setEditing(true)}>
+                <IconPencil className="mr-2 h-4 w-4" />
+                Edit credentials
+              </DropdownMenuItem>
+              {source.docsUrl && (
+                <DropdownMenuItem asChild>
+                  <a
+                    href={source.docsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <IconExternalLink className="mr-2 h-4 w-4" />
+                    Open docs
+                  </a>
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={handleDisconnect}
+                disabled={disconnectMutation.isPending}
+                className="text-destructive focus:text-destructive"
+              >
+                {disconnectMutation.isPending ? (
+                  <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <IconTrash className="mr-2 h-4 w-4" />
+                )}
+                {disconnectMutation.isPending
+                  ? "Disconnecting..."
+                  : "Disconnect"}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         {testResult && (
@@ -621,9 +634,9 @@ function DataSourceCard({
     <Card className="bg-card border-border/50">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full text-left"
+        className="w-full rounded-t-lg text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
       >
-        <CardHeader className="pb-3">
+        <CardHeader className="p-5">
           <div className="flex items-center justify-between gap-6">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -663,7 +676,7 @@ function DataSourceCard({
       </button>
 
       {expanded && (
-        <CardContent className="pt-0 border-t border-border/50">
+        <CardContent className="border-t border-border/50 px-5 py-4">
           {connected ? (
             <ConnectedView
               source={source}
@@ -673,7 +686,7 @@ function DataSourceCard({
           ) : (
             <>
               {/* Step progress */}
-              <div className="flex items-center gap-1.5 py-3">
+              <div className="flex items-center gap-1.5 pb-3">
                 {source.walkthroughSteps.map((_, i) => (
                   <button
                     key={i}
@@ -729,7 +742,7 @@ function DataSourceCard({
                   : true;
                 const canAdvance = !stepKey || step.optional || stepFilled;
                 return (
-                  <div className="flex items-center gap-2 pt-2 pb-4">
+                  <div className="flex items-center gap-2 pb-4 pt-1">
                     {currentStep > 0 && (
                       <Button
                         size="sm"
@@ -761,7 +774,7 @@ function DataSourceCard({
                 );
               })()}
 
-              <div className="flex items-center gap-2 pt-4 border-t border-border/30">
+              <div className="flex items-center gap-2 border-t border-border/30 pt-3">
                 {hasInputValues && (
                   <Button
                     size="sm"
@@ -919,9 +932,9 @@ function FirstPartyAnalyticsCard() {
     <Card className="bg-card border-border/50">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full text-left"
+        className="w-full rounded-t-lg text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
       >
-        <CardHeader className="pb-3">
+        <CardHeader className="p-5">
           <div className="flex items-center justify-between gap-6">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -962,8 +975,8 @@ function FirstPartyAnalyticsCard() {
       </button>
 
       {expanded && (
-        <CardContent className="pt-0 border-t border-border/50">
-          <div className="space-y-4 pt-3">
+        <CardContent className="border-t border-border/50 px-5 py-4">
+          <div className="space-y-4">
             <div className="grid gap-2 rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">Endpoint</span>
@@ -1058,23 +1071,32 @@ function FirstPartyAnalyticsCard() {
                           : " never used"}
                       </div>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        revokeKey.mutate({ id: key.id });
-                      }}
-                      disabled={revokeKey.isPending}
-                      className="text-xs text-destructive hover:text-destructive"
-                    >
-                      {revokeKey.isPending ? (
-                        <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
-                      ) : (
-                        <IconTrash className="h-3 w-3 mr-1.5" />
-                      )}
-                      Revoke
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                          aria-label={`${key.name} key actions`}
+                        >
+                          <IconDotsVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-36">
+                        <DropdownMenuItem
+                          onSelect={() => revokeKey.mutate({ id: key.id })}
+                          disabled={revokeKey.isPending}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          {revokeKey.isPending ? (
+                            <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <IconTrash className="mr-2 h-4 w-4" />
+                          )}
+                          {revokeKey.isPending ? "Revoking..." : "Revoke"}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 ))}
               </div>

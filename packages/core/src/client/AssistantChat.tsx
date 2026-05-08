@@ -107,6 +107,9 @@ import {
   IconRefresh,
   IconPlayerPlay,
   IconClipboardList,
+  IconSearch,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
 } from "@tabler/icons-react";
 
 class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
@@ -318,6 +321,11 @@ const markdownStyles = `
 .dark .agent-markdown-shiki pre { background: var(--shiki-dark-bg); color: var(--shiki-dark); }
 .dark .agent-markdown-shiki pre span { color: var(--shiki-dark); background: var(--shiki-dark-bg); }
 @media (prefers-color-scheme: dark) { :root:not(.light) .agent-markdown-shiki pre { background: var(--shiki-dark-bg); color: var(--shiki-dark); } :root:not(.light) .agent-markdown-shiki pre span { color: var(--shiki-dark); background: var(--shiki-dark-bg); } }
+.agent-tool-code .agent-markdown-shiki { margin: 0; border-radius: 0; min-width: max-content; }
+.agent-tool-code .agent-markdown-shiki pre { padding: 0.75rem; border: 0; background: transparent; }
+.agent-tool-code .agent-markdown-shiki pre span { background: transparent; }
+.agent-tool-code pre { margin: 0; min-width: max-content; padding: 0.75rem; background: transparent; color: inherit; }
+.agent-tool-code mark { border-radius: 0.1875rem; background: rgba(245, 158, 11, 0.25); color: inherit; }
 .agent-markdown hr { border: none; border-top: 1px solid hsl(var(--border, 0 0% 20%)); margin: 0.75em 0; }
 .agent-markdown a { text-decoration: underline; text-underline-offset: 2px; }
 .agent-markdown a.agent-markdown-cta { text-decoration: none; }
@@ -596,6 +604,7 @@ function loadHighlighter(): Promise<ShikiHighlighter> {
           import("shiki/langs/shellscript.mjs"),
           import("shiki/langs/python.mjs"),
           import("shiki/langs/yaml.mjs"),
+          import("shiki/langs/sql.mjs"),
         ],
         engine: createOnigurumaEngine(import("shiki/wasm")),
       }) as unknown as Promise<ShikiHighlighter>;
@@ -623,6 +632,8 @@ const LANG_ALIASES: Record<string, string> = {
   py: "python",
   yml: "yaml",
   md: "markdown",
+  bq: "sql",
+  bigquery: "sql",
 };
 
 function HighlightedCodeBlock({ code, lang }: { code: string; lang: string }) {
@@ -890,6 +901,13 @@ const ChatRunningContext = React.createContext(false);
 // assistant-ui hooks here.
 
 type ToolDetailSection = "input" | "result";
+type ToolDetailPayload = {
+  section: ToolDetailSection;
+  title: string;
+  text: string;
+  copyText: string;
+  lang: string;
+};
 
 function stringifyToolValue(value: unknown, pretty = false): string {
   if (typeof value === "string") return value;
@@ -911,21 +929,303 @@ function toolArgsPreview(args: Record<string, unknown>): string {
     .join(", ");
 }
 
-function toolArgsDisplayText(args: Record<string, unknown>): string {
-  const entries = Object.entries(args);
-  if (entries.length === 1) {
-    const [key, value] = entries[0]!;
-    return `${key}=\n${stringifyToolValue(value, true)}`;
-  }
-  return JSON.stringify(args, null, 2);
+function looksLikeSql(text: string): boolean {
+  return /^\s*(select|with|insert|update|delete|merge|create|alter|drop|explain|declare|begin)\b/i.test(
+    text,
+  );
 }
 
-function toolArgsCopyText(args: Record<string, unknown>): string {
-  const entries = Object.entries(args);
-  if (entries.length === 1 && typeof entries[0]![1] === "string") {
-    return entries[0]![1] as string;
+function parseJsonText(text: string): unknown | null {
+  const trimmed = text.trim();
+  if (!trimmed || !/^[{[]/.test(trimmed)) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
   }
-  return JSON.stringify(args, null, 2);
+}
+
+function inferToolTextLanguage(
+  text: string,
+  key?: string,
+  toolName?: string,
+): string {
+  const keyName = (key ?? "").toLowerCase();
+  const tool = (toolName ?? "").toLowerCase();
+  if (
+    keyName === "sql" ||
+    keyName.endsWith("sql") ||
+    keyName === "query" ||
+    tool.includes("bigquery") ||
+    tool.includes("db-query") ||
+    looksLikeSql(text)
+  ) {
+    return "sql";
+  }
+  return parseJsonText(text) ? "json" : "text";
+}
+
+function formatToolTextValue(
+  value: unknown,
+  key?: string,
+  toolName?: string,
+): { text: string; lang: string } {
+  if (typeof value === "string") {
+    const parsed = parseJsonText(value);
+    if (parsed) {
+      return { text: JSON.stringify(parsed, null, 2), lang: "json" };
+    }
+    return {
+      text: value,
+      lang: inferToolTextLanguage(value, key, toolName),
+    };
+  }
+  return { text: stringifyToolValue(value, true), lang: "json" };
+}
+
+function toolInputPayload(
+  toolName: string,
+  args: Record<string, unknown>,
+): ToolDetailPayload | null {
+  const entries = Object.entries(args);
+  if (entries.length === 0) return null;
+  if (entries.length === 1) {
+    const [key, value] = entries[0]!;
+    const formatted = formatToolTextValue(value, key, toolName);
+    const normalizedKey = key.toLowerCase();
+    const keyLabel =
+      normalizedKey === "sql" || normalizedKey.endsWith("sql") ? "SQL" : key;
+    return {
+      section: "input",
+      title: `Input - ${keyLabel}`,
+      text: formatted.text,
+      copyText:
+        typeof value === "string" ? value : stringifyToolValue(value, true),
+      lang: formatted.lang,
+    };
+  }
+  return {
+    section: "input",
+    title: "Input",
+    text: JSON.stringify(args, null, 2),
+    copyText: JSON.stringify(args, null, 2),
+    lang: "json",
+  };
+}
+
+function toolResultPayload(
+  result: string | undefined,
+): ToolDetailPayload | null {
+  if (result === undefined) return null;
+  const formatted = formatToolTextValue(result);
+  return {
+    section: "result",
+    title: "Result",
+    text: formatted.text,
+    copyText: result,
+    lang: formatted.lang,
+  };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function countTextMatches(text: string, query: string): number {
+  const needle = query.trim();
+  if (!needle) return 0;
+  return Array.from(text.matchAll(new RegExp(escapeRegExp(needle), "gi")))
+    .length;
+}
+
+function renderHighlightedSearchText(
+  text: string,
+  query: string,
+): React.ReactNode {
+  const needle = query.trim();
+  if (!needle) return text;
+  const regex = new RegExp(escapeRegExp(needle), "gi");
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text))) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    parts.push(<mark key={`${match.index}-${match[0]}`}>{match[0]}</mark>);
+    lastIndex = match.index + match[0].length;
+    if (match[0].length === 0) regex.lastIndex += 1;
+  }
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return parts;
+}
+
+function ToolDetailViewer({ payload }: { payload: ToolDetailPayload }) {
+  const [expanded, setExpanded] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [copied, setCopied] = useState(false);
+  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const matchCount = useMemo(
+    () => countTextMatches(payload.text, search),
+    [payload.text, search],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (copyResetRef.current) clearTimeout(copyResetRef.current);
+    };
+  }, []);
+
+  const copyValue = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(payload.copyText);
+      setCopied(true);
+      if (copyResetRef.current) clearTimeout(copyResetRef.current);
+      copyResetRef.current = setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // Clipboard failures should not interrupt chat rendering.
+    }
+  }, [payload.copyText]);
+
+  return (
+    <div className="rounded-md border border-border/50 bg-background/60">
+      <div className="flex min-h-9 flex-wrap items-center gap-2 border-b border-border/50 px-2.5 py-1.5">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-[11px] font-medium text-foreground/85">
+              {payload.title}
+            </span>
+            {payload.lang !== "text" && (
+              <span className="shrink-0 rounded border border-border/60 px-1 py-0.5 font-mono text-[9px] uppercase leading-none text-muted-foreground">
+                {payload.lang}
+              </span>
+            )}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setSearchOpen((v) => !v)}
+          aria-label={`Search ${payload.title.toLowerCase()}`}
+          aria-pressed={searchOpen}
+          className={cn(
+            "inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
+            searchOpen && "bg-accent text-foreground",
+          )}
+        >
+          <IconSearch size={12} />
+        </button>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-label={expanded ? "Shrink code viewer" : "Expand code viewer"}
+          aria-pressed={expanded}
+          className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          {expanded ? (
+            <IconArrowsMinimize size={12} />
+          ) : (
+            <IconArrowsMaximize size={12} />
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={copyValue}
+          className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 font-sans text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      {searchOpen && (
+        <div className="flex items-center gap-2 border-b border-border/50 px-2.5 py-2">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Find"
+            className="h-7 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+          />
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {search.trim() ? matchCount : ""}
+          </span>
+        </div>
+      )}
+      <div
+        className={cn(
+          "agent-tool-code overflow-auto font-mono text-[11px] leading-relaxed text-foreground",
+          expanded ? "max-h-[70vh]" : "max-h-72",
+        )}
+      >
+        {search.trim() ? (
+          <pre>
+            <code>{renderHighlightedSearchText(payload.text, search)}</code>
+          </pre>
+        ) : (
+          <HighlightedCodeBlock code={payload.text} lang={payload.lang} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function activityTrailFromMetadata(message: unknown): ActivityStep[] {
+  const meta = (message as { metadata?: unknown })?.metadata as
+    | {
+        custom?: { activityTrail?: unknown };
+        activityTrail?: unknown;
+      }
+    | undefined;
+  const raw = meta?.custom?.activityTrail ?? meta?.activityTrail;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item, index): ActivityStep | null => {
+      if (!item || typeof item !== "object") return null;
+      const label = (item as { label?: unknown }).label;
+      const tool = (item as { tool?: unknown }).tool;
+      if (typeof label !== "string" || !label.trim()) return null;
+      return {
+        id: `trail-${index}-${label}`,
+        label: label.trim(),
+        ...(typeof tool === "string" && tool.trim()
+          ? { tool: tool.trim() }
+          : {}),
+      };
+    })
+    .filter((item): item is ActivityStep => item !== null);
+}
+
+function RunActivityTrail({ steps }: { steps: ActivityStep[] }) {
+  const [open, setOpen] = useState(false);
+  if (steps.length === 0) return null;
+  const visibleSteps = steps.slice(-6);
+  return (
+    <div className="mt-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+      >
+        <IconChevronDown
+          size={12}
+          className={cn("transition-transform", open && "rotate-180")}
+        />
+        Steps
+      </button>
+      {open && (
+        <div className="mt-1 rounded-md border border-border/60 bg-muted/25 px-2.5 py-2 text-[11px] text-muted-foreground">
+          <div className="space-y-1">
+            {visibleSteps.map((step) => (
+              <div key={step.id} className="flex min-w-0 items-center gap-2">
+                <IconCheck className="h-3 w-3 shrink-0 text-emerald-500" />
+                <span className="truncate">{step.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ToolCallDisplay({
@@ -944,10 +1244,6 @@ function ToolCallDisplay({
   const streamRef = useRef<HTMLDivElement>(null);
   const isAgentCall = toolName.startsWith("agent:");
   const [expanded, setExpanded] = useState(isAgentCall);
-  const [copiedSection, setCopiedSection] = useState<ToolDetailSection | null>(
-    null,
-  );
-  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const agentName = isAgentCall ? toolName.slice(6) : null;
   const isAgentError = isAgentCall && result === "Error calling agent";
   const agentStreamText = isAgentCall ? (argsText ?? "") : "";
@@ -960,26 +1256,6 @@ function ToolCallDisplay({
       streamRef.current.scrollTop = streamRef.current.scrollHeight;
     }
   }, [agentStreamText, isAgentCall, isRunning]);
-
-  useEffect(() => {
-    return () => {
-      if (copyResetRef.current) clearTimeout(copyResetRef.current);
-    };
-  }, []);
-
-  const copyToolDetail = useCallback(
-    async (section: ToolDetailSection, text: string) => {
-      try {
-        await navigator.clipboard.writeText(text);
-        setCopiedSection(section);
-        if (copyResetRef.current) clearTimeout(copyResetRef.current);
-        copyResetRef.current = setTimeout(() => setCopiedSection(null), 1200);
-      } catch {
-        // Clipboard failures should not interrupt chat rendering.
-      }
-    },
-    [],
-  );
 
   // Render connect-builder as ConnectBuilderCard once the result is available
   if (toolName === "connect-builder" && result) {
@@ -1042,10 +1318,8 @@ function ToolCallDisplay({
   }
 
   const argsStr = isAgentCall ? "" : toolArgsPreview(args);
-  const inputDisplay = hasArgs ? toolArgsDisplayText(args) : "";
-  const inputCopy = hasArgs ? toolArgsCopyText(args) : "";
-  const resultDisplay =
-    result !== undefined ? stringifyToolValue(result, true) : "";
+  const inputPayload = hasArgs ? toolInputPayload(toolName, args) : null;
+  const resultPayload = toolResultPayload(result);
 
   const displayName = isAgentCall
     ? isRunning
@@ -1111,42 +1385,8 @@ function ToolCallDisplay({
       )}
       {isExpanded && !isAgentCall && (hasArgs || result !== undefined) && (
         <div className="mt-1 space-y-2 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-          {hasArgs && (
-            <div>
-              <div className="mb-1 flex items-center justify-between gap-2">
-                <span className="font-medium text-foreground/80">Input</span>
-                <button
-                  type="button"
-                  onClick={() => copyToolDetail("input", inputCopy)}
-                  className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 font-sans text-[11px] text-muted-foreground hover:bg-background/80 hover:text-foreground"
-                >
-                  <IconCopy size={12} />
-                  {copiedSection === "input" ? "Copied" : "Copy"}
-                </button>
-              </div>
-              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/50 bg-background/60 p-2 font-mono text-[11px] leading-relaxed">
-                {inputDisplay}
-              </pre>
-            </div>
-          )}
-          {result !== undefined && (
-            <div>
-              <div className="mb-1 flex items-center justify-between gap-2">
-                <span className="font-medium text-foreground/80">Result</span>
-                <button
-                  type="button"
-                  onClick={() => copyToolDetail("result", resultDisplay)}
-                  className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 font-sans text-[11px] text-muted-foreground hover:bg-background/80 hover:text-foreground"
-                >
-                  <IconCopy size={12} />
-                  {copiedSection === "result" ? "Copied" : "Copy"}
-                </button>
-              </div>
-              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/50 bg-background/60 p-2 font-mono text-[11px] leading-relaxed">
-                {resultDisplay}
-              </pre>
-            </div>
-          )}
+          {inputPayload && <ToolDetailViewer payload={inputPayload} />}
+          {resultPayload && <ToolDetailViewer payload={resultPayload} />}
         </div>
       )}
     </div>
@@ -1626,6 +1866,7 @@ function AssistantMessage() {
   const chatRunning = React.useContext(ChatRunningContext);
   const msg = messageRuntime.getState();
   const timestamp = formatMessageTimestamp(msg.createdAt);
+  const activityTrail = activityTrailFromMetadata(msg);
   const isLast =
     thread.messages.length > 0 &&
     thread.messages[thread.messages.length - 1].id === msg.id;
@@ -1698,6 +1939,9 @@ function AssistantMessage() {
           }}
         />
       </div>
+      {isComplete && activityTrail.length > 0 && (
+        <RunActivityTrail steps={activityTrail} />
+      )}
       {isComplete && (
         <div className="mt-1 flex items-center justify-between">
           <div className="flex min-w-0 items-center gap-2">
@@ -2053,6 +2297,23 @@ function isBuilderReconnectRunError(info: RunErrorInfo): boolean {
   );
 }
 
+function isProviderQueryRunError(info: RunErrorInfo): boolean {
+  const text = [info.errorCode, info.message, info.details]
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+  return (
+    text.includes("bigquery") ||
+    text.includes("sql") ||
+    text.includes("query") ||
+    text.includes("schema") ||
+    text.includes("syntax") ||
+    text.includes("unknown column") ||
+    text.includes("unknown table") ||
+    text.includes("type mismatch")
+  );
+}
+
 function getMessageText(message: unknown): string {
   const msg = (message as { message?: unknown })?.message ?? message;
   const content = (msg as { content?: unknown })?.content;
@@ -2083,6 +2344,9 @@ function RunErrorRecoveryCard({
   const [copied, setCopied] = useState(false);
   const canRecover = info.recoverable === true;
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
+  const isQueryError = isProviderQueryRunError(info);
+  const copyLabel =
+    info.runId || info.errorCode || info.details ? "Copy debug" : "Copy";
   const copyDetails = useCallback(() => {
     const text = [
       info.message,
@@ -2183,7 +2447,7 @@ function RunErrorRecoveryCard({
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
             >
               <IconRefresh size={13} />
-              Retry
+              {isQueryError ? "Diagnose and retry" : "Retry"}
             </button>
           </>
         )}
@@ -2205,7 +2469,7 @@ function RunErrorRecoveryCard({
           className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-background/80 hover:text-foreground"
         >
           {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
-          {copied ? "Copied" : "Copy"}
+          {copied ? "Copied" : copyLabel}
         </button>
       </div>
     </div>

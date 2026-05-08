@@ -64,6 +64,23 @@ export class AgentAutoContinueSignal extends Error {
 
 export const SSE_NO_PROGRESS_TIMEOUT_MS = 75_000;
 
+type ActivityTrailEntry = { label: string; tool?: string };
+
+function appendActivityTrail(
+  trail: ActivityTrailEntry[],
+  next: ActivityTrailEntry,
+) {
+  const label = next.label.trim();
+  if (!label) return;
+  const tool = next.tool?.trim();
+  const last = trail[trail.length - 1];
+  if (last?.label === label && last.tool === tool) return;
+  trail.push({ label, ...(tool ? { tool } : {}) });
+  if (trail.length > 8) {
+    trail.splice(0, trail.length - 8);
+  }
+}
+
 async function readChunkWithProgressTimeout(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   lastMeaningfulEventAt: number,
@@ -526,16 +543,17 @@ export async function* readSSEStream(
   const decoder = new TextDecoder();
   let buf = "";
   let lastMeaningfulEventAt = Date.now();
+  const activityTrail: ActivityTrailEntry[] = [];
 
-  const withRunId = (r: ChatModelRunResult): ChatModelRunResult => {
-    if (!runId) return r;
+  const withStreamMetadata = (r: ChatModelRunResult): ChatModelRunResult => {
+    if (!runId && activityTrail.length === 0) return r;
     const metadata = (r.metadata ?? {}) as Record<string, unknown>;
     const custom =
       metadata.custom && typeof metadata.custom === "object"
         ? (metadata.custom as Record<string, unknown>)
         : {};
     const runError =
-      custom.runError && typeof custom.runError === "object"
+      runId && custom.runError && typeof custom.runError === "object"
         ? {
             ...(custom.runError as Record<string, unknown>),
             runId,
@@ -545,7 +563,14 @@ export async function* readSSEStream(
       ...r,
       metadata: {
         ...metadata,
-        custom: { ...custom, runId, ...(runError ? { runError } : {}) },
+        custom: {
+          ...custom,
+          ...(runId ? { runId } : {}),
+          ...(runError ? { runError } : {}),
+          ...(activityTrail.length > 0
+            ? { activityTrail: [...activityTrail] }
+            : {}),
+        },
       },
     };
   };
@@ -582,6 +607,21 @@ export async function* readSSEStream(
           onSeq(ev.seq);
         }
 
+        if (ev.type === "clear") {
+          activityTrail.length = 0;
+        } else if (ev.type === "activity") {
+          appendActivityTrail(activityTrail, {
+            label: ev.label ?? "Working",
+            ...(ev.tool ? { tool: ev.tool } : {}),
+          });
+        } else if (ev.type === "tool_start") {
+          const tool = ev.tool ?? "unknown";
+          appendActivityTrail(activityTrail, {
+            label: `Running ${tool}`,
+            tool,
+          });
+        }
+
         const { action, result, autoContinue } = processEvent(
           ev,
           content,
@@ -589,7 +629,7 @@ export async function* readSSEStream(
           tabId,
         );
 
-        if (result) yield withRunId(result);
+        if (result) yield withStreamMetadata(result);
         if (action === "auto_continue") {
           throw new AgentAutoContinueSignal(
             autoContinue ?? { reason: "stream_ended" },
