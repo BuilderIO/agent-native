@@ -128,6 +128,47 @@ function buildTitleContext({
   return parts.length > 0 ? parts.join("\n\n") : undefined;
 }
 
+export async function queueTitleRegenerationRequest({
+  recordingId,
+  currentTitle,
+  transcriptText,
+  transcriptStatus = "ready",
+  segmentsJson = "[]",
+  ownerEmail,
+}: {
+  recordingId: string;
+  currentTitle: string | null | undefined;
+  transcriptText: string;
+  transcriptStatus?: string;
+  segmentsJson?: string | null;
+  ownerEmail?: string | null;
+}) {
+  const agentsContext = await loadAgentsMdContext({
+    ownerEmail,
+    purpose: "title",
+  });
+  const request = {
+    kind: "regenerate-title" as const,
+    recordingId,
+    requestedAt: new Date().toISOString(),
+    currentTitle: currentTitle ?? "",
+    transcriptStatus,
+    transcriptText,
+    segmentsJson: segmentsJson ?? "[]",
+    agentsContext,
+    message:
+      `Regenerate the title for recording ${recordingId}. ` +
+      `Read the native transcript and AGENTS.md context in this request's context and call ` +
+      `\`update-recording --id=${recordingId} --title="..."\` with a concise ` +
+      `4-9 word descriptive title. Current title: "${currentTitle ?? ""}". ` +
+      "Do not prompt the user.",
+  };
+
+  await writeAppState(`clips-ai-request-${recordingId}`, request as any);
+  await writeAppState("refresh-signal", { ts: Date.now() });
+  return request;
+}
+
 export default defineAction({
   description:
     "Regenerate this recording's title from its transcript using the configured cleanup/title path, falling back to a local transcript title when unavailable.",
@@ -280,25 +321,14 @@ export default defineAction({
       }
     }
 
-    const request = {
-      kind: "regenerate-title" as const,
+    await queueTitleRegenerationRequest({
       recordingId: args.recordingId,
-      requestedAt: new Date().toISOString(),
       currentTitle: rec.title,
       transcriptStatus: transcript?.status ?? "pending",
       transcriptText,
       segmentsJson: transcript?.segmentsJson ?? "[]",
-      agentsContext,
-      message:
-        `Regenerate the title for recording ${args.recordingId}. ` +
-        `Read the native transcript and AGENTS.md context in this request's context and call ` +
-        `\`update-recording --id=${args.recordingId} --title="..."\` with a concise ` +
-        `4-9 word descriptive title. Current title: "${rec.title}". ` +
-        "Do not prompt the user.",
-    };
-
-    await writeAppState(`clips-ai-request-${args.recordingId}`, request as any);
-    await writeAppState("refresh-signal", { ts: Date.now() });
+      ownerEmail: getRequestUserEmail() ?? transcript?.ownerEmail,
+    });
 
     console.log(`Delegation queued: regenerate-title for ${args.recordingId}`);
     return {
