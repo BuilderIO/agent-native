@@ -3230,10 +3230,31 @@ export function createAgentChatPlugin(
         });
       }
 
+      const preRunGitStatusByThread = new Map<string, string | null>();
+
+      async function recordPreRunGitStatus(threadId: string): Promise<void> {
+        if (!isDevMode()) return;
+        try {
+          const { getUncommittedStatus, isGitRepo } =
+            await import("../checkpoints/service.js");
+          const cwd = process.cwd();
+          preRunGitStatusByThread.set(
+            threadId,
+            isGitRepo(cwd) ? getUncommittedStatus(cwd) : null,
+          );
+        } catch {
+          preRunGitStatusByThread.set(threadId, null);
+        }
+      }
+
       // Callback to persist agent response when run finishes (even if client disconnected).
       // Reconstructs the assistant message from buffered events and appends to thread_data.
       const onRunComplete = async (run: any, threadId: string | undefined) => {
-        if (!threadId) return;
+        const runThreadId = String(run?.threadId ?? threadId ?? "");
+        if (!threadId) {
+          if (runThreadId) preRunGitStatusByThread.delete(runThreadId);
+          return;
+        }
         // Serialize the read-modify-write against the same thread's other
         // `thread_data` writers (setThreadQueuedMessages, setThreadEngineMeta,
         // the frontend-triggered saves below). Without the lock, a concurrent
@@ -3347,9 +3368,24 @@ export function createAgentChatPlugin(
                 isGitRepo,
                 hasUncommittedChanges,
                 getChangedFileNames,
+                getUncommittedStatus,
               } = await import("../checkpoints/service.js");
               const cwd = process.cwd();
-              if (isGitRepo(cwd) && hasUncommittedChanges(cwd)) {
+              const preRunStatus = runThreadId
+                ? preRunGitStatusByThread.get(runThreadId)
+                : undefined;
+              if (runThreadId) preRunGitStatusByThread.delete(runThreadId);
+
+              // Only auto-commit checkpoints for changes produced by this run.
+              // If the tree was already dirty, a checkpoint commit would sweep
+              // up the user's unrelated work when a reconnect/refresh finishes.
+              const postRunStatus = getUncommittedStatus(cwd);
+              if (
+                preRunStatus === "" &&
+                postRunStatus?.trim() &&
+                isGitRepo(cwd) &&
+                hasUncommittedChanges(cwd)
+              ) {
                 let summary = "";
 
                 // Try to extract the first sentence of the assistant's text response
@@ -3603,10 +3639,11 @@ export function createAgentChatPlugin(
             runCtx.model = model;
           }
         },
-        onRunStart: (
+        onRunStart: async (
           send: (event: import("../agent/types.js").AgentChatEvent) => void,
           threadId: string,
         ) => {
+          await recordPreRunGitStatus(threadId);
           _runSendByThread.set(threadId, send);
           const runCtx = ensureRequestRunContext();
           if (runCtx) runCtx.threadId = threadId;
@@ -3643,12 +3680,13 @@ export function createAgentChatPlugin(
                   runCtx.model = model;
                 }
               },
-              onRunStart: (
+              onRunStart: async (
                 send: (
                   event: import("../agent/types.js").AgentChatEvent,
                 ) => void,
                 threadId: string,
               ) => {
+                await recordPreRunGitStatus(threadId);
                 _runSendByThread.set(threadId, send);
                 const runCtx = ensureRequestRunContext();
                 if (runCtx) runCtx.threadId = threadId;
@@ -3738,10 +3776,11 @@ export function createAgentChatPlugin(
               runCtx.model = model;
             }
           },
-          onRunStart: (
+          onRunStart: async (
             send: (event: import("../agent/types.js").AgentChatEvent) => void,
             threadId: string,
           ) => {
+            await recordPreRunGitStatus(threadId);
             _runSendByThread.set(threadId, send);
             const runCtx = ensureRequestRunContext();
             if (runCtx) runCtx.threadId = threadId;
