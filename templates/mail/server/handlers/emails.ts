@@ -380,8 +380,10 @@ function filterInboxScopedMessages(
   if (label && !isInboxScopedAppLabel(label)) {
     return emails.filter(
       (message) =>
+        hasNormalizedLabel(message, "inbox") &&
         !message.isDraft &&
         !message.isTrashed &&
+        !message.isSent &&
         (view !== "unread" || !message.isRead),
     );
   }
@@ -541,12 +543,12 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
   let emails = await readEmails(email);
 
   if (label && (view === "inbox" || view === "unread")) {
-    emails = emails.filter(
-      (e) =>
-        e.labelIds.some((labelId) => mailLabelMatches(labelId, label)) &&
-        !e.isDraft &&
-        !e.isTrashed &&
-        (view !== "unread" || !e.isRead),
+    emails = filterInboxScopedMessages(
+      emails.filter((e) =>
+        e.labelIds.some((labelId) => mailLabelMatches(labelId, label)),
+      ),
+      view,
+      label,
     );
   } else {
     // Filter by view
