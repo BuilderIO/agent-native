@@ -48,6 +48,10 @@ export interface LinkNotionPageRequest {
   pageIdOrUrl: string;
 }
 
+export interface CreateNotionPageRequest {
+  parentPageIdOrUrl?: string;
+}
+
 export interface ResolveDocumentSyncConflictRequest {
   direction: "pull" | "push";
 }

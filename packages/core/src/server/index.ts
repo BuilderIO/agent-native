@@ -59,6 +59,13 @@ export {
   captureRouteError,
   type RouteErrorContext,
 } from "./sentry.js";
+export {
+  captureError,
+  captureServerError,
+  registerErrorCaptureProvider,
+  type CaptureErrorContext,
+  type CaptureErrorProvider,
+} from "./capture-error.js";
 export { createSentryPlugin, defaultSentryPlugin } from "./sentry-plugin.js";
 // Re-export the org plugin so the auto-discovery's DEFAULT_PLUGIN_REGISTRY
 // (which references "defaultOrgPlugin" from @agent-native/core/server) can

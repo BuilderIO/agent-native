@@ -518,29 +518,50 @@ export async function resolveDocumentSyncConflict(
 export async function createAndLinkNotionPage(
   owner: string,
   documentId: string,
+  parentPageIdOrUrl?: string,
 ): Promise<DocumentSyncStatus> {
   const connection = await getNotionConnectionForOwner(owner);
   if (!connection) throw new Error("Connect Notion before creating a page.");
   const document = await getDocument(documentId, owner);
 
-  // Find a parent page — search for any page the user has access to
-  const searchResult = await notionFetch<{
-    results: Array<{ id: string; object: string }>;
-  }>("/search", connection.accessToken, {
-    method: "POST",
-    body: JSON.stringify({
-      filter: { value: "page", property: "object" },
-      page_size: 1,
-    }),
-  });
+  let parentId: string;
+  if (parentPageIdOrUrl?.trim()) {
+    parentId = normalizeNotionPageId(parentPageIdOrUrl);
+    try {
+      await fetchNotionPage(connection.accessToken, parentId);
+    } catch {
+      throw new Error(
+        "The selected Notion parent page is not accessible. Share that page with the integration or choose another parent.",
+      );
+    }
+  } else {
+    if (connection.accountId === "__api_key__") {
+      throw new Error(
+        "Choose a Notion parent page you can access before creating a new page.",
+      );
+    }
 
-  if (!searchResult.results.length) {
-    throw new Error(
-      "No accessible Notion pages found. Share at least one page with the integration first.",
-    );
+    // OAuth connections are user-specific, so picking the most recently
+    // edited accessible page preserves the one-click create flow.
+    const searchResult = await notionFetch<{
+      results: Array<{ id: string; object: string }>;
+    }>("/search", connection.accessToken, {
+      method: "POST",
+      body: JSON.stringify({
+        filter: { value: "page", property: "object" },
+        sort: { direction: "descending", timestamp: "last_edited_time" },
+        page_size: 1,
+      }),
+    });
+
+    if (!searchResult.results.length) {
+      throw new Error(
+        "No accessible Notion pages found. Share at least one page with the integration first.",
+      );
+    }
+
+    parentId = searchResult.results[0].id;
   }
-
-  const parentId = searchResult.results[0].id;
 
   const newPage = await createNotionPageWithMarkdown({
     accessToken: connection.accessToken,

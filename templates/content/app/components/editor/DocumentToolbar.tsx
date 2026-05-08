@@ -104,12 +104,16 @@ export function DocumentToolbar({
     "pull" | "push" | null
   >(null);
   const [linkingPageId, setLinkingPageId] = useState<string | null>(null);
+  const [creatingParentPageId, setCreatingParentPageId] = useState<
+    string | null
+  >(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const isConnected = connection?.connected ?? false;
   const isLinked = !!syncStatus?.pageId;
   const hasConflict = syncStatus?.hasConflict ?? false;
+  const requiresExplicitCreateParent = connection?.mode === "api_key";
 
   const isWorking =
     linkDocument.isPending ||
@@ -229,19 +233,27 @@ export function DocumentToolbar({
     [resolveConflict, queryClient, documentId],
   );
 
-  const handleCreateAndLink = useCallback(() => {
-    createAndLink.mutate(undefined, {
-      onSuccess: () => {
-        toast.success("Created and linked to new Notion page.");
-        setSearchQuery("");
-      },
-      onError: (error) => {
-        toast.error(
-          error instanceof Error ? error.message : "Failed to create page.",
-        );
-      },
-    });
-  }, [createAndLink]);
+  const handleCreateAndLink = useCallback(
+    (parentPageIdOrUrl?: string) => {
+      if (parentPageIdOrUrl) setCreatingParentPageId(parentPageIdOrUrl);
+      createAndLink.mutate(
+        parentPageIdOrUrl ? { parentPageIdOrUrl } : undefined,
+        {
+          onSuccess: () => {
+            toast.success("Created and linked to new Notion page.");
+            setSearchQuery("");
+          },
+          onError: (error) => {
+            toast.error(
+              error instanceof Error ? error.message : "Failed to create page.",
+            );
+          },
+          onSettled: () => setCreatingParentPageId(null),
+        },
+      );
+    },
+    [createAndLink],
+  );
 
   const handleSetup = () => {
     toast.info("Set up Notion in the sidebar first — click the Notion icon.");
@@ -504,28 +516,35 @@ export function DocumentToolbar({
                 <div className="max-h-64 overflow-y-auto border-t border-border">
                   {/* Create new page option */}
                   <div className="p-1.5 border-b border-border">
-                    <button
-                      onClick={handleCreateAndLink}
-                      disabled={isWorking}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left rounded-md hover:bg-accent disabled:opacity-40"
-                    >
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-                        {createAndLink.isPending ? (
-                          <IconLoader2
-                            size={14}
-                            className="animate-spin text-muted-foreground"
-                          />
-                        ) : (
-                          <IconPlus
-                            size={14}
-                            className="text-muted-foreground"
-                          />
-                        )}
-                      </span>
-                      <span className="text-xs font-medium">
-                        Create new page in Notion
-                      </span>
-                    </button>
+                    {requiresExplicitCreateParent ? (
+                      <p className="px-2.5 py-2 text-xs text-muted-foreground">
+                        Choose a parent page below before creating a new Notion
+                        page.
+                      </p>
+                    ) : (
+                      <button
+                        onClick={() => handleCreateAndLink()}
+                        disabled={isWorking}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left rounded-md hover:bg-accent disabled:opacity-40"
+                      >
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+                          {createAndLink.isPending ? (
+                            <IconLoader2
+                              size={14}
+                              className="animate-spin text-muted-foreground"
+                            />
+                          ) : (
+                            <IconPlus
+                              size={14}
+                              className="text-muted-foreground"
+                            />
+                          )}
+                        </span>
+                        <span className="text-xs font-medium">
+                          Create new page in Notion
+                        </span>
+                      </button>
+                    )}
                   </div>
 
                   {searchLoading ? (
@@ -538,45 +557,73 @@ export function DocumentToolbar({
                   ) : searchResults?.results.length ? (
                     <div className="p-1.5">
                       {searchResults.results.map((page) => (
-                        <button
+                        <div
                           key={page.id}
-                          onClick={() => handleLink(page.id)}
-                          disabled={isWorking}
-                          className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left rounded-md hover:bg-accent disabled:opacity-40"
+                          className="flex items-center gap-1 rounded-md hover:bg-accent"
                         >
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center text-sm">
-                            {linkingPageId === page.id ? (
-                              <IconLoader2
-                                size={14}
-                                className="animate-spin text-muted-foreground"
-                              />
-                            ) : (
-                              page.icon || (
-                                <IconFileText
+                          <button
+                            onClick={() => handleLink(page.id)}
+                            disabled={isWorking}
+                            className="min-w-0 flex-1 flex items-center gap-2.5 px-2.5 py-2 text-left rounded-md disabled:opacity-40"
+                          >
+                            <span className="flex h-5 w-5 shrink-0 items-center justify-center text-sm">
+                              {linkingPageId === page.id ? (
+                                <IconLoader2
                                   size={14}
-                                  className="text-muted-foreground"
+                                  className="animate-spin text-muted-foreground"
                                 />
-                              )
-                            )}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-medium truncate">
-                              {page.title}
-                            </p>
-                            {linkingPageId === page.id ? (
-                              <p className="text-[10px] text-muted-foreground">
-                                Importing from Notion…
+                              ) : (
+                                page.icon || (
+                                  <IconFileText
+                                    size={14}
+                                    className="text-muted-foreground"
+                                  />
+                                )
+                              )}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-medium truncate">
+                                {page.title}
                               </p>
-                            ) : page.lastEditedTime ? (
-                              <p className="text-[10px] text-muted-foreground">
-                                Edited{" "}
-                                {new Date(
-                                  page.lastEditedTime,
-                                ).toLocaleDateString()}
-                              </p>
-                            ) : null}
-                          </div>
-                        </button>
+                              {linkingPageId === page.id ? (
+                                <p className="text-[10px] text-muted-foreground">
+                                  Importing from Notion…
+                                </p>
+                              ) : page.lastEditedTime ? (
+                                <p className="text-[10px] text-muted-foreground">
+                                  Edited{" "}
+                                  {new Date(
+                                    page.lastEditedTime,
+                                  ).toLocaleDateString()}
+                                </p>
+                              ) : null}
+                            </div>
+                          </button>
+                          {requiresExplicitCreateParent && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  onClick={() => handleCreateAndLink(page.id)}
+                                  disabled={isWorking}
+                                  className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-40"
+                                  aria-label={`Create new page inside ${page.title}`}
+                                >
+                                  {creatingParentPageId === page.id ? (
+                                    <IconLoader2
+                                      size={13}
+                                      className="animate-spin"
+                                    />
+                                  ) : (
+                                    <IconPlus size={13} />
+                                  )}
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Create new page inside this page
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
                       ))}
                     </div>
                   ) : debouncedQuery || searchResults ? (

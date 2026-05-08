@@ -77,6 +77,7 @@ export {
   PromptComposer,
   type PromptComposerProps,
   type PromptComposerFile,
+  type PromptComposerSubmitOptions,
 } from "./composer/PromptComposer.js";
 export {
   useChatThreads,
@@ -127,6 +128,7 @@ export {
   trackSessionStatus,
   configureTracking,
   setSentryUser,
+  captureError,
   captureClientException,
   type ClientCaptureContext,
 } from "./analytics.js";

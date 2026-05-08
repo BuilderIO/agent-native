@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -203,7 +204,11 @@ export default function Index() {
   }, [createDesign, navigate]);
 
   const handleSubmitPrompt = useCallback(
-    (prompt: string, files: UploadedFile[]) => {
+    (
+      prompt: string,
+      files: UploadedFile[],
+      options: PromptComposerSubmitOptions,
+    ) => {
       // Derive a title from the prompt — first line / first ~60 chars
       const derivedTitle =
         prompt
@@ -214,7 +219,7 @@ export default function Index() {
 
       const { id, title } = createDesign(derivedTitle);
 
-      writePendingGeneration(id, { prompt, files, title });
+      writePendingGeneration(id, { prompt, files, title, ...options });
 
       setShowNewPrompt(false);
       navigate(`/design/${id}`);

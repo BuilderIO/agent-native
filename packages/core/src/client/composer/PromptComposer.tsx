@@ -24,6 +24,7 @@ import { cn } from "../utils.js";
 import { TiptapComposer, type TiptapComposerHandle } from "./TiptapComposer.js";
 import type { Reference } from "./types.js";
 import { useChatModels } from "../use-chat-models.js";
+import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { isPastedTextAttachmentName } from "./pasted-text.js";
 import { PastedTextChip } from "./PastedTextChip.js";
 
@@ -36,12 +37,19 @@ const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
  */
 export type PromptComposerFile = File;
 
+export interface PromptComposerSubmitOptions {
+  model?: string;
+  engine?: string;
+  effort?: ReasoningEffort;
+}
+
 export interface PromptComposerProps {
   /** Called when the user submits the composer. */
   onSubmit: (
     text: string,
     files: PromptComposerFile[],
     references: Reference[],
+    options: PromptComposerSubmitOptions,
   ) => void;
   placeholder?: string;
   disabled?: boolean;
@@ -292,9 +300,19 @@ function PromptComposerInner({
       const finalText = pastedTextBlocks.length
         ? [text.trim(), ...pastedTextBlocks].filter(Boolean).join("\n\n")
         : text;
-      onSubmit(finalText, files, references);
+      onSubmit(finalText, files, references, {
+        model: showModelSelector ? models.selectedModel : undefined,
+        engine: showModelSelector ? models.selectedEngine : undefined,
+        effort: showModelSelector ? models.selectedEffort : undefined,
+      });
     },
-    [onSubmit],
+    [
+      models.selectedEffort,
+      models.selectedEngine,
+      models.selectedModel,
+      onSubmit,
+      showModelSelector,
+    ],
   );
 
   return (
@@ -336,9 +354,9 @@ function PromptComposerInner({
  * the Dispatch new-app flow, etc.).
  *
  * The host owns submission: when the user presses Enter or clicks submit,
- * `onSubmit(text, files, references)` is called. PromptComposer runs its own
- * minimal assistant-ui runtime so it can be dropped into any subtree without
- * needing the outer chat to be mounted.
+ * `onSubmit(text, files, references, options)` is called. PromptComposer runs
+ * its own minimal assistant-ui runtime so it can be dropped into any subtree
+ * without needing the outer chat to be mounted.
  */
 export function PromptComposer(props: PromptComposerProps) {
   const attachmentAdapter = useMemo(

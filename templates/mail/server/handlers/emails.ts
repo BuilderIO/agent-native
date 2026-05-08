@@ -384,6 +384,25 @@ function filterInboxScopedMessages(
   );
 }
 
+function isGmailQuotaError(message: string): boolean {
+  return /\b(?:429|quota|rate limit|rateLimitExceeded|userRateLimitExceeded)\b/i.test(
+    message,
+  );
+}
+
+function retryAfterSecondsFromErrors(errors: Array<{ error: string }>): number {
+  let retryAfter = 60;
+  for (const { error } of errors) {
+    const match = error.match(/retry in\s+(\d+)s/i);
+    if (!match) continue;
+    const seconds = Number(match[1]);
+    if (Number.isFinite(seconds) && seconds > retryAfter) {
+      retryAfter = seconds;
+    }
+  }
+  return Math.min(retryAfter, 5 * 60);
+}
+
 // ─── Email list ───────────────────────────────────────────────────────────────
 
 export const listEmails = defineEventHandler(async (event: H3Event) => {
@@ -447,7 +466,13 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         });
       if (messages.length === 0 && errors.length > 0) {
         // All accounts failed — surface as error
-        setResponseStatus(event, 502);
+        if (errors.every((e) => isGmailQuotaError(e.error))) {
+          const retryAfter = retryAfterSecondsFromErrors(errors);
+          setResponseStatus(event, 429);
+          setResponseHeader(event, "Retry-After", String(retryAfter));
+        } else {
+          setResponseStatus(event, 502);
+        }
         return {
           error: errors.map((e) => `${e.email}: ${e.error}`).join("; "),
         };

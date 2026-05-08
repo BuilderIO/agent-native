@@ -5,12 +5,12 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server";
 import { readAppState } from "@agent-native/core/application-state";
-import { getDashboard } from "../server/lib/dashboards-store";
+import { getAnalysis, getDashboard } from "../server/lib/dashboards-store";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current view, dashboard config (if on a dashboard), and any active URL filter params. Always call this first before taking any action.",
+    "See what the user is currently looking at on screen. Returns the current view, dashboard config (if on a dashboard), analysis details (if on an analysis), and any active URL filter params. Always call this first before taking any action.",
   schema: z.object({}),
   http: false,
   run: async () => {
@@ -58,6 +58,33 @@ export default defineAction({
       screen.page = "analyses";
       if (nav?.analysisId) {
         screen.analysisId = nav.analysisId;
+        try {
+          const orgId = getRequestOrgId() || null;
+          const email = getRequestUserEmail();
+          if (email) {
+            const analysis = await getAnalysis(nav.analysisId, {
+              email,
+              orgId,
+            });
+            if (analysis) {
+              screen.analysis = {
+                id: analysis.id,
+                name: analysis.name,
+                description: analysis.description,
+                question: analysis.question,
+                instructions: analysis.instructions,
+                dataSources: analysis.dataSources,
+                resultMarkdown: analysis.resultMarkdown,
+                resultData: analysis.resultData,
+                author: analysis.author,
+                updatedAt: analysis.updatedAt,
+                visibility: analysis.visibility,
+              };
+            }
+          }
+        } catch {
+          // Analysis details not found
+        }
       }
     } else if (nav?.view === "extensions") {
       screen.page = "extensions";

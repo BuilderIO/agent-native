@@ -336,7 +336,8 @@ function ModeSelector({
           side="top"
           align="end"
           sideOffset={6}
-          className="w-60 rounded-lg border border-border bg-popover shadow-lg z-50 py-1 animate-in fade-in-0 zoom-in-95"
+          data-agent-native-composer-popover="true"
+          className="z-[260] w-60 rounded-lg border border-border bg-popover py-1 shadow-lg animate-in fade-in-0 zoom-in-95"
           style={{ fontSize: 13 }}
         >
           <button
@@ -574,7 +575,8 @@ function ModelSelector({
           side="top"
           align="end"
           sideOffset={6}
-          className="w-72 max-h-[500px] overflow-y-auto rounded-lg border border-border bg-popover shadow-lg z-50 py-1 animate-in fade-in-0 zoom-in-95"
+          data-agent-native-composer-popover="true"
+          className="z-[260] max-h-[500px] w-72 overflow-y-auto rounded-lg border border-border bg-popover py-1 shadow-lg animate-in fade-in-0 zoom-in-95"
           style={{ fontSize: 13 }}
         >
           {showBuilderCta && (

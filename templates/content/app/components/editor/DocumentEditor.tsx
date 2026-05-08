@@ -281,7 +281,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   );
 
   return (
-    <div className="flex-1 flex min-h-0">
+    <div className="relative flex-1 flex min-h-0">
       <div className="flex-1 flex flex-col min-h-0">
         <DocumentToolbar
           documentId={documentId}

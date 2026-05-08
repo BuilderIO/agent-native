@@ -75,4 +75,40 @@ describe("googleFetch quota handling", () => {
     ).rejects.toThrow(/Rate limit cooldown/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("splits large Gmail batches by quota cost instead of sending one burst", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const requestBody = String(init?.body || "");
+      const partCount = (requestBody.match(/Content-ID: <part-/g) || []).length;
+      const boundary = "batch_chunked";
+      const parts = Array.from({ length: partCount }, (_, i) =>
+        [
+          `--${boundary}`,
+          "Content-Type: application/http",
+          `Content-ID: <response-part-${i}>`,
+          "",
+          "HTTP/1.1 200 OK",
+          "Content-Type: application/json",
+          "",
+          JSON.stringify({ id: `message-${i}` }),
+        ].join("\r\n"),
+      );
+      const body = [...parts, `--${boundary}--`, ""].join("\r\n");
+      return new Response(body, {
+        status: 200,
+        headers: { "content-type": `multipart/mixed; boundary=${boundary}` },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ids = Array.from({ length: 37 }, (_, i) => `msg-${i}`);
+    const result = await gmailBatchGetMessages(
+      "chunk-token-c",
+      ids,
+      "metadata",
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result).toHaveLength(37);
+  });
 });

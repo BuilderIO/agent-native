@@ -6,6 +6,7 @@ export {
   PromptComposer,
   type PromptComposerProps,
   type PromptComposerFile,
+  type PromptComposerSubmitOptions,
 } from "./PromptComposer.js";
 export { MentionPopover } from "./MentionPopover.js";
 export { useMentionSearch } from "./use-mention-search.js";

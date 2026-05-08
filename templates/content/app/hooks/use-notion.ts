@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { appApiPath } from "@agent-native/core/client";
 import type {
+  CreateNotionPageRequest,
   DocumentSyncStatus,
   LinkNotionPageRequest,
   NotionConnectionStatus,
@@ -149,10 +150,14 @@ export function useResolveDocumentSyncConflict(documentId: string) {
 export function useCreateAndLinkNotionPage(documentId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () =>
+    mutationFn: (data?: CreateNotionPageRequest) =>
       fetchJson<DocumentSyncStatus>(
         `/api/documents/${documentId}/notion/create-and-link`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data ?? {}),
+        },
       ),
     onSuccess: () => invalidateDocumentQueries(queryClient, documentId),
   });

@@ -42,6 +42,7 @@ import {
   compressBlobIfTooLarge,
   formatMb,
 } from "@/lib/compress";
+import { cn } from "@/lib/utils";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
 // and cannot be bundled for the browser).
@@ -164,10 +165,44 @@ function isMicrophonePermissionError(message: string): boolean {
   return isPermissionError(message) && /microphone|mic/i.test(message);
 }
 
-function permissionGuidance(message: string): string | null {
+function wantsMicrophone(micDeviceId?: string | null): boolean {
+  return micDeviceId !== NO_MIC_DEVICE_ID;
+}
+
+function getModePermissionLabels(
+  mode?: RecordingMode,
+  micDeviceId?: string | null,
+): Array<"screen" | "camera" | "microphone"> {
+  const labels: Array<"screen" | "camera" | "microphone"> = [];
+  if (mode === "screen" || mode === "screen+camera") labels.push("screen");
+  if (mode === "camera" || mode === "screen+camera") labels.push("camera");
+  if (mode && wantsMicrophone(micDeviceId)) labels.push("microphone");
+  return labels;
+}
+
+function getPreparingSourcesCopy(
+  mode: RecordingMode,
+  micDeviceId?: string | null,
+): string {
+  const labels = getModePermissionLabels(mode, micDeviceId);
+  if (labels.length === 0) return "Choose a source before recording starts.";
+  const readable = labels.map((label) =>
+    label === "microphone" ? "microphone" : label,
+  );
+  const last = readable.pop();
+  return `Allow ${readable.length ? `${readable.join(", ")} and ${last}` : last} access before recording starts.`;
+}
+
+function permissionGuidance(
+  message: string,
+  opts?: { mode?: RecordingMode; micDeviceId?: string | null },
+): string | null {
   if (!isPermissionError(message)) return null;
   if (isPolicyPermissionError(message)) {
-    return "Browser site permissions are not the blocker here. Open Clips directly in a browser tab, or use an app frame that delegates camera, microphone, and screen capture.";
+    if (opts?.mode === "screen") {
+      return "Browser site permissions are not the blocker here. Open Clips directly in a browser tab, or use an app frame that delegates screen capture.";
+    }
+    return "Browser site permissions are not the blocker here. Open Clips directly in a browser tab, or use an app frame that delegates the selected capture sources.";
   }
   if (isScreenPermissionError(message)) {
     if (isMacPlatform()) {
@@ -188,16 +223,33 @@ function permissionGuidance(message: string): string | null {
     return "Open this site's browser settings, allow Microphone, then reload Clips.";
   }
   if (isMacPlatform()) {
-    return "Check this site's browser permissions first. If it still fails, open macOS System Settings > Privacy & Security and enable Screen & System Audio Recording, Camera, and Microphone for your browser, then quit and reopen it.";
+    const labels = getModePermissionLabels(opts?.mode, opts?.micDeviceId);
+    if (labels.length > 0) {
+      const readable = labels
+        .map((label) =>
+          label === "screen"
+            ? "Screen & System Audio Recording"
+            : label === "camera"
+              ? "Camera"
+              : "Microphone",
+        )
+        .join(", ");
+      return `Check this site's browser permissions first. If it still fails, enable ${readable} for your browser in macOS System Settings > Privacy & Security, then quit and reopen it.`;
+    }
+    return "Check this site's browser permissions first. If it still fails, open macOS System Settings > Privacy & Security for your browser, then quit and reopen it.";
   }
-  return "Open this site's browser settings and allow Camera and Microphone, then reload this page.";
+  return "Open this site's browser settings and allow the selected capture sources, then reload this page.";
 }
 
-function permissionSettingsUrl(message: string): string | null {
+function permissionSettingsUrl(
+  message: string,
+  mode?: RecordingMode,
+): string | null {
   if (!isMacPlatform() || isPolicyPermissionError(message)) return null;
   if (isScreenPermissionError(message)) return MAC_SCREEN_RECORDING_PREF_URL;
   if (isCameraPermissionError(message)) return MAC_CAMERA_PREF_URL;
   if (isMicrophonePermissionError(message)) return MAC_MICROPHONE_PREF_URL;
+  if (mode === "screen") return MAC_SCREEN_RECORDING_PREF_URL;
   return MAC_SCREEN_RECORDING_PREF_URL;
 }
 
@@ -323,14 +375,19 @@ function DesktopRecorderCallout() {
 
 function RecordingErrorCard({
   error,
+  mode,
+  micDeviceId,
   onTryAgain,
 }: {
   error: string;
+  mode: RecordingMode;
+  micDeviceId: string | null;
   onTryAgain: () => void;
 }) {
-  const guidance = permissionGuidance(error);
+  const guidance = permissionGuidance(error, { mode, micDeviceId });
   const permissionError = isPermissionError(error);
   const policyError = isPolicyPermissionError(error);
+  const settings = getModePermissionLabels(mode, micDeviceId);
   const directUrl =
     typeof window !== "undefined" ? window.location.href : "/record";
 
@@ -372,43 +429,61 @@ function RecordingErrorCard({
             </a>
           </Button>
         )}
-        {permissionError && isMacPlatform() && !policyError && (
-          <div className="grid grid-cols-3 gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                window.location.href = MAC_SCREEN_RECORDING_PREF_URL;
-              }}
-              className="gap-1.5 px-2 text-xs"
+        {permissionError &&
+          isMacPlatform() &&
+          !policyError &&
+          settings.length > 0 && (
+            <div
+              className={cn(
+                "grid gap-2",
+                settings.length === 1
+                  ? "grid-cols-1"
+                  : settings.length === 2
+                    ? "grid-cols-2"
+                    : "grid-cols-3",
+              )}
             >
-              <IconDeviceDesktop className="h-3.5 w-3.5" />
-              Screen
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                window.location.href = MAC_CAMERA_PREF_URL;
-              }}
-              className="gap-1.5 px-2 text-xs"
-            >
-              <IconCamera className="h-3.5 w-3.5" />
-              Camera
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                window.location.href = MAC_MICROPHONE_PREF_URL;
-              }}
-              className="gap-1.5 px-2 text-xs"
-            >
-              <IconMicrophone className="h-3.5 w-3.5" />
-              Mic
-            </Button>
-          </div>
-        )}
+              {settings.includes("screen") && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    window.location.href = MAC_SCREEN_RECORDING_PREF_URL;
+                  }}
+                  className="gap-1.5 px-2 text-xs"
+                >
+                  <IconDeviceDesktop className="h-3.5 w-3.5" />
+                  Screen
+                </Button>
+              )}
+              {settings.includes("camera") && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    window.location.href = MAC_CAMERA_PREF_URL;
+                  }}
+                  className="gap-1.5 px-2 text-xs"
+                >
+                  <IconCamera className="h-3.5 w-3.5" />
+                  Camera
+                </Button>
+              )}
+              {settings.includes("microphone") && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    window.location.href = MAC_MICROPHONE_PREF_URL;
+                  }}
+                  className="gap-1.5 px-2 text-xs"
+                >
+                  <IconMicrophone className="h-3.5 w-3.5" />
+                  Mic
+                </Button>
+              )}
+            </div>
+          )}
       </div>
     </div>
   );
@@ -523,8 +598,9 @@ export default function RecordRoute() {
   }, [previewStream]);
 
   const showRecordingErrorToast = useCallback((message: string) => {
-    const guidance = permissionGuidance(message);
-    const settingsUrl = permissionSettingsUrl(message);
+    const pendingOpts = pendingStartOptsRef.current;
+    const guidance = permissionGuidance(message, pendingOpts ?? undefined);
+    const settingsUrl = permissionSettingsUrl(message, pendingOpts?.mode);
     toast.error("Couldn't start recording", {
       description: guidance ?? message,
       duration: guidance ? 20_000 : 10_000,
@@ -1465,7 +1541,10 @@ export default function RecordRoute() {
         <div className="flex min-h-screen flex-col items-center justify-center gap-3 text-muted-foreground">
           <div className="text-sm">Preparing sources…</div>
           <div className="text-xs">
-            Allow screen, microphone, and speech access before recording starts.
+            {getPreparingSourcesCopy(
+              recordingMode,
+              pendingStartOptsRef.current?.micDeviceId,
+            )}
           </div>
         </div>
       )}
@@ -1605,6 +1684,8 @@ export default function RecordRoute() {
           ) : (
             <RecordingErrorCard
               error={error}
+              mode={recordingMode}
+              micDeviceId={pendingStartOptsRef.current?.micDeviceId ?? null}
               onTryAgain={() => {
                 // Re-run the same flow with the current mode/surface — users
                 // expect "Try again" to retry, not to wipe their selections.

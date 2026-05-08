@@ -11,6 +11,7 @@ import {
 } from "./sse-event-processor.js";
 import { agentNativePath } from "./api-path.js";
 import { normalizeChatError } from "./error-format.js";
+import { captureError } from "./analytics.js";
 import { unwrapAttachmentEnvelope } from "./composer/pasted-text.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import type {
@@ -626,6 +627,49 @@ export function createAgentChatAdapter(options?: {
         }
       };
 
+      const captureChatClientError = (
+        error: unknown,
+        phase: string,
+        extra: Record<string, unknown> = {},
+      ) => {
+        captureError(error, {
+          tags: {
+            source: "agent-chat-client",
+            phase,
+            hasThread: threadId ? "true" : "false",
+            hasRun: runId ? "true" : "false",
+            lastAutoContinueReason: lastAutoContinueReason ?? undefined,
+          },
+          extra: {
+            apiUrl,
+            tabId,
+            threadId,
+            runId,
+            lastSeq,
+            contentParts: content.length,
+            attemptedRunIds: [...attemptedRunIds],
+            startupRecoveryAttempts,
+            staleRunContinuationAttempts,
+            stalledTransientContinuationAttempts,
+            totalTransientContinuationAttempts,
+            ...extra,
+          },
+          contexts: {
+            agentChat: {
+              tabId,
+              threadId,
+              runId,
+              lastSeq,
+              contentParts: content.length,
+              startupRecoveryAttempts,
+              staleRunContinuationAttempts,
+              stalledTransientContinuationAttempts,
+              totalTransientContinuationAttempts,
+            },
+          },
+        });
+      };
+
       try {
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
@@ -643,13 +687,30 @@ export function createAgentChatAdapter(options?: {
           unknown
         > {
           if (!runId) return false;
+          let lastReconnectError: unknown = null;
+          let reconnectErrorCaptured = false;
           for (let attempt = 0; attempt < MAX_RECONNECT_ATTEMPTS; attempt++) {
             try {
               const reconnectRes = await fetch(
                 `${apiUrl}/runs/${encodeURIComponent(runId)}/events?after=${lastSeq + 1}`,
                 { signal: abortSignal },
               );
-              if (!reconnectRes.ok || !reconnectRes.body) break;
+              if (!reconnectRes.ok || !reconnectRes.body) {
+                lastReconnectError = new Error(
+                  `Reconnect failed: ${reconnectRes.status}`,
+                );
+                captureChatClientError(
+                  lastReconnectError,
+                  "reconnect-current-response",
+                  {
+                    status: reconnectRes.status,
+                    hasBody: Boolean(reconnectRes.body),
+                    attempt,
+                  },
+                );
+                reconnectErrorCaptured = true;
+                break;
+              }
 
               yield* readSSEStream(
                 reconnectRes.body,
@@ -678,8 +739,15 @@ export function createAgentChatAdapter(options?: {
                 }
                 return false;
               }
+              lastReconnectError = reconnectErr;
               await retryDelay(attempt, abortSignal);
             }
+          }
+          if (lastReconnectError && !reconnectErrorCaptured) {
+            captureChatClientError(
+              lastReconnectError,
+              "reconnect-current-failed",
+            );
           }
           return false;
         };
@@ -707,13 +775,24 @@ export function createAgentChatAdapter(options?: {
           unknown
         > {
           if (!threadId) return false;
+          let lastActiveRunError: unknown = null;
           for (let attempt = 0; attempt < MAX_RECONNECT_ATTEMPTS; attempt++) {
             try {
               const activeRes = await fetch(
                 `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
                 { signal: abortSignal },
               );
-              if (!activeRes.ok) return false;
+              if (!activeRes.ok) {
+                lastActiveRunError = new Error(
+                  `Active run lookup failed: ${activeRes.status}`,
+                );
+                captureChatClientError(
+                  lastActiveRunError,
+                  "reconnect-active-response",
+                  { status: activeRes.status, attempt },
+                );
+                return false;
+              }
               const active = await activeRes.json();
               if (active?.active && active.runId) {
                 const activeRunId = String(active.runId);
@@ -735,8 +814,15 @@ export function createAgentChatAdapter(options?: {
                 clearActiveRun();
                 return true;
               }
+              lastActiveRunError = activeErr;
               await retryDelay(attempt, abortSignal);
             }
+          }
+          if (lastActiveRunError) {
+            captureChatClientError(
+              lastActiveRunError,
+              "reconnect-active-failed",
+            );
           }
           return false;
         };
@@ -1039,6 +1125,9 @@ export function createAgentChatAdapter(options?: {
               if (!continuation.ok) {
                 const message =
                   "The agent connection kept failing after several automatic recovery attempts.";
+                captureChatClientError(err, "auto-continuation-exhausted", {
+                  autoContinueReason: err.reason,
+                });
                 const runError = {
                   message,
                   details: connectionRecoveryDetails(),
@@ -1133,6 +1222,7 @@ export function createAgentChatAdapter(options?: {
               if (!continuation.ok) {
                 const message =
                   "The agent connection kept failing after several automatic recovery attempts.";
+                captureChatClientError(err, "recovery-exhausted");
                 const runError = {
                   message,
                   details: connectionRecoveryDetails(),
@@ -1184,6 +1274,9 @@ export function createAgentChatAdapter(options?: {
             }
 
             // No partial work exists, so this is still a real startup failure.
+            captureChatClientError(err, "startup-failed", {
+              retryableStartupError: isRetryableStartupError(errMsg),
+            });
             const normalized = normalizeChatError(errMsg);
             const runError = {
               message: normalized.message,

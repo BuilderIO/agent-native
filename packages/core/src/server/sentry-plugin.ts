@@ -29,6 +29,7 @@ import {
   setSentryRequestContext,
   setSentryUserForRequest,
 } from "./sentry.js";
+import { registerErrorCaptureProvider } from "./capture-error.js";
 import { addRequestContextObserver } from "./request-context.js";
 import { getHeader, getMethod, type H3Event } from "h3";
 
@@ -80,6 +81,8 @@ export function createSentryPlugin(): NitroPluginDef {
       // call-site overhead for every request to no effect.
       return;
     }
+
+    registerErrorCaptureProvider("sentry", captureRouteError);
 
     // Per-request: resolve session and attach to Sentry isolation scope so
     // any exception captured later in the request carries the user. Wrapped

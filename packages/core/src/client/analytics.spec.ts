@@ -201,4 +201,22 @@ describe("browser analytics pageviews", () => {
     );
     expect(sentryMock.setTag).toHaveBeenCalledWith("runtime", "browser");
   });
+
+  it("captures browser errors through the generic captureError helper", async () => {
+    installBrowser();
+    vi.stubEnv(
+      "VITE_SENTRY_CLIENT_DSN",
+      "https://public@example/4511270423822336",
+    );
+    const { captureError } = await freshAnalytics();
+
+    const err = new Error("boom");
+    const result = captureError(err, {
+      tags: { source: "agent-chat-client" },
+      extra: { runId: "run_123" },
+    });
+
+    expect(result).toBe("event_id");
+    expect(sentryMock.captureException).toHaveBeenCalledWith(err);
+  });
 });

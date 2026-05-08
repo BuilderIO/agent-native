@@ -157,7 +157,7 @@ function capturePolicyBlockMessage(source: CaptureSource): string | null {
     source === "screen" &&
     isCaptureFeatureBlockedByPolicy("display-capture")
   ) {
-    return "This page is blocking screen recording via Permissions-Policy. Open Clips directly in a browser tab, or use a frame that allows screen capture, camera, and microphone.";
+    return "This page is blocking screen recording via Permissions-Policy. Open Clips directly in a browser tab, or use a frame that allows screen capture.";
   }
   if (source === "camera" && isCaptureFeatureBlockedByPolicy("camera")) {
     return "This page is blocking camera access via Permissions-Policy. Open Clips directly in a browser tab, or use a frame that allows camera and microphone.";
@@ -166,7 +166,7 @@ function capturePolicyBlockMessage(source: CaptureSource): string | null {
     source === "microphone" &&
     isCaptureFeatureBlockedByPolicy("microphone")
   ) {
-    return "This page is blocking microphone access via Permissions-Policy. Open Clips directly in a browser tab, or use a frame that allows camera and microphone.";
+    return "This page is blocking microphone access via Permissions-Policy. Open Clips directly in a browser tab, or use a frame that allows microphone access.";
   }
   return null;
 }
@@ -329,6 +329,21 @@ export class RecorderEngine {
 
     try {
       if (!isBrowserSecureContext()) {
+        if (wantsDisplay && !wantsCamera && !wantsMic) {
+          throw new Error(
+            "Screen recording prompts require HTTPS or localhost. Open Clips on a secure URL, then try again.",
+          );
+        }
+        if (!wantsDisplay && wantsCamera && !wantsMic) {
+          throw new Error(
+            "Camera prompts require HTTPS or localhost. Open Clips on a secure URL, then try again.",
+          );
+        }
+        if (!wantsDisplay && !wantsCamera && wantsMic) {
+          throw new Error(
+            "Microphone prompts require HTTPS or localhost. Open Clips on a secure URL, then try again.",
+          );
+        }
         throw new Error(
           "Camera, microphone, and screen recording prompts require HTTPS or localhost. Open Clips on a secure URL, then try again.",
         );
@@ -1295,6 +1310,21 @@ export class RecorderEngine {
     const policyBlock = capturePolicyBlockMessage(source);
     if (policyBlock) return new Error(policyBlock);
     if (!isBrowserSecureContext()) {
+      if (source === "screen") {
+        return new Error(
+          "Screen recording prompts require HTTPS or localhost. Open Clips on a secure URL, then try again.",
+        );
+      }
+      if (source === "camera") {
+        return new Error(
+          "Camera prompts require HTTPS or localhost. Open Clips on a secure URL, then try again.",
+        );
+      }
+      if (source === "microphone") {
+        return new Error(
+          "Microphone prompts require HTTPS or localhost. Open Clips on a secure URL, then try again.",
+        );
+      }
       return new Error(
         "Camera, microphone, and screen recording prompts require HTTPS or localhost. Open Clips on a secure URL, then try again.",
       );
@@ -1343,7 +1373,7 @@ export class RecorderEngine {
 
     if (/Permission denied|NotAllowedError|denied/i.test(combined)) {
       return new Error(
-        "Screen, camera, or microphone access was blocked by the browser, macOS, or this app frame.",
+        "The selected capture source was blocked by the browser, macOS, or this app frame.",
       );
     }
     if (/NotFoundError|no device/i.test(combined)) {

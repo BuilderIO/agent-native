@@ -3,7 +3,7 @@
  *
  * The sidebar always looks the same as the in-app agent panel: Chat | CLI | Workspace.
  * A toggle in the settings cog switches between Dev and Prod mode:
- * - Dev: frame renders its own chat/CLI in the sidebar (code editing agent)
+ * - Dev: frame renders its own sidebar; Chat uses code-agent modes only with local code access
  * - Prod: frame sidebar disappears, app's own agent sidebar shows inside iframe
  *
  * When collapsed in dev mode, the sidebar is 100% gone.
@@ -11,7 +11,6 @@
 
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { TEMPLATES, getTemplate } from "@agent-native/shared-app-config";
-import { IconAppWindow, IconX } from "@tabler/icons-react";
 
 // Lazy-load heavy components
 const MultiTabAssistantChat = lazy(() =>
@@ -39,8 +38,9 @@ const SIDEBAR_WIDTH_KEY = "frame-sidebar-width";
 const FRAME_MODE_KEY = "frame-mode";
 const SIDEBAR_OPEN_KEY = "frame-sidebar-open";
 const SIDEBAR_FULLSCREEN_KEY = "frame-sidebar-fullscreen";
-const DESKTOP_APP_NUDGE_DISMISSED_KEY = "frame.desktop-app-nudge.dismissed";
 const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
+const OPEN_DESKTOP_URL = "agentnative://open";
+const DOWNLOAD_DESKTOP_URL = "https://agent-native.com/download";
 
 function getAppId(): string {
   const params = new URLSearchParams(window.location.search);
@@ -78,61 +78,6 @@ function useAgentNativeDesktop() {
   }, []);
 
   return isDesktop;
-}
-
-function DesktopAppNudge() {
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    if (isAgentNativeDesktop()) return;
-    try {
-      if (localStorage.getItem(DESKTOP_APP_NUDGE_DISMISSED_KEY) === "1") {
-        return;
-      }
-    } catch {}
-    setVisible(true);
-  }, []);
-
-  function dismiss() {
-    setVisible(false);
-    try {
-      localStorage.setItem(DESKTOP_APP_NUDGE_DISMISSED_KEY, "1");
-    } catch {}
-  }
-
-  if (!visible) return null;
-
-  return (
-    <div className="mx-2 my-1.5 rounded-md border border-border/70 bg-muted/35 px-2.5 py-2 text-[11px] leading-snug text-muted-foreground">
-      <div className="flex items-start gap-2">
-        <IconAppWindow className="mt-0.5 h-3.5 w-3.5 shrink-0 text-foreground/70" />
-        <p className="min-w-0 flex-1">
-          <span className="font-medium text-foreground">
-            Code editing needs Desktop.
-          </span>{" "}
-          Use Desktop for local source/CLI access, or Builder for cloud code
-          changes.{" "}
-          <a
-            href="https://agent-native.com/download"
-            target="_blank"
-            rel="noreferrer"
-            className="font-medium text-foreground underline-offset-2 hover:underline"
-          >
-            Download
-          </a>
-        </p>
-        <button
-          type="button"
-          onClick={dismiss}
-          title="Dismiss desktop app tip"
-          aria-label="Dismiss desktop app tip"
-          className="-mr-1 -mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-        >
-          <IconX className="h-3 w-3" />
-        </button>
-      </div>
-    </div>
-  );
 }
 
 export function App() {
@@ -431,28 +376,22 @@ export function App() {
               }
             >
               <AgentPanel
-                emptyStateText={
-                  isDesktop
-                    ? `Ask me anything about ${app?.label || "your app"}`
-                    : "Open Agent Native Desktop to edit code, use CLI, or browse Workspace files."
-                }
+                emptyStateText={`Ask me anything about ${app?.label || "your app"}`}
                 suggestions={suggestions}
                 onCollapse={() => setSidebarOpen(false)}
                 isFullscreen={sidebarFullscreen}
                 onToggleFullscreen={() => setSidebarFullscreen((prev) => !prev)}
                 devAppUrl={appUrl}
                 storageKey={appId}
-                chatNotice={<DesktopAppNudge />}
                 codeAccess={{
                   enabled: isDesktop,
                   unavailableTitle: "Open Desktop to edit code",
                   unavailableDescription:
-                    "Use Agent Native Desktop for local source edits, CLI, and Workspace files, or use Builder for cloud code changes.",
-                  unavailableCtaLabel: "Download Desktop",
-                  unavailableCtaHref: "https://agent-native.com/download",
-                  unavailableSecondaryCtaLabel: "Use Builder",
-                  unavailableComposerPlaceholder:
-                    "Open Desktop to edit code or run CLI.",
+                    "Use Agent Native Desktop for local source edits, CLI, and Workspace files. Download it if it is not installed yet.",
+                  unavailableCtaLabel: "Open Desktop",
+                  unavailableCtaHref: OPEN_DESKTOP_URL,
+                  unavailableSecondaryCtaLabel: "Download",
+                  unavailableSecondaryCtaHref: DOWNLOAD_DESKTOP_URL,
                 }}
               />
             </Suspense>

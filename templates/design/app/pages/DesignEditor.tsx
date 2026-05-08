@@ -32,6 +32,7 @@ import {
   AgentToggleButton,
   NotificationsBell,
   type CollabUser,
+  type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
 
 import { Button } from "@/components/ui/button";
@@ -100,6 +101,29 @@ interface DesignData {
   designSystemId?: string | null;
   data?: string | null;
   files: DesignFile[];
+}
+
+function formatUploadedFileContext(files: UploadedFile[]): string {
+  if (files.length === 0) return "";
+
+  const lines: string[] = [
+    "",
+    `The user uploaded ${files.length} file(s) for context:`,
+  ];
+
+  files.forEach((file, index) => {
+    lines.push(
+      `${index + 1}. ${file.originalName} (${file.type}, ${(file.size / 1024).toFixed(1)}KB) at path: ${file.path}`,
+    );
+    const text = file.textContent?.trim();
+    if (text) {
+      lines.push(
+        `Extracted text${file.textTruncated ? " (truncated)" : ""}:\n${text}`,
+      );
+    }
+  });
+
+  return lines.join("\n");
 }
 
 function applyInlineStyleToHtml(
@@ -176,22 +200,42 @@ export default function DesignEditor() {
   const [hasPendingGeneration, setHasPendingGeneration] = useState(() =>
     hasFreshPendingGeneration(id),
   );
+  const [generationIssue, setGenerationIssue] = useState<string | null>(null);
+  const generationOutputReadyRef = useRef(false);
+  const generationCompleteTimerRef = useRef<number | null>(null);
+  const clearGenerationCompleteTimer = useCallback(() => {
+    if (generationCompleteTimerRef.current !== null) {
+      window.clearTimeout(generationCompleteTimerRef.current);
+      generationCompleteTimerRef.current = null;
+    }
+  }, []);
   const staleToastShownRef = useRef(false);
   const markGenerationStale = useCallback(() => {
+    clearGenerationCompleteTimer();
     clearPendingGeneration(id);
     setHasPendingGeneration(false);
+    setGenerationIssue("Generation is taking longer than expected. Try again.");
     if (!staleToastShownRef.current) {
       staleToastShownRef.current = true;
       toast.info(
         "Generation is taking longer than expected. You can try again.",
       );
     }
-  }, [id]);
+  }, [clearGenerationCompleteTimer, id]);
   const handleGenerationComplete = useCallback(() => {
-    clearPendingGeneration(id);
-    setHasPendingGeneration(false);
-    staleToastShownRef.current = false;
-  }, [id]);
+    clearGenerationCompleteTimer();
+    generationCompleteTimerRef.current = window.setTimeout(() => {
+      generationCompleteTimerRef.current = null;
+      clearPendingGeneration(id);
+      setHasPendingGeneration(false);
+      staleToastShownRef.current = false;
+      setGenerationIssue(
+        generationOutputReadyRef.current
+          ? null
+          : "Generation stopped before creating files. Check the agent message or try again.",
+      );
+    }, 4000);
+  }, [clearGenerationCompleteTimer, id]);
   const {
     generating,
     submit: agentSubmit,
@@ -215,6 +259,8 @@ export default function DesignEditor() {
   } = useVariantFlow(id);
 
   const { session } = useSession();
+
+  useEffect(() => clearGenerationCompleteTimer, [clearGenerationCompleteTimer]);
 
   // Current user info for collaborative presence
   const currentUser: CollabUser | undefined = session?.email
@@ -322,12 +368,19 @@ export default function DesignEditor() {
 
   const files = design?.files ?? [];
 
+  generationOutputReadyRef.current =
+    files.length > 0 ||
+    (pendingQuestions?.length ?? 0) > 0 ||
+    !!pendingVariants;
+
   useEffect(() => {
     if (!id || files.length === 0) return;
+    clearGenerationCompleteTimer();
     clearPendingGeneration(id);
     setHasPendingGeneration(false);
+    setGenerationIssue(null);
     staleToastShownRef.current = false;
-  }, [id, files.length]);
+  }, [clearGenerationCompleteTimer, id, files.length]);
 
   useEffect(() => {
     if (!id || !design || files.length > 0) return;
@@ -344,6 +397,7 @@ export default function DesignEditor() {
     }
 
     if (pending.runTabId) {
+      setGenerationIssue(null);
       setHasPendingGeneration(true);
       trackAgentGeneration(pending.runTabId);
       return;
@@ -352,10 +406,7 @@ export default function DesignEditor() {
     const prompt =
       pending.prompt?.trim() || `Create an initial design for ${design.title}.`;
     const uploadedFiles = Array.isArray(pending.files) ? pending.files : [];
-    const fileContext =
-      uploadedFiles.length > 0
-        ? `\n\nThe user uploaded ${uploadedFiles.length} file(s) for context:\n${uploadedFiles.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
-        : "";
+    const fileContext = formatUploadedFileContext(uploadedFiles);
     const sourceContext = pending.source
       ? `The user picked the "${pending.source}" example template.`
       : "The user just created a new empty design.";
@@ -371,7 +422,12 @@ export default function DesignEditor() {
       "Each file's content must be complete, self-contained HTML with Alpine.js + Tailwind via CDN. HTML templates are in your AGENTS.md.",
     ].join("\n");
 
+    clearGenerationCompleteTimer();
+    setGenerationIssue(null);
     const runTabId = agentSubmit(`Create design: ${prompt}`, context, {
+      model: pending.model,
+      engine: pending.engine,
+      effort: pending.effort,
       newTab: true,
     });
     patchPendingGeneration(id, {
@@ -386,6 +442,7 @@ export default function DesignEditor() {
     agentSubmit,
     markGenerationStale,
     trackAgentGeneration,
+    clearGenerationCompleteTimer,
   ]);
 
   useEffect(() => {
@@ -1111,7 +1168,8 @@ export default function DesignEditor() {
               ) : (
                 <>
                   <p className="text-sm text-muted-foreground mb-3">
-                    No files yet. Ask the agent to generate a design.
+                    {generationIssue ??
+                      "No files yet. Ask the agent to generate a design."}
                   </p>
                   <Button
                     ref={generateBtnRef}
@@ -1182,6 +1240,8 @@ export default function DesignEditor() {
         placeholder="Describe what you want to build..."
         skipLabel="Skip prompt"
         onSkip={() => {
+          clearGenerationCompleteTimer();
+          setGenerationIssue(null);
           const runTabId = agentSubmit(
             `Generate the initial design files for the "${design.title}" project.`,
             `The user has design "${id}" open and wants to fill it with files. Use the \`generate-design --designId="${id}"\` action with one or more files (index.html, etc.). DO NOT call create-design (the design already exists).`,
@@ -1196,11 +1256,12 @@ export default function DesignEditor() {
           setHasPendingGeneration(true);
           setShowPrompt(false);
         }}
-        onSubmit={(prompt: string, files: UploadedFile[]) => {
-          const fileContext =
-            files.length > 0
-              ? `\n\nThe user uploaded ${files.length} file(s) for context:\n${files.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
-              : "";
+        onSubmit={(
+          prompt: string,
+          files: UploadedFile[],
+          options: PromptComposerSubmitOptions,
+        ) => {
+          const fileContext = formatUploadedFileContext(files);
           const context = [
             `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
             `User request: "${prompt}"`,
@@ -1209,14 +1270,18 @@ export default function DesignEditor() {
             `Use the \`generate-design --designId="${id}"\` action with one or more files (index.html, etc.). The design already exists — DO NOT call create-design.`,
             "Each file's content must be complete, self-contained HTML with Alpine.js + Tailwind via CDN. HTML templates are in your AGENTS.md.",
           ].join("\n");
+          clearGenerationCompleteTimer();
+          setGenerationIssue(null);
           const runTabId = agentSubmit(
             `Generate design for "${design.title}": ${prompt}`,
             context,
+            options,
           );
           patchPendingGeneration(id, {
             prompt,
             files,
             title: design.title,
+            ...options,
             runTabId,
             startedAt: Date.now(),
           });

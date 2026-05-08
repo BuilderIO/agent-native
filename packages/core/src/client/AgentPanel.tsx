@@ -242,7 +242,7 @@ export interface AgentPanelCodeAccess {
   unavailableSecondaryCtaLabel?: string;
   /** Optional secondary CTA URL, usually the Builder connect URL. */
   unavailableSecondaryCtaHref?: string;
-  /** Disabled composer placeholder while code access is unavailable. */
+  /** @deprecated Chat stays available when code access is unavailable. */
   unavailableComposerPlaceholder?: string;
 }
 
@@ -564,22 +564,8 @@ function AgentPanelInner({
     codeAccess?.unavailableSecondaryCtaLabel ?? "Use Builder";
   const codeUnavailableSecondaryCtaHref =
     codeAccess?.unavailableSecondaryCtaHref;
-  const codeUnavailableComposerPlaceholder =
-    codeAccess?.unavailableComposerPlaceholder ??
-    "Open Desktop to edit code or run commands.";
   const canUseCodeTools = isDevMode && codeAccessEnabled;
-  const planModeDisabled = isDevMode && !codeAccessEnabled;
-  const effectiveExecMode = planModeDisabled ? "build" : execMode;
-  const planModeDisabledReason =
-    "Plan mode uses the local code agent. Open Agent Native Desktop to use Plan mode.";
   const showCliMode = isDevMode || !codeAccessEnabled;
-  const handleExecModeChange = useCallback(
-    (next: ExecMode) => {
-      if (planModeDisabled && next === "plan") return;
-      switchExecMode(next);
-    },
-    [planModeDisabled, switchExecMode],
-  );
 
   // Notify frame when dev mode changes — use both a local CustomEvent (for
   // when AgentPanel is rendered directly in the frame) AND postMessage (for
@@ -1239,31 +1225,12 @@ function AgentPanelInner({
             renderHeader={showHeader ? renderChatHeader : undefined}
             renderOverlay={undefined}
             contentHidden={mode !== "chat"}
-            emptyStateText={
-              codeAccessEnabled ? emptyStateText : codeUnavailableTitle
-            }
-            suggestions={codeAccessEnabled ? suggestions : undefined}
+            emptyStateText={emptyStateText}
+            suggestions={suggestions}
             onSwitchToCli={() => switchMode("cli")}
-            execMode={isDevMode ? effectiveExecMode : undefined}
-            onExecModeChange={isDevMode ? handleExecModeChange : undefined}
-            planModeDisabled={planModeDisabled}
-            planModeDisabledReason={planModeDisabledReason}
+            execMode={execMode}
+            onExecModeChange={switchExecMode}
             storageKey={storageKey}
-            composerSlot={
-              codeAccessEnabled ? undefined : (
-                <CodeAccessUnavailablePanel
-                  title={codeUnavailableTitle}
-                  description={codeUnavailableDescription}
-                  ctaLabel={codeUnavailableCtaLabel}
-                  ctaHref={codeUnavailableCtaHref}
-                  secondaryCtaLabel={codeUnavailableSecondaryCtaLabel}
-                  secondaryCtaHref={codeUnavailableSecondaryCtaHref}
-                  compact
-                />
-              )
-            }
-            composerDisabled={!codeAccessEnabled}
-            composerDisabledPlaceholder={codeUnavailableComposerPlaceholder}
           />
         )}
       </div>

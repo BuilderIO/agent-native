@@ -1,5 +1,6 @@
 import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
 import { EngineError } from "./engine/types.js";
+import { captureError } from "../server/capture-error.js";
 import {
   insertRun,
   insertRunEvent,
@@ -219,6 +220,40 @@ export function startRun(
       : null;
   let pendingTerminalEvent: RunEvent | null = null;
 
+  const captureRunError = (error: unknown, phase: "run" | "completion") => {
+    captureError(error, {
+      route: "/_agent-native/agent-chat",
+      tags: {
+        source: "agent-run-manager",
+        phase,
+        runStatus: run.status,
+        softTimedOut: softTimedOut ? "true" : "false",
+        abortReason: run.abortReason,
+        errorCode: error instanceof EngineError ? error.errorCode : undefined,
+      },
+      extra: {
+        runId,
+        threadId,
+        eventCount: run.events.length,
+        startedAt: run.startedAt,
+        softTimeoutMs,
+      },
+      contexts: {
+        agentRun: {
+          runId,
+          threadId,
+          status: run.status,
+          phase,
+          eventCount: run.events.length,
+          startedAt: run.startedAt,
+          softTimeoutMs,
+          softTimedOut,
+          abortReason: run.abortReason,
+        },
+      },
+    });
+  };
+
   const emitRunEvent = (runEvent: RunEvent) => {
     run.events.push(runEvent);
 
@@ -267,6 +302,7 @@ export function startRun(
         return;
       }
       run.status = "errored";
+      captureRunError(err, "run");
       send({
         type: "error",
         error: err?.message ?? "Unknown error",
@@ -301,6 +337,7 @@ export function startRun(
           await onComplete(completionRun);
         } catch (err) {
           completionError = err;
+          captureRunError(err, "completion");
           console.error(
             "[run-manager] onComplete callback error:",
             err instanceof Error ? err.message : err,

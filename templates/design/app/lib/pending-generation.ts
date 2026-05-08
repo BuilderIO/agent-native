@@ -1,4 +1,5 @@
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
 
 export const PENDING_GENERATION_STALE_MS = 120_000;
 
@@ -7,6 +8,9 @@ export interface PendingGeneration {
   files?: UploadedFile[];
   title?: string;
   source?: string;
+  model?: PromptComposerSubmitOptions["model"];
+  engine?: PromptComposerSubmitOptions["engine"];
+  effort?: PromptComposerSubmitOptions["effort"];
   createdAt?: number;
   startedAt?: number;
   runTabId?: string;

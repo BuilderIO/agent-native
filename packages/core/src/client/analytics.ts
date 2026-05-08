@@ -242,6 +242,19 @@ export function captureClientException(
   }
 }
 
+/**
+ * Public browser-side error capture utility, mirroring `trackEvent()`:
+ * templates can call `captureError(err, { tags, extra, contexts })` without
+ * depending on Sentry directly. Sentry receives the event when a browser DSN
+ * is configured; otherwise this is a quiet no-op.
+ */
+export function captureError(
+  error: unknown,
+  context: ClientCaptureContext = {},
+): string | undefined {
+  return captureClientException(error, context);
+}
+
 function getPageviewTrackingState(): PageviewTrackingState {
   const g = globalThis as typeof globalThis & {
     [PAGEVIEW_TRACKING_STATE_KEY]?: PageviewTrackingState;

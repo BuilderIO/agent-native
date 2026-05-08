@@ -76,17 +76,93 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
   function __anPath(path) {
     return __anBasePath() + path;
   }
+  function __anIsBuilderPreview() {
+    try {
+      var params = new URLSearchParams(window.location.search);
+      if (params.has('builder.preview') || params.has('builder.frameEditing') || params.has('__builder_editing__')) return true;
+    } catch(e) {}
+    try {
+      var ref = document.referrer || '';
+      return ref.indexOf('builder.io') !== -1 || ref.indexOf('builder.my') !== -1 || ref.indexOf('builderio.xyz') !== -1;
+    } catch(e) {
+      return false;
+    }
+  }
+  var __anOAuthPollTimer = null;
+  function __anNewOAuthFlowId() {
+    try {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID();
+      }
+    } catch(e) {}
+    return 'builder-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+  }
+  function __anShowOAuthError(err, btn, message) {
+    if (__anOAuthPollTimer) {
+      clearInterval(__anOAuthPollTimer);
+      __anOAuthPollTimer = null;
+    }
+    err.textContent = message;
+    err.classList.add('show');
+    btn.disabled = false;
+  }
+  function __anWaitForOAuthExchange(flowId, ret, btn, err) {
+    var started = Date.now();
+    var timeoutMs = 5 * 60 * 1000;
+    async function check() {
+      try {
+        var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + '?flow_id=' + encodeURIComponent(flowId), { credentials: 'include' });
+        var data = await res.json().catch(function() { return {}; });
+        if (data && (data.email || data.token)) {
+          if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
+          __anOAuthPollTimer = null;
+          window.location.href = ret || '/';
+          return;
+        }
+        if (data && data.error) {
+          __anShowOAuthError(err, btn, data.message || data.error);
+          return;
+        }
+      } catch(e) {}
+      if (Date.now() - started > timeoutMs) {
+        __anShowOAuthError(err, btn, 'Google sign-in did not finish. Allow popups and try again.');
+      }
+    }
+    if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
+    __anOAuthPollTimer = setInterval(check, 1000);
+    setTimeout(check, 500);
+  }
+  function __anStartBuilderOAuth(ret, btn, err) {
+    var flowId = __anNewOAuthFlowId();
+    var params = new URLSearchParams();
+    if (ret) params.set('return', ret);
+    params.set('desktop', '1');
+    params.set('flow_id', flowId);
+    params.set('redirect', '1');
+    var url = __anPath('/_agent-native/google/auth-url') + '?' + params.toString();
+    try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
+    try { window.open(url, '_blank', 'noopener,noreferrer,width=640,height=760'); } catch(e) {}
+    __anWaitForOAuthExchange(flowId, ret, btn, err);
+  }
+  function __anOpenOAuthUrl(url) {
+    try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
+    window.location.href = url;
+  }
   async function signIn() {
     var btn = document.getElementById('btn');
     var err = document.getElementById('err');
+    var ret = window.location.pathname + window.location.search;
     btn.disabled = true;
     err.classList.remove('show');
+    if (__anIsBuilderPreview()) {
+      __anStartBuilderOAuth(ret, btn, err);
+      return;
+    }
     try {
-      var res = await fetch(__anPath('/_agent-native/google/auth-url'));
+      var res = await fetch(__anPath('/_agent-native/google/auth-url') + '?return=' + encodeURIComponent(ret));
       var data = await res.json();
       if (data.url) {
-        try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
-        window.location.href = data.url;
+        __anOpenOAuthUrl(data.url);
       } else {
         err.textContent = data.message || 'Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.';
         err.classList.add('show');

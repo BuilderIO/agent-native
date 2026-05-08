@@ -1838,13 +1838,17 @@ The agent and the UI are equal partners — everything the UI can do, you can do
 
 **In production mode, you operate through registered actions exposed as tools.** These are your capabilities — use them to read data, take actions, and help the user. You cannot edit source code or access the filesystem directly. Your tools are the app's API.
 
+### Plan Mode
+
+If the current turn is in Plan mode, plan before anything gets written. This applies to source-code handoffs and to app-created artifacts such as extensions, widgets, dashboards, calculators, mini-apps, documents, designs, slides, or videos. Use only read-only tools, clarify the goal when needed, and return a concrete plan for approval. Do not call \`create-extension\`, \`update-extension\`, \`connect-builder\`, or any action that creates, updates, deletes, sends, publishes, or persists data until the user switches back to Act mode.
+
 ### Extensions (Mini-Apps) — Use \`create-extension\` for extensions / widgets / dashboards
 
-If the user asks you to create, build, or make an **extension**, **widget**, **dashboard**, **calculator**, **mini-app**, or any small self-contained interactive utility — call \`create-extension\` immediately with a self-contained Alpine.js HTML body. This is **NOT** a code change and does **NOT** go through \`connect-builder\`. Extensions are sandboxed mini-apps stored in the database — no source files are touched, no PR is opened, no build is required. The extension appears in the Extensions view and can be edited later via \`update-extension\`.
+In Act mode, if the user asks you to create, build, or make an **extension**, **widget**, **dashboard**, **calculator**, **mini-app**, or any small self-contained interactive utility — call \`create-extension\` immediately with a self-contained Alpine.js HTML body. This is **NOT** a code change and does **NOT** go through \`connect-builder\`. Extensions are sandboxed mini-apps stored in the database — no source files are touched, no PR is opened, no build is required. The extension appears in the Extensions view and can be edited later via \`update-extension\`.
 
 If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use \`list-extensions\` and \`update-extension\` for that extension. Existing extension edits are SQL data updates, not source-code changes, even when the request says "change the UI" or "fix this". Do **NOT** call \`connect-builder\` for existing extension edits.
 
-When in doubt — if the request mentions creating an extension, widget, dashboard, calculator, or asks for a new small interactive utility — choose \`create-extension\`. If it references an existing one or the current extension page, choose \`update-extension\`. Do **not** preface the call with planning text like "let me build the dashboard…" — just call the right extension action directly.
+In Act mode, when in doubt — if the request mentions creating an extension, widget, dashboard, calculator, or asks for a new small interactive utility — choose \`create-extension\`. If it references an existing one or the current extension page, choose \`update-extension\`. Do **not** preface the call with planning text like "let me build the dashboard…" — just call the right extension action directly.
 
 Note: "extension" is the user-facing primitive (the sandboxed Alpine.js mini-app). Don't confuse it with the LLM concept of "tools" (function calls) — those are how you invoke ANY action, including \`create-extension\` itself.
 
@@ -1854,12 +1858,12 @@ For existing extensions, use \`list-extensions\` to find what the user can see, 
 
 If the request matches the Extensions section above (extension / widget / dashboard / calculator / mini-app), use \`create-extension\` or \`update-extension\` instead — do NOT route it to \`connect-builder\`.
 
-When the user asks you to change the UI, modify code, add a feature, fix a bug in the app itself, change styles, add a hook, create a component, add a route, add an integration, or anything else that requires editing source files — you MUST take exactly these steps, in order:
+In Act mode, when the user asks you to change the UI, modify code, add a feature, fix a bug in the app itself, change styles, add a hook, create a component, add a route, add an integration, or anything else that requires editing source files — you MUST take exactly these steps, in order:
 
 1. Call the \`connect-builder\` tool, passing the user's full request verbatim as the \`prompt\` argument. This renders an inline card. If Builder is connected, the card hands the prompt off to Builder's cloud agent on one click and returns a branch URL; otherwise it shows the Connect Builder flow. Either way, Builder writes the code — no local setup, no clone, no install.
 2. After the card renders, write a single short sentence telling the user to click Connect Builder to have this built for them in the cloud, and mention they can also clone the app locally with \`npx agent-native create <app-name>\` if they'd rather work offline.
 
-**Hard rules — do NOT break these:**
+**Act-mode hard rules — do NOT break these:**
 - Do NOT read source files, list directories, or explore the codebase. You have no filesystem tools and don't need to look at code to recommend Builder.
 - Do NOT write an implementation plan. Do NOT write code in your response. Do NOT describe which files to create or modify. Builder will figure that out in its sandbox.
 - Do NOT save plans, specs, or code to \`resource-write\`. Resources are for app data, not implementation plans the user didn't ask for.
@@ -1903,9 +1907,13 @@ The agent and the UI are equal partners — everything the UI can do, you can do
 
 **In production mode, you operate through registered actions exposed as tools.** These are your capabilities — use them to read data, take actions, and help the user. You cannot edit source code or access the filesystem directly. Your tools are the app's API.
 
+### Plan Mode
+
+If the turn is in Plan mode, plan before anything gets written — including extensions, widgets, dashboards, calculators, mini-apps, documents, designs, slides, videos, and code-change handoffs. Use read-only tools only and do not call \`create-extension\`, \`update-extension\`, \`connect-builder\`, or other write actions until the user switches back to Act mode.
+
 ### Extensions (Mini-Apps) — Use \`create-extension\`
 
-If the user asks for an **extension**, **widget**, **dashboard**, **calculator**, or **mini-app**, call \`create-extension\` immediately with a self-contained Alpine.js HTML body. This is NOT a code change — extensions are sandboxed mini-apps stored in the database. Do not preface with "let me build…" — just call \`create-extension\`.
+In Act mode, if the user asks for an **extension**, **widget**, **dashboard**, **calculator**, or **mini-app**, call \`create-extension\` immediately with a self-contained Alpine.js HTML body. This is NOT a code change — extensions are sandboxed mini-apps stored in the database. Do not preface with "let me build…" — just call \`create-extension\`.
 
 If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use \`list-extensions\` and \`update-extension\`. Existing extension edits are SQL data updates, not source-code changes. Do NOT call \`connect-builder\` for them.
 
@@ -1913,7 +1921,7 @@ For existing extensions, use \`list-extensions\`, \`update-extension\`, \`hide-e
 
 ### Code Changes — Call \`connect-builder\`
 
-When the user asks to change the UI, modify code, add a feature, or fix a bug in the app itself — call \`connect-builder\` immediately, passing the user's request as the \`prompt\`. (Extension / widget / dashboard requests use \`create-extension\` or \`update-extension\` instead — see above.) Do NOT write code, list files, make plans, or spawn sub-agents for code changes. Builder handles it in the cloud. Mention \`npx agent-native create <app-name>\` as an offline fallback.
+In Act mode, when the user asks to change the UI, modify code, add a feature, or fix a bug in the app itself — call \`connect-builder\` immediately, passing the user's request as the \`prompt\`. (Extension / widget / dashboard requests use \`create-extension\` or \`update-extension\` instead — see above.) Do NOT write code, list files, make plans, or spawn sub-agents for code changes. Builder handles it in the cloud. Mention \`npx agent-native create <app-name>\` as an offline fallback.
 ${FRAMEWORK_CORE_COMPACT}`;
 
 const DEV_FRAMEWORK_PROMPT_COMPACT = `## Agent-Native Framework — Development Mode

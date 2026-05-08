@@ -75,7 +75,9 @@ function UploadOnlyAttachButton() {
             <IconPlus className="h-4 w-4" />
           </button>
         </TooltipTrigger>
-        <TooltipContent>Upload file</TooltipContent>
+        <TooltipContent>
+          Upload image, PDF, text, Markdown, JSON, CSV, HTML, CSS, or XML
+        </TooltipContent>
       </Tooltip>
     </>
   );
@@ -231,7 +233,7 @@ function ComposerPlusMenuFull({
     {
       icon: <IconUpload className="h-3.5 w-3.5" />,
       label: "Upload File",
-      desc: "Attach a file to this message",
+      desc: "Images, PDFs, text/code, JSON, CSV",
       action: () => {
         setOpen(false);
         setTimeout(() => fileUploadRef.current?.click(), 0);
