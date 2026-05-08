@@ -212,7 +212,6 @@ export function useNavigationState() {
       return null;
     },
     refetchInterval: 2_000,
-    refetchIntervalInBackground: true,
     structuralSharing: false,
   });
 

@@ -63,7 +63,7 @@ export async function appStatePut(
       : `INSERT OR REPLACE INTO application_state (session_id, key, value, updated_at) VALUES (?, ?, ?, ?)`,
     args: [sessionId, key, JSON.stringify(value), Date.now()],
   });
-  emitAppStateChange(key, options?.requestSource);
+  emitAppStateChange(key, options?.requestSource, sessionId);
 }
 
 export async function appStateDelete(
@@ -78,7 +78,7 @@ export async function appStateDelete(
     args: [sessionId, key],
   });
   const deleted = result.rowsAffected > 0;
-  if (deleted) emitAppStateDelete(key, options?.requestSource);
+  if (deleted) emitAppStateDelete(key, options?.requestSource, sessionId);
   return deleted;
 }
 
@@ -120,7 +120,7 @@ export async function appStateDeleteByPrefix(
   });
 
   for (const row of rows) {
-    emitAppStateDelete(row.key as string, options?.requestSource);
+    emitAppStateDelete(row.key as string, options?.requestSource, sessionId);
   }
 
   return result.rowsAffected;

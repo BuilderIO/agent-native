@@ -14,7 +14,9 @@
  */
 
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
+import { getAppStateEmitter } from "../application-state/emitter.js";
 import { getDbExec } from "../db/client.js";
+import { getSettingsEmitter } from "../settings/store.js";
 import { getSession } from "./auth.js";
 
 export interface ChangeEvent {
@@ -67,6 +69,18 @@ let _lastSettingsTs = 0;
 let _lastScreenRefreshTs = 0;
 let _screenRefreshInitialized = false;
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
+let _localEmittersWired = false;
+
+function wireLocalEmitters(): void {
+  if (_localEmittersWired) return;
+  _localEmittersWired = true;
+  getAppStateEmitter().on("app-state", (event) => {
+    recordChange(event);
+  });
+  getSettingsEmitter().on("settings", (event) => {
+    recordChange(event);
+  });
+}
 
 /** Get the current global version counter. */
 export function getVersion(): number {
@@ -252,6 +266,7 @@ async function checkExternalDbChanges(): Promise<void> {
  * and infer cross-tenant activity from the global event stream.
  */
 export function createPollHandler() {
+  wireLocalEmitters();
   return defineEventHandler(async (event) => {
     const session = await getSession(event).catch(() => null);
     if (!session?.email) {

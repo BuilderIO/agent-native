@@ -42,7 +42,6 @@ export function useNavigationState() {
       return data ? { ...data, _ts: Date.now() } : null;
     },
     refetchInterval: 2_000,
-    refetchIntervalInBackground: true,
     structuralSharing: false,
   });
 
