@@ -21,6 +21,7 @@ fn build_menu_with_meetings(
 ) -> Result<Menu<tauri::Wry>, Box<dyn std::error::Error>> {
     let meetings_submenu = build_meetings_section(app, meetings)?;
     let show_item = MenuItem::with_id(app, "show", "Show popover", true, None::<&str>)?;
+    let stop_item = MenuItem::with_id(app, "stop", "Stop recording", true, None::<&str>)?;
     let devtools_item =
         MenuItem::with_id(app, "devtools", "Toggle DevTools", true, Some("Cmd+Alt+I"))?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit Clips", true, None::<&str>)?;
@@ -31,6 +32,7 @@ fn build_menu_with_meetings(
             &meetings_submenu,
             &separator,
             &show_item,
+            &stop_item,
             &devtools_item,
             &quit_item,
         ],
@@ -64,6 +66,9 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
             match id_ref {
                 "show" => toggle_popover(app),
+                "stop" => {
+                    let _ = app.emit("clips:recorder-stop", ());
+                }
                 "devtools" => {
                     #[cfg(debug_assertions)]
                     {
