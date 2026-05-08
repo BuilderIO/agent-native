@@ -413,7 +413,21 @@ describe("SSE event processor error classification", () => {
       ),
     );
 
-    expect(results).toEqual([{ content: [] }]);
+    expect(results).toEqual([
+      {
+        content: [],
+        metadata: {
+          custom: {
+            activityTrail: [
+              {
+                label: "Preparing create-document action",
+                tool: "create-document",
+              },
+            ],
+          },
+        },
+      },
+    ]);
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agent-chat:activity",
@@ -506,6 +520,16 @@ describe("SSE event processor error classification", () => {
           toolName: "create-document",
         }),
       ],
+      metadata: {
+        custom: {
+          activityTrail: [
+            {
+              label: "Running create-document",
+              tool: "create-document",
+            },
+          ],
+        },
+      },
     });
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({

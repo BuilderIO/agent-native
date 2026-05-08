@@ -1267,10 +1267,18 @@ describe("server/auth", () => {
       expect(html).toContain("params.set('desktop', '1')");
       expect(html).toContain("params.set('flow_id', flowId)");
       expect(html).toContain("params.set('redirect', '1')");
-      expect(html).toContain("window.open(url, '_blank'");
+      expect(html).toContain("__anIsBuilderDesktop()");
+      expect(html).toContain(
+        "if (__anIsBuilderPreview() && !__anIsBuilderDesktop())",
+      );
+      expect(html).toContain(
+        "window.open('', '_blank', 'width=640,height=760')",
+      );
+      expect(html).toContain("popup.location.href = url");
       expect(html).toContain("__anOpenOAuthUrl(data.url)");
       expect(html).toContain("window.location.href = url");
       expect(html).not.toContain("window.open(data.url");
+      expect(html).not.toContain("noopener,noreferrer,width=640,height=760");
       expect(html).not.toContain("Waiting for sign-in");
     });
 
@@ -1287,6 +1295,14 @@ describe("server/auth", () => {
       expect(loginHtml).toContain(
         "__anSetOAuthDebug('Google popup opened; waiting for callback', flowId)",
       );
+      expect(loginHtml).toContain("__anIsBuilderDesktop()");
+      expect(loginHtml).toContain(
+        "if (__anIsBuilderPreview() && !__anIsBuilderDesktop())",
+      );
+      expect(loginHtml).toContain(
+        "window.open('', '_blank', 'width=640,height=760')",
+      );
+      expect(loginHtml).toContain("popup.location.href = url");
       expect(loginHtml).toContain(
         "Google popup was blocked. Allow popups for this site",
       );
