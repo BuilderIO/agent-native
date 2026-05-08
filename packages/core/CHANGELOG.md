@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.12.19
+
+### Patch Changes
+
+- 3b88628: Disable Plan mode in local browser dev surfaces and point users to Agent Native Desktop for planning.
+- 3b88628: Use cross-site session cookie attributes for Google OAuth sessions so embedded app chat remains authenticated.
+- 3b88628: Default the framework to the Builder gateway's `gpt-5-5` model alias, centralize built-in engine model defaults/catalogs in `model-config.ts`, and stop hard-coding `DEFAULT_MODEL` for A2A / MCP / integrations runs — the resolved engine's default is used instead. Also adds a "Use Builder" cloud CTA alongside the Desktop CTA in the AgentPanel and CodeRequiredDialog code-access-unavailable surfaces, including a `useBuilderConnectUrl()` hook that wires up the secondary link from `/_agent-native/builder/status`.
+- 3b88628: Fix lazy workspace dev root routing, live app discovery, and generated app dependency startup.
+- 3b88628: Keep oversized pasted-text chat attachments from overflowing agent context and render them consistently as pasted-text chips.
+
 ## 0.12.18
 
 ### Patch Changes
