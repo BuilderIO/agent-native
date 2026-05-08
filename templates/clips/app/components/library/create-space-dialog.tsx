@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -84,6 +85,9 @@ export function CreateSpaceDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>New space</DialogTitle>
+          <DialogDescription className="sr-only">
+            Create a space in the current organization.
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-1.5">

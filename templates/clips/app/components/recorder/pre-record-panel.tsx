@@ -321,8 +321,19 @@ export function PreRecordPanel({
 
   const startDisabled = useMemo(() => {
     if (busy) return true;
+    if (audioEnabled && micTest.status === "error") return true;
+    if (needsCamera && cameraTest.status === "error") return true;
     return false;
-  }, [busy]);
+  }, [audioEnabled, busy, cameraTest.status, micTest.status, needsCamera]);
+  const setupBlockedMessage = useMemo(() => {
+    if (audioEnabled && micTest.status === "error") {
+      return "Fix microphone access or turn audio off before recording.";
+    }
+    if (needsCamera && cameraTest.status === "error") {
+      return "Fix camera access or switch to Screen mode before recording.";
+    }
+    return null;
+  }, [audioEnabled, cameraTest.status, micTest.status, needsCamera]);
 
   return (
     <div className="mx-auto w-full max-w-md overflow-hidden rounded-2xl border border-border bg-muted/20 shadow-lg">
@@ -492,9 +503,7 @@ export function PreRecordPanel({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="default">Default microphone</SelectItem>
-                  <SelectItem value={NO_MIC_DEVICE_ID}>
-                    No audio
-                  </SelectItem>
+                  <SelectItem value={NO_MIC_DEVICE_ID}>No audio</SelectItem>
                   {mics.map((m) => (
                     <SelectItem key={m.deviceId} value={m.deviceId}>
                       {m.label || `Mic ${m.deviceId.slice(0, 4)}`}
@@ -551,6 +560,11 @@ export function PreRecordPanel({
       </Collapsible>
 
       <div className="space-y-3 border-t border-border p-6">
+        {setupBlockedMessage && (
+          <p className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs leading-relaxed text-destructive">
+            {setupBlockedMessage}
+          </p>
+        )}
         <div className="flex items-center justify-end gap-2">
           {onCancel && (
             <Button variant="ghost" onClick={onCancel} disabled={busy}>
