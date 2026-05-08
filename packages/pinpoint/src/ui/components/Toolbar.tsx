@@ -4,7 +4,14 @@
 // Collapsed: small pill with pin count. Expanded: mode-tabbed controls.
 // Modes: Select (element picking), Draw (freehand/shapes), Queue (batch send).
 
-import { createSignal, Show, For, type Component } from "solid-js";
+import {
+  createSignal,
+  Show,
+  For,
+  onCleanup,
+  onMount,
+  type Component,
+} from "solid-js";
 import type {
   Pin,
   OutputFormat,
@@ -26,6 +33,46 @@ const LINE_WIDTHS = [
   { width: 4, name: "Medium" },
   { width: 8, name: "Thick" },
 ];
+
+const EDGE_GAP = 16;
+const COLLAPSED_TOOLBAR_SIZE = 60;
+const EXPANDED_TOOLBAR_WIDTH = 320;
+const AGENT_SIDEBAR_SELECTOR = ".agent-sidebar-panel";
+
+function clampRightOffset(right: number, toolbarWidth: number): number {
+  if (typeof window === "undefined") return right;
+
+  const maxRight = Math.max(0, window.innerWidth - toolbarWidth - EDGE_GAP);
+  return Math.min(right, maxRight);
+}
+
+function getVisibleRightSidebarInset(): number {
+  if (typeof window === "undefined") return 0;
+
+  let inset = 0;
+  for (const panel of document.querySelectorAll<HTMLElement>(
+    AGENT_SIDEBAR_SELECTOR,
+  )) {
+    const style = window.getComputedStyle(panel);
+    if (
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      panel.getAttribute("aria-hidden") === "true"
+    ) {
+      continue;
+    }
+
+    const rect = panel.getBoundingClientRect();
+    const isVisible = rect.width > 0 && rect.height > 0;
+    const isAnchoredToRight =
+      rect.right >= window.innerWidth - 1 && rect.left < window.innerWidth - 1;
+    if (!isVisible || !isAnchoredToRight) continue;
+
+    inset = Math.max(inset, Math.ceil(window.innerWidth - rect.left));
+  }
+
+  return inset;
+}
 
 interface ToolbarProps {
   expanded: boolean;
@@ -86,8 +133,9 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
           right: window.innerWidth - props.position.x,
           bottom: window.innerHeight - props.position.y,
         }
-      : { right: 16, bottom: 16 },
+      : { right: EDGE_GAP, bottom: EDGE_GAP },
   );
+  const [reservedRight, setReservedRight] = createSignal(0);
   const [dragging, setDragging] = createSignal(false);
   const [dragStart, setDragStart] = createSignal({
     x: 0,
@@ -96,6 +144,55 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
     bottom: 0,
   });
   const [didDrag, setDidDrag] = createSignal(false);
+
+  onMount(() => {
+    if (typeof window === "undefined") return;
+
+    let resizeObserver: ResizeObserver | undefined;
+    const updateReservedRight = () => {
+      setReservedRight(getVisibleRightSidebarInset());
+
+      resizeObserver?.disconnect();
+      if (typeof ResizeObserver === "undefined") return;
+
+      resizeObserver = new ResizeObserver(() => {
+        setReservedRight(getVisibleRightSidebarInset());
+      });
+      for (const panel of document.querySelectorAll<HTMLElement>(
+        AGENT_SIDEBAR_SELECTOR,
+      )) {
+        resizeObserver.observe(panel);
+      }
+    };
+
+    updateReservedRight();
+
+    const mutationObserver = new MutationObserver(updateReservedRight);
+    mutationObserver.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class", "style", "aria-hidden"],
+      childList: true,
+      subtree: true,
+    });
+
+    window.addEventListener("resize", updateReservedRight);
+
+    onCleanup(() => {
+      mutationObserver.disconnect();
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", updateReservedRight);
+    });
+  });
+
+  const toolbarRight = () => {
+    const toolbarWidth = props.expanded
+      ? EXPANDED_TOOLBAR_WIDTH
+      : COLLAPSED_TOOLBAR_SIZE;
+    return clampRightOffset(
+      (props.expanded ? EDGE_GAP : pos().right) + reservedRight(),
+      toolbarWidth,
+    );
+  };
 
   function handleMouseDown(e: MouseEvent) {
     if (props.expanded) return;
@@ -113,11 +210,18 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
       const start = dragStart();
       const dx = e.clientX - start.x;
       const dy = e.clientY - start.y;
+      const maxRight = Math.max(
+        0,
+        window.innerWidth - reservedRight() - COLLAPSED_TOOLBAR_SIZE,
+      );
       setPos({
-        right: Math.max(0, Math.min(window.innerWidth - 60, start.right - dx)),
+        right: Math.max(0, Math.min(maxRight, start.right - dx)),
         bottom: Math.max(
           0,
-          Math.min(window.innerHeight - 60, start.bottom - dy),
+          Math.min(
+            window.innerHeight - COLLAPSED_TOOLBAR_SIZE,
+            start.bottom - dy,
+          ),
         ),
       });
     };
@@ -161,8 +265,8 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
       class={`pp-toolbar ${props.expanded ? "pp-toolbar--expanded" : "pp-toolbar--collapsed"}`}
       style={{
         ...(props.expanded
-          ? { bottom: "16px", right: "16px" }
-          : { right: `${pos().right}px`, bottom: `${pos().bottom}px` }),
+          ? { bottom: `${EDGE_GAP}px`, right: `${toolbarRight()}px` }
+          : { right: `${toolbarRight()}px`, bottom: `${pos().bottom}px` }),
       }}
       onMouseDown={props.expanded ? undefined : handleMouseDown}
       on:click={handleClick}
