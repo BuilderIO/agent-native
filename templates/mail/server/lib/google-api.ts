@@ -200,7 +200,8 @@ function quotaCooldownMessage(cooldownMs = QUOTA_COOLDOWN_MS): string {
 // when Google actually returns a 429/403-quota; the bucket's job is to make
 // that rare.
 const BUCKET_REFILL_PER_SEC = 180;
-const BUCKET_CAPACITY = 360;
+const BUCKET_CAPACITY = 180;
+const MAX_BATCH_QUOTA_COST = 180;
 
 // Cost table from https://developers.google.com/gmail/api/reference/quota.
 // Most-specific patterns first — `estimateRequestCost` walks this in order.
@@ -655,11 +656,17 @@ async function gmailBatchGet(
 ): Promise<Array<{ id: string; data: any | null; error?: string }>> {
   if (ids.length === 0) return [];
 
-  // Gmail batch limit is 100; chunk and concatenate to stay under it.
-  if (ids.length > 100) {
+  // Gmail batch limit is 100, but quota is enforced per user in tight
+  // one-second windows. A single 50-thread batch can cost ~500 units and trip
+  // 429 even if our local token bucket pre-paid it, so chunk by quota cost too.
+  const maxIdsPerBatch = Math.max(
+    1,
+    Math.min(100, Math.floor(MAX_BATCH_QUOTA_COST / costPerItem)),
+  );
+  if (ids.length > maxIdsPerBatch) {
     const chunks: string[][] = [];
-    for (let i = 0; i < ids.length; i += 100) {
-      chunks.push(ids.slice(i, i + 100));
+    for (let i = 0; i < ids.length; i += maxIdsPerBatch) {
+      chunks.push(ids.slice(i, i + maxIdsPerBatch));
     }
     const results: Array<{ id: string; data: any | null; error?: string }> = [];
     for (const chunk of chunks) {
