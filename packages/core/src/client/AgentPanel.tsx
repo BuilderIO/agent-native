@@ -437,6 +437,7 @@ function AgentPanelInner({
       localStorage.setItem(panelModeKey, mode);
     } catch {}
   }, [mode, panelModeKey]);
+  const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const switchMode = useCallback((m: PanelMode) => {
     startTransition(() => setMode(m));
   }, []);
@@ -461,7 +462,10 @@ function AgentPanelInner({
 
   // Open settings tab when requested (replaces the old popover open event)
   useEffect(() => {
-    function handleOpenSettings() {
+    function handleOpenSettings(event: Event) {
+      const section = (event as CustomEvent<{ section?: string }>).detail
+        ?.section;
+      setSettingsSection(section ?? null);
       switchMode("settings");
     }
     window.addEventListener("agent-panel:open-settings", handleOpenSettings);
@@ -911,10 +915,10 @@ function AgentPanelInner({
                           </button>
                         </IconTooltip>
                         {toggleHistory && (
-                          <IconTooltip content="Chat history">
+                          <IconTooltip content="All chats">
                             <button
                               onClick={toggleHistory}
-                              aria-label="Chat history"
+                              aria-label="All chats"
                               className={cn(
                                 "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
                                 showHistory && "bg-accent text-foreground",
@@ -1333,6 +1337,7 @@ function AgentPanelInner({
               onToggleDevMode={() => setDevMode(!isDevMode)}
               showDevToggle={showDevToggle}
               devAppUrl={devAppUrl}
+              initialSection={settingsSection}
             />
           </Suspense>
         </div>
