@@ -1,5 +1,11 @@
 # @agent-native/pinpoint
 
+## 0.1.5
+
+### Patch Changes
+
+- 1ba9738: Keep the pinpoint toolbar inside the viewport when the agent sidebar is open by tracking the visible sidebar width via MutationObserver + ResizeObserver and clamping toolbar position + drag bounds.
+
 ## 0.1.4
 
 ### Patch Changes
