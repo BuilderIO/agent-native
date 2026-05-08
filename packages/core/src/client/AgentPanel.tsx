@@ -212,7 +212,7 @@ function IconTooltip({
           <TooltipPrimitive.Content
             side="bottom"
             sideOffset={8}
-            className="z-[230] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md"
+            className="z-[300] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md"
           >
             {normalizeTooltipText(content)}
             <TooltipPrimitive.Arrow className="fill-popover" />
