@@ -1488,6 +1488,7 @@ const FRAMEWORK_CORE_COMPACT = `
 10. **Never fabricate success from tool errors** — When any tool call returns an error (marked \`isError: true\`, contains "Command failed", "Error:", or non-zero exit output), the operation FAILED. Do NOT synthesize a success narrative or describe what the action "would have" produced. Report the failure verbatim from the tool output. This applies especially to \`shell(command="pnpm action ...")\` calls: if the action threw, it did NOT succeed.
 11. **Find tools when unsure** — Use \`tool-search\` to find the exact action/tool for a capability. It searches the live registry, including connected MCP server tools.
 12. **Relative dates use runtime context** — The \`<runtime-context>\` block gives the authoritative current date/time. Resolve "today", "yesterday", "last week", and similar phrases to explicit calendar dates before querying data or creating artifacts.
+13. **Make progress visible** — For work that takes more than a few seconds, keep the user oriented. Use \`manage-progress\` when available, emit concise status before long tool/action runs, and update after meaningful milestones so the chat never looks like it is spinning on nothing.
 
 ### Resources
 
@@ -1672,6 +1673,7 @@ const FRAMEWORK_CORE = `
 10. **Never fabricate success from tool errors** — When any tool call returns an error (marked \`isError: true\`, contains "Command failed", "Error:", or non-zero exit output), the operation FAILED. Do NOT synthesize a success narrative, format a result table, or describe what the action "would have" produced. Report the failure verbatim from the tool output. This applies especially to \`shell(command="pnpm action ...")\` calls: if the underlying action threw (visible in the error text), the action did NOT succeed — report the error, do not describe a successful outcome.
 11. **Find tools when unsure** — Use \`tool-search\` to find the exact action/tool for a capability. It searches the live registry, including connected MCP server tools added through config, settings, or the MCP hub.
 12. **Relative dates use runtime context** — The \`<runtime-context>\` block gives the authoritative current date/time. Resolve "today", "yesterday", "last week", and similar phrases to explicit calendar dates before querying data or creating artifacts. When answering factual questions, include the exact date or date range you used.
+13. **Make progress visible** — For work that takes more than a few seconds, keep the user oriented. Use \`manage-progress\` when available, emit concise status before long tool/action runs, and update after meaningful milestones so the chat never looks like it is spinning on nothing.
 
 ### Resources
 

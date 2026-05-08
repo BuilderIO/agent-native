@@ -2311,6 +2311,7 @@ const AssistantChatInner = forwardRef<
   const wasRunningRef = useRef(false);
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
+  const [activitySteps, setActivitySteps] = useState<ActivityStep[]>([]);
 
   useEffect(() => {
     if (lastBroadcastRunningRef.current === isRunning) return;
@@ -2896,11 +2897,26 @@ const AssistantChatInner = forwardRef<
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as {
         label?: string;
+        tool?: string;
         tabId?: string;
       };
       if (tabId && detail?.tabId && detail.tabId !== tabId) return;
       if (typeof detail?.label === "string" && detail.label.trim()) {
-        setActivityLabel(detail.label.trim());
+        const label = detail.label.trim();
+        const tool = detail.tool?.trim() || undefined;
+        setActivityLabel(label);
+        setActivitySteps((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.label === label && last.tool === tool) return prev;
+          return [
+            ...prev,
+            {
+              id: `${Date.now()}-${prev.length}`,
+              label,
+              ...(tool ? { tool } : {}),
+            },
+          ].slice(-6);
+        });
       }
     };
     window.addEventListener("agent-chat:activity", handler);
@@ -2908,7 +2924,10 @@ const AssistantChatInner = forwardRef<
   }, [tabId]);
 
   useEffect(() => {
-    if (!showRunningInUI) setActivityLabel(null);
+    if (!showRunningInUI) {
+      setActivityLabel(null);
+      setActivitySteps([]);
+    }
   }, [showRunningInUI]);
 
   // Auto-dequeue: when agent finishes running, send the next queued message
@@ -2983,6 +3002,7 @@ const AssistantChatInner = forwardRef<
       setRunErrorInfo(null);
       setDismissedRunErrorKey(null);
       setActivityLabel(null);
+      setActivitySteps([]);
       userStoppedRunRef.current = null;
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
@@ -3381,13 +3401,16 @@ const AssistantChatInner = forwardRef<
                 to "Reconnecting" during reconnect so the user knows the
                 system is actively recovering, not just stuck. */}
                   {showRunningInUI && (
-                    <ThinkingIndicator
-                      label={
-                        isReconnecting
-                          ? "Reconnecting"
-                          : (activityLabel ?? "Thinking")
-                      }
-                    />
+                    <>
+                      <ActivitySteps steps={activitySteps} />
+                      <ThinkingIndicator
+                        label={
+                          isReconnecting
+                            ? "Reconnecting"
+                            : (activityLabel ?? "Thinking")
+                        }
+                      />
+                    </>
                   )}
                   {queuedMessages.map((msg) => {
                     const displayText = msg.text
