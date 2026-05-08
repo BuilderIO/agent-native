@@ -8,6 +8,8 @@ describe("AgentEngine registry", () => {
     vi.doUnmock("../../settings/store.js");
     vi.doUnmock("../../server/request-context.js");
     vi.doUnmock("../../secrets/storage.js");
+    vi.doUnmock("../../db/client.js");
+    vi.unstubAllEnvs();
     // Clear env vars that influence resolveEngine
     delete process.env.AGENT_ENGINE;
     delete process.env.AGENT_ENGINE_PREFER_BYO_KEY;
@@ -330,6 +332,7 @@ describe("AgentEngine registry", () => {
 
     expect(createFn).toHaveBeenCalledWith({
       apiKey: "sk-request-scoped",
+      allowEnvFallback: true,
       baseURL: "https://llm.example.test",
     });
     expect(JSON.stringify(createFn.mock.calls)).not.toContain(
@@ -673,7 +676,10 @@ describe("AgentEngine registry", () => {
       });
 
       const resolved = await resolveEngine({ apiKey: "google-user-key" });
-      expect(googleCreate).toHaveBeenCalledWith({ apiKey: "google-user-key" });
+      expect(googleCreate).toHaveBeenCalledWith({
+        apiKey: "google-user-key",
+        allowEnvFallback: true,
+      });
       expect(openAiCreate).not.toHaveBeenCalled();
       expect(resolved).toBe(googleEngine);
     });
