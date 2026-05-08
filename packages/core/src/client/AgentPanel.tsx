@@ -565,7 +565,6 @@ function AgentPanelInner({
   const codeUnavailableSecondaryCtaHref =
     codeAccess?.unavailableSecondaryCtaHref;
   const canUseCodeTools = isDevMode && codeAccessEnabled;
-  const chatUsesLocalDevAgent = canUseCodeTools;
   const showCliMode = isDevMode || !codeAccessEnabled;
 
   // Notify frame when dev mode changes — use both a local CustomEvent (for
@@ -1229,10 +1228,8 @@ function AgentPanelInner({
             emptyStateText={emptyStateText}
             suggestions={suggestions}
             onSwitchToCli={() => switchMode("cli")}
-            execMode={chatUsesLocalDevAgent ? execMode : undefined}
-            onExecModeChange={
-              chatUsesLocalDevAgent ? switchExecMode : undefined
-            }
+            execMode={execMode}
+            onExecModeChange={switchExecMode}
             storageKey={storageKey}
           />
         )}

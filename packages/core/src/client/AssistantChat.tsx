@@ -1829,6 +1829,7 @@ function RunErrorRecoveryCard({
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const canRecover = info.recoverable === true;
   const copyDetails = useCallback(() => {
     const text = [
       info.message,
@@ -1851,7 +1852,9 @@ function RunErrorRecoveryCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="font-medium text-foreground">
-            The agent stopped before finishing
+            {canRecover
+              ? "The agent stopped before finishing"
+              : "The agent hit an error"}
           </div>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {info.message}
@@ -1894,30 +1897,36 @@ function RunErrorRecoveryCard({
         </button>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={onContinue}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
-        >
-          <IconPlayerPlay size={13} />
-          Continue
-        </button>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
-        >
-          <IconRefresh size={13} />
-          Retry
-        </button>
-        {onFork && (
+        {canRecover && (
+          <>
+            <button
+              type="button"
+              onClick={onContinue}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+            >
+              <IconPlayerPlay size={13} />
+              Continue
+            </button>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
+            >
+              <IconRefresh size={13} />
+              Retry
+            </button>
+          </>
+        )}
+        {canRecover && onFork && (
           <button
             type="button"
             onClick={onFork}
+            title="Fork this conversation into a separate chat thread."
+            aria-label="Fork this conversation into a separate chat thread"
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
           >
             <IconGitFork size={13} />
-            Fork
+            Fork chat
           </button>
         )}
         <button
