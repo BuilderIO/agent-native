@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.12.22
+
+### Patch Changes
+
+- 1ba9738: Allow composer dictation to request same-origin microphone access and improve blocked-microphone guidance.
+- 1ba9738: Use the AI SDK's default OpenAI Responses path for first-party OpenAI agent models.
+- 1ba9738: Show a Builder reconnect action when agent chat hits Builder or model-provider auth errors.
+
 ## 0.12.21
 
 ### Patch Changes
