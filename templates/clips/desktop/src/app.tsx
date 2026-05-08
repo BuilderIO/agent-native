@@ -3632,7 +3632,24 @@ function ShortcutRecorder({
 }) {
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    };
+  }, []);
+
+  function flashSaved() {
+    setSaved(true);
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => {
+      savedTimerRef.current = null;
+      setSaved(false);
+    }, 1600);
+  }
 
   return (
     <div className="setup-shortcut-row">
@@ -3646,6 +3663,7 @@ function ShortcutRecorder({
             return;
           }
           setError(null);
+          setSaved(false);
           setRecording(true);
           requestAnimationFrame(() => buttonRef.current?.focus());
         }}
@@ -3663,6 +3681,7 @@ function ShortcutRecorder({
             onChange("");
             setRecording(false);
             setError(null);
+            setSaved(false);
             return;
           }
           const next = shortcutFromKeyboardEvent(event);
@@ -3677,6 +3696,7 @@ function ShortcutRecorder({
           onChange(next);
           setRecording(false);
           setError(null);
+          flashSaved();
         }}
         onKeyUp={(event) => {
           if (!recording) return;
@@ -3693,12 +3713,18 @@ function ShortcutRecorder({
           onClick={() => {
             onChange("");
             setError(null);
+            setSaved(false);
           }}
         >
           Clear
         </button>
       ) : null}
       {error ? <p className="setup-warning">{error}</p> : null}
+      {saved && !error ? (
+        <p className="setup-success" aria-live="polite">
+          Saved
+        </p>
+      ) : null}
     </div>
   );
 }
