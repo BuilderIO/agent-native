@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import type { Document } from "@shared/api";
+import type { Document, DocumentTreeNode } from "@shared/api";
 import {
   IconPlus,
   IconSearch,
@@ -127,6 +127,8 @@ export function DocumentSidebar({
   );
 
   const tree = buildDocumentTree(documents);
+  const privateTree = tree.filter((node) => node.visibility !== "org");
+  const organizationTree = tree.filter((node) => node.visibility === "org");
   const favorites = documents.filter((d) => d.isFavorite);
   const moveAvailability = useMemo(() => {
     const availability = new Map<string, MoveAvailability>();
@@ -188,6 +190,7 @@ export function DocumentSidebar({
         icon: null,
         position: 9999,
         isFavorite: false,
+        visibility: "private",
         createdAt: now,
         updatedAt: now,
       };
@@ -315,6 +318,27 @@ export function DocumentSidebar({
         d.title.toLowerCase().includes(searchQuery.toLowerCase()),
       )
     : null;
+
+  const renderDocumentTree = (nodes: DocumentTreeNode[]) =>
+    nodes.map((node) => (
+      <DocumentTreeItem
+        key={node.id}
+        node={node}
+        depth={0}
+        activeId={activeDocumentId}
+        expandedIds={expandedIds}
+        onToggleExpanded={handleToggleExpanded}
+        onSelect={(id) => {
+          navigateToDocument(id);
+          onNavigate?.();
+        }}
+        onCreateChild={(parentId) => handleCreatePage(parentId)}
+        onDelete={handleDelete}
+        onMove={handleMovePage}
+        moveAvailability={moveAvailability}
+        onToggleFavorite={handleToggleFavorite}
+      />
+    ));
 
   if (collapsed) {
     return (
@@ -489,10 +513,10 @@ export function DocumentSidebar({
                 </div>
               )}
 
-              {/* Page tree */}
+              {/* Private page tree */}
               <div>
                 <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Pages
+                  Private
                 </div>
                 {isLoading ? (
                   <div className="space-y-1 px-3 py-1">
@@ -509,43 +533,40 @@ export function DocumentSidebar({
                       </div>
                     ))}
                   </div>
-                ) : tree.length === 0 ? (
+                ) : privateTree.length === 0 ? (
                   <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                    No pages yet
+                    No private pages yet
                   </div>
                 ) : (
-                  tree.map((node) => (
-                    <DocumentTreeItem
-                      key={node.id}
-                      node={node}
-                      depth={0}
-                      activeId={activeDocumentId}
-                      expandedIds={expandedIds}
-                      onToggleExpanded={handleToggleExpanded}
-                      onSelect={(id) => {
-                        navigateToDocument(id);
-                        onNavigate?.();
-                      }}
-                      onCreateChild={(parentId) => handleCreatePage(parentId)}
-                      onDelete={handleDelete}
-                      onMove={handleMovePage}
-                      moveAvailability={moveAvailability}
-                      onToggleFavorite={handleToggleFavorite}
-                    />
-                  ))
+                  renderDocumentTree(privateTree)
                 )}
               </div>
+
+              {/* New page button — private pages are the default */}
+              <button
+                className="flex w-full items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                onClick={() => handleCreatePage()}
+              >
+                <IconPlus size={14} className="shrink-0" />
+                <span>New page</span>
+              </button>
+
+              {!isLoading && (
+                <div className="mt-3">
+                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Organization
+                  </div>
+                  {organizationTree.length === 0 ? (
+                    <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                      No organization pages yet
+                    </div>
+                  ) : (
+                    renderDocumentTree(organizationTree)
+                  )}
+                </div>
+              )}
             </>
           )}
-
-          {/* New page button — under the list */}
-          <button
-            className="flex w-full items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-            onClick={() => handleCreatePage()}
-          >
-            <IconPlus size={14} className="shrink-0" />
-            <span>New page</span>
-          </button>
         </div>
       </ScrollArea>
 
