@@ -69,6 +69,8 @@ import {
   type TiptapComposerHandle,
 } from "./composer/TiptapComposer.js";
 import type { Reference } from "./composer/types.js";
+import { isPastedTextAttachmentName } from "./composer/pasted-text.js";
+import { PastedTextChip } from "./composer/PastedTextChip.js";
 import {
   IconMessage,
   IconX,
@@ -662,6 +664,10 @@ function ComposerAttachmentPreviewCard({
     };
   }, [attachment]);
 
+  if (isPastedTextAttachmentName(attachment.name)) {
+    return <PastedTextChip attachment={attachment} onRemove={onRemove} />;
+  }
+
   const isImage = !!imageSrc;
 
   return (
@@ -1112,6 +1118,10 @@ function UserMessageAttachments() {
   return (
     <div className="flex flex-wrap justify-end gap-1.5 mb-1.5">
       {attachments.map((att) => {
+        if (isPastedTextAttachmentName(att.name)) {
+          return <PastedTextChip key={att.id} attachment={att} compact />;
+        }
+
         const imagePart = att.content?.find(
           (p): p is { type: "image"; image: string } =>
             p.type === "image" && "image" in p && !!p.image,

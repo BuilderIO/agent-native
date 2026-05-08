@@ -145,7 +145,12 @@ describe("createAgentChatAdapter", () => {
               {
                 name: "notes.txt",
                 contentType: "text/plain",
-                content: [{ type: "text", text: "Attachment text" }],
+                content: [
+                  {
+                    type: "text",
+                    text: "<attachment name=notes.txt>\nAttachment text\n</attachment>",
+                  },
+                ],
               },
               {
                 name: "report.md",
@@ -154,6 +159,17 @@ describe("createAgentChatAdapter", () => {
                     type: "file",
                     data: "# Report",
                     mimeType: "text/markdown",
+                  },
+                ],
+              },
+              {
+                name: "transcript.txt",
+                contentType: "text/plain",
+                content: [
+                  {
+                    type: "file",
+                    data: "data:text/plain;base64,VHJhbnNjcmlwdCB0ZXh0",
+                    mimeType: "text/plain",
                   },
                 ],
               },
@@ -218,6 +234,12 @@ describe("createAgentChatAdapter", () => {
           name: "report.md",
           contentType: "text/markdown",
           text: "# Report",
+        },
+        {
+          type: "file",
+          name: "transcript.txt",
+          contentType: "text/plain",
+          text: "Transcript text",
         },
       ],
     });

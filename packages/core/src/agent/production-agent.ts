@@ -488,6 +488,7 @@ export interface ProductionAgentOptions {
 const MAX_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 2000;
 const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
+const MAX_TEXT_ATTACHMENT_CHARS = 60_000;
 
 function generateRunId(): string {
   return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -588,8 +589,21 @@ function escapeAttachmentAttribute(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
+function unwrapTextAttachmentEnvelope(text: string): string {
+  const match = text.match(/^<attachment\b[^>]*>\n([\s\S]*)\n<\/attachment>$/);
+  return match ? match[1] : text;
+}
+
+function truncateTextAttachment(text: string): string {
+  if (text.length <= MAX_TEXT_ATTACHMENT_CHARS) return text;
+
+  const omitted = text.length - MAX_TEXT_ATTACHMENT_CHARS;
+  return `${text.slice(0, MAX_TEXT_ATTACHMENT_CHARS)}\n\n[Attachment truncated after ${MAX_TEXT_ATTACHMENT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted to keep the agent request within model context limits.]`;
+}
+
 function formatTextAttachment(att: AgentChatAttachment): string | null {
   if (typeof att.text !== "string" || att.text.length === 0) return null;
+  const text = truncateTextAttachment(unwrapTextAttachmentEnvelope(att.text));
 
   const attrs = [
     `name="${escapeAttachmentAttribute(att.name || "attachment")}"`,
@@ -599,7 +613,7 @@ function formatTextAttachment(att: AgentChatAttachment): string | null {
     att.type ? `type="${escapeAttachmentAttribute(att.type)}"` : null,
   ].filter(Boolean);
 
-  return `<attachment ${attrs.join(" ")}>\n${att.text}\n</attachment>`;
+  return `<attachment ${attrs.join(" ")}>\n${text}\n</attachment>`;
 }
 
 function dataUrlToFilePart(
