@@ -57,6 +57,8 @@ export type CaptureMode = "screen" | "screen-camera" | "camera";
 export type CaptureSource = "full-screen" | "window";
 
 const NATIVE_FULLSCREEN_RECORDING_FLAG = "clips:native-fullscreen-recording";
+const DEV_SYNTHETIC_CAPTURE_FLAG = "clips:dev-synthetic-capture";
+const LEGACY_DEV_REAL_CAPTURE_FLAG = "clips:dev-real-capture";
 
 export function shouldUseNativeFullscreenRecording(
   source: CaptureSource | undefined,
@@ -67,6 +69,22 @@ export function shouldUseNativeFullscreenRecording(
   // stopping the stream finishes the recording file. Keep it as an explicit
   // development escape hatch until native pause can segment + stitch safely.
   return localStorage.getItem(NATIVE_FULLSCREEN_RECORDING_FLAG) === "1";
+}
+
+function shouldUseDevSyntheticCapture(): boolean {
+  if (!import.meta.env.DEV) return false;
+  if (typeof localStorage === "undefined") return false;
+
+  const synthetic = localStorage.getItem(DEV_SYNTHETIC_CAPTURE_FLAG);
+  if (synthetic !== null) {
+    return synthetic === "1" || synthetic === "true";
+  }
+
+  // Back-compat for local dev sessions that explicitly opted out of real
+  // capture before `clips:dev-synthetic-capture` existed. Missing legacy state
+  // now means "try the real picker" so permission failures can surface.
+  const legacyRealCapture = localStorage.getItem(LEGACY_DEV_REAL_CAPTURE_FLAG);
+  return legacyRealCapture === "0" || legacyRealCapture === "false";
 }
 
 export interface StartParams {
@@ -1149,10 +1167,11 @@ function createSyntheticScreenStream(): {
     ctx.font = "500 32px ui-sans-serif, system-ui, -apple-system";
     ctx.fillText(`Elapsed ${elapsed.toString().padStart(2, "0")}s`, 64, 170);
     ctx.font = "400 24px ui-sans-serif, system-ui, -apple-system";
+    ctx.fillText("Dev synthetic capture is enabled for this session.", 64, 220);
     ctx.fillText(
-      "Dev-only fallback used when macOS blocks getDisplayMedia automation.",
+      'Disable localStorage "clips:dev-synthetic-capture" to record your screen.',
       64,
-      220,
+      258,
     );
   };
   draw();
@@ -1348,13 +1367,11 @@ async function startNativeRecordingInner(
     console.log("[clips-recorder] acquiring audioStream (mic only)");
   }
   const streamCleanups: Array<() => void> = [recordingStartCue.cleanup];
+  const devSyntheticCapture = shouldUseDevSyntheticCapture();
 
   const displayStreamPromise: Promise<MediaStream> | null = wantsScreen
     ? (() => {
-        const useSynthetic =
-          import.meta.env.DEV &&
-          localStorage.getItem("clips:dev-real-capture") !== "1";
-        if (!useSynthetic) {
+        if (!devSyntheticCapture) {
           const displaySurface =
             captureSource === "window" ? "window" : "monitor";
           return navigator.mediaDevices.getDisplayMedia({
@@ -1363,7 +1380,7 @@ async function startNativeRecordingInner(
           });
         }
         console.warn(
-          "[clips-recorder] using dev synthetic screen capture; set localStorage clips:dev-real-capture=1 to use the native picker",
+          "[clips-recorder] using opt-in dev synthetic screen capture; remove localStorage clips:dev-synthetic-capture to use the native picker",
         );
         const syntheticDisplay = createSyntheticScreenStream();
         streamCleanups.push(syntheticDisplay.cleanup);
@@ -1415,12 +1432,17 @@ async function startNativeRecordingInner(
     "[clips-recorder] allSettled OUT — settled statuses:",
     settled.map((s) => s.status),
   );
-  const firstRejection = settled.find(
-    (s): s is PromiseRejectedResult => s.status === "rejected",
-  );
+  const firstRejectionIndex = settled.findIndex((s) => s.status === "rejected");
+  const firstRejection =
+    firstRejectionIndex >= 0
+      ? (settled[firstRejectionIndex] as PromiseRejectedResult)
+      : null;
   if (firstRejection) {
     const canUseSyntheticScreen =
-      import.meta.env.DEV && wantsScreen && displayStreamPromise != null;
+      devSyntheticCapture &&
+      wantsScreen &&
+      displayStreamPromise != null &&
+      firstRejectionIndex === 0;
     if (!canUseSyntheticScreen) {
       for (const s of settled) {
         if (s.status === "fulfilled" && s.value) {
@@ -1445,7 +1467,7 @@ async function startNativeRecordingInner(
       throw firstRejection.reason;
     }
     console.warn(
-      "[clips-recorder] using dev synthetic capture because native stream acquisition failed:",
+      "[clips-recorder] continuing with opt-in dev synthetic capture after stream acquisition failed:",
       firstRejection.reason,
     );
   }
@@ -1461,7 +1483,13 @@ async function startNativeRecordingInner(
     settled[2].status === "fulfilled"
       ? (settled[2].value as MediaStream | null)
       : null;
-  if (firstRejection && import.meta.env.DEV && wantsScreen && !displayStream) {
+  if (
+    firstRejection &&
+    firstRejectionIndex === 0 &&
+    devSyntheticCapture &&
+    wantsScreen &&
+    !displayStream
+  ) {
     [displayStream, freshlyAcquiredCameraStream, audioStream].forEach((s) =>
       s?.getTracks().forEach((track) => track.stop()),
     );
