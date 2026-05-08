@@ -79,15 +79,15 @@ export default function AnalysesList() {
               </div>
               <h3 className="text-lg font-semibold mb-2">No analyses yet</h3>
               <p className="text-sm text-muted-foreground max-w-sm mb-4">
-                Ask the AI assistant to run an analysis — for example, "Analyze
-                our closed-lost deals from Q1 and cross-reference with Gong call
-                data" — and it will save the results here.
+                Ask the AI assistant to run an analysis with your configured
+                data sources, and it will save the results here with the
+                evidence it queried.
               </p>
               <button
                 onClick={() =>
                   send({
                     message:
-                      "Run an ad-hoc analysis on our top opportunities — pull data from available sources and summarize key findings",
+                      "Run an ad-hoc analysis using my configured data sources and summarize the key findings",
                     submit: false,
                   })
                 }
