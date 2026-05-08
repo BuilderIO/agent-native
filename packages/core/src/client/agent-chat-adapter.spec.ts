@@ -406,6 +406,76 @@ describe("createAgentChatAdapter", () => {
     ]);
   });
 
+  it("includes prior-turn text attachments in chat history", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-history-attachments",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "" }],
+            attachments: [
+              {
+                name: "prior-transcript.txt",
+                contentType: "text/plain",
+                content: [
+                  {
+                    type: "file",
+                    data: "data:text/plain;base64,Q3VzdG9tZXIgY2FsbCBub3Rlcw==",
+                    mimeType: "text/plain",
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "I read the transcript." }],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: "What were the next steps?" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.history[0].content).toContain(
+      '<attachment name="prior-transcript.txt" contentType="text/plain" type="file">',
+    );
+    expect(body.history[0].content).toContain("Customer call notes");
+    expect(body.structuredHistory[0]).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: expect.stringContaining("Customer call notes"),
+        },
+      ],
+    });
+  });
+
   it("treats authentication failures as auth errors, not AI setup", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });

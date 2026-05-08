@@ -56,6 +56,7 @@ import { loadSchemaPromptBlock } from "./schema-prompt.js";
 import {
   buildAssistantMessage,
   extractThreadMeta,
+  mergeThreadDataForClientSave,
   upsertAssistantMessage,
 } from "../agent/thread-data-builder.js";
 import {
@@ -4688,20 +4689,23 @@ export function createAgentChatPlugin(
                 }
                 const body = await readBody(event);
                 let newThreadData = body.threadData || thread.threadData;
-                // Preserve queuedMessages from the existing thread_data when the
-                // incoming blob doesn't include it. Periodic full-thread saves
-                // (exported via threadRuntime.export) don't carry the queue, and
-                // we don't want them to clobber queued-message state persisted
-                // via POST /threads/:id/queued.
+                let newMessageCount =
+                  body.messageCount ?? thread.messageCount;
+                // Merge the incoming full-thread blob over the current SQL
+                // copy. Periodic saves can be stale relative to server-side
+                // run completion, and threadRuntime.export() does not carry
+                // queuedMessages.
                 if (body.threadData) {
                   try {
                     const existing = JSON.parse(thread.threadData);
-                    if (existing.queuedMessages !== undefined) {
-                      const incoming = JSON.parse(newThreadData);
-                      if (incoming.queuedMessages === undefined) {
-                        incoming.queuedMessages = existing.queuedMessages;
-                        newThreadData = JSON.stringify(incoming);
-                      }
+                    const incoming = JSON.parse(newThreadData);
+                    const merged = mergeThreadDataForClientSave(
+                      existing,
+                      incoming,
+                    );
+                    newThreadData = JSON.stringify(merged);
+                    if (Array.isArray(merged.messages)) {
+                      newMessageCount = merged.messages.length;
                     }
                   } catch {
                     // Invalid JSON in either side — fall back to raw body blob.
@@ -4712,7 +4716,7 @@ export function createAgentChatPlugin(
                   newThreadData,
                   body.title ?? thread.title,
                   body.preview ?? thread.preview,
-                  body.messageCount || thread.messageCount,
+                  newMessageCount,
                 );
                 return { ok: true };
               });
