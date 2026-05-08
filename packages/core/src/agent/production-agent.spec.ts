@@ -1216,7 +1216,10 @@ describe("runAgentLoop", () => {
 
     expect(streamCalls).toBe(3);
     expect(guard).toHaveBeenCalledTimes(2);
-    expect(events).toContainEqual({ type: "clear" });
+    expect(events).not.toContainEqual({
+      type: "text",
+      text: "Looks up and to the right.",
+    });
     expect(events).toContainEqual({
       type: "tool_start",
       tool: "query-data",
@@ -1275,7 +1278,8 @@ describe("runAgentLoop", () => {
     });
 
     expect(streamCalls).toBe(2);
-    expect(events.filter((event) => event.type === "clear")).toHaveLength(2);
+    expect(events).not.toContainEqual({ type: "text", text: "fake answer" });
+    expect(events).not.toContainEqual({ type: "text", text: "still fake" });
     expect(events).toContainEqual({
       type: "text",
       text: "I stopped because no real data-source query ran.",

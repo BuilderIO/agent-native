@@ -108,6 +108,17 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
   );
 }
 
+const ANALYTICS_RESULT_TERMS =
+  /\b(conversion|conversions|funnel|revenue|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|sentiment|themes?|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|mrr|arr|ctr|cvr|cac|ltv)\b/;
+
+const ANALYTICS_INTENT_TERMS =
+  /\b(analy[sz]e|measure|calculate|query|report|summari[sz]e|break ?down|compare|rank|segment|forecast|trend|count|total|average|median|percent(?:age)?|rate|top|bottom|highest|lowest|how many|how much|what (?:is|are|was|were)|which|why)\b/;
+
+const ARTIFACT_TERMS = /\b(analysis|dashboard|panel|chart|metric|metrics)\b/;
+
+const ARTIFACT_DATA_INTENT =
+  /\b(build|create|make|show|visuali[sz]e|plot|chart|query|calculate|report)\b/;
+
 export function looksLikeAnalyticsDataRequest(text: string): boolean {
   const requestText = stripInjectedAnalyticsGuardContext(text);
   const lower = requestText.toLowerCase();
@@ -128,9 +139,30 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   ) {
     return false;
   }
-  return /\b(analy[sz]e|analysis|dashboard|panel|metric|metrics|count|total|trend|breakdown|conversion|funnel|revenue|traffic|pageviews?|signups?|events?|users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|messages?|sentiment|themes?|objections?)\b/.test(
-    lower,
+
+  if (ANALYTICS_RESULT_TERMS.test(lower)) return true;
+  if (ANALYTICS_INTENT_TERMS.test(lower) && /\b(data|source|table|sql)\b/.test(lower)) {
+    return true;
+  }
+  return (
+    ARTIFACT_TERMS.test(lower) &&
+    ARTIFACT_DATA_INTENT.test(lower) &&
+    ANALYTICS_RESULT_TERMS.test(lower)
   );
+}
+
+const UNSUPPORTED_RESULT_CLAIM =
+  /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent|users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\$\s*\d|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b)/i;
+
+const SAFE_NO_DATA_RESPONSE =
+  /\b(?:i can't|i cannot|can't retrieve|cannot retrieve|couldn't retrieve|unable to retrieve|don't have access|do not have access|not configured|missing credentials?|need (?:a|the)? ?data source|need to know which source|which source|which data source|clarify|can you|once (?:that'?s|it is) (?:connected|configured|available)|no data source|without a successful|before (?:i|we) can (?:calculate|report|answer|analyze)|i need to query)\b/i;
+
+export function isSafeNoDataAnalyticsResponse(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (UNSUPPORTED_RESULT_CLAIM.test(trimmed)) return false;
+  if (SAFE_NO_DATA_RESPONSE.test(trimmed)) return true;
+  return /\?\s*$/.test(trimmed) && !UNSUPPORTED_RESULT_CLAIM.test(trimmed);
 }
 
 export function hasDataQueryAttempt(
