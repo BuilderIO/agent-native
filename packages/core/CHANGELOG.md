@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.12.21
+
+### Patch Changes
+
+- 0d95d53: Restore production Plan mode in the agent sidebar and clarify read-only planning before production writes.
+- 0d95d53: Fix prompt composer model selection in embedded prompt dialogs.
+- 0d95d53: Add generic client/server error capture helpers and report agent chat run failures through configured capture providers.
+
 ## 0.12.20
 
 ### Patch Changes
