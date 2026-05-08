@@ -16,8 +16,11 @@ import {
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
 import {
+  listBrowserRecordingBackups,
+  retryBrowserRecordingBackup,
   shouldUseNativeFullscreenRecording,
   startNativeRecording,
+  type PendingBrowserRecordingUpload,
   type RecorderHandle,
 } from "./lib/recorder";
 import {
@@ -44,6 +47,7 @@ interface RecordingSummary {
 }
 
 interface PendingNativeUpload {
+  kind: "native";
   recordingId: string;
   serverUrl: string;
   durationMs: number;
@@ -57,6 +61,8 @@ interface PendingNativeUpload {
   lastError?: string | null;
   retryCount: number;
 }
+
+type PendingDesktopUpload = PendingNativeUpload | PendingBrowserRecordingUpload;
 
 type CaptureMode = "screen" | "screen-camera" | "camera";
 type CaptureSource = "full-screen" | "window";
@@ -454,7 +460,7 @@ export function App() {
   );
 
   const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
-  const [pendingUploads, setPendingUploads] = useState<PendingNativeUpload[]>(
+  const [pendingUploads, setPendingUploads] = useState<PendingDesktopUpload[]>(
     [],
   );
   const [retryingUploadId, setRetryingUploadId] = useState<string | null>(null);
@@ -1247,10 +1253,21 @@ export function App() {
 
   const loadPendingUploads = useCallback(async () => {
     try {
-      const list = await invoke<PendingNativeUpload[]>(
+      const nativeList = await invoke<Omit<PendingNativeUpload, "kind">[]>(
         "native_fullscreen_pending_uploads",
       );
-      setPendingUploads(Array.isArray(list) ? list : []);
+      const browserList = await listBrowserRecordingBackups();
+      const nativeUploads = Array.isArray(nativeList)
+        ? nativeList.map((upload) => ({
+            ...upload,
+            kind: "native" as const,
+          }))
+        : [];
+      setPendingUploads(
+        [...nativeUploads, ...browserList].sort((a, b) =>
+          b.savedAt.localeCompare(a.savedAt),
+        ),
+      );
     } catch (err) {
       console.warn("[clips-tray] pending upload lookup failed:", err);
       setPendingUploads([]);
@@ -1304,18 +1321,26 @@ export function App() {
     });
   }
 
-  async function retryPendingUpload(upload: PendingNativeUpload) {
+  async function retryPendingUpload(upload: PendingDesktopUpload) {
     if (retryingUploadId) return;
     const targetServerUrl = (upload.serverUrl || serverUrl).replace(/\/+$/, "");
     setRecError(null);
     setRetryingUploadId(upload.recordingId);
     try {
-      await invoke("native_fullscreen_recording_retry_upload", {
-        serverUrl: targetServerUrl,
-        recordingId: upload.recordingId,
-        authToken: loadDesktopAuthToken(targetServerUrl),
-        cookie: typeof document !== "undefined" ? document.cookie || "" : "",
-      });
+      const authToken = loadDesktopAuthToken(targetServerUrl);
+      if (upload.kind === "native") {
+        await invoke("native_fullscreen_recording_retry_upload", {
+          serverUrl: targetServerUrl,
+          recordingId: upload.recordingId,
+          authToken,
+          cookie: typeof document !== "undefined" ? document.cookie || "" : "",
+        });
+      } else {
+        await retryBrowserRecordingBackup({
+          recordingId: upload.recordingId,
+          authToken,
+        });
+      }
       await loadPendingUploads();
       await fetchRecent();
       await openExternal(`${targetServerUrl}/r/${upload.recordingId}`);
@@ -1877,9 +1902,9 @@ function PendingUploadBanner({
   retryingUploadId,
   onRetry,
 }: {
-  uploads: PendingNativeUpload[];
+  uploads: PendingDesktopUpload[];
   retryingUploadId: string | null;
-  onRetry: (upload: PendingNativeUpload) => void;
+  onRetry: (upload: PendingDesktopUpload) => void;
 }) {
   const latest = uploads[0];
   if (!latest) return null;

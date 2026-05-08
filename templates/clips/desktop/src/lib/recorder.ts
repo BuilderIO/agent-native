@@ -1755,7 +1755,11 @@ async function startNativeRecordingInner(
         }
         recorder.addEventListener("stop", () => resolve(), { once: true });
         try {
-          if (recorder.state === "paused") recorder.resume();
+          if (recorder.state === "paused") {
+            recorder.resume();
+            if (pausedAt) accumulatedPauseMs += Date.now() - pausedAt;
+            pausedAt = null;
+          }
         } catch {
           // ignore
         }
@@ -1780,6 +1784,30 @@ async function startNativeRecordingInner(
       if (nativeTranscript) {
         await saveNativeTranscript(params.serverUrl, id, nativeTranscript);
       }
+
+      const videoSettings = primaryVideo.getVideoTracks()[0]?.getSettings();
+      const durationMs = Math.max(
+        0,
+        Math.round(Date.now() - startedAt - accumulatedPauseMs),
+      );
+      const width =
+        typeof videoSettings?.width === "number" ? videoSettings.width : null;
+      const height =
+        typeof videoSettings?.height === "number" ? videoSettings.height : null;
+      const finalMimeType = mimeType || backupMeta.mimeType || "video/webm";
+      await persistBackupMeta({
+        durationMs,
+        width,
+        height,
+        bytes: backupBytes,
+        hasAudio: combined.getAudioTracks().length > 0,
+        hasCamera: wantsCamera,
+        chunkCount: chunkIndex,
+        mimeType: finalMimeType,
+        lastError: null,
+      }).catch((err) => {
+        console.warn("[clips-recorder] local backup final metadata failed:", err);
+      });
 
       // Null the data handler so the final MediaRecorder teardown
       // doesn't keep the closure (which captures `inflight`, the URL
@@ -1841,11 +1869,25 @@ async function startNativeRecordingInner(
       const pending = Array.from(inflight);
       await Promise.allSettled(pending);
       inflight.clear();
-      if (failed)
+      if (failed) {
         console.error("[clips-recorder] chunk upload failed:", failed);
+        await markBrowserRecordingBackupError(id, failed.message).catch(
+          () => {},
+        );
+        await abortRecordingUpload(params.serverUrl, id, failed.message);
+        invoke("hide_finalizing").catch((err) =>
+          console.error("[clips-recorder] hide_finalizing failed:", err),
+        );
+        throw failed;
+      }
 
       const finalizeUrl = chunkUrl(params.serverUrl, id, chunkIndex, true, {
-        mimeType: mimeType || "video/webm",
+        mimeType: finalMimeType,
+        durationMs: String(durationMs),
+        ...(width ? { width: String(width) } : {}),
+        ...(height ? { height: String(height) } : {}),
+        hasAudio: backupMeta.hasAudio ? "1" : "0",
+        hasCamera: wantsCamera ? "1" : "0",
       });
       console.log("[clips-recorder] finalize POST", finalizeUrl, {
         chunksSent: chunkIndex,
@@ -1857,7 +1899,7 @@ async function startNativeRecordingInner(
           method: "POST",
           headers: { "Content-Type": "application/octet-stream" },
           credentials: "include",
-          body: new Blob([], { type: mimeType || "video/webm" }),
+          body: new Blob([], { type: finalMimeType }),
         });
         const bodyText = await finalRes.text().catch(() => "");
         console.log(
@@ -1865,9 +1907,25 @@ async function startNativeRecordingInner(
           finalRes.status,
           bodyText.slice(0, 500),
         );
+        if (!finalRes.ok) {
+          throw new Error(
+            `Finalize failed (${finalRes.status}): ${bodyText.slice(0, 200)}`,
+          );
+        }
       } catch (err) {
         console.error("[clips-recorder] finalize fetch failed:", err);
+        const error = err instanceof Error ? err : new Error(String(err));
+        await markBrowserRecordingBackupError(id, error.message).catch(
+          () => {},
+        );
+        invoke("hide_finalizing").catch((hideErr) =>
+          console.error("[clips-recorder] hide_finalizing failed:", hideErr),
+        );
+        throw error;
       }
+      await deleteBrowserRecordingBackup(id).catch((err) => {
+        console.warn("[clips-recorder] local backup cleanup failed:", err);
+      });
 
       // Finalize done (or tried and failed — the player page shows a clear
       // error state in either case). Open the browser to the playback URL
@@ -1944,6 +2002,9 @@ async function startNativeRecordingInner(
       } catch (err) {
         console.warn("[clips-recorder] abort failed (non-fatal):", err);
       }
+      await deleteBrowserRecordingBackup(id).catch((err) => {
+        console.warn("[clips-recorder] local backup cleanup failed:", err);
+      });
     },
   };
 
