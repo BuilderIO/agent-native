@@ -27,6 +27,9 @@ describe("createH3SSRHandler", () => {
   afterEach(() => {
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
+    delete process.env.SENTRY_CLIENT_DSN;
+    delete process.env.SENTRY_DSN;
+    delete process.env.SENTRY_ENVIRONMENT;
     mocks.requestHandler.mockClear();
   });
 
@@ -114,6 +117,24 @@ describe("createH3SSRHandler", () => {
     expect(html).toContain('src="/docs/logo.svg"');
     expect(html).toContain('action="/docs/api/search"');
     expect(html).toContain('src="/docs/app.js"');
+  });
+
+  it("injects runtime browser Sentry config into SSR HTML", async () => {
+    process.env.SENTRY_DSN = "https://public@example/4511270423822336";
+    process.env.SENTRY_ENVIRONMENT = "production";
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/"));
+    const html = await response.text();
+
+    expect(html).toContain("data-agent-native-sentry-config");
+    expect(html).toContain("https://public@example/4511270423822336");
+    expect(html).toContain('"sentryEnvironment":"production"');
   });
 
   it("prefixes mounted SSR redirects", async () => {
