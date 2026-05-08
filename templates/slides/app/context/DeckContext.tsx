@@ -215,14 +215,20 @@ async function deleteDeckFromAPI(id: string): Promise<void> {
 }
 
 async function createDeckOnAPI(deck: Deck): Promise<void> {
-  try {
-    await fetch(`${appBasePath()}/api/decks`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(deck),
-    });
-  } catch (err) {
-    console.error(`Failed to create deck ${deck.id}:`, err);
+  const res = await fetch(`${appBasePath()}/api/decks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(deck),
+  });
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`;
+    try {
+      const body = (await res.json()) as { error?: string; message?: string };
+      message = body.error || body.message || message;
+    } catch {
+      // Keep the HTTP status fallback.
+    }
+    throw new Error(message);
   }
 }
 
@@ -552,9 +558,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // Save to API immediately (not debounced). Track as pending so the
       // poll doesn't wipe the optimistic deck before the POST completes.
       pendingCreateIdsRef.current.add(newDeck.id);
-      createDeckOnAPI(newDeck).finally(() => {
-        pendingCreateIdsRef.current.delete(newDeck.id);
-      });
+      createDeckOnAPI(newDeck)
+        .catch((err) => {
+          console.error(`Failed to create deck ${newDeck.id}:`, err);
+        })
+        .finally(() => {
+          pendingCreateIdsRef.current.delete(newDeck.id);
+        });
       setDecksWithHistory("Create deck", (prev) => [...prev, newDeck]);
       return newDeck;
     },
