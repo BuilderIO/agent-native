@@ -5,6 +5,7 @@ import {
   buildUserContentWithAttachments,
   createPlanModeActionRegistry,
   isPlanModeToolCallAllowed,
+  resolveAgentOwnerEmail,
   runAgentLoop,
   structuredHistoryToEngineMessages,
   type ActionEntry,
@@ -266,6 +267,30 @@ describe("buildUserContentWithAttachments", () => {
 
     const urlTool = actionEntry({ readOnly: true });
     expect(isPlanModeToolCallAllowed("set-url-path", {}, urlTool)).toBe(false);
+  });
+});
+
+describe("resolveAgentOwnerEmail", () => {
+  it("uses the explicit owner resolver when provided", async () => {
+    const owner = await runWithRequestContext(
+      { userEmail: "context@example.com", run: {} },
+      () =>
+        resolveAgentOwnerEmail(
+          { resolveOwnerEmail: async () => "resolved@example.com" },
+          {},
+        ),
+    );
+
+    expect(owner).toBe("resolved@example.com");
+  });
+
+  it("falls back to the request context owner", async () => {
+    const owner = await runWithRequestContext(
+      { userEmail: "context@example.com", run: {} },
+      () => resolveAgentOwnerEmail({}, {}),
+    );
+
+    expect(owner).toBe("context@example.com");
   });
 });
 
