@@ -150,6 +150,10 @@ export function useDbSync(
             queryClient.invalidateQueries({ queryKey: ["slot-available"] });
             queryClient.invalidateQueries({ queryKey: ["tool"] });
             queryClient.invalidateQueries({ queryKey: ["tools"] });
+            queryClient.invalidateQueries({ queryKey: ["app-state"] });
+            queryClient.invalidateQueries({ queryKey: ["navigate-command"] });
+            queryClient.invalidateQueries({ queryKey: ["show-questions"] });
+            queryClient.invalidateQueries({ queryKey: ["__set_url__"] });
           }
 
           // Always forward all events to onEvent — templates can decide
