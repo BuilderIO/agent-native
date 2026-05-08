@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.12.26
+
+### Patch Changes
+
+- 09d9748: Bundle agent chat feedback controls with the main client entry so missing lazy chunks cannot crash the agent panel.
+
 ## 0.12.25
 
 ### Patch Changes
