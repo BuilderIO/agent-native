@@ -297,10 +297,10 @@ export function InboxPage() {
     }
 
     if (activeLabel) {
-      // App triage labels are inbox slices, so the latest message controls
-      // membership. User Gmail labels/folders are archive-like: keep the
-      // conversation if any message in the thread has that label, so filed
-      // customer history doesn't disappear when the latest message differs.
+      // App triage labels are latest-message slices. User Gmail labels keep
+      // thread membership when any inbox message in the fetched thread carries
+      // the label, so replies do not disappear just because the latest row
+      // differs.
       const isInboxScopedLabel = isInboxScopedAppLabel(activeLabel);
       const hasLabel = (e: (typeof filtered)[0]) =>
         e.labelIds.some((l) => mailLabelMatches(l, activeLabel));

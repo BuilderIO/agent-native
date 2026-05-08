@@ -32,7 +32,7 @@ Clarify the scope before gathering data:
 
 ### Step 2: Gather Data from Multiple Sources
 
-Use the available actions to pull data. Read the relevant `.builder/skills/<provider>/SKILL.md` before querying each source.
+Use the available actions to pull data. Read the relevant `.agents/skills/<provider>/SKILL.md` before querying each source.
 
 **Common data source combinations:**
 

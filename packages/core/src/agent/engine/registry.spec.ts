@@ -8,14 +8,16 @@ describe("AgentEngine registry", () => {
     vi.doUnmock("../../settings/store.js");
     vi.doUnmock("../../server/request-context.js");
     vi.doUnmock("../../secrets/storage.js");
+    vi.doUnmock("../../db/client.js");
+    vi.unstubAllEnvs();
     // Clear env vars that influence resolveEngine
     delete process.env.AGENT_ENGINE;
     delete process.env.AGENT_ENGINE_PREFER_BYO_KEY;
-    delete process.env.ANTHROPIC_API_KEY;
-    delete process.env.OPENAI_API_KEY;
-    delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-    delete process.env.BUILDER_PRIVATE_KEY;
-    delete process.env.BUILDER_PUBLIC_KEY;
+    delete process.env.ANTHROPIC_API_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
+    delete process.env.OPENAI_API_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
+    delete process.env.GOOGLE_GENERATIVE_AI_API_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
+    delete process.env.BUILDER_PRIVATE_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
+    delete process.env.BUILDER_PUBLIC_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
   });
 
   it("registers and retrieves an engine", async () => {
@@ -330,6 +332,7 @@ describe("AgentEngine registry", () => {
 
     expect(createFn).toHaveBeenCalledWith({
       apiKey: "sk-request-scoped",
+      allowEnvFallback: true,
       baseURL: "https://llm.example.test",
     });
     expect(JSON.stringify(createFn.mock.calls)).not.toContain(
@@ -534,7 +537,7 @@ describe("AgentEngine registry", () => {
     });
 
     it("resolveEngine prefers connected Builder over a stale stored provider env key", async () => {
-      process.env.OPENAI_API_KEY = "sk-ant-wrong-provider";
+      process.env.OPENAI_API_KEY = "sk-ant-wrong-provider"; // guard:allow-env-credential — fixture: simulate a stale deploy env key
       vi.doMock("../../settings/store.js", () => ({
         getSetting: vi.fn().mockResolvedValue({
           engine: "ai-sdk:openai",
@@ -673,9 +676,106 @@ describe("AgentEngine registry", () => {
       });
 
       const resolved = await resolveEngine({ apiKey: "google-user-key" });
-      expect(googleCreate).toHaveBeenCalledWith({ apiKey: "google-user-key" });
+      expect(googleCreate).toHaveBeenCalledWith({
+        apiKey: "google-user-key",
+        allowEnvFallback: true,
+      });
       expect(openAiCreate).not.toHaveBeenCalled();
       expect(resolved).toBe(googleEngine);
+    });
+
+    it("does not auto-detect deploy-level provider env keys for signed-in production shared-database users", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — fixture: prove signed-in users do NOT pick up deploy env
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn().mockResolvedValue(null),
+      }));
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "new@example.com",
+        getRequestOrgId: () => "org-1",
+      }));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret: vi.fn().mockResolvedValue(null),
+      }));
+      vi.doMock("../../db/client.js", () => ({
+        isLocalDatabase: () => false,
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const openAiCreate = vi.fn().mockReturnValue({
+        name: "ai-sdk:openai",
+        stream: vi.fn(),
+      } as any);
+      const anthropicEngine = { name: "anthropic", stream: vi.fn() } as any;
+      const anthropicCreate = vi.fn().mockReturnValue(anthropicEngine);
+
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: anthropicCreate,
+      });
+
+      const resolved = await resolveEngine({});
+
+      expect(openAiCreate).not.toHaveBeenCalled();
+      expect(anthropicCreate).toHaveBeenCalledWith({
+        apiKey: undefined,
+        allowEnvFallback: false,
+      });
+      expect(resolved).toBe(anthropicEngine);
+    });
+
+    it("disables deploy env fallback for explicitly selected engines in signed-in production shared-database requests", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — fixture: prove explicit engine selection does NOT fall back to deploy env
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "new@example.com",
+        getRequestOrgId: () => "org-1",
+      }));
+      vi.doMock("../../db/client.js", () => ({
+        isLocalDatabase: () => false,
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+
+      const resolved = await resolveEngine({ engineOption: "ai-sdk:openai" });
+
+      expect(openAiCreate).toHaveBeenCalledWith({
+        apiKey: undefined,
+        allowEnvFallback: false,
+      });
+      expect(resolved).toBe(openAiEngine);
     });
   });
 });

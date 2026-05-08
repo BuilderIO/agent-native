@@ -2895,33 +2895,116 @@ function qbrExtension(): string {
             const data = this.parse(row);
             if (data) this.form = { ...this.form, ...data };
           },
-          dealSql() {
-            const owner = this.owner.replace(/'/g, "''");
-            return [
-              "WITH deals AS (",
-              "  SELECT deal_name, company_name, stage_name, pipeline_name, DATE(close_date) AS close_date, SAFE_CAST(amount AS FLOAT64) AS amount, COALESCE(hs_manual_forecast_category, 'Uncategorized') AS forecast_category, COALESCE(is_closed_won, FALSE) AS is_closed_won, COALESCE(is_deal_closed, FALSE) AS is_deal_closed, DATE(nbm_meeting_booked_date) AS nbm_booked_date, DATE(nbm_meeting_complete_date) AS nbm_completed_date",
-              "  FROM \`builder-3b0a2.dbt_mart.dim_hs_deals\`",
-              "  WHERE LOWER(COALESCE(sales_rep_owner_name, '')) = LOWER('" + owner + "')",
-              ")",
-              "SELECT",
-              "  COUNTIF(is_closed_won AND DATE(close_date) BETWEEN DATE('2026-02-01') AND DATE('2026-04-30')) AS q1_closed_won_count,",
-              "  COALESCE(SUM(IF(is_closed_won AND DATE(close_date) BETWEEN DATE('2026-02-01') AND DATE('2026-04-30'), amount, 0)), 0) AS q1_closed_won_arr,",
-              "  COUNTIF(is_deal_closed AND NOT is_closed_won AND DATE(close_date) BETWEEN DATE('2026-02-01') AND DATE('2026-04-30')) AS q1_closed_lost_count,",
-              "  COUNTIF(STARTS_WITH(LOWER(stage_name), 's0') AND DATE(close_date) BETWEEN DATE('2026-02-01') AND DATE('2026-04-30')) AS q1_s0_count,",
-              "  COUNTIF(nbm_booked_date BETWEEN DATE('2026-02-01') AND DATE('2026-04-30')) AS q1_nbm_scheduled,",
-              "  COUNTIF(nbm_completed_date BETWEEN DATE('2026-02-01') AND DATE('2026-04-30')) AS q1_nbm_completed,",
-              "  COUNTIF(NOT STARTS_WITH(LOWER(stage_name), 's0') AND NOT is_deal_closed AND DATE(close_date) BETWEEN DATE('2026-05-01') AND DATE('2026-07-31')) AS q2_pipeline_count,",
-              "  COALESCE(SUM(IF(NOT STARTS_WITH(LOWER(stage_name), 's0') AND NOT is_deal_closed AND DATE(close_date) BETWEEN DATE('2026-05-01') AND DATE('2026-07-31'), amount, 0)), 0) AS q2_pipeline_arr,",
-              "  ARRAY_AGG(STRUCT(deal_name, company_name, stage_name, pipeline_name, close_date, amount, forecast_category) ORDER BY amount DESC LIMIT 12) AS top_deals",
-              "FROM deals"
-            ].join("\\n");
+          prop(deal, key) {
+            return deal && deal.properties ? deal.properties[key] : null;
+          },
+          amount(deal) {
+            return Number(this.prop(deal, 'amount') || 0);
+          },
+          dateOnly(value) {
+            if (!value) return '';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+            return date.toISOString().slice(0, 10);
+          },
+          inDateRange(value, start, end) {
+            const date = this.dateOnly(value);
+            return !!date && date >= start && date <= end;
+          },
+          ownerName(deal) {
+            return String(this.prop(deal, 'owner_name') || this.prop(deal, 'hubspot_owner_name') || this.prop(deal, 'sales_rep_owner_name') || this.prop(deal, 'hubspot_owner_id') || '');
+          },
+          dealName(deal) {
+            return String(this.prop(deal, 'deal_name') || this.prop(deal, 'dealname') || deal.id || '');
+          },
+          companyName(deal) {
+            return String(this.prop(deal, 'company_name') || this.prop(deal, 'hs_primary_company_name') || this.dealName(deal));
+          },
+          stageName(deal) {
+            return String(this.prop(deal, 'stage_name') || this.prop(deal, 'dealstage') || '');
+          },
+          pipelineName(deal) {
+            return String(this.prop(deal, 'pipeline_name') || this.prop(deal, 'pipeline') || '');
+          },
+          forecastCategory(deal) {
+            return String(this.prop(deal, 'hs_manual_forecast_category') || 'Uncategorized');
+          },
+          isClosedWon(deal) {
+            return this.prop(deal, 'is_closed_won') === true || String(this.prop(deal, 'is_closed_won')).toLowerCase() === 'true';
+          },
+          isDealClosed(deal) {
+            return this.prop(deal, 'is_deal_closed') === true || String(this.prop(deal, 'is_deal_closed')).toLowerCase() === 'true';
+          },
+          isS0(deal) {
+            return this.stageName(deal).toLowerCase().startsWith('s0');
+          },
+          weekNumber(value) {
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '';
+            const q1Start = new Date('2026-02-01T00:00:00Z');
+            return String(Math.max(1, Math.ceil(((date.getTime() - q1Start.getTime()) / 86400000 + 1) / 7)));
+          },
+          buildNbmRows(deals) {
+            return deals
+              .filter((deal) => this.inDateRange(this.prop(deal, 'nbm_meeting_booked_date'), '2026-02-01', '2026-04-30') || this.inDateRange(this.prop(deal, 'nbm_meeting_complete_date'), '2026-02-01', '2026-04-30'))
+              .sort((a, b) => this.amount(b) - this.amount(a))
+              .slice(0, 8)
+              .map((deal) => {
+                const booked = this.prop(deal, 'nbm_meeting_booked_date') || this.prop(deal, 'nbm_meeting_complete_date');
+                return {
+                  id: deal.id || this.dealName(deal),
+                  accountName: this.companyName(deal),
+                  contactNameTitle: '',
+                  products: '',
+                  technicalPocIncluded: '',
+                  weekNumber: this.weekNumber(booked),
+                  builderLeader: '',
+                  valuePyramid: '',
+                  preNbmDiscoCalls: '',
+                  meetingsSinceNBM: '',
+                  currentStage: this.stageName(deal),
+                  opportunityValue: this.amount(deal)
+                };
+              });
           },
           async loadDeals() {
             if (!this.owner.trim()) { return; }
             this.loading = true; this.error = '';
             try {
-              const result = await appAction('bigquery', { sql: this.dealSql() });
-              this.hs = (result.rows || [])[0] || null;
+              const result = await appAction('hubspot-deals', {
+                properties: 'nbm_meeting_booked_date,nbm_meeting_complete_date,hs_manual_forecast_category,hs_primary_company_name,associatedcompanyid'
+              });
+              const ownerLower = this.owner.trim().toLowerCase();
+              const ownerDeals = (result.deals || []).filter((deal) => this.ownerName(deal).toLowerCase() === ownerLower);
+              const q1Deals = ownerDeals.filter((deal) => this.inDateRange(this.prop(deal, 'closedate'), '2026-02-01', '2026-04-30'));
+              const q2Pipeline = ownerDeals.filter((deal) => !this.isS0(deal) && !this.isDealClosed(deal) && this.inDateRange(this.prop(deal, 'closedate'), '2026-05-01', '2026-07-31'));
+              this.hs = {
+                q1_closed_won_count: q1Deals.filter((deal) => this.isClosedWon(deal)).length,
+                q1_closed_won_arr: q1Deals.filter((deal) => this.isClosedWon(deal)).reduce((sum, deal) => sum + this.amount(deal), 0),
+                q1_closed_lost_count: q1Deals.filter((deal) => this.isDealClosed(deal) && !this.isClosedWon(deal)).length,
+                q1_s0_count: q1Deals.filter((deal) => this.isS0(deal)).length,
+                q1_nbm_scheduled: ownerDeals.filter((deal) => this.inDateRange(this.prop(deal, 'nbm_meeting_booked_date'), '2026-02-01', '2026-04-30')).length,
+                q1_nbm_completed: ownerDeals.filter((deal) => this.inDateRange(this.prop(deal, 'nbm_meeting_complete_date'), '2026-02-01', '2026-04-30')).length,
+                q2_pipeline_count: q2Pipeline.length,
+                q2_pipeline_arr: q2Pipeline.reduce((sum, deal) => sum + this.amount(deal), 0),
+                top_deals: ownerDeals
+                  .slice()
+                  .sort((a, b) => this.amount(b) - this.amount(a))
+                  .slice(0, 12)
+                  .map((deal) => ({
+                    deal_name: this.dealName(deal),
+                    company_name: this.companyName(deal),
+                    stage_name: this.stageName(deal),
+                    pipeline_name: this.pipelineName(deal),
+                    close_date: this.dateOnly(this.prop(deal, 'closedate')),
+                    amount: this.amount(deal),
+                    forecast_category: this.forecastCategory(deal)
+                  }))
+              };
+              if (!this.form.nbmRows.length) {
+                const nbmRows = this.buildNbmRows(ownerDeals);
+                if (nbmRows.length) this.form.nbmRows = nbmRows;
+              }
             } catch (e) {
               this.error = e.message || String(e);
             } finally {

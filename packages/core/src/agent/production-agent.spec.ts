@@ -5,6 +5,7 @@ import {
   buildUserContentWithAttachments,
   createPlanModeActionRegistry,
   isPlanModeToolCallAllowed,
+  resolveAgentOwnerEmail,
   runAgentLoop,
   structuredHistoryToEngineMessages,
   type ActionEntry,
@@ -266,6 +267,30 @@ describe("buildUserContentWithAttachments", () => {
 
     const urlTool = actionEntry({ readOnly: true });
     expect(isPlanModeToolCallAllowed("set-url-path", {}, urlTool)).toBe(false);
+  });
+});
+
+describe("resolveAgentOwnerEmail", () => {
+  it("uses the explicit owner resolver when provided", async () => {
+    const owner = await runWithRequestContext(
+      { userEmail: "context@example.com", run: {} },
+      () =>
+        resolveAgentOwnerEmail(
+          { resolveOwnerEmail: async () => "resolved@example.com" },
+          {},
+        ),
+    );
+
+    expect(owner).toBe("resolved@example.com");
+  });
+
+  it("falls back to the request context owner", async () => {
+    const owner = await runWithRequestContext(
+      { userEmail: "context@example.com", run: {} },
+      () => resolveAgentOwnerEmail({}, {}),
+    );
+
+    expect(owner).toBe("context@example.com");
   });
 });
 
@@ -1297,5 +1322,62 @@ describe("runAgentLoop", () => {
     ).rejects.toThrow("Builder gateway timed out after 45s");
 
     expect(streamCalls).toBe(1);
+  });
+
+  it("retries Builder gateway network errors inside one serverless run", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "stop",
+            reason: "error",
+            error: "Builder gateway network error: socket hang up",
+            errorCode: "builder_gateway_network_error",
+          };
+          return;
+        }
+        yield {
+          type: "text-delta",
+          text: "Recovered",
+        };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Recovered" }],
+        };
+        yield {
+          type: "stop",
+          reason: "end_turn",
+        };
+      },
+    };
+    const events: Array<{ type: string; text?: string }> = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(events).toContainEqual({ type: "clear" });
+    expect(events).toContainEqual({ type: "text", text: "Recovered" });
   });
 });

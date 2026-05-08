@@ -202,6 +202,33 @@ describe("browser analytics pageviews", () => {
     expect(sentryMock.setTag).toHaveBeenCalledWith("runtime", "browser");
   });
 
+  it("drops blocked Amplitude fetch noise from browser Sentry", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const result = options.beforeSend({
+      exception: {
+        values: [
+          {
+            type: "TypeError",
+            value: "Failed to fetch (api2.amplitude.com)",
+          },
+        ],
+      },
+      request: {
+        url: "https://www.agent-native.com/templates/calendar",
+      },
+    });
+
+    expect(result).toBeNull();
+  });
+
   it("captures browser errors through the generic captureError helper", async () => {
     installBrowser();
     vi.stubEnv(

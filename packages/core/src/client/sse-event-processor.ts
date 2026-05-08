@@ -117,6 +117,7 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
 
   if (
     code === "builder_gateway_error" ||
+    code === "builder_gateway_network_error" ||
     code === "builder_gateway_timeout" ||
     code === "stale_run" ||
     code === "timeout" ||
@@ -144,6 +145,8 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     msg.includes("gateway error") ||
     msg.includes("gateway timeout") ||
     msg.includes("inactivity timeout") ||
+    msg.includes("socket hang up") ||
+    msg.includes("connection reset") ||
     msg.includes("connection") ||
     msg.includes("network") ||
     msg.includes("stream closed") ||

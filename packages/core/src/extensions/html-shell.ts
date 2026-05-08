@@ -342,6 +342,18 @@ export function buildExtensionHtml(
 
 	    async function appAction(name, params) {
 	      params = params || {};
+	      if (name === 'navigate') {
+	        var navRes = await hostRequest('/_agent-native/application-state/navigate', {
+	          method: 'PUT',
+	          headers: { 'Content-Type': 'application/json' },
+	          body: JSON.stringify(params),
+	        });
+	        if (!navRes.ok) {
+	          var navErr = navRes.body || { error: navRes.statusText };
+	          throw new Error(navErr.error || 'Navigation failed: ' + navRes.status);
+	        }
+	        return navRes.body;
+	      }
 	      var path = '/_agent-native/actions/' + encodeURIComponent(name);
 	      var res = await hostRequest(path, {
 	        method: 'POST',

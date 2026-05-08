@@ -955,11 +955,15 @@ async function sweepOrphanedRecordingChunks(): Promise<void> {
     });
     chunkRows = (probe.rows as Array<{ key: string }>) ?? [];
   } catch (err) {
-    // application_state table may not exist on a fresh dev DB — bail quietly.
-    console.warn(
-      "[db] chunk sweep: application_state probe failed (table missing?)",
-      (err as Error)?.message ?? err,
-    );
+    // application_state may not exist on a fresh dev DB — bail quietly.
+    const message = (err as Error)?.message ?? String(err);
+    if (
+      /no such table:\s*application_state/i.test(message) ||
+      /relation ["']?application_state["']? does not exist/i.test(message)
+    ) {
+      return;
+    }
+    console.warn("[db] chunk sweep: application_state probe failed", message);
     return;
   }
 

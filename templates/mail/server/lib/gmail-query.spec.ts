@@ -23,24 +23,24 @@ describe("buildGmailEmailSearchQuery", () => {
     );
   });
 
-  it("keeps user label tabs unscoped so filed history appears", () => {
+  it("scopes user label tabs to inbox so archived filed mail stays hidden", () => {
     expect(
       buildGmailEmailSearchQuery({
         view: "inbox",
         label: "customer success",
         q: "renewal",
       }),
-    ).toBe("label:customer-success renewal");
+    ).toBe("in:inbox -in:sent label:customer-success renewal");
   });
 
-  it("scopes unread user label tabs to unread results without requiring inbox", () => {
+  it("scopes unread user label tabs to unread inbox results", () => {
     expect(
       buildGmailEmailSearchQuery({
         view: "unread",
         label: "customer success",
         q: "renewal",
       }),
-    ).toBe("is:unread label:customer-success renewal");
+    ).toBe("is:unread in:inbox -in:sent label:customer-success renewal");
   });
 
   it("keeps all-mail label searches unscoped", () => {

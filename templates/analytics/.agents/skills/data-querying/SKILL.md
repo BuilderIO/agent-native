@@ -11,8 +11,8 @@ The analytics app connects to multiple data sources. This skill covers general p
 
 ## Approach
 
-1. **Read the relevant provider skill first** — check `.builder/skills/<provider>/SKILL.md` for table names, column mappings, auth, and gotchas
-2. **Use existing scripts** — run `pnpm action <name> --arg=value` with `--grep` and `--fields` for filtering
+1. **Read the relevant provider skill first** — check `.agents/skills/<provider>/SKILL.md` for table names, column mappings, auth, and gotchas
+2. **Use existing actions or connected provider MCP tools** — call the provider action/tool with structured arguments, then filter or aggregate the returned records in your answer
 3. **Write ad-hoc scripts** — if no existing script covers the question, create one in `actions/`
 4. **Present data in chat** — don't just say "check the dashboard" — actually query, get the data, and present it
 
@@ -32,21 +32,6 @@ Convert the user's requested local date/timezone to UTC before querying. For
 example, May 1, 2026 in America/New_York is `2026-05-01T04:00:00Z`
 through `2026-05-02T04:00:00Z`.
 
-## Built-in Filtering
-
-All scripts that use `output()` support universal flags:
-
-```bash
-# Case-insensitive search across all values
-pnpm action hubspot-deals --grep="enterprise"
-
-# Pick specific fields from results
-pnpm action hubspot-deals --fields=dealname,amount,stageLabel
-
-# Combine both
-pnpm action seo-top-keywords --grep=remix --fields=keyword,rank_absolute,etv
-```
-
 ## Showing Charts In Chat
 
 For an in-chat answer, **emit a live `/chart` embed** — never `generate-chart`. The embed mounts a live `SqlChart` that re-queries when its source changes, and it doesn't choke on rigid JSON params the way the PNG action does. Full shape in `AGENTS.md` ("Inline Charts in Chat" section). Reach for `generate-chart` only when you're building a `save-analysis` artifact whose markdown will render outside the app.
@@ -55,7 +40,7 @@ If `generate-chart` returns an error in any chat-answering flow, the recovery is
 
 ## Script Patterns
 
-### Reusing Existing Scripts
+### Reusing Existing Actions
 
 ```bash
 # GitHub PRs
@@ -65,10 +50,10 @@ pnpm action github-prs --org=<org> --query="is:open label:bug"
 pnpm action jira-search --jql="summary ~ SSO" --fields=key,summary,status
 
 # HubSpot deals
-pnpm action hubspot-deals --fields=dealname,amount,stageLabel
+pnpm action hubspot-deals --properties=dealname,amount,dealstage
 
-# SEO keywords
-pnpm action seo-top-keywords --grep=remix --fields=keyword,rank_absolute,etv
+# HubSpot contacts or companies
+pnpm action hubspot-records --objectType=companies --query=builder.io --properties=name,domain,lifecyclestage
 ```
 
 ### Writing Ad-Hoc Scripts
@@ -97,7 +82,7 @@ For complete answers, combine data from multiple sources:
 
 - **BigQuery** for analytics events, signups, pageviews
 - **First-party Analytics** (`query-agent-native-analytics`) for events collected through `/track`
-- **HubSpot** for CRM data — deals, contacts, revenue
+- **HubSpot** for CRM data — `hubspot-records` for contacts/companies/tickets/general lookup; `hubspot-deals` and `hubspot-metrics` for pipeline and revenue analysis
 - **Jira** for engineering metrics — tickets, sprints
 - **GitHub** for code metrics — PRs, reviews
 - **Sentry** for error rates and trends
@@ -107,6 +92,6 @@ For complete answers, combine data from multiple sources:
 
 - Always query real data — never guess or approximate
 - Data-source status, data-dictionary reads, dashboard dry-runs, `update-dashboard`, `generate-chart`, and `save-analysis` are not data queries. For analyses and dashboards, run at least one provider query action and preserve the result evidence in the final answer or `resultData`.
-- Use `--grep` and `--fields` to narrow output, don't pipe through grep
-- Update the relevant `.builder/skills/<provider>/SKILL.md` when you discover new patterns
-- For BigQuery queries, check `.builder/skills/bigquery/SKILL.md` for table schemas first
+- Use action arguments such as `query`, `objectType`, `properties`, `owner`, `limit`, or provider-specific filters to narrow output; if an action returns a broad batch, filter it in your analysis and cite the records used
+- Update the relevant `.agents/skills/<provider>/SKILL.md` when you discover new patterns
+- For BigQuery queries, check `.agents/skills/bigquery/SKILL.md` for table schemas first

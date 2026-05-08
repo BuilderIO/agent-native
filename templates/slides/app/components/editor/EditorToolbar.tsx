@@ -38,7 +38,11 @@ import {
   DEFAULT_ASPECT_RATIO,
 } from "@/lib/aspect-ratios";
 import { ExportMenu } from "./ExportMenu";
-import { agentNativePath, appBasePath } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  appBasePath,
+  appPath,
+} from "@agent-native/core/client";
 
 import {
   AgentToggleButton,
@@ -246,6 +250,11 @@ export default function EditorToolbar({
   onSetAspectRatio,
   designSystemTitle,
 }: EditorToolbarProps) {
+  const shareUrl =
+    typeof window === "undefined"
+      ? `/p/${deckId}`
+      : `${window.location.origin}${appPath(`/p/${deckId}`)}`;
+
   const activeAspectRatio: AspectRatio = aspectRatio ?? DEFAULT_ASPECT_RATIO;
   const saveState = useSaveState();
   const [layoutOpen, setLayoutOpen] = useState(false);
@@ -877,6 +886,9 @@ graph TD
           resourceType="deck"
           resourceId={deckId}
           resourceTitle={deckTitle}
+          shareUrl={shareUrl}
+          shareUrlLabel="Presentation link"
+          shareUrlDescription="Set general access to Public for anyone with this link to view."
         />
       </div>
       <RunsTray pollMs={1500} className="flex-shrink-0" />

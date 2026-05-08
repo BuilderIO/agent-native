@@ -497,4 +497,28 @@ describe("SSE event processor error classification", () => {
     expect(err).toBeInstanceOf(AgentAutoContinueSignal);
     expect((err as AgentAutoContinueSignal).reason).toBe("stream_ended");
   });
+
+  it("auto-continues Builder gateway network errors", async () => {
+    const err = await readSSEStream(
+      eventStream([
+        {
+          type: "error",
+          error: "Builder gateway network error: socket hang up",
+          errorCode: "builder_gateway_network_error",
+        },
+      ]),
+      [],
+      { value: 0 },
+      "tab-gateway-network",
+    )
+      [Symbol.asyncIterator]()
+      .next()
+      .then(
+        () => undefined,
+        (caught) => caught,
+      );
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("stream_ended");
+  });
 });

@@ -38,6 +38,7 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
 import { BUILDER_MODEL_CONFIG } from "../model-config.js";
+import { captureError } from "../../server/capture-error.js";
 
 export const BUILDER_CAPABILITIES: EngineCapabilities = {
   thinking: true,
@@ -55,6 +56,7 @@ export const BUILDER_SUPPORTED_MODELS = BUILDER_MODEL_CONFIG.supportedModels;
 
 const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
 const MAX_BUILDER_GATEWAY_TIMEOUT_MS = 55_000;
+const BUILDER_GATEWAY_NETWORK_ERROR_CODE = "builder_gateway_network_error";
 
 export const BUILDER_DEFAULT_MODEL = BUILDER_MODEL_CONFIG.defaultModel;
 
@@ -183,16 +185,23 @@ class BuilderEngine implements AgentEngine {
           signal: gatewayAbort.signal,
         });
       } catch (err) {
+        const timedOut = gatewayAbort.didTimeout();
         if (gatewayAbort.didTimeout()) {
           console.warn(
             `[builder-engine] gateway timed out after ${Date.now() - tStart}ms`,
           );
         }
-        yield createBuilderGatewayTimeoutStop(
-          err,
-          gatewayAbort.didTimeout(),
-          gatewayTimeoutMs,
-        );
+        if (timedOut || isBuilderGatewayNetworkError(err)) {
+          captureBuilderGatewayTransportError(err, {
+            phase: "request",
+            model: opts.model,
+            gatewayUrl,
+            timeoutMs: gatewayTimeoutMs,
+            timedOut,
+            elapsedMs: Date.now() - tStart,
+          });
+        }
+        yield createBuilderGatewayTimeoutStop(err, timedOut, gatewayTimeoutMs);
         return;
       }
 
@@ -227,12 +236,12 @@ class BuilderEngine implements AgentEngine {
         return;
       }
 
-      yield* parseJsonlStream(
-        reader,
-        opts.model,
-        gatewayAbort.didTimeout,
+      yield* parseJsonlStream(reader, opts.model, {
+        didGatewayTimeout: gatewayAbort.didTimeout,
         gatewayTimeoutMs,
-      );
+        gatewayUrl,
+        requestStartedAt: tStart,
+      });
     } finally {
       gatewayAbort.cleanup();
     }
@@ -287,10 +296,14 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
     };
     return;
   }
+  const lowerMessage = message.toLowerCase();
   if (
     status === 403 &&
-    (message.toLowerCase().includes("unauthorized") ||
-      message.toLowerCase().includes("private key"))
+    (lowerMessage.includes("unauthorized") ||
+      lowerMessage.includes("private key") ||
+      lowerMessage.includes("invalid token") ||
+      lowerMessage.includes("invalid_token") ||
+      lowerMessage.includes("token invalid"))
   ) {
     yield {
       type: "stop",
@@ -356,9 +369,15 @@ async function* readJsonlLines(
 async function* parseJsonlStream(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   model: string,
-  didGatewayTimeout?: () => boolean,
-  gatewayTimeoutMs = DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS,
+  captureContext: {
+    didGatewayTimeout?: () => boolean;
+    gatewayTimeoutMs?: number;
+    gatewayUrl?: URL;
+    requestStartedAt?: number;
+  } = {},
 ): AsyncIterable<EngineEvent> {
+  const gatewayTimeoutMs =
+    captureContext.gatewayTimeoutMs ?? DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS;
   const parts: EngineContentPart[] = [];
   let pendingText = "";
   let pendingThinking: { text: string; signature?: string } | null = null;
@@ -535,11 +554,21 @@ async function* parseJsonlStream(
       error: "Builder gateway stream ended without a stop event",
     };
   } catch (err) {
-    yield createBuilderGatewayTimeoutStop(
-      err,
-      didGatewayTimeout?.() ?? false,
-      gatewayTimeoutMs,
-    );
+    const timedOut = captureContext.didGatewayTimeout?.() ?? false;
+    if (timedOut || isBuilderGatewayNetworkError(err)) {
+      captureBuilderGatewayTransportError(err, {
+        phase: "stream",
+        model,
+        gatewayUrl: captureContext.gatewayUrl,
+        timeoutMs: gatewayTimeoutMs,
+        timedOut,
+        elapsedMs:
+          typeof captureContext.requestStartedAt === "number"
+            ? Date.now() - captureContext.requestStartedAt
+            : undefined,
+      });
+    }
+    yield createBuilderGatewayTimeoutStop(err, timedOut, gatewayTimeoutMs);
   } finally {
     // Release the reader on every exit path — early returns (invalid JSONL,
     // stop event) and generator abandonment both leave the underlying
@@ -647,7 +676,11 @@ function normalizeBuilderGatewayFetchError(
       timeoutMs,
     )} before the hosting function limit. Please retry; if this keeps happening, reduce the prompt size or try again when the gateway is less busy.`;
   }
-  return err instanceof Error ? err.message : String(err);
+  const message = errorMessage(err);
+  if (isBuilderGatewayNetworkError(err)) {
+    return `Builder gateway network error: ${message}`;
+  }
+  return message;
 }
 
 function createBuilderGatewayTimeoutStop(
@@ -655,15 +688,99 @@ function createBuilderGatewayTimeoutStop(
   timedOut: boolean,
   timeoutMs: number,
 ): EngineEvent {
+  const networkError = !timedOut && isBuilderGatewayNetworkError(err);
   return {
     type: "stop",
     reason: "error",
     error: normalizeBuilderGatewayFetchError(err, timedOut, timeoutMs),
-    ...(timedOut ? { errorCode: "builder_gateway_timeout" } : {}),
+    ...(timedOut
+      ? { errorCode: "builder_gateway_timeout" }
+      : networkError
+        ? { errorCode: BUILDER_GATEWAY_NETWORK_ERROR_CODE }
+        : {}),
   };
 }
 
 function formatTimeoutMs(timeoutMs: number): string {
   if (timeoutMs < 1000) return `${timeoutMs}ms`;
   return `${Math.round(timeoutMs / 1000)}s`;
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+function errorSearchText(err: unknown): string {
+  const parts: string[] = [];
+  if (err instanceof Error) {
+    parts.push(err.name, err.message);
+    const maybe = err as Error & {
+      code?: unknown;
+      cause?: unknown;
+    };
+    if (typeof maybe.code === "string") parts.push(maybe.code);
+    if (maybe.cause) parts.push(errorSearchText(maybe.cause));
+  } else {
+    parts.push(String(err));
+  }
+  return parts.join(" ").toLowerCase();
+}
+
+function isBuilderGatewayNetworkError(err: unknown): boolean {
+  const text = errorSearchText(err);
+  return (
+    text.includes("socket hang up") ||
+    text.includes("econnreset") ||
+    text.includes("enetreset") ||
+    text.includes("econnaborted") ||
+    text.includes("fetch failed") ||
+    text.includes("network error") ||
+    text.includes("connection reset") ||
+    text.includes("connection closed") ||
+    text.includes("stream closed") ||
+    text.includes("terminated")
+  );
+}
+
+function captureBuilderGatewayTransportError(
+  err: unknown,
+  context: {
+    phase: "request" | "stream";
+    model: string;
+    gatewayUrl?: URL;
+    timeoutMs: number;
+    timedOut: boolean;
+    elapsedMs?: number;
+  },
+): void {
+  captureError(err, {
+    route: "/_agent-native/agent-chat",
+    tags: {
+      source: "builder-engine",
+      phase: context.phase,
+      model: context.model,
+      timedOut: context.timedOut ? "true" : "false",
+      errorCode: context.timedOut
+        ? "builder_gateway_timeout"
+        : BUILDER_GATEWAY_NETWORK_ERROR_CODE,
+    },
+    extra: {
+      gatewayOrigin: context.gatewayUrl?.origin,
+      gatewayPath: context.gatewayUrl?.pathname,
+      timeoutMs: context.timeoutMs,
+      elapsedMs: context.elapsedMs,
+    },
+    contexts: {
+      builderGateway: {
+        phase: context.phase,
+        model: context.model,
+        gatewayOrigin: context.gatewayUrl?.origin,
+        gatewayPath: context.gatewayUrl?.pathname,
+        timeoutMs: context.timeoutMs,
+        timedOut: context.timedOut,
+        elapsedMs: context.elapsedMs,
+      },
+    },
+  });
 }

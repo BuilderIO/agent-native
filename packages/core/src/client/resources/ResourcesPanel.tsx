@@ -1389,14 +1389,14 @@ export function ResourcesPanel() {
                   href={WORKSPACE_DOCS_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label="What is the Workspace? — open docs"
+                  aria-label="Open Workspace docs"
                   className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
                 >
                   <IconHelp className="h-3.5 w-3.5" />
                 </a>
               </TooltipTrigger>
-              <TooltipContent>
-                What is the Workspace? — open docs
+              <TooltipContent side="left" sideOffset={8}>
+                Open Workspace docs
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>

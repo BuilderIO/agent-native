@@ -67,7 +67,55 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
   return data as T;
 }
 
+async function apiPost<T>(
+  path: string,
+  body: unknown,
+  cacheKey?: string,
+): Promise<T> {
+  const key = scopedCredentialCacheKey(
+    cacheKey ?? `POST:${path}:${JSON.stringify(body)}`,
+    "HUBSPOT_ACCESS_TOKEN",
+  );
+  const cached = cache.get(key);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    return cached.data as T;
+  }
+
+  const res = await hubspotFetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${await getToken()}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HubSpot API error ${res.status}: ${text}`);
+  }
+
+  const data = await res.json();
+
+  if (cache.size >= MAX_CACHE) {
+    const oldest = cache.keys().next().value;
+    if (oldest) cache.delete(oldest);
+  }
+  cache.set(key, { data, ts: Date.now() });
+
+  return data as T;
+}
+
 // -- Types --
+
+export const HUBSPOT_OBJECT_TYPES = [
+  "contacts",
+  "companies",
+  "deals",
+  "tickets",
+] as const;
+
+export type HubSpotObjectType = (typeof HUBSPOT_OBJECT_TYPES)[number];
 
 export interface DealStage {
   id: string;
@@ -98,9 +146,48 @@ export interface Deal {
   };
 }
 
+export interface HubSpotOwner {
+  id: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  userId?: number;
+}
+
+export interface HubSpotDealProperty {
+  name: string;
+  label: string;
+  type?: string;
+  fieldType?: string;
+  description?: string;
+}
+
+export interface HubSpotObjectRecord {
+  id: string;
+  properties: Record<string, string | null | undefined>;
+  createdAt?: string;
+  updatedAt?: string;
+  archived?: boolean;
+}
+
 interface HubSpotListResponse {
   results: Deal[];
   paging?: { next?: { after: string } };
+}
+
+interface HubSpotObjectListResponse {
+  results: HubSpotObjectRecord[];
+  total?: number;
+  paging?: { next?: { after: string } };
+}
+
+interface HubSpotOwnerListResponse {
+  results: HubSpotOwner[];
+  paging?: { next?: { after: string } };
+}
+
+interface HubSpotDealPropertyListResponse {
+  results: HubSpotDealProperty[];
 }
 
 interface PipelineListResponse {
@@ -118,7 +205,7 @@ interface PipelineListResponse {
 
 // -- API functions --
 
-const DEAL_PROPERTIES = [
+const REQUIRED_DEAL_PROPERTIES = [
   "dealname",
   "dealstage",
   "amount",
@@ -128,10 +215,172 @@ const DEAL_PROPERTIES = [
   "pipeline",
   "hubspot_owner_id",
   "hs_deal_stage_probability",
+];
+
+const OPTIONAL_DEAL_PROPERTIES = [
+  "hs_object_id",
+  "associatedcompanyid",
+  "company_name",
+  "hs_primary_company_name",
+  "hs_manual_forecast_category",
+  "nbm_meeting_booked_date",
+  "nbm_meeting_complete_date",
   // POV stage entry dates (hs_v2_date_entered_{stageId})
   "hs_v2_date_entered_2121599", // Enterprise: New Business — S2 - Proof of Value
   "hs_v2_date_entered_1166928645", // Enterprise: Expansion — S2 - Proof of Value
 ];
+
+const DEFAULT_OBJECT_PROPERTIES: Record<HubSpotObjectType, string[]> = {
+  contacts: [
+    "hs_object_id",
+    "email",
+    "firstname",
+    "lastname",
+    "company",
+    "jobtitle",
+    "lifecyclestage",
+    "hubspot_owner_id",
+    "createdate",
+    "lastmodifieddate",
+  ],
+  companies: [
+    "hs_object_id",
+    "name",
+    "domain",
+    "industry",
+    "type",
+    "lifecyclestage",
+    "hubspot_owner_id",
+    "createdate",
+    "hs_lastmodifieddate",
+  ],
+  deals: [...REQUIRED_DEAL_PROPERTIES, ...OPTIONAL_DEAL_PROPERTIES],
+  tickets: [
+    "hs_object_id",
+    "subject",
+    "content",
+    "hs_pipeline",
+    "hs_pipeline_stage",
+    "hs_ticket_priority",
+    "source_type",
+    "hubspot_owner_id",
+    "createdate",
+    "hs_lastmodifieddate",
+  ],
+};
+
+function uniqueProperties(properties: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const property of properties) {
+    const trimmed = property.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+  return result;
+}
+
+export async function getObjectProperties(
+  objectType: HubSpotObjectType,
+): Promise<HubSpotDealProperty[]> {
+  const data = await apiGet<HubSpotDealPropertyListResponse>(
+    `/crm/v3/properties/${objectType}`,
+    `${objectType}-properties`,
+  );
+  return data.results;
+}
+
+export async function getDealProperties(): Promise<HubSpotDealProperty[]> {
+  return getObjectProperties("deals");
+}
+
+async function getAvailableDealPropertyNames(): Promise<Set<string>> {
+  const definitions = await getObjectProperties("deals");
+  return new Set(definitions.map((property) => property.name));
+}
+
+async function getAvailableObjectPropertyNames(
+  objectType: HubSpotObjectType,
+): Promise<Set<string>> {
+  const definitions = await getObjectProperties(objectType);
+  return new Set(definitions.map((property) => property.name));
+}
+
+async function resolveDealProperties(extraProperties: string[] = []) {
+  const available = await getAvailableDealPropertyNames();
+  return uniqueProperties([
+    ...REQUIRED_DEAL_PROPERTIES,
+    ...OPTIONAL_DEAL_PROPERTIES,
+    ...extraProperties,
+  ]).filter((property) => available.has(property));
+}
+
+async function resolveObjectProperties(
+  objectType: HubSpotObjectType,
+  extraProperties: string[] = [],
+) {
+  const available = await getAvailableObjectPropertyNames(objectType);
+  return uniqueProperties([
+    ...(DEFAULT_OBJECT_PROPERTIES[objectType] ?? []),
+    ...extraProperties,
+  ]).filter((property) => available.has(property));
+}
+
+export async function searchHubSpotObjects(options: {
+  objectType: HubSpotObjectType;
+  query?: string;
+  properties?: string[];
+  limit?: number;
+  after?: string;
+}): Promise<{
+  records: HubSpotObjectRecord[];
+  total: number;
+  nextAfter: string | null;
+  properties: string[];
+}> {
+  const objectType = options.objectType;
+  const limit = Math.max(1, Math.min(100, options.limit ?? 25));
+  const query = options.query?.trim();
+  const properties = await resolveObjectProperties(
+    objectType,
+    options.properties ?? [],
+  );
+
+  if (query) {
+    const body: Record<string, unknown> = {
+      query,
+      limit,
+      properties,
+    };
+    if (options.after) body.after = options.after;
+    const data = await apiPost<HubSpotObjectListResponse>(
+      `/crm/v3/objects/${objectType}/search`,
+      body,
+    );
+    return {
+      records: data.results,
+      total: data.total ?? data.results.length,
+      nextAfter: data.paging?.next?.after ?? null,
+      properties,
+    };
+  }
+
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (properties.length > 0) params.set("properties", properties.join(","));
+  if (options.after) params.set("after", options.after);
+
+  const data = await apiGet<HubSpotObjectListResponse>(
+    `/crm/v3/objects/${objectType}?${params.toString()}`,
+    `${objectType}:list:${params.toString()}`,
+  );
+  return {
+    records: data.results,
+    total: data.results.length,
+    nextAfter: data.paging?.next?.after ?? null,
+    properties,
+  };
+}
 
 export async function getDealPipelines(): Promise<Pipeline[]> {
   const data = await apiGet<PipelineListResponse>(
@@ -183,10 +432,48 @@ export function getMetricsPipelines(pipelines: Pipeline[]): Pipeline[] {
   );
 }
 
-export async function getAllDeals(): Promise<Deal[]> {
+export async function getDealOwners(): Promise<Record<string, string>> {
+  const fullCacheKey = scopedCredentialCacheKey(
+    "owners-full",
+    "HUBSPOT_ACCESS_TOKEN",
+  );
+  const cached = cache.get(fullCacheKey);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    return cached.data as Record<string, string>;
+  }
+
+  const owners: Record<string, string> = {};
+  let after: string | undefined;
+  for (let i = 0; i < 100; i++) {
+    const url = `/crm/v3/owners?limit=100&archived=false${after ? `&after=${after}` : ""}`;
+    const res = await hubspotFetch(`${API_BASE}${url}`, {
+      headers: { Authorization: `Bearer ${await getToken()}` },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`HubSpot API error ${res.status}: ${text}`);
+    }
+    const data = (await res.json()) as HubSpotOwnerListResponse;
+    for (const owner of data.results) {
+      const name = [owner.firstName, owner.lastName].filter(Boolean).join(" ");
+      owners[owner.id] = name || owner.email || owner.id;
+    }
+    after = data.paging?.next?.after;
+    if (!after) break;
+  }
+
+  cache.set(fullCacheKey, { data: owners, ts: Date.now() });
+  return owners;
+}
+
+export async function getAllDeals(
+  extraProperties: string[] = [],
+): Promise<Deal[]> {
+  const properties = await resolveDealProperties(extraProperties);
+  const propertyKey = properties.slice().sort().join(",");
   // Check full-result cache first
   const fullCacheKey = scopedCredentialCacheKey(
-    "all-deals-full",
+    `all-deals-full:${propertyKey}`,
     "HUBSPOT_ACCESS_TOKEN",
   );
   const cached = cache.get(fullCacheKey);
@@ -196,7 +483,7 @@ export async function getAllDeals(): Promise<Deal[]> {
 
   const all: Deal[] = [];
   let after: string | undefined;
-  const props = DEAL_PROPERTIES.join(",");
+  const props = properties.join(",");
 
   // Paginate through all deals (up to 10K)
   for (let i = 0; i < 100; i++) {

@@ -104,7 +104,7 @@ export default function registerMeetingRemindersJob(): void {
   const flag = process.env.RUN_BACKGROUND_JOBS;
   const enabled = flag === "1" || (isProd && flag !== "0");
   if (!enabled) {
-    if (!skippingLogged) {
+    if (process.env.DEBUG && !skippingLogged) {
       console.log(
         "[meeting-reminders] Skipping background reminders (set RUN_BACKGROUND_JOBS=1 to enable in dev).",
       );

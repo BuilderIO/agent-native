@@ -15,4 +15,14 @@ describe("formatMcpConnectError", () => {
       "The server did not complete the Streamable HTTP MCP handshake. Check the URL and any required authorization headers.",
     );
   });
+
+  it("explains non-MCP JSON responses", () => {
+    expect(
+      formatMcpConnectError(
+        '[{"code":"invalid_union","path":["jsonrpc"],"message":"Invalid input"},{"code":"unrecognized_keys","keys":["args","origin","url"]}]',
+      ),
+    ).toBe(
+      "That URL returned JSON, but not an MCP JSON-RPC response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.",
+    );
+  });
 });

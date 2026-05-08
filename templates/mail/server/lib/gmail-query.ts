@@ -37,9 +37,7 @@ export function gmailAppLabelSearchClause(label: string): string {
 function viewSearchClauseForLabelTab(view: string, label: string): string {
   if (view === "all") return "";
   if (!isInboxScopedAppLabel(label)) {
-    if (view === "unread") return "is:unread";
-    if (view === "archive" || view === "trash") return VIEW_QUERIES[view];
-    return "";
+    return VIEW_QUERIES[view] ?? "";
   }
   if (view === "inbox" && label.toLowerCase() === "note-to-self") {
     // Self-sent notes can carry both INBOX and SENT. Keep them in this inbox

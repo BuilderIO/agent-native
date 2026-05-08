@@ -14,7 +14,8 @@ export function useDesignSystems() {
   }>("list-design-systems");
 
   const designSystems = data?.designSystems || [];
-  const defaultSystem = designSystems.find((ds) => ds.isDefault);
+  const defaultSystem =
+    designSystems.find((ds) => ds.isDefault) ?? designSystems[0];
 
   return { designSystems, defaultSystem, isLoading, error, refetch };
 }

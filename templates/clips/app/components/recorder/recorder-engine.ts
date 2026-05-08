@@ -374,12 +374,12 @@ export class RecorderEngine {
       const displaySurface = this.opts.displaySurface ?? "window";
       const displayOptions: ExtendedDisplayMediaOptions = {
         video: { frameRate: { ideal: 30 }, displaySurface },
-        audio: true,
+        audio: wantsMic,
         preferCurrentTab: displaySurface === "browser",
         selfBrowserSurface:
           displaySurface === "browser" ? "include" : "exclude",
         surfaceSwitching: "include",
-        systemAudio: "include",
+        systemAudio: wantsMic ? "include" : "exclude",
       };
 
       if (wantsDisplay) {

@@ -375,6 +375,31 @@ function getRecordingErrorTitle(error: string): string {
   return "Couldn't start recording";
 }
 
+function friendlyRecordingErrorMessage(error: string): string {
+  if (isPolicyPermissionError(error)) {
+    return "This recorder is embedded somewhere that blocks capture permissions.";
+  }
+  if (isScreenPermissionError(error)) {
+    if (isMacPlatform()) {
+      return "Clips could not start screen capture. Enable screen recording for your browser, then try again.";
+    }
+    return "Clips could not start screen capture. Allow screen sharing for this site, then try again.";
+  }
+  if (isCameraPermissionError(error)) {
+    return "Clips could not start the camera. Allow camera access, then try again.";
+  }
+  if (isMicrophonePermissionError(error)) {
+    return "Clips could not start the microphone. Allow microphone access, then try again.";
+  }
+  if (/upload failed|chunk/i.test(error)) {
+    return "The recording could not finish uploading. Check video storage, then try again.";
+  }
+  if (error.length > 220) {
+    return "Something blocked the recorder before it could start.";
+  }
+  return error;
+}
+
 function captureThumbnailFromPreview(
   video: HTMLVideoElement | null,
   recordingId: string,
@@ -471,6 +496,8 @@ function RecordingErrorCard({
     isEmbeddedWindow() && isScreenPermissionError(error);
   const settings = getModePermissionLabels(mode, micDeviceId);
   const directUrl = directRecorderUrl();
+  const friendlyMessage = friendlyRecordingErrorMessage(error);
+  const showTechnicalDetails = friendlyMessage !== error;
 
   return (
     <div className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
@@ -481,9 +508,19 @@ function RecordingErrorCard({
         <h2 className="text-lg font-semibold text-foreground">
           {getRecordingErrorTitle(error)}
         </h2>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          {error}
+        <p className="mt-2 break-words text-sm leading-relaxed text-muted-foreground">
+          {friendlyMessage}
         </p>
+        {showTechnicalDetails && (
+          <details className="mt-3 text-left text-xs text-muted-foreground">
+            <summary className="cursor-pointer font-medium text-foreground">
+              Technical details
+            </summary>
+            <p className="mt-2 max-h-28 overflow-auto break-words rounded-lg border border-border bg-muted/40 p-2 leading-relaxed">
+              {error}
+            </p>
+          </details>
+        )}
       </div>
 
       {guidance && (
@@ -491,7 +528,7 @@ function RecordingErrorCard({
           <div className="text-xs font-medium text-foreground">
             What to check
           </div>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          <p className="mt-1 break-words text-xs leading-relaxed text-muted-foreground">
             {guidance}
           </p>
         </div>
@@ -684,8 +721,9 @@ export default function RecordRoute() {
     const pendingOpts = pendingStartOptsRef.current;
     const guidance = permissionGuidance(message, pendingOpts ?? undefined);
     const settingsUrl = permissionSettingsUrl(message, pendingOpts?.mode);
+    const friendlyMessage = friendlyRecordingErrorMessage(message);
     toast.error("Couldn't start recording", {
-      description: guidance ?? message,
+      description: guidance ?? friendlyMessage,
       duration: guidance ? 20_000 : 10_000,
       action: settingsUrl
         ? {

@@ -110,6 +110,18 @@ export function useCreateFolder() {
   >("create-folder");
 }
 
+export function useCreateSpace() {
+  return useActionMutation<
+    any,
+    {
+      name: string;
+      organizationId?: string;
+      color?: string;
+      iconEmoji?: string | null;
+    }
+  >("create-space");
+}
+
 export function useRenameFolder() {
   return useActionMutation<any, { id: string; name: string }>("rename-folder");
 }

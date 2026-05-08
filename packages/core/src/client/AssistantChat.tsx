@@ -164,6 +164,124 @@ function getFileDataURL(file: File): Promise<string> {
   });
 }
 
+type QueuedAttachment = CompleteAttachment;
+
+function escapeQueuedAttachmentAttribute(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+function isTextLikeFile(file: File): boolean {
+  if (file.type.startsWith("text/")) return true;
+  if (file.type === "application/json") return true;
+  return /\.(txt|md|markdown|csv|json|yaml|yml)$/i.test(file.name);
+}
+
+function textFileAttachmentEnvelope(file: File, text: string): string {
+  const contentType = file.type || "text/plain";
+  return `<attachment name="${escapeQueuedAttachmentAttribute(file.name)}" contentType="${escapeQueuedAttachmentAttribute(contentType)}">\n${text}\n</attachment>`;
+}
+
+function serializeAttachmentContentPart(
+  part: Record<string, unknown>,
+): QueuedAttachment["content"][number] | null {
+  if (part.type === "image" && typeof part.image === "string") {
+    return { type: "image", image: part.image };
+  }
+  if (part.type === "text" && typeof part.text === "string") {
+    return { type: "text", text: part.text };
+  }
+  if (part.type === "file" && typeof part.data === "string") {
+    return {
+      type: "file",
+      data: part.data,
+      mimeType:
+        typeof part.mimeType === "string"
+          ? part.mimeType
+          : "application/octet-stream",
+      ...(typeof part.filename === "string" ? { filename: part.filename } : {}),
+    };
+  }
+  return null;
+}
+
+async function serializeQueuedAttachments(
+  attachments?: ReadonlyArray<unknown>,
+): Promise<QueuedAttachment[] | undefined> {
+  const queued: QueuedAttachment[] = [];
+  for (const raw of attachments ?? []) {
+    const attachment = raw as Partial<Attachment> & { file?: File };
+    const name = attachment.name || attachment.file?.name || "attachment";
+    const id = attachment.id || name;
+    const type = attachment.type || "file";
+    const contentType = attachment.contentType || attachment.file?.type;
+
+    if (Array.isArray(attachment.content) && attachment.content.length > 0) {
+      const content = attachment.content
+        .map((part) =>
+          serializeAttachmentContentPart(part as Record<string, unknown>),
+        )
+        .filter((part): part is QueuedAttachment["content"][number] => !!part);
+      if (content.length > 0) {
+        queued.push({
+          id,
+          type,
+          name,
+          contentType,
+          status: { type: "complete" },
+          content,
+        });
+      }
+      continue;
+    }
+
+    if (typeof File !== "undefined" && attachment.file instanceof File) {
+      const file = attachment.file;
+      if (file.type.startsWith("image/")) {
+        queued.push({
+          id,
+          type: "image",
+          name,
+          contentType: file.type,
+          status: { type: "complete" },
+          content: [{ type: "image", image: await getFileDataURL(file) }],
+        });
+      } else if (isTextLikeFile(file)) {
+        queued.push({
+          id,
+          type: "file",
+          name,
+          contentType: file.type || "text/plain",
+          status: { type: "complete" },
+          content: [
+            {
+              type: "text",
+              text: textFileAttachmentEnvelope(file, await file.text()),
+            },
+          ],
+        });
+      } else {
+        queued.push({
+          id,
+          type: "document",
+          name,
+          contentType: inferDocumentContentType(file),
+          status: { type: "complete" },
+          content: [
+            {
+              type: "file",
+              filename: file.name,
+              data: await getFileDataURL(file),
+              mimeType: inferDocumentContentType(file),
+            },
+          ],
+        });
+      }
+    }
+  }
+
+  return queued.length > 0 ? queued : undefined;
+}
+
 // ─── Markdown Text ──────────────────────────────────────────────────────────
 
 const markdownStyles = `
@@ -2339,6 +2457,7 @@ const AssistantChatInner = forwardRef<
       id: string;
       text: string;
       images?: string[];
+      attachments?: QueuedAttachment[];
       references?: Reference[];
     }>
   >([]);
@@ -3022,10 +3141,13 @@ const AssistantChatInner = forwardRef<
           threadRuntime.append({
             role: "user",
             content,
+            ...(next.attachments && next.attachments.length > 0
+              ? { attachments: next.attachments }
+              : {}),
             ...(next.references && next.references.length > 0
               ? { runConfig: { custom: { references: next.references } } }
               : {}),
-          });
+          } as Parameters<typeof threadRuntime.append>[0]);
         })();
       }, 100);
     }
@@ -3064,7 +3186,12 @@ const AssistantChatInner = forwardRef<
   }, [isReconnecting, forceStopped]);
 
   const addToQueue = useCallback(
-    (text: string, images?: string[], references?: Reference[]) => {
+    async (
+      text: string,
+      images?: string[],
+      references?: Reference[],
+      attachments?: ReadonlyArray<unknown>,
+    ) => {
       setShowContinue(false);
       setLoopLimitInfo(null);
       setRunErrorInfo(null);
@@ -3075,6 +3202,7 @@ const AssistantChatInner = forwardRef<
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
       clearPendingSelection();
+      const queuedAttachments = await serializeQueuedAttachments(attachments);
       if (isRunning) {
         setQueuedMessages((prev) => [
           ...prev,
@@ -3085,6 +3213,7 @@ const AssistantChatInner = forwardRef<
                 : `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             text,
             images,
+            attachments: queuedAttachments,
             references,
           },
         ]);
@@ -3097,7 +3226,13 @@ const AssistantChatInner = forwardRef<
             content.push({ type: "image", image: img });
           }
         }
-        threadRuntime.append({ role: "user", content });
+        threadRuntime.append({
+          role: "user",
+          content,
+          ...(queuedAttachments && queuedAttachments.length > 0
+            ? { attachments: queuedAttachments }
+            : {}),
+        } as Parameters<typeof threadRuntime.append>[0]);
       }
     },
     [isRunning, threadRuntime],
@@ -3553,13 +3688,7 @@ const AssistantChatInner = forwardRef<
                   : undefined
               }
             >
-              <ComposerPrimitive.Root
-                className={cn(
-                  "flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring",
-                  execMode === "plan" &&
-                    "border-amber-500/50 bg-amber-500/[0.03] focus-within:ring-amber-500/30",
-                )}
-              >
+              <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
                 <ComposerAttachmentPreviewStrip />
                 <TiptapComposer
                   focusRef={tiptapRef}
@@ -3578,11 +3707,12 @@ const AssistantChatInner = forwardRef<
                   }
                   onSubmit={
                     isRunning
-                      ? (text, references) =>
-                          addToQueue(
+                      ? (text, references, attachments) =>
+                          void addToQueue(
                             text,
                             undefined,
                             references.length > 0 ? references : undefined,
+                            attachments,
                           )
                       : undefined
                   }

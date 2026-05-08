@@ -77,6 +77,7 @@ import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { runWithRequestContext } from "./request-context.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
+import { canUseDeployCredentialFallbackForRequest } from "./credential-provider.js";
 import {
   canUpdateAgentLoopSettings,
   readAgentLoopSettings,
@@ -103,6 +104,10 @@ import { isEnvVarWriteAllowed } from "./env-var-writes.js";
 export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
 
 registerBuiltinEngines();
+
+const PROVIDER_ENV_VAR_KEYS = new Set(
+  Object.values(PROVIDER_ENV_META).map(({ envVar }) => envVar),
+);
 
 async function detectUsageEngineName(
   event: H3Event,
@@ -143,7 +148,11 @@ async function detectUsageEngineName(
     }
     if (detectedFromUser) return detectedFromUser.name;
 
-    return detectEngineFromEnv()?.name ?? null;
+    const canUseDeployEnv = await runWithRequestContext(
+      { userEmail, orgId },
+      () => canUseDeployCredentialFallbackForRequest(),
+    );
+    return canUseDeployEnv ? (detectEngineFromEnv()?.name ?? null) : null;
   } catch {
     return null;
   }
@@ -1281,15 +1290,35 @@ export function createCoreRoutesPlugin(
 
       getH3App(nitroApp).use(
         `${P}/env-status`,
-        defineEventHandler(() =>
-          envKeys.map((cfg) => ({
-            key: cfg.key,
-            label: cfg.label,
-            required: cfg.required ?? false,
-            configured: !!process.env[cfg.key],
-            ...(cfg.helpText ? { helpText: cfg.helpText } : {}),
-          })),
-        ),
+        defineEventHandler(async (event) => {
+          const session = await getSession(event).catch(() => null);
+          const userEmail = session?.email;
+          let orgId: string | undefined;
+          if (userEmail) {
+            try {
+              const orgCtx = await getOrgContext(event);
+              orgId = orgCtx.orgId ?? undefined;
+            } catch {
+              /* org module not present in this template */
+            }
+          }
+          const canUseDeployEnv = await runWithRequestContext(
+            { userEmail, orgId },
+            () => canUseDeployCredentialFallbackForRequest(),
+          );
+
+          return envKeys.map((cfg) => {
+            const isProviderKey = PROVIDER_ENV_VAR_KEYS.has(cfg.key);
+            return {
+              key: cfg.key,
+              label: cfg.label,
+              required: cfg.required ?? false,
+              configured:
+                !!process.env[cfg.key] && (!isProviderKey || canUseDeployEnv),
+              ...(cfg.helpText ? { helpText: cfg.helpText } : {}),
+            };
+          });
+        }),
       );
 
       getH3App(nitroApp).use(
@@ -1462,7 +1491,11 @@ export function createCoreRoutesPlugin(
               envVar: detectedFromUser.requiredEnvVars[0],
             };
           }
-          const detected = detectEngineFromEnv();
+          const canUseDeployEnv = await runWithRequestContext(
+            { userEmail, orgId },
+            () => canUseDeployCredentialFallbackForRequest(),
+          );
+          const detected = canUseDeployEnv ? detectEngineFromEnv() : null;
           if (detected) {
             return {
               configured: true,

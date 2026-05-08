@@ -185,9 +185,10 @@ class AnthropicEngine implements AgentEngine {
 export function createAnthropicEngine(
   config: Record<string, unknown> = {},
 ): AgentEngine {
+  const allowEnvFallback = config.allowEnvFallback !== false;
   const apiKey =
     (config.apiKey as string | undefined) ??
-    readDeployCredentialEnv("ANTHROPIC_API_KEY") ??
+    (allowEnvFallback ? readDeployCredentialEnv("ANTHROPIC_API_KEY") : "") ??
     "";
   if (!apiKey) {
     // Return a "missing key" engine that immediately errors

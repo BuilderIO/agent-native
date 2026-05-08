@@ -16,6 +16,11 @@ async function collectEvents(iterable: AsyncIterable<any>) {
 }
 
 describe("createAnthropicEngine", () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+    vi.doUnmock("@anthropic-ai/sdk");
+  });
+
   it("creates engine with correct metadata", () => {
     const engine = createAnthropicEngine({ apiKey: "test-key" });
     expect(engine.name).toBe("anthropic");
@@ -109,6 +114,23 @@ describe("createAnthropicEngine", () => {
     expect(stopEvent?.reason).toBe("error");
     expect(stopEvent?.error).toContain("Connect an LLM provider or Builder");
     expect(stopEvent?.error).not.toContain("ANTHROPIC_API_KEY");
+    expect(stopEvent?.errorCode).toBe("missing_credentials");
+  });
+
+  it("does not use deploy-level Anthropic keys when env fallback is disabled", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-deploy");
+    const engine = createAnthropicEngine({ allowEnvFallback: false });
+    const opts: EngineStreamOptions = {
+      model: "claude-haiku-4-5-20251001",
+      systemPrompt: "Test",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+    };
+
+    const events = await collectEvents(engine.stream(opts));
+    const stopEvent = events.find((e) => e.type === "stop");
+    expect(stopEvent?.reason).toBe("error");
     expect(stopEvent?.errorCode).toBe("missing_credentials");
   });
 });

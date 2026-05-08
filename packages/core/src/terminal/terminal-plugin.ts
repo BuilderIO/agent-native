@@ -223,13 +223,16 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
 
       // Distinguish "node-pty not installed" (expected when the user opts
       // out of the terminal feature) from real failures (port conflict,
-      // native binding mismatch). Native deps are optional — log as info
-      // so the dev console isn't filled with red noise.
+      // native binding mismatch). Native deps are optional, so keep the
+      // default dev console quiet unless terminal debugging is enabled.
       const code = (err as NodeJS.ErrnoException)?.code;
       const missingPty =
         code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND";
       if (missingPty) {
-        if (!_ptyMissingLogged) {
+        if (
+          !_ptyMissingLogged &&
+          (process.env.DEBUG || process.env.AGENT_TERMINAL_DEBUG === "1")
+        ) {
           console.log(
             "[terminal] node-pty not installed — embedded terminal disabled. " +
               "Install with `pnpm add node-pty` to enable.",

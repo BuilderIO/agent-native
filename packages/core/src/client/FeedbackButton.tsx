@@ -219,7 +219,7 @@ export function FeedbackButton({
           <TooltipPrimitive.Portal>
             <TooltipPrimitive.Content
               sideOffset={6}
-              className="z-[230] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md animate-in fade-in-0 zoom-in-95"
+              className="z-[300] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md animate-in fade-in-0 zoom-in-95"
             >
               {label}
             </TooltipPrimitive.Content>

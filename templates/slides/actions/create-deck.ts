@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -70,11 +70,11 @@ export default defineAction({
   run: async ({ title, slides, deckId, aspectRatio, designSystemId }) => {
     const db = getDb();
     const now = new Date().toISOString();
-    if (designSystemId) {
-      await assertAccess("design-system", designSystemId, "viewer");
-    }
 
     if (deckId) {
+      if (designSystemId) {
+        await assertAccess("design-system", designSystemId, "viewer");
+      }
       // Update existing deck — requires editor access.
       await assertAccess("deck", deckId, "editor");
       const existing = await db
@@ -111,6 +111,26 @@ export default defineAction({
       };
     }
 
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
+
+    let resolvedDesignSystemId = designSystemId;
+    if (resolvedDesignSystemId) {
+      await assertAccess("design-system", resolvedDesignSystemId, "viewer");
+    } else {
+      const defaults = await db
+        .select({ id: schema.designSystems.id })
+        .from(schema.designSystems)
+        .where(
+          and(
+            eq(schema.designSystems.ownerEmail, ownerEmail),
+            eq(schema.designSystems.isDefault, true),
+          ),
+        )
+        .limit(1);
+      resolvedDesignSystemId = defaults[0]?.id;
+    }
+
     const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const data: Record<string, unknown> = {
       title,
@@ -119,17 +139,13 @@ export default defineAction({
       updatedAt: now,
     };
     if (aspectRatio) data.aspectRatio = aspectRatio;
-    if (designSystemId) data.designSystemId = designSystemId;
+    if (resolvedDesignSystemId) data.designSystemId = resolvedDesignSystemId;
     await db.insert(schema.decks).values({
       id,
       title,
       data: JSON.stringify(data),
-      designSystemId: designSystemId ?? null,
-      ownerEmail: (() => {
-        const e = getRequestUserEmail();
-        if (!e) throw new Error("no authenticated user");
-        return e;
-      })(),
+      designSystemId: resolvedDesignSystemId ?? null,
+      ownerEmail,
       orgId: getRequestOrgId(),
       createdAt: now,
       updatedAt: now,

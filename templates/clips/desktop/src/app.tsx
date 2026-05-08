@@ -1435,6 +1435,25 @@ export function App() {
       cameraOn,
       micOn,
     });
+
+    if (mode !== "camera" && shouldUseNativeFullscreenRecording(source)) {
+      try {
+        const granted = await invoke<boolean>(
+          "request_macos_screen_recording_access",
+        );
+        if (!granted) {
+          setReadinessOpen(true);
+          setRecError(MACOS_CAPTURE_PERMISSION_MESSAGE);
+          openMacosPrivacySettings("screen");
+          return;
+        }
+      } catch (err) {
+        setReadinessOpen(true);
+        setRecError(err instanceof Error ? err.message : String(err));
+        return;
+      }
+    }
+
     // Latch BEFORE the async work so the popover stays in "recording
     // flow" during the macOS screen-picker focus dance. The bubble
     // session effect also keys off this flag (via `bubbleActive`) so
@@ -2016,6 +2035,13 @@ function recordingSummaryParts({
   return parts;
 }
 
+type ReadinessItem = {
+  label: string;
+  detail: string;
+  pane: MacosPrivacyPane;
+  active: boolean;
+};
+
 function readinessItems({
   mode,
   cameraOn,
@@ -2026,13 +2052,8 @@ function readinessItems({
   cameraOn: boolean;
   micOn: boolean;
   includeFnMonitoring: boolean;
-}): Array<{
-  label: string;
-  detail: string;
-  pane: MacosPrivacyPane;
-  active: boolean;
-}> {
-  return [
+}): ReadinessItem[] {
+  const items: ReadinessItem[] = [
     {
       label: "Screen Recording",
       detail: "Needed for screen or window capture.",
@@ -2063,7 +2084,9 @@ function readinessItems({
       pane: "input-monitoring",
       active: includeFnMonitoring,
     },
-  ].filter((item) => item.active);
+  ];
+
+  return items.filter((item) => item.active);
 }
 
 function ReadinessPanel({

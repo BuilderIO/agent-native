@@ -53,7 +53,7 @@ export default function registerPollCalendarsJob(): void {
   const flag = process.env.RUN_BACKGROUND_JOBS;
   const enabled = flag === "1" || (isProd && flag !== "0");
   if (!enabled) {
-    if (!skippingLogged) {
+    if (process.env.DEBUG && !skippingLogged) {
       console.log(
         "[poll-calendars] Skipping background poll (set RUN_BACKGROUND_JOBS=1 to enable in dev).",
       );

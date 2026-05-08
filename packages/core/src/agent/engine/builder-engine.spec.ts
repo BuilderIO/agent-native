@@ -377,6 +377,25 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("Builder authentication failed");
   });
 
+  it("maps 403 invalid token to Builder auth stop-error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(403, {
+          message: "Invalid token",
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_auth_error");
+    expect(stop?.error).toContain("Builder authentication failed");
+  });
+
   it("surfaces a non-JSON 4xx body (e.g. proxy HTML) in the error message", async () => {
     // A reverse proxy returning a bare HTML 502/504 should not swallow the
     // body silently. Before the fix, `.json()` would throw and the
@@ -463,6 +482,22 @@ describe("createBuilderEngine", () => {
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_gateway_timeout");
     expect(stop?.error).toContain("Builder gateway timed out");
+  });
+
+  it("marks socket hangups as retryable gateway network errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("socket hang up")),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_network_error");
+    expect(stop?.error).toContain("Builder gateway network error");
+    expect(stop?.error).toContain("socket hang up");
   });
 
   it("keeps the hard timeout active while reading the gateway stream", async () => {

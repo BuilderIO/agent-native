@@ -199,9 +199,9 @@ function quotaCooldownMessage(cooldownMs = QUOTA_COOLDOWN_MS): string {
 // headroom. This sits in FRONT of the circuit breaker — the breaker only trips
 // when Google actually returns a 429/403-quota; the bucket's job is to make
 // that rare.
-const BUCKET_REFILL_PER_SEC = 180;
-const BUCKET_CAPACITY = 180;
-const MAX_BATCH_QUOTA_COST = 180;
+const BUCKET_REFILL_PER_SEC = 150;
+const BUCKET_CAPACITY = 150;
+const MAX_BATCH_QUOTA_COST = 150;
 
 // Cost table from https://developers.google.com/gmail/api/reference/quota.
 // Most-specific patterns first — `estimateRequestCost` walks this in order.

@@ -20,12 +20,13 @@ const serverFixtures: Record<
 > = {};
 
 class FakeClient {
-  private transport: FakeStdio | null = null;
+  onerror?: (error: unknown) => void;
+  private transport: FakeTransport | null = null;
   constructor(
     public info: any,
     public capabilities: any,
   ) {}
-  async connect(transport: FakeStdio) {
+  async connect(transport: FakeTransport) {
     this.transport = transport;
   }
   async listTools() {
@@ -42,10 +43,24 @@ class FakeClient {
   }
 }
 
+type FakeTransport = FakeStdio | FakeHttp;
+
 class FakeStdio {
   key: string;
   constructor(opts: { command: string; args?: string[] }) {
     this.key = `${opts.command} ${(opts.args ?? []).join(" ")}`.trim();
+  }
+  closed = false;
+  close() {
+    this.closed = true;
+  }
+}
+
+class FakeHttp {
+  key: string;
+  onerror?: (error: unknown) => void;
+  constructor(url: URL) {
+    this.key = `http ${url.toString()}`;
   }
   closed = false;
   close() {
@@ -59,6 +74,10 @@ vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
 
 vi.mock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
   StdioClientTransport: FakeStdio,
+}));
+
+vi.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
+  StreamableHTTPClientTransport: FakeHttp,
 }));
 
 describe("parseMcpToolName", () => {
@@ -221,6 +240,71 @@ describe("McpClientManager", () => {
       expect(status.totalTools).toBe(1);
     } finally {
       FakeClient.prototype.connect = origConnect;
+    }
+  });
+
+  it("formats non-MCP JSON HTTP handshakes without dumping raw validation output", async () => {
+    const origConnect = FakeClient.prototype.connect;
+    FakeClient.prototype.connect = async function (transport: FakeTransport) {
+      if (transport.key === "http https://httpbin.org/post") {
+        throw new Error(
+          '[{"code":"invalid_union","path":["jsonrpc"],"message":"Invalid input: expected \\"2.0\\""},{"code":"unrecognized_keys","keys":["args","headers","origin","url"],"message":"Unrecognized keys"}]',
+        );
+      }
+      return origConnect.call(this, transport);
+    };
+
+    try {
+      const mgr = new McpClientManager({
+        servers: {
+          broken: { type: "http", url: "https://httpbin.org/post" },
+        },
+      });
+      await mgr.start();
+
+      const status = mgr.getStatus();
+      expect(status.connectedServers).toEqual([]);
+      expect(status.errors.broken).toBe(
+        "That URL returned JSON, but not an MCP JSON-RPC response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.",
+      );
+      expect(status.errors.broken).not.toContain("invalid_union");
+    } finally {
+      FakeClient.prototype.connect = origConnect;
+    }
+  });
+
+  it("contains SDK close rejections after failed handshakes", async () => {
+    const origConnect = FakeClient.prototype.connect;
+    const origClose = FakeClient.prototype.close;
+    FakeClient.prototype.connect = async function (_transport: FakeTransport) {
+      void this.close();
+      throw new Error("bad handshake");
+    };
+    FakeClient.prototype.close = async function () {
+      throw new Error("late close failed");
+    };
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+
+    try {
+      const mgr = new McpClientManager({
+        servers: {
+          broken: { command: "boom-bin" },
+        },
+      });
+      await mgr.start();
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const status = mgr.getStatus();
+      expect(status.errors.broken).toContain("bad handshake");
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+      FakeClient.prototype.connect = origConnect;
+      FakeClient.prototype.close = origClose;
     }
   });
 });

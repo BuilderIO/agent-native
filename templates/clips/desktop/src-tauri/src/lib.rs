@@ -64,6 +64,7 @@ pub fn run() {
             clips::show_popover,
             clips::park_popover_offscreen,
             clips::open_macos_privacy_settings,
+            clips::request_macos_screen_recording_access,
             clips::resize_popover,
             clips::show_signin,
             clips::close_signin,
