@@ -195,6 +195,7 @@ export default function DeckEditor() {
         agentNativePath("/_agent-native/application-state/show-questions"),
         {
           method: "DELETE",
+          headers: { "X-Agent-Native-CSRF": "1" },
         },
       ).catch(() => {});
     },
@@ -213,6 +214,7 @@ export default function DeckEditor() {
     queryClient.setQueryData(["show-questions"], null);
     fetch(agentNativePath("/_agent-native/application-state/show-questions"), {
       method: "DELETE",
+      headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
   }, [id, queryClient]);
 
