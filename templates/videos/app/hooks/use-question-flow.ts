@@ -28,7 +28,6 @@ export function useQuestionFlow() {
       return null;
     },
     refetchInterval: 2_000,
-    refetchIntervalInBackground: true,
     structuralSharing: false,
   });
 

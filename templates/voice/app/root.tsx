@@ -1,6 +1,10 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useCallback, useState } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { ThemeProvider, useTheme } from "next-themes";
 import { useDbSync } from "@agent-native/core";
 import {
@@ -68,7 +72,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 function AppShell() {
-  useDbSync();
+  const qc = useQueryClient();
+  useDbSync({ queryClient: qc, queryKeys: ["action"] });
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const { resolvedTheme, setTheme } = useTheme();

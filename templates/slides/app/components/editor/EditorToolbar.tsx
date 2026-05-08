@@ -51,7 +51,6 @@ import {
   PresenceBar,
   type CollabUser,
 } from "@agent-native/core/client";
-import { RunsTray } from "@agent-native/core/client/progress";
 import {
   Tooltip,
   TooltipContent,
@@ -891,8 +890,6 @@ graph TD
           shareUrlDescription="Set general access to Public for anyone with this link to view."
         />
       </div>
-      <RunsTray pollMs={1500} className="flex-shrink-0" />
-
       {/* Present button — matches Share trigger height (h-9) */}
       <Link
         to={`/deck/${deckId}/present`}

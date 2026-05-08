@@ -44,7 +44,6 @@ export function useVariantFlow(designId: string | undefined) {
       }
     },
     refetchInterval: 2_000,
-    refetchIntervalInBackground: true,
     structuralSharing: false,
   });
 

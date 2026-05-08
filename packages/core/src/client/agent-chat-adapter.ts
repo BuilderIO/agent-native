@@ -625,12 +625,20 @@ export function createAgentChatAdapter(options?: {
           .filter((p): p is { type: "text"; text: string } => p.type === "text")
           .map((p) => p.text)
           .join("\n") ?? "";
+      const runConfigRequestMode =
+        runConfig?.custom &&
+        typeof runConfig.custom === "object" &&
+        "requestMode" in runConfig.custom
+          ? (runConfig.custom as { requestMode?: unknown }).requestMode
+          : undefined;
       const requestMode =
-        execModeRef?.current === "plan"
-          ? "plan"
-          : execModeRef?.current === "build"
-            ? "act"
-            : undefined;
+        runConfigRequestMode === "act" || runConfigRequestMode === "plan"
+          ? runConfigRequestMode
+          : execModeRef?.current === "plan"
+            ? "plan"
+            : execModeRef?.current === "build"
+              ? "act"
+              : undefined;
 
       // Extract attachments (images as base64, text as content).
       // assistant-ui puts user attachments on msg.attachments (not on content);

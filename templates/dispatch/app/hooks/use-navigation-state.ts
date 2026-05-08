@@ -52,7 +52,6 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
       return null;
     },
     refetchInterval: 2_000,
-    refetchIntervalInBackground: true,
     structuralSharing: false,
   });
 

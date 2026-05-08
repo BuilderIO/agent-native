@@ -4,6 +4,7 @@ export interface AppStateEvent {
   source: "app-state";
   type: "change" | "delete";
   key: string;
+  owner?: string;
   requestSource?: string;
 }
 
@@ -17,21 +18,31 @@ export function getAppStateEmitter(): EventEmitter {
   return _emitter;
 }
 
-export function emitAppStateChange(key: string, requestSource?: string): void {
+export function emitAppStateChange(
+  key: string,
+  requestSource?: string,
+  owner?: string,
+): void {
   const event: AppStateEvent = {
     source: "app-state",
     type: "change",
     key,
+    ...(owner && { owner }),
     ...(requestSource && { requestSource }),
   };
   _emitter.emit("app-state", event);
 }
 
-export function emitAppStateDelete(key: string, requestSource?: string): void {
+export function emitAppStateDelete(
+  key: string,
+  requestSource?: string,
+  owner?: string,
+): void {
   const event: AppStateEvent = {
     source: "app-state",
     type: "delete",
     key,
+    ...(owner && { owner }),
     ...(requestSource && { requestSource }),
   };
   _emitter.emit("app-state", event);

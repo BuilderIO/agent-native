@@ -106,6 +106,7 @@ import {
   IconAlertTriangle,
   IconRefresh,
   IconPlayerPlay,
+  IconClipboardList,
 } from "@tabler/icons-react";
 
 class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
@@ -160,6 +161,22 @@ function getFileDataURL(file: File): Promise<string> {
 }
 
 type QueuedAttachment = CompleteAttachment;
+type AgentRequestMode = "act" | "plan";
+
+function createUserMessageRunConfig(
+  references?: Reference[],
+  requestMode?: AgentRequestMode,
+) {
+  const custom: { references?: Reference[]; requestMode?: AgentRequestMode } =
+    {};
+  if (references && references.length > 0) {
+    custom.references = references;
+  }
+  if (requestMode) {
+    custom.requestMode = requestMode;
+  }
+  return Object.keys(custom).length > 0 ? { runConfig: { custom } } : {};
+}
 
 function escapeQueuedAttachmentAttribute(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
@@ -2264,6 +2281,57 @@ function LoopLimitContinueCard({
   );
 }
 
+function PlanModeCallout({
+  canImplementPlan,
+  onImplementPlan,
+  onSwitchToAct,
+}: {
+  canImplementPlan: boolean;
+  onImplementPlan: () => void;
+  onSwitchToAct: () => void;
+}) {
+  return (
+    <div className="shrink-0 px-3 pt-2">
+      <div className="rounded-lg border border-blue-500/25 bg-blue-500/[0.06] px-3 py-2.5 shadow-sm">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-300">
+            <IconClipboardList size={15} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-foreground">
+              {canImplementPlan ? "Plan ready" : "Plan mode is on"}
+            </p>
+            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+              {canImplementPlan
+                ? "Switch to Act and run the proposed plan."
+                : "The next turn will stay read-only until you switch to Act."}
+            </p>
+          </div>
+          {canImplementPlan ? (
+            <button
+              type="button"
+              onClick={onImplementPlan}
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+            >
+              <IconPlayerPlay size={13} />
+              Implement Plan
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onSwitchToAct}
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
+            >
+              Act
+              <IconArrowRight size={13} />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export interface AssistantChatHandle {
@@ -2453,6 +2521,7 @@ const AssistantChatInner = forwardRef<
       images?: string[];
       attachments?: QueuedAttachment[];
       references?: Reference[];
+      requestMode?: AgentRequestMode;
     }>
   >([]);
   // Tracks the JSON of the last queue we successfully persisted so the
@@ -3182,9 +3251,7 @@ const AssistantChatInner = forwardRef<
             ...(next.attachments && next.attachments.length > 0
               ? { attachments: next.attachments }
               : {}),
-            ...(next.references && next.references.length > 0
-              ? { runConfig: { custom: { references: next.references } } }
-              : {}),
+            ...createUserMessageRunConfig(next.references, next.requestMode),
           } as Parameters<typeof threadRuntime.append>[0]);
         })();
       }, 100);
@@ -3229,6 +3296,7 @@ const AssistantChatInner = forwardRef<
       images?: string[],
       references?: Reference[],
       attachments?: ReadonlyArray<unknown>,
+      requestMode?: AgentRequestMode,
     ) => {
       setShowContinue(false);
       setLoopLimitInfo(null);
@@ -3241,6 +3309,17 @@ const AssistantChatInner = forwardRef<
       // as the user actually sends a message so it can't be re-used.
       clearPendingSelection();
       const queuedAttachments = await serializeQueuedAttachments(attachments);
+      // Snapshot the exec mode at enqueue time when the caller didn't
+      // pass an explicit override. Without this, a plan-mode message that
+      // sits in the queue runs as 'act' if the user flips the global toggle
+      // before the queue flushes — turning a read-only message into a write.
+      const effectiveRequestMode: AgentRequestMode | undefined =
+        requestMode ??
+        (execMode === "plan"
+          ? "plan"
+          : execMode === "build"
+            ? "act"
+            : undefined);
       if (isRunning) {
         setQueuedMessages((prev) => [
           ...prev,
@@ -3253,6 +3332,7 @@ const AssistantChatInner = forwardRef<
             images,
             attachments: queuedAttachments,
             references,
+            requestMode: effectiveRequestMode,
           },
         ]);
       } else {
@@ -3270,10 +3350,11 @@ const AssistantChatInner = forwardRef<
           ...(queuedAttachments && queuedAttachments.length > 0
             ? { attachments: queuedAttachments }
             : {}),
+          ...createUserMessageRunConfig(references, effectiveRequestMode),
         } as Parameters<typeof threadRuntime.append>[0]);
       }
     },
-    [isRunning, threadRuntime],
+    [execMode, isRunning, threadRuntime],
   );
 
   // Expose imperative handle
@@ -3414,6 +3495,27 @@ const AssistantChatInner = forwardRef<
     }
     return "";
   }, [messages]);
+  const latestMessageRole = messages[messages.length - 1]?.role;
+  const showPlanModeCallout =
+    execMode === "plan" &&
+    !planModeDisabled &&
+    !isComposerDisabled &&
+    !showRunningInUI;
+  const canImplementPlan =
+    showPlanModeCallout && latestMessageRole === "assistant";
+  const handleImplementPlan = useCallback(() => {
+    onExecModeChange?.("build");
+    void addToQueue(
+      "Implement the plan.",
+      undefined,
+      undefined,
+      undefined,
+      "act",
+    );
+  }, [addToQueue, onExecModeChange]);
+  const handleSwitchToAct = useCallback(() => {
+    onExecModeChange?.("build");
+  }, [onExecModeChange]);
   const visibleLoopLimit = showContinue
     ? (loopLimitInfo ?? lastMessageLoopLimit ?? {})
     : lastMessageLoopLimit;
@@ -3720,6 +3822,13 @@ const AssistantChatInner = forwardRef<
             )}
 
             {composerSlot}
+            {showPlanModeCallout && (
+              <PlanModeCallout
+                canImplementPlan={canImplementPlan}
+                onImplementPlan={handleImplementPlan}
+                onSwitchToAct={handleSwitchToAct}
+              />
+            )}
             <SelectionAttachedPill />
             {/* Input area */}
             <div

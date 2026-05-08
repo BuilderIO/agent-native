@@ -296,7 +296,6 @@ export default function DesignEditor() {
     { id: id! },
     {
       refetchInterval: hasPendingGeneration || generating ? 1000 : false,
-      refetchIntervalInBackground: true,
     },
   );
 

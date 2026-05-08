@@ -126,6 +126,8 @@ interface DeckContextType {
 const DeckContext = createContext<DeckContextType | null>(null);
 
 const MAX_HISTORY = 50;
+const OPEN_DECK_FALLBACK_POLL_MS = 5_000;
+const DECK_LIST_FALLBACK_POLL_MS = 15_000;
 
 // Debounced save to API + save-state listeners (so the toolbar indicator
 // can show "Saving…" / "Saved"). The map tracks pending debounce timers;
@@ -284,6 +286,7 @@ const defaultSlideContent: Record<SlideLayout, string> = {
 export function DeckProvider({ children }: { children: ReactNode }) {
   const [decks, setDecks] = useState<Deck[]>([]);
   const [loading, setLoading] = useState(true);
+  const decksRef = useRef<Deck[]>([]);
 
   // History for undo/redo
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -295,6 +298,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   // Prevents the poll from wiping optimistic decks before their POST lands.
   const pendingCreateIdsRef = useRef<Set<string>>(new Set());
   const pendingDuplicateSourceIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    decksRef.current = decks;
+  }, [decks]);
 
   // Load decks from API on mount
   useEffect(() => {
@@ -313,50 +320,74 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // Poll for deck list + open-deck changes (handles agent db-exec updates that bypass SSE)
+  // Fallback polling for deck list + open-deck changes. SSE is the primary
+  // path; this catches agent/db writes that bypass it without hammering idle
+  // editor pages.
   useEffect(() => {
     if (loading) return;
-    // Figure out which deck (if any) is currently open, so we can poll faster
-    // and re-fetch its contents each tick to catch agent slide additions.
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let lastListFetchAt = 0;
+
     const readOpenDeckId = (): string | null => {
       if (typeof window === "undefined") return null;
       const m = window.location.pathname.match(/\/deck\/([^/?#]+)/);
       return m ? m[1] : null;
     };
-    const openDeckId = readOpenDeckId();
-    const intervalMs = openDeckId ? 1000 : 3000;
-    const interval = setInterval(async () => {
+
+    const isHidden = () =>
+      typeof document !== "undefined" && document.visibilityState === "hidden";
+
+    const schedule = () => {
+      if (stopped || isHidden()) return;
+      const intervalMs = readOpenDeckId()
+        ? OPEN_DECK_FALLBACK_POLL_MS
+        : DECK_LIST_FALLBACK_POLL_MS;
+      timer = setTimeout(poll, intervalMs);
+    };
+
+    async function poll() {
+      if (stopped || isHidden()) return;
       try {
-        const fresh = await fetchDecksFromAPI();
-        const currentIds = new Set(decks.map((d) => d.id));
-        const freshIds = new Set(fresh.map((d) => d.id));
+        const now = Date.now();
+        const currentOpenId = readOpenDeckId();
         const pending = pendingCreateIdsRef.current;
-        // Check if deck list changed (added or removed)
-        // Optimistic decks still in flight are preserved (not treated as removed).
-        const added = fresh.filter((d) => !currentIds.has(d.id));
-        const removed = decks.filter(
-          (d) => !freshIds.has(d.id) && !pending.has(d.id),
-        );
-        if (added.length > 0 || removed.length > 0) {
-          lastExternalUpdateRef.current = Date.now();
-          setDecks((prev) => {
-            const prevIds = new Set(prev.map((d) => d.id));
-            let next = prev.filter(
-              (d) => freshIds.has(d.id) || pending.has(d.id),
-            );
-            // Only add decks that aren't already in prev (prevents duplicates
-            // when the closure's `decks` is stale compared to `prev`)
-            for (const a of added) {
-              if (!prevIds.has(a.id)) next = [...next, a];
-            }
-            return next;
-          });
+
+        if (
+          !currentOpenId ||
+          now - lastListFetchAt >= DECK_LIST_FALLBACK_POLL_MS
+        ) {
+          lastListFetchAt = now;
+          const fresh = await fetchDecksFromAPI();
+          const currentDecks = decksRef.current;
+          const currentIds = new Set(currentDecks.map((d) => d.id));
+          const freshIds = new Set(fresh.map((d) => d.id));
+          // Check if deck list changed (added or removed). Optimistic decks
+          // still in flight are preserved (not treated as removed).
+          const added = fresh.filter((d) => !currentIds.has(d.id));
+          const removed = currentDecks.filter(
+            (d) => !freshIds.has(d.id) && !pending.has(d.id),
+          );
+          if (added.length > 0 || removed.length > 0) {
+            lastExternalUpdateRef.current = Date.now();
+            setDecks((prev) => {
+              const prevIds = new Set(prev.map((d) => d.id));
+              let next = prev.filter(
+                (d) => freshIds.has(d.id) || pending.has(d.id),
+              );
+              // Only add decks that aren't already in prev (prevents duplicates
+              // when the closure's deck snapshot is stale compared to `prev`).
+              for (const a of added) {
+                if (!prevIds.has(a.id)) next = [...next, a];
+              }
+              return next;
+            });
+          }
         }
 
         // Also re-fetch the currently-open deck so agent-added slides show up.
         // The list endpoint may not include full slide contents, and SSE can
         // miss events if the client reconnects between broadcasts.
-        const currentOpenId = readOpenDeckId();
         if (currentOpenId && !pending.has(currentOpenId)) {
           try {
             const res = await fetch(
@@ -364,7 +395,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             );
             if (res.ok) {
               const serverDeck = (await res.json()) as Deck;
-              const clientDeck = decks.find((d) => d.id === currentOpenId);
+              const clientDeck = decksRef.current.find(
+                (d) => d.id === currentOpenId,
+              );
               const changed =
                 !clientDeck ||
                 clientDeck.updatedAt !== serverDeck.updatedAt ||
@@ -383,9 +416,38 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           } catch {}
         }
       } catch {}
-    }, intervalMs);
-    return () => clearInterval(interval);
-  }, [loading, decks]);
+      schedule();
+    }
+
+    const pollNow = () => {
+      if (isHidden()) return;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      void poll();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        pollNow();
+      } else if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    void poll();
+    window.addEventListener("focus", pollNow);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      window.removeEventListener("focus", pollNow);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [loading]);
 
   // Save ALL changed decks to API — files are the single source of truth
   // Skip saves that happen within 2s of an external update (SSE or initial load)

@@ -25,6 +25,8 @@ export interface UseCollaborativeDocOptions {
   docId: string | null;
   /** Poll interval in ms. Default: 2000 */
   pollInterval?: number;
+  /** Pause remote update/presence polling while the tab is hidden. Default: true */
+  pauseWhenHidden?: boolean;
   /** Base URL for collab endpoints. Default: "/_agent-native/collab" */
   baseUrl?: string;
   /** Request source ID for jitter prevention (e.g., tab ID). */
@@ -81,6 +83,12 @@ export function emailToName(email: string): string {
 
 function normalizeCollabEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+function isDocumentHidden(): boolean {
+  return (
+    typeof document !== "undefined" && document.visibilityState === "hidden"
+  );
 }
 
 export function dedupeCollabUsersByEmail(users: CollabUser[]): CollabUser[] {
@@ -159,6 +167,7 @@ export function useCollaborativeDoc(
   const {
     docId,
     pollInterval = 2000,
+    pauseWhenHidden = true,
     baseUrl = agentNativePath("/_agent-native/collab"),
     requestSource,
     user,
@@ -306,6 +315,12 @@ export function useCollaborativeDoc(
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
+    function schedulePoll() {
+      if (stopped) return;
+      if (pauseWhenHidden && isDocumentHidden()) return;
+      timer = setTimeout(poll, pollInterval);
+    }
+
     async function poll() {
       if (stopped) return;
       try {
@@ -390,22 +405,45 @@ export function useCollaborativeDoc(
       } catch {
         // Network error — retry next interval
       }
-      if (!stopped) {
-        timer = setTimeout(poll, pollInterval);
+      schedulePoll();
+    }
+
+    function pollNow() {
+      if (pauseWhenHidden && isDocumentHidden()) return;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      void poll();
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        pollNow();
+      } else if (pauseWhenHidden && timer) {
+        clearTimeout(timer);
+        timer = null;
       }
     }
 
-    poll();
+    if (!pauseWhenHidden || !isDocumentHidden()) {
+      void poll();
+    }
+    window.addEventListener("focus", pollNow);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       stopped = true;
       if (timer) clearTimeout(timer);
+      window.removeEventListener("focus", pollNow);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [
     ydoc,
     awareness,
     docId,
     pollInterval,
+    pauseWhenHidden,
     requestSource,
     baseUrl,
     docMissing,

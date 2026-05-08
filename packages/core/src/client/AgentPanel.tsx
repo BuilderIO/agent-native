@@ -1515,7 +1515,6 @@ function URLSync() {
       }
     },
     refetchInterval: 2_000,
-    refetchIntervalInBackground: true,
     structuralSharing: false,
     retry: false,
   });

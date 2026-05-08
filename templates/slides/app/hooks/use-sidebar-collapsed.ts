@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { TAB_ID } from "@/lib/tab-id";
 
 const KEY = "sidebarCollapsed";
 const URL = `/_agent-native/application-state/${KEY}`;
@@ -66,8 +67,6 @@ export function useSidebarCollapsed() {
         return fallbackState();
       }
     },
-    refetchInterval: 2_000,
-    refetchIntervalInBackground: true,
     staleTime: 0,
   });
 
@@ -89,7 +88,10 @@ export function useSidebarCollapsed() {
       fetch(URL, {
         method: "PUT",
         keepalive: true,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Request-Source": TAB_ID,
+        },
         body: JSON.stringify({ collapsed: nextVal }),
       }).catch(() => {
         qc.invalidateQueries({ queryKey: QUERY_KEY });

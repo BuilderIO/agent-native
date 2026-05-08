@@ -843,6 +843,49 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
+  it("allows a per-message request mode override", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      execModeRef: { current: "plan" },
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Implement the plan." }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+        runConfig: {
+          custom: { requestMode: "act" },
+        },
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body).toMatchObject({
+      message: "Implement the plan.",
+      mode: "act",
+    });
+  });
+
   it("auto-continues without surfacing loop limit text", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
