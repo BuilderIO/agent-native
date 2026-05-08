@@ -84,6 +84,7 @@ function DbSyncBridge({ queryClient }: { queryClient: QueryClient }) {
       "analyses-list",
       "analyses-sidebar",
       "analysis-detail",
+      "env-status",
       "dashboard-views",
       "all-dashboard-views",
     ],
