@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.12.24
+
+### Patch Changes
+
+- d198100: Polish setup, navigation, editor, and feedback affordances from user feedback.
+- d198100: Preserve chat attachments and completed history during interrupted-run recovery.
+- d198100: Fix stale collaboration presence cleanup, stale run handling, and agent panel recovery.
+
 ## 0.12.23
 
 ### Patch Changes

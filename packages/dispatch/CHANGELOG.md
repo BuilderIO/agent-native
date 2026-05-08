@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.2.18
+
+### Patch Changes
+
+- d198100: Polish setup, navigation, editor, and feedback affordances from user feedback.
+
 ## 0.2.17
 
 ### Patch Changes
