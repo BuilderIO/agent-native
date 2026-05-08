@@ -25,26 +25,15 @@ import {
   aiSdkPartToEngineEvents,
   aiSdkStepToAssistantContent,
 } from "./translate-ai-sdk.js";
-import {
-  DEFAULT_ANTHROPIC_MODEL,
-  DEFAULT_OPENAI_MODEL,
-} from "../default-model.js";
+import { AI_SDK_MODEL_CONFIG, type AISDKProvider } from "../model-config.js";
 import { readDeployCredentialEnv } from "../../server/credential-provider.js";
 import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
+
+export type { AISDKProvider } from "../model-config.js";
 
 // ---------------------------------------------------------------------------
 // Provider definitions
 // ---------------------------------------------------------------------------
-
-export type AISDKProvider =
-  | "anthropic"
-  | "openai"
-  | "openrouter"
-  | "google"
-  | "groq"
-  | "mistral"
-  | "cohere"
-  | "ollama";
 
 const PROVIDER_CAPABILITIES: Record<AISDKProvider, EngineCapabilities> = {
   anthropic: {
@@ -105,45 +94,23 @@ const PROVIDER_CAPABILITIES: Record<AISDKProvider, EngineCapabilities> = {
   },
 };
 
-const PROVIDER_DEFAULT_MODELS: Record<AISDKProvider, string> = {
-  anthropic: DEFAULT_ANTHROPIC_MODEL,
-  openai: DEFAULT_OPENAI_MODEL,
-  openrouter: "openai/gpt-5.5",
-  google: "gemini-3-flash-preview",
-  groq: "llama-3.3-70b-versatile",
-  mistral: "mistral-large-latest",
-  cohere: "command-r-plus",
-  ollama: "llama3.1",
-};
+const providerModelEntries = Object.entries(AI_SDK_MODEL_CONFIG) as Array<
+  [AISDKProvider, (typeof AI_SDK_MODEL_CONFIG)[AISDKProvider]]
+>;
 
-const PROVIDER_SUPPORTED_MODELS: Record<AISDKProvider, readonly string[]> = {
-  anthropic: [
-    "claude-opus-4-7",
-    "claude-sonnet-4-6",
-    "claude-haiku-4-5-20251001",
-  ],
-  openai: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
-  openrouter: [
-    "anthropic/claude-opus-4.7",
-    "anthropic/claude-sonnet-4.6",
-    "openai/gpt-5.5",
-    "openai/gpt-5.4",
-    "google/gemini-2.5-flash",
-  ],
-  google: ["gemini-3-flash-preview", "gemini-3.1-pro-preview"],
-  groq: [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-70b-versatile",
-    "mixtral-8x7b-32768",
-  ],
-  mistral: [
-    "mistral-large-latest",
-    "mistral-medium-latest",
-    "mistral-small-latest",
-  ],
-  cohere: ["command-r-plus", "command-r"],
-  ollama: ["llama3.1", "llama3.2", "mistral", "codestral"],
-};
+const PROVIDER_DEFAULT_MODELS = Object.fromEntries(
+  providerModelEntries.map(([provider, config]) => [
+    provider,
+    config.defaultModel,
+  ]),
+) as Record<AISDKProvider, string>;
+
+const PROVIDER_SUPPORTED_MODELS = Object.fromEntries(
+  providerModelEntries.map(([provider, config]) => [
+    provider,
+    config.supportedModels,
+  ]),
+) as unknown as Record<AISDKProvider, readonly string[]>;
 
 const PROVIDER_ENV_VARS: Record<AISDKProvider, string[]> = {
   anthropic: ["ANTHROPIC_API_KEY"],

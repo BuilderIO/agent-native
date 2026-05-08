@@ -37,6 +37,7 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
+import { BUILDER_MODEL_CONFIG } from "../model-config.js";
 
 export const BUILDER_CAPABILITIES: EngineCapabilities = {
   thinking: true,
@@ -50,31 +51,12 @@ export const BUILDER_CAPABILITIES: EngineCapabilities = {
   parallelToolCalls: true,
 };
 
-export const BUILDER_SUPPORTED_MODELS = [
-  "claude-opus-4-7",
-  "claude-sonnet-4-6",
-  "claude-haiku-4-5",
-  "gpt-5-5",
-  "gpt-5-4",
-  "gpt-5-4-mini",
-  "gpt-5-1-codex-mini",
-  "gemini-3-1-pro",
-  "gemini-3-0-flash",
-  "gemini-3-1-flash-lite",
-  "grok-code-fast",
-  "qwen3-coder",
-  "kimi-k2-5",
-  "deepseek-v3-1",
-  "z-ai-glm-4-5",
-  "z-ai-glm-5-1",
-] as const;
+export const BUILDER_SUPPORTED_MODELS = BUILDER_MODEL_CONFIG.supportedModels;
 
 const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
 const MAX_BUILDER_GATEWAY_TIMEOUT_MS = 55_000;
 
-// Builder gateway public IDs are provider-neutral aliases owned by the gateway.
-import { DEFAULT_MODEL } from "../default-model.js";
-export const BUILDER_DEFAULT_MODEL = DEFAULT_MODEL;
+export const BUILDER_DEFAULT_MODEL = BUILDER_MODEL_CONFIG.defaultModel;
 
 /**
  * Bucket an Anthropic `thinking.budgetTokens` value into the gateway's
