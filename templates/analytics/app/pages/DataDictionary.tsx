@@ -110,6 +110,9 @@ const DEPARTMENT_BADGE: Record<string, string> = {
   Engineering: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
 };
 
+const ENTRY_BADGE_CLASS =
+  "max-w-full min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[10px] px-1.5 py-0";
+
 function deptClass(dept?: string): string {
   if (!dept) return "bg-muted text-muted-foreground";
   return DEPARTMENT_BADGE[dept] ?? "bg-muted text-muted-foreground";
@@ -244,7 +247,8 @@ export default function DataDictionary() {
                   {e.department && (
                     <Badge
                       variant="outline"
-                      className={`text-[10px] px-1.5 py-0 ${deptClass(e.department)} border-0`}
+                      title={e.department}
+                      className={`${ENTRY_BADGE_CLASS} ${deptClass(e.department)} border-0`}
                     >
                       {e.department}
                     </Badge>
@@ -252,7 +256,8 @@ export default function DataDictionary() {
                   {e.table && (
                     <Badge
                       variant="outline"
-                      className="text-[10px] px-1.5 py-0 font-mono"
+                      title={e.table}
+                      className={`${ENTRY_BADGE_CLASS} font-mono`}
                     >
                       {e.table}
                     </Badge>
@@ -260,7 +265,7 @@ export default function DataDictionary() {
                   {e.approved && (
                     <Badge
                       variant="outline"
-                      className="text-[10px] px-1.5 py-0 bg-green-500/10 text-green-600 dark:text-green-400 border-0"
+                      className={`${ENTRY_BADGE_CLASS} bg-green-500/10 text-green-600 dark:text-green-400 border-0`}
                     >
                       approved
                     </Badge>
@@ -268,7 +273,7 @@ export default function DataDictionary() {
                   {e.aiGenerated && (
                     <Badge
                       variant="outline"
-                      className="text-[10px] px-1.5 py-0 bg-purple-500/10 text-purple-600 dark:text-purple-400 border-0"
+                      className={`${ENTRY_BADGE_CLASS} bg-purple-500/10 text-purple-600 dark:text-purple-400 border-0`}
                     >
                       AI
                     </Badge>

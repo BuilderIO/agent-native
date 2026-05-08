@@ -144,7 +144,7 @@ For `text-options` and `color-options`: provide `options` array with `label`/`va
 When a deck has an active design system, color questions must use colors from that design system (primary, secondary, accent, surface/background) instead of generic moods.
 For `slider`: provide `min`/`max`.
 
-The UI automatically appends "Explore a few options" and "Decide for me" choices to every `text-options` question.
+The UI automatically appends "Other..." with a custom text box, plus "Explore a few options" and "Decide for me" choices, to every `text-options` question.
 
 #### Writing show-questions from an action or script
 
@@ -240,6 +240,8 @@ If a metric or source would make the slide stronger but is not available, use qu
 2. Otherwise, create an empty deck: `create-deck --title "X" --slides '[]'`, then `navigate --deckId=<returned-id>`.
 3. For decks larger than a few slides, start a `manage-progress` run so the header runs tray shows visible progress outside the chat pane. Update it after each slide and complete it when the requested slide count is reached.
 4. Call `add-slide --deckId=<id> --content="<html>"` once per slide. Add slide 1 as soon as it is ready, wait for the action result, then add slide 2, and continue one-by-one in slide order until the requested slide count is reached. Do not fire multiple `add-slide` calls in parallel for the same deck; sequential writes are more reliable and still let the user watch the deck build live.
+
+If the request is for a standalone visual, hero image, diagram, one-pager, poster, or only a couple visuals, make only the requested one/few polished visual slides. Do not pad the output into a conventional presentation.
 
 **Why add-slide is preferred over create-deck with all slides:**
 

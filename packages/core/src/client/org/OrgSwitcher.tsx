@@ -300,6 +300,10 @@ export function OrgSwitcher({
                   type="button"
                   onClick={() => {
                     setOpen(false);
+                    window.dispatchEvent(new CustomEvent("agent-panel:open"));
+                    window.dispatchEvent(
+                      new CustomEvent("agent-panel:open-settings"),
+                    );
                     navigate(settingsPath);
                   }}
                   className={`${ITEM_CLASS} cursor-pointer`}

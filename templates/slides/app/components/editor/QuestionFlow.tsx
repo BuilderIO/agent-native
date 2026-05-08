@@ -23,6 +23,38 @@ interface QuestionFlowProps {
   designSystem?: DesignSystemData;
 }
 
+const OTHER_OPTION_PREFIX = "__other__:";
+
+function isOtherOptionValue(value: unknown): value is string {
+  return typeof value === "string" && value.startsWith(OTHER_OPTION_PREFIX);
+}
+
+function getOtherOptionText(value: unknown): string {
+  return isOtherOptionValue(value)
+    ? value.slice(OTHER_OPTION_PREFIX.length)
+    : "";
+}
+
+function formatAnswerValue(value: any): any {
+  if (Array.isArray(value)) {
+    return value.map(formatAnswerValue).filter((item) => item !== "");
+  }
+  if (isOtherOptionValue(value)) {
+    const text = getOtherOptionText(value).trim();
+    return text ? `Other: ${text}` : "";
+  }
+  return value;
+}
+
+function hasAnsweredValue(value: any): boolean {
+  if (value == null || value === "") return false;
+  if (Array.isArray(value)) return value.some(hasAnsweredValue);
+  if (isOtherOptionValue(value)) {
+    return getOtherOptionText(value).trim().length > 0;
+  }
+  return true;
+}
+
 export function QuestionFlow({
   questions,
   onSubmit,
@@ -62,17 +94,19 @@ export function QuestionFlow({
   );
 
   const handleSubmit = () => {
-    onSubmit(answers);
+    onSubmit(
+      Object.fromEntries(
+        Object.entries(answers).map(([id, value]) => [
+          id,
+          formatAnswerValue(value),
+        ]),
+      ),
+    );
   };
 
   const allRequiredAnswered = visibleQuestions
     .filter((q) => q.required)
-    .every((q) => {
-      const val = answers[q.id];
-      if (val == null || val === "") return false;
-      if (Array.isArray(val) && val.length === 0) return false;
-      return true;
-    });
+    .every((q) => hasAnsweredValue(answers[q.id]));
 
   return (
     <div className="absolute inset-0 z-50 bg-background">
@@ -97,7 +131,7 @@ export function QuestionFlow({
           {/* Progress dots */}
           <div className="mt-8 flex items-center justify-center gap-1.5">
             {visibleQuestions.map((q, i) => {
-              const answered = answers[q.id] != null && answers[q.id] !== "";
+              const answered = hasAnsweredValue(answers[q.id]);
               return (
                 <div
                   key={i}
@@ -255,6 +289,14 @@ function TextOptions({
     { label: "Explore a few options", value: "__explore__" },
     { label: "Decide for me", value: "__decide__" },
   ];
+  const otherSelected = multiSelect
+    ? Array.isArray(value) && value.some(isOtherOptionValue)
+    : isOtherOptionValue(value);
+  const otherText = multiSelect
+    ? getOtherOptionText(
+        Array.isArray(value) ? value.find(isOtherOptionValue) : undefined,
+      )
+    : getOtherOptionText(value);
 
   const isSelected = (optValue: string) => {
     if (multiSelect) {
@@ -263,35 +305,88 @@ function TextOptions({
     return value === optValue;
   };
 
+  const toggleOther = () => {
+    if (!multiSelect) {
+      onChange(otherSelected ? "" : OTHER_OPTION_PREFIX);
+      return;
+    }
+    const current: string[] = Array.isArray(value) ? value : [];
+    if (otherSelected) {
+      onChange(current.filter((item) => !isOtherOptionValue(item)));
+      return;
+    }
+    onChange([...current, OTHER_OPTION_PREFIX]);
+  };
+
+  const setOtherText = (text: string) => {
+    const nextOther = `${OTHER_OPTION_PREFIX}${text}`;
+    if (!multiSelect) {
+      onChange(nextOther);
+      return;
+    }
+    const current: string[] = Array.isArray(value) ? value : [];
+    const withoutOther = current.filter((item) => !isOtherOptionValue(item));
+    onChange([...withoutOther, nextOther]);
+  };
+
   return (
-    <div className="flex flex-wrap gap-2">
-      {allOptions.map((opt) => (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        {allOptions.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => {
+              if (multiSelect) {
+                onToggleMulti(opt.value);
+              } else {
+                onChange(opt.value);
+              }
+            }}
+            className={cn(
+              "cursor-pointer rounded-lg border px-4 py-2 text-sm",
+              isSelected(opt.value)
+                ? "border-[#609FF8] bg-[#609FF8]/10 text-[#609FF8]"
+                : "border-border bg-muted text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+            )}
+          >
+            {multiSelect && (
+              <Checkbox
+                checked={isSelected(opt.value)}
+                className="mr-2 inline-flex"
+                tabIndex={-1}
+              />
+            )}
+            {opt.label}
+          </button>
+        ))}
         <button
-          key={opt.value}
-          onClick={() => {
-            if (multiSelect) {
-              onToggleMulti(opt.value);
-            } else {
-              onChange(opt.value);
-            }
-          }}
+          onClick={toggleOther}
           className={cn(
             "cursor-pointer rounded-lg border px-4 py-2 text-sm",
-            isSelected(opt.value)
+            otherSelected
               ? "border-[#609FF8] bg-[#609FF8]/10 text-[#609FF8]"
               : "border-border bg-muted text-muted-foreground hover:border-foreground/30 hover:text-foreground",
           )}
         >
           {multiSelect && (
             <Checkbox
-              checked={isSelected(opt.value)}
+              checked={otherSelected}
               className="mr-2 inline-flex"
               tabIndex={-1}
             />
           )}
-          {opt.label}
+          Other...
         </button>
-      ))}
+      </div>
+      {otherSelected && (
+        <Textarea
+          autoFocus
+          value={otherText}
+          onChange={(e) => setOtherText(e.target.value)}
+          placeholder="Type a custom answer..."
+          className="min-h-[68px] resize-none border-border bg-muted text-foreground placeholder:text-muted-foreground/70"
+        />
+      )}
     </div>
   );
 }

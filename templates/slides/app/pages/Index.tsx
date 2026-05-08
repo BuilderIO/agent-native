@@ -262,7 +262,7 @@ export default function Index() {
         ].join("\n");
 
     const context = [
-      `The user just created a new empty deck (id: "${deck.id}") and wants to fill it with slides.`,
+      `The user just created a new empty deck (id: "${deck.id}") and wants to create a presentation or standalone visual.`,
       "The text below is the user's request and/or pasted source material for the deck. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
       trimmedPrompt
         ? `User request / source material:\n${sourceForContext.text}`
@@ -275,6 +275,7 @@ export default function Index() {
       designSystemContext,
       "",
       "Start a `manage-progress` run so progress appears in the app header. Add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in.",
+      "If the user asks for a standalone visual, diagram, hero, one-pager, poster, or a couple of visuals, create only the requested one/few polished visual slides. Do not pad the result into a full presentation.",
       "Add slides ONE AT A TIME using the `add-slide` action with --deckId=" +
         deck.id +
         ". Wait for each `add-slide` result before calling it again; do not batch or parallelize slide writes.",
@@ -408,7 +409,7 @@ export default function Index() {
                   New Deck
                 </h3>
                 <div className="text-xs text-muted-foreground/70 mt-1">
-                  Create a deck
+                  Create a deck or visual
                 </div>
               </div>
             </button>
@@ -461,7 +462,7 @@ export default function Index() {
         open={showNewDeckPrompt}
         onOpenChange={setNewDeckPromptOpen}
         title="New deck"
-        placeholder="Describe your deck..."
+        placeholder="Describe your deck, visual, or diagram..."
         onSkip={handleCreateDeckBlank}
         skipLabel="Skip prompt"
         onSubmit={handleCreateDeckWithPrompt}
@@ -537,11 +538,11 @@ function EmptyState({
         <IconStack2 className="w-7 h-7 text-[#609FF8]" />
       </div>
       <h2 className="text-xl font-semibold text-foreground mb-2">
-        Create your first deck
+        Create your first deck or visual
       </h2>
       <p className="text-sm text-muted-foreground max-w-sm mb-8 leading-relaxed">
-        Build beautiful slide presentations with AI-powered generation, image
-        creation, and a stunning presentation mode.
+        Build beautiful presentations, standalone visuals, diagrams, and
+        image-rich stories with AI-powered generation.
       </p>
       <Button
         onClick={(e: React.MouseEvent<HTMLButtonElement>) =>
