@@ -122,6 +122,7 @@ export default createAgentChatPlugin({
       "<data-source-guidance>\n" +
       "Use configured data sources and actions only. Call `data-source-status` when you need to know which providers are connected, and treat provider actions as unavailable for analysis if they return missing credentials, permission, syntax, quota, or network errors. " +
       "When the user names a provider or tool such as Jira, Pylon, HubSpot, Gong, Slack, Sentry, GA4, or BigQuery, that named source is authoritative for the turn: check that provider and call its action first. Do not substitute BigQuery for Pylon, Jira, or another provider unless the user explicitly asks for the warehouse copy or the named provider is unavailable and the user chooses a fallback. " +
+      "When the user refers to the current analysis, this analysis, this project, or asks to spin off, adapt, modify, or reuse a saved analysis, call `view-screen` first and use the returned analysis details; if an analysis id or @mention is provided, call `get-analysis` before responding. " +
       "If a provider action fails, stop using that provider for the turn, surface the actual error, and wait for the user to choose whether to fix SQL, use another source, or retry. Do not loop through more queries after a failed provider call. " +
       "For ordinary ad-hoc data questions, answer the explicit question after the first relevant successful query or bounded evidence batch instead of continuing into suggested follow-up investigations. " +
       "Unstructured source records are valid analytics evidence: Pylon tickets, Jira issues, Gong calls/transcripts, Slack messages, and similar text records may be coded for themes, mention counts, sentiment, objections, and qualitative patterns as long as the answer states the inspected sample size and does not imply unsupported statistical certainty. " +
@@ -179,6 +180,51 @@ export default createAgentChatPlugin({
           }));
         } catch (err) {
           console.error("[analytics] Dashboard mention provider failed:", err);
+          return [];
+        }
+      },
+    },
+    analyses: {
+      label: "Analyses",
+      icon: "document",
+      search: async (query: string, event?: any) => {
+        if (!event) return [];
+        try {
+          const { getOrgContext } = await import("@agent-native/core/org");
+          const { listAnalyses } = await import("../lib/dashboards-store.js");
+          const ctx = await getOrgContext(event);
+          const rows = await listAnalyses({
+            email: ctx.email,
+            orgId: ctx.orgId ?? null,
+          });
+          const q = (query || "").toLowerCase().trim();
+          const filtered = q
+            ? rows.filter(
+                (analysis) =>
+                  (analysis.name || "").toLowerCase().includes(q) ||
+                  (analysis.description || "").toLowerCase().includes(q) ||
+                  analysis.id.toLowerCase().includes(q),
+              )
+            : rows;
+
+          return filtered
+            .sort(
+              (a, b) =>
+                new Date(b.updatedAt).getTime() -
+                new Date(a.updatedAt).getTime(),
+            )
+            .slice(0, 20)
+            .map((analysis) => ({
+              id: `analysis:${analysis.id}`,
+              label: analysis.name || "Untitled analysis",
+              description: `/analyses/${analysis.id}`,
+              icon: "document",
+              refType: "analysis",
+              refId: analysis.id,
+              refPath: `/analyses/${analysis.id}`,
+            }));
+        } catch (err) {
+          console.error("[analytics] Analysis mention provider failed:", err);
           return [];
         }
       },
