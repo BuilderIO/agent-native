@@ -20,6 +20,18 @@ app/routes/inbox.$threadId.tsx     → /inbox/:threadId
 app/routes/$id.tsx                 → /:id (dynamic param)
 ```
 
+## Mounted Workspace Routing
+
+In a workspace, this app can be mounted under `/<app-id>`. React Router already receives `APP_BASE_PATH`/`VITE_APP_BASE_PATH` through `appBasePath()`, so route code stays app-local:
+
+| Route file              | App-internal route | Mounted browser URL      |
+| ----------------------- | ------------------ | ------------------------ |
+| `app/routes/_index.tsx` | `/`                | `/<app-id>`              |
+| `app/routes/review.tsx` | `/review`          | `/<app-id>/review`       |
+| `app/routes/$id.tsx`    | `/:id`             | `/<app-id>/:id`          |
+
+Use `<Link to="/review">` and `navigate("/review")` inside this app. Do not prefix React Router paths with `/<app-id>` or the URL can double-prefix, e.g. `/<app-id>/<app-id>/review`. Use `appPath()` for raw `href`s/static assets, `appApiPath()` for `/api/*`, and `agentNativePath()` for `/_agent-native/*`.
+
 Each route file exports a default component and optional `meta()`:
 
 ```tsx
