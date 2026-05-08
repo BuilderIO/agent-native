@@ -8,6 +8,16 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   IconCheck,
@@ -246,6 +256,7 @@ function ConnectedView({
   envStatus: EnvKeyStatus[];
 }) {
   const [editing, setEditing] = useState(false);
+  const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [testResult, setTestResult] = useState<{
     ok: boolean;
@@ -269,7 +280,10 @@ function ConnectedView({
 
   const disconnectMutation = useMutation({
     mutationFn: () => deleteCredentials(source.envKeys),
-    onSuccess: () => onSaved(),
+    onSuccess: () => {
+      setDisconnectConfirmOpen(false);
+      onSaved();
+    },
   });
 
   const testMutation = useMutation({
@@ -291,6 +305,28 @@ function ConnectedView({
       keyLabels[step.inputKey] = step.inputLabel || step.inputKey;
     }
   }
+  const sharedCredentialKeys = source.envKeys.filter((key) =>
+    dataSources.some((other) => other.id !== source.id && other.envKeys.includes(key)),
+  );
+  const sharedSourceNames = Array.from(
+    new Set(
+      dataSources
+        .filter(
+          (other) =>
+            other.id !== source.id &&
+            other.envKeys.some((key) => source.envKeys.includes(key)),
+        )
+        .map((other) => other.name),
+    ),
+  );
+
+  const handleDisconnect = () => {
+    if (sharedCredentialKeys.length > 0) {
+      setDisconnectConfirmOpen(true);
+      return;
+    }
+    disconnectMutation.mutate();
+  };
 
   if (editing) {
     return (
@@ -404,7 +440,8 @@ function ConnectedView({
   }
 
   return (
-    <div className="space-y-3 py-3">
+    <>
+      <div className="space-y-3 py-3">
       {/* Credential summary */}
       <div className="space-y-2">
         {source.envKeys.map((key) => {
@@ -467,7 +504,7 @@ function ConnectedView({
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => disconnectMutation.mutate()}
+          onClick={handleDisconnect}
           disabled={disconnectMutation.isPending}
           className="text-xs text-destructive hover:text-destructive"
         >
@@ -507,7 +544,39 @@ function ConnectedView({
           )}
         </div>
       )}
-    </div>
+      </div>
+      <AlertDialog
+        open={disconnectConfirmOpen}
+        onOpenChange={setDisconnectConfirmOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect {source.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will clear credentials shared with{" "}
+              {sharedSourceNames.join(", ")}. Those sources may stop working
+              until the shared credentials are added again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
+            Shared credentials:{" "}
+            {sharedCredentialKeys
+              .map((key) => keyLabels[key] || key)
+              .join(", ")}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => disconnectMutation.mutate()}
+              disabled={disconnectMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {disconnectMutation.isPending ? "Disconnecting..." : "Disconnect"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
