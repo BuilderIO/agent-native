@@ -1,5 +1,19 @@
 # @agent-native/core
 
+## 0.12.23
+
+### Patch Changes
+
+- e752afd: Expire stale progress runs so abandoned tray indicators do not stay active forever.
+- e752afd: Require request-scoped Builder or LLM credentials for signed-in users on hosted shared-database apps.
+- e752afd: Use neutral composer styling when Plan mode is active.
+- e752afd: Contain failed remote MCP handshakes and show concise connection errors.
+- e752afd: Quiet the optional node-pty missing notice unless terminal debug logging is enabled.
+- e752afd: Keep the Workspace docs tooltip from overlapping the panel header.
+- e752afd: Improve Sentry signal for Builder gateway network failures and browser analytics noise.
+- e752afd: Use the request-context owner when resolving explicit agent engine credentials.
+- e752afd: Preserve uploaded attachments on queued chat messages and stringify screen context objects.
+
 ## 0.12.22
 
 ### Patch Changes
