@@ -15,6 +15,7 @@ export const DATA_QUERY_ACTIONS = new Set([
   "hubspot-deals",
   "hubspot-metrics",
   "hubspot-pipelines",
+  "hubspot-records",
   "jira",
   "jira-analytics",
   "jira-search",

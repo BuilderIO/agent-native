@@ -7,6 +7,10 @@ describe("real data action classification", () => {
     expect(hasDataQueryAttempt([{ name: "slack-messages" }])).toBe(true);
   });
 
+  it("treats broad HubSpot record lookups as real CRM evidence", () => {
+    expect(hasDataQueryAttempt([{ name: "hubspot-records" }])).toBe(true);
+  });
+
   it("does not count setup or artifact-only actions as source evidence", () => {
     expect(hasDataQueryAttempt([{ name: "data-source-status" }])).toBe(false);
     expect(hasDataQueryAttempt([{ name: "save-analysis" }])).toBe(false);
