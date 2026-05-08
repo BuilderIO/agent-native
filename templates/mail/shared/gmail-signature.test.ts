@@ -10,12 +10,12 @@ describe("htmlSignatureToMarkdown", () => {
     ).toBe("Steve\n\n[Website](https://example.com/)");
   });
 
-  it("keeps safe images when Gmail signatures include logos", () => {
+  it("drops image assets from Gmail signatures", () => {
     expect(
       htmlSignatureToMarkdown(
-        '<div><img src="https://example.com/logo.png" alt="Acme"></div>',
+        '<div>Steve</div><div><a href="https://example.com"><img src="https://example.com/logo.png" alt="Acme"></a></div>',
       ),
-    ).toBe("![Acme](https://example.com/logo.png)");
+    ).toBe("Steve");
   });
 
   it("drops unsafe URLs", () => {

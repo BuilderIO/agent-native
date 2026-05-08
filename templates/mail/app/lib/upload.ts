@@ -1,4 +1,5 @@
 import { appApiPath } from "@/lib/api-path";
+import type { ComposeAttachment } from "@shared/types";
 
 export interface UploadResult {
   url: string;
@@ -21,6 +22,27 @@ export async function uploadFile(file: File): Promise<UploadResult> {
     throw new Error(`Upload failed: ${resp.statusText}`);
   }
   return resp.json();
+}
+
+export function uploadResultToAttachment(
+  result: UploadResult,
+): ComposeAttachment {
+  return {
+    id: result.filename,
+    filename: result.filename,
+    originalName: result.originalName,
+    mimeType: result.mimeType,
+    size: result.size,
+    url: result.url,
+  };
+}
+
+export async function uploadFiles(files: File[]): Promise<ComposeAttachment[]> {
+  const uploaded: ComposeAttachment[] = [];
+  for (const file of files) {
+    uploaded.push(uploadResultToAttachment(await uploadFile(file)));
+  }
+  return uploaded;
 }
 
 export function openFilePicker(accept: string): Promise<File | null> {

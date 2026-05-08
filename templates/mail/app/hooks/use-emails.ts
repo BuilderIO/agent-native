@@ -70,6 +70,66 @@ function makeTempId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+const RECENT_SENT_DURATION = 2 * 60_000;
+const recentSentMessages = new Map<
+  string,
+  { message: EmailMessage; timestamp: number }
+>();
+
+function messageThreadKey(message: EmailMessage): string {
+  return message.threadId || message.id;
+}
+
+function rememberRecentSentEmail(message: EmailMessage) {
+  recentSentMessages.set(message.id, { message, timestamp: Date.now() });
+}
+
+function replaceRecentSentEmail(tempId: string, message: EmailMessage) {
+  recentSentMessages.delete(tempId);
+  rememberRecentSentEmail(message);
+}
+
+function forgetRecentSentEmail(id: string) {
+  recentSentMessages.delete(id);
+}
+
+function applyRecentSentEmails(
+  emails: EmailMessage[],
+  view: string,
+  search?: string,
+  label?: string,
+): EmailMessage[] {
+  if (search || label || (view !== "sent" && view !== "all")) return emails;
+  if (recentSentMessages.size === 0) return emails;
+
+  const now = Date.now();
+  const recent = Array.from(recentSentMessages.values())
+    .filter(({ timestamp }) => {
+      if (now - timestamp <= RECENT_SENT_DURATION) return true;
+      return false;
+    })
+    .map(({ message }) => message);
+
+  for (const [id, { timestamp }] of recentSentMessages) {
+    if (now - timestamp > RECENT_SENT_DURATION) {
+      recentSentMessages.delete(id);
+    }
+  }
+
+  if (recent.length === 0) return emails;
+
+  const recentThreadKeys = new Set(recent.map(messageThreadKey));
+  const recentIds = new Set(recent.map((message) => message.id));
+  return [
+    ...recent,
+    ...emails.filter(
+      (message) =>
+        !recentIds.has(message.id) &&
+        !recentThreadKeys.has(messageThreadKey(message)),
+    ),
+  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+}
+
 // Delay cache invalidation for mutations with optimistic updates.
 // Gmail's search index has eventual consistency — if we refetch immediately
 // after archiving/trashing, the email may still appear in `in:inbox` results,
@@ -274,6 +334,68 @@ export function flattenInfiniteEmails(
   return data?.pages.flatMap((p) => p.emails) ?? [];
 }
 
+function isRecentSentListKey(key: readonly unknown[]): boolean {
+  return (
+    key[0] === "emails" &&
+    (key[1] === "sent" || key[1] === "all") &&
+    key[2] == null &&
+    key[3] == null
+  );
+}
+
+function getRecentSentListSnapshots(qc: ReturnType<typeof useQueryClient>) {
+  return qc
+    .getQueriesData<InfiniteEmails>({ queryKey: ["emails"] })
+    .filter(([key]) => isRecentSentListKey(key));
+}
+
+function upsertEmailInInfiniteList(
+  old: InfiniteEmails | undefined,
+  message: EmailMessage,
+): InfiniteEmails | undefined {
+  if (!old || old.pages.length === 0) return old;
+
+  const threadKey = messageThreadKey(message);
+  return {
+    ...old,
+    pages: old.pages.map((page, index) => {
+      const emails = page.emails.filter(
+        (existing) =>
+          existing.id !== message.id &&
+          messageThreadKey(existing) !== threadKey,
+      );
+      if (index !== 0) return { ...page, emails };
+      return {
+        ...page,
+        emails: [message, ...emails].sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+        ),
+      };
+    }),
+  };
+}
+
+function replaceEmailInInfiniteList(
+  old: InfiniteEmails | undefined,
+  tempId: string,
+  message: EmailMessage,
+): InfiniteEmails | undefined {
+  if (!old) return old;
+  let replaced = false;
+  const next = {
+    ...old,
+    pages: old.pages.map((page) => ({
+      ...page,
+      emails: page.emails.map((existing) => {
+        if (existing.id !== tempId) return existing;
+        replaced = true;
+        return message;
+      }),
+    })),
+  };
+  return replaced ? next : upsertEmailInInfiniteList(old, message);
+}
+
 // ─── Emails ──────────────────────────────────────────────────────────────────
 
 interface EmailsPage {
@@ -332,8 +454,9 @@ export function useEmails(
   const data = useMemo(() => {
     if (!q.data) return undefined;
     const all = q.data.pages.flatMap((p: EmailsPage) => p.emails);
-    return applyOverrides(search ? all : filterSuppressed(all, view));
-  }, [q.data, search, view]);
+    const visible = applyOverrides(search ? all : filterSuppressed(all, view));
+    return applyRecentSentEmails(visible, view, search, label);
+  }, [q.data, search, view, label]);
 
   return {
     data,
@@ -760,8 +883,9 @@ export function useSendEmail() {
         data.replyToId ||
         makeTempId("thread");
 
-      // Snapshot pre-send thread state so onError can roll back.
+      // Snapshot pre-send state so onError can roll back.
       const previousThread = getCachedThread(threadId);
+      const previousLists = getRecentSentListSnapshots(qc);
 
       // Reuse the optimistic message that addOptimisticReply may have
       // already inserted, rather than double-adding.
@@ -769,17 +893,11 @@ export function useSendEmail() {
       const existingOptimistic = existingMessages.find(
         (m) => m.id.startsWith("sent-") && m.isSent,
       );
+      const rollbackThread = existingOptimistic
+        ? existingMessages.filter((m) => m.id !== existingOptimistic.id)
+        : previousThread;
 
-      if (existingOptimistic) {
-        return {
-          previousThread,
-          optimisticMessage: existingOptimistic,
-          threadId,
-        };
-      }
-
-      // No prior optimistic message (e.g. sent from ComposeModal) — add one
-      const optimisticMessage: EmailMessage = {
+      const optimisticMessage: EmailMessage = existingOptimistic ?? {
         id: makeTempId("sent"),
         threadId,
         from: {
@@ -814,17 +932,35 @@ export function useSendEmail() {
         ...(data.accountEmail ? { accountEmail: data.accountEmail } : {}),
       };
 
-      setCachedThread(
-        threadId,
-        [...existingMessages, optimisticMessage].sort(
-          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-        ),
-      );
+      if (!existingOptimistic) {
+        setCachedThread(
+          threadId,
+          [...existingMessages, optimisticMessage].sort(
+            (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+          ),
+        );
+      }
 
-      return { previousThread, optimisticMessage, threadId };
+      rememberRecentSentEmail(optimisticMessage);
+      for (const [key] of previousLists) {
+        qc.setQueryData<InfiniteEmails>(key, (old) =>
+          upsertEmailInInfiniteList(old, optimisticMessage),
+        );
+      }
+
+      return {
+        previousThread: rollbackThread,
+        optimisticMessage,
+        threadId,
+        previousLists,
+      };
     },
     onError: (_err, _vars, context) => {
       if (!context) return;
+      forgetRecentSentEmail(context.optimisticMessage.id);
+      context.previousLists.forEach(([key, data]) =>
+        qc.setQueryData(key, data),
+      );
       if (context.previousThread) {
         setCachedThread(context.threadId, context.previousThread);
       } else {
@@ -848,6 +984,16 @@ export function useSendEmail() {
         threadId,
         labelIds: result.labelIds?.map((id) => id.toLowerCase()) || ["sent"],
       };
+      replaceRecentSentEmail(context.optimisticMessage.id, replacement);
+      for (const [key] of getRecentSentListSnapshots(qc)) {
+        qc.setQueryData<InfiniteEmails>(key, (old) =>
+          replaceEmailInInfiniteList(
+            old,
+            context.optimisticMessage.id,
+            replacement,
+          ),
+        );
+      }
       const hasOptimistic = current.some(
         (message) => message.id === context.optimisticMessage.id,
       );

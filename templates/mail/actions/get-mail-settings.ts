@@ -3,12 +3,13 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 import type { UserSettings } from "../shared/types.js";
+import { normalizeSignature } from "../shared/signature.js";
 
 function normalize(settings: Partial<UserSettings> | undefined, email: string) {
   return {
     name: settings?.name ?? "",
     email: settings?.email || email,
-    signature: settings?.signature ?? "",
+    signature: normalizeSignature(settings?.signature),
     writingStyle: settings?.writingStyle ?? "",
   };
 }

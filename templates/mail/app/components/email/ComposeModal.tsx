@@ -48,8 +48,7 @@ import { toast } from "sonner";
 import type { ComposeState } from "@shared/types";
 import { RecipientInput } from "./RecipientInput";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
-import { openFilePicker, uploadFile } from "@/lib/upload";
-import type { ComposeAttachment } from "@shared/types";
+import { openFilePicker, uploadFiles } from "@/lib/upload";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { AttachmentStrip } from "./AttachmentStrip";
@@ -417,25 +416,36 @@ export function ComposeModal({
     setGenerateOpen(false);
   };
 
-  const handleAttach = async () => {
-    if (!activeId || !activeDraft) return;
-    const file = await openFilePicker("*/*");
-    if (!file) return;
+  const handleAttachFiles = async (files: File[]) => {
+    if (!activeId || !activeDraft || files.length === 0) return;
     try {
-      const result = await uploadFile(file);
-      const attachment: ComposeAttachment = {
-        id: result.filename,
-        filename: result.filename,
-        originalName: result.originalName,
-        mimeType: result.mimeType,
-        size: result.size,
-        url: result.url,
-      };
+      const attachments = await uploadFiles(files);
       const existing = activeDraft.attachments ?? [];
-      onUpdate(activeId, { attachments: [...existing, attachment] });
+      onUpdate(activeId, { attachments: [...existing, ...attachments] });
     } catch {
       toast.error("Failed to attach file");
     }
+  };
+
+  const handleAttach = async () => {
+    const file = await openFilePicker("*/*");
+    if (!file) return;
+    await handleAttachFiles([file]);
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    const files = Array.from(e.dataTransfer.files ?? []);
+    if (files.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void handleAttachFiles(files);
   };
 
   const handleRemoveAttachment = (attachmentId: string) => {
@@ -474,6 +484,8 @@ export function ComposeModal({
       )}
       style={composeStyle}
       onKeyDown={handleKeyDown}
+      onDragOverCapture={handleDragOver}
+      onDropCapture={handleDrop}
     >
       {/* Title bar with inline tabs */}
       <div className="flex h-11 shrink-0 items-center sm:rounded-t-xl px-2 gap-0">

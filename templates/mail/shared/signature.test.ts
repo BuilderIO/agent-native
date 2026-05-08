@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendSignatureToBody } from "./signature";
+import { appendSignatureToBody, normalizeSignature } from "./signature";
 
 describe("appendSignatureToBody", () => {
   it("appends a configured signature to a new draft", () => {
@@ -25,5 +25,13 @@ describe("appendSignatureToBody", () => {
 
   it("leaves body unchanged when signature is blank", () => {
     expect(appendSignatureToBody("Hi Alice", "   ")).toBe("Hi Alice");
+  });
+
+  it("strips image markdown from signatures before appending", () => {
+    const signature = "Steve\n![Logo](https://example.com/logo.png)";
+    expect(normalizeSignature(signature)).toBe("Steve");
+    expect(appendSignatureToBody("Hi Alice", signature)).toBe(
+      "Hi Alice\n\nSteve",
+    );
   });
 });
