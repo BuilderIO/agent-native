@@ -366,11 +366,11 @@ export class RecorderEngine {
         throw new Error(policyBlock);
       }
 
-      // Start every browser media request synchronously before the first
-      // `await`. Brave (and stricter Chromium/WebKit builds) require
-      // getDisplayMedia to be directly anchored to the user's click. If we
-      // await a network request or another media prompt first, the browser can
-      // reject without showing any permission picker.
+      // Start display capture synchronously before the first `await`. Brave
+      // (and stricter Chromium/WebKit builds) require getDisplayMedia to be
+      // directly anchored to the user's click. Camera/mic prompts do not need
+      // that transient activation, and launching them in parallel with the
+      // screen picker can make Chrome/macOS report a false permission failure.
       const displaySurface = this.opts.displaySurface ?? "window";
       const displayOptions: ExtendedDisplayMediaOptions = {
         video: { frameRate: { ideal: 30 }, displaySurface },
@@ -381,69 +381,41 @@ export class RecorderEngine {
         surfaceSwitching: "include",
         systemAudio: "include",
       };
-      const displayPromise = wantsDisplay
-        ? navigator.mediaDevices.getDisplayMedia(displayOptions)
-        : Promise.resolve<MediaStream | null>(null);
-      const cameraPromise = wantsCamera
-        ? navigator.mediaDevices.getUserMedia({
+
+      if (wantsDisplay) {
+        try {
+          this.displayStream =
+            await navigator.mediaDevices.getDisplayMedia(displayOptions);
+        } catch (err) {
+          throw this.friendlyError(err, "screen");
+        }
+      }
+
+      if (wantsCamera) {
+        try {
+          this.cameraStream = await navigator.mediaDevices.getUserMedia({
             video: this.opts.cameraDeviceId
               ? { deviceId: { exact: this.opts.cameraDeviceId } }
               : true,
             audio: false,
-          })
-        : Promise.resolve<MediaStream | null>(null);
-      const micPromise = wantsMic
-        ? navigator.mediaDevices.getUserMedia({
+          });
+        } catch (err) {
+          throw this.friendlyError(err, "camera");
+        }
+      }
+
+      if (wantsMic) {
+        try {
+          this.micStream = await navigator.mediaDevices.getUserMedia({
             audio: this.opts.micDeviceId
               ? { deviceId: { exact: this.opts.micDeviceId } }
               : true,
             video: false,
-          })
-        : Promise.resolve<MediaStream | null>(null);
-
-      const [displayResult, cameraResult, micResult] = await Promise.allSettled(
-        [displayPromise, cameraPromise, micPromise],
-      );
-      const settledStreams = [displayResult, cameraResult, micResult]
-        .filter(
-          (result): result is PromiseFulfilledResult<MediaStream> =>
-            result.status === "fulfilled" && result.value !== null,
-        )
-        .map((result) => result.value);
-
-      const requiredFailure: { source: CaptureSource; reason: unknown } | null =
-        wantsDisplay && displayResult.status === "rejected"
-          ? { source: "screen", reason: displayResult.reason }
-          : wantsCamera && cameraResult.status === "rejected"
-            ? { source: "camera", reason: cameraResult.reason }
-            : wantsMic && micResult.status === "rejected"
-              ? { source: "microphone", reason: micResult.reason }
-              : null;
-      if (requiredFailure) {
-        for (const stream of settledStreams) {
-          for (const track of stream.getTracks()) {
-            try {
-              track.stop();
-            } catch {
-              // ignore
-            }
-          }
+          });
+        } catch (err) {
+          throw this.friendlyError(err, "microphone");
         }
-        throw this.friendlyError(
-          requiredFailure.reason,
-          requiredFailure.source,
-        );
       }
-
-      this.displayStream =
-        displayResult.status === "fulfilled" ? displayResult.value : null;
-      this.cameraStream =
-        cameraResult.status === "fulfilled" ? cameraResult.value : null;
-      // If the user explicitly picked a microphone and getUserMedia rejected,
-      // we threw above. The only way this lands is wantsMic=false (user chose
-      // "No microphone") — micResult fulfills with null in that case.
-      this.micStream =
-        micResult.status === "fulfilled" ? micResult.value : null;
 
       // If the display stream's video track ends (user hit "Stop sharing" in
       // browser chrome) we want to end the recording gracefully.
