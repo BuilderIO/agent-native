@@ -1,16 +1,8 @@
-import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useDbSync as useCoreDbSync } from "@agent-native/core/client";
 
 export function useDbSync() {
   const queryClient = useQueryClient();
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      queryClient.invalidateQueries({ queryKey: ["action"] });
-    }, 2000);
-
-    return () => {
-      clearInterval(interval);
-    };
-  }, [queryClient]);
+  useCoreDbSync({ queryClient, queryKeys: ["action"] });
 }

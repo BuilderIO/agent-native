@@ -11,6 +11,12 @@ function getPollAbortMs(interval: number): number {
   return Math.max(POLL_ABORT_MIN_MS, interval * 4);
 }
 
+function isDocumentHidden(): boolean {
+  return (
+    typeof document !== "undefined" && document.visibilityState === "hidden"
+  );
+}
+
 async function fetchPollJson<T>(
   pollUrl: string,
   since: number,
@@ -46,6 +52,8 @@ async function fetchPollJson<T>(
  * @param options.pollUrl - Poll endpoint URL. Default: "/_agent-native/poll"
  * @param options.onEvent - Optional callback for each change event
  * @param options.interval - Poll interval in ms. Default: 2000
+ * @param options.pauseWhenHidden - Pause polling while the tab is hidden.
+ *   Default: true
  * @param options.ignoreSource - Skip events whose `requestSource` matches this
  *   value. Use a per-tab ID so the UI ignores its own writes while still
  *   picking up changes from other tabs, agents, and scripts.
@@ -59,6 +67,7 @@ export function useDbSync(
     eventsUrl?: string;
     onEvent?: (data: any) => void;
     interval?: number;
+    pauseWhenHidden?: boolean;
     ignoreSource?: string;
   } = {},
 ): void {
@@ -67,6 +76,7 @@ export function useDbSync(
     queryKeys = ["data"],
     pollUrl = agentNativePath(options.eventsUrl ?? "/_agent-native/poll"),
     interval = 2000,
+    pauseWhenHidden = true,
   } = options;
 
   const onEventRef = useRef(options.onEvent);
@@ -86,6 +96,7 @@ export function useDbSync(
 
     function schedulePoll() {
       if (stopped) return;
+      if (pauseWhenHidden && isDocumentHidden()) return;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = null;
@@ -159,10 +170,7 @@ export function useDbSync(
     }
 
     function pollNow() {
-      if (
-        typeof document !== "undefined" &&
-        document.visibilityState === "hidden"
-      ) {
+      if (pauseWhenHidden && isDocumentHidden()) {
         return;
       }
       if (timer) {
@@ -173,11 +181,18 @@ export function useDbSync(
     }
 
     function handleVisibilityChange() {
-      if (document.visibilityState === "visible") pollNow();
+      if (document.visibilityState === "visible") {
+        pollNow();
+      } else if (pauseWhenHidden && timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
     }
 
-    // Initial poll immediately
-    void poll();
+    // Initial poll immediately when visible. Hidden tabs catch up on focus.
+    if (!pauseWhenHidden || !isDocumentHidden()) {
+      void poll();
+    }
     window.addEventListener("focus", pollNow);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
@@ -187,7 +202,7 @@ export function useDbSync(
       window.removeEventListener("focus", pollNow);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [pollUrl, queryClient, interval]);
+  }, [pollUrl, queryClient, interval, pauseWhenHidden]);
 }
 
 /** @deprecated Use useDbSync instead */
@@ -213,11 +228,16 @@ export const useFileWatcher = useDbSync;
  *   );
  */
 export function useScreenRefreshKey(
-  options: { pollUrl?: string; interval?: number } = {},
+  options: {
+    pollUrl?: string;
+    interval?: number;
+    pauseWhenHidden?: boolean;
+  } = {},
 ): number {
   const {
     pollUrl = agentNativePath(options.pollUrl ?? "/_agent-native/poll"),
     interval = 2000,
+    pauseWhenHidden = true,
   } = options;
   const [key, setKey] = useState(0);
 
@@ -229,6 +249,7 @@ export function useScreenRefreshKey(
 
     function schedulePoll() {
       if (stopped) return;
+      if (pauseWhenHidden && isDocumentHidden()) return;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = null;
@@ -257,10 +278,7 @@ export function useScreenRefreshKey(
     }
 
     function pollNow() {
-      if (
-        typeof document !== "undefined" &&
-        document.visibilityState === "hidden"
-      ) {
+      if (pauseWhenHidden && isDocumentHidden()) {
         return;
       }
       if (timer) {
@@ -271,10 +289,17 @@ export function useScreenRefreshKey(
     }
 
     function handleVisibilityChange() {
-      if (document.visibilityState === "visible") pollNow();
+      if (document.visibilityState === "visible") {
+        pollNow();
+      } else if (pauseWhenHidden && timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
     }
 
-    void poll();
+    if (!pauseWhenHidden || !isDocumentHidden()) {
+      void poll();
+    }
     window.addEventListener("focus", pollNow);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
@@ -284,7 +309,7 @@ export function useScreenRefreshKey(
       window.removeEventListener("focus", pollNow);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [pollUrl, interval]);
+  }, [pollUrl, interval, pauseWhenHidden]);
 
   return key;
 }

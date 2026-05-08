@@ -17,6 +17,7 @@ export function usePausingInterval(
   useEffect(() => {
     if (pollMs <= 0) return;
     let id: ReturnType<typeof setInterval> | null = null;
+    const isHidden = () => typeof document !== "undefined" && document.hidden;
     const start = () => {
       if (id == null) id = setInterval(callback, pollMs);
     };
@@ -27,9 +28,8 @@ export function usePausingInterval(
       }
     };
 
-    callback();
-
     if (!pauseWhenHidden) {
+      callback();
       start();
       return () => stop();
     }
@@ -42,7 +42,10 @@ export function usePausingInterval(
         start();
       }
     };
-    if (!document.hidden) start();
+    if (!isHidden()) {
+      callback();
+      start();
+    }
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
       stop();
