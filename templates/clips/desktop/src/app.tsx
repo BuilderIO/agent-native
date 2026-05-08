@@ -30,6 +30,7 @@ import {
   type VoiceShortcutPreference,
 } from "./lib/voice-dictation";
 import { UpdateBanner } from "./components/UpdateBanner";
+import { FeedbackButton } from "./components/FeedbackButton";
 import { useFeatureConfig } from "./shared/config";
 import {
   IconArrowLeft,
@@ -1693,7 +1694,11 @@ export function App() {
   if (authStatus === "anon") {
     return (
       <div className="app" ref={appRef}>
-        <Header mode={mode} onModeChange={setMode} />
+        <Header
+          mode={mode}
+          onModeChange={setMode}
+          submitterEmail={signedInAs}
+        />
         <UpdateBanner />
         {signInPending ? (
           <div className="signin-pending">
@@ -1741,7 +1746,11 @@ export function App() {
 
   return (
     <div className="app" ref={appRef}>
-      <Header mode={mode} onModeChange={setMode} />
+      <Header
+        mode={mode}
+        onModeChange={setMode}
+        submitterEmail={signedInAs}
+      />
       <UpdateBanner />
 
       {pendingUploads.length > 0 ? (
@@ -1950,15 +1959,18 @@ function PendingUploadBanner({
 function Header({
   mode,
   onModeChange,
+  submitterEmail,
 }: {
   mode: CaptureMode;
   onModeChange: (m: CaptureMode) => void;
+  submitterEmail?: string | null;
 }) {
   // Mode-toggle is absolutely centered (visual center of the popover) and the
   // close button lives top-right as an absolute-positioned sibling, so the
   // tabs aren't offset by the close button's width.
   return (
     <div className="header header-centered">
+      <FeedbackButton submitterEmail={submitterEmail} />
       <div
         className="mode-toggle"
         role="radiogroup"
