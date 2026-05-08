@@ -2779,8 +2779,7 @@ function Setup({
   const featureConfig = useFeatureConfig();
   const voiceEnabled = featureConfig?.voiceEnabled !== false;
   const launchAtLoginEnabled = featureConfig?.launchAtLoginEnabled !== false;
-  const autoHidePopoverEnabled =
-    featureConfig?.autoHidePopoverEnabled === true;
+  const autoHidePopoverEnabled = featureConfig?.autoHidePopoverEnabled === true;
   const [providerStatus, setProviderStatus] =
     useState<VoiceProviderStatus | null>(null);
   const [providerStatusLoading, setProviderStatusLoading] = useState(true);

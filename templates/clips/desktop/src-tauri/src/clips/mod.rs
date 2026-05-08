@@ -492,8 +492,7 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
             .or_else(|| w.primary_monitor().ok().flatten())
             .map(|monitor| {
                 let scale = monitor.scale_factor().max(1.0);
-                ((monitor.size().height as f64) / scale - 24.0)
-                    .clamp(260.0, 820.0)
+                ((monitor.size().height as f64) / scale - 24.0).clamp(260.0, 820.0)
             })
             .unwrap_or(820.0);
         let clamped = height.clamp(200.0, max_logical_height);
@@ -519,9 +518,7 @@ pub fn open_macos_privacy_settings(pane: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let url = match pane.as_str() {
-            "camera" => {
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera"
-            }
+            "camera" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
             "microphone" => {
                 "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
             }
