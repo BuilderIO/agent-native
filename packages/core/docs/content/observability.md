@@ -185,17 +185,17 @@ The framework emits `gen_ai.*` semantic convention spans compatible with the Ope
 
 ## Error Reporting (Sentry)
 
-Server-side errors that escape Nitro route handlers are reported to Sentry when a DSN is configured. Without it the SDK silently no-ops, so it's safe to leave the env vars unset in dev. Three independent Sentry projects cover the framework:
+Server-side errors that escape Nitro route handlers are reported to Sentry when a DSN is configured. Without it the SDK silently no-ops, so it's safe to leave the env vars unset in dev. Browser and server events can go to the same Sentry project; split them into separate projects only when you want operational separation for ownership, volume, quotas, or alert routing.
 
 | Surface            | SDK               | Env var                  | Notes                                                                 |
 | ------------------ | ----------------- | ------------------------ | --------------------------------------------------------------------- |
-| Browser / SPA      | `@sentry/browser` | `VITE_SENTRY_CLIENT_DSN` | Captures unhandled errors and route-change breadcrumbs in the client. |
-| Nitro server       | `@sentry/node`    | `SENTRY_SERVER_DSN`      | Captures 5xx responses and Nitro lifecycle errors. Per-request user.  |
+| Browser / SPA      | `@sentry/browser` | `VITE_SENTRY_CLIENT_DSN`, `SENTRY_CLIENT_DSN`, or `SENTRY_DSN` | Captures unhandled errors and route-change breadcrumbs in the client. |
+| Nitro server       | `@sentry/node`    | `SENTRY_SERVER_DSN` or `SENTRY_DSN` | Captures 5xx responses and Nitro lifecycle errors. Per-request user.  |
 | `agent-native` CLI | `@sentry/node`    | _hardcoded_              | Crash reports from the published CLI binary; not user-configurable.   |
 
 ### Server-side configuration
 
-Set `SENTRY_SERVER_DSN` in the deploy environment (Netlify dashboard, Cloudflare secrets, etc.). The framework auto-mounts a Nitro plugin that:
+Set `SENTRY_SERVER_DSN` or the shared `SENTRY_DSN` in the deploy environment (Netlify dashboard, Cloudflare secrets, etc.). The framework auto-mounts a Nitro plugin that:
 
 1. Calls `Sentry.init` once at startup (idempotent — safe to call from multiple plugins).
 2. Resolves the user via `getSession(event)` on every API/framework request and attaches `id` / `email` / `username` plus an `orgId` tag to Sentry's per-request isolation scope. Static-asset paths are skipped to avoid extra DB hits.
@@ -208,7 +208,7 @@ Optional knobs:
 
 ### Templates
 
-Every template inherits this automatically — there's nothing to import. Templates that want custom behavior (extra tags, different DSN per template, hard-disable Sentry) can override by exporting their own plugin from `server/plugins/sentry.ts`:
+Every template inherits this automatically — there's nothing to import. For SSR apps, the server injects a tiny browser config script when `SENTRY_CLIENT_DSN`, `VITE_SENTRY_CLIENT_DSN`, or shared `SENTRY_DSN` is available at runtime, so browser capture is not limited to Vite build-time env. Templates that want custom behavior (extra tags, different DSN per template, hard-disable Sentry) can override by exporting their own plugin from `server/plugins/sentry.ts`:
 
 ```ts
 // server/plugins/sentry.ts
