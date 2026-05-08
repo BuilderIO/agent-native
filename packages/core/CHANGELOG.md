@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.12.30
+
+### Patch Changes
+
+- 419988f: Surface a visible "model returned an empty response" message when an engine ends a turn with reasoning-only content and zero output text (e.g. OpenAI gpt-5+ Responses runs where reasoning consumes the entire output-token budget). Previously the SSE stream finished cleanly with no text, producing a silent empty assistant bubble.
+- 419988f: Add an optional `prepareRequest` hook on `ProductionAgentOptions` and `AgentChatPluginOptions` so templates can normalize the inbound chat request — materialize uploaded attachments into per-template file handles, rewrite the message, or append non-visible instructions — between owner resolution and system/context assembly. Re-export `AgentChatAttachment` from the core entry points so templates can type the hook's payload.
+- 419988f: Add a server-side agent chat request preparation hook for templates to materialize uploaded attachments before a run starts.
+
 ## 0.12.29
 
 ### Patch Changes
