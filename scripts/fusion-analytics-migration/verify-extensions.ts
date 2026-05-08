@@ -1440,22 +1440,32 @@ async function verifyQuery(page: CdpPage, contextId: number) {
     contextId,
     90_000,
   );
-  const output = await page.evaluate<{
-    error?: string;
-    rowCount?: number;
-    historyCount?: number;
-  }>(
-    `(async () => {
+  await page.evaluate(
+    `(() => {
       const state = [...document.querySelectorAll('*')]
         .map((el) => el._x_dataStack?.[0])
         .find((candidate) => candidate && typeof candidate.run === 'function' && Array.isArray(candidate.history));
       if (!state) throw new Error('Missing Query Explorer Alpine state');
       state.sql = 'SELECT 1 AS ok';
-      await state.run();
+      state.run();
+      return true;
+    })()`,
+    contextId,
+  );
+  const output = await page.waitFor<{
+    error?: string;
+    rowCount?: number;
+    historyCount?: number;
+  }>(
+    `(() => {
+      const state = [...document.querySelectorAll('*')]
+        .map((el) => el._x_dataStack?.[0])
+        .find((candidate) => candidate && typeof candidate.run === 'function' && Array.isArray(candidate.history));
+      if (!state || state.loading) return null;
       return { error: state.error || '', rowCount: (state.result?.rows || []).length, historyCount: state.history.length };
     })()`,
     contextId,
-    45_000,
+    75_000,
   );
   const history = await page.evaluate<
     Array<{
