@@ -1338,6 +1338,37 @@ describe("server/auth", () => {
     });
   });
 
+  describe("OAuth session creation", () => {
+    it("uses cross-site cookie attributes for HTTPS Google sign-in sessions", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+
+      const mockExecute = vi.fn(async () => ({ rows: [] }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { createOAuthSession } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        headers: { "x-forwarded-proto": "https" },
+      });
+      delete event.node.req.headers["x-forwarded-proto"];
+
+      const result = await createOAuthSession(event, "user@gmail.com", {
+        hasProductionSession: false,
+      });
+
+      expect(result.sessionToken).toBeTypeOf("string");
+      const setCookie = event.res.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain(result.sessionToken);
+      expect(setCookie).toContain("SameSite=None");
+      expect(setCookie).toContain("Secure");
+    });
+  });
+
   describe("OAuth callback copy", () => {
     it("uses the requested app name for desktop exchange completion", async () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");

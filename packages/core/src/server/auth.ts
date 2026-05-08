@@ -1200,7 +1200,7 @@ function crossSiteCookieAttrs(event: H3Event): {
     : { sameSite: "lax", secure: false };
 }
 
-function setFrameworkSessionCookie(event: H3Event, token: string): void {
+export function setFrameworkSessionCookie(event: H3Event, token: string): void {
   setCookie(event, COOKIE_NAME, token, {
     httpOnly: true,
     ...crossSiteCookieAttrs(event),
