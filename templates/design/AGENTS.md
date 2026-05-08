@@ -372,11 +372,14 @@ Designs and design systems are **private by default** — only the creator sees 
 
 ### Database
 
-| Action      | Args                 | Purpose                         |
-| ----------- | -------------------- | ------------------------------- |
-| `db-schema` |                      | Show all tables, columns, types |
-| `db-query`  | `--sql "SELECT ..."` | Run a SELECT query              |
-| `db-exec`   | `--sql "INSERT ..."` | Run INSERT/UPDATE/DELETE        |
+Prefer the template actions above for all normal Design work. Do **not** call
+`db-schema` to understand or create designs; the design workflow is fully
+covered by `create-design`, `generate-design`, `get-design`, and the import/export actions.
+
+| Action     | Args                 | Purpose                  |
+| ---------- | -------------------- | ------------------------ |
+| `db-query` | `--sql "SELECT ..."` | Run a SELECT query       |
+| `db-exec`  | `--sql "INSERT ..."` | Run INSERT/UPDATE/DELETE |
 
 ---
 
