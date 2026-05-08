@@ -136,6 +136,7 @@ export interface DesignSystemAsset {
 export interface QuestionFlowQuestion {
   id: string;
   type: "text-options" | "color-options" | "slider" | "file" | "freeform";
+  header?: string;
   question: string;
   description?: string;
   options?: {
@@ -143,9 +144,17 @@ export interface QuestionFlowQuestion {
     value: string;
     color?: string;
     icon?: string;
+    description?: string;
+    recommended?: boolean;
   }[];
+  choices?: QuestionFlowQuestion["options"];
   multiSelect?: boolean;
   min?: number;
   max?: number;
+  step?: number;
   required?: boolean;
+  placeholder?: string;
+  allowOther?: boolean;
+  includeExplore?: boolean;
+  includeDecide?: boolean;
 }

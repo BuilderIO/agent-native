@@ -21,7 +21,6 @@ import {
   useSensors,
   DragEndEvent,
 } from "@dnd-kit/core";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDecks } from "@/context/DeckContext";
 import type { SlideLayout } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
@@ -42,12 +41,10 @@ import {
   useSession,
   emailToColor,
   emailToName,
-  sendToAgentChat,
   agentNativePath,
   appBasePath,
   useGuidedQuestionFlow,
 } from "@agent-native/core/client";
-import type { QuestionFlowQuestion } from "@shared/api";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useSlideComments } from "@/hooks/use-slide-comments";
 import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
@@ -133,87 +130,35 @@ export default function DeckEditor() {
     deck?.designSystemId,
   );
 
-  // Poll for question flow from agent (show-questions application state)
-  const { data: questionFlowData } = useQuery<{
-    questions: QuestionFlowQuestion[];
-  } | null>({
-    queryKey: ["show-questions"],
-    queryFn: async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/application-state/show-questions"),
-      );
-      if (!res.ok) return null;
-      const text = await res.text();
-      if (!text) return null;
-      try {
-        return JSON.parse(text);
-      } catch {
-        return null;
-      }
-    },
-  });
-
-  const showQuestionFlow =
-    questionFlowData?.questions && questionFlowData.questions.length > 0;
-
-  const handleQuestionSubmit = useCallback(
-    (answers: Record<string, any>) => {
-      // Format answers for the agent
-      const formatted = Object.entries(answers)
-        .map(([key, val]) => {
-          if (Array.isArray(val)) return `${key}: ${val.join(", ")}`;
-          return `${key}: ${val}`;
-        })
-        .join("\n");
-
-      const context = [
+  const {
+    questions: questionFlowQuestions,
+    title: questionFlowTitle,
+    description: questionFlowDescription,
+    skipLabel: questionFlowSkipLabel,
+    submitLabel: questionFlowSubmitLabel,
+    handleSubmit: handleQuestionSubmit,
+    handleSkip: handleQuestionSkip,
+  } = useGuidedQuestionFlow({
+    submitMessage: "Here are my answers — go ahead and create the slides.",
+    skipMessage:
+      "Skip the questions — just go ahead and create the slides with your best judgment.",
+    buildSubmitContext: ({ formattedAnswers }) =>
+      [
         "The user answered the pre-generation questions.",
         `Deck ID: ${id}`,
         "",
         "Answers:",
-        formatted,
+        formattedAnswers,
         "",
         "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep each slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
         "",
-        "Now generate the slides based on these preferences. Start a manage-progress run, add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in. Use add-slide with --deckId=" +
-          id +
-          " to add slides sequentially. Wait for each add-slide result before calling it again.",
-      ].join("\n");
+        `Now generate the slides based on these preferences. Start a manage-progress run, add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in. Use add-slide with --deckId=${id} to add slides sequentially. Wait for each add-slide result before calling it again.`,
+      ].join("\n"),
+    buildSkipContext: () =>
+      `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults. Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels); keep each slide within the density limits in AGENTS.md and split dense source material across more slides instead of packing it tightly. Start a manage-progress run, add the first slide as soon as it is ready, then continue sequentially using add-slide with --deckId=${id}. Wait for each add-slide result before calling it again.`,
+  });
 
-      sendToAgentChat({
-        message: "Here are my answers — go ahead and create the slides.",
-        context,
-        submit: true,
-      });
-
-      // Clear the question flow state — optimistically clear cache so overlay hides immediately
-      queryClient.setQueryData(["show-questions"], null);
-      fetch(
-        agentNativePath("/_agent-native/application-state/show-questions"),
-        {
-          method: "DELETE",
-          headers: { "X-Agent-Native-CSRF": "1", "X-Request-Source": TAB_ID },
-        },
-      ).catch(() => {});
-    },
-    [id, queryClient],
-  );
-
-  const handleQuestionSkip = useCallback(() => {
-    sendToAgentChat({
-      message:
-        "Skip the questions — just go ahead and create the slides with your best judgment.",
-      context: `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults. Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels); keep each slide within the density limits in AGENTS.md and split dense source material across more slides instead of packing it tightly. Start a manage-progress run, add the first slide as soon as it is ready, then continue sequentially using add-slide with --deckId=${id}. Wait for each add-slide result before calling it again.`,
-      submit: true,
-    });
-
-    // Clear the question flow state — optimistically clear cache so overlay hides immediately
-    queryClient.setQueryData(["show-questions"], null);
-    fetch(agentNativePath("/_agent-native/application-state/show-questions"), {
-      method: "DELETE",
-      headers: { "X-Agent-Native-CSRF": "1", "X-Request-Source": TAB_ID },
-    }).catch(() => {});
-  }, [id, queryClient]);
+  const showQuestionFlow = Boolean(questionFlowQuestions?.length);
 
   // Clean up the generating URL param/ref when generation completes or when
   // the first slide lands, so partial progress is visible during long decks.
@@ -671,10 +616,14 @@ export default function DeckEditor() {
 
         {showQuestionFlow && (
           <QuestionFlow
-            questions={questionFlowData!.questions}
+            questions={questionFlowQuestions ?? []}
             onSubmit={handleQuestionSubmit}
             onSkip={handleQuestionSkip}
             designSystem={deck.designSystemId ? designSystem : undefined}
+            title={questionFlowTitle}
+            description={questionFlowDescription}
+            skipLabel={questionFlowSkipLabel}
+            submitLabel={questionFlowSubmitLabel}
           />
         )}
 
