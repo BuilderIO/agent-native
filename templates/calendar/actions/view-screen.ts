@@ -3,22 +3,38 @@ import { readAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 import { extractVideoLink } from "./event-action-helpers.js";
+import { listCalendarEvents } from "./list-events.js";
 import {
   CALENDAR_VIEW_PREFERENCES_KEY,
   normalizeCalendarViewPreferences,
 } from "../shared/calendar-view-preferences.js";
+import type { CalendarEvent } from "../shared/api.js";
 
-async function fetchEventsForRange(from: string, to: string): Promise<any[]> {
+async function fetchEventsForRange(from: string, to: string): Promise<{
+  events: CalendarEvent[];
+  errors: Array<{ email: string; error: string }>;
+  googleConnected: boolean;
+  range: { from: string; to: string; timezone: string; defaulted: boolean };
+}> {
   try {
-    const googleCalendar = await import("../server/lib/google-calendar.js");
-    const email = getRequestUserEmail();
-    if (!email || !(await googleCalendar.isConnected(email))) {
-      return [];
-    }
-    const { events } = await googleCalendar.listEvents(from, to, email);
-    return events;
-  } catch {
-    return [];
+    return await listCalendarEvents({ from, to });
+  } catch (error: any) {
+    return {
+      events: [],
+      errors: [
+        {
+          email: getRequestUserEmail() ?? "current-user",
+          error: error?.message || "Unable to load calendar events",
+        },
+      ],
+      googleConnected: false,
+      range: {
+        from,
+        to,
+        timezone: "UTC",
+        defaulted: false,
+      },
+    };
   }
 }
 
@@ -49,17 +65,20 @@ export default defineAction({
       const to = new Date(from);
       to.setDate(to.getDate() + 7);
 
-      const events = await fetchEventsForRange(
+      const eventResult = await fetchEventsForRange(
         from.toISOString(),
         to.toISOString(),
       );
+      const { events } = eventResult;
 
-      const compact = events.slice(0, 50).map((e: any) => {
+      const compact = events.slice(0, 50).map((e: CalendarEvent) => {
         return {
           id: e.id,
           title: e.title,
           start: e.start,
           end: e.end,
+          source: e.source,
+          accountEmail: e.accountEmail || undefined,
           location: e.location || undefined,
           allDay: e.allDay || undefined,
           attendeeCount: e.attendees?.length ?? 0,
@@ -73,11 +92,23 @@ export default defineAction({
       });
 
       screen.events = {
-        from: from.toISOString(),
-        to: to.toISOString(),
+        from: eventResult.range.from,
+        to: eventResult.range.to,
+        timezone: eventResult.range.timezone,
+        googleConnected: eventResult.googleConnected,
         count: compact.length,
         items: compact,
+        errors:
+          eventResult.errors.length > 0 ? eventResult.errors : undefined,
       };
+
+      if (!eventResult.googleConnected) {
+        screen.calendarConnection = {
+          googleConnected: false,
+          message:
+            "Google Calendar is not connected or no usable Google account was found. Connect or reconnect it from Settings.",
+        };
+      }
 
       if (nav?.eventId) {
         const match = events.find((e: any) => e.id === nav.eventId);
