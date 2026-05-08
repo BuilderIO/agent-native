@@ -40,6 +40,13 @@ const BUBBLE_SIZE_MEDIUM: u32 = 504;
 #[link(name = "AppKit", kind = "framework")]
 extern "C" {}
 
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGRequestScreenCaptureAccess() -> bool;
+}
+
 #[derive(Clone, Copy, Debug)]
 enum TextInsertionStrategy {
     ClipboardPaste,
@@ -541,6 +548,26 @@ pub fn open_macos_privacy_settings(pane: String) -> Result<(), String> {
             .status()
             .map_err(|e| format!("failed to open System Settings: {e}"))?;
         Ok(())
+    }
+}
+
+#[tauri::command]
+pub fn request_macos_screen_recording_access() -> Result<bool, String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        return Ok(true);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let granted = unsafe {
+            if CGPreflightScreenCaptureAccess() {
+                true
+            } else {
+                CGRequestScreenCaptureAccess()
+            }
+        };
+        Ok(granted)
     }
 }
 

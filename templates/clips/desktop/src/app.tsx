@@ -1435,6 +1435,25 @@ export function App() {
       cameraOn,
       micOn,
     });
+
+    if (mode !== "camera" && shouldUseNativeFullscreenRecording(source)) {
+      try {
+        const granted = await invoke<boolean>(
+          "request_macos_screen_recording_access",
+        );
+        if (!granted) {
+          setReadinessOpen(true);
+          setRecError(MACOS_CAPTURE_PERMISSION_MESSAGE);
+          openMacosPrivacySettings("screen");
+          return;
+        }
+      } catch (err) {
+        setReadinessOpen(true);
+        setRecError(err instanceof Error ? err.message : String(err));
+        return;
+      }
+    }
+
     // Latch BEFORE the async work so the popover stays in "recording
     // flow" during the macOS screen-picker focus dance. The bubble
     // session effect also keys off this flag (via `bubbleActive`) so

@@ -1525,6 +1525,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 8px 12px;
   border-radius: var(--radius-sm);
   font-size: 12px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .permission-banner {
@@ -1538,6 +1540,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   flex-direction: column;
   gap: 2px;
   line-height: 1.35;
+  min-width: 0;
 }
 
 .permission-title {
