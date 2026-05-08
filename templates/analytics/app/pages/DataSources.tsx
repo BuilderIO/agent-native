@@ -44,7 +44,7 @@ import {
   type WalkthroughStep,
 } from "@/lib/data-sources";
 import {
-  isSourceConnected,
+  isSourceConfigured,
   type EnvKeyStatus,
 } from "@/lib/data-source-status";
 import {
@@ -306,7 +306,9 @@ function ConnectedView({
     }
   }
   const sharedCredentialKeys = source.envKeys.filter((key) =>
-    dataSources.some((other) => other.id !== source.id && other.envKeys.includes(key)),
+    dataSources.some(
+      (other) => other.id !== source.id && other.envKeys.includes(key),
+    ),
   );
   const sharedSourceNames = Array.from(
     new Set(
@@ -442,108 +444,108 @@ function ConnectedView({
   return (
     <>
       <div className="space-y-3 py-3">
-      {/* Credential summary */}
-      <div className="space-y-2">
-        {source.envKeys.map((key) => {
-          const configured =
-            envStatus.find((s) => s.key === key)?.configured ?? false;
-          return (
-            <div
-              key={key}
-              className="flex items-center justify-between text-xs"
-            >
-              <span className="text-muted-foreground">
-                {keyLabels[key] || key}
-              </span>
-              {configured ? (
-                <span className="text-emerald-500 flex items-center gap-1">
-                  <IconCheck className="h-3 w-3" />
-                  Configured
+        {/* Credential summary */}
+        <div className="space-y-2">
+          {source.envKeys.map((key) => {
+            const configured =
+              envStatus.find((s) => s.key === key)?.configured ?? false;
+            return (
+              <div
+                key={key}
+                className="flex items-center justify-between text-xs"
+              >
+                <span className="text-muted-foreground">
+                  {keyLabels[key] || key}
                 </span>
-              ) : (
-                <span className="text-rose-400 flex items-center gap-1">
-                  <IconAlertCircle className="h-3 w-3" />
-                  Missing
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                {configured ? (
+                  <span className="text-emerald-500 flex items-center gap-1">
+                    <IconCheck className="h-3 w-3" />
+                    Configured
+                  </span>
+                ) : (
+                  <span className="text-rose-400 flex items-center gap-1">
+                    <IconAlertCircle className="h-3 w-3" />
+                    Missing
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
 
-      {/* Actions */}
-      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/30">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            setTestResult(null);
-            testMutation.mutate();
-          }}
-          disabled={testMutation.isPending}
-          className="text-xs"
-        >
-          {testMutation.isPending ? (
-            <>
-              <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
-              Testing...
-            </>
-          ) : (
-            "Test Connection"
-          )}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setEditing(true)}
-          className="text-xs"
-        >
-          <IconPencil className="h-3 w-3 mr-1.5" />
-          Edit
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={handleDisconnect}
-          disabled={disconnectMutation.isPending}
-          className="text-xs text-destructive hover:text-destructive"
-        >
-          {disconnectMutation.isPending ? (
-            <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
-          ) : (
-            <IconTrash className="h-3 w-3 mr-1.5" />
-          )}
-          Disconnect
-        </Button>
-        {source.docsUrl && (
-          <a
-            href={source.docsUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 ml-auto"
+        {/* Actions */}
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/30">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setTestResult(null);
+              testMutation.mutate();
+            }}
+            disabled={testMutation.isPending}
+            className="text-xs"
           >
-            Docs <IconExternalLink className="h-3 w-3" />
-          </a>
-        )}
-      </div>
-
-      {testResult && (
-        <div
-          className={`flex items-center gap-2 text-xs ${testResult.ok ? "text-emerald-500" : "text-rose-400"}`}
-        >
-          {testResult.ok ? (
-            <>
-              <IconCheck className="h-3.5 w-3.5" />
-              Connection successful
-            </>
-          ) : (
-            <>
-              <IconAlertCircle className="h-3.5 w-3.5" />
-              {testResult.error || "Connection failed"}
-            </>
+            {testMutation.isPending ? (
+              <>
+                <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
+                Testing...
+              </>
+            ) : (
+              "Test Connection"
+            )}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setEditing(true)}
+            className="text-xs"
+          >
+            <IconPencil className="h-3 w-3 mr-1.5" />
+            Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleDisconnect}
+            disabled={disconnectMutation.isPending}
+            className="text-xs text-destructive hover:text-destructive"
+          >
+            {disconnectMutation.isPending ? (
+              <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
+            ) : (
+              <IconTrash className="h-3 w-3 mr-1.5" />
+            )}
+            Disconnect
+          </Button>
+          {source.docsUrl && (
+            <a
+              href={source.docsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 ml-auto"
+            >
+              Docs <IconExternalLink className="h-3 w-3" />
+            </a>
           )}
         </div>
-      )}
+
+        {testResult && (
+          <div
+            className={`flex items-center gap-2 text-xs ${testResult.ok ? "text-emerald-500" : "text-rose-400"}`}
+          >
+            {testResult.ok ? (
+              <>
+                <IconCheck className="h-3.5 w-3.5" />
+                Connection successful
+              </>
+            ) : (
+              <>
+                <IconAlertCircle className="h-3.5 w-3.5" />
+                {testResult.error || "Connection failed"}
+              </>
+            )}
+          </div>
+        )}
       </div>
       <AlertDialog
         open={disconnectConfirmOpen}
@@ -1094,8 +1096,8 @@ export default function DataSources() {
     staleTime: 10_000,
   });
 
-  const connectedCount = dataSources.filter((s) =>
-    isSourceConnected(s, envStatus),
+  const configuredCount = dataSources.filter((s) =>
+    isSourceConfigured(s, envStatus),
   ).length;
 
   const handleSaved = () => {
@@ -1116,9 +1118,9 @@ export default function DataSources() {
       <p className="text-sm text-muted-foreground">
         Connect your data sources, then ask the agent to create dashboards.{" "}
         {!isStatusLoading &&
-          (connectedCount > 0 ? (
+          (configuredCount > 0 ? (
             <span className="text-emerald-500 font-medium">
-              {connectedCount} configured
+              {configuredCount} configured
             </span>
           ) : (
             <span className="text-amber-500 font-medium">0 configured</span>
@@ -1148,7 +1150,7 @@ export default function DataSources() {
               <DataSourceCard
                 key={source.id}
                 source={source}
-                connected={isSourceConnected(source, envStatus)}
+                connected={isSourceConfigured(source, envStatus)}
                 envStatus={envStatus}
                 isStatusLoading={isStatusLoading}
                 onSaved={handleSaved}
@@ -1175,7 +1177,7 @@ export default function DataSources() {
                   <DataSourceCard
                     key={source.id}
                     source={source}
-                    connected={isSourceConnected(source, envStatus)}
+                    connected={isSourceConfigured(source, envStatus)}
                     envStatus={envStatus}
                     isStatusLoading={isStatusLoading}
                     onSaved={handleSaved}

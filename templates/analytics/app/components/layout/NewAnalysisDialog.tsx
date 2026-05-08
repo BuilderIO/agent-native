@@ -21,7 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   credentialRowsFromStatus,
-  getConnectedDataSources,
+  getConfiguredDataSources,
   type DataSourceStatusResponse,
 } from "@/lib/data-source-status";
 
@@ -36,9 +36,9 @@ const ANALYSIS_CONTEXT =
   "After saving, call `navigate --view=analyses --analysisId=<id>` so the user sees it. " +
   "No code files to create — analyses are persisted settings data.";
 
-function buildAnalysisContext(connectedSourceNames: string[]): string {
-  const sourceContext = connectedSourceNames.length
-    ? `Call \`data-source-status\` first to verify source availability. Current credential status shows these configured data sources: ${connectedSourceNames.join(", ")}. Prefer those sources unless the user names a different provider. The data dictionary can describe metrics, but it is not a live data source by itself.`
+function buildAnalysisContext(configuredSourceNames: string[]): string {
+  const sourceContext = configuredSourceNames.length
+    ? `Call \`data-source-status\` first to verify source availability. Current credential status shows these configured data sources: ${configuredSourceNames.join(", ")}. Prefer those sources unless the user names a different provider. The data dictionary can describe metrics, but it is not a live data source by itself.`
     : "Current credential status shows no configured data sources. Check `data-source-status` before analysis. If the requested provider is unavailable or missing credentials, report the exact connection problem and direct the user to Data Sources instead of saving guessed results. The data dictionary can describe metrics, but it is not a live data source by itself.";
   return `${ANALYSIS_CONTEXT} ${sourceContext}`;
 }
@@ -55,11 +55,11 @@ export function NewAnalysisDialog() {
   );
   const status = statusData as DataSourceStatusResponse | undefined;
   const envStatus = credentialRowsFromStatus(status);
-  const connectedSources = useMemo(
-    () => getConnectedDataSources(envStatus),
+  const configuredSources = useMemo(
+    () => getConfiguredDataSources(envStatus),
     [envStatus],
   );
-  const connectedSourceNames = connectedSources.map((source) => source.name);
+  const configuredSourceNames = configuredSources.map((source) => source.name);
   const statusMessage = status?.message || status?.error;
 
   function handleSubmit(text: string) {
@@ -67,7 +67,7 @@ export function NewAnalysisDialog() {
     if (!trimmed || isGenerating) return;
     send({
       message: trimmed,
-      context: buildAnalysisContext(connectedSourceNames),
+      context: buildAnalysisContext(configuredSourceNames),
       submit: true,
     });
     setOpen(false);
@@ -104,7 +104,7 @@ export function NewAnalysisDialog() {
         <div
           className={cn(
             "mb-3 rounded-md border px-3 py-2 text-xs",
-            connectedSources.length > 0
+            configuredSources.length > 0
               ? "border-emerald-500/25 bg-emerald-500/10"
               : "border-amber-500/25 bg-amber-500/10",
           )}
@@ -112,7 +112,7 @@ export function NewAnalysisDialog() {
           <div className="flex gap-2">
             {isStatusLoading ? (
               <IconLoader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
-            ) : connectedSources.length > 0 ? (
+            ) : configuredSources.length > 0 ? (
               <IconCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
             ) : (
               <IconAlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
@@ -122,13 +122,13 @@ export function NewAnalysisDialog() {
                 <IconDatabase className="h-3.5 w-3.5 text-muted-foreground" />
                 {isStatusLoading
                   ? "Checking data sources"
-                  : connectedSources.length > 0
-                    ? `${connectedSources.length} source${connectedSources.length === 1 ? "" : "s"} configured`
+                  : configuredSources.length > 0
+                    ? `${configuredSources.length} source${configuredSources.length === 1 ? "" : "s"} configured`
                     : "No data sources configured"}
               </div>
-              {connectedSources.length > 0 ? (
+              {configuredSources.length > 0 ? (
                 <div className="mt-2 flex flex-wrap gap-1">
-                  {connectedSources.slice(0, 4).map((source) => (
+                  {configuredSources.slice(0, 4).map((source) => (
                     <Badge
                       key={source.id}
                       variant="secondary"
@@ -137,9 +137,12 @@ export function NewAnalysisDialog() {
                       {source.name}
                     </Badge>
                   ))}
-                  {connectedSources.length > 4 && (
-                    <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-                      +{connectedSources.length - 4} more
+                  {configuredSources.length > 4 && (
+                    <Badge
+                      variant="outline"
+                      className="px-1.5 py-0 text-[10px]"
+                    >
+                      +{configuredSources.length - 4} more
                     </Badge>
                   )}
                 </div>

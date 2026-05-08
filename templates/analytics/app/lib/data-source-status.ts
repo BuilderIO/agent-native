@@ -21,7 +21,7 @@ export function credentialRowsFromStatus(
   return data?.credentials ?? [];
 }
 
-export function isSourceConnected(
+export function isSourceConfigured(
   source: DataSource,
   envStatus: EnvKeyStatus[],
 ): boolean {
@@ -37,8 +37,8 @@ export function isSourceConnected(
     .every((key) => statusMap.get(key) === true);
 }
 
-export function getConnectedDataSources(
+export function getConfiguredDataSources(
   envStatus: EnvKeyStatus[],
 ): DataSource[] {
-  return dataSources.filter((source) => isSourceConnected(source, envStatus));
+  return dataSources.filter((source) => isSourceConfigured(source, envStatus));
 }
