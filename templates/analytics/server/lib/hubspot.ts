@@ -466,7 +466,9 @@ export async function getDealOwners(): Promise<Record<string, string>> {
   return owners;
 }
 
-export async function getAllDeals(extraProperties: string[] = []): Promise<Deal[]> {
+export async function getAllDeals(
+  extraProperties: string[] = [],
+): Promise<Deal[]> {
   const properties = await resolveDealProperties(extraProperties);
   const propertyKey = properties.slice().sort().join(",");
   // Check full-result cache first

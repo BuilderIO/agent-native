@@ -1,6 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { HUBSPOT_OBJECT_TYPES, getObjectProperties } from "../server/lib/hubspot";
+import {
+  HUBSPOT_OBJECT_TYPES,
+  getObjectProperties,
+} from "../server/lib/hubspot";
 
 export default defineAction({
   description:
@@ -13,7 +16,9 @@ export default defineAction({
     search: z
       .string()
       .optional()
-      .describe("Optional case-insensitive search over property name or label."),
+      .describe(
+        "Optional case-insensitive search over property name or label.",
+      ),
     limit: z.coerce
       .number()
       .int()

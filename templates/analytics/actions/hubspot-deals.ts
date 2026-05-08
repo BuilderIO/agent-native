@@ -31,7 +31,11 @@ function stageLookups(pipelines: Pipeline[]) {
       const lower = label.toLowerCase();
       const probability = parseFloat(stage.metadata?.probability ?? "");
       stageLabels[stage.id] = label;
-      if (probability === 1 || lower.includes("closed won") || lower === "won") {
+      if (
+        probability === 1 ||
+        lower.includes("closed won") ||
+        lower === "won"
+      ) {
         wonStageIds.add(stage.id);
       }
       if (
@@ -108,7 +112,9 @@ export default defineAction({
       .map((deal) => enrichDeal(deal, lookups, owners))
       .filter((deal) => {
         if (!ownerFilter) return true;
-        const ownerName = String(deal.properties.owner_name ?? "").toLowerCase();
+        const ownerName = String(
+          deal.properties.owner_name ?? "",
+        ).toLowerCase();
         return ownerName === ownerFilter;
       });
 

@@ -9,7 +9,9 @@ export default defineAction({
     search: z
       .string()
       .optional()
-      .describe("Optional case-insensitive search over property name or label."),
+      .describe(
+        "Optional case-insensitive search over property name or label.",
+      ),
     limit: z.coerce
       .number()
       .int()
