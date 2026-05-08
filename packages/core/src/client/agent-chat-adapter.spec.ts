@@ -611,6 +611,15 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
+    expect(results[0]).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "Error: Authentication required. Sign in again to use chat.",
+        },
+      ],
+      status: { type: "incomplete", reason: "error" },
+    });
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agent-chat:auth-error",
@@ -654,7 +663,7 @@ describe("createAgentChatAdapter", () => {
       threadId: "thread-invalid-token",
     });
 
-    await drain(
+    const results = await drain(
       adapter.run({
         messages: [
           {
@@ -666,6 +675,15 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
+    expect(results[0]).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "Error: Authentication required. Sign in again to use chat.",
+        },
+      ],
+      status: { type: "incomplete", reason: "error" },
+    });
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agent-chat:auth-error",
