@@ -1212,7 +1212,10 @@ export class RecorderEngine {
     this.transition("error", { message: e.message });
   }
 
-  private friendlyError(err: unknown, source: CaptureSource = "unknown"): Error {
+  private friendlyError(
+    err: unknown,
+    source: CaptureSource = "unknown",
+  ): Error {
     const name = errorName(err);
     const message = errorMessage(err);
     const combined = `${name} ${message}`;

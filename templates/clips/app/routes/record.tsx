@@ -165,12 +165,24 @@ function isDismissedCapturePicker(err: unknown, message: string): boolean {
   );
 }
 
-function isRecordingModeParam(value: string | null): value is RecordingMode {
-  return value === "screen" || value === "camera" || value === "screen+camera";
+function getRecordingModeParam(value: string | null): RecordingMode | null {
+  if (value === "screen" || value === "camera") return value;
+  if (
+    value === "screen+camera" ||
+    value === "screen camera" ||
+    value === "screen-camera"
+  ) {
+    return "screen+camera";
+  }
+  return null;
 }
 
-function isDisplaySurfaceParam(value: string | null): value is DisplaySurface {
-  return value === "monitor" || value === "window" || value === "browser";
+function getDisplaySurfaceParam(value: string | null): DisplaySurface | null {
+  if (value === "monitor" || value === "window" || value === "browser") {
+    return value;
+  }
+  if (value === "screen") return "monitor";
+  return null;
 }
 
 function getRecordingErrorTitle(error: string): string {
@@ -372,8 +384,8 @@ export default function RecordRoute() {
     const mode = params.get("mode");
     const surface = params.get("surface");
     return {
-      mode: isRecordingModeParam(mode) ? mode : null,
-      surface: isDisplaySurfaceParam(surface) ? surface : null,
+      mode: getRecordingModeParam(mode),
+      surface: getDisplaySurfaceParam(surface),
     };
   }, [location.search]);
   const markStorageConfigured = useCallback(

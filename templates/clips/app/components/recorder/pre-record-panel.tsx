@@ -142,8 +142,9 @@ export function PreRecordPanel({
   const [mode, setMode] = useState<RecordingMode>(
     () => initialMode ?? "screen+camera",
   );
-  const [displaySurface, setDisplaySurface] =
-    useState<DisplaySurface>(() => initialDisplaySurface ?? "window");
+  const [displaySurface, setDisplaySurface] = useState<DisplaySurface>(
+    () => initialDisplaySurface ?? "window",
+  );
   const [sourceOpen, setSourceOpen] = useState(false);
   const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
