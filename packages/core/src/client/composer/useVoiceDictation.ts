@@ -177,6 +177,74 @@ function pickMimeType(): string {
   return "audio/webm";
 }
 
+type BrowserDocumentPolicy = {
+  allowsFeature: (feature: string) => boolean;
+};
+
+function microphoneBlockedByPermissionsPolicy(): boolean {
+  if (typeof document === "undefined") return false;
+  const doc = document as Document & {
+    permissionsPolicy?: BrowserDocumentPolicy;
+    featurePolicy?: BrowserDocumentPolicy;
+  };
+  const policy = doc.permissionsPolicy ?? doc.featurePolicy ?? null;
+  if (!policy?.allowsFeature) return false;
+  try {
+    return !policy.allowsFeature("microphone");
+  } catch {
+    return false;
+  }
+}
+
+export function voiceDictationStartErrorMessage(error: unknown): string {
+  const name =
+    typeof (error as { name?: unknown } | null)?.name === "string"
+      ? (error as { name: string }).name
+      : "";
+  const message =
+    typeof (error as { message?: unknown } | null)?.message === "string"
+      ? (error as { message: string }).message
+      : "";
+
+  if (
+    microphoneBlockedByPermissionsPolicy() ||
+    /permissions[- ]policy|feature policy/i.test(message)
+  ) {
+    return "This app is blocking microphone access through its browser permissions policy. Reload the app, or open it directly in a browser tab.";
+  }
+
+  if (
+    name === "NotAllowedError" ||
+    name === "SecurityError" ||
+    /permission|denied|not allowed/i.test(message)
+  ) {
+    return "Microphone access is blocked. Click the site controls icon in the address bar, set Microphone to Allow for this app, then try again.";
+  }
+
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return "No microphone was found. Plug one in or choose a different input, then try again.";
+  }
+
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return "Your microphone is busy in another app. Close the other app or choose a different input, then try again.";
+  }
+
+  return message || "Could not start recording";
+}
+
+function voiceDictationSpeechErrorMessage(error: string | undefined): string {
+  if (error === "not-allowed" || error === "service-not-allowed") {
+    return voiceDictationStartErrorMessage({
+      name: "NotAllowedError",
+      message: error,
+    });
+  }
+  if (error === "audio-capture") {
+    return "No microphone was found. Plug one in or choose a different input, then try again.";
+  }
+  return `Speech recognition error: ${error ?? "unknown"}`;
+}
+
 export function useVoiceDictation(
   options: UseVoiceDictationOptions,
 ): VoiceDictationApi {
@@ -524,11 +592,7 @@ export function useVoiceDictation(
     };
     recognition.onerror = (event: any) => {
       if (event?.error === "no-speech" || event?.error === "aborted") return;
-      failWith(
-        event?.error === "not-allowed"
-          ? "Microphone permission denied. Enable it in your browser settings."
-          : `Speech recognition error: ${event?.error ?? "unknown"}`,
-      );
+      failWith(voiceDictationSpeechErrorMessage(event?.error));
     };
     recognition.onend = () => {
       const text = speechTranscriptRef.current.trim();
@@ -806,11 +870,7 @@ export function useVoiceDictation(
         setState("idle");
         return;
       }
-      const message =
-        (err as Error)?.name === "NotAllowedError"
-          ? "Microphone permission denied. Enable it in your browser settings."
-          : ((err as Error)?.message ?? "Could not start recording");
-      failWith(message);
+      failWith(voiceDictationStartErrorMessage(err));
     }
   }, [
     state,
