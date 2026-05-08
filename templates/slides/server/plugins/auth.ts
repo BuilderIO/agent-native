@@ -13,6 +13,7 @@ export default createAuthPlugin({
   },
   publicPaths: [
     "/share",
+    "/p",
     "/api/share",
     "/_agent-native/google-docs/callback",
     // React Router's lazy route-discovery endpoint must stay public so
