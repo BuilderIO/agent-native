@@ -135,6 +135,8 @@ export default defineEventHandler(async (event: H3Event) => {
     await db
       .update(schema.recordings)
       .set({
+        status: "uploading",
+        failureReason: null,
         uploadProgress: 0,
         updatedAt: now,
       })

@@ -1,11 +1,12 @@
-use serde::Serialize;
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 #[cfg(target_os = "macos")]
 use screencapturekit::recording_output::{
@@ -28,6 +29,7 @@ const TRANSCODE_THRESHOLD_BYTES: u64 = 80 * 1024 * 1024;
 const TARGET_UPLOAD_BYTES: u64 = 95 * 1024 * 1024;
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
 const AVCONVERT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const PENDING_UPLOADS_DIR: &str = "pending-recording-uploads";
 
 #[derive(Default)]
 pub struct NativeFullscreenRecordingState {
@@ -56,9 +58,45 @@ enum NativeFullscreenBackend {
 
 struct PreparedRecordingFile {
     path: PathBuf,
-    mime_type: &'static str,
+    mime_type: String,
     bytes: u64,
     temporary: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SavedNativeRecording {
+    recording_id: String,
+    server_url: String,
+    file_path: PathBuf,
+    mime_type: String,
+    duration_ms: u128,
+    width: Option<u32>,
+    height: Option<u32>,
+    bytes: u64,
+    has_audio: bool,
+    has_camera: bool,
+    saved_at: String,
+    last_attempt_at: Option<String>,
+    last_error: Option<String>,
+    retry_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingNativeRecording {
+    recording_id: String,
+    server_url: String,
+    duration_ms: u128,
+    width: Option<u32>,
+    height: Option<u32>,
+    bytes: u64,
+    has_audio: bool,
+    has_camera: bool,
+    saved_at: String,
+    last_attempt_at: Option<String>,
+    last_error: Option<String>,
+    retry_count: u32,
 }
 
 #[derive(Serialize)]
@@ -77,6 +115,25 @@ pub struct NativeFullscreenUploadResult {
     width: Option<u32>,
     height: Option<u32>,
     bytes: u64,
+}
+
+impl From<&SavedNativeRecording> for PendingNativeRecording {
+    fn from(saved: &SavedNativeRecording) -> Self {
+        Self {
+            recording_id: saved.recording_id.clone(),
+            server_url: saved.server_url.clone(),
+            duration_ms: saved.duration_ms,
+            width: saved.width,
+            height: saved.height,
+            bytes: saved.bytes,
+            has_audio: saved.has_audio,
+            has_camera: saved.has_camera,
+            saved_at: saved.saved_at.clone(),
+            last_attempt_at: saved.last_attempt_at.clone(),
+            last_error: saved.last_error.clone(),
+            retry_count: saved.retry_count,
+        }
+    }
 }
 
 #[tauri::command]
@@ -147,6 +204,7 @@ pub async fn native_fullscreen_recording_start(
 
 #[tauri::command]
 pub async fn native_fullscreen_recording_stop_and_upload(
+    app: AppHandle,
     state: State<'_, NativeFullscreenRecordingState>,
     server_url: String,
     recording_id: String,
@@ -163,6 +221,16 @@ pub async fn native_fullscreen_recording_stop_and_upload(
 
     stop_native_recording(&mut session.backend)?;
     let duration_ms = session.started_at.elapsed().as_millis();
+    let mut saved = saved_recording_from_session(
+        &session,
+        &server_url,
+        &recording_id,
+        duration_ms,
+        has_audio,
+        has_camera,
+    )?;
+    write_saved_recording_metadata(&app, &saved)?;
+
     let result = upload_recording_file(
         &session,
         server_url,
@@ -174,8 +242,22 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         has_camera,
     )
     .await;
-    let _ = std::fs::remove_file(&session.path);
-    result
+
+    match result {
+        Ok(result) => {
+            clear_saved_recording(&app, &saved);
+            Ok(result)
+        }
+        Err(err) => {
+            saved.last_attempt_at = Some(now_iso());
+            saved.last_error = Some(err.clone());
+            saved.retry_count = saved.retry_count.saturating_add(1);
+            let _ = write_saved_recording_metadata(&app, &saved);
+            Err(format!(
+                "{err}. The clip was saved locally and can be retried from the Clips menu."
+            ))
+        }
+    }
 }
 
 #[tauri::command]
@@ -193,6 +275,84 @@ pub async fn native_fullscreen_recording_cancel(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn native_fullscreen_pending_uploads(
+    app: AppHandle,
+) -> Result<Vec<PendingNativeRecording>, String> {
+    let dir = pending_uploads_dir(&app)?;
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let entries =
+        std::fs::read_dir(&dir).map_err(|e| format!("pending recordings lookup failed: {e}"))?;
+    let mut pending = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(saved) = read_saved_recording_metadata_path(&path) else {
+            continue;
+        };
+        if saved.file_path.exists() {
+            pending.push(PendingNativeRecording::from(&saved));
+        } else {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+    pending.sort_by(|a, b| b.saved_at.cmp(&a.saved_at));
+    Ok(pending)
+}
+
+#[tauri::command]
+pub async fn native_fullscreen_recording_retry_upload(
+    app: AppHandle,
+    server_url: String,
+    recording_id: String,
+    auth_token: Option<String>,
+    cookie: Option<String>,
+) -> Result<NativeFullscreenUploadResult, String> {
+    let mut saved = read_saved_recording_metadata(&app, &recording_id)?;
+    saved.server_url = server_url.trim_end_matches('/').to_string();
+    saved.last_attempt_at = Some(now_iso());
+    saved.last_error = None;
+    write_saved_recording_metadata(&app, &saved)?;
+
+    reset_upload_chunks(
+        &saved.server_url,
+        &saved.recording_id,
+        auth_token.as_deref().unwrap_or(""),
+        cookie.as_deref().unwrap_or(""),
+    )
+    .await
+    .map_err(|err| {
+        persist_saved_recording_error(&app, &mut saved, &err);
+        err
+    })?;
+
+    let result = upload_saved_recording_file(
+        &saved,
+        saved.server_url.clone(),
+        auth_token.unwrap_or_default(),
+        cookie.unwrap_or_default(),
+    )
+    .await;
+
+    match result {
+        Ok(result) => {
+            clear_saved_recording(&app, &saved);
+            Ok(result)
+        }
+        Err(err) => {
+            persist_saved_recording_error(&app, &mut saved, &err);
+            Err(format!(
+                "{err}. The local copy is still saved, so you can retry again."
+            ))
+        }
+    }
+}
+
 fn sanitize_recording_id(value: &str) -> String {
     let safe: String = value
         .chars()
@@ -205,16 +365,117 @@ fn sanitize_recording_id(value: &str) -> String {
     }
 }
 
+fn now_iso() -> String {
+    Utc::now().to_rfc3339()
+}
+
+fn pending_uploads_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data directory unavailable: {e}"))?
+        .join(PENDING_UPLOADS_DIR);
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("pending recordings directory unavailable: {e}"))?;
+    Ok(dir)
+}
+
+fn pending_recording_path(
+    app: &AppHandle,
+    safe_id: &str,
+    extension: &str,
+) -> Result<PathBuf, String> {
+    Ok(pending_uploads_dir(app)?.join(format!(
+        "clips-fullscreen-{safe_id}-{}.{}",
+        std::process::id(),
+        extension.trim_start_matches('.')
+    )))
+}
+
+fn saved_recording_metadata_path(app: &AppHandle, recording_id: &str) -> Result<PathBuf, String> {
+    let safe_id = sanitize_recording_id(recording_id);
+    Ok(pending_uploads_dir(app)?.join(format!("{safe_id}.json")))
+}
+
+fn saved_recording_from_session(
+    session: &NativeFullscreenSession,
+    server_url: &str,
+    recording_id: &str,
+    duration_ms: u128,
+    has_audio: bool,
+    has_camera: bool,
+) -> Result<SavedNativeRecording, String> {
+    let bytes = std::fs::metadata(&session.path)
+        .map_err(|e| format!("native recording file missing: {e}"))?
+        .len();
+    if bytes == 0 {
+        return Err("Native recording produced an empty file.".into());
+    }
+
+    Ok(SavedNativeRecording {
+        recording_id: recording_id.to_string(),
+        server_url: server_url.trim_end_matches('/').to_string(),
+        file_path: session.path.clone(),
+        mime_type: session.mime_type.to_string(),
+        duration_ms,
+        width: session.width,
+        height: session.height,
+        bytes,
+        has_audio,
+        has_camera,
+        saved_at: now_iso(),
+        last_attempt_at: None,
+        last_error: None,
+        retry_count: 0,
+    })
+}
+
+fn write_saved_recording_metadata(
+    app: &AppHandle,
+    saved: &SavedNativeRecording,
+) -> Result<(), String> {
+    let path = saved_recording_metadata_path(app, &saved.recording_id)?;
+    let data = serde_json::to_vec_pretty(saved)
+        .map_err(|e| format!("pending recording metadata encode failed: {e}"))?;
+    std::fs::write(path, data).map_err(|e| format!("pending recording metadata write failed: {e}"))
+}
+
+fn read_saved_recording_metadata_path(path: &Path) -> Result<SavedNativeRecording, String> {
+    let data =
+        std::fs::read(path).map_err(|e| format!("pending recording metadata read failed: {e}"))?;
+    serde_json::from_slice(&data)
+        .map_err(|e| format!("pending recording metadata decode failed: {e}"))
+}
+
+fn read_saved_recording_metadata(
+    app: &AppHandle,
+    recording_id: &str,
+) -> Result<SavedNativeRecording, String> {
+    let path = saved_recording_metadata_path(app, recording_id)?;
+    read_saved_recording_metadata_path(&path)
+}
+
+fn clear_saved_recording(app: &AppHandle, saved: &SavedNativeRecording) {
+    let _ = std::fs::remove_file(&saved.file_path);
+    if let Ok(path) = saved_recording_metadata_path(app, &saved.recording_id) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+fn persist_saved_recording_error(app: &AppHandle, saved: &mut SavedNativeRecording, error: &str) {
+    saved.last_attempt_at = Some(now_iso());
+    saved.last_error = Some(error.to_string());
+    saved.retry_count = saved.retry_count.saturating_add(1);
+    let _ = write_saved_recording_metadata(app, saved);
+}
+
 #[cfg(target_os = "macos")]
 fn start_screencapturekit_recording(
     app: &AppHandle,
     safe_id: &str,
     include_audio: bool,
 ) -> Result<NativeFullscreenSession, String> {
-    let path = std::env::temp_dir().join(format!(
-        "clips-fullscreen-{safe_id}-{}-sck.mp4",
-        std::process::id()
-    ));
+    let path = pending_recording_path(app, safe_id, "mp4")?;
     let _ = std::fs::remove_file(&path);
 
     let content =
@@ -285,10 +546,7 @@ fn start_screencapture_recording(
         return Err("macOS screencapture is unavailable on this machine.".into());
     }
 
-    let path = std::env::temp_dir().join(format!(
-        "clips-fullscreen-{safe_id}-{}.mov",
-        std::process::id()
-    ));
+    let path = pending_recording_path(app, safe_id, "mov")?;
     let _ = std::fs::remove_file(&path);
 
     let (width, height) = primary_monitor_size(app);
@@ -407,15 +665,21 @@ async fn upload_recording_file(
     has_audio: bool,
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
-    let prepared = prepare_recording_file(session)?;
+    let prepared = prepare_recording_file(
+        &session.path,
+        session.mime_type,
+        session.width,
+        session.height,
+    )?;
     let upload_result = upload_prepared_recording_file(
-        session,
         &prepared,
         server_url,
         recording_id,
         auth_token,
         cookie,
         duration_ms,
+        session.width,
+        session.height,
         has_audio,
         has_camera,
     )
@@ -426,14 +690,46 @@ async fn upload_recording_file(
     upload_result
 }
 
+async fn upload_saved_recording_file(
+    saved: &SavedNativeRecording,
+    server_url: String,
+    auth_token: String,
+    cookie: String,
+) -> Result<NativeFullscreenUploadResult, String> {
+    let prepared = prepare_recording_file(
+        &saved.file_path,
+        &saved.mime_type,
+        saved.width,
+        saved.height,
+    )?;
+    let upload_result = upload_prepared_recording_file(
+        &prepared,
+        server_url,
+        saved.recording_id.clone(),
+        auth_token,
+        cookie,
+        saved.duration_ms,
+        saved.width,
+        saved.height,
+        saved.has_audio,
+        saved.has_camera,
+    )
+    .await;
+    if prepared.temporary {
+        let _ = std::fs::remove_file(&prepared.path);
+    }
+    upload_result
+}
+
 async fn upload_prepared_recording_file(
-    session: &NativeFullscreenSession,
     prepared: &PreparedRecordingFile,
     server_url: String,
     recording_id: String,
     auth_token: String,
     cookie: String,
     duration_ms: u128,
+    width: Option<u32>,
+    height: Option<u32>,
     has_audio: bool,
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
@@ -466,9 +762,9 @@ async fn upload_prepared_recording_file(
             total_posts,
             false,
             None,
-            prepared.mime_type,
-            session.width,
-            session.height,
+            &prepared.mime_type,
+            width,
+            height,
             has_audio,
             has_camera,
             buffer,
@@ -486,9 +782,9 @@ async fn upload_prepared_recording_file(
         total_posts,
         true,
         Some(duration_ms),
-        prepared.mime_type,
-        session.width,
-        session.height,
+        &prepared.mime_type,
+        width,
+        height,
         has_audio,
         has_camera,
         Vec::new(),
@@ -498,10 +794,52 @@ async fn upload_prepared_recording_file(
     Ok(NativeFullscreenUploadResult {
         recording_id,
         duration_ms,
-        width: session.width,
-        height: session.height,
+        width,
+        height,
         bytes: total_bytes,
     })
+}
+
+async fn reset_upload_chunks(
+    server_url: &str,
+    recording_id: &str,
+    auth_token: &str,
+    cookie: &str,
+) -> Result<(), String> {
+    let base = server_url.trim_end_matches('/');
+    let url = url::Url::parse(&format!("{base}/api/uploads/{recording_id}/reset-chunks"))
+        .map_err(|e| format!("invalid reset URL: {e}"))?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("upload reset client failed: {e}"))?;
+    let mut request = client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .header("X-Request-Source", "clips-desktop")
+        .body("{}");
+    let trimmed_token = auth_token.trim();
+    if !trimmed_token.is_empty() {
+        request = request.bearer_auth(trimmed_token);
+    }
+    let trimmed_cookie = cookie.trim();
+    if !trimmed_cookie.is_empty() {
+        request = request.header("Cookie", trimmed_cookie);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("native recording retry setup failed: {e}"))?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(format!(
+            "native recording retry setup returned {status}: {}",
+            body.chars().take(400).collect::<String>()
+        ));
+    }
+    Ok(())
 }
 
 async fn send_upload_post(
@@ -602,18 +940,21 @@ fn upload_url(
 }
 
 fn prepare_recording_file(
-    session: &NativeFullscreenSession,
+    path: &Path,
+    mime_type: &str,
+    width: Option<u32>,
+    height: Option<u32>,
 ) -> Result<PreparedRecordingFile, String> {
-    let metadata = std::fs::metadata(&session.path)
-        .map_err(|e| format!("native recording file missing: {e}"))?;
+    let metadata =
+        std::fs::metadata(path).map_err(|e| format!("native recording file missing: {e}"))?;
     let source_bytes = metadata.len();
     if source_bytes == 0 {
         return Err("Native recording produced an empty file.".into());
     }
 
     let original = PreparedRecordingFile {
-        path: session.path.clone(),
-        mime_type: session.mime_type,
+        path: path.to_path_buf(),
+        mime_type: mime_type.to_string(),
         bytes: source_bytes,
         temporary: false,
     };
@@ -626,11 +967,11 @@ fn prepare_recording_file(
         return Ok(original);
     }
 
-    let presets = native_transcode_presets(session.width, session.height, source_bytes);
+    let presets = native_transcode_presets(width, height, source_bytes);
     for (index, preset) in presets.iter().enumerate() {
-        let compressed_path = compressed_recording_path(&session.path);
+        let compressed_path = compressed_recording_path(path);
         let _ = std::fs::remove_file(&compressed_path);
-        match transcode_with_avconvert(&session.path, &compressed_path, preset) {
+        match transcode_with_avconvert(path, &compressed_path, preset) {
             Ok(()) => {
                 let compressed_bytes = std::fs::metadata(&compressed_path)
                     .map_err(|e| format!("compressed recording file missing: {e}"))?
@@ -662,7 +1003,7 @@ fn prepare_recording_file(
                 );
                 return Ok(PreparedRecordingFile {
                     path: compressed_path,
-                    mime_type: MP4_RECORDING_MIME_TYPE,
+                    mime_type: MP4_RECORDING_MIME_TYPE.to_string(),
                     bytes: compressed_bytes,
                     temporary: true,
                 });

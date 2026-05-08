@@ -395,7 +395,12 @@ trackCli("cli.run");
 switch (command) {
   case "dev": {
     if (isWorkspaceRoot()) {
-      import("./workspace-dev.js");
+      import("./workspace-dev.js")
+        .then((m) => m.runWorkspaceDev({ args }))
+        .catch((err) => {
+          console.error(err?.message ?? err);
+          process.exit(1);
+        });
       break;
     }
     const vite = findViteBin();
@@ -404,7 +409,12 @@ switch (command) {
   }
 
   case "workspace-dev": {
-    import("./workspace-dev.js");
+    import("./workspace-dev.js")
+      .then((m) => m.runWorkspaceDev({ args }))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
     break;
   }
 
@@ -618,6 +628,7 @@ Options:
   --preset <name>               Workspace deploy preset:
                                 cloudflare_pages (default) or netlify
   --build-only                  Build workspace deploy artifacts without publishing
+  --eager                       With workspace dev, start every app immediately
 
 Feedback:  ${FEEDBACK_URL}
 Bugs:      ${BUGS_URL}`);

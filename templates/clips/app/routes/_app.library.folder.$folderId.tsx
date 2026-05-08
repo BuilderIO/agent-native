@@ -25,7 +25,6 @@ export default function LibraryFolderRoute() {
       folderId={folderId}
       emptyKind="folder"
       title={folder?.name ?? "Folder"}
-      subtitle="Recordings in this folder"
     />
   );
 }

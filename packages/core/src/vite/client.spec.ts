@@ -90,6 +90,70 @@ describe("Vite optimized dependency recovery", () => {
   });
 });
 
+describe("Vite connection reset noise", () => {
+  it("suppresses benign reset errors before they reach the browser overlay", () => {
+    const plugin = findPlugin("agent-native-silence-connection-resets");
+    const loggerError = vi.fn();
+    const hotSend = vi.fn();
+    const wsSend = vi.fn();
+    const server = {
+      httpServer: { on: vi.fn() },
+      config: { logger: { error: loggerError } },
+      environments: { client: { hot: { send: hotSend } } },
+      ws: { send: wsSend },
+    };
+
+    plugin.configureServer(server);
+
+    server.config.logger.error("Internal server error: socket hang up", {
+      error: { message: "socket hang up" },
+    });
+    expect(loggerError).not.toHaveBeenCalled();
+
+    server.environments.client.hot.send({
+      type: "error",
+      err: { message: "read ECONNRESET", stack: "at TCP.onStreamRead" },
+    });
+    expect(hotSend).not.toHaveBeenCalled();
+
+    server.ws.send({
+      type: "error",
+      err: { message: "socket hang up", stack: "at Socket.socketOnEnd" },
+    });
+    expect(wsSend).not.toHaveBeenCalled();
+  });
+
+  it("keeps real Vite errors visible", () => {
+    const plugin = findPlugin("agent-native-silence-connection-resets");
+    const loggerError = vi.fn();
+    const hotSend = vi.fn();
+    const wsSend = vi.fn();
+    const server = {
+      httpServer: { on: vi.fn() },
+      config: { logger: { error: loggerError } },
+      environments: { client: { hot: { send: hotSend } } },
+      ws: { send: wsSend },
+    };
+
+    plugin.configureServer(server);
+
+    server.config.logger.error("Internal server error: syntax broke", {
+      error: { message: "syntax broke" },
+    });
+    expect(loggerError).toHaveBeenCalledOnce();
+
+    const payload = {
+      type: "error",
+      err: { message: "syntax broke", stack: "at transform" },
+    };
+    server.environments.client.hot.send(payload);
+    server.ws.send(payload);
+
+    expect(hotSend).toHaveBeenCalledWith(payload);
+    expect(wsSend).toHaveBeenCalledWith(payload);
+  });
+});
+
 describe("Vite CSS build defaults", () => {
   it("keeps standard backdrop-filter declarations in production CSS", () => {
     const config = defineConfig();

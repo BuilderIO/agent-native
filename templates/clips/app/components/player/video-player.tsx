@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import { appBasePath, captureClientException } from "@agent-native/core/client";
-import { IconPlayerPlay } from "@tabler/icons-react";
+import { IconBolt, IconPlayerPlay } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -22,7 +22,6 @@ import {
 import { PlayerControls, SPEED_OPTIONS } from "./player-controls";
 import { CaptionsOverlay } from "./captions-overlay";
 import { CtaButton } from "./cta-button";
-import { msToClock } from "./scrubber";
 import {
   getExcludedRanges,
   parseEdits,
@@ -632,6 +631,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             ref={videoRef}
             src={resolveLocalUrl(videoUrl)}
             poster={resolveLocalUrl(thumbnailUrl)}
+            crossOrigin="anonymous"
             className={cn(
               "w-full h-full",
               cover ? "object-cover" : "object-contain",
@@ -870,6 +870,9 @@ function CenterPlaybackOverlay({
   onSpeedChange: (rate: number) => void;
 }) {
   const showLoading = mode === "loading" && !playError;
+  const adjustedDurationMs = speed > 0 ? durationMs / speed : durationMs;
+  const showAdjustedDuration =
+    durationMs > 0 && Math.abs(adjustedDurationMs - durationMs) >= 1000;
 
   return (
     <div
@@ -935,8 +938,18 @@ function CenterPlaybackOverlay({
                 </DropdownMenuContent>
               </DropdownMenu>
               <span className="h-4 w-px bg-white/20" aria-hidden />
-              <span className="min-w-12 text-center tabular-nums">
-                {msToClock(durationMs)}
+              <span className="flex min-w-12 items-center justify-center gap-1.5 whitespace-nowrap text-center tabular-nums">
+                {showAdjustedDuration ? (
+                  <>
+                    <span className="text-white/45 line-through decoration-white/55">
+                      {formatWatchDuration(durationMs)}
+                    </span>
+                    <IconBolt className="h-3.5 w-3.5 fill-current text-yellow-300" />
+                    <span>{formatWatchDuration(adjustedDurationMs)}</span>
+                  </>
+                ) : (
+                  formatWatchDuration(durationMs)
+                )}
               </span>
             </div>
 
@@ -991,4 +1004,22 @@ function skipExcludedRange(
 
 function formatSpeedLabel(rate: number): string {
   return `${Number.isInteger(rate) ? rate : rate.toFixed(1)}x`;
+}
+
+function formatWatchDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "0 sec";
+  const totalSeconds = Math.max(1, Math.round(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return minutes > 0 ? `${hours} hr ${minutes} min` : `${hours} hr`;
+  }
+
+  if (minutes > 0) {
+    return seconds > 0 ? `${minutes} min ${seconds} sec` : `${minutes} min`;
+  }
+
+  return `${seconds} sec`;
 }

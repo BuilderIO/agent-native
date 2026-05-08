@@ -691,7 +691,7 @@
 
 /* Inbox Zero — negative margin pulls content up behind the header (keeps header in flow so it doesn't overlap the agent sidebar) */
 .inbox-zero .inbox-zero-header {
-  margin-bottom: -2.75rem;
+  margin-bottom: -3rem;
   background: transparent !important;
   border-color: transparent !important;
   box-shadow: none;

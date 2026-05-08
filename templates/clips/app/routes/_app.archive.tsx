@@ -5,12 +5,5 @@ export function meta() {
 }
 
 export default function ArchiveRoute() {
-  return (
-    <LibraryGrid
-      view="archive"
-      emptyKind="archive"
-      title="Archive"
-      subtitle="Recordings you've archived"
-    />
-  );
+  return <LibraryGrid view="archive" emptyKind="archive" title="Archive" />;
 }

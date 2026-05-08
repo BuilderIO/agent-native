@@ -219,11 +219,11 @@ export function LibrarySidebar({ className }: LibrarySidebarProps) {
         className,
       )}
     >
-      <div className="px-3 py-3">
+      <div className="flex h-12 shrink-0 items-center border-b border-border px-3">
         <WorkspaceSwitcher />
       </div>
 
-      <div className="px-3">
+      <div className="px-3 pt-3">
         <Button className="w-full gap-1.5" size="sm" asChild>
           <NavLink to="/upload">
             <IconUpload className="h-4 w-4" />

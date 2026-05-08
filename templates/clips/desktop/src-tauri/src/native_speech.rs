@@ -66,6 +66,18 @@ pub async fn native_speech_set_vocabulary(strings: Vec<String>) -> Result<(), St
 }
 
 #[tauri::command]
+pub async fn native_speech_request_permission() -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::request_speech_permission()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(false)
+    }
+}
+
+#[tauri::command]
 pub async fn native_speech_stop(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
@@ -261,6 +273,10 @@ pub(crate) mod macos {
             Ok(_) => Err("Unknown speech recognition authorization status.".into()),
             Err(_) => Err("Timed out waiting for speech recognition authorization.".into()),
         }
+    }
+
+    pub fn request_speech_permission() -> Result<bool, String> {
+        ensure_authorized().map(|_| true)
     }
 
     /// Build a fresh recognizer for the given locale (defaulting to en-US if

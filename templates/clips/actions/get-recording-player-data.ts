@@ -117,9 +117,18 @@ export default defineAction({
     if (transcript?.segmentsJson) {
       try {
         const parsed = JSON.parse(transcript.segmentsJson);
-        if (Array.isArray(parsed)) transcriptSegments = parsed;
+        if (Array.isArray(parsed)) {
+          transcriptSegments = parsed.filter(
+            (segment) =>
+              typeof segment?.text === "string" && segment.text.trim(),
+          );
+        }
       } catch {}
     }
+    const transcriptReadyButEmpty =
+      transcript?.status === "ready" &&
+      !transcript.fullText?.trim() &&
+      transcriptSegments.length === 0;
 
     // Normalize the dev-fallback videoUrl:
     //   1. Rewrite legacy `/api/uploads/:id/blob` to `/api/video/:id` so old
@@ -185,10 +194,12 @@ export default defineAction({
       },
       transcript: transcript
         ? {
-            status: transcript.status,
+            status: transcriptReadyButEmpty ? "failed" : transcript.status,
             language: transcript.language,
             fullText: transcript.fullText,
-            failureReason: transcript.failureReason,
+            failureReason: transcriptReadyButEmpty
+              ? "No speech was detected by transcription. Check microphone and speech permissions, then retry transcription."
+              : transcript.failureReason,
             segments: transcriptSegments,
             cleanup: cleanupState
               ? {

@@ -34,7 +34,7 @@ export interface AgentChatMessage {
   /**
    * Message routing type:
    * - "content" (default): stays in the embedded app agent for content/data operations
-   * - "code": routes to the code editing frame (local dev frame or Builder.io)
+   * - "code": routes to the code editing frame (Agent Native Desktop or Builder.io)
    *
    * When type is "code" and no frame is connected, a dialog is shown.
    * `requiresCode: true` is treated as `type: "code"` for backward compatibility.

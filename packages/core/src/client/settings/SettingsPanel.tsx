@@ -1670,6 +1670,8 @@ export function SettingsPanel({
         setOpenSection("secrets");
         const key = hash.slice("secrets:".length);
         setFocusSecretKey(key || undefined);
+      } else if (hash === "llm" || hash === "agent-engine") {
+        setOpenSection("llm");
       } else if (
         hash === "agent-limits" ||
         hash === "limits" ||

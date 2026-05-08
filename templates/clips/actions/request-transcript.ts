@@ -76,8 +76,17 @@ const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_MODEL = "whisper-large-v3-turbo";
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
 const CLIPS_USER_PREFS_KEY = "clips-user-prefs";
+const RECENT_PENDING_TRANSCRIPT_MS = 2 * 60 * 1000;
 
-function serializeError(err: unknown): Record<string, unknown> {
+function verboseTranscriptErrors(): boolean {
+  const debug = process.env.CLIPS_TRANSCRIPTION_DEBUG ?? "";
+  return debug === "1" || debug.toLowerCase() === "true";
+}
+
+function serializeError(
+  err: unknown,
+  opts: { includeStack?: boolean } = {},
+): Record<string, unknown> {
   if (!(err instanceof Error)) {
     return { message: String(err) };
   }
@@ -85,9 +94,32 @@ function serializeError(err: unknown): Record<string, unknown> {
   return {
     name: err.name,
     message: err.message,
-    stack: err.stack,
-    ...(cause ? { cause: serializeError(cause) } : {}),
+    ...(opts.includeStack && err.stack ? { stack: err.stack } : {}),
+    ...(cause ? { cause: serializeError(cause, opts) } : {}),
   };
+}
+
+function summarizeError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const root = rootCause(err);
+  return `${root.name}: ${root.message}`;
+}
+
+function rootCause(err: Error): Error {
+  const cause = (err as Error & { cause?: unknown }).cause;
+  return cause instanceof Error ? rootCause(cause) : err;
+}
+
+function isRecentlyPendingTranscript(transcript: {
+  status: string | null;
+  updatedAt: string | null;
+}): boolean {
+  if (transcript.status !== "pending") return false;
+  const updatedAtMs = Date.parse(transcript.updatedAt ?? "");
+  return (
+    Number.isFinite(updatedAtMs) &&
+    Date.now() - updatedAtMs < RECENT_PENDING_TRANSCRIPT_MS
+  );
 }
 
 async function writeTranscriptCleanupState(
@@ -112,6 +144,44 @@ function fullTextSegmentJson(
       text: text.trim(),
     },
   ]);
+}
+
+function providerTranscriptText(
+  text: string | null | undefined,
+  segments: Array<{ text: string }>,
+): string {
+  return (
+    text?.trim() || segments.map((segment) => segment.text.trim()).join(" ")
+  ).trim();
+}
+
+async function failEmptyProviderTranscript({
+  db,
+  recordingId,
+  ownerEmail,
+  providerName,
+  now,
+}: {
+  db: ReturnType<typeof getDb>;
+  recordingId: string;
+  ownerEmail: string;
+  providerName: string;
+  now: string;
+}) {
+  const reason = `No speech was detected by ${providerName} transcription. Check microphone and speech permissions, then retry transcription.`;
+  await upsertTranscriptRow(db, {
+    recordingId,
+    ownerEmail,
+    status: "failed",
+    failureReason: reason,
+    now,
+  });
+  await writeAppState("refresh-signal", { ts: Date.now() });
+  return {
+    recordingId,
+    status: "failed" as const,
+    failureReason: reason,
+  };
 }
 
 async function transcriptCleanupEnabled(): Promise<boolean> {
@@ -187,9 +257,14 @@ async function cleanupNativeTranscript({
   } catch (err) {
     const details = serializeError(err);
     console.warn(
-      `[clips] native transcript cleanup skipped for ${recordingId}`,
+      `[clips] native transcript cleanup skipped for ${recordingId}: ${summarizeError(err)}`,
     );
-    console.warn("[clips] native transcript cleanup error details", details);
+    if (verboseTranscriptErrors()) {
+      console.warn(
+        "[clips] native transcript cleanup error details",
+        serializeError(err, { includeStack: true }),
+      );
+    }
     await writeTranscriptCleanupState(recordingId, {
       status: "failed",
       provider: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
@@ -379,6 +454,12 @@ export default defineAction({
     "Ensure a recording has a transcript. Preserves native Web Speech/macOS Speech transcripts first, then uses configured backup transcription only when needed.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
+    force: z
+      .boolean()
+      .optional()
+      .describe(
+        "Bypass the recent pending guard for explicit retries or the finalize-recording background worker.",
+      ),
   }),
   run: async (args) => {
     const db = getDb();
@@ -393,6 +474,7 @@ export default defineAction({
         status: schema.recordingTranscripts.status,
         fullText: schema.recordingTranscripts.fullText,
         segmentsJson: schema.recordingTranscripts.segmentsJson,
+        updatedAt: schema.recordingTranscripts.updatedAt,
       })
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
@@ -409,6 +491,22 @@ export default defineAction({
         fullText: existingNativeTranscript.fullText,
         segmentsJson: existingNativeTranscript.segmentsJson,
       });
+    }
+
+    if (
+      !args.force &&
+      existingNativeTranscript &&
+      isRecentlyPendingTranscript(existingNativeTranscript)
+    ) {
+      console.log(
+        `[clips] Transcript already pending for ${args.recordingId}; skipping duplicate request.`,
+      );
+      return {
+        recordingId: args.recordingId,
+        status: "pending" as const,
+        skipped: true,
+        reason: "already-pending",
+      };
     }
 
     // ── Builder transcription (cloud fallback) ────────────────────────
@@ -517,11 +615,14 @@ export default defineAction({
           diarize: false,
         });
 
-        const segments = (builderResult.segments ?? []).map((s) => ({
-          startMs: s.startMs,
-          endMs: s.endMs,
-          text: s.text.trim(),
-        }));
+        const segments = (builderResult.segments ?? [])
+          .map((s) => ({
+            startMs: s.startMs,
+            endMs: s.endMs,
+            text: s.text.trim(),
+          }))
+          .filter((segment) => segment.text);
+        const fullText = providerTranscriptText(builderResult.text, segments);
 
         const preserved = await preserveReadyTranscriptIfAvailable({
           db,
@@ -530,6 +631,16 @@ export default defineAction({
         });
         if (preserved) return preserved;
 
+        if (!fullText) {
+          return failEmptyProviderTranscript({
+            db,
+            recordingId: args.recordingId,
+            ownerEmail,
+            providerName: "Builder",
+            now,
+          });
+        }
+
         await upsertTranscriptRow(db, {
           recordingId: args.recordingId,
           ownerEmail,
@@ -537,7 +648,7 @@ export default defineAction({
           failureReason: null,
           language: builderResult.language ?? "en",
           segmentsJson: JSON.stringify(segments),
-          fullText: builderResult.text ?? "",
+          fullText,
           now,
         });
         await writeAppState("refresh-signal", { ts: Date.now() });
@@ -595,9 +706,14 @@ export default defineAction({
         }
         builderError = reason;
         console.warn(
-          `[clips] Builder transcription failed for ${args.recordingId}; preserving native transcript if present and falling back to Groq if configured.`,
+          `[clips] Builder transcription failed for ${args.recordingId}: ${summarizeError(err)}. Preserving native transcript if present and falling back to Groq if configured.`,
         );
-        console.warn("[clips] Builder transcription error details", details);
+        if (verboseTranscriptErrors()) {
+          console.warn(
+            "[clips] Builder transcription error details",
+            serializeError(err, { includeStack: true }),
+          );
+        }
         await writeTranscriptCleanupState(args.recordingId, {
           status: "builder-transcription-failed",
           provider: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
@@ -632,7 +748,7 @@ export default defineAction({
         now,
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
-      console.error(`[clips] ${reason}`);
+      console.warn(`[clips] ${reason}`);
       return {
         recordingId: args.recordingId,
         status: "failed" as const,
@@ -770,11 +886,14 @@ export default defineAction({
       }
       const data = (await res.json()) as SpeechToTextResponse;
 
-      const segments = (data.segments ?? []).map((s) => ({
-        startMs: Math.max(0, Math.round(s.start * 1000)),
-        endMs: Math.max(0, Math.round(s.end * 1000)),
-        text: s.text.trim(),
-      }));
+      const segments = (data.segments ?? [])
+        .map((s) => ({
+          startMs: Math.max(0, Math.round(s.start * 1000)),
+          endMs: Math.max(0, Math.round(s.end * 1000)),
+          text: s.text.trim(),
+        }))
+        .filter((segment) => segment.text);
+      const fullText = providerTranscriptText(data.text, segments);
 
       const preserved = await preserveReadyTranscriptIfAvailable({
         db,
@@ -783,6 +902,16 @@ export default defineAction({
       });
       if (preserved) return preserved;
 
+      if (!fullText) {
+        return failEmptyProviderTranscript({
+          db,
+          recordingId: args.recordingId,
+          ownerEmail,
+          providerName: provider.name,
+          now,
+        });
+      }
+
       await upsertTranscriptRow(db, {
         recordingId: args.recordingId,
         ownerEmail,
@@ -790,7 +919,7 @@ export default defineAction({
         failureReason: null,
         language: data.language ?? "en",
         segmentsJson: JSON.stringify(segments),
-        fullText: data.text ?? "",
+        fullText,
         now,
       });
 

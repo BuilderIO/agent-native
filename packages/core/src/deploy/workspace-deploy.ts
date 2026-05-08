@@ -757,11 +757,15 @@ function assertWorkspaceDeployProductionEnv(opts: {
 }): void {
   if (!isProductionWorkspaceDeploy(opts)) return;
   if (process.env.A2A_SECRET?.trim()) return;
+  const providerHint =
+    opts.preset === "netlify"
+      ? ' For Netlify, one option is: netlify env:set A2A_SECRET "$(openssl rand -hex 32)".'
+      : "";
   throw new Error(
     [
       "A2A_SECRET is required for production workspace deploys.",
       "Workspace Slack, webhook, and cross-app A2A work resumes through signed background processors; without A2A_SECRET those production routes return 503.",
-      'Set A2A_SECRET in your deploy provider (for example: netlify env:set A2A_SECRET "$(openssl rand -hex 32)") and redeploy.',
+      `Set A2A_SECRET in your deploy provider and redeploy.${providerHint}`,
       "For local artifact checks, run agent-native deploy --build-only outside the deploy provider environment.",
     ].join(" "),
   );

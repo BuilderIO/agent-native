@@ -447,22 +447,14 @@ describe("workspace scaffold defaults", () => {
     expect(generated).not.toMatch(/steve@builder\.io/i);
   });
 
-  it("scaffolds root Netlify config for unified workspace deploys", async () => {
+  it("keeps the generic workspace scaffold free of provider-specific deploy config", async () => {
     const wsDir = path.join(tmpDir, "my-ws");
     await _scaffoldWorkspaceRoot(wsDir, "my-ws");
 
-    const netlify = fs.readFileSync(path.join(wsDir, "netlify.toml"), "utf-8");
-    expect(netlify).toContain(
-      'export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && pnpm install && pnpm exec agent-native deploy --preset netlify --build-only',
-    );
-    expect(netlify).toContain('publish = "dist"');
-    expect(netlify).toContain('functions = ".netlify/functions-internal"');
-    expect(netlify).toContain('NITRO_PRESET = "netlify"');
-    expect(netlify).toContain('[functions."*"]');
-    expect(netlify).toContain("  timeout = 60");
+    expect(fs.existsSync(path.join(wsDir, "netlify.toml"))).toBe(false);
 
     const gitignore = fs.readFileSync(path.join(wsDir, ".gitignore"), "utf-8");
-    expect(gitignore).toContain(".netlify/");
+    expect(gitignore).toContain("dist/");
   });
 
   it("does not copy generated Vercel output or legacy Claude settings", async () => {

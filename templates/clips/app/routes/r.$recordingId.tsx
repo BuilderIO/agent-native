@@ -251,8 +251,8 @@ export default function RecordingPage() {
   // Self-heal stuck transcripts. Older recordings (before finalize-recording
   // learned to auto-trigger transcription) can sit in `pending` forever with no
   // worker to pick them up. When the owner opens one, kick off a transcript
-  // once per page mount — the upsert inside request-transcript is idempotent
-  // so a second "real" run would just overwrite the pending row.
+  // once per page mount; request-transcript skips fresh pending rows so this
+  // does not duplicate the finalize-recording background worker during HMR.
   useEffect(() => {
     if (!recording) return;
     if (role !== "owner" && role !== "admin" && role !== "editor") return;
@@ -804,7 +804,10 @@ export default function RecordingPage() {
                         {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ recordingId: recording.id }),
+                          body: JSON.stringify({
+                            recordingId: recording.id,
+                            force: true,
+                          }),
                         },
                       )
                         .then((res) => {

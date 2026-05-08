@@ -69,7 +69,7 @@ Then boot it:
 cd my-company-platform
 cp .env.example .env             # fill in ANTHROPIC_API_KEY, BETTER_AUTH_SECRET, ...
 pnpm install
-pnpm dev                         # runs every app
+pnpm dev                         # opens Dispatch; other apps start on first visit
 ```
 
 Every app already knows how to log in, share the same database, and load the workspace `AGENTS.md`. You didn't wire any of that up — the framework auto-discovered the shared package via the `agent-native.workspaceCore` field in the root `package.json`:

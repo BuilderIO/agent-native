@@ -72,7 +72,6 @@ export default function SpaceRoute() {
           folderId={null}
           emptyKind="space"
           title={(space as any)?.name ?? "Space"}
-          subtitle="Shared recordings"
         />
       </div>
     </div>

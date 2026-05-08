@@ -29,7 +29,6 @@ export default function SpaceFolderRoute() {
       folderId={folderId}
       emptyKind="folder"
       title={folder?.name ?? "Folder"}
-      subtitle="Folder in space"
     />
   );
 }
