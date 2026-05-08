@@ -294,6 +294,7 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 | `data-source-status`           | `[--key <provider-or-key>]` | Show configured data-source credentials without revealing values. Accepts aliases like `jira`, `pylon`, `bigquery`, `hubspot`, `gong`, `slack`.           |
 | `github-prs`                   | `--org`, `--query`          | PR & issue search                                                                                                                                         |
 | `hubspot-deals`                |                             | CRM deals, pipelines                                                                                                                                      |
+| `hubspot-deal-properties`      | `[--search <term>]`         | Search HubSpot deal property metadata before requesting custom fields such as NBM dates                                                                    |
 | `hubspot-metrics`              |                             | CRM metrics summary                                                                                                                                       |
 | `hubspot-pipelines`            |                             | Pipeline stages                                                                                                                                           |
 | `jira-search`                  | `--jql`, `--fields`         | Ticket search                                                                                                                                             |
@@ -350,6 +351,7 @@ pnpm action commonroom-members --query="enterprise" --limit=10
 | "Create a dashboard for X"          | Use `update-dashboard`, then navigate to it                                                                                                                        |
 | "How many open bugs?"               | `jira-search --jql="issuetype = Bug AND resolution = Unresolved"`                                                                                                  |
 | "Find deals over $50k"              | `hubspot-deals --grep="50000" --fields=dealname,amount,stageLabel`                                                                                                 |
+| "Build an AE QBR / NBM deck"        | `hubspot-deals --properties nbm_meeting_booked_date,nbm_meeting_complete_date,hs_manual_forecast_category`; use HubSpot as the source of truth before any warehouse fallback |
 | "Check error rates"                 | `sentry --mode=issues --statsPeriod=7d`                                                                                                                            |
 | "Show me PRs from this week"        | `github-prs --org=<github-org> --query="is:open created:>2026-03-27"`                                                                                              |
 | "Top keywords for our blog"         | `seo-top-keywords --fields=keyword,rank_absolute,etv`                                                                                                              |

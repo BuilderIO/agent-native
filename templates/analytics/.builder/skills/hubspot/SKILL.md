@@ -25,7 +25,9 @@ description: >
 | `getDealPipelines()`                             | All deal pipelines with stages       |
 | `getVisiblePipelines(pipelines)`                 | Filter to visible pipelines          |
 | `getMetricsPipelines(pipelines)`                 | Filter to metrics-relevant pipelines |
-| `getAllDeals()`                                  | All deals (paginated, up to ~10k)    |
+| `getDealProperties()`                            | HubSpot deal property metadata       |
+| `getAllDeals(extraProperties?)`                  | All deals (paginated, up to ~10k)    |
+| `getDealOwners()`                                | HubSpot owner id → owner name map    |
 | `computeSalesMetrics(deals, pipelines, filter?)` | Compute won/lost/pipeline metrics    |
 
 ## Script Usage
@@ -36,12 +38,18 @@ pnpm action hubspot-deals --fields=dealname,amount,stageLabel
 
 # Search for a specific customer
 pnpm action hubspot-deals --grep="Example Corp" --fields=dealname,amount,stageLabel
+
+# Find custom fields before requesting them
+pnpm action hubspot-deal-properties --search=nbm
 ```
 
 ## Key Patterns & Gotchas
 
 - `getAllDeals` paginates using `limit=100` and HubSpot `after` token (up to 100 pages)
-- `DEAL_PROPERTIES` includes hard-coded `hs_v2_date_entered` stage property names with embedded stage IDs
+- `hubspot-deals` returns normalized `stage_name`, `pipeline_name`, `owner_name`, `is_closed_won`, and `is_deal_closed` fields under `deal.properties`
+- For AE QBR or NBM deck work, HubSpot is the source of truth. Request `nbm_meeting_booked_date`, `nbm_meeting_complete_date`, and `hs_manual_forecast_category` through `hubspot-deals`; do not use warehouse SQL as the first path unless HubSpot is unavailable and the user approves the fallback
+- Optional deal properties are filtered against HubSpot property metadata before fetching, so deployments without a custom field do not fail the whole action
+- The default deal fetch includes the hard-coded `hs_v2_date_entered` stage property names with embedded stage IDs when they exist in the connected portal
 - `computeSalesMetrics` infers won/lost stages from probability metadata or label text; identifies POV stages by names containing "proof of value", "pov", "poc"
 - When looking up a customer, search deals by name, then get associated company via `/crm/v3/objects/deals/{id}/associations/companies`, then contacts via `/crm/v3/objects/companies/{id}/associations/contacts`
 
