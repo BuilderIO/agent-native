@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   IconSend,
   IconCheck,
@@ -21,7 +21,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { agentNativePath, useActionMutation } from "@agent-native/core/client";
+import { useActionMutation } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { msToClock } from "./scrubber";
 
@@ -35,7 +35,22 @@ function makeTempId() {
   return `temp_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
 }
 
-type PlayerData = { comments?: Comment[]; [k: string]: unknown };
+// The shape of the cached value depends on the route — the authenticated
+// player route caches `get-recording-player-data` ({ comments, ... }) while
+// the public share route caches a wrapped fetch response
+// ({ ok, status, data: { comments, ... } }). Both feed into this panel, so we
+// don't assume a shape — the parent passes lenses.
+type CommentsLens = {
+  selectComments: (data: unknown) => Comment[] | undefined;
+  applyComments: (data: unknown, next: Comment[]) => unknown;
+};
+
+const defaultLens: CommentsLens = {
+  selectComments: (data) =>
+    (data as { comments?: Comment[] } | undefined)?.comments,
+  applyComments: (data, next) =>
+    data ? { ...(data as object), comments: next } : data,
+};
 
 const COMMENT_EMOJIS = ["👍", "❤️", "🔥", "👏", "🎉", "😂"];
 
@@ -61,6 +76,20 @@ export interface CommentsPanelProps {
   enableComments: boolean;
   onSeek: (ms: number) => void;
   /**
+   * The React Query key whose cached value contains this panel's `comments`.
+   * Optimistic updates patch this key — passing the wrong one (or omitting
+   * it) means the chip / new-comment row won't appear until the next refetch.
+   */
+  queryKey: readonly unknown[];
+  /**
+   * Optional lenses for selecting / replacing the comments array inside the
+   * cached value. Defaults match the authenticated `get-recording-player-data`
+   * shape (`{ comments, ... }`). The public share route wraps comments under
+   * `data.comments` and supplies its own lenses.
+   */
+  selectComments?: CommentsLens["selectComments"];
+  applyComments?: CommentsLens["applyComments"];
+  /**
    * If provided, this callback is invoked instead of firing the comment /
    * reaction mutation when the viewer is not signed in. Use it to surface a
    * sign-in prompt on the public share page.
@@ -77,28 +106,28 @@ export function CommentsPanel(props: CommentsPanelProps) {
     enableComments,
     onSeek,
     onUnauthenticated,
+    queryKey,
+    selectComments = defaultLens.selectComments,
+    applyComments = defaultLens.applyComments,
   } = props;
   const isSignedIn = !!currentUserEmail;
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
 
   const queryClient = useQueryClient();
-  const playerDataKey = useMemo(
-    () => ["action", "get-recording-player-data", { recordingId }],
-    [recordingId],
-  );
 
   const patchComments = (updater: (prev: Comment[]) => Comment[]) => {
-    queryClient.setQueryData<PlayerData>(playerDataKey, (old) => {
+    queryClient.setQueryData(queryKey, (old: unknown) => {
       if (!old) return old;
-      return { ...old, comments: updater(old.comments ?? []) };
+      const current = selectComments(old) ?? [];
+      return applyComments(old, updater(current));
     });
   };
 
   const addComment = useActionMutation("add-comment", {
     onMutate: async (vars: any) => {
-      await queryClient.cancelQueries({ queryKey: playerDataKey });
-      const prev = queryClient.getQueryData<PlayerData>(playerDataKey);
+      await queryClient.cancelQueries({ queryKey });
+      const prev = queryClient.getQueryData(queryKey);
       const tempId = makeTempId();
       const now = new Date().toISOString();
       const optimistic: Comment = {
@@ -118,7 +147,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       return { prev, tempId };
     },
     onError: (_err, _vars, ctx: any) => {
-      if (ctx?.prev) queryClient.setQueryData(playerDataKey, ctx.prev);
+      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
     },
     onSuccess: (data: any, _vars, ctx: any) => {
       if (!ctx?.tempId || !data?.id) return;
@@ -134,8 +163,8 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
   const resolve = useActionMutation("resolve-comment", {
     onMutate: async (vars: any) => {
-      await queryClient.cancelQueries({ queryKey: playerDataKey });
-      const prev = queryClient.getQueryData<PlayerData>(playerDataKey);
+      await queryClient.cancelQueries({ queryKey });
+      const prev = queryClient.getQueryData(queryKey);
       patchComments((list) =>
         list.map((c) =>
           c.id === vars.id
@@ -152,14 +181,66 @@ export function CommentsPanel(props: CommentsPanelProps) {
       return { prev };
     },
     onError: (_err, _vars, ctx: any) => {
-      if (ctx?.prev) queryClient.setQueryData(playerDataKey, ctx.prev);
+      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
+    },
+  });
+
+  const reactToComment = useActionMutation("react-to-comment", {
+    onMutate: async (vars: any) => {
+      await queryClient.cancelQueries({ queryKey });
+      const prev = queryClient.getQueryData(queryKey);
+      const currentUser = currentUserEmail;
+      if (!currentUser) return { prev };
+      patchComments((commentList) =>
+        commentList.map((comment) => {
+          if (comment.id !== vars.commentId) return comment;
+          let reactions: Record<string, string[]> = {};
+          try {
+            const parsed = JSON.parse(comment.emojiReactionsJson || "{}");
+            if (parsed && typeof parsed === "object") {
+              reactions = parsed as Record<string, string[]>;
+            }
+          } catch {}
+          const reactingUsers = Array.isArray(reactions[vars.emoji])
+            ? reactions[vars.emoji]
+            : [];
+          const userAlreadyReacted = reactingUsers.includes(currentUser);
+          const updatedReactingUsers = userAlreadyReacted
+            ? reactingUsers.filter((email) => email !== currentUser)
+            : [...reactingUsers, currentUser];
+          const updatedReactions = { ...reactions };
+          if (updatedReactingUsers.length === 0) {
+            delete updatedReactions[vars.emoji];
+          } else {
+            updatedReactions[vars.emoji] = updatedReactingUsers;
+          }
+          return {
+            ...comment,
+            emojiReactionsJson: JSON.stringify(updatedReactions),
+          };
+        }),
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx: any) => {
+      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
+    },
+    onSuccess: (data: any, vars: any) => {
+      if (!data?.reactions) return;
+      patchComments((list) =>
+        list.map((c) =>
+          c.id === vars.commentId
+            ? { ...c, emojiReactionsJson: JSON.stringify(data.reactions) }
+            : c,
+        ),
+      );
     },
   });
 
   const remove = useActionMutation("delete-comment", {
     onMutate: async (vars: any) => {
-      await queryClient.cancelQueries({ queryKey: playerDataKey });
-      const prev = queryClient.getQueryData<PlayerData>(playerDataKey);
+      await queryClient.cancelQueries({ queryKey });
+      const prev = queryClient.getQueryData(queryKey);
       // Deleting a root comment cascades to its replies server-side, so mirror
       // that here: drop the target comment and any descendants in the same
       // thread whose parent chain leads back to it.
@@ -175,7 +256,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       return { prev };
     },
     onError: (_err, _vars, ctx: any) => {
-      if (ctx?.prev) queryClient.setQueryData(playerDataKey, ctx.prev);
+      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
     },
   });
 
@@ -241,7 +322,6 @@ export function CommentsPanel(props: CommentsPanelProps) {
                 <li key={root.threadId} className="p-3 space-y-2">
                   <CommentCard
                     comment={root}
-                    recordingId={recordingId}
                     currentUserEmail={currentUserEmail}
                     onSeek={onSeek}
                     onReply={() => {
@@ -255,6 +335,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
                       resolve.mutate({ id, resolved })
                     }
                     onDelete={(id) => remove.mutate({ id })}
+                    onReact={(commentId, emoji) =>
+                      reactToComment.mutate({ commentId, emoji })
+                    }
                     onUnauthenticated={onUnauthenticated}
                   />
                   {replies.length ? (
@@ -263,7 +346,6 @@ export function CommentsPanel(props: CommentsPanelProps) {
                         <li key={r.id}>
                           <CommentCard
                             comment={r}
-                            recordingId={recordingId}
                             currentUserEmail={currentUserEmail}
                             onSeek={onSeek}
                             onReply={() => {
@@ -277,6 +359,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
                               resolve.mutate({ id, resolved })
                             }
                             onDelete={(id) => remove.mutate({ id })}
+                            onReact={(commentId, emoji) =>
+                              reactToComment.mutate({ commentId, emoji })
+                            }
                             onUnauthenticated={onUnauthenticated}
                             isReply
                           />
@@ -361,27 +446,56 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
 function CommentCard({
   comment,
-  recordingId,
   currentUserEmail,
   onSeek,
   onReply,
   onResolve,
   onDelete,
+  onReact,
   onUnauthenticated,
   isReply,
 }: {
   comment: Comment;
-  recordingId: string;
   currentUserEmail?: string;
   onSeek: (ms: number) => void;
   onReply: () => void;
   onResolve: (id: string, resolved: boolean) => void;
   onDelete: (id: string) => void;
+  onReact: (commentId: string, emoji: string) => void;
   onUnauthenticated?: (intent: "comment" | "react") => void;
   isReply?: boolean;
 }) {
-  const reactions = parseReactions(comment.emojiReactionsJson);
+  // Local override forces a synchronous re-render the instant the user clicks
+  // an emoji — independent of React Query cache propagation. It's cleared as
+  // soon as the prop (server-confirmed) catches up to whatever we showed.
+  const [localJson, setLocalJson] = useState<string | null>(null);
+  useEffect(() => {
+    setLocalJson(null);
+  }, [comment.emojiReactionsJson]);
+
+  const reactions = parseReactions(localJson ?? comment.emojiReactionsJson);
   const isOwner = currentUserEmail && comment.authorEmail === currentUserEmail;
+
+  function toggleEmoji(emoji: string) {
+    if (!currentUserEmail) return reactions;
+    const reactingUsers = Array.isArray(reactions[emoji])
+      ? reactions[emoji]
+      : [];
+    const userAlreadyReacted = reactingUsers.includes(currentUserEmail);
+
+    const updatedReactingUsers = userAlreadyReacted
+      ? reactingUsers.filter((email) => email !== currentUserEmail)
+      : [...reactingUsers, currentUserEmail];
+
+    const updatedReactions: Record<string, string[]> = { ...reactions };
+    if (updatedReactingUsers.length === 0) {
+      delete updatedReactions[emoji];
+    } else {
+      updatedReactions[emoji] = updatedReactingUsers;
+    }
+
+    return updatedReactions;
+  }
 
   return (
     <div className={cn("flex gap-2", comment.resolved && "opacity-60")}>
@@ -441,29 +555,8 @@ function CommentCard({
                         onUnauthenticated?.("react");
                         return;
                       }
-                      // Add to comment's emoji reactions
-                      const next = { ...reactions };
-                      const bucket = next[e] ?? [];
-                      if (!bucket.includes(currentUserEmail)) {
-                        next[e] = [...bucket, currentUserEmail];
-                      }
-                      // Patch via delete+re-add isn't ideal; a dedicated action could be added.
-                      // For now, store via react-to-recording at comment timestamp as a proxy.
-                      fetch(
-                        agentNativePath(
-                          "/_agent-native/actions/react-to-recording",
-                        ),
-                        {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            recordingId,
-                            emoji: e,
-                            videoTimestampMs: comment.videoTimestampMs,
-                          }),
-                        },
-                      ).catch(() => {});
-                      void next;
+                      setLocalJson(JSON.stringify(toggleEmoji(e)));
+                      onReact(comment.id, e);
                     }}
                     className="text-lg h-8 w-8 rounded hover:bg-accent flex items-center justify-center"
                   >
@@ -504,14 +597,38 @@ function CommentCard({
 
         {Object.keys(reactions).length > 0 ? (
           <div className="flex flex-wrap gap-1 mt-1.5">
-            {Object.entries(reactions).map(([emoji, users]) => (
-              <span
-                key={emoji}
-                className="text-[11px] rounded-full bg-accent px-1.5 py-0.5 flex items-center gap-1"
-              >
-                {emoji} {users.length}
-              </span>
-            ))}
+            {Object.entries(reactions).map(([emoji, users]) => {
+              const mine =
+                !!currentUserEmail && users.includes(currentUserEmail);
+              return (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => {
+                    if (!currentUserEmail) {
+                      onUnauthenticated?.("react");
+                      return;
+                    }
+                    setLocalJson(JSON.stringify(toggleEmoji(emoji)));
+                    onReact(comment.id, emoji);
+                  }}
+                  aria-pressed={mine}
+                  title={
+                    mine
+                      ? "Click to remove your reaction"
+                      : "Click to add your reaction"
+                  }
+                  className={cn(
+                    "text-[11px] rounded-full px-1.5 py-0.5 flex items-center gap-1 transition-colors",
+                    mine
+                      ? "bg-primary/15 border border-primary/40 text-primary hover:bg-primary/25"
+                      : "bg-accent border border-transparent hover:bg-accent/70",
+                  )}
+                >
+                  {emoji} {users.length}
+                </button>
+              );
+            })}
           </div>
         ) : null}
       </div>
