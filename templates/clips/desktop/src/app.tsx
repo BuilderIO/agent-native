@@ -83,6 +83,7 @@ const CAM_KEY = "clips:last-camera-id";
 const MIC_KEY = "clips:last-mic-id";
 const CAM_ON_KEY = "clips:camera-on";
 const MIC_ON_KEY = "clips:mic-on";
+const READINESS_REVIEWED_KEY = "clips:readiness-reviewed";
 
 // Sensible defaults so the user never has to type a URL on first launch.
 // Dev builds point at the local dev server; production builds point at the
@@ -94,9 +95,9 @@ const DEFAULT_URL = import.meta.env.DEV
   : "https://clips.agent-native.com";
 
 const MACOS_CAPTURE_PERMISSION_MESSAGE =
-  "Recording permission is blocked. Try starting again so macOS can show the Camera and Microphone prompts, then open System Settings → Privacy & Security and enable Clips for Camera, Microphone, and Screen & System Audio Recording. In Tauri dev, macOS may list the debug binary separately from Ghostty or node, so restart Clips after granting it.";
+  "Grant the required macOS permissions below, then try again. If you just changed access, restart Clips before retrying.";
 const MACOS_SPEECH_PERMISSION_MESSAGE =
-  "Speech recognition permission is blocked. Open System Settings → Privacy & Security → Speech Recognition and enable Clips, then start a new recording.";
+  "Grant Speech Recognition and Microphone access, then try again. If you just changed access, restart Clips before retrying.";
 
 function isHardCapturePermissionError(message: string): boolean {
   return /permission denied by system|blocked by system|system settings|screen recording|privacy|sandbox/i.test(
@@ -501,6 +502,9 @@ export function App() {
   );
   const [retryingUploadId, setRetryingUploadId] = useState<string | null>(null);
   const [showRecent, setShowRecent] = useState(false);
+  const [readinessOpen, setReadinessOpen] = useState<boolean>(
+    () => !loadBool(READINESS_REVIEWED_KEY, false),
+  );
   const [showSettings, setShowSettings] = useState(false);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
@@ -1597,6 +1601,21 @@ export function App() {
     setRecError(message);
   }
 
+  function updateReadinessOpen(next: boolean) {
+    setReadinessOpen(next);
+    if (!next) saveBool(READINESS_REVIEWED_KEY, true);
+  }
+
+  function retryCameraPreview() {
+    setCameraError(null);
+    if (!cameraOn) {
+      setCameraOn(true);
+      return;
+    }
+    setCameraOn(false);
+    window.setTimeout(() => setCameraOn(true), 0);
+  }
+
   // When the toolbar or countdown triggers stop/cancel the popover auto-
   // rehydrates into a "last recording" state so the user has a single-click
   // path to the playback page + knows the upload landed.
@@ -1844,21 +1863,47 @@ export function App() {
         />
       </div>
 
+      <ReadinessPanel
+        mode={mode}
+        source={source}
+        cameraOn={cameraOn}
+        micOn={micOn}
+        includeFnMonitoring={fnShortcutEnabled}
+        open={readinessOpen}
+        onOpenChange={updateReadinessOpen}
+        onOpenPermission={openMacosPrivacySettings}
+      />
+
       <button className="primary start" onClick={startRecording}>
         Start recording
       </button>
       {recError ? (
         recError === MACOS_CAPTURE_PERMISSION_MESSAGE ? (
-          <PermissionErrorBanner message={recError} defaultPane="screen" />
+          <PermissionRecoveryBanner
+            kind="recording"
+            message={recError}
+            panes={permissionPanesForRecording(mode, cameraOn, micOn)}
+            onRetry={startRecording}
+          />
         ) : recError === MACOS_SPEECH_PERMISSION_MESSAGE ? (
-          <PermissionErrorBanner message={recError} defaultPane="speech" />
+          <PermissionRecoveryBanner
+            kind="speech"
+            message={recError}
+            panes={["speech", "microphone"]}
+            onRetry={startRecording}
+          />
         ) : (
           <div className="error-banner">{recError}</div>
         )
       ) : null}
       {cameraError && !recError ? (
         cameraError === MACOS_CAPTURE_PERMISSION_MESSAGE ? (
-          <PermissionErrorBanner message={cameraError} defaultPane="camera" />
+          <PermissionRecoveryBanner
+            kind="camera"
+            message={cameraError}
+            panes={["camera"]}
+            onRetry={retryCameraPreview}
+          />
         ) : (
           <div className="error-banner">{cameraError}</div>
         )
@@ -1925,38 +1970,212 @@ function hidePopover() {
   emit("clips:popover-visible", false).catch(() => {});
 }
 
-function PermissionErrorBanner({
-  message,
-  defaultPane,
+function permissionPanesForRecording(
+  mode: CaptureMode,
+  cameraOn: boolean,
+  micOn: boolean,
+): MacosPrivacyPane[] {
+  const panes: MacosPrivacyPane[] = [];
+  if (mode !== "camera") panes.push("screen");
+  if (micOn) panes.push("microphone", "speech");
+  if (mode !== "screen" && cameraOn) panes.push("camera");
+  return Array.from(new Set(panes));
+}
+
+function permissionPaneLabel(pane: MacosPrivacyPane): string {
+  return {
+    camera: "Camera",
+    microphone: "Microphone",
+    screen: "Screen",
+    speech: "Speech",
+    accessibility: "Accessibility",
+    "input-monitoring": "Input Monitoring",
+  }[pane];
+}
+
+function captureModeLabel(mode: CaptureMode, source: CaptureSource): string {
+  if (mode === "camera") return "Camera";
+  const base = source === "window" ? "Window" : "Full screen";
+  return mode === "screen-camera" ? `${base} + camera` : base;
+}
+
+function recordingSummaryParts({
+  mode,
+  source,
+  cameraOn,
+  micOn,
 }: {
-  message: string;
-  defaultPane: MacosPrivacyPane;
+  mode: CaptureMode;
+  source: CaptureSource;
+  cameraOn: boolean;
+  micOn: boolean;
+}): string[] {
+  const parts = [captureModeLabel(mode, source)];
+  if (mode !== "screen") parts.push(cameraOn ? "Camera on" : "Camera off");
+  parts.push(micOn ? "Mic on" : "Mic off");
+  return parts;
+}
+
+function readinessItems({
+  mode,
+  cameraOn,
+  micOn,
+  includeFnMonitoring,
+}: {
+  mode: CaptureMode;
+  cameraOn: boolean;
+  micOn: boolean;
+  includeFnMonitoring: boolean;
+}): Array<{
+  label: string;
+  detail: string;
+  pane: MacosPrivacyPane;
+  active: boolean;
+}> {
+  return [
+    {
+      label: "Screen Recording",
+      detail: "Needed for screen or window capture.",
+      pane: "screen",
+      active: mode !== "camera",
+    },
+    {
+      label: "Microphone",
+      detail: "Needed when the mic is on.",
+      pane: "microphone",
+      active: micOn,
+    },
+    {
+      label: "Speech Recognition",
+      detail: "Used for native transcripts.",
+      pane: "speech",
+      active: micOn,
+    },
+    {
+      label: "Camera",
+      detail: "Needed when camera is on.",
+      pane: "camera",
+      active: mode !== "screen" && cameraOn,
+    },
+    {
+      label: "Input Monitoring",
+      detail: "Only needed for the Fn dictation shortcut.",
+      pane: "input-monitoring",
+      active: includeFnMonitoring,
+    },
+  ].filter((item) => item.active);
+}
+
+function ReadinessPanel({
+  mode,
+  source,
+  cameraOn,
+  micOn,
+  includeFnMonitoring,
+  open,
+  onOpenChange,
+  onOpenPermission,
+}: {
+  mode: CaptureMode;
+  source: CaptureSource;
+  cameraOn: boolean;
+  micOn: boolean;
+  includeFnMonitoring: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onOpenPermission: (pane: MacosPrivacyPane) => void;
 }) {
-  useEffect(() => {
-    openMacosPrivacySettings(defaultPane);
-  }, [defaultPane]);
+  const items = readinessItems({
+    mode,
+    cameraOn,
+    micOn,
+    includeFnMonitoring,
+  });
+  const summary = recordingSummaryParts({
+    mode,
+    source,
+    cameraOn,
+    micOn,
+  }).join(" · ");
+
+  return (
+    <div className={`readiness ${open ? "readiness-open" : ""}`}>
+      <button
+        type="button"
+        className="readiness-summary"
+        aria-expanded={open}
+        onClick={() => onOpenChange(!open)}
+      >
+        <span className="readiness-title">Setup</span>
+        <span className="readiness-copy">{summary}</span>
+        <span className="readiness-action">{open ? "Hide" : "Review"}</span>
+      </button>
+      {open ? (
+        <div className="readiness-list">
+          {items.length ? (
+            items.map((item) => (
+              <div className="readiness-item" key={item.pane}>
+                <div className="readiness-item-copy">
+                  <span className="readiness-item-title">{item.label}</span>
+                  <span className="readiness-item-detail">{item.detail}</span>
+                </div>
+                <button
+                  type="button"
+                  className="readiness-open-button"
+                  onClick={() => onOpenPermission(item.pane)}
+                >
+                  Open
+                </button>
+              </div>
+            ))
+          ) : (
+            <div className="readiness-empty">
+              Turn on camera or mic when you need them.
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PermissionRecoveryBanner({
+  kind,
+  message,
+  panes,
+  onRetry,
+}: {
+  kind: "recording" | "speech" | "camera";
+  message: string;
+  panes: MacosPrivacyPane[];
+  onRetry: () => void;
+}) {
+  const title =
+    kind === "speech"
+      ? "Transcript setup blocked"
+      : kind === "camera"
+        ? "Camera setup blocked"
+        : "Recording setup blocked";
+  const uniquePanes = Array.from(new Set(panes));
 
   return (
     <div className="error-banner permission-banner">
-      <div>{message}</div>
+      <div className="permission-copy">
+        <div className="permission-title">{title}</div>
+        <div>{message}</div>
+      </div>
       <div className="permission-actions" aria-label="Open macOS permissions">
-        <button
-          type="button"
-          onClick={() => openMacosPrivacySettings("camera")}
-        >
-          Camera
-        </button>
-        <button
-          type="button"
-          onClick={() => openMacosPrivacySettings("microphone")}
-        >
-          Microphone
-        </button>
-        <button
-          type="button"
-          onClick={() => openMacosPrivacySettings("screen")}
-        >
-          Screen
+        {uniquePanes.map((pane) => (
+          <button
+            type="button"
+            key={pane}
+            onClick={() => openMacosPrivacySettings(pane)}
+          >
+            {permissionPaneLabel(pane)}
+          </button>
+        ))}
+        <button type="button" className="permission-retry" onClick={onRetry}>
+          Try again
         </button>
       </div>
     </div>
