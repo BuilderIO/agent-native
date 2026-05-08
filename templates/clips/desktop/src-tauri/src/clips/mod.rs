@@ -485,7 +485,18 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
         return Ok(());
     }
     if let Some(w) = app.get_webview_window("popover") {
-        let clamped = height.clamp(200.0, 820.0);
+        let max_logical_height = w
+            .current_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| w.primary_monitor().ok().flatten())
+            .map(|monitor| {
+                let scale = monitor.scale_factor().max(1.0);
+                ((monitor.size().height as f64) / scale - 24.0)
+                    .clamp(260.0, 820.0)
+            })
+            .unwrap_or(820.0);
+        let clamped = height.clamp(200.0, max_logical_height);
         let width = width.unwrap_or(360.0).clamp(320.0, 480.0);
         let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
             width, clamped,
@@ -495,6 +506,45 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
         position_popover(&app, &w);
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn open_macos_privacy_settings(pane: String) -> Result<(), String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = pane;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let url = match pane.as_str() {
+            "camera" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera"
+            }
+            "microphone" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+            }
+            "screen" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+            }
+            "speech" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition"
+            }
+            "accessibility" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+            }
+            "input-monitoring" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+            }
+            _ => return Err(format!("Unknown macOS privacy pane: {pane}")),
+        };
+        Command::new("open")
+            .arg(url)
+            .status()
+            .map_err(|e| format!("failed to open System Settings: {e}"))?;
+        Ok(())
+    }
 }
 
 /// Open a login window pointed at the Clips server's /login route. The
@@ -1144,16 +1194,25 @@ pub fn position_popover(app: &AppHandle, window: &WebviewWindow) {
         let mut x = icon_x + icon_w / 2 - (win_size.width as i32) / 2;
         // Drop below the icon with a tiny gap.
         let gap = 6_i32;
-        let y = icon_y + icon_h + gap;
+        let mut y = icon_y + icon_h + gap;
 
-        // Clamp horizontally so we don't run off the edge of the screen.
+        // Clamp so settings and long error states don't run off the edge of
+        // shorter displays or get stranded in a corner after a resize.
         let min_x = mon_pos.x + 8;
         let max_x = mon_pos.x + mon_size.width as i32 - win_size.width as i32 - 8;
+        let min_y = mon_pos.y + 8;
+        let max_y = mon_pos.y + mon_size.height as i32 - win_size.height as i32 - 8;
         if x < min_x {
             x = min_x;
         }
         if x > max_x {
             x = max_x;
+        }
+        if y < min_y {
+            y = min_y;
+        }
+        if y > max_y.max(min_y) {
+            y = max_y.max(min_y);
         }
         let _ = window.set_position(PhysicalPosition::new(x, y));
         return;
@@ -1164,7 +1223,12 @@ pub fn position_popover(app: &AppHandle, window: &WebviewWindow) {
     let scale = monitor.scale_factor();
     let margin_right = (12.0 * scale) as i32;
     let margin_top = (36.0 * scale) as i32;
-    let x = mon_pos.x + mon_size.width as i32 - win_size.width as i32 - margin_right;
-    let y = mon_pos.y + margin_top;
+    let min_x = mon_pos.x + 8;
+    let max_x = mon_pos.x + mon_size.width as i32 - win_size.width as i32 - 8;
+    let min_y = mon_pos.y + 8;
+    let max_y = mon_pos.y + mon_size.height as i32 - win_size.height as i32 - 8;
+    let x = (mon_pos.x + mon_size.width as i32 - win_size.width as i32 - margin_right)
+        .clamp(min_x, max_x.max(min_x));
+    let y = (mon_pos.y + margin_top).clamp(min_y, max_y.max(min_y));
     let _ = window.set_position(PhysicalPosition::new(x, y));
 }

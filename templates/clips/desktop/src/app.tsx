@@ -285,8 +285,14 @@ function isMacPlatform(): boolean {
 
 function openMacosPrivacySettings(pane: MacosPrivacyPane): void {
   if (!isMacPlatform()) return;
-  openExternal(MACOS_PRIVACY_URLS[pane]).catch((err) => {
-    console.error("[clips-tray] open macOS privacy settings failed:", err);
+  invoke("open_macos_privacy_settings", { pane }).catch((nativeErr) => {
+    console.warn(
+      "[clips-tray] native macOS privacy settings open failed; falling back:",
+      nativeErr,
+    );
+    openExternal(MACOS_PRIVACY_URLS[pane]).catch((err) => {
+      console.error("[clips-tray] open macOS privacy settings failed:", err);
+    });
   });
 }
 
@@ -452,7 +458,7 @@ export function App() {
   );
   const [micId, setMicId] = useState<string>(() => loadString(MIC_KEY, ""));
   const [cameraOn, setCameraOn] = useState<boolean>(() =>
-    loadBool(CAM_ON_KEY, true),
+    loadBool(CAM_ON_KEY, false),
   );
   const [micOn, setMicOn] = useState<boolean>(() => loadBool(MIC_ON_KEY, true));
   const [voiceShortcut, setVoiceShortcut] = useState<VoiceShortcutPreference>(
@@ -2034,6 +2040,7 @@ function Header({
           title="Screen only"
         >
           <ScreenIcon />
+          <span className="mode-label">Screen</span>
         </button>
         <button
           className={mode === "screen-camera" ? "active" : ""}
@@ -2042,6 +2049,7 @@ function Header({
           title="Screen + Camera"
         >
           <ScreenCamIcon />
+          <span className="mode-label">Screen + Cam</span>
         </button>
         <button
           className={mode === "camera" ? "active" : ""}
@@ -2050,6 +2058,7 @@ function Header({
           title="Camera only"
         >
           <CamIcon />
+          <span className="mode-label">Camera</span>
         </button>
       </div>
       <button
@@ -2770,6 +2779,8 @@ function Setup({
   const featureConfig = useFeatureConfig();
   const voiceEnabled = featureConfig?.voiceEnabled !== false;
   const launchAtLoginEnabled = featureConfig?.launchAtLoginEnabled !== false;
+  const autoHidePopoverEnabled =
+    featureConfig?.autoHidePopoverEnabled === true;
   const [providerStatus, setProviderStatus] =
     useState<VoiceProviderStatus | null>(null);
   const [providerStatusLoading, setProviderStatusLoading] = useState(true);
@@ -2793,6 +2804,15 @@ function Setup({
     if (!featureConfig) return;
     invoke("set_feature_config", {
       config: { ...featureConfig, launchAtLoginEnabled: enabled },
+    }).catch((err) =>
+      console.error("[settings] set_feature_config failed", err),
+    );
+  }
+
+  function setAutoHidePopoverEnabled(enabled: boolean) {
+    if (!featureConfig) return;
+    invoke("set_feature_config", {
+      config: { ...featureConfig, autoHidePopoverEnabled: enabled },
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
     );
@@ -3027,6 +3047,20 @@ function Setup({
             on={launchAtLoginEnabled}
             onChange={setLaunchAtLoginEnabled}
             label="Open Clips at login"
+          />
+        </div>
+      </div>
+
+      <div className="setup-section">
+        <div className="setup-toggle-row">
+          <SettingLabel
+            label="Hide when inactive"
+            hint="When off, the Clips window stays open until you close it."
+          />
+          <Switch
+            on={autoHidePopoverEnabled}
+            onChange={setAutoHidePopoverEnabled}
+            label="Hide Clips when focus leaves"
           />
         </div>
       </div>
@@ -3365,6 +3399,10 @@ function shortcutFromKeyboardEvent(event: React.KeyboardEvent): string | null {
   return [...parts, formatShortcutKey(event.key)].join("+");
 }
 
+function hasShortcutModifier(event: React.KeyboardEvent): boolean {
+  return event.metaKey || event.ctrlKey || event.altKey || event.shiftKey;
+}
+
 function ShortcutRecorder({
   value,
   placeholder,
@@ -3384,7 +3422,11 @@ function ShortcutRecorder({
         ref={buttonRef}
         type="button"
         className={`setup-shortcut-recorder ${recording ? "recording" : ""}`}
-        onClick={() => {
+        onClick={(event) => {
+          if (recording) {
+            event.preventDefault();
+            return;
+          }
           setError(null);
           setRecording(true);
           requestAnimationFrame(() => buttonRef.current?.focus());
@@ -3407,12 +3449,21 @@ function ShortcutRecorder({
           }
           const next = shortcutFromKeyboardEvent(event);
           if (!next) {
-            setError("Use at least one modifier plus a key.");
+            setError(
+              event.key === " " && !hasShortcutModifier(event)
+                ? "Space needs Cmd, Ctrl, Option, or Shift so it does not hijack typing."
+                : "Use at least one modifier plus a key.",
+            );
             return;
           }
           onChange(next);
           setRecording(false);
           setError(null);
+        }}
+        onKeyUp={(event) => {
+          if (!recording) return;
+          event.preventDefault();
+          event.stopPropagation();
         }}
       >
         {recording ? "Press shortcut..." : value || placeholder}
