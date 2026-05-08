@@ -12,6 +12,8 @@ import {
   IconAppWindow,
   IconX,
   IconMenu2,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
 } from "@tabler/icons-react";
 import {
   AgentSidebar,
@@ -54,6 +56,18 @@ import {
 
 interface LibraryLayoutProps {
   children: ReactNode;
+}
+
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "clips:left-sidebar-collapsed";
+
+function readSidebarCollapsedPreference() {
+  if (typeof window === "undefined") return false;
+
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
 }
 
 function ClipsAgentToggleButton() {
@@ -100,7 +114,11 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   );
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    readSidebarCollapsedPreference,
+  );
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+  const showCollapsedSidebar = sidebarCollapsed && !isMobile;
 
   // Routes whose page renders its own h-12 toolbar (with NotificationsBell +
   // AgentToggleButton). Layout still mounts Sidebar + AgentSidebar, but skips
@@ -112,6 +130,17 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        SIDEBAR_COLLAPSED_STORAGE_KEY,
+        sidebarCollapsed ? "true" : "false",
+      );
+    } catch {
+      // Ignore browsers that block localStorage; the toggle still works.
+    }
+  }, [sidebarCollapsed]);
 
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -189,7 +218,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             {/* Left sidebar */}
             <aside
               className={cn(
-                "fixed inset-y-0 left-0 z-50 flex h-full w-[260px] flex-col border-r border-border bg-sidebar md:static md:z-auto",
+                "fixed inset-y-0 left-0 z-50 flex h-full w-[260px] flex-col overflow-hidden border-r border-border bg-sidebar transition-[width,transform] duration-200 ease-out md:static md:z-auto",
+                showCollapsedSidebar && "md:w-14",
                 sidebarOpen
                   ? "translate-x-0"
                   : "-translate-x-full md:translate-x-0",
