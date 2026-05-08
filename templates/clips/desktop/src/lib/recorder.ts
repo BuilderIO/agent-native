@@ -1961,10 +1961,7 @@ async function startNativeRecordingInner(
         stream: primaryVideo,
         authToken: params.authToken,
       }).catch((err) => {
-        console.warn(
-          "[clips-recorder] thumbnail capture/upload failed:",
-          err,
-        );
+        console.warn("[clips-recorder] thumbnail capture/upload failed:", err);
       });
 
       const nativeTranscript = await nativeTranscriptCapture

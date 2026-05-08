@@ -62,6 +62,7 @@ import {
   IconTrash,
   IconArrowsMaximize,
   IconArrowsMinimize,
+  IconExternalLink,
 } from "@tabler/icons-react";
 import { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
 import { FeedbackButton } from "./FeedbackButton.js";
@@ -221,6 +222,21 @@ function IconTooltip({
 
 // ─── AgentPanel ─────────────────────────────────────────────────────────────
 
+export interface AgentPanelCodeAccess {
+  /** Whether this surface can safely edit source, access workspace files, and run shell commands. */
+  enabled: boolean;
+  /** Heading shown when code access is unavailable. */
+  unavailableTitle?: string;
+  /** Detail copy shown when code access is unavailable. */
+  unavailableDescription?: string;
+  /** Optional CTA label for the unavailable state. */
+  unavailableCtaLabel?: string;
+  /** Optional CTA URL for the unavailable state. */
+  unavailableCtaHref?: string;
+  /** Disabled composer placeholder while code access is unavailable. */
+  unavailableComposerPlaceholder?: string;
+}
+
 export interface AgentPanelProps extends Omit<
   AssistantChatProps,
   "onSwitchToCli"
@@ -241,12 +257,66 @@ export interface AgentPanelProps extends Omit<
   storageKey?: string;
   /** Optional notice rendered below the main header while Chat mode is active. */
   chatNotice?: React.ReactNode;
+  /** Capability gate for source edits, workspace files, and CLI access. */
+  codeAccess?: AgentPanelCodeAccess;
 }
 
 function useClientOnly() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   return mounted;
+}
+
+function CodeAccessUnavailablePanel({
+  title,
+  description,
+  ctaLabel,
+  ctaHref,
+  compact = false,
+}: {
+  title: string;
+  description: string;
+  ctaLabel: string;
+  ctaHref?: string;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-lg border border-border bg-muted/35 text-center",
+        compact ? "mx-3 mt-2 px-3 py-2.5" : "max-w-[300px] px-4 py-4",
+      )}
+    >
+      <div
+        className={cn(
+          "mx-auto flex items-center justify-center rounded-full bg-background text-muted-foreground",
+          compact ? "mb-2 h-8 w-8" : "mb-3 h-10 w-10",
+        )}
+      >
+        <IconTerminal2 className={compact ? "h-4 w-4" : "h-5 w-5"} />
+      </div>
+      <p className="text-sm font-medium text-foreground">{title}</p>
+      <p
+        className={cn(
+          "mt-1 text-muted-foreground",
+          compact ? "text-[11px] leading-snug" : "text-xs leading-relaxed",
+        )}
+      >
+        {description}
+      </p>
+      {ctaHref ? (
+        <a
+          href={ctaHref}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
+        >
+          {ctaLabel}
+          <IconExternalLink className="h-3 w-3" />
+        </a>
+      ) : null}
+    </div>
+  );
 }
 
 function AgentPanelInner({
@@ -262,6 +332,7 @@ function AgentPanelInner({
   devAppUrl,
   storageKey,
   chatNotice,
+  codeAccess,
 }: AgentPanelProps) {
   const mounted = useClientOnly();
   const keyPrefix = storageKey ? `:${storageKey}` : "";
@@ -428,6 +499,21 @@ function AgentPanelInner({
   const selectedLabel =
     availableClis.find((c) => c.command === selectedCli)?.label || selectedCli;
   const { isDevMode, canToggle, setDevMode } = useDevMode(apiUrl);
+  const codeAccessEnabled = codeAccess?.enabled !== false;
+  const codeUnavailableTitle =
+    codeAccess?.unavailableTitle ?? "Open Desktop to edit code";
+  const codeUnavailableDescription =
+    codeAccess?.unavailableDescription ??
+    "Source-code changes, workspace files, and CLI access are available in the Agent Native Desktop app.";
+  const codeUnavailableCtaLabel =
+    codeAccess?.unavailableCtaLabel ?? "Download Desktop";
+  const codeUnavailableCtaHref =
+    codeAccess?.unavailableCtaHref ?? "https://agent-native.com/download";
+  const codeUnavailableComposerPlaceholder =
+    codeAccess?.unavailableComposerPlaceholder ??
+    "Open Desktop to edit code or run commands.";
+  const canUseCodeTools = isDevMode && codeAccessEnabled;
+  const showCliMode = isDevMode || !codeAccessEnabled;
 
   // Notify frame when dev mode changes — use both a local CustomEvent (for
   // when AgentPanel is rendered directly in the frame) AND postMessage (for
@@ -482,7 +568,7 @@ function AgentPanelInner({
             </TooltipTrigger>
             <TooltipContent>Chat mode</TooltipContent>
           </Tooltip>
-          {isDevMode && (
+          {showCliMode && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -500,7 +586,11 @@ function AgentPanelInner({
                   CLI
                 </button>
               </TooltipTrigger>
-              <TooltipContent>CLI terminal mode</TooltipContent>
+              <TooltipContent>
+                {codeAccessEnabled
+                  ? "CLI terminal mode"
+                  : "Open Desktop to use CLI"}
+              </TooltipContent>
             </Tooltip>
           )}
           <Tooltip>
@@ -521,7 +611,9 @@ function AgentPanelInner({
               </button>
             </TooltipTrigger>
             <TooltipContent>
-              Workspace files, agents, skills, and tasks
+              {codeAccessEnabled
+                ? "Workspace files, agents, skills, and tasks"
+                : "Open Desktop to use Workspace"}
             </TooltipContent>
           </Tooltip>
           <Tooltip>
@@ -544,13 +636,13 @@ function AgentPanelInner({
         </div>
       </TooltipProvider>
     ),
-    [isDevMode],
+    [codeAccessEnabled, showCliMode],
   );
 
   const renderHeaderActions = useCallback(
     () => (
       <div className="flex shrink-0 items-center gap-1.5">
-        {SHOW_ONBOARDING && isDevMode && (
+        {SHOW_ONBOARDING && canUseCodeTools && (
           <Suspense fallback={null}>
             <SetupButton />
           </Suspense>
@@ -586,7 +678,7 @@ function AgentPanelInner({
         )}
       </div>
     ),
-    [onCollapse, isDevMode, onToggleFullscreen, isFullscreen],
+    [onCollapse, canUseCodeTools, onToggleFullscreen, isFullscreen],
   );
 
   const [tabMenuOpen, setTabMenuOpen] = useState<string | null>(null);
@@ -1057,7 +1149,7 @@ function AgentPanelInner({
           so it's visible regardless of which tab the user is on. The panel
           hides itself once all required steps are done or the user
           dismisses it. Gated by SHOW_ONBOARDING until the UX is improved. */}
-      {SHOW_ONBOARDING && mounted && isDevMode && (
+      {SHOW_ONBOARDING && mounted && canUseCodeTools && (
         <Suspense fallback={null}>
           <OnboardingPanel />
         </Suspense>
@@ -1081,18 +1173,33 @@ function AgentPanelInner({
             renderHeader={showHeader ? renderChatHeader : undefined}
             renderOverlay={undefined}
             contentHidden={mode !== "chat"}
-            emptyStateText={emptyStateText}
-            suggestions={suggestions}
+            emptyStateText={
+              codeAccessEnabled ? emptyStateText : codeUnavailableTitle
+            }
+            suggestions={codeAccessEnabled ? suggestions : undefined}
             onSwitchToCli={() => switchMode("cli")}
-            execMode={isDevMode ? execMode : undefined}
-            onExecModeChange={isDevMode ? switchExecMode : undefined}
+            execMode={canUseCodeTools ? execMode : undefined}
+            onExecModeChange={canUseCodeTools ? switchExecMode : undefined}
             storageKey={storageKey}
+            composerSlot={
+              codeAccessEnabled ? undefined : (
+                <CodeAccessUnavailablePanel
+                  title={codeUnavailableTitle}
+                  description={codeUnavailableDescription}
+                  ctaLabel={codeUnavailableCtaLabel}
+                  ctaHref={codeUnavailableCtaHref}
+                  compact
+                />
+              )
+            }
+            composerDisabled={!codeAccessEnabled}
+            composerDisabledPlaceholder={codeUnavailableComposerPlaceholder}
           />
         )}
       </div>
 
-      {/* CLI terminals — dev mode: real terminal, prod mode: prompt to use dev */}
-      {isDevMode
+      {/* CLI terminals — code-capable dev mode: real terminal, otherwise handoff. */}
+      {canUseCodeTools
         ? mode === "cli" &&
           cliTabs.map((id) => (
             <div
@@ -1120,45 +1227,51 @@ function AgentPanelInner({
           ))
         : mode === "cli" && (
             <div className="flex flex-1 flex-col items-center justify-center min-h-0 px-6 gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-                <IconTerminal2 className="h-5 w-5 text-muted-foreground" />
-              </div>
-              <div className="text-center max-w-[260px]">
-                <p className="text-sm font-medium text-foreground mb-1">
-                  CLI requires dev mode
-                </p>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Run this app locally with{" "}
-                  <code className="bg-muted px-1 py-0.5 rounded text-[10px]">
-                    pnpm dev
-                  </code>{" "}
-                  or use{" "}
-                  <span className="font-medium text-foreground">
-                    Builder.io
-                  </span>{" "}
-                  to access the CLI terminal.
-                </p>
-              </div>
+              <CodeAccessUnavailablePanel
+                title={
+                  codeAccessEnabled
+                    ? "CLI requires dev mode"
+                    : codeUnavailableTitle
+                }
+                description={
+                  codeAccessEnabled
+                    ? "Run this app locally with pnpm dev or use Builder.io to access the CLI terminal."
+                    : codeUnavailableDescription
+                }
+                ctaLabel={codeUnavailableCtaLabel}
+                ctaHref={codeAccessEnabled ? undefined : codeUnavailableCtaHref}
+              />
             </div>
           )}
 
       {/* Resources view */}
       {mode === "resources" && (
         <div className="flex-1 min-h-0">
-          <Suspense
-            fallback={
-              <div className="flex h-full flex-col min-h-0">
-                <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1.5">
-                  <div className="flex items-center gap-1">
-                    <div className="h-5 w-16 rounded bg-muted animate-pulse" />
-                    <div className="h-5 w-14 rounded bg-muted animate-pulse" />
+          {codeAccessEnabled ? (
+            <Suspense
+              fallback={
+                <div className="flex h-full flex-col min-h-0">
+                  <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1.5">
+                    <div className="flex items-center gap-1">
+                      <div className="h-5 w-16 rounded bg-muted animate-pulse" />
+                      <div className="h-5 w-14 rounded bg-muted animate-pulse" />
+                    </div>
                   </div>
                 </div>
-              </div>
-            }
-          >
-            <ResourcesPanel />
-          </Suspense>
+              }
+            >
+              <ResourcesPanel />
+            </Suspense>
+          ) : (
+            <div className="flex h-full items-center justify-center px-6">
+              <CodeAccessUnavailablePanel
+                title="Open Desktop to use Workspace"
+                description={codeUnavailableDescription}
+                ctaLabel={codeUnavailableCtaLabel}
+                ctaHref={codeUnavailableCtaHref}
+              />
+            </div>
+          )}
         </div>
       )}
 

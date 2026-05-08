@@ -1547,7 +1547,10 @@ export function App() {
     if (errName === "AbortError" || /was cancelled|dismissed/i.test(message)) {
       return;
     }
-    if (errName === "NotAllowedError" && !isHardCapturePermissionError(message)) {
+    if (
+      errName === "NotAllowedError" &&
+      !isHardCapturePermissionError(message)
+    ) {
       return;
     }
     if (isHardCapturePermissionError(message)) {
@@ -1852,7 +1855,9 @@ export function App() {
               {r.thumbnailUrl ? (
                 <img
                   className="thumb"
-                  src={resolveDesktopThumbnailUrl(r.thumbnailUrl, serverUrl) ?? ""}
+                  src={
+                    resolveDesktopThumbnailUrl(r.thumbnailUrl, serverUrl) ?? ""
+                  }
                   alt=""
                 />
               ) : (
