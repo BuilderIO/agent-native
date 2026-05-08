@@ -34,4 +34,15 @@ describe("appendSignatureToBody", () => {
       "Hi Alice\n\nSteve",
     );
   });
+
+  it("strips images whose alt text contains brackets", () => {
+    const signature = "Steve\n![Image [1]](https://example.com/logo.png)";
+    expect(normalizeSignature(signature)).toBe("Steve");
+  });
+
+  it("strips linked-image logos without leaving an empty link", () => {
+    const signature =
+      "Steve\n[![Logo](https://example.com/logo.png)](https://example.com)";
+    expect(normalizeSignature(signature)).toBe("Steve");
+  });
 });

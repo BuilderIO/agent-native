@@ -103,17 +103,44 @@ function applyRecentSentEmails(
   if (recentSentMessages.size === 0) return emails;
 
   const now = Date.now();
-  const recent = Array.from(recentSentMessages.values())
-    .filter(({ timestamp }) => {
-      if (now - timestamp <= RECENT_SENT_DURATION) return true;
-      return false;
-    })
-    .map(({ message }) => message);
-
   for (const [id, { timestamp }] of recentSentMessages) {
     if (now - timestamp > RECENT_SENT_DURATION) {
       recentSentMessages.delete(id);
     }
+  }
+  if (recentSentMessages.size === 0) return emails;
+
+  // Index server rows by message id and thread key so we can drop optimistic
+  // overlays once the server confirms the same message, or once the server
+  // reports a fresher message in the same thread (reply arrived, user
+  // archived/trashed, etc.).
+  const serverIds = new Set(emails.map((message) => message.id));
+  const newestByThread = new Map<string, number>();
+  for (const message of emails) {
+    const key = messageThreadKey(message);
+    const ts = new Date(message.date).getTime();
+    const existing = newestByThread.get(key);
+    if (existing === undefined || ts > existing) {
+      newestByThread.set(key, ts);
+    }
+  }
+
+  const recent: EmailMessage[] = [];
+  for (const [id, { message }] of recentSentMessages) {
+    if (serverIds.has(message.id)) {
+      recentSentMessages.delete(id);
+      continue;
+    }
+    const threadKey = messageThreadKey(message);
+    const serverNewest = newestByThread.get(threadKey);
+    const optimisticTs = new Date(message.date).getTime();
+    if (serverNewest !== undefined && serverNewest >= optimisticTs) {
+      // Server has a row at least as fresh as our optimistic copy — let it
+      // win so we don't mask a reply or archive that landed during the TTL.
+      recentSentMessages.delete(id);
+      continue;
+    }
+    recent.push(message);
   }
 
   if (recent.length === 0) return emails;

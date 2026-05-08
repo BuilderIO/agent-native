@@ -19,7 +19,11 @@ export function normalizeSignature(signature?: string | null): string {
 
 export function stripSignatureImages(signature: string): string {
   return signature
-    .replace(/!\[[^\]\n]*\]\((?:https?:\/\/|data:image\/)[^\)\n]+\)/gi, "")
+    .replace(
+      /\[!\[[\s\S]*?\]\((?:https?:\/\/|data:image\/)[^)]*\)\]\([^)]*\)/gi,
+      "",
+    )
+    .replace(/!\[[\s\S]*?\]\((?:https?:\/\/|data:image\/)[^)]*\)/gi, "")
     .split("\n")
     .map((line) => line.replace(/[ \t]+$/g, ""))
     .join("\n")
