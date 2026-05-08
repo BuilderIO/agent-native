@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { IconSearch, IconX } from "@tabler/icons-react";
+import { IconClock, IconSearch, IconX } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import {
   Popover,
@@ -8,6 +8,7 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { useRecordingSearch, type SearchHit } from "@/hooks/use-library";
+import { msToClock } from "@/components/player/scrubber";
 
 function highlight(
   text: string,
@@ -40,6 +41,21 @@ function highlight(
 
 interface SearchBarProps {
   className?: string;
+}
+
+function matchLabel(hit: SearchHit): string {
+  switch (hit.matchType) {
+    case "title-transcript":
+      return "Title + transcript";
+    case "title-comment":
+      return "Title + comment";
+    case "transcript":
+      return "Transcript";
+    case "comment":
+      return "Comment";
+    default:
+      return "Title or description";
+  }
 }
 
 export function SearchBar({ className }: SearchBarProps) {
@@ -86,7 +102,13 @@ export function SearchBar({ className }: SearchBarProps) {
   function pickResult(hit: SearchHit) {
     setOpen(false);
     setQuery("");
-    navigate(`/r/${hit.id}`);
+    const params = new URLSearchParams();
+    if (typeof hit.matchMs === "number" && Number.isFinite(hit.matchMs)) {
+      params.set("t", Math.max(0, Math.floor(hit.matchMs / 1000)).toString());
+    }
+    if (hit.matchPanel) params.set("panel", hit.matchPanel);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    navigate(`/r/${hit.id}${suffix}`);
   }
 
   const showPopover = open && query.length >= 2;
@@ -110,6 +132,7 @@ export function SearchBar({ className }: SearchBarProps) {
             />
             {query ? (
               <button
+                aria-label="Clear search"
                 onClick={() => {
                   setQuery("");
                   inputRef.current?.focus();
@@ -174,12 +197,17 @@ export function SearchBar({ className }: SearchBarProps) {
                     )}
                     <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground/80">
                       <span className="uppercase tracking-wide">
-                        {hit.matchType === "transcript"
-                          ? "Transcript match"
-                          : hit.matchType === "title-transcript"
-                            ? "Title + Transcript"
-                            : "Title match"}
+                        {matchLabel(hit)}
                       </span>
+                      {typeof hit.matchMs === "number" ? (
+                        <>
+                          <span>·</span>
+                          <span className="inline-flex items-center gap-1 tabular-nums">
+                            <IconClock className="h-3 w-3" />
+                            {msToClock(hit.matchMs)}
+                          </span>
+                        </>
+                      ) : null}
                     </div>
                   </div>
                 </li>
