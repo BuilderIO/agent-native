@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { resolveCredentialConfigs } from "./credential-keys";
+import {
+  credentialProviderConfigs,
+  resolveCredentialConfigs,
+} from "./credential-keys";
 
 function keysFor(key: string): string[] {
   return resolveCredentialConfigs(key).configs.map((cfg) => cfg.key);
@@ -18,6 +21,10 @@ describe("credential key lookup", () => {
       "BIGQUERY_PROJECT_ID",
       "ANALYTICS_BIGQUERY_EVENTS_TABLE",
     ]);
+    expect(keysFor("google-analytics")).toEqual([
+      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+      "GA4_PROPERTY_ID",
+    ]);
   });
 
   it("still accepts exact credential keys and labels", () => {
@@ -29,6 +36,24 @@ describe("credential key lookup", () => {
     expect(resolveCredentialConfigs("not-a-source")).toMatchObject({
       configs: [],
       known: false,
+    });
+  });
+
+  it("describes provider required and optional keys separately", () => {
+    expect(
+      credentialProviderConfigs.find((cfg) => cfg.provider === "bigquery"),
+    ).toMatchObject({
+      requiredKeys: [
+        "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+        "BIGQUERY_PROJECT_ID",
+      ],
+      optionalKeys: ["ANALYTICS_BIGQUERY_EVENTS_TABLE"],
+    });
+    expect(
+      credentialProviderConfigs.find((cfg) => cfg.provider === "gong"),
+    ).toMatchObject({
+      requiredKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET"],
+      optionalKeys: ["GONG_API_BASE"],
     });
   });
 });

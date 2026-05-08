@@ -8,6 +8,16 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   IconCheck,
@@ -31,9 +41,12 @@ import {
   categoryLabels,
   categoryOrder,
   type DataSource,
-  type DataSourceCategory,
   type WalkthroughStep,
 } from "@/lib/data-sources";
+import {
+  isSourceConfigured,
+  type EnvKeyStatus,
+} from "@/lib/data-source-status";
 import {
   appApiPath,
   useActionMutation,
@@ -46,13 +59,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-
-interface EnvKeyStatus {
-  key: string;
-  label: string;
-  required: boolean;
-  configured: boolean;
-}
 
 interface AnalyticsPublicKeyRow {
   id: string;
@@ -109,22 +115,6 @@ async function testConnection(
     body: JSON.stringify({ source }),
   });
   return res.json();
-}
-
-function isSourceConnected(
-  source: DataSource,
-  envStatus: EnvKeyStatus[],
-): boolean {
-  const statusMap = new Map(envStatus.map((s) => [s.key, s.configured]));
-  const optionalKeys = new Set(
-    source.walkthroughSteps
-      .filter((step) => step.optional)
-      .map((step) => step.inputKey)
-      .filter(Boolean),
-  );
-  return source.envKeys
-    .filter((key) => !optionalKeys.has(key))
-    .every((key) => statusMap.get(key) === true);
 }
 
 function StepItem({
@@ -266,6 +256,7 @@ function ConnectedView({
   envStatus: EnvKeyStatus[];
 }) {
   const [editing, setEditing] = useState(false);
+  const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [testResult, setTestResult] = useState<{
     ok: boolean;
@@ -289,7 +280,10 @@ function ConnectedView({
 
   const disconnectMutation = useMutation({
     mutationFn: () => deleteCredentials(source.envKeys),
-    onSuccess: () => onSaved(),
+    onSuccess: () => {
+      setDisconnectConfirmOpen(false);
+      onSaved();
+    },
   });
 
   const testMutation = useMutation({
@@ -311,6 +305,30 @@ function ConnectedView({
       keyLabels[step.inputKey] = step.inputLabel || step.inputKey;
     }
   }
+  const sharedCredentialKeys = source.envKeys.filter((key) =>
+    dataSources.some(
+      (other) => other.id !== source.id && other.envKeys.includes(key),
+    ),
+  );
+  const sharedSourceNames = Array.from(
+    new Set(
+      dataSources
+        .filter(
+          (other) =>
+            other.id !== source.id &&
+            other.envKeys.some((key) => source.envKeys.includes(key)),
+        )
+        .map((other) => other.name),
+    ),
+  );
+
+  const handleDisconnect = () => {
+    if (sharedCredentialKeys.length > 0) {
+      setDisconnectConfirmOpen(true);
+      return;
+    }
+    disconnectMutation.mutate();
+  };
 
   if (editing) {
     return (
@@ -424,110 +442,143 @@ function ConnectedView({
   }
 
   return (
-    <div className="space-y-3 py-3">
-      {/* Credential summary */}
-      <div className="space-y-2">
-        {source.envKeys.map((key) => {
-          const configured =
-            envStatus.find((s) => s.key === key)?.configured ?? false;
-          return (
-            <div
-              key={key}
-              className="flex items-center justify-between text-xs"
-            >
-              <span className="text-muted-foreground">
-                {keyLabels[key] || key}
-              </span>
-              {configured ? (
-                <span className="text-emerald-500 flex items-center gap-1">
-                  <IconCheck className="h-3 w-3" />
-                  Configured
+    <>
+      <div className="space-y-3 py-3">
+        {/* Credential summary */}
+        <div className="space-y-2">
+          {source.envKeys.map((key) => {
+            const configured =
+              envStatus.find((s) => s.key === key)?.configured ?? false;
+            return (
+              <div
+                key={key}
+                className="flex items-center justify-between text-xs"
+              >
+                <span className="text-muted-foreground">
+                  {keyLabels[key] || key}
                 </span>
-              ) : (
-                <span className="text-rose-400 flex items-center gap-1">
-                  <IconAlertCircle className="h-3 w-3" />
-                  Missing
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                {configured ? (
+                  <span className="text-emerald-500 flex items-center gap-1">
+                    <IconCheck className="h-3 w-3" />
+                    Configured
+                  </span>
+                ) : (
+                  <span className="text-rose-400 flex items-center gap-1">
+                    <IconAlertCircle className="h-3 w-3" />
+                    Missing
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
 
-      {/* Actions */}
-      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/30">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            setTestResult(null);
-            testMutation.mutate();
-          }}
-          disabled={testMutation.isPending}
-          className="text-xs"
-        >
-          {testMutation.isPending ? (
-            <>
-              <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
-              Testing...
-            </>
-          ) : (
-            "Test Connection"
-          )}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setEditing(true)}
-          className="text-xs"
-        >
-          <IconPencil className="h-3 w-3 mr-1.5" />
-          Edit
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => disconnectMutation.mutate()}
-          disabled={disconnectMutation.isPending}
-          className="text-xs text-destructive hover:text-destructive"
-        >
-          {disconnectMutation.isPending ? (
-            <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
-          ) : (
-            <IconTrash className="h-3 w-3 mr-1.5" />
-          )}
-          Disconnect
-        </Button>
-        {source.docsUrl && (
-          <a
-            href={source.docsUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 ml-auto"
+        {/* Actions */}
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/30">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setTestResult(null);
+              testMutation.mutate();
+            }}
+            disabled={testMutation.isPending}
+            className="text-xs"
           >
-            Docs <IconExternalLink className="h-3 w-3" />
-          </a>
-        )}
-      </div>
-
-      {testResult && (
-        <div
-          className={`flex items-center gap-2 text-xs ${testResult.ok ? "text-emerald-500" : "text-rose-400"}`}
-        >
-          {testResult.ok ? (
-            <>
-              <IconCheck className="h-3.5 w-3.5" />
-              Connection successful
-            </>
-          ) : (
-            <>
-              <IconAlertCircle className="h-3.5 w-3.5" />
-              {testResult.error || "Connection failed"}
-            </>
+            {testMutation.isPending ? (
+              <>
+                <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
+                Testing...
+              </>
+            ) : (
+              "Test Connection"
+            )}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setEditing(true)}
+            className="text-xs"
+          >
+            <IconPencil className="h-3 w-3 mr-1.5" />
+            Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleDisconnect}
+            disabled={disconnectMutation.isPending}
+            className="text-xs text-destructive hover:text-destructive"
+          >
+            {disconnectMutation.isPending ? (
+              <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
+            ) : (
+              <IconTrash className="h-3 w-3 mr-1.5" />
+            )}
+            Disconnect
+          </Button>
+          {source.docsUrl && (
+            <a
+              href={source.docsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 ml-auto"
+            >
+              Docs <IconExternalLink className="h-3 w-3" />
+            </a>
           )}
         </div>
-      )}
-    </div>
+
+        {testResult && (
+          <div
+            className={`flex items-center gap-2 text-xs ${testResult.ok ? "text-emerald-500" : "text-rose-400"}`}
+          >
+            {testResult.ok ? (
+              <>
+                <IconCheck className="h-3.5 w-3.5" />
+                Connection successful
+              </>
+            ) : (
+              <>
+                <IconAlertCircle className="h-3.5 w-3.5" />
+                {testResult.error || "Connection failed"}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+      <AlertDialog
+        open={disconnectConfirmOpen}
+        onOpenChange={setDisconnectConfirmOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect {source.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will clear credentials shared with{" "}
+              {sharedSourceNames.join(", ")}. Those sources may stop working
+              until the shared credentials are added again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
+            Shared credentials:{" "}
+            {sharedCredentialKeys
+              .map((key) => keyLabels[key] || key)
+              .join(", ")}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => disconnectMutation.mutate()}
+              disabled={disconnectMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {disconnectMutation.isPending ? "Disconnecting..." : "Disconnect"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -593,12 +644,12 @@ function DataSourceCard({
               ) : connected ? (
                 <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
                   <IconCheck className="h-3.5 w-3.5" />
-                  Connected
+                  Configured
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
                   <IconCircle className="h-3 w-3" />
-                  Not connected
+                  Not configured
                 </span>
               )}
               {expanded ? (
@@ -892,12 +943,12 @@ function FirstPartyAnalyticsCard() {
               ) : connected ? (
                 <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
                   <IconCheck className="h-3.5 w-3.5" />
-                  Connected
+                  Configured
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
                   <IconCircle className="h-3 w-3" />
-                  Not connected
+                  Not configured
                 </span>
               )}
               {expanded ? (
@@ -1045,8 +1096,8 @@ export default function DataSources() {
     staleTime: 10_000,
   });
 
-  const connectedCount = dataSources.filter((s) =>
-    isSourceConnected(s, envStatus),
+  const configuredCount = dataSources.filter((s) =>
+    isSourceConfigured(s, envStatus),
   ).length;
 
   const handleSaved = () => {
@@ -1066,11 +1117,14 @@ export default function DataSources() {
     <div className="mx-auto max-w-5xl space-y-8">
       <p className="text-sm text-muted-foreground">
         Connect your data sources, then ask the agent to create dashboards.{" "}
-        {!isStatusLoading && connectedCount > 0 && (
-          <span className="text-emerald-500 font-medium">
-            {connectedCount} connected
-          </span>
-        )}
+        {!isStatusLoading &&
+          (configuredCount > 0 ? (
+            <span className="text-emerald-500 font-medium">
+              {configuredCount} configured
+            </span>
+          ) : (
+            <span className="text-amber-500 font-medium">0 configured</span>
+          ))}
       </p>
 
       {/* Search bar + Add Data Source */}
@@ -1096,7 +1150,7 @@ export default function DataSources() {
               <DataSourceCard
                 key={source.id}
                 source={source}
-                connected={isSourceConnected(source, envStatus)}
+                connected={isSourceConfigured(source, envStatus)}
                 envStatus={envStatus}
                 isStatusLoading={isStatusLoading}
                 onSaved={handleSaved}
@@ -1123,7 +1177,7 @@ export default function DataSources() {
                   <DataSourceCard
                     key={source.id}
                     source={source}
-                    connected={isSourceConnected(source, envStatus)}
+                    connected={isSourceConfigured(source, envStatus)}
                     envStatus={envStatus}
                     isStatusLoading={isStatusLoading}
                     onSaved={handleSaved}

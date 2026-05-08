@@ -452,6 +452,13 @@ export interface ProductionAgentOptions {
   providerOptions?: EngineMessage extends never ? never : any;
   /** Called when a run completes (for server-side thread persistence) */
   onRunComplete?: (run: ActiveRun, threadId: string | undefined) => void;
+  /** Called after request validation but before a run is started. */
+  onRunPrepared?: (details: {
+    runId: string;
+    threadId: string | undefined;
+    message: string;
+    attachments?: AgentChatAttachment[];
+  }) => void | Promise<void>;
   /** Optional per-app agent run chunk budget in milliseconds. Defaults to
    *  AGENT_RUN_SOFT_TIMEOUT_MS when set, otherwise no framework-imposed
    *  timeout. When reached, the client receives an internal auto-continuation
@@ -1583,6 +1590,8 @@ export function createProductionAgentHandler(
       references = [],
       threadId,
       attachments,
+      displayMessage,
+      internalContinuation,
       model: requestModel,
       engine: requestEngine,
       effort: requestEffort,
@@ -1973,6 +1982,18 @@ export function createProductionAgentHandler(
 
     // Start agent loop in background via run-manager
     const runId = generateRunId();
+    if (options.onRunPrepared && !internalContinuation) {
+      const messageToPersist =
+        typeof displayMessage === "string" && displayMessage.trim().length > 0
+          ? displayMessage
+          : requestMessage;
+      await options.onRunPrepared({
+        runId,
+        threadId,
+        message: messageToPersist,
+        attachments: Array.isArray(attachments) ? attachments : [],
+      });
+    }
     startRun(
       runId,
       threadId ?? runId,

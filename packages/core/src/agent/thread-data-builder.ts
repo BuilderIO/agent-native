@@ -1,4 +1,4 @@
-import type { RunEvent } from "./types.js";
+import type { AgentChatAttachment, RunEvent } from "./types.js";
 
 interface ContentPart {
   type: string;
@@ -15,6 +15,9 @@ interface BuildAssistantMessageOptions {
 }
 
 type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
+type UserMessage = ReturnType<typeof buildUserMessage>;
+
+const MAX_STORED_ATTACHMENT_CHARS = 60_000;
 
 function isInternalContinuationError(event: {
   error: string;
@@ -232,6 +235,15 @@ function isTerminalAssistantStatus(status: unknown): boolean {
   return type === "complete" || type === "incomplete";
 }
 
+function normalizeAttachmentIdentity(attachments: unknown): unknown {
+  if (!Array.isArray(attachments)) return undefined;
+  return attachments.map((att: any) => ({
+    type: att?.type,
+    name: att?.name,
+    contentType: att?.contentType,
+  }));
+}
+
 function messageIdentityKeys(message: any): string[] {
   const keys: string[] = [];
   if (typeof message?.id === "string" && message.id) {
@@ -251,7 +263,25 @@ function messageIdentityKeys(message: any): string[] {
   } catch {
     // Best effort. id/runId usually exist for persisted assistant-ui rows.
   }
+  if (message?.role === "user") {
+    try {
+      keys.push(
+        `user-fingerprint:${JSON.stringify({
+          role: message.role,
+          content: message.content,
+          attachments: normalizeAttachmentIdentity(message.attachments),
+        })}`,
+      );
+    } catch {
+      // Same best-effort behavior as the full fingerprint.
+    }
+  }
   return keys;
+}
+
+function messagesMatch(a: any, b: any): boolean {
+  const bKeys = new Set(messageIdentityKeys(b));
+  return messageIdentityKeys(a).some((key) => bKeys.has(key));
 }
 
 function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
@@ -330,6 +360,139 @@ export function mergeThreadDataForClientSave(
 
   merged.messages = nextMessages;
   return merged;
+}
+
+function escapeAttachmentAttribute(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+function unwrapTextAttachmentEnvelope(text: string): string {
+  const match = text.match(
+    /^<attachment\b[^>]*>\n?([\s\S]*?)\n?<\/attachment>$/,
+  );
+  return match ? match[1] : text;
+}
+
+function truncateStoredAttachment(text: string): string {
+  const unwrapped = unwrapTextAttachmentEnvelope(text);
+  if (unwrapped.length <= MAX_STORED_ATTACHMENT_CHARS) return unwrapped;
+  const omitted = unwrapped.length - MAX_STORED_ATTACHMENT_CHARS;
+  return `${unwrapped.slice(0, MAX_STORED_ATTACHMENT_CHARS)}\n\n[Attachment truncated after ${MAX_STORED_ATTACHMENT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted from persisted chat history.]`;
+}
+
+function textAttachmentEnvelope(
+  att: AgentChatAttachment,
+  text: string,
+): string {
+  const attrs = [
+    `name="${escapeAttachmentAttribute(att.name || "attachment")}"`,
+    att.contentType
+      ? `contentType="${escapeAttachmentAttribute(att.contentType)}"`
+      : null,
+    att.type ? `type="${escapeAttachmentAttribute(att.type)}"` : null,
+  ].filter(Boolean);
+  return `<attachment ${attrs.join(" ")}>\n${truncateStoredAttachment(text)}\n</attachment>`;
+}
+
+function buildStoredAttachments(
+  attachments: AgentChatAttachment[] | undefined,
+  runId: string | undefined,
+): any[] {
+  return (attachments ?? [])
+    .map((att, index) => {
+      const id = `server-${runId ?? Date.now()}-attachment-${index}`;
+      if (att.type === "image" && att.data) {
+        return {
+          id,
+          type: "image",
+          name: att.name,
+          contentType: att.contentType,
+          status: { type: "complete" },
+          content: [{ type: "image", image: att.data }],
+        };
+      }
+      if (att.data) {
+        return {
+          id,
+          type: "file",
+          name: att.name,
+          contentType: att.contentType,
+          status: { type: "complete" },
+          content: [
+            {
+              type: "file",
+              data: att.data,
+              mimeType: att.contentType,
+              filename: att.name,
+            },
+          ],
+        };
+      }
+      if (typeof att.text === "string" && att.text.length > 0) {
+        return {
+          id,
+          type: "file",
+          name: att.name,
+          contentType: att.contentType,
+          status: { type: "complete" },
+          content: [
+            { type: "text", text: textAttachmentEnvelope(att, att.text) },
+          ],
+        };
+      }
+      return null;
+    })
+    .filter(Boolean);
+}
+
+export function buildUserMessage(opts: {
+  text: string;
+  attachments?: AgentChatAttachment[];
+  runId?: string;
+  createdAt?: Date;
+}): {
+  id: string;
+  createdAt: Date;
+  role: "user";
+  content: ContentPart[];
+  attachments?: any[];
+  metadata: Record<string, unknown>;
+} {
+  const attachments = buildStoredAttachments(opts.attachments, opts.runId);
+  return {
+    id: `server-user-${opts.runId ?? Date.now()}`,
+    createdAt: opts.createdAt ?? new Date(),
+    role: "user",
+    content: [{ type: "text", text: opts.text }],
+    ...(attachments.length > 0 ? { attachments } : {}),
+    metadata: {
+      custom: {
+        submittedRunId: opts.runId,
+      },
+    },
+  };
+}
+
+export function upsertUserMessage(repo: any, userMsg: UserMessage): any {
+  const nextRepo = repo && typeof repo === "object" ? repo : {};
+  if (!Array.isArray(nextRepo.messages)) nextRepo.messages = [];
+
+  const lastIndex = nextRepo.messages.length - 1;
+  const lastEntry = lastIndex >= 0 ? nextRepo.messages[lastIndex] : undefined;
+  const lastMsg = getStoredMessage(lastEntry);
+  if (lastMsg?.role === "user" && messagesMatch(lastMsg, userMsg)) {
+    return nextRepo;
+  }
+
+  const isWrapped = Boolean(lastEntry && "message" in lastEntry);
+  if (isWrapped) {
+    const parentId =
+      lastIndex >= 0 ? (getStoredMessage(lastEntry)?.id ?? null) : null;
+    nextRepo.messages.push({ message: userMsg, parentId });
+  } else {
+    nextRepo.messages.push(userMsg);
+  }
+  return nextRepo;
 }
 
 function shouldReplaceLastAssistant(
