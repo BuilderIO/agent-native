@@ -456,52 +456,10 @@ export default function CalendarView() {
     startTime: string,
     endTime: string,
   ) {
-    const dateStr = format(clickedDate, "yyyy-MM-dd");
-    const startISO = new Date(`${dateStr}T${startTime}:00`).toISOString();
-    const endISO = new Date(`${dateStr}T${endTime}:00`).toISOString();
-    const tempId = `temp-${Date.now()}`;
-
-    createEvent.mutate(
-      {
-        title: "(No title)",
-        description: "",
-        location: "",
-        start: startISO,
-        end: endISO,
-        allDay: false,
-        _tempId: tempId,
-      },
-      {
-        onSuccess: (result) => {
-          // Synchronously swap the optimistic temp event for the real one
-          // in the cache so the inline input stays mounted when we update
-          // quickEditEventId to the real ID.
-          const { _tempId, ...realEvent } = result;
-          const stableTempId = _tempId ?? tempId;
-          setQuickEditTempIds((current) => ({
-            ...current,
-            [realEvent.id]: stableTempId,
-          }));
-          queryClient.setQueriesData<CalendarEvent[]>(
-            { queryKey: ["action", "list-events"] },
-            (old) =>
-              old?.map((e) =>
-                e.id === stableTempId
-                  ? { ...e, ...realEvent, _tempId: stableTempId }
-                  : e,
-              ),
-          );
-          setQuickEditEventId(realEvent.id);
-        },
-        onError: () => {
-          setQuickEditEventId(null);
-          toast.error("Failed to create event");
-        },
-      },
-    );
-
-    // Immediately show inline editor on the optimistic event
-    setQuickEditEventId(tempId);
+    setSelectedDate(clickedDate);
+    setCreateDefaultStart(startTime);
+    setCreateDefaultEnd(endTime);
+    setCreateDialogOpen(true);
   }
 
   function handleQuickEditSave(eventId: string, title: string) {
