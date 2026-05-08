@@ -26,6 +26,7 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
+import { ANTHROPIC_MODEL_CONFIG } from "../model-config.js";
 
 export const ANTHROPIC_CAPABILITIES: EngineCapabilities = {
   thinking: true,
@@ -35,18 +36,9 @@ export const ANTHROPIC_CAPABILITIES: EngineCapabilities = {
   parallelToolCalls: true,
 };
 
-export const ANTHROPIC_SUPPORTED_MODELS = [
-  "claude-opus-4-7",
-  "claude-sonnet-4-6",
-  "claude-haiku-4-5-20251001",
-] as const;
-
-// Single source of truth for the framework default lives in
-// agent/default-model.ts. Engines, integrations, and the agent-chat plugin
-// all read from the same constant, so bumping the default model is a
-// one-line change.
-import { DEFAULT_MODEL } from "../default-model.js";
-export const ANTHROPIC_DEFAULT_MODEL = DEFAULT_MODEL;
+export const ANTHROPIC_SUPPORTED_MODELS =
+  ANTHROPIC_MODEL_CONFIG.supportedModels;
+export const ANTHROPIC_DEFAULT_MODEL = ANTHROPIC_MODEL_CONFIG.defaultModel;
 
 class AnthropicEngine implements AgentEngine {
   readonly name = "anthropic";

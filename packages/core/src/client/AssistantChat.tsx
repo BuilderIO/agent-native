@@ -69,6 +69,8 @@ import {
   type TiptapComposerHandle,
 } from "./composer/TiptapComposer.js";
 import type { Reference } from "./composer/types.js";
+import { isPastedTextAttachmentName } from "./composer/pasted-text.js";
+import { PastedTextChip } from "./composer/PastedTextChip.js";
 import {
   IconMessage,
   IconX,
@@ -662,6 +664,10 @@ function ComposerAttachmentPreviewCard({
     };
   }, [attachment]);
 
+  if (isPastedTextAttachmentName(attachment.name)) {
+    return <PastedTextChip attachment={attachment} onRemove={onRemove} />;
+  }
+
   const isImage = !!imageSrc;
 
   return (
@@ -1112,6 +1118,10 @@ function UserMessageAttachments() {
   return (
     <div className="flex flex-wrap justify-end gap-1.5 mb-1.5">
       {attachments.map((att) => {
+        if (isPastedTextAttachmentName(att.name)) {
+          return <PastedTextChip key={att.id} attachment={att} compact />;
+        }
+
         const imagePart = att.content?.find(
           (p): p is { type: "image"; image: string } =>
             p.type === "image" && "image" in p && !!p.image,
@@ -2159,6 +2169,10 @@ export interface AssistantChatProps {
   execMode?: "build" | "plan";
   /** Callback to change execution mode */
   onExecModeChange?: (mode: "build" | "plan") => void;
+  /** Disable Plan mode while leaving Act mode available. */
+  planModeDisabled?: boolean;
+  /** Explanation shown next to the disabled Plan option. */
+  planModeDisabledReason?: string;
   /** Selected model override for this conversation (undefined = use server default) */
   selectedModel?: string;
   /** Default model from server config (shown in picker when no override is set) */
@@ -2252,6 +2266,8 @@ const AssistantChatInner = forwardRef<
     onSlashCommand,
     execMode,
     onExecModeChange,
+    planModeDisabled,
+    planModeDisabledReason,
     selectedModel,
     defaultModel,
     selectedEngine,
@@ -3531,6 +3547,8 @@ const AssistantChatInner = forwardRef<
                   onSlashCommand={onSlashCommand}
                   execMode={execMode}
                   onExecModeChange={onExecModeChange}
+                  planModeDisabled={planModeDisabled}
+                  planModeDisabledReason={planModeDisabledReason}
                   selectedModel={selectedModel ?? defaultModel}
                   selectedEffort={selectedEffort}
                   availableModels={availableModels}

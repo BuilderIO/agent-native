@@ -224,6 +224,10 @@ interface TiptapComposerProps {
   execMode?: ExecMode;
   /** Callback to change execution mode */
   onExecModeChange?: (mode: ExecMode) => void;
+  /** Disable Plan mode while leaving Act mode available. */
+  planModeDisabled?: boolean;
+  /** Explanation shown next to the disabled Plan option. */
+  planModeDisabledReason?: string;
   /** Show the microphone button for voice dictation. Default true. */
   voiceEnabled?: boolean;
   /** Selected model override for this conversation */
@@ -299,9 +303,13 @@ export function createTiptapComposerExtensions(
 function ModeSelector({
   mode,
   onChange,
+  planModeDisabled = false,
+  planModeDisabledReason = "Open Agent Native Desktop to use Plan mode.",
 }: {
   mode: ExecMode;
   onChange: (mode: ExecMode) => void;
+  planModeDisabled?: boolean;
+  planModeDisabledReason?: string;
 }) {
   const [open, setOpen] = useState(false);
   const ActiveIcon = mode === "build" ? IconPencil : IconClipboardList;
@@ -354,22 +362,37 @@ function ModeSelector({
           </button>
           <button
             type="button"
+            disabled={planModeDisabled}
+            title={planModeDisabled ? planModeDisabledReason : undefined}
             onClick={() => {
+              if (planModeDisabled) return;
               onChange("plan");
               setOpen(false);
             }}
-            className="flex w-full items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left"
+            className={`flex w-full items-center gap-3 px-3 py-2 text-left ${
+              planModeDisabled
+                ? "cursor-not-allowed opacity-60"
+                : "hover:bg-accent/50"
+            }`}
           >
-            <IconClipboardList className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" />
+            <IconClipboardList
+              className={`h-4 w-4 shrink-0 ${
+                planModeDisabled
+                  ? "text-muted-foreground"
+                  : "text-amber-600 dark:text-amber-300"
+              }`}
+            />
             <div className="flex-1 min-w-0">
               <span className="font-medium text-foreground text-[13px]">
                 Plan
               </span>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Read-only research and approval first
+                {planModeDisabled
+                  ? planModeDisabledReason
+                  : "Read-only research and approval first"}
               </p>
             </div>
-            {mode === "plan" && (
+            {mode === "plan" && !planModeDisabled && (
               <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
             )}
           </button>
@@ -703,6 +726,8 @@ export function TiptapComposer({
   onSlashCommand,
   execMode,
   onExecModeChange,
+  planModeDisabled = false,
+  planModeDisabledReason,
   voiceEnabled = true,
   selectedModel,
   selectedEffort,
@@ -731,6 +756,8 @@ export function TiptapComposer({
   execModeRef.current = execMode;
   const onExecModeChangeRef = useRef(onExecModeChange);
   onExecModeChangeRef.current = onExecModeChange;
+  const planModeDisabledRef = useRef(planModeDisabled);
+  planModeDisabledRef.current = planModeDisabled;
 
   const { items: mentionItems, isLoading: mentionsLoading } = useMentionSearch(
     popover?.type === "@" ? popover.query : "",
@@ -988,7 +1015,10 @@ export function TiptapComposer({
           const current = execModeRef.current;
           const cb = onExecModeChangeRef.current;
           if (current && cb) {
-            cb(current === "build" ? "plan" : "build");
+            const next = current === "build" ? "plan" : "build";
+            if (next !== "plan" || !planModeDisabledRef.current) {
+              cb(next);
+            }
           }
           return true;
         }
@@ -1614,7 +1644,12 @@ export function TiptapComposer({
               />
             )}
             {execMode && onExecModeChange && (
-              <ModeSelector mode={execMode} onChange={onExecModeChange} />
+              <ModeSelector
+                mode={execMode}
+                onChange={onExecModeChange}
+                planModeDisabled={planModeDisabled}
+                planModeDisabledReason={planModeDisabledReason}
+              />
             )}
             {voiceEnabled && (
               <VoiceButton voice={voice} isMac={isMac} disabled={disabled} />

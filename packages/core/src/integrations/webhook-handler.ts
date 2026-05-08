@@ -72,8 +72,8 @@ export interface WebhookHandlerOptions {
   systemPrompt: string;
   /** Action entries for the agent */
   actions: Record<string, ActionEntry>;
-  /** Model to use */
-  model: string;
+  /** Model to use. Defaults to the resolved engine's default model. */
+  model?: string;
   /** Anthropic API key */
   apiKey: string;
   /** Agent engine to use. Defaults to the same resolver as web chat. */

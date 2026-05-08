@@ -238,8 +238,33 @@ export interface AgentPanelCodeAccess {
   unavailableCtaLabel?: string;
   /** Optional CTA URL for the unavailable state. */
   unavailableCtaHref?: string;
+  /** Optional secondary CTA label, usually for Builder cloud code changes. */
+  unavailableSecondaryCtaLabel?: string;
+  /** Optional secondary CTA URL, usually the Builder connect URL. */
+  unavailableSecondaryCtaHref?: string;
   /** Disabled composer placeholder while code access is unavailable. */
   unavailableComposerPlaceholder?: string;
+}
+
+function useBuilderConnectUrl() {
+  const [connectUrl, setConnectUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(agentNativePath("/_agent-native/builder/status"))
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.connectUrl) {
+          setConnectUrl(data.connectUrl);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return connectUrl;
 }
 
 export interface AgentPanelProps extends Omit<
@@ -277,14 +302,22 @@ function CodeAccessUnavailablePanel({
   description,
   ctaLabel,
   ctaHref,
+  secondaryCtaLabel = "Use Builder",
+  secondaryCtaHref,
   compact = false,
 }: {
   title: string;
   description: string;
   ctaLabel: string;
   ctaHref?: string;
+  secondaryCtaLabel?: string;
+  secondaryCtaHref?: string;
   compact?: boolean;
 }) {
+  const builderConnectUrl = useBuilderConnectUrl();
+  const builderHref =
+    secondaryCtaHref ?? builderConnectUrl ?? "https://builder.io";
+
   return (
     <div
       className={cn(
@@ -309,17 +342,28 @@ function CodeAccessUnavailablePanel({
       >
         {description}
       </p>
-      {ctaHref ? (
+      <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+        {ctaHref ? (
+          <a
+            href={ctaHref}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
+          >
+            {ctaLabel}
+            <IconExternalLink className="h-3 w-3" />
+          </a>
+        ) : null}
         <a
-          href={ctaHref}
+          href={builderHref}
           target="_blank"
           rel="noreferrer"
-          className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
         >
-          {ctaLabel}
+          {secondaryCtaLabel}
           <IconExternalLink className="h-3 w-3" />
         </a>
-      ) : null}
+      </div>
     </div>
   );
 }
@@ -516,11 +560,26 @@ function AgentPanelInner({
     codeAccess?.unavailableCtaLabel ?? "Download Desktop";
   const codeUnavailableCtaHref =
     codeAccess?.unavailableCtaHref ?? "https://agent-native.com/download";
+  const codeUnavailableSecondaryCtaLabel =
+    codeAccess?.unavailableSecondaryCtaLabel ?? "Use Builder";
+  const codeUnavailableSecondaryCtaHref =
+    codeAccess?.unavailableSecondaryCtaHref;
   const codeUnavailableComposerPlaceholder =
     codeAccess?.unavailableComposerPlaceholder ??
     "Open Desktop to edit code or run commands.";
   const canUseCodeTools = isDevMode && codeAccessEnabled;
+  const planModeDisabled = isDevMode && !codeAccessEnabled;
+  const effectiveExecMode = planModeDisabled ? "build" : execMode;
+  const planModeDisabledReason =
+    "Plan mode uses the local code agent. Open Agent Native Desktop to use Plan mode.";
   const showCliMode = isDevMode || !codeAccessEnabled;
+  const handleExecModeChange = useCallback(
+    (next: ExecMode) => {
+      if (planModeDisabled && next === "plan") return;
+      switchExecMode(next);
+    },
+    [planModeDisabled, switchExecMode],
+  );
 
   // Notify frame when dev mode changes — use both a local CustomEvent (for
   // when AgentPanel is rendered directly in the frame) AND postMessage (for
@@ -1185,8 +1244,10 @@ function AgentPanelInner({
             }
             suggestions={codeAccessEnabled ? suggestions : undefined}
             onSwitchToCli={() => switchMode("cli")}
-            execMode={canUseCodeTools ? execMode : undefined}
-            onExecModeChange={canUseCodeTools ? switchExecMode : undefined}
+            execMode={isDevMode ? effectiveExecMode : undefined}
+            onExecModeChange={isDevMode ? handleExecModeChange : undefined}
+            planModeDisabled={planModeDisabled}
+            planModeDisabledReason={planModeDisabledReason}
             storageKey={storageKey}
             composerSlot={
               codeAccessEnabled ? undefined : (
@@ -1195,6 +1256,8 @@ function AgentPanelInner({
                   description={codeUnavailableDescription}
                   ctaLabel={codeUnavailableCtaLabel}
                   ctaHref={codeUnavailableCtaHref}
+                  secondaryCtaLabel={codeUnavailableSecondaryCtaLabel}
+                  secondaryCtaHref={codeUnavailableSecondaryCtaHref}
                   compact
                 />
               )
@@ -1247,6 +1310,8 @@ function AgentPanelInner({
                 }
                 ctaLabel={codeUnavailableCtaLabel}
                 ctaHref={codeAccessEnabled ? undefined : codeUnavailableCtaHref}
+                secondaryCtaLabel={codeUnavailableSecondaryCtaLabel}
+                secondaryCtaHref={codeUnavailableSecondaryCtaHref}
               />
             </div>
           )}
@@ -1276,6 +1341,8 @@ function AgentPanelInner({
                 description={codeUnavailableDescription}
                 ctaLabel={codeUnavailableCtaLabel}
                 ctaHref={codeUnavailableCtaHref}
+                secondaryCtaLabel={codeUnavailableSecondaryCtaLabel}
+                secondaryCtaHref={codeUnavailableSecondaryCtaHref}
               />
             </div>
           )}

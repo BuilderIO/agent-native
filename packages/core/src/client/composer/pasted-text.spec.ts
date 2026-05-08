@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { shouldConvertPasteToAttachment } from "./pasted-text.js";
+import {
+  shouldConvertPasteToAttachment,
+  unwrapAttachmentEnvelope,
+} from "./pasted-text.js";
 
 describe("shouldConvertPasteToAttachment", () => {
   it("keeps a paragraph or two inline", () => {
@@ -43,5 +46,13 @@ describe("shouldConvertPasteToAttachment", () => {
     ).join("\n");
 
     expect(shouldConvertPasteToAttachment(pageOfLines)).toBe(true);
+  });
+
+  it("unwraps assistant-ui text attachment envelopes with attributes", () => {
+    expect(
+      unwrapAttachmentEnvelope(
+        '<attachment name="notes.txt" contentType="text/plain">\nLine one\nLine two\n</attachment>',
+      ),
+    ).toBe("Line one\nLine two");
   });
 });

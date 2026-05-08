@@ -16,9 +16,9 @@ describe("OpenRouter builtin engine", () => {
     expect(entry).toBeDefined();
     expect(entry?.label).toContain("OpenRouter");
     expect(entry?.requiredEnvVars).toEqual(["OPENROUTER_API_KEY"]);
-    expect(entry?.defaultModel).toMatch(/\//); // vendor/model form
+    expect(entry?.defaultModel).toBe("openai/gpt-5.5");
     expect(entry?.supportedModels).toEqual(
-      expect.arrayContaining(["anthropic/claude-sonnet-4.6"]),
+      expect.arrayContaining(["openai/gpt-5.5"]),
     );
     expect(entry?.installPackage).toContain("@openrouter/ai-sdk-provider");
   });

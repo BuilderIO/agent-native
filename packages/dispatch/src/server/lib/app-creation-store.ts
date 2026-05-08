@@ -29,6 +29,8 @@ import {
 const SETTINGS_KEY = "dispatch-app-creation-settings";
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
+const WORKSPACE_APPS_GATEWAY_PATH = "/_workspace/apps";
+const WORKSPACE_APPS_GATEWAY_TIMEOUT_MS = 1_000;
 const MAX_PENDING_APPS = 50;
 const AGENT_CARD_PATH = "/.well-known/agent-card.json";
 const AGENT_CARD_FETCH_TIMEOUT_MS = 1_500;
@@ -455,6 +457,35 @@ function readWorkspaceAppsFromEnv(): WorkspaceAppSummary[] | null {
   }
 }
 
+async function readWorkspaceAppsFromGateway(): Promise<
+  WorkspaceAppSummary[] | null
+> {
+  const base = process.env.WORKSPACE_GATEWAY_URL;
+  if (!base) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    WORKSPACE_APPS_GATEWAY_TIMEOUT_MS,
+  );
+
+  try {
+    const response = await fetch(
+      new URL(WORKSPACE_APPS_GATEWAY_PATH, `${base.replace(/\/$/, "")}/`),
+      {
+        headers: { accept: "application/json" },
+        signal: controller.signal,
+      },
+    );
+    if (!response.ok) return null;
+    return parseWorkspaceAppsManifest(await response.json().catch(() => null));
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function workspaceAppsManifestCandidates(): string[] {
   const candidates: string[] = [];
   try {
@@ -569,6 +600,14 @@ export function getWorkspaceInfo(): WorkspaceInfo {
 export async function listWorkspaceApps(
   options: ListWorkspaceAppsOptions = {},
 ): Promise<WorkspaceAppSummary[]> {
+  const gatewayApps = await readWorkspaceAppsFromGateway();
+  if (gatewayApps) {
+    return maybeIncludeAgentCards(
+      await appendPendingWorkspaceApps(gatewayApps),
+      options,
+    );
+  }
+
   const workspaceRoot = findWorkspaceRoot();
   const localFilesystemApps =
     workspaceRoot && isLocalAppCreationRuntime()

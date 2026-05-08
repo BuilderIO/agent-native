@@ -11,7 +11,6 @@ import crypto from "node:crypto";
 import {
   getHeader,
   getQuery,
-  setCookie,
   setResponseStatus,
   setResponseHeader,
   type H3Event,
@@ -19,9 +18,9 @@ import {
 import {
   addSession,
   getSession,
-  COOKIE_NAME,
   getSessionMaxAge,
   safeReturnPath,
+  setFrameworkSessionCookie,
 } from "./auth.js";
 import { getAppName } from "./app-name.js";
 import { writeDesktopSso } from "./desktop-sso.js";
@@ -553,13 +552,7 @@ export async function createOAuthSession(
   if (!opts.hasProductionSession || needsDeepLink) {
     sessionToken = crypto.randomBytes(32).toString("hex");
     await addSession(sessionToken, email);
-    setCookie(event, COOKIE_NAME, sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge,
-    });
+    setFrameworkSessionCookie(event, sessionToken);
     // Desktop SSO: record this session in the home-dir broker file so
     // sibling templates (each with its own database) can resolve the
     // same token without a DB row of their own. Only the PRIMARY

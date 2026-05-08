@@ -25,8 +25,12 @@ import {
 } from "../agent/production-agent.js";
 import { resolveRunSoftTimeoutMs } from "../agent/run-manager.js";
 import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
-import { resolveEngine, createAnthropicEngine } from "../agent/engine/index.js";
-import { DEFAULT_MODEL } from "../agent/default-model.js";
+import {
+  resolveEngine,
+  createAnthropicEngine,
+  getStoredModelForEngine,
+} from "../agent/engine/index.js";
+import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import type {
   AgentChatEvent,
   ActionTool,
@@ -1330,7 +1334,7 @@ export interface AgentChatPluginOptions {
   systemPrompt?: string;
   /** Additional system prompt prepended in dev mode */
   devSystemPrompt?: string;
-  /** Claude model to use. Default: claude-sonnet-4-6 */
+  /** Model to use. Defaults to the resolved engine's default model. */
   model?: string;
   /** Optional per-app agent run chunk budget in milliseconds. Defaults to
    * AGENT_RUN_SOFT_TIMEOUT_MS when set, otherwise no framework-imposed
@@ -2881,7 +2885,10 @@ export function createAgentChatPlugin(
             ? devPrompt + runtimeContext + resources + schemaBlock + extra
             : basePrompt + runtimeContext + resources + schemaBlock + extra;
 
-          const model = options?.model ?? DEFAULT_MODEL;
+          const model =
+            options?.model ??
+            (await getStoredModelForEngine(a2aEngine)) ??
+            a2aEngine.defaultModel;
 
           // Build tools — same as interactive handler but WITHOUT call-agent
           // to prevent infinite recursive A2A loops (agent calling itself).
@@ -3060,7 +3067,10 @@ export function createAgentChatPlugin(
             engineOption: options?.engine,
             apiKey: options?.apiKey,
           });
-          const model = options?.model ?? DEFAULT_MODEL;
+          const model =
+            options?.model ??
+            (await getStoredModelForEngine(mcpEngine)) ??
+            mcpEngine.defaultModel;
 
           // Same actions as A2A — without call-agent to prevent loops.
           // In dev mode, template actions go through shell, not native tools.
@@ -3395,7 +3405,7 @@ export function createAgentChatPlugin(
         string,
         (event: import("../agent/types.js").AgentChatEvent) => void
       >();
-      const resolvedModel = options?.model ?? DEFAULT_MODEL;
+      const resolvedModel = options?.model ?? DEFAULT_ANTHROPIC_MODEL;
 
       const teamTools = createTeamTools({
         getOwner: () => requireCurrentRunOwner("spawn or manage sub-agents"),
@@ -3573,7 +3583,7 @@ export function createAgentChatPlugin(
             basePrompt + runtimeContext + resources + schemaBlock + extra,
           );
         },
-        model: options?.model ?? DEFAULT_MODEL,
+        model: options?.model,
         apiKey: options?.apiKey,
         runSoftTimeoutMs: options?.runSoftTimeoutMs,
         finalResponseGuard: options?.finalResponseGuard,
@@ -3613,7 +3623,7 @@ export function createAgentChatPlugin(
                     extra,
                 );
               },
-              model: options?.model ?? DEFAULT_MODEL,
+              model: options?.model,
               apiKey: options?.apiKey,
               runSoftTimeoutMs: options?.runSoftTimeoutMs,
               finalResponseGuard: options?.finalResponseGuard,

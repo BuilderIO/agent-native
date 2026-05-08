@@ -139,7 +139,10 @@ export async function resolveCalendarAccessToken(
   return refreshed.access_token;
 }
 
-export async function recordCalendarFetchSuccess(accountId: string) {
+export async function recordCalendarFetchSuccess(
+  account: CalendarAccountForEvents,
+) {
+  if (!account.ownerEmail) return;
   const db = getDb();
   const now = new Date().toISOString();
   await db
@@ -150,17 +153,25 @@ export async function recordCalendarFetchSuccess(accountId: string) {
       status: "connected",
       updatedAt: now,
     })
-    .where(eq(schema.calendarAccounts.id, accountId));
+    .where(
+      and(
+        eq(schema.calendarAccounts.id, account.id),
+        eq(schema.calendarAccounts.ownerEmail, account.ownerEmail),
+      ),
+    );
 }
 
 export async function recordCalendarFetchError(
-  accountId: string,
+  account: CalendarAccountForEvents,
   error: unknown,
 ): Promise<CalendarFetchError> {
-  const db = getDb();
   const message =
     error instanceof Error ? error.message : String(error || "Calendar failed");
   const needsReauth = shouldMarkNeedsReauth(message);
+  if (!account.ownerEmail) {
+    return { accountId: account.id, error: message, needsReauth };
+  }
+  const db = getDb();
   await db
     .update(schema.calendarAccounts)
     .set({
@@ -170,14 +181,19 @@ export async function recordCalendarFetchError(
         : message,
       updatedAt: new Date().toISOString(),
     })
-    .where(eq(schema.calendarAccounts.id, accountId))
+    .where(
+      and(
+        eq(schema.calendarAccounts.id, account.id),
+        eq(schema.calendarAccounts.ownerEmail, account.ownerEmail),
+      ),
+    )
     .catch((writeErr: any) => {
       console.warn(
-        `[calendar] failed to record calendar error for ${accountId}:`,
+        `[calendar] failed to record calendar error for ${account.id}:`,
         writeErr?.message ?? writeErr,
       );
     });
-  return { accountId, error: message, needsReauth };
+  return { accountId: account.id, error: message, needsReauth };
 }
 
 export function encodeCalendarMeetingId(
@@ -267,10 +283,7 @@ export async function fetchLiveCalendarEventFromId(virtualId: string) {
 
   const accessToken = await resolveCalendarAccessToken(account);
   if (!accessToken) {
-    await recordCalendarFetchError(
-      parsed.accountId,
-      new Error("Token refresh failed"),
-    );
+    await recordCalendarFetchError(account, new Error("Token refresh failed"));
     return null;
   }
 
@@ -281,10 +294,10 @@ export async function fetchLiveCalendarEventFromId(virtualId: string) {
       eventId: parsed.externalId,
     });
     if (event.status === "cancelled") return null;
-    await recordCalendarFetchSuccess(account.id).catch(() => {});
+    await recordCalendarFetchSuccess(account).catch(() => {});
     return { account, event };
   } catch (err) {
-    await recordCalendarFetchError(parsed.accountId, err);
+    await recordCalendarFetchError(account, err);
     return null;
   }
 }

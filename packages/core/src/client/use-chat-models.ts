@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { agentNativePath } from "./api-path.js";
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
@@ -81,6 +81,19 @@ export function useChatModels({
   const [selectedEffort, setSelectedEffort] = useState<ReasoningEffort>(
     initialPersisted.effort ?? "auto",
   );
+  const selectionRef = useRef({
+    selectedModel,
+    selectedEngine,
+    selectedEffort,
+  });
+
+  useEffect(() => {
+    selectionRef.current = {
+      selectedModel,
+      selectedEngine,
+      selectedEffort,
+    };
+  }, [selectedEffort, selectedEngine, selectedModel]);
 
   const onModelChange = useCallback(
     (model: string, engine: string) => {
@@ -237,11 +250,44 @@ export function useChatModels({
               };
             });
         }
+        const nextDefaultModel = currentModel ?? DEFAULT_MODEL;
         setAvailableModels(groups);
-        setDefaultModel(currentModel ?? DEFAULT_MODEL);
+        setDefaultModel(nextDefaultModel);
+
+        const selection = selectionRef.current;
+        const selectedGroup = groups.find(
+          (group) =>
+            group.models.includes(selection.selectedModel) &&
+            (!selection.selectedEngine ||
+              group.engine === selection.selectedEngine),
+        );
+        if (!selectedGroup) {
+          const defaultGroup =
+            groups.find((group) => group.models.includes(nextDefaultModel)) ??
+            groups[0];
+          const nextModel =
+            defaultGroup?.models.find((model) => model === nextDefaultModel) ??
+            defaultGroup?.models[0] ??
+            nextDefaultModel;
+          const nextEngine = defaultGroup?.engine ?? "";
+          const effortOptions = getReasoningEffortOptionsForModel(nextModel);
+          const nextEffort =
+            selection.selectedEffort === "auto" ||
+            effortOptions.includes(selection.selectedEffort)
+              ? selection.selectedEffort
+              : "auto";
+          setSelectedModel(nextModel);
+          setSelectedEngine(nextEngine);
+          setSelectedEffort(nextEffort);
+          writePersisted(storageKey, {
+            model: nextModel,
+            engine: nextEngine,
+            effort: nextEffort,
+          });
+        }
       })
       .catch(() => {});
-  }, []);
+  }, [storageKey]);
 
   useEffect(() => {
     refreshEngines();

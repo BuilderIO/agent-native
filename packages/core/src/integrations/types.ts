@@ -177,7 +177,7 @@ export interface IntegrationsPluginOptions {
   systemPrompt?: string;
   /** Actions registry (same as agent-chat). */
   actions?: Record<string, import("../agent/production-agent.js").ActionEntry>;
-  /** Model to use. Default: claude-sonnet-4-6 */
+  /** Model to use. Defaults to the resolved engine's default model. */
   model?: string;
   /** Anthropic API key. Falls back to ANTHROPIC_API_KEY env var. */
   apiKey?: string;

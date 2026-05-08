@@ -109,8 +109,8 @@ function DesktopAppNudge() {
           <span className="font-medium text-foreground">
             Code editing needs Desktop.
           </span>{" "}
-          Source edits, CLI, and Workspace files are disabled in this browser
-          frame.{" "}
+          Use Desktop for local source/CLI access, or Builder for cloud code
+          changes.{" "}
           <a
             href="https://agent-native.com/download"
             target="_blank"
@@ -446,9 +446,10 @@ export function App() {
                   enabled: isDesktop,
                   unavailableTitle: "Open Desktop to edit code",
                   unavailableDescription:
-                    "Source edits, CLI, and Workspace files run in Agent Native Desktop. This browser frame is preview-only for code changes.",
+                    "Use Agent Native Desktop for local source edits, CLI, and Workspace files, or use Builder for cloud code changes.",
                   unavailableCtaLabel: "Download Desktop",
                   unavailableCtaHref: "https://agent-native.com/download",
+                  unavailableSecondaryCtaLabel: "Use Builder",
                   unavailableComposerPlaceholder:
                     "Open Desktop to edit code or run CLI.",
                 }}

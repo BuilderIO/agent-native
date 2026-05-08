@@ -34,9 +34,7 @@ export function isPastedTextAttachmentName(name: string | undefined): boolean {
 // SimpleTextAttachmentAdapter wraps the file body in when sending. Returns the
 // raw body for previewing.
 export function unwrapAttachmentEnvelope(text: string): string {
-  const match = text.match(
-    /^<attachment name=[^>]+>\n([\s\S]*)\n<\/attachment>$/,
-  );
+  const match = text.match(/^<attachment\b[^>]*>\n([\s\S]*)\n<\/attachment>$/);
   return match ? match[1] : text;
 }
 

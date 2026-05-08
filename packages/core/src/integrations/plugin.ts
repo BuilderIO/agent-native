@@ -11,7 +11,6 @@ import type {
   IntegrationStatus,
 } from "./types.js";
 import { handleWebhook, processIntegrationTask } from "./webhook-handler.js";
-import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
   claimPendingTask,
   getPendingTask,
@@ -185,7 +184,7 @@ export function createIntegrationsPlugin(
       adapterMap.set(adapter.platform, adapter);
     }
 
-    const model = options?.model ?? DEFAULT_MODEL;
+    const model = options?.model;
     // Read the API key at REQUEST time, not plugin-init time. On Netlify
     // Lambda the plugin module loads in a context where env vars from the
     // site's runtime config may not yet be populated, so capturing at
