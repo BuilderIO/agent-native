@@ -1604,7 +1604,7 @@ async function startNativeRecordingInner(
             captureSource === "window" ? "window" : "monitor";
           return navigator.mediaDevices.getDisplayMedia({
             video: { frameRate: 30, displaySurface },
-            audio: true,
+            audio: wantsAudio,
           });
         }
         console.warn(
