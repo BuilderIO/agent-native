@@ -3553,13 +3553,7 @@ const AssistantChatInner = forwardRef<
                   : undefined
               }
             >
-              <ComposerPrimitive.Root
-                className={cn(
-                  "flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring",
-                  execMode === "plan" &&
-                    "border-amber-500/50 bg-amber-500/[0.03] focus-within:ring-amber-500/30",
-                )}
-              >
+              <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
                 <ComposerAttachmentPreviewStrip />
                 <TiptapComposer
                   focusRef={tiptapRef}

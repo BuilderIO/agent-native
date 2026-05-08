@@ -320,11 +320,7 @@ function ModeSelector({
         <button
           type="button"
           aria-label={mode === "build" ? "Act mode" : "Plan mode"}
-          className={`shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium hover:bg-accent/50 ${
-            mode === "plan"
-              ? "text-amber-700 dark:text-amber-300"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
+          className="shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
           <ActiveIcon className="h-3.5 w-3.5" />
           {mode === "build" ? "Act" : "Plan"}
@@ -380,7 +376,7 @@ function ModeSelector({
               className={`h-4 w-4 shrink-0 ${
                 planModeDisabled
                   ? "text-muted-foreground"
-                  : "text-amber-600 dark:text-amber-300"
+                  : "text-muted-foreground"
               }`}
             />
             <div className="flex-1 min-w-0">
