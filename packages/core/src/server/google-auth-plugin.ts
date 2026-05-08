@@ -148,6 +148,7 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
           return;
         }
         if (data && data.error) {
+          __anSetOAuthDebug('OAuth exchange returned an error: ' + (data.message || data.error), flowId);
           __anShowOAuthError(err, btn, data.message || data.error);
           return;
         }
