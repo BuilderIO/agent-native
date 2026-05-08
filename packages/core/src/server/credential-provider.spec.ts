@@ -192,7 +192,7 @@ describe("resolveBuilderCredential", () => {
     expect(mockReadAppSecret).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to env when no user/org scoped Builder key exists", async () => {
+  it("falls back to env when no scoped Builder key exists", async () => {
     process.env.BUILDER_PRIVATE_KEY = "deploy-key";
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
@@ -200,7 +200,7 @@ describe("resolveBuilderCredential", () => {
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
       "deploy-key",
     );
-    expect(mockReadAppSecret).toHaveBeenCalledTimes(2);
+    expect(mockReadAppSecret).toHaveBeenCalledTimes(3);
   });
 
   it("does not use deploy-level Builder keys for signed-in users on production shared databases", async () => {
@@ -235,6 +235,27 @@ describe("resolveBuilderCredential", () => {
       scope: "org",
       scopeId: "builder_io",
     });
+  });
+
+  it("falls back to workspace scope for legacy shared Builder rows", async () => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret
+      .mockResolvedValueOnce(null) // user scope miss
+      .mockResolvedValueOnce(null) // org scope miss
+      .mockResolvedValueOnce({
+        value: "workspace-key",
+        last4: "-key",
+        updatedAt: 1,
+      });
+    expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
+      "workspace-key",
+    );
+    expect(mockReadAppSecret.mock.calls.map((c) => c[0].scope)).toEqual([
+      "user",
+      "org",
+      "workspace",
+    ]);
   });
 
   it("user-scope override wins over org-scope row", async () => {
