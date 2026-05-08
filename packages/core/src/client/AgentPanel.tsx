@@ -1639,9 +1639,16 @@ class AgentPanelErrorBoundary extends React.Component<
 
 export function AgentPanel(props: AgentPanelProps) {
   const [resetKey, setResetKey] = useState(0);
+  const resetPanel = useCallback(() => {
+    try {
+      const keyPrefix = props.storageKey ? `:${props.storageKey}` : "";
+      localStorage.setItem(`agent-native-panel-mode${keyPrefix}`, "chat");
+    } catch {}
+    setResetKey((key) => key + 1);
+  }, [props.storageKey]);
   return (
     <TooltipProvider delayDuration={200}>
-      <AgentPanelErrorBoundary onReset={() => setResetKey((key) => key + 1)}>
+      <AgentPanelErrorBoundary onReset={resetPanel}>
         <AgentPanelInner key={resetKey} {...props} />
       </AgentPanelErrorBoundary>
     </TooltipProvider>

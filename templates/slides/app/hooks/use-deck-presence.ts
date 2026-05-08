@@ -18,6 +18,7 @@ export function useDeckPresence(options: {
 }) {
   const { deckId, activeSlideId, user } = options;
   const selfEmail = user?.email;
+  const normalizedSelfEmail = selfEmail?.trim().toLowerCase();
 
   const { awareness } = useCollaborativeDoc({
     docId: deckId ? `deck-${deckId}` : null,
@@ -30,6 +31,9 @@ export function useDeckPresence(options: {
   useEffect(() => {
     if (!awareness || !activeSlideId) return;
     awareness.setLocalStateField("slide", activeSlideId);
+    return () => {
+      awareness.setLocalStateField("slide", null);
+    };
   }, [awareness, activeSlideId]);
 
   // Build Map<slideId, CollabUser[]> from all remote awareness states
@@ -48,7 +52,8 @@ export function useDeckPresence(options: {
         if (clientId === selfId) return;
         const u = state.user as CollabUser | undefined;
         const slide = state.slide as string | undefined;
-        if (u && slide && u.email !== selfEmail) {
+        const email = u?.email?.trim().toLowerCase();
+        if (u && slide && email !== normalizedSelfEmail) {
           if (!map.has(slide)) map.set(slide, []);
           map.get(slide)!.push(u);
         }
@@ -59,7 +64,7 @@ export function useDeckPresence(options: {
     awareness.on("change", update);
     update();
     return () => awareness.off("change", update);
-  }, [awareness]);
+  }, [awareness, normalizedSelfEmail]);
 
   return { slidePresence };
 }

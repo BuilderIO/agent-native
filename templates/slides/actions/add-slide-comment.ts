@@ -1,9 +1,18 @@
 import { defineAction } from "@agent-native/core";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
-import { getRequestUserEmail } from "@agent-native/core/server";
+import {
+  getRequestRunContext,
+  getRequestUserEmail,
+  getRequestUserName,
+} from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+
+function displayNameFromEmail(email: string): string {
+  const local = email.split("@")[0] || email;
+  return local.charAt(0).toUpperCase() + local.slice(1);
+}
 
 export default defineAction({
   description:
@@ -31,7 +40,9 @@ export default defineAction({
     const threadId = args.threadId ?? id;
     const authorEmail = getRequestUserEmail();
     if (!authorEmail) throw new Error("no authenticated user");
-    const authorName = "AI Agent";
+    const authorName = getRequestRunContext()
+      ? "AI Agent"
+      : getRequestUserName()?.trim() || displayNameFromEmail(authorEmail);
 
     const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
     await client.execute({

@@ -3165,7 +3165,11 @@ export function createAgentChatPlugin(
         },
       });
 
-      type OwnerContext = { owner: string; anonymous: boolean };
+      type OwnerContext = {
+        owner: string;
+        anonymous: boolean;
+        name?: string;
+      };
       const OWNER_CONTEXT_KEY = "__agentNativeOwnerContext";
 
       // Resolve owner from the H3 event's session, with an optional
@@ -3180,7 +3184,11 @@ export function createAgentChatPlugin(
 
         const session = await getSession(event);
         if (session?.email) {
-          const resolved = { owner: session.email, anonymous: false };
+          const resolved = {
+            owner: session.email,
+            anonymous: false,
+            name: session.name,
+          };
           if (eventContext) eventContext[OWNER_CONTEXT_KEY] = resolved;
           return resolved;
         }
@@ -3201,6 +3209,11 @@ export function createAgentChatPlugin(
 
       const getOwnerFromEvent = async (event: any): Promise<string> => {
         return (await resolveOwnerContext(event)).owner;
+      };
+      const getUserNameFromEvent = async (
+        event: any,
+      ): Promise<string | undefined> => {
+        return (await resolveOwnerContext(event)).name;
       };
 
       // Auto-mount template actions as HTTP endpoints under /_agent-native/actions/
@@ -3227,6 +3240,7 @@ export function createAgentChatPlugin(
         const { mountActionRoutes } = await import("./action-routes.js");
         mountActionRoutes(nitroApp, httpActions, {
           getOwnerFromEvent,
+          getUserNameFromEvent,
           resolveOrgId: options?.resolveOrgId,
         });
       }
@@ -4689,8 +4703,7 @@ export function createAgentChatPlugin(
                 }
                 const body = await readBody(event);
                 let newThreadData = body.threadData || thread.threadData;
-                let newMessageCount =
-                  body.messageCount ?? thread.messageCount;
+                let newMessageCount = body.messageCount ?? thread.messageCount;
                 // Merge the incoming full-thread blob over the current SQL
                 // copy. Periodic saves can be stale relative to server-side
                 // run completion, and threadRuntime.export() does not carry
@@ -4855,7 +4868,12 @@ export function createAgentChatPlugin(
               : undefined;
 
           return runWithRequestContext(
-            { userEmail: owner, orgId: resolvedOrgId, timezone },
+            {
+              userEmail: owner,
+              userName: ownerContext.name,
+              orgId: resolvedOrgId,
+              timezone,
+            },
             () => {
               const handler =
                 ownerContext.anonymous && anonymousHandler

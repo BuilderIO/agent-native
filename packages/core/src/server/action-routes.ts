@@ -81,6 +81,10 @@ function handleOptionsRequest(event: any): string {
 export interface MountActionRoutesOptions {
   /** Resolve owner email from the H3 event (for data scoping). */
   getOwnerFromEvent?: (event: any) => string | Promise<string>;
+  /** Resolve display name from the H3 event, when available. */
+  getUserNameFromEvent?: (
+    event: any,
+  ) => string | undefined | Promise<string | undefined>;
   /** Resolve org ID from the H3 event (for org scoping). */
   resolveOrgId?: (event: any) => string | null | Promise<string | null>;
 }
@@ -150,13 +154,16 @@ export function mountActionRoutes(
         const userEmail = options?.getOwnerFromEvent
           ? await options.getOwnerFromEvent(event)
           : undefined;
+        const userName = options?.getUserNameFromEvent
+          ? await options.getUserNameFromEvent(event)
+          : undefined;
         const orgId = options?.resolveOrgId
           ? ((await options.resolveOrgId(event)) ?? undefined)
           : undefined;
         const timezone = readTimezoneHeader(event);
 
         return runWithRequestContext(
-          { userEmail, orgId, timezone },
+          { userEmail, userName, orgId, timezone },
           async () => {
             // Parse params based on method. On web-standard runtimes (Netlify
             // Functions, CF Workers), event.req IS the web Request — use .json()

@@ -113,19 +113,20 @@ interface CreatingState {
 }
 
 function McpStatusDot({ server }: { server: McpServer }) {
-  if (server.status.state === "connected") {
+  const status = server.status ?? { state: "unknown" as const };
+  if (status.state === "connected") {
     return (
       <StatusDot
         className="rounded-full bg-green-500"
-        tooltip={`Connected — ${server.status.toolCount} tool${server.status.toolCount === 1 ? "" : "s"}`}
+        tooltip={`Connected — ${status.toolCount} tool${status.toolCount === 1 ? "" : "s"}`}
       />
     );
   }
-  if (server.status.state === "error") {
+  if (status.state === "error") {
     return (
       <StatusDot
         className="rounded-full bg-red-500"
-        tooltip={`Error: ${server.status.error}`}
+        tooltip={`Error: ${status.error}`}
       />
     );
   }
