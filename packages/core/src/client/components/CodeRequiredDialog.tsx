@@ -50,6 +50,8 @@ export function CodeRequiredDialog({
   const [submitting, setSubmitting] = useState(false);
   const [branchUrl, setBranchUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const builderHref =
+    connectUrl || agentNativePath("/_agent-native/builder/connect");
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -127,25 +129,25 @@ export function CodeRequiredDialog({
             <h2 style={s.title}>Code changes required</h2>
             <p style={s.subtitle}>
               {featureLabel
-                ? `"${featureLabel}" creates or modifies source code, which isn't available in deployed apps.`
-                : "This action creates or modifies source code, which isn't available in deployed apps."}
+                ? `"${featureLabel}" creates or modifies source code, which needs Desktop or Builder from this surface.`
+                : "This action creates or modifies source code, which needs Desktop or Builder from this surface."}
             </p>
           </div>
         </div>
 
         {/* Options */}
         <div style={s.options}>
-          <button
-            style={s.optionCard}
+          <a
+            href="https://agent-native.com/download"
+            target="_blank"
+            rel="noreferrer"
+            style={{ ...s.optionCard, ...s.optionLink }}
             onMouseEnter={(e) =>
               Object.assign(e.currentTarget.style, s.optionCardHover)
             }
             onMouseLeave={(e) =>
               Object.assign(e.currentTarget.style, { borderColor: "#e5e7eb" })
             }
-            onClick={() => {
-              onClose();
-            }}
           >
             <div style={s.optionIcon}>
               <IconCode size={24} />
@@ -157,49 +159,70 @@ export function CodeRequiredDialog({
                 Workspace files, and CLI access.
               </span>
             </div>
-          </button>
+          </a>
 
-          <button
-            style={{
-              ...s.optionCard,
-              ...(submitting
-                ? { opacity: 0.7, pointerEvents: "none" as const }
-                : {}),
-            }}
-            onMouseEnter={(e) =>
-              Object.assign(e.currentTarget.style, s.optionCardHover)
-            }
-            onMouseLeave={(e) =>
-              Object.assign(e.currentTarget.style, { borderColor: "#e5e7eb" })
-            }
-            onClick={handleBuilderAgent}
-          >
-            <div style={s.optionIcon}>
-              {submitting ? (
-                <IconLoader2
-                  size={24}
-                  style={{ animation: "spin 1s linear infinite" }}
-                />
-              ) : (
+          {builderConnected ? (
+            <button
+              style={{
+                ...s.optionCard,
+                ...(submitting
+                  ? { opacity: 0.7, pointerEvents: "none" as const }
+                  : {}),
+              }}
+              onMouseEnter={(e) =>
+                Object.assign(e.currentTarget.style, s.optionCardHover)
+              }
+              onMouseLeave={(e) =>
+                Object.assign(e.currentTarget.style, { borderColor: "#e5e7eb" })
+              }
+              onClick={handleBuilderAgent}
+            >
+              <div style={s.optionIcon}>
+                {submitting ? (
+                  <IconLoader2
+                    size={24}
+                    style={{ animation: "spin 1s linear infinite" }}
+                  />
+                ) : (
+                  <IconExternalLink size={24} />
+                )}
+              </div>
+              <div style={s.optionText}>
+                <span style={s.optionTitle}>Use Builder.io Agent</span>
+                <span style={s.optionDesc}>
+                  Let our cloud agent make the changes for you. You'll get a
+                  link to preview and deploy.
+                </span>
+              </div>
+            </button>
+          ) : (
+            <a
+              href={builderHref}
+              target="_blank"
+              rel="noreferrer"
+              style={{ ...s.optionCard, ...s.optionLink }}
+              onMouseEnter={(e) =>
+                Object.assign(e.currentTarget.style, s.optionCardHover)
+              }
+              onMouseLeave={(e) =>
+                Object.assign(e.currentTarget.style, {
+                  borderColor: "#e5e7eb",
+                })
+              }
+            >
+              <div style={s.optionIcon}>
                 <IconExternalLink size={24} />
-              )}
-            </div>
-            <div style={s.optionText}>
-              <span style={s.optionTitle}>
-                {builderConnected
-                  ? "Use Builder.io Agent"
-                  : "Connect Builder.io"}
-              </span>
-              <span style={s.optionDesc}>
-                {builderConnected
-                  ? "Let our cloud agent make the changes for you. You'll get a link to preview and deploy."
-                  : "Connect Builder to enable cloud-based code changes. Opens the Setup tab."}
-              </span>
-            </div>
-            {!builderConnected && !connectUrl && (
-              <span style={s.badge}>Setup required</span>
-            )}
-          </button>
+              </div>
+              <div style={s.optionText}>
+                <span style={s.optionTitle}>Connect Builder.io</span>
+                <span style={s.optionDesc}>
+                  Connect Builder to enable cloud-based code changes from this
+                  app.
+                </span>
+              </div>
+              {!connectUrl && <span style={s.badge}>Setup required</span>}
+            </a>
+          )}
         </div>
 
         {/* Branch result */}
@@ -311,6 +334,10 @@ const s: Record<string, React.CSSProperties> = {
   },
   optionCardHover: {
     borderColor: "#a5b4fc",
+  },
+  optionLink: {
+    textDecoration: "none",
+    boxSizing: "border-box",
   },
   optionIcon: {
     flexShrink: 0,
