@@ -2,8 +2,20 @@ import type {
   IncomingMessage,
   PlatformAdapter,
 } from "@agent-native/core/server";
+import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import crypto from "node:crypto";
 import { consumeLinkToken, resolveLinkedOwner } from "./dispatch-store.js";
+
+type SlackSenderProfile = {
+  email: string | null;
+  name: string | null;
+};
+
+const slackProfileCache = new Map<
+  string,
+  { profile: SlackSenderProfile; expiresAt: number }
+>();
+const SLACK_PROFILE_CACHE_TTL = 10 * 60 * 1000;
 
 function contextString(value: unknown): string | null {
   if (typeof value === "string" && value.trim()) return value.trim();
@@ -62,6 +74,74 @@ function configuredDefaultOwnerForIncoming(
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
 }
 
+async function resolveSlackSenderProfile(
+  incoming: IncomingMessage,
+): Promise<SlackSenderProfile> {
+  if (incoming.platform !== "slack") return { email: null, name: null };
+  const token = process.env.SLACK_BOT_TOKEN;
+  const userId = contextString(incoming.senderId);
+  const teamId = contextString(incoming.platformContext.teamId);
+  if (!token || !userId) return { email: null, name: null };
+
+  const cacheKey = `${teamId ?? "default"}:${userId}`;
+  const cached = slackProfileCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.profile;
+
+  try {
+    const params = new URLSearchParams({ user: userId });
+    const res = await fetch(`https://slack.com/api/users.info?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = (await res.json()) as {
+      ok?: boolean;
+      user?: {
+        real_name?: string;
+        name?: string;
+        profile?: {
+          email?: string;
+          real_name?: string;
+          display_name?: string;
+        };
+      };
+    };
+    const profile = data.ok
+      ? {
+          email: data.user?.profile?.email?.trim().toLowerCase() || null,
+          name:
+            data.user?.profile?.real_name?.trim() ||
+            data.user?.profile?.display_name?.trim() ||
+            data.user?.real_name?.trim() ||
+            data.user?.name?.trim() ||
+            null,
+        }
+      : { email: null, name: null };
+    slackProfileCache.set(cacheKey, {
+      profile,
+      expiresAt: Date.now() + SLACK_PROFILE_CACHE_TTL,
+    });
+    return profile;
+  } catch {
+    return { email: null, name: null };
+  }
+}
+
+async function resolveSlackOwnerFromVerifiedEmail(
+  incoming: IncomingMessage,
+): Promise<string | null> {
+  const profile = await resolveSlackSenderProfile(incoming);
+  if (!profile.email) return null;
+
+  incoming.senderEmail = profile.email;
+  incoming.platformContext.senderEmail = profile.email;
+  if (profile.name) {
+    incoming.senderName = profile.name;
+    incoming.platformContext.senderName = profile.name;
+  }
+
+  const orgId = await resolveOrgIdForEmail(profile.email);
+  return orgId ? profile.email : null;
+}
+
 export async function resolveDispatchOwner(
   incoming: IncomingMessage,
 ): Promise<string> {
@@ -83,6 +163,15 @@ export async function resolveDispatchOwner(
       incoming.senderId.includes("@")
     ) {
       return incoming.senderId;
+    }
+
+    // Slack gives us a user id in the event payload. Resolve it to a verified
+    // workspace email and use that user's own org context when they are an
+    // Agent-Native member, so artifacts created via @agent-native are visible
+    // when they open the target app.
+    if (incoming.platform === "slack") {
+      const slackOwner = await resolveSlackOwnerFromVerifiedEmail(incoming);
+      if (slackOwner) return slackOwner;
     }
 
     const defaultOwner = configuredDefaultOwnerForIncoming(incoming);
