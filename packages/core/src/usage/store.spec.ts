@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { builderCreditsFromCostCents, usageBillingForEngine } from "./store.js";
+import {
+  builderCreditsFromCostCents,
+  calculateCost,
+  usageBillingForEngine,
+} from "./store.js";
 
 describe("usage billing", () => {
   it("maps Builder hard costs to agent credits with margin", () => {
@@ -15,5 +19,9 @@ describe("usage billing", () => {
     expect(usageBillingForEngine("builder").unit).toBe("builder-credits");
     expect(usageBillingForEngine("anthropic").unit).toBe("usd");
     expect(usageBillingForEngine(null).unit).toBe("usd");
+  });
+
+  it("does not round tiny completed calls down to zero spend", () => {
+    expect(calculateCost(10, 2, "claude-sonnet-4-5")).toBe(1);
   });
 });
