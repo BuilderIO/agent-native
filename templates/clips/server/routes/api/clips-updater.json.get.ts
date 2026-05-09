@@ -14,6 +14,16 @@ const GITHUB_MANIFEST_URL =
   "https://github.com/BuilderIO/agent-native/releases/download/clips-latest/clips-latest.json";
 const CACHE_TTL_MS = 5 * 60_000;
 
+// Tauri throws a red-banner error if the requesting client's target triple is
+// missing from `platforms`. We ship Universal-macOS + Windows, so the manifest
+// must always carry both — if upstream is missing either, fall back to inert
+// so no client sees a hard error.
+const REQUIRED_PLATFORM_KEYS = [
+  "darwin-aarch64",
+  "darwin-x86_64",
+  "windows-x86_64",
+];
+
 const INERT_PLATFORM = {
   url: "https://clips.agent-native.com/download",
   signature: "updates-disabled",
@@ -52,6 +62,13 @@ function isManifestLike(value: unknown): value is Record<string, unknown> {
   return !!obj.platforms && typeof obj.platforms === "object";
 }
 
+function hasAllRequiredPlatforms(value: unknown): boolean {
+  if (!isManifestLike(value)) return false;
+  const platforms = value.platforms as Record<string, unknown> | undefined;
+  if (!platforms || typeof platforms !== "object") return false;
+  return REQUIRED_PLATFORM_KEYS.every((k) => k in platforms);
+}
+
 async function fetchSignedManifest(): Promise<unknown> {
   const res = await fetch(GITHUB_MANIFEST_URL, {
     headers: {
@@ -63,6 +80,14 @@ async function fetchSignedManifest(): Promise<unknown> {
   if (!res.ok) throw new Error(`GitHub updater manifest ${res.status}`);
   const json = (await res.json()) as unknown;
   if (!isManifestLike(json)) throw new Error("Invalid updater manifest");
+  if (!hasAllRequiredPlatforms(json)) {
+    const present = Object.keys(
+      (json as { platforms?: Record<string, unknown> }).platforms ?? {},
+    );
+    throw new Error(
+      `Updater manifest missing required platforms; got [${present.join(", ")}]`,
+    );
+  }
   return json;
 }
 
