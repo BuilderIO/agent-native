@@ -481,7 +481,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
                   }}
                   className={`h-12 rounded-lg border-2 flex items-center justify-center ${
                     localState.type === "default"
-                      ? "border-purple-500 bg-purple-500/10"
+                      ? "border-sky-500 bg-sky-500/10"
                       : "border-border bg-secondary/50 hover:bg-secondary"
                   }`}
                 >
@@ -508,7 +508,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
                   }}
                   className={`h-12 rounded-lg border-2 flex items-center justify-center ${
                     localState.type === "pointer"
-                      ? "border-purple-500 bg-purple-500/10"
+                      ? "border-sky-500 bg-sky-500/10"
                       : "border-border bg-secondary/50 hover:bg-secondary"
                   }`}
                 >
@@ -535,7 +535,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
                   }}
                   className={`h-12 rounded-lg border-2 flex items-center justify-center ${
                     localState.type === "text"
-                      ? "border-purple-500 bg-purple-500/10"
+                      ? "border-sky-500 bg-sky-500/10"
                       : "border-border bg-secondary/50 hover:bg-secondary"
                   }`}
                 >
@@ -622,7 +622,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
         <MotionCurveSelect
           value={handleGetCurrentKeyframeEasing()}
           onChange={handleUpdateKeyframeEasing}
-          accentColor="purple-400"
+          accentColor="sky-400"
         />
       )}
 

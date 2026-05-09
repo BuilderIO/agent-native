@@ -180,24 +180,24 @@ const EASING_COLORS: Record<
     activeBorder: "#2563eb",
     text: "#2563eb",
   },
-  // Back - purple tones
+  // Back - blue tones
   "back.in": {
-    bg: "rgba(167,139,250,0.15)",
-    border: "rgba(167,139,250,0.35)",
-    activeBorder: "#a78bfa",
-    text: "#a78bfa",
+    bg: "rgba(125,211,252,0.15)",
+    border: "rgba(125,211,252,0.35)",
+    activeBorder: "#7DD3FC",
+    text: "#7DD3FC",
   },
   "back.out": {
-    bg: "rgba(139,92,246,0.15)",
-    border: "rgba(139,92,246,0.35)",
-    activeBorder: "#8b5cf6",
-    text: "#8b5cf6",
+    bg: "rgba(0,181,255,0.15)",
+    border: "rgba(0,181,255,0.35)",
+    activeBorder: "#00B5FF",
+    text: "#00B5FF",
   },
   "back.inOut": {
-    bg: "rgba(124,58,237,0.15)",
-    border: "rgba(124,58,237,0.35)",
-    activeBorder: "#7c3aed",
-    text: "#7c3aed",
+    bg: "rgba(2,132,199,0.15)",
+    border: "rgba(2,132,199,0.35)",
+    activeBorder: "#0284C7",
+    text: "#0284C7",
   },
   // Bounce - green tones
   "bounce.in": {
@@ -301,8 +301,8 @@ const DEFAULT_EASING_COLOR = EASING_COLORS.linear;
 // IconCamera track styling (blue accent)
 const CAMERA_COLOR = "#60a5fa";
 
-// Cursor track styling (purple accent)
-const CURSOR_COLOR = "#a855f7";
+// Cursor track styling (blue accent)
+const CURSOR_COLOR = "#00B5FF";
 
 // ─── RangeBar ────────────────────────────────────────────────────────────────
 // AE/C4D-style navigator strip at the bottom of the bar area.
@@ -1515,7 +1515,7 @@ export function Timeline({
                                       : isCursor &&
                                           cursorStyle === "both" &&
                                           !selected
-                                        ? `1.5px solid #c084fc` // Brighter purple border for both
+                                        ? `1.5px solid #38bdf8` // Brighter blue border for both
                                         : "none",
                                   opacity:
                                     isCursor && cursorStyle === "clickEnd"
@@ -1530,7 +1530,7 @@ export function Timeline({
                                       : isCursor && cursorStyle === "type"
                                         ? `0 0 ${isCurrentKeyframe ? 6 : 4}px ${keyframeColor}${isCurrentKeyframe ? "88" : "66"}`
                                         : isCursor && cursorStyle === "both"
-                                          ? `0 0 ${isCurrentKeyframe ? 8 : 6}px #c084fc${isCurrentKeyframe ? "cc" : "88"}`
+                                          ? `0 0 ${isCurrentKeyframe ? 8 : 6}px #38bdf8${isCurrentKeyframe ? "cc" : "88"}`
                                           : `0 0 ${isCurrentKeyframe ? 6 : 4}px ${keyframeColor}${isCurrentKeyframe ? "cc" : "88"}`,
                                 }}
                               />
