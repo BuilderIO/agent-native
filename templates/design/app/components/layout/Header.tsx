@@ -2,6 +2,7 @@ import { useLocation } from "react-router";
 import { useActionQuery } from "@agent-native/core/client";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { AgentToggleButton } from "@agent-native/core/client";
+import { RunsTray } from "@agent-native/core/client/progress";
 
 const pageTitles: Record<string, string> = {
   "/": "Designs",
@@ -46,6 +47,7 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
+        <RunsTray pollMs={1500} />
         <AgentToggleButton />
       </div>
     </header>
