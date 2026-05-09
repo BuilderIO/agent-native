@@ -1646,10 +1646,11 @@ describe("server/auth", () => {
       );
     });
 
-    it("uses the configured workspace gateway instead of loopback for workspace OAuth redirects", async () => {
+    it("uses the configured public app URL instead of the local workspace gateway for workspace OAuth redirects", async () => {
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
       vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
-      vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+      vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
       const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
       const event = createMockEvent({
         path: "/_agent-native/google/auth-url",
@@ -1665,10 +1666,29 @@ describe("server/auth", () => {
       );
     });
 
-    it("uses the configured workspace gateway instead of Builder preview hosts for workspace OAuth redirects", async () => {
+    it("uses a public workspace gateway when no app URL is configured", async () => {
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
       vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
       vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+      const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/_agent-native/google/auth-url",
+        headers: {
+          host: "940ebc5a83164aa6a37dde445e494f3a-thunder-handle-xmq6tgfy.builderio.xyz",
+          "x-forwarded-proto": "https",
+        },
+      });
+
+      expect(resolveOAuthRedirectUri(event)).toBe(
+        "https://agent-workspace.builder.io/_agent-native/google/callback",
+      );
+    });
+
+    it("uses the configured public app URL instead of Builder preview hosts for workspace OAuth redirects", async () => {
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
       const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
       const event = createMockEvent({
         path: "/_agent-native/google/auth-url",

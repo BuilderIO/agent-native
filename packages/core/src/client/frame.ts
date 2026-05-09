@@ -130,8 +130,14 @@ function runtimeEnvValue(name: string): string | boolean | undefined {
     : undefined;
 }
 
-function workspaceGatewayOrigin(): string | null {
+function workspaceOAuthOrigin(): string | null {
   const raw =
+    runtimeEnvValue("VITE_WORKSPACE_OAUTH_ORIGIN") ||
+    runtimeEnvValue("WORKSPACE_OAUTH_ORIGIN") ||
+    runtimeEnvValue("VITE_APP_URL") ||
+    runtimeEnvValue("APP_URL") ||
+    runtimeEnvValue("VITE_BETTER_AUTH_URL") ||
+    runtimeEnvValue("BETTER_AUTH_URL") ||
     runtimeEnvValue("VITE_WORKSPACE_GATEWAY_URL") ||
     runtimeEnvValue("WORKSPACE_GATEWAY_URL");
   if (typeof raw !== "string" || !raw) return null;
@@ -164,10 +170,10 @@ export function oauthRedirectUri(callbackPath: string): string {
   const path = shouldUseWorkspaceCallbackRelay(normalized)
     ? normalized
     : agentNativePath(normalized);
-  const gatewayOrigin = shouldUseWorkspaceCallbackRelay(normalized)
-    ? workspaceGatewayOrigin()
+  const oauthOrigin = shouldUseWorkspaceCallbackRelay(normalized)
+    ? workspaceOAuthOrigin()
     : null;
-  const origin = gatewayOrigin ?? getCallbackOrigin();
+  const origin = oauthOrigin ?? getCallbackOrigin();
   return `${origin}${path}`;
 }
 

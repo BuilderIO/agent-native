@@ -127,10 +127,15 @@ function firstConfiguredOrigin(): string | undefined {
 }
 
 function getWorkspaceCallbackOrigin(): string | undefined {
-  return (
-    normalizeOrigin(process.env.WORKSPACE_GATEWAY_URL) ??
-    firstConfiguredOrigin()
-  );
+  const publicAuthOrigin =
+    normalizeOrigin(process.env.APP_URL) ??
+    normalizeOrigin(process.env.BETTER_AUTH_URL);
+  if (publicAuthOrigin) return publicAuthOrigin;
+
+  const gatewayOrigin = normalizeOrigin(process.env.WORKSPACE_GATEWAY_URL);
+  if (gatewayOrigin && !isLoopbackOrigin(gatewayOrigin)) return gatewayOrigin;
+
+  return firstConfiguredOrigin();
 }
 
 function isLoopbackHost(host: string | undefined): boolean {
@@ -143,6 +148,15 @@ function isLoopbackHost(host: string | undefined): boolean {
       parsed.hostname === "::1" ||
       parsed.hostname === "[::1]"
     );
+  } catch {
+    return false;
+  }
+}
+
+function isLoopbackOrigin(origin: string | undefined): boolean {
+  if (!origin) return false;
+  try {
+    return isLoopbackHost(new URL(origin).host);
   } catch {
     return false;
   }

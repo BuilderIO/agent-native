@@ -75,7 +75,30 @@ describe("oauthRedirectUri", () => {
     );
   });
 
-  it("uses the configured workspace gateway origin in workspace mode", () => {
+  it("uses the configured workspace OAuth origin in workspace mode", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_WORKSPACE_OAUTH_ORIGIN",
+      "https://workspace.example/dispatch",
+    );
+    vi.stubEnv(
+      "VITE_WORKSPACE_GATEWAY_URL",
+      "http://127.0.0.1:8080",
+    );
+    vi.stubGlobal("window", {
+      location: {
+        origin:
+          "https://940ebc5a83164aa6a37dde445e494f3a-thunder-handle-xmq6tgfy.builderio.xyz",
+        pathname: "/dispatch/_agent-native/google/auth-url",
+      },
+    });
+
+    expect(oauthRedirectUri("/_agent-native/google/callback")).toBe(
+      "https://workspace.example/_agent-native/google/callback",
+    );
+  });
+
+  it("falls back to a public workspace gateway origin in workspace mode", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
       "VITE_WORKSPACE_GATEWAY_URL",
