@@ -147,8 +147,17 @@ const selectedById = new Map(apps.map((app) => [app.id, app]));
 const includeDesktop = hasFlag("--desktop");
 const eager = hasFlag("--eager");
 const dryRun = hasFlag("--dry-run");
+const isHeadlessEnv =
+  process.env.CI === "1" ||
+  process.env.CI === "true" ||
+  !!process.env.BUILDER_IO_DEV_SERVER ||
+  !!process.env.BUILDER_PROJECT_ID ||
+  !!process.env.CODESPACES ||
+  !!process.env.GITPOD_WORKSPACE_ID;
 const shouldOpen =
-  !hasFlag("--no-open") && process.env.WORKSPACE_NO_OPEN !== "1";
+  !hasFlag("--no-open") &&
+  process.env.WORKSPACE_NO_OPEN !== "1" &&
+  !isHeadlessEnv;
 const shouldKill = !hasFlag("--no-kill");
 const gatewayHost = process.env.WORKSPACE_HOST || DEFAULT_GATEWAY_HOST;
 const requestedGatewayPort = Number(
@@ -678,6 +687,15 @@ function openBrowser(url: string): void {
   const child = spawn(command, openArgs, {
     stdio: "ignore",
     detached: true,
+  });
+  child.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "ENOENT") {
+      console.warn(
+        `[dev-lazy] Could not auto-open browser (${command} not installed). Open ${url} manually.`,
+      );
+    } else {
+      console.warn(`[dev-lazy] Failed to auto-open browser: ${err.message}`);
+    }
   });
   child.unref();
 }
