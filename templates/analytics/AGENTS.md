@@ -488,7 +488,7 @@ title: Weekly signups
 ```
 ````
 
-The `SqlPanel` shape is the same one used by `update-dashboard` (see `app/pages/adhoc/sql-dashboard/types.ts`). Required fields: `id`, `title`, `sql`, `source` (`"bigquery" | "ga4" | "amplitude" | "first-party"`), `chartType` (`"line" | "area" | "bar" | "metric" | "table" | "pie"`), `width` (`1` or `2`). Optional `config` for axis keys, formatting, pivots, color palettes, stacking, and `legend`. Chart legends render automatically; set `config.legend=false` only when the user asks to hide them.
+The `SqlPanel` shape is the same one used by `update-dashboard` (see `app/pages/adhoc/sql-dashboard/types.ts`). Required fields: `id`, `title`, `sql`, `source` (`"bigquery" | "ga4" | "amplitude" | "first-party"`), `chartType` (`"line" | "area" | "bar" | "metric" | "table" | "pie"`), `width` (1..6 — number of grid columns to span; clamped to the active section's column count). Optional `config` for axis keys, formatting, pivots, color palettes, stacking, and `legend`. Chart legends render automatically; set `config.legend=false` only when the user asks to hide them. The dashboard always renders 1 column on screens narrower than `md` and expands to the configured column count from `md` and up — set the dashboard-level `columns` (1..6, default 2) for the panels before any section, and use a `chartType: "section"` panel with its own `columns` to switch the grid for the panels that follow it.
 
 Keep the JSON compact — URLs are capped around 4KB. If the SQL is long, persist it as a saved dashboard panel instead and link to that dashboard.
 

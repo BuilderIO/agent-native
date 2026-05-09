@@ -64,6 +64,9 @@ The save path dry-runs BigQuery panels before persisting. If validation returns 
 {
   "name": "Weekly Metrics",
   "description": "Core product and acquisition metrics",
+  // Default grid columns for panels before any section. 1–6, default 2.
+  // The grid is always 1 column on small screens and expands at `md:`.
+  "columns": 3,
   "filters": [
     { "id": "date", "type": "date-range", "label": "Date Range", "default": "30d" }
   ],
@@ -71,6 +74,12 @@ The save path dry-runs BigQuery panels before persisting. If validation returns 
     "EVENTS": "`my_project.analytics.events`"
   },
   "panels": [
+    // 3 metric cards sit side-by-side at md+ thanks to the dashboard's "columns": 3.
+    { "id": "kpi-clicks", "title": "Clicks", "source": "first-party", "chartType": "metric", "width": 1, "sql": "SELECT COUNT(*) AS value FROM analytics_events WHERE event_name = 'click'" },
+    { "id": "kpi-signups", "title": "Signups", "source": "first-party", "chartType": "metric", "width": 1, "sql": "SELECT COUNT(*) AS value FROM analytics_events WHERE event_name = 'signup'" },
+    { "id": "kpi-active", "title": "Active users", "source": "first-party", "chartType": "metric", "width": 1, "sql": "SELECT COUNT(DISTINCT user_id) AS value FROM analytics_events" },
+    // Section header switches the grid to 2 columns for the panels below it.
+    { "id": "trends", "title": "Trends", "chartType": "section", "width": 1, "columns": 2 },
     {
       "id": "events",
       "title": "Events",

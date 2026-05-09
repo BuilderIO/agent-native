@@ -49,9 +49,10 @@ function decodePanel(raw: string): SqlPanel | { error: string } {
       sql: p.sql,
       source: p.source as SqlPanel["source"],
       chartType: p.chartType as SqlPanel["chartType"],
-      width: (p.width === 1 || p.width === 2
-        ? p.width
-        : 2) as SqlPanel["width"],
+      width:
+        typeof p.width === "number" && Number.isFinite(p.width) && p.width >= 1
+          ? Math.floor(p.width)
+          : 1,
       config: (p.config && typeof p.config === "object"
         ? p.config
         : undefined) as SqlPanel["config"],
