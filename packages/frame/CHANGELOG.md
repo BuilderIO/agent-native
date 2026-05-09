@@ -1,5 +1,12 @@
 # @agent-native/frame
 
+## 0.1.54
+
+### Patch Changes
+
+- Updated dependencies [dd3090e]
+  - @agent-native/core@0.12.40
+
 ## 0.1.53
 
 ### Patch Changes
