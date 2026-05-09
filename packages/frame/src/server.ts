@@ -28,6 +28,21 @@ import { extractAppFromState } from "./oauth-state.js";
 
 const PORT = parseInt(process.env.FRAME_SERVER_PORT || "3335", 10);
 
+function templateGatewayUrl(): string | null {
+  const value =
+    process.env.VITE_AGENT_NATIVE_TEMPLATE_GATEWAY_URL ||
+    process.env.AGENT_NATIVE_TEMPLATE_GATEWAY_URL ||
+    process.env.VITE_WORKSPACE_GATEWAY_URL ||
+    process.env.WORKSPACE_GATEWAY_URL ||
+    null;
+  if (!value) return null;
+  try {
+    return new URL(value).toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Resolve which app backend this request should proxy to. Checked in order:
  * 1. Explicit `_app` query param.
@@ -85,11 +100,18 @@ router.get(
     const query = getQuery(event);
     const appId = (query.app as string) || "mail";
     const app = getTemplate(appId);
+    const gatewayUrl = templateGatewayUrl();
+    const devUrl =
+      gatewayUrl && app?.devPort
+        ? new URL(`/${appId}`, `${gatewayUrl}/`).toString().replace(/\/$/, "")
+        : app?.devPort
+          ? `http://localhost:${app.devPort}`
+          : null;
     return {
       id: appId,
       name: app?.label || appId,
       devPort: app?.devPort,
-      devUrl: app?.devPort ? `http://localhost:${app.devPort}` : null,
+      devUrl,
     };
   }),
 );
@@ -100,6 +122,10 @@ router.all(
   "/api/google/**",
   defineEventHandler(async (event) => {
     const appId = resolveAppId(event);
+    const gatewayUrl = templateGatewayUrl();
+    if (gatewayUrl) {
+      return proxyRequest(event, `${gatewayUrl}/${appId}${event.path}`);
+    }
     const app = getTemplate(appId);
     const targetPort = app?.devPort || 8085;
     return proxyRequest(event, `http://localhost:${targetPort}${event.path}`);
@@ -112,6 +138,10 @@ router.all(
   "/_agent-native/**",
   defineEventHandler(async (event) => {
     const appId = resolveAppId(event);
+    const gatewayUrl = templateGatewayUrl();
+    if (gatewayUrl) {
+      return proxyRequest(event, `${gatewayUrl}/${appId}${event.path}`);
+    }
     const app = getTemplate(appId);
     const targetPort = app?.devPort || 8085;
     return proxyRequest(event, `http://localhost:${targetPort}${event.path}`);

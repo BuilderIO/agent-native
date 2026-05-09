@@ -1,5 +1,7 @@
 import { runMigrations } from "@agent-native/core/db";
 
+const LEGACY_DEV_OWNER_SQL = "'local@localhost'"; // guard:allow-localhost-fallback - migration marker for legacy dev-owned rows, not an auth fallback
+
 export default runMigrations(
   [
     {
@@ -140,7 +142,7 @@ SET owner_email = COALESCE(
     (SELECT booking_links.org_id FROM booking_links WHERE booking_links.slug = bookings.slug LIMIT 1),
     org_id
   )
-WHERE owner_email = 'local@localhost'`,
+WHERE owner_email = ${LEGACY_DEV_OWNER_SQL}`,
     },
   ],
   { table: "calendar_migrations" },

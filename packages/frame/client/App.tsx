@@ -10,7 +10,12 @@
  */
 
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
-import { TEMPLATES, getTemplate } from "@agent-native/shared-app-config";
+import {
+  TEMPLATES,
+  getTemplate,
+  getTemplateGatewayAppUrl,
+  getTemplateGatewayUrl,
+} from "@agent-native/shared-app-config";
 
 // Lazy-load heavy components
 const MultiTabAssistantChat = lazy(() =>
@@ -58,6 +63,8 @@ function getAppId(): string {
 }
 
 function getAppDevUrl(appId: string): string {
+  const gatewayUrl = getTemplateGatewayAppUrl(appId);
+  if (gatewayUrl) return gatewayUrl;
   const app = getTemplate(appId);
   const host =
     typeof window !== "undefined" ? window.location.hostname : "localhost";
@@ -256,12 +263,22 @@ export function App() {
       }
       if (event.data.type === "agentNative.submitChat") {
         const host = window.location.hostname || "localhost";
-        const allowedOrigins = new Set(
-          TEMPLATES.flatMap((a) => [
+        const gatewayOrigin = (() => {
+          const gatewayUrl = getTemplateGatewayUrl();
+          if (!gatewayUrl) return null;
+          try {
+            return new URL(gatewayUrl).origin;
+          } catch {
+            return null;
+          }
+        })();
+        const allowedOrigins = new Set([
+          ...TEMPLATES.flatMap((a) => [
             `http://localhost:${a.devPort || 8080}`,
             `http://${host}:${a.devPort || 8080}`,
           ]),
-        );
+          ...(gatewayOrigin ? [gatewayOrigin] : []),
+        ]);
         if (allowedOrigins.has(event.origin)) {
           window.postMessage(event.data, window.location.origin);
         }

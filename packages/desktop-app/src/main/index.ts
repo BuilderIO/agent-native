@@ -18,7 +18,7 @@ import {
   type InterAppMessage,
   type UpdateStatus,
 } from "@shared/ipc-channels";
-import { FRAME_PORT } from "@shared/app-registry";
+import { FRAME_PORT, getTemplateGatewayAppUrl } from "@shared/app-registry";
 import type { AppConfig } from "@shared/app-registry";
 import * as AppStore from "./app-store";
 
@@ -110,7 +110,9 @@ function getAppOrigin(appConfig: AppConfig): string | null {
   const isProdMode = appConfig.mode !== "dev";
   const rawUrl = isProdMode
     ? appConfig.url
-    : appConfig.devUrl || `http://localhost:${appConfig.devPort}`;
+    : getTemplateGatewayAppUrl(appConfig.id) ||
+      appConfig.devUrl ||
+      `http://localhost:${appConfig.devPort}`;
   if (!rawUrl) return null;
   try {
     return new URL(rawUrl).origin;
@@ -1415,9 +1417,10 @@ app.whenReady().then(() => {
           apps.find((a) => a.id === "mail") ||
           apps.find((a) => a.id === "calendar");
         if (app) {
+          const gatewayAppUrl = getTemplateGatewayAppUrl(app.id);
           const appUrl = details.url.replace(
             `http://localhost:${FRAME_PORT}`,
-            `http://localhost:${app.devPort}`,
+            gatewayAppUrl || `http://localhost:${app.devPort}`,
           );
           callback({ redirectURL: appUrl });
         } else {

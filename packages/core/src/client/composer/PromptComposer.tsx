@@ -322,7 +322,7 @@ function PromptComposerInner({
   return (
     <div
       className={cn(
-        "agent-composer-area flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring",
+        "agent-composer-area flex flex-col rounded-lg border border-input bg-background text-left focus-within:ring-1 focus-within:ring-ring",
         className,
       )}
     >

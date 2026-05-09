@@ -382,7 +382,8 @@ function sqliteScopePredicate(
   } else if (scoping.orgId && hasOrg) {
     clauses.push(`org_id = '${escapeSqlString(scoping.orgId)}'`);
   }
-  return clauses.length > 0 ? clauses.join(" AND ") : null;
+  if (clauses.length > 0) return clauses.join(" AND ");
+  return scoping.tablePredicates.get(tableName) ?? null;
 }
 
 function splitReturning(sql: string): { body: string; returning: string } {
@@ -440,6 +441,11 @@ function qualifySqliteWrite(sql: string, scoping: ScopingContext): string {
         !scoping.ownerEmailTables.has(tableName) &&
         !(scoping.orgId && scoping.orgIdTables.has(tableName))
       ) {
+        if (scoping.tablePredicates.has(tableName)) {
+          throw new Error(
+            `INSERT/REPLACE into "${tableName}" is not allowed through raw DB tools because the table does not have owner_email/org_id columns for automatic write scoping. Use a template action, or add scoped ownership columns and an additive migration.`,
+          );
+        }
         return match;
       }
       return `${keyword} main."${tableName.replace(/"/g, '""')}"`;

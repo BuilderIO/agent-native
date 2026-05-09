@@ -41,6 +41,7 @@ const DEV_FALLBACK_EMAIL = "local@localhost"; // guard:allow-localhost-fallback 
 interface ScopedTable {
   name: string;
   viewSql: string;
+  predicate: string;
 }
 
 function getUserEmail(): string {
@@ -144,6 +145,7 @@ function buildScopedTables(
     const realTable = `${qualifiedPrefix}"${escapedTable}"`;
     return {
       name: table,
+      predicate: whereSql,
       viewSql: `${isPostgres ? "CREATE OR REPLACE TEMPORARY" : "CREATE TEMPORARY"} VIEW "${escapedTable}" AS SELECT * FROM ${realTable} WHERE ${whereSql}${checkOption}`,
     };
   };
@@ -237,6 +239,8 @@ export interface ScopingContext {
   ownerEmailTables: Set<string>;
   /** Tables that have org_id columns (for INSERT injection). */
   orgIdTables: Set<string>;
+  /** Table predicates applied by the scoping temp views. */
+  tablePredicates: Map<string, string>;
 }
 
 /**
@@ -281,6 +285,7 @@ export async function buildScopingPostgres(
     orgId,
     ownerEmailTables,
     orgIdTables,
+    tablePredicates: new Map(scoped.map((s) => [s.name, s.predicate])),
   };
 }
 
@@ -319,5 +324,6 @@ export async function buildScopingSqlite(client: any): Promise<ScopingContext> {
     orgId,
     ownerEmailTables,
     orgIdTables,
+    tablePredicates: new Map(scoped.map((s) => [s.name, s.predicate])),
   };
 }

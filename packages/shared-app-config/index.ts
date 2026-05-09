@@ -1,4 +1,9 @@
-import { coreTemplates, TEMPLATES, type TemplateMeta } from "./templates";
+import {
+  coreTemplates,
+  getTemplate,
+  TEMPLATES,
+  type TemplateMeta,
+} from "./templates";
 export {
   TEMPLATES,
   visibleTemplates,
@@ -118,6 +123,48 @@ export function generateAppId(): string {
 /** Returns the frame URL for the given app (terminal + iframe) */
 export function getAppUrl(app: AppDefinition | AppConfig): string {
   return `http://localhost:${FRAME_PORT}?app=${app.id}`;
+}
+
+function runtimeEnvValue(name: string): string | undefined {
+  const viteEnv = (
+    typeof import.meta !== "undefined"
+      ? (
+          import.meta as unknown as {
+            env?: Record<string, string | undefined>;
+          }
+        ).env
+      : undefined
+  )?.[name];
+  if (viteEnv) return viteEnv;
+  const nodeEnv =
+    typeof process !== "undefined"
+      ? (process.env as Record<string, string | undefined>)?.[name]
+      : undefined;
+  return nodeEnv;
+}
+
+export function getTemplateGatewayUrl(): string | null {
+  const value =
+    runtimeEnvValue("VITE_AGENT_NATIVE_TEMPLATE_GATEWAY_URL") ||
+    runtimeEnvValue("AGENT_NATIVE_TEMPLATE_GATEWAY_URL") ||
+    runtimeEnvValue("VITE_WORKSPACE_GATEWAY_URL") ||
+    runtimeEnvValue("WORKSPACE_GATEWAY_URL");
+  if (!value) return null;
+  try {
+    return new URL(value).toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
+export function getTemplateGatewayAppUrl(appId: string): string | null {
+  const gatewayUrl = getTemplateGatewayUrl();
+  if (!gatewayUrl || !getTemplate(appId)) return null;
+  try {
+    return new URL(`/${appId}`, `${gatewayUrl}/`).toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
 }
 
 export function getAppById(

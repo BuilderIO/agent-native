@@ -18,7 +18,13 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import type { AppDefinition, AppConfig } from "@shared/app-registry";
-import { getAppUrl, FRAME_PORT, getTemplate } from "@shared/app-registry";
+import {
+  getAppUrl,
+  FRAME_PORT,
+  getTemplate,
+  getTemplateGatewayAppUrl,
+  getTemplateGatewayUrl,
+} from "@shared/app-registry";
 
 const IS_DEV = window.location.protocol !== "file:";
 
@@ -398,17 +404,23 @@ function LoadingScreen({
 type PortStatus = "checking" | "up" | "down";
 
 function usePortCheck(port: number | undefined, enabled: boolean): PortStatus {
+  const url = port ? `http://localhost:${port}` : undefined;
+  return useUrlCheck(url, enabled);
+}
+
+function useUrlCheck(url: string | undefined, enabled: boolean): PortStatus {
   const [status, setStatus] = useState<PortStatus>("checking");
 
   useEffect(() => {
-    if (!enabled || !port) {
+    if (!enabled || !url) {
       setStatus("checking");
       return;
     }
+    const targetUrl = url;
     let cancelled = false;
     async function check() {
       try {
-        await fetch(`http://localhost:${port}`, {
+        await fetch(targetUrl, {
           mode: "no-cors",
           signal: AbortSignal.timeout(2000),
         });
@@ -421,7 +433,7 @@ function usePortCheck(port: number | undefined, enabled: boolean): PortStatus {
     return () => {
       cancelled = true;
     };
-  }, [port, enabled]);
+  }, [url, enabled]);
 
   return status;
 }
@@ -469,7 +481,12 @@ function ErrorScreen({
   const [copied, setCopied] = useState(false);
   const devCommand = appConfig?.devCommand?.trim();
   const devPort = appConfig?.devPort ?? app.devPort;
-  const devServerStatus = usePortCheck(devPort, isDev);
+  const gatewayUrl = getTemplateGatewayUrl();
+  const gatewayAppUrl =
+    isDev && gatewayUrl ? getTemplateGatewayAppUrl(app.id) : null;
+  const devStatusUrl =
+    gatewayAppUrl ?? (devPort ? `http://localhost:${devPort}` : undefined);
+  const devServerStatus = useUrlCheck(devStatusUrl, isDev);
   const frameStatus = usePortCheck(FRAME_PORT, isDev);
 
   async function copyCommand(cmd: string) {
@@ -506,7 +523,9 @@ function ErrorScreen({
           <ul className="error-checklist">
             <li className={`error-checklist-item--${devServerStatus}`}>
               <StatusIcon status={devServerStatus} />
-              {app.name} dev server{devPort ? ` (port ${devPort})` : ""}
+              {gatewayAppUrl
+                ? `${app.name} via template gateway`
+                : `${app.name} dev server${devPort ? ` (port ${devPort})` : ""}`}
             </li>
             <li className={`error-checklist-item--${frameStatus}`}>
               <StatusIcon status={frameStatus} />
