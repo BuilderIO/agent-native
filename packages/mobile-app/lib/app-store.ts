@@ -7,6 +7,19 @@ import {
 
 const STORAGE_KEY = "agent-native:apps";
 
+const listeners = new Set<() => void>();
+
+export function subscribe(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => {
+    listeners.delete(fn);
+  };
+}
+
+function emit(): void {
+  for (const fn of listeners) fn();
+}
+
 function migrateApps(apps: AppConfig[]): {
   apps: AppConfig[];
   changed: boolean;
@@ -83,6 +96,7 @@ export async function getApps(): Promise<AppConfig[]> {
 
 export async function saveApps(apps: AppConfig[]): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(apps));
+  emit();
 }
 
 export async function addApp(app: AppConfig): Promise<void> {
