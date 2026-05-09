@@ -66,14 +66,19 @@ function logResolvedDb(
   if (loggedFor === key) return;
   loggedFor = key;
   let host = "<empty>";
+  let user = "<none>";
   try {
-    if (url) host = new URL(url).host;
+    if (url) {
+      const u = new URL(url);
+      host = u.host;
+      user = u.username;
+    }
   } catch {
     host = url.slice(0, 40);
   }
   // eslint-disable-next-line no-console
   console.log(
-    `[db] resolved url for APP_NAME=${appName ?? "<unset>"} via ${source} -> host=${host}`,
+    `[db] resolved url for APP_NAME=${appName ?? "<unset>"} via ${source} -> user=${user} host=${host}`,
   );
 }
 
