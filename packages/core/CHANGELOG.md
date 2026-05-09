@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.12.35
+
+### Patch Changes
+
+- b209def: Make raw agent database tools fail closed for tables without a recognized tenant scope.
+- b209def: Polish the extensions empty state hierarchy and composer alignment.
+
 ## 0.12.34
 
 ### Patch Changes
