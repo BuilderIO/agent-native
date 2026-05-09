@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.5.1
+
+### Patch Changes
+
+- 98d56cd: Increase vertical spacing between sections on Dispatch pages so section headings (Getting started, At a glance, Operations detail, etc.) read as distinct groups instead of running together.
+
 ## 0.5.0
 
 ### Minor Changes
