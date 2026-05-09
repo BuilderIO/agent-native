@@ -1242,13 +1242,17 @@ describe("server/auth", () => {
   });
 
   describe("onboarding Google sign-in", () => {
-    it("routes Builder preview Google OAuth through a popup exchange", async () => {
+    it("keeps popup OAuth for browser Builder previews and uses redirect for Builder desktop", async () => {
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
+      vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
 
       const { getOnboardingHtml } = await import("./onboarding-html.js");
       const html = getOnboardingHtml({ googleOnly: true });
 
+      expect(html).toContain(
+        'var __AN_PUBLIC_OAUTH_ORIGIN = "https://agent-workspace.builder.io";',
+      );
       expect(html).toContain("__anStartBuilderOAuth(ret, btn, err)");
       expect(html).toContain(
         "__anPath('/_agent-native/auth/desktop-exchange')",
@@ -1272,6 +1276,12 @@ describe("server/auth", () => {
         "if (__anIsBuilderPreview() && !__anIsBuilderDesktop())",
       );
       expect(html).toContain(
+        "__anSetOAuthDebug('Opening Google sign-in redirect')",
+      );
+      expect(html).toContain(
+        "__anOpenOAuthUrl(__anAuthPath('/_agent-native/google/auth-url') + '?' + params.toString())",
+      );
+      expect(html).toContain(
         "window.open('', '_blank', 'width=640,height=760')",
       );
       expect(html).toContain("popup.location.href = url");
@@ -1283,6 +1293,7 @@ describe("server/auth", () => {
     });
 
     it("adds OAuth debug breadcrumbs to the minimal Google auth plugin page", async () => {
+      vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
       const createAuthPlugin = vi.fn((options: any) => options);
       vi.doMock("./auth-plugin.js", () => ({ createAuthPlugin }));
 
@@ -1291,6 +1302,9 @@ describe("server/auth", () => {
       createGoogleAuthPlugin();
 
       const loginHtml = createAuthPlugin.mock.calls[0]?.[0]?.loginHtml;
+      expect(loginHtml).toContain(
+        'var __AN_PUBLIC_OAUTH_ORIGIN = "https://agent-workspace.builder.io";',
+      );
       expect(loginHtml).toContain('id="debug"');
       expect(loginHtml).toContain(
         "__anSetOAuthDebug('Google popup opened; waiting for callback', flowId)",
@@ -1298,6 +1312,12 @@ describe("server/auth", () => {
       expect(loginHtml).toContain("__anIsBuilderDesktop()");
       expect(loginHtml).toContain(
         "if (__anIsBuilderPreview() && !__anIsBuilderDesktop())",
+      );
+      expect(loginHtml).toContain(
+        "__anSetOAuthDebug('Opening Google sign-in redirect')",
+      );
+      expect(loginHtml).toContain(
+        "__anOpenOAuthUrl(__anAuthPath('/_agent-native/google/auth-url') + '?' + params.toString())",
       );
       expect(loginHtml).toContain(
         "window.open('', '_blank', 'width=640,height=760')",
