@@ -81,10 +81,7 @@ describe("oauthRedirectUri", () => {
       "VITE_WORKSPACE_OAUTH_ORIGIN",
       "https://workspace.example/dispatch",
     );
-    vi.stubEnv(
-      "VITE_WORKSPACE_GATEWAY_URL",
-      "http://127.0.0.1:8080",
-    );
+    vi.stubEnv("VITE_WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
     vi.stubGlobal("window", {
       location: {
         origin:
