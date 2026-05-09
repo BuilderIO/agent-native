@@ -165,6 +165,14 @@ export default runMigrations(
       version: 18,
       sql: `ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS signed_in TEXT`,
     },
+    {
+      version: 19,
+      sql: `ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS archived_at TEXT`,
+    },
+    {
+      version: 20,
+      sql: `CREATE INDEX IF NOT EXISTS dashboards_archived_at_idx ON dashboards (archived_at)`,
+    },
   ],
   { table: "analytics_migrations" },
 );

@@ -126,7 +126,7 @@ After creating, update the shared AGENTS.md resource to reference the new skill 
 Keep the skill concise (under 500 lines) and actionable.`,
   },
   job: {
-    label: "Scheduled Task",
+    label: "Schedule Task",
     icon: IconClock,
     placeholder: "Describe what should happen and when...",
     messagePrefix: "Create a recurring job: ",

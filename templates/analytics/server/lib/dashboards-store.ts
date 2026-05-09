@@ -12,7 +12,7 @@
  * - `o:<orgId>:sql-dashboard-{id}` → kind='sql',      owner=caller, visibility='org'
  * - `adhoc-analysis-{id}`          → owner=caller,   legacy visibility from its source key
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import {
   accessFilter,
   assertAccess,
@@ -40,7 +40,11 @@ export interface DashboardRecord {
   visibility: "private" | "org" | "public";
   createdAt: string;
   updatedAt: string;
+  /** ISO timestamp set when the dashboard is archived. Null = active. */
+  archivedAt: string | null;
 }
+
+export type DashboardArchiveFilter = "active" | "archived" | "all";
 
 export interface AnalysisRecord {
   id: string;
@@ -121,6 +125,7 @@ function rowToDashboard(row: any): DashboardRecord {
     visibility: row.visibility,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    archivedAt: row.archivedAt ?? null,
   };
 }
 
@@ -251,28 +256,42 @@ export async function getDashboard(
   );
 }
 
-/** List dashboards visible to the caller. Union of SQL rows + not-yet-migrated legacy keys. */
+/**
+ * List dashboards visible to the caller. Union of SQL rows + not-yet-migrated
+ * legacy keys.
+ *
+ * `archived` controls whether archived rows are included:
+ *   - `"active"` (default): hide archived rows
+ *   - `"archived"`: only archived rows
+ *   - `"all"`: both
+ *
+ * Legacy settings rows have no archive concept, so they are treated as active.
+ */
 export async function listDashboards(
   ctx: AccessCtx,
-  filter?: { kind?: DashboardKind },
+  filter?: { kind?: DashboardKind; archived?: DashboardArchiveFilter },
 ): Promise<DashboardRecord[]> {
   const db = getDb() as any;
-  const where = filter?.kind
-    ? and(
-        eq(schema.dashboards.kind, filter.kind),
-        accessFilter(schema.dashboards, schema.dashboardShares, {
-          userEmail: ctx.email,
-          orgId: ctx.orgId ?? undefined,
-        }),
-      )
-    : accessFilter(schema.dashboards, schema.dashboardShares, {
-        userEmail: ctx.email,
-        orgId: ctx.orgId ?? undefined,
-      });
+  const archived = filter?.archived ?? "active";
+  const conditions: any[] = [
+    accessFilter(schema.dashboards, schema.dashboardShares, {
+      userEmail: ctx.email,
+      orgId: ctx.orgId ?? undefined,
+    }),
+  ];
+  if (filter?.kind) conditions.push(eq(schema.dashboards.kind, filter.kind));
+  if (archived === "active")
+    conditions.push(isNull(schema.dashboards.archivedAt));
+  else if (archived === "archived")
+    conditions.push(isNotNull(schema.dashboards.archivedAt));
+  const where = conditions.length === 1 ? conditions[0] : and(...conditions);
   const rows = await db.select().from(schema.dashboards).where(where);
   const out: DashboardRecord[] = rows.map(rowToDashboard);
   const seen = new Set(out.map((r) => r.id));
   // Legacy: scan settings once and surface anything not yet migrated.
+  // Archived state doesn't exist in legacy rows, so skip the legacy scan
+  // entirely when the caller wants archived-only.
+  if (archived === "archived") return out;
   try {
     const all = await getAllSettings();
     for (const [key, value] of Object.entries(all)) {
@@ -362,6 +381,77 @@ export async function upsertDashboard(
     .where(eq(schema.dashboards.id, id));
   // Notify any sibling tabs (sidebar list, command palette, dashboard view)
   // so create/update propagate just like delete and the legacy-migration path.
+  const dashboard = rowToDashboard(row);
+  recordScopedChange(
+    "dashboards",
+    "change",
+    dashboard.id,
+    dashboard.ownerEmail,
+    dashboard.orgId,
+    dashboard.visibility,
+  );
+  return dashboard;
+}
+
+/**
+ * Archive a dashboard (soft-delete). Requires editor. The row stays in the
+ * dashboards table with `archived_at` set, so it disappears from the default
+ * sidebar list but remains accessible by id and can be restored.
+ */
+export async function archiveDashboard(
+  id: string,
+  ctx: AccessCtx,
+): Promise<DashboardRecord | null> {
+  const existing = await getDashboard(id, ctx);
+  if (!existing) return null;
+  if (existing.archivedAt) return existing;
+  await assertAccess("dashboard", id, "editor", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const db = getDb() as any;
+  const now = nowIso();
+  await db
+    .update(schema.dashboards)
+    .set({ archivedAt: now, updatedAt: now })
+    .where(eq(schema.dashboards.id, id));
+  const [row] = await db
+    .select()
+    .from(schema.dashboards)
+    .where(eq(schema.dashboards.id, id));
+  const dashboard = rowToDashboard(row);
+  recordScopedChange(
+    "dashboards",
+    "change",
+    dashboard.id,
+    dashboard.ownerEmail,
+    dashboard.orgId,
+    dashboard.visibility,
+  );
+  return dashboard;
+}
+
+/** Restore an archived dashboard. Requires editor. No-op if already active. */
+export async function unarchiveDashboard(
+  id: string,
+  ctx: AccessCtx,
+): Promise<DashboardRecord | null> {
+  const existing = await getDashboard(id, ctx);
+  if (!existing) return null;
+  if (!existing.archivedAt) return existing;
+  await assertAccess("dashboard", id, "editor", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const db = getDb() as any;
+  await db
+    .update(schema.dashboards)
+    .set({ archivedAt: null, updatedAt: nowIso() })
+    .where(eq(schema.dashboards.id, id));
+  const [row] = await db
+    .select()
+    .from(schema.dashboards)
+    .where(eq(schema.dashboards.id, id));
   const dashboard = rowToDashboard(row);
   recordScopedChange(
     "dashboards",

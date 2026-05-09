@@ -79,7 +79,19 @@ export interface SqlPanel {
   sql: string;
   source: DataSourceType;
   chartType: ChartType;
-  width: 1 | 2;
+  /**
+   * How many grid columns this panel spans. Defaults to 1. The renderer
+   * clamps to the active section's column count, so a `width: 4` panel in a
+   * 2-column section still spans the full row. Sections always span every
+   * column regardless of this value.
+   */
+  width: number;
+  /**
+   * Section panels only: number of columns the panels following this section
+   * (until the next section) should be laid out in. Falls back to the
+   * dashboard-level `columns`, then to 2.
+   */
+  columns?: number;
   config?: SqlPanelConfig;
   /**
    * Optional tab assignment. When any panel in a dashboard declares a `tab`,
@@ -96,5 +108,38 @@ export interface SqlDashboardConfig {
   description?: string;
   filters?: DashboardFilter[];
   variables?: Record<string, string>;
+  /**
+   * Default column count for panels that appear before any section. Sections
+   * can override this via their own `columns`. Always 1 column on screens
+   * narrower than the `md` breakpoint. Defaults to 2.
+   */
+  columns?: number;
   panels: SqlPanel[];
+}
+
+/**
+ * Lower / upper bounds for the per-section column count. Keep in sync with
+ * the validators in `actions/update-dashboard.ts` and
+ * `server/handlers/sql-dashboards.ts`.
+ */
+export const MIN_DASHBOARD_COLUMNS = 1;
+export const MAX_DASHBOARD_COLUMNS = 6;
+export const DEFAULT_DASHBOARD_COLUMNS = 2;
+
+export function clampDashboardColumns(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_DASHBOARD_COLUMNS;
+  }
+  const integer = Math.floor(value);
+  if (integer < MIN_DASHBOARD_COLUMNS) return MIN_DASHBOARD_COLUMNS;
+  if (integer > MAX_DASHBOARD_COLUMNS) return MAX_DASHBOARD_COLUMNS;
+  return integer;
+}
+
+export function clampPanelWidth(value: unknown, gridColumns: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 1;
+  const integer = Math.floor(value);
+  if (integer < 1) return 1;
+  if (integer > gridColumns) return gridColumns;
+  return integer;
 }

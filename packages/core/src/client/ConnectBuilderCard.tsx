@@ -181,7 +181,7 @@ export function ConnectBuilderCard({
   } else if (showWaitlist) {
     title = waitlistJoined
       ? "You're on the waitlist"
-      : "Builder Cloud Agents unavailable";
+      : "Builder Cloud Agents coming soon";
     subtitle = waitlistJoined ? (
       <>
         We'll let you know when Builder Cloud Agents are available for this

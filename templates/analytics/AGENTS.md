@@ -278,6 +278,8 @@ Read (`/api/sql-dashboards/:id`, `/api/analyses/:id`) admits rows the current us
 
 **Storage.** Dashboards and analyses now live in SQL (`dashboards`, `analyses`, `dashboard_shares`, `analysis_shares`, `dashboard_views`). Legacy settings-KV keys (`u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, `adhoc-analysis-*`) are read as a fallback on first access and copied into SQL automatically — existing dashboards are preserved. See `server/lib/dashboards-store.ts` for the exact migration policy.
 
+**Archive.** `dashboards.archived_at` is a soft-delete timestamp. The default `listDashboards`/`/api/sql-dashboards` response hides archived rows; pass `?archived=1` (or `archived: 'archived' | 'all'` to the store) to surface them. Hard delete still removes a row entirely. Prefer archive for ordinary destructive flows so users can restore from the sidebar's Archived section.
+
 ## Organizations & Team
 
 This template supports multi-org deployments using the framework-provided org module. The schema (`organizations`, `org_members`, `org_invitations`) lives in `@agent-native/core/org` — there is no template-side schema file. Users sign in with Google, create or get invited to an org, and dashboards remember the org context they were created in while staying private until explicitly shared.
@@ -460,6 +462,8 @@ pnpm action commonroom-members --query="enterprise" --limit=10
 | "Build me a dashboard for X"         | If ambiguous, use guided questions; then `list-data-dictionary --search=X` FIRST and compose from entries                                                                    |
 | "Document this metric"               | `save-data-dictionary-entry --metric="…" --definition="…" …`                                                                                                                 |
 | "Populate the data dictionary"       | Ask where definitions live, fetch them, loop over `save-data-dictionary-entry`                                                                                               |
+| "Delete / remove this dashboard"     | `archive-dashboard --id <id>` (soft, recoverable). Use a hard delete only if the user says "permanently" / "for good".                                                       |
+| "Restore / unarchive this dashboard" | `archive-dashboard --id <id> --archived false`                                                                                                                               |
 
 **Key principle**: When asked a question, don't say "check the dashboard" — actually query the data, get results, and present the answer directly in chat with tables and/or charts.
 

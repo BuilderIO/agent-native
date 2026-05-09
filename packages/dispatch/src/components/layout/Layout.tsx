@@ -382,7 +382,7 @@ export function Layout({
       <InvitationBanner />
       <main className="flex-1 overflow-y-auto">
         {showHeader ? (
-          <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">
+          <div className="mx-auto max-w-7xl space-y-10 px-4 py-6 sm:px-6">
             {children}
           </div>
         ) : (

@@ -31,15 +31,32 @@ export function useChatThreads(
     ? `${ACTIVE_THREAD_KEY}:${storageKey}`
     : ACTIVE_THREAD_KEY;
   const [threads, setThreads] = useState<ChatThreadSummary[]>([]);
+
+  // IDs we generated client-side this session — consumers use this to know
+  // whether to skip the per-thread restore skeleton. Tracked by ref instead
+  // of state because the consumer reads it inside the render path and we
+  // never need to re-render when the set changes.
+  const newlyCreatedRef = useRef<Set<string>>(new Set());
+
   const [activeThreadId, setActiveThreadId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
     try {
-      return localStorage.getItem(activeThreadKey);
-    } catch {
-      return null;
+      const saved = localStorage.getItem(activeThreadKey);
+      if (saved) return saved;
+    } catch {}
+    // No saved thread — generate one synchronously so the chat shell + composer
+    // can paint on first render instead of after a network round-trip.
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      const id = crypto.randomUUID();
+      newlyCreatedRef.current.add(id);
+      return id;
     }
+    return null;
   });
   const [isLoading, setIsLoading] = useState(true);
   const fetchedRef = useRef(false);
+  const activeThreadIdRef = useRef(activeThreadId);
+  activeThreadIdRef.current = activeThreadId;
 
   // Persist active thread ID
   useEffect(() => {
@@ -57,47 +74,27 @@ export function useChatThreads(
       const res = await fetch(`${apiUrl}/threads`);
       if (!res.ok) return;
       const data = await res.json();
-      setThreads(data.threads ?? []);
+      setThreads((prev) => {
+        const loaded = (data.threads ?? []) as ChatThreadSummary[];
+        // Preserve any optimistic threads we've created this session that
+        // haven't shown up in the server list yet (POST still in-flight).
+        const loadedIds = new Set(loaded.map((t) => t.id));
+        const optimisticOnly = prev.filter(
+          (t) => newlyCreatedRef.current.has(t.id) && !loadedIds.has(t.id),
+        );
+        return [...optimisticOnly, ...loaded];
+      });
       return data.threads as ChatThreadSummary[];
     } catch {
       return undefined;
     }
   }, [apiUrl]);
 
-  // Initial load
-  useEffect(() => {
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
-
-    (async () => {
-      setIsLoading(true);
-      const loadedThreads = await fetchThreads();
-
-      if (loadedThreads && loadedThreads.length > 0) {
-        // If the saved active thread still exists, keep it. Otherwise use the most recent.
-        const savedId = activeThreadId;
-        if (!savedId || !loadedThreads.find((t) => t.id === savedId)) {
-          setActiveThreadId(loadedThreads[0].id);
-        }
-      } else {
-        // No threads — create the first one
-        try {
-          const res = await fetch(`${apiUrl}/threads`, { method: "POST" });
-          if (res.ok) {
-            const thread = await res.json();
-            setThreads([thread]);
-            setActiveThreadId(thread.id);
-          }
-        } catch {}
-      }
-      setIsLoading(false);
-    })();
-  }, [fetchThreads, apiUrl, activeThreadId]);
-
-  const createThread = useCallback(
-    (preferredId?: string): Promise<string | null> => {
-      // Generate ID client-side for instant UI response
-      const id = preferredId || crypto.randomUUID();
+  // Persist a client-generated thread to the server in the background.
+  // Optimistically adds it to the local thread list so callers can render
+  // immediately; rolls back on failure.
+  const persistNewThread = useCallback(
+    (id: string) => {
       const now = Date.now();
       const optimistic: ChatThreadSummary = {
         id,
@@ -107,10 +104,9 @@ export function useChatThreads(
         createdAt: now,
         updatedAt: now,
       };
-      setThreads((prev) => [optimistic, ...prev]);
-      setActiveThreadId(id);
-
-      // Persist to server in the background
+      setThreads((prev) =>
+        prev.some((t) => t.id === id) ? prev : [optimistic, ...prev],
+      );
       fetch(`${apiUrl}/threads`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -129,15 +125,60 @@ export function useChatThreads(
           );
         })
         .catch(() => {
-          // If server fails, remove the optimistic thread instead of leaving a
-          // phantom active tab that disappears on the next refresh.
           setThreads((prev) => prev.filter((t) => t.id !== id));
+          newlyCreatedRef.current.delete(id);
           setActiveThreadId((current) => (current === id ? null : current));
         });
-
-      return Promise.resolve(id);
     },
     [apiUrl],
+  );
+
+  // Initial load. Runs in the background — does NOT gate the consumer's
+  // first paint. The composer renders against the optimistic active thread
+  // we set up in useState above; this fetch just populates the history list
+  // and reconciles a stale saved active id.
+  useEffect(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+
+    // Persist any thread we optimistically created during the initial render.
+    for (const id of newlyCreatedRef.current) {
+      persistNewThread(id);
+    }
+
+    (async () => {
+      const loadedThreads = await fetchThreads();
+      if (loadedThreads && loadedThreads.length > 0) {
+        const savedId = activeThreadIdRef.current;
+        // If the saved active thread isn't on the server (and isn't one we
+        // just created client-side), fall back to the most recent.
+        if (
+          savedId &&
+          !newlyCreatedRef.current.has(savedId) &&
+          !loadedThreads.find((t) => t.id === savedId)
+        ) {
+          setActiveThreadId(loadedThreads[0].id);
+        }
+      }
+      setIsLoading(false);
+    })();
+  }, [fetchThreads, persistNewThread]);
+
+  const createThread = useCallback(
+    (preferredId?: string): Promise<string | null> => {
+      // Generate ID client-side for instant UI response
+      const id = preferredId || crypto.randomUUID();
+      newlyCreatedRef.current.add(id);
+      setActiveThreadId(id);
+      persistNewThread(id);
+      return Promise.resolve(id);
+    },
+    [persistNewThread],
+  );
+
+  const isNewThread = useCallback(
+    (id: string) => newlyCreatedRef.current.has(id),
+    [],
   );
 
   const switchThread = useCallback((id: string) => {
@@ -302,5 +343,6 @@ export function useChatThreads(
     generateTitle,
     searchThreads,
     refreshThreads,
+    isNewThread,
   };
 }

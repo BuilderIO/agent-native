@@ -36,10 +36,10 @@ import {
 interface ComposerPlusMenuProps {
   onSelectMode?: (mode: ComposerMode) => void;
   /**
-   * "full" (default): full + menu with Upload File, Create Skill, Scheduled Task,
-   * Automation, Tool, MCP Server. "upload-only": clicking + opens the file
+   * "full" (default): full + menu with Upload File, Create Skill, Schedule Task,
+   * Automation, Extension, MCP Server. "upload-only": clicking + opens the file
    * picker directly — no popover, no other modes. Use for prompt popovers
-   * (create tool, create deck, create dashboard, etc.) where the only thing
+   * (create extension, create deck, create dashboard, etc.) where the only thing
    * to attach is a file.
    */
   mode?: "full" | "upload-only";
@@ -251,7 +251,7 @@ function ComposerPlusMenuFull({
     },
     {
       icon: <IconClock className="h-3.5 w-3.5" />,
-      label: "Scheduled Task",
+      label: "Schedule Task",
       desc: "Run something on a schedule",
       action: () => {
         onSelectMode?.("job");
@@ -269,8 +269,8 @@ function ComposerPlusMenuFull({
     },
     {
       icon: <IconTool className="h-3.5 w-3.5" />,
-      label: "Create Tool",
-      desc: "Build an interactive mini app",
+      label: "Create Extension",
+      desc: "Build a mini app extension",
       action: () => {
         onSelectMode?.("extension");
         setOpen(false);

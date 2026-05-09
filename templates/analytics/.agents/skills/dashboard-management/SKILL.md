@@ -114,6 +114,19 @@ pnpm action update-dashboard --dashboardId weekly-metrics --config '<full json>'
 
 After a mutation, navigate to the dashboard if the user is elsewhere. The app syncs through the framework's polling/query invalidation path.
 
+## Archiving vs deleting
+
+Dashboards have a soft-delete state. The default user-facing destructive action is **Archive** (recoverable). Hard delete still exists, but lives behind a "Delete permanently" confirm in both the page header and the sidebar dropdown — and in the agent surface, behind the older `delete-dashboard` action. Archived rows stay in the `dashboards` table with `archived_at` set, are hidden from the default sidebar list, and remain accessible by id (so deep links in chat history keep working) until explicitly purged.
+
+```bash
+# Archive
+pnpm action archive-dashboard --id weekly-metrics
+# Restore
+pnpm action archive-dashboard --id weekly-metrics --archived false
+```
+
+Default the agent to archive when the user says "delete" / "remove" / "get rid of" a dashboard. Reach for hard delete only when the user explicitly says "permanently", "for good", or similar. List queries default to active rows only — use `?archived=1` on `/api/sql-dashboards` (or the `archived: 'all' | 'archived' | 'active'` option on `listDashboards`) to see archived rows.
+
 ## Sharing
 
 Dashboards are private by default. Use the framework sharing actions:
