@@ -56,8 +56,8 @@ import type {
 import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
 
 const DEFAULT_COLORS = [
-  "#00B5FF",
-  "#48FFE4",
+  "var(--brand-blue)",
+  "var(--brand-teal)",
   "#06b6d4",
   "#10b981",
   "#f59e0b",
@@ -320,11 +320,19 @@ export function SqlChart({
   const colors = panel.config?.colors || DEFAULT_COLORS;
   const yFormatter = panel.config?.yFormatter;
 
-  if (isLoading) return <Skeleton className="h-[250px] w-full" />;
+  const isMetric = panel.chartType === "metric";
+  const placeholderMinH = isMetric ? "min-h-12" : "min-h-[250px]";
+  const placeholderPadY = isMetric ? "py-2" : "py-8";
+
+  if (isLoading) {
+    return <Skeleton className={`w-full flex-1 ${placeholderMinH}`} />;
+  }
 
   if (error) {
     return (
-      <div className="flex min-h-[250px] items-center justify-center px-4 py-8">
+      <div
+        className={`flex flex-1 items-center justify-center px-4 ${placeholderPadY} ${placeholderMinH}`}
+      >
         <p className="text-sm text-red-400 text-center break-all">{error}</p>
       </div>
     );
@@ -332,7 +340,9 @@ export function SqlChart({
 
   if (rows.length === 0) {
     return (
-      <div className="flex min-h-[250px] items-center justify-center py-8">
+      <div
+        className={`flex flex-1 items-center justify-center ${placeholderPadY} ${placeholderMinH}`}
+      >
         <p className="text-sm text-muted-foreground text-center">No data</p>
       </div>
     );
