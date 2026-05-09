@@ -15,6 +15,7 @@ import {
 } from "./components/ui/tooltip.js";
 import { useChatThreads, type ChatThreadSummary } from "./use-chat-threads.js";
 import { agentNativePath } from "./api-path.js";
+import { RunStuckBanner } from "./RunStuckBanner.js";
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
   getReasoningEffortOptionsForModel,
@@ -1543,12 +1544,22 @@ export function MultiTabAssistantChat({
             return (
               <div
                 key={tabId}
-                className="flex-1 min-h-0"
+                className="flex-1 min-h-0 flex-col"
                 style={{
                   display:
                     contentHidden || tabId !== activeThreadId ? "none" : "flex",
                 }}
               >
+                <RunStuckBanner
+                  threadId={tabId}
+                  apiUrl={apiUrl}
+                  onRetry={() => {
+                    const handle = chatRefs.current.get(tabId);
+                    handle?.sendMessage(
+                      "Continue from where you left off and finish my last request. Do not repeat completed work.",
+                    );
+                  }}
+                />
                 <AssistantChat
                   {...props}
                   ref={(handle) => {
