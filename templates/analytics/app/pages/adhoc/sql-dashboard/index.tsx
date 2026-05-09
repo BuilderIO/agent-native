@@ -998,7 +998,7 @@ export default function SqlDashboardPage() {
                   return (
                     <div
                       key={panel.id}
-                      className="relative h-full md:[grid-column:span_var(--panel-span)/span_var(--panel-span)]"
+                      className="relative h-full md:[grid-column:span_var(--panel-span)]"
                       style={
                         {
                           "--panel-span": span,

@@ -4695,6 +4695,7 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
                 threadId,
                 status: "idle",
                 heartbeatAt: null,
+                lastProgressAt: null,
               };
             }
 
@@ -4704,6 +4705,7 @@ Non-code requests are still fine on this surface — read data, navigate the UI,
               threadId: run.threadId,
               status: run.status,
               heartbeatAt: run.heartbeatAt,
+              lastProgressAt: run.lastProgressAt,
             };
           }
 

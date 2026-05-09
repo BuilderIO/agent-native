@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Make the chat sidebar paint the composer immediately on open instead of blocking behind a `GET /threads` (+ optional `POST /threads`) round-trip. `useChatThreads` now seeds an optimistic active thread synchronously on mount — either from localStorage or a freshly-generated UUID — and persists it server-side in the background. For new chats the empty/composer state is visible on first render; for existing chats the header and composer render immediately while the per-thread restore skeleton stays scoped to the message area.
+Make the chat sidebar paint instantly on open instead of blocking behind network round-trips. `useChatThreads` now seeds an optimistic active thread synchronously on mount — either from localStorage or a freshly-generated UUID — and persists it server-side in the background. For existing chats, every save also writes the thread data to a localStorage cache, and `AssistantChat` hydrates from that cache synchronously so the message bubbles paint on first commit; the server fetch still runs in the background to refresh, and is skipped as a no-op when the server data is identical to the cache.
