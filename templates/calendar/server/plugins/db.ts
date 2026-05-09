@@ -127,6 +127,21 @@ export default runMigrations(
       version: 17,
       sql: `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS google_event_id TEXT`,
     },
+    {
+      version: 18,
+      sql: `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost';
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS org_id TEXT;
+UPDATE bookings
+SET owner_email = COALESCE(
+    (SELECT booking_links.owner_email FROM booking_links WHERE booking_links.slug = bookings.slug LIMIT 1),
+    owner_email
+  ),
+  org_id = COALESCE(
+    (SELECT booking_links.org_id FROM booking_links WHERE booking_links.slug = bookings.slug LIMIT 1),
+    org_id
+  )
+WHERE owner_email = 'local@localhost'`,
+    },
   ],
   { table: "calendar_migrations" },
 );

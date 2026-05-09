@@ -113,6 +113,50 @@ function getConfiguredOriginAllowlist(): Set<string> {
   return out;
 }
 
+function isLoopbackHost(host: string | undefined): boolean {
+  if (!host) return false;
+  try {
+    const parsed = new URL(`http://${host}`);
+    return (
+      parsed.hostname === "localhost" ||
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "::1" ||
+      parsed.hostname === "[::1]"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isBuilderPreviewHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return (
+    host === "builderio.xyz" ||
+    host.endsWith(".builderio.xyz") ||
+    host === "builder.io" ||
+    host.endsWith(".builder.io") ||
+    host === "builder.my" ||
+    host.endsWith(".builder.my")
+  );
+}
+
+function getBuilderPreviewOrigin(event: H3Event, headerHost?: string): string {
+  if (!isWorkspaceOAuthCallbackRelayEnabled() || !isLoopbackHost(headerHost)) {
+    return "";
+  }
+  const referer =
+    getHeader(event, "referer") || getHeader(event, "referrer") || "";
+  if (!referer) return "";
+  try {
+    const url = new URL(referer);
+    if (!["https:", "http:"].includes(url.protocol)) return "";
+    if (!isBuilderPreviewHost(url.hostname)) return "";
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Get the origin from forwarded headers or Host.
  *
@@ -140,10 +184,15 @@ export function getOrigin(event: H3Event): string {
       // Inbound didn't match — fall back to the first configured origin.
       return [...allow][0];
     }
+    const builderPreviewOrigin = getBuilderPreviewOrigin(event, headerHost);
+    if (builderPreviewOrigin) return builderPreviewOrigin;
     // No allowlist configured: still default to https, but accept the
     // inbound Host (best we can do without a configured base URL).
     return `${headerProto}://${headerHost ?? ""}`;
   }
+
+  const builderPreviewOrigin = getBuilderPreviewOrigin(event, headerHost);
+  if (builderPreviewOrigin) return builderPreviewOrigin;
 
   return `${headerProto}://${headerHost ?? "localhost"}`;
 }

@@ -24,6 +24,7 @@ const CORE_TABLE_SCOPING: Record<
   settings: { column: "key", mode: "prefix" }, // keys like u:<email>:<key>
   application_state: { column: "session_id", mode: "exact" },
   oauth_tokens: { column: "owner", mode: "exact" },
+  resources: { column: "owner", mode: "exact" },
   sessions: { column: "email", mode: "exact" },
 };
 
@@ -107,6 +108,10 @@ function escapeSqlString(value: string): string {
   return value.replace(/'/g, "''");
 }
 
+function escapeIdentifier(value: string): string {
+  return value.replace(/"/g, '""');
+}
+
 function buildScopedTables(
   allColumns: TableColumn[],
   userEmail: string,
@@ -134,11 +139,19 @@ function buildScopedTables(
   // (they require triggers), so this clause is a no-op there but harmless.
   const checkOption = isPostgres ? " WITH LOCAL CHECK OPTION" : "";
 
+  const viewFor = (table: string, whereSql: string): ScopedTable => {
+    const escapedTable = escapeIdentifier(table);
+    const realTable = `${qualifiedPrefix}"${escapedTable}"`;
+    return {
+      name: table,
+      viewSql: `${isPostgres ? "CREATE OR REPLACE TEMPORARY" : "CREATE TEMPORARY"} VIEW "${escapedTable}" AS SELECT * FROM ${realTable} WHERE ${whereSql}${checkOption}`,
+    };
+  };
+
   for (const [table, columns] of columnsByTable) {
     // Check core table scoping
     const coreScoping = CORE_TABLE_SCOPING[table];
     if (coreScoping) {
-      const realTable = `${qualifiedPrefix}"${table}"`;
       let whereSql: string;
       if (coreScoping.mode === "prefix") {
         // settings: key starts with u:<email>:
@@ -152,10 +165,7 @@ function buildScopedTables(
       } else {
         whereSql = `"${coreScoping.column}" = '${safeEmail}'`;
       }
-      scoped.push({
-        name: table,
-        viewSql: `${isPostgres ? "CREATE OR REPLACE TEMPORARY" : "CREATE TEMPORARY"} VIEW "${table}" AS SELECT * FROM ${realTable} WHERE ${whereSql}${checkOption}`,
-      });
+      scoped.push(viewFor(table, whereSql));
       continue;
     }
 
@@ -165,14 +175,15 @@ function buildScopedTables(
       columns.includes(OWNER_COLUMN) &&
       columns.includes(ORG_COLUMN)
     ) {
-      const realTable = `${qualifiedPrefix}"${table}"`;
       const orgClause = safeOrgId
         ? ` OR ("scope" = 'org' AND "${ORG_COLUMN}" = '${safeOrgId}')`
         : "";
-      scoped.push({
-        name: table,
-        viewSql: `${isPostgres ? "CREATE OR REPLACE TEMPORARY" : "CREATE TEMPORARY"} VIEW "${table}" AS SELECT * FROM ${realTable} WHERE (("scope" = 'user' AND "${OWNER_COLUMN}" = '${safeEmail}')${orgClause})${checkOption}`,
-      });
+      scoped.push(
+        viewFor(
+          table,
+          `(("scope" = 'user' AND "${OWNER_COLUMN}" = '${safeEmail}')${orgClause})`,
+        ),
+      );
       continue;
     }
 
@@ -184,21 +195,26 @@ function buildScopedTables(
         hasOrg && safeOrgId
           ? ` AND ("${ORG_COLUMN}" = '${safeOrgId}' OR "${ORG_COLUMN}" IS NULL)`
           : "";
-      const realTable = `${qualifiedPrefix}"${table}"`;
-      scoped.push({
-        name: table,
-        viewSql: `${isPostgres ? "CREATE OR REPLACE TEMPORARY" : "CREATE TEMPORARY"} VIEW "${table}" AS SELECT * FROM ${realTable} WHERE "${OWNER_COLUMN}" = '${safeEmail}'${orgClause}${checkOption}`,
-      });
+      scoped.push(
+        viewFor(table, `"${OWNER_COLUMN}" = '${safeEmail}'${orgClause}`),
+      );
       continue;
     }
 
-    if (hasOrg && safeOrgId) {
-      const realTable = `${qualifiedPrefix}"${table}"`;
-      scoped.push({
-        name: table,
-        viewSql: `${isPostgres ? "CREATE OR REPLACE TEMPORARY" : "CREATE TEMPORARY"} VIEW "${table}" AS SELECT * FROM ${realTable} WHERE "${ORG_COLUMN}" = '${safeOrgId}'${checkOption}`,
-      });
+    if (hasOrg) {
+      scoped.push(
+        viewFor(
+          table,
+          safeOrgId ? `"${ORG_COLUMN}" = '${safeOrgId}'` : "1 = 0",
+        ),
+      );
+      continue;
     }
+
+    // Fail closed for tables that do not advertise a scoping convention.
+    // Without this shadow view, a forgotten owner_email/org_id column turns
+    // into raw cross-tenant SELECT/UPDATE/DELETE access for db-* tools.
+    scoped.push(viewFor(table, "1 = 0"));
   }
 
   return scoped;
@@ -257,7 +273,9 @@ export async function buildScopingPostgres(
 
   return {
     setup: scoped.map((s) => s.viewSql),
-    teardown: scoped.map((s) => `DROP VIEW IF EXISTS pg_temp."${s.name}"`),
+    teardown: scoped.map(
+      (s) => `DROP VIEW IF EXISTS pg_temp."${escapeIdentifier(s.name)}"`,
+    ),
     active: scoped.length > 0,
     userEmail,
     orgId,
@@ -293,7 +311,9 @@ export async function buildScopingSqlite(client: any): Promise<ScopingContext> {
 
   return {
     setup: scoped.map((s) => s.viewSql),
-    teardown: scoped.map((s) => `DROP VIEW IF EXISTS "${s.name}"`),
+    teardown: scoped.map(
+      (s) => `DROP VIEW IF EXISTS "${escapeIdentifier(s.name)}"`,
+    ),
     active: scoped.length > 0,
     userEmail,
     orgId,

@@ -729,6 +729,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         cancelToken,
         status: "confirmed",
         createdAt: now,
+        ownerEmail: hostEmail,
+        orgId: bookingLink?.orgId ?? null,
       });
 
       return { conflict: false } as const;

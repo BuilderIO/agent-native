@@ -253,6 +253,50 @@ describe("db scripts parameterized SQL", () => {
     });
   });
 
+  it("does not bypass SQLite deny-all views for org tables without an org context", async () => {
+    vi.stubEnv("AGENT_USER_EMAIL", "script+qa-no-org@example.com");
+
+    const execute = vi.fn(async (input: unknown) => {
+      if (typeof input === "string" && input.includes("sqlite_master")) {
+        return { rows: [{ name: "org_notes" }], columns: [] };
+      }
+      if (typeof input === "string" && input.includes("PRAGMA table_info")) {
+        return {
+          rows: [{ name: "id" }, { name: "org_id" }, { name: "title" }],
+          columns: [],
+        };
+      }
+      return {
+        rows: [],
+        columns: [],
+        rowsAffected: 1,
+        lastInsertRowid: undefined,
+      };
+    });
+    mockSqliteClient(execute);
+
+    const { default: dbExec } = await import("./exec.js");
+
+    await dbExec([
+      "--sql",
+      "INSERT INTO org_notes (id, title) VALUES (?, ?)",
+      "--args",
+      JSON.stringify(["note-no-org", "Should hit the temp view"]),
+      "--format",
+      "json",
+    ]);
+
+    expect(execute).toHaveBeenCalledWith({
+      sql: "INSERT INTO org_notes (id, title) VALUES (?, ?)",
+      args: ["note-no-org", "Should hit the temp view"],
+    });
+    expect(execute).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining('main."org_notes"'),
+      }),
+    );
+  });
+
   it("converts db-query question-mark binds to Postgres numbered binds outside string literals", async () => {
     vi.stubEnv("AGENT_USER_EMAIL", "script+qa-reader@example.com");
     const unsafe = vi.fn(async (sql: string) => {

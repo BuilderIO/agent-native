@@ -438,7 +438,7 @@ function qualifySqliteWrite(sql: string, scoping: ScopingContext): string {
       const tableName = quotedDouble ?? quotedSingle ?? bare;
       if (
         !scoping.ownerEmailTables.has(tableName) &&
-        !scoping.orgIdTables.has(tableName)
+        !(scoping.orgId && scoping.orgIdTables.has(tableName))
       ) {
         return match;
       }
