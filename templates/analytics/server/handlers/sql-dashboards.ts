@@ -358,9 +358,37 @@ function validateDashboardConfig(
       if (!isSection && !validSources.has(p.source as string)) {
         return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', or 'first-party' (got '${p.source}'). The table name belongs in the panel's sql, not in source — source selects the backend, not the table.`;
       }
-      if (p.width !== 1 && p.width !== 2) {
-        return `panel[${i}].width must be 1 or 2`;
+      if (
+        typeof p.width !== "number" ||
+        !Number.isFinite(p.width) ||
+        p.width < 1 ||
+        p.width > 6 ||
+        Math.floor(p.width) !== p.width
+      ) {
+        return `panel[${i}].width must be an integer between 1 and 6 (number of grid columns to span)`;
       }
+      if (isSection && p.columns !== undefined) {
+        if (
+          typeof p.columns !== "number" ||
+          !Number.isFinite(p.columns) ||
+          p.columns < 1 ||
+          p.columns > 6 ||
+          Math.floor(p.columns) !== p.columns
+        ) {
+          return `panel[${i}].columns must be an integer between 1 and 6 (only valid on section panels)`;
+        }
+      }
+    }
+  }
+  if (config.columns !== undefined) {
+    if (
+      typeof config.columns !== "number" ||
+      !Number.isFinite(config.columns) ||
+      config.columns < 1 ||
+      config.columns > 6 ||
+      Math.floor(config.columns) !== config.columns
+    ) {
+      return "config.columns must be an integer between 1 and 6";
     }
   }
   return null;

@@ -212,7 +212,7 @@ function SidebarSectionSortMenu({
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
-        <TooltipContent>{`${label} sort`}</TooltipContent>
+        <TooltipContent side="right">{`${label} sort`}</TooltipContent>
       </Tooltip>
       <DropdownMenuContent side="right" align="start" className="w-44">
         <DropdownMenuLabel className="text-xs">Sort by</DropdownMenuLabel>
@@ -657,7 +657,7 @@ function SortableDashboardItem({
                           />
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent>
+                      <TooltipContent side="right">
                         {favoriteIds.has(`view:${d.id}:${sv.id}`)
                           ? "Unfavorite"
                           : "Favorite"}
@@ -677,7 +677,7 @@ function SortableDashboardItem({
                             </button>
                           </PopoverTrigger>
                         </TooltipTrigger>
-                        <TooltipContent>{`Delete ${sv.name}`}</TooltipContent>
+                        <TooltipContent side="right">{`Delete ${sv.name}`}</TooltipContent>
                       </Tooltip>
                       <PopoverContent
                         className="w-56 p-3"
@@ -763,7 +763,7 @@ function ArchivedDashboardRow({
             <IconArchiveOff className="h-3 w-3" />
           </button>
         </TooltipTrigger>
-        <TooltipContent>Restore</TooltipContent>
+        <TooltipContent side="right">Restore</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
@@ -776,7 +776,7 @@ function ArchivedDashboardRow({
             <IconTrash className="h-3 w-3" />
           </button>
         </TooltipTrigger>
-        <TooltipContent>Delete permanently</TooltipContent>
+        <TooltipContent side="right">Delete permanently</TooltipContent>
       </Tooltip>
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>

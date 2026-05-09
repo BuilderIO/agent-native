@@ -44,10 +44,12 @@ When the user asks for a dashboard:
 
 1. Read the injected `<data-dictionary>` block first. If relevant entries exist, use their `table`, `columns`, `queryTemplate`, and gotchas verbatim.
 2. If a metric is not documented, do not guess column names. Ask for the table/columns or introspect the provider schema, then propose a dictionary entry with `save-data-dictionary-entry`.
-3. Build a complete `SqlDashboardConfig` with `name` and `panels`.
-4. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`.
+3. Build a complete `SqlDashboardConfig` with `name` and `panels`. Optionally set top-level `columns` (1–6, default 2) to control how many grid columns the panels before any section use.
+4. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`. `width` is the number of grid columns the panel spans (1..6, clamped to the active section's column count). Section panels skip `source` and `sql` and may set their own `columns` (1–6) to override the dashboard default for the panels following the section.
 5. Persist with `update-dashboard`, not raw SQL or settings writes.
 6. Navigate to it with `pnpm action navigate --view=adhoc --dashboardId=<id>`.
+
+Layout is always **1 column on screens narrower than `md`** (panels stack), then expands to the configured column count from `md` and up. So picking 3 or 4 columns is fine — the renderer keeps mobile/narrow layouts readable automatically.
 
 ```bash
 pnpm action update-dashboard --dashboardId weekly-metrics --config '<full json>'
