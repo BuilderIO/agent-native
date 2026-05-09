@@ -9,6 +9,7 @@ export interface WorkspaceAppSummary {
   statusLabel?: string;
   builderUrl?: string | null;
   branchName?: string | null;
+  archived?: boolean;
 }
 
 export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
