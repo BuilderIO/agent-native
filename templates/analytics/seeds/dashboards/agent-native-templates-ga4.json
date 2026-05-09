@@ -64,7 +64,7 @@
       "config": {
         "xKey": "date",
         "yKey": "eventCount",
-        "color": "#00B5FF"
+        "color": "var(--brand-blue)"
       }
     },
     {
@@ -77,7 +77,7 @@
       "config": {
         "xKey": "customEvent:template",
         "yKey": "eventCount",
-        "color": "#00B5FF"
+        "color": "var(--brand-blue)"
       }
     },
     {
@@ -90,7 +90,7 @@
       "config": {
         "xKey": "customEvent:template",
         "yKey": "eventCount",
-        "color": "#48FFE4"
+        "color": "var(--brand-teal)"
       }
     },
     {

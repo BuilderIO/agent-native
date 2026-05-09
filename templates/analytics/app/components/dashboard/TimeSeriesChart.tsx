@@ -26,7 +26,7 @@ export function TimeSeriesChart({
   data,
   xKey,
   yKey,
-  color = "#00B5FF",
+  color = "var(--brand-blue)",
   isLoading,
   error,
   yFormatter,

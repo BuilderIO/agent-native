@@ -21,11 +21,11 @@ import type { QueryMetricsResult } from "@/lib/query-metrics";
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 const COLORS = [
-  "#00B5FF",
+  "var(--brand-blue)",
   "#f59e0b",
   "#10b981",
   "#ef4444",
-  "#48FFE4",
+  "var(--brand-teal)",
   "#ec4899",
   "#14b8a6",
   "#f97316",
