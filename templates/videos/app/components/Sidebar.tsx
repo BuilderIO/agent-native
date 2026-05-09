@@ -464,7 +464,7 @@ export function Sidebar({
                 <details ref={cursorDetailsRef} className="group">
                   <summary className="cursor-pointer list-none">
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
-                      <IconMouse className="w-3.5 h-3.5 text-purple-400" />
+                      <IconMouse className="w-3.5 h-3.5 text-sky-400" />
                       <span className="text-xs font-medium">Cursor</span>
                       <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                     </div>

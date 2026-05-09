@@ -71,7 +71,7 @@ export function CollabPresenceBar({
             size={12}
             className={cn(
               agentActive
-                ? "text-violet-400 animate-pulse"
+                ? "text-sky-400 animate-pulse"
                 : "text-muted-foreground",
             )}
           />
