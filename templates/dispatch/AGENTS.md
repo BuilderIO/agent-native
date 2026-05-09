@@ -44,7 +44,7 @@ Use resources for:
 
 The UI writes:
 
-- `navigation.view`: `overview`, `apps`, `new-app`, `vault`, `integrations`, `messaging`, `workspace`, `agents`, `destinations`, `identities`, `approvals`, `audit`, `team`, or a custom nav item id from `app/dispatch-extensions.tsx`
+- `navigation.view`: `overview`, `apps`, `new-app`, `vault`, `integrations`, `messaging`, `workspace`, `agents`, `destinations`, `identities`, `approvals`, `audit`, `thread-debug`, `team`, or a custom nav item id from `app/dispatch-extensions.tsx`
 - `navigation.path`: current route path
 
 The agent can navigate with:
@@ -60,6 +60,7 @@ The agent can navigate with:
 - `navigate(view="identities")`
 - `navigate(view="approvals")`
 - `navigate(view="audit")`
+- `navigate(view="thread-debug")`
 - `navigate(view="team")`
 
 Custom workspace-owned Dispatch tabs can be added without forking the Dispatch
@@ -133,6 +134,9 @@ export const dispatchExtensions = {
 
 - `list-dispatch-overview`: high-level counts, recent audit, approvals, vault health
 - `list-dispatch-usage-metrics`: workspace-level LLM usage, spend or Builder.io credit spend, users, app access, and recent activity
+- `list-agent-thread-sources`: list read-only thread debug database sources available to Dispatch. Cross-template prod DB sources are discovered from app-prefixed env vars such as `MAIL_DATABASE_URL` or `AGENT_NATIVE_THREAD_DEBUG_DATABASES`.
+- `search-agent-threads`: search agent chat threads by title, preview, or persisted `thread_data`; non-admins are limited to their own current Dispatch DB threads.
+- `get-agent-thread-debug`: inspect one thread by ID, including messages, raw `thread_data`, latest `_debug`, retained run events, traces, feedback, evals, and checkpoints when available.
 - `list-destinations`: saved Slack, Telegram, and email targets
 - `upsert-destination`: create or update a saved destination (Slack, Telegram, or email)
 - `delete-destination`: remove a saved destination

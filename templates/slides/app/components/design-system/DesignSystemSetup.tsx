@@ -51,6 +51,31 @@ interface UploadedFile {
   textContent?: string;
 }
 
+function normalizeWebsiteUrlInput(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  const withProtocol = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed)
+    ? trimmed
+    : /^[a-z\d-]+$/i.test(trimmed)
+      ? `https://${trimmed}.com`
+      : `https://${trimmed}`;
+
+  try {
+    const parsed = new URL(withProtocol);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    if (!parsed.hostname || /\s/.test(parsed.hostname)) return null;
+    const normalized = parsed.toString();
+    return normalized.endsWith("/") && !parsed.pathname.slice(1)
+      ? normalized.slice(0, -1)
+      : normalized;
+  } catch {
+    return null;
+  }
+}
+
 export function DesignSystemSetup({
   open,
   onClose,
@@ -138,9 +163,9 @@ export function DesignSystemSetup({
   ]);
 
   const addWebsiteUrl = useCallback(() => {
-    const url = websiteUrl.trim();
+    const url = normalizeWebsiteUrlInput(websiteUrl);
     if (!url) return;
-    setWebsiteUrls((prev) => [...prev, url]);
+    setWebsiteUrls((prev) => (prev.includes(url) ? prev : [...prev, url]));
     setWebsiteUrl("");
   }, [websiteUrl]);
 
@@ -371,8 +396,12 @@ export function DesignSystemSetup({
                     <Input
                       value={websiteUrl}
                       onChange={(e) => setWebsiteUrl(e.target.value)}
-                      placeholder="https://example.com"
+                      placeholder="example.com or Nike"
                       className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
+                      onBlur={() => {
+                        const normalized = normalizeWebsiteUrlInput(websiteUrl);
+                        if (normalized) setWebsiteUrl(normalized);
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") addWebsiteUrl();
                       }}

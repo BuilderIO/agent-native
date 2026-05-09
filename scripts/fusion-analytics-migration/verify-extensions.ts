@@ -83,6 +83,30 @@ const SPECS: Record<string, ExtensionSpec> = {
     title: "Slack Feedback",
     kind: "slack",
   },
+  "fusion-closed-lost-analysis": {
+    id: "fusion-closed-lost-analysis",
+    title: "Fusion Closed Lost Analysis",
+    kind: "rich-ui",
+    expectedText: [
+      "Fusion S1+ Closed Lost Analysis",
+      "Multi-Dimensional",
+      "S1 Analysis",
+      "POV Insights",
+      "Business Pain",
+    ],
+  },
+  "fusion-closed-won-analysis": {
+    id: "fusion-closed-won-analysis",
+    title: "Fusion Closed Won Analysis",
+    kind: "rich-ui",
+    expectedText: [
+      "Fusion Closed Won Analysis",
+      "Closed Won Deals",
+      "Win Themes",
+      "Personas",
+      "Deal Coverage",
+    ],
+  },
   "dbt-workspace": {
     id: "dbt-workspace",
     title: "dbt Model Workspace",

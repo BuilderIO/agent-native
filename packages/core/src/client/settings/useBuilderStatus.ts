@@ -275,6 +275,10 @@ export function useBuilderConnectFlow(
     try {
       const opened = window.open(url, "_blank", "noopener,noreferrer");
       if (!opened) {
+        if (/AgentNativeDesktop/i.test(navigator.userAgent || "")) {
+          window.location.href = url;
+          return;
+        }
         setError(
           "Popup blocked. Allow popups, then click Connect Builder again.",
         );

@@ -6,6 +6,8 @@ import { BuilderBMark } from "./builder-mark.js";
 import { cn } from "./utils.js";
 import { agentNativePath } from "./api-path.js";
 
+const DESKTOP_DOWNLOAD_URL = "https://agent-native.com/download";
+
 export interface ConnectBuilderCardProps {
   configured: boolean;
   /**
@@ -164,13 +166,16 @@ export function ConnectBuilderCard({
   } else if (showWaitlist) {
     title = waitlistJoined
       ? "You're on the waitlist"
-      : "Builder branches unavailable";
+      : "Cloud code changes unavailable";
     subtitle = waitlistJoined ? (
-      <>We'll let you know as soon as cloud branch creation is available.</>
+      <>
+        We'll let you know when Builder branch creation is available. You can
+        still use Desktop or a local clone for code changes.
+      </>
     ) : (
       <>
-        Cloud branch creation isn't available for this organization yet. Join
-        the waitlist and we'll let you know when it's ready.
+        This workspace can't create Builder branches yet. Use Desktop or a local
+        clone for code changes now, or join the waitlist for cloud branches.
       </>
     );
   } else if (canSend) {
@@ -232,6 +237,18 @@ export function ConnectBuilderCard({
           <div className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
             {subtitle}
           </div>
+
+          {showWaitlist && (
+            <a
+              href={DESKTOP_DOWNLOAD_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground no-underline hover:text-foreground"
+            >
+              Download Desktop
+              <IconExternalLink className="h-3 w-3" />
+            </a>
+          )}
 
           {err && <div className="mt-2 text-xs text-destructive">{err}</div>}
 

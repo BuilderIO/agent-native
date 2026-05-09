@@ -6,6 +6,7 @@ import { toast } from "@/hooks/use-toast";
 
 export interface UploadedFile {
   path: string;
+  url?: string;
   originalName: string;
   filename: string;
   type: string;

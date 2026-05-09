@@ -32,6 +32,10 @@ import {
   slackExtension as manualSlackExtension,
   stripeExtension as manualStripeExtension,
 } from "./manual-provider-extensions";
+import {
+  fusionClosedLostExtension,
+  fusionClosedWonExtension,
+} from "./manual-fusion-analysis-extensions";
 
 type Dialect = "sqlite" | "postgres";
 type ChartType =
@@ -140,10 +144,22 @@ const argv = process.argv.slice(2);
 const write = argv.includes("--write");
 const validateSql = argv.includes("--validate-sql");
 const onlyAnalysesArg = argv.find((arg) => arg.startsWith("--only-analyses="));
+const onlyExtensionsArg = argv.find((arg) =>
+  arg.startsWith("--only-extensions="),
+);
 const onlyAnalysisIds = onlyAnalysesArg
   ? new Set(
       onlyAnalysesArg
         .replace("--only-analyses=", "")
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    )
+  : null;
+const onlyExtensionIds = onlyExtensionsArg
+  ? new Set(
+      onlyExtensionsArg
+        .replace("--only-extensions=", "")
         .split(",")
         .map((id) => id.trim())
         .filter(Boolean),
@@ -154,15 +170,20 @@ const REMOVED_LEGACY_IDS = ["fusion-developer-pain", "tech-partners"];
 const DATE_START = "{{dateStart}}";
 const DATE_END = "{{dateEnd}}";
 
+if (onlyAnalysisIds && onlyExtensionIds) {
+  throw new Error("Use either --only-analyses or --only-extensions, not both.");
+}
+
 if (argv.includes("--help")) {
-  console.log(`Usage: pnpm exec tsx scripts/fusion-analytics-migration/migrate-content.ts [--write] [--validate-sql] [--only-analyses=id,id]
+  console.log(`Usage: pnpm exec tsx scripts/fusion-analytics-migration/migrate-content.ts [--write] [--validate-sql] [--only-analyses=id,id] [--only-extensions=id,id]
 
 Migrates legacy ../fusion-analytics dashboards, analyses, and tools into the
 Agent-Native Analytics production SQL database for the Builder.io org.
 
 Default is dry-run. Pass --write to upsert SQL resources. Pass --validate-sql
 to dry-run migrated BigQuery panels after writing/generating configs. Use
---only-analyses to upsert only selected saved-analysis rows.`);
+--only-analyses to upsert only selected saved-analysis rows. Use
+--only-extensions to upsert only selected extension rows and their org data.`);
   process.exit(0);
 }
 
@@ -176,19 +197,33 @@ async function main() {
   const db = await connect(env.databaseUrl, env.databaseAuthToken);
   try {
     const orgId = await resolveBuilderOrgId(db);
-    const dashboards = onlyAnalysisIds ? [] : await buildDashboards();
+    const dashboards =
+      onlyAnalysisIds || onlyExtensionIds ? [] : await buildDashboards();
     const allAnalyses = buildAnalyses();
     const analyses = onlyAnalysisIds
       ? allAnalyses.filter((analysis) => onlyAnalysisIds.has(analysis.id))
-      : allAnalyses;
-    const extensions = onlyAnalysisIds ? [] : buildExtensions();
-    const explorerSettings = onlyAnalysisIds ? [] : buildExplorerSettings();
+      : onlyExtensionIds
+        ? []
+        : allAnalyses;
+    const allExtensions = onlyAnalysisIds ? [] : buildExtensions();
+    const extensions = onlyExtensionIds
+      ? allExtensions.filter((extension) => onlyExtensionIds.has(extension.id))
+      : allExtensions;
+    const explorerSettings =
+      onlyAnalysisIds || onlyExtensionIds ? [] : buildExplorerSettings();
 
     if (onlyAnalysisIds) {
       const found = new Set(analyses.map((analysis) => analysis.id));
       const missing = [...onlyAnalysisIds].filter((id) => !found.has(id));
       if (missing.length) {
         throw new Error(`Unknown analysis id(s): ${missing.join(", ")}`);
+      }
+    }
+    if (onlyExtensionIds) {
+      const found = new Set(extensions.map((extension) => extension.id));
+      const missing = [...onlyExtensionIds].filter((id) => !found.has(id));
+      if (missing.length) {
+        throw new Error(`Unknown extension id(s): ${missing.join(", ")}`);
       }
     }
 
@@ -205,7 +240,7 @@ async function main() {
 
     if (write) {
       await ensureTables(db);
-      if (!onlyAnalysisIds) {
+      if (!onlyAnalysisIds && !onlyExtensionIds) {
         await pruneRemovedLegacyResources(db);
         for (const dashboard of dashboards) {
           await upsertDashboard(db, dashboard, orgId);
@@ -218,6 +253,8 @@ async function main() {
         for (const extension of extensions) {
           await upsertExtension(db, extension, orgId);
         }
+      }
+      if (!onlyAnalysisIds && !onlyExtensionIds) {
         for (const setting of explorerSettings) {
           await upsertExplorerSetting(db, setting, orgId);
         }
@@ -2836,6 +2873,37 @@ function hashStrings(values: string[]): string {
 
 function buildExtensions(): ExtensionMigration[] {
   return [
+    extension(
+      "fusion-closed-lost-analysis",
+      "Fusion Closed Lost Analysis",
+      "Full Alpine port of the legacy React Fusion closed-lost dashboard with migrated Gong, HubSpot, Slack, and business-pain data.",
+      fusionClosedLostExtension(),
+      [
+        jsonData(
+          "fusion-analysis",
+          "live-data",
+          "data/fusion-gong-matched.json",
+        ),
+        jsonData(
+          "fusion-analysis",
+          "business-pain",
+          "data/fusion-business-pain.json",
+        ),
+      ],
+    ),
+    extension(
+      "fusion-closed-won-analysis",
+      "Fusion Closed Won Analysis",
+      "Full Alpine port of the legacy React Fusion closed-won dashboard with migrated Gong, HubSpot, Slack, persona, and pain data.",
+      fusionClosedWonExtension(),
+      [
+        jsonData(
+          "fusion-won-analysis",
+          "live-data",
+          "data/fusion-won-gong-matched.json",
+        ),
+      ],
+    ),
     extension(
       "qbr-deck-builder",
       "QBR Deck Builder",

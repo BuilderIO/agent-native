@@ -15,10 +15,7 @@ async function loadSourceIndex(): Promise<SourceEntry[]> {
   const { join } = await import("node:path");
 
   try {
-    const indexPath = join(
-      import.meta.dirname,
-      "../../public/source-index.json",
-    );
+    const indexPath = join(import.meta.dirname, "../public/source-index.json");
     const raw = await readFile(indexPath, "utf-8");
     cachedIndex = JSON.parse(raw);
     return cachedIndex!;

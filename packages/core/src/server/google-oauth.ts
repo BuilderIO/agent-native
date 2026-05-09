@@ -95,22 +95,42 @@ export function isMobile(event: H3Event): boolean {
 
 /**
  * Build the static allowlist of origins we trust for `getOrigin`. Reads
- * `APP_URL` and `BETTER_AUTH_URL` (both are deployment-known public URLs).
- * Each entry is normalised to `${proto}://${host}` (no path). Duplicates
- * collapse, invalid entries are dropped silently.
+ * deployment-known public URLs (`APP_URL`, `BETTER_AUTH_URL`, and the
+ * workspace gateway). Each entry is normalised to `${proto}://${host}` (no
+ * path). Duplicates collapse, invalid entries are dropped silently.
  */
+function normalizeOrigin(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  try {
+    const u = new URL(raw);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return undefined;
+  }
+}
+
 function getConfiguredOriginAllowlist(): Set<string> {
   const out = new Set<string>();
-  for (const raw of [process.env.APP_URL, process.env.BETTER_AUTH_URL]) {
-    if (!raw) continue;
-    try {
-      const u = new URL(raw);
-      out.add(`${u.protocol}//${u.host}`);
-    } catch {
-      // Ignore — env value isn't a parseable URL.
-    }
+  for (const raw of [
+    process.env.APP_URL,
+    process.env.BETTER_AUTH_URL,
+    process.env.WORKSPACE_GATEWAY_URL,
+  ]) {
+    const origin = normalizeOrigin(raw);
+    if (origin) out.add(origin);
   }
   return out;
+}
+
+function firstConfiguredOrigin(): string | undefined {
+  return [...getConfiguredOriginAllowlist()][0];
+}
+
+function getWorkspaceCallbackOrigin(): string | undefined {
+  return (
+    normalizeOrigin(process.env.WORKSPACE_GATEWAY_URL) ??
+    firstConfiguredOrigin()
+  );
 }
 
 function isLoopbackHost(host: string | undefined): boolean {
@@ -128,45 +148,35 @@ function isLoopbackHost(host: string | undefined): boolean {
   }
 }
 
-function isBuilderPreviewHost(hostname: string): boolean {
-  const host = hostname.toLowerCase();
-  return (
-    host === "builderio.xyz" ||
-    host.endsWith(".builderio.xyz") ||
-    host === "builder.io" ||
-    host.endsWith(".builder.io") ||
-    host === "builder.my" ||
-    host.endsWith(".builder.my")
-  );
-}
-
-function getBuilderPreviewOrigin(event: H3Event, headerHost?: string): string {
-  if (!isWorkspaceOAuthCallbackRelayEnabled() || !isLoopbackHost(headerHost)) {
-    return "";
-  }
-  const referer =
-    getHeader(event, "referer") || getHeader(event, "referrer") || "";
-  if (!referer) return "";
+function isBuilderPreviewHost(host: string | undefined): boolean {
+  if (!host) return false;
   try {
-    const url = new URL(referer);
-    if (!["https:", "http:"].includes(url.protocol)) return "";
-    if (!isBuilderPreviewHost(url.hostname)) return "";
-    return `${url.protocol}//${url.host}`;
+    const parsed = new URL(`http://${host}`);
+    const hostname = parsed.hostname.toLowerCase();
+    return (
+      hostname === "builderio.xyz" ||
+      hostname.endsWith(".builderio.xyz") ||
+      hostname === "builder.io" ||
+      hostname.endsWith(".builder.io") ||
+      hostname === "builder.my" ||
+      hostname.endsWith(".builder.my")
+    );
   } catch {
-    return "";
+    return false;
   }
 }
 
 /**
  * Get the origin from forwarded headers or Host.
  *
- * Defends against Host-header injection: in production we require the
- * resolved origin to match `APP_URL` / `BETTER_AUTH_URL`, falling back to
- * those values when the inbound headers are missing or don't match. In
- * dev we accept the inbound `Host` so localhost / ngrok / preview hosts
- * keep working without configuration. The protocol defaults to `https`
- * in production (so a TLS-terminating proxy that drops `x-forwarded-proto`
- * doesn't downgrade us to plain HTTP).
+ * Defends against Host-header injection: in production we require the resolved
+ * origin to match `APP_URL` / `BETTER_AUTH_URL` / `WORKSPACE_GATEWAY_URL`,
+ * falling back to those values when inbound headers are missing or don't match.
+ * In dev we accept inbound `Host` so localhost / ngrok / preview hosts keep
+ * working without configuration, except workspace OAuth requests from loopback
+ * or Builder preview hosts use the configured gateway origin when one exists.
+ * The protocol defaults to `https` in production (so a TLS-terminating proxy
+ * that drops `x-forwarded-proto` doesn't downgrade us to plain HTTP).
  */
 export function getOrigin(event: H3Event): string {
   const headerHost =
@@ -174,16 +184,18 @@ export function getOrigin(event: H3Event): string {
   const isProd = process.env.NODE_ENV === "production";
   const headerProto =
     getHeader(event, "x-forwarded-proto") || (isProd ? "https" : "http");
+  const workspaceCallbackOrigin = isWorkspaceOAuthCallbackRelayEnabled()
+    ? getWorkspaceCallbackOrigin()
+    : undefined;
+
+  if (
+    workspaceCallbackOrigin &&
+    (isLoopbackHost(headerHost) || isBuilderPreviewHost(headerHost))
+  ) {
+    return workspaceCallbackOrigin;
+  }
 
   if (isProd) {
-    // Loopback hosts can't legitimately be in the allowlist, but a Builder
-    // preview iframe relaying through a local desktop bridge legitimately
-    // arrives on loopback with a Builder preview referer. Resolve the
-    // preview origin BEFORE the allowlist fallback so the OAuth redirect
-    // returns the user back to the preview surface, not the canonical URL.
-    const builderPreviewOrigin = getBuilderPreviewOrigin(event, headerHost);
-    if (builderPreviewOrigin) return builderPreviewOrigin;
-
     const allow = getConfiguredOriginAllowlist();
     // If the deploy declares its public URL, prefer it over inbound headers.
     if (allow.size > 0) {
@@ -196,9 +208,6 @@ export function getOrigin(event: H3Event): string {
     // inbound Host (best we can do without a configured base URL).
     return `${headerProto}://${headerHost ?? ""}`;
   }
-
-  const builderPreviewOrigin = getBuilderPreviewOrigin(event, headerHost);
-  if (builderPreviewOrigin) return builderPreviewOrigin;
 
   return `${headerProto}://${headerHost ?? "localhost"}`;
 }

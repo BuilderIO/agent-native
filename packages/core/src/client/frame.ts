@@ -114,23 +114,32 @@ export function getCallbackOrigin(): string {
 }
 
 function envFlag(name: string): boolean {
-  const env = (
+  const value = runtimeEnvValue(name);
+  return value === "1" || value === "true" || value === true;
+}
+
+function runtimeEnvValue(name: string): string | boolean | undefined {
+  const importMetaEnv = (
     import.meta as unknown as {
       env?: Record<string, string | boolean | undefined>;
     }
   ).env;
-  const value = env?.[name];
-  const processValue =
-    typeof process !== "undefined"
-      ? (process.env as Record<string, string | undefined>)?.[name]
-      : undefined;
-  return (
-    value === true ||
-    value === "1" ||
-    value === "true" ||
-    processValue === "1" ||
-    processValue === "true"
-  );
+  if (importMetaEnv?.[name] !== undefined) return importMetaEnv[name];
+  return typeof process !== "undefined"
+    ? (process.env as Record<string, string | undefined>)?.[name]
+    : undefined;
+}
+
+function workspaceGatewayOrigin(): string | null {
+  const raw =
+    runtimeEnvValue("VITE_WORKSPACE_GATEWAY_URL") ||
+    runtimeEnvValue("WORKSPACE_GATEWAY_URL");
+  if (typeof raw !== "string" || !raw) return null;
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return null;
+  }
 }
 
 function shouldUseWorkspaceCallbackRelay(path: string): boolean {
@@ -155,7 +164,11 @@ export function oauthRedirectUri(callbackPath: string): string {
   const path = shouldUseWorkspaceCallbackRelay(normalized)
     ? normalized
     : agentNativePath(normalized);
-  return `${getCallbackOrigin()}${path}`;
+  const gatewayOrigin = shouldUseWorkspaceCallbackRelay(normalized)
+    ? workspaceGatewayOrigin()
+    : null;
+  const origin = gatewayOrigin ?? getCallbackOrigin();
+  return `${origin}${path}`;
 }
 
 // ---------------------------------------------------------------------------

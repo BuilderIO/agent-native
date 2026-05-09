@@ -34,6 +34,7 @@ async function prepareSlidesChatAttachments(args: {
   const uploaded: Array<{
     originalName: string;
     path: string;
+    url?: string;
     type: string;
     size: number;
   }> = [];
@@ -76,7 +77,7 @@ async function prepareSlidesChatAttachments(args: {
   const fileList = uploaded
     .map(
       (file) =>
-        `- ${file.originalName} (${file.type}, ${(file.size / 1024).toFixed(1)}KB) at path: ${file.path}`,
+        `- ${file.originalName} (${file.type}, ${(file.size / 1024).toFixed(1)}KB) at path: ${file.path}${file.url ? `; embeddable URL: ${file.url}` : ""}`,
     )
     .join("\n");
   const failureList = failed
@@ -92,6 +93,7 @@ async function prepareSlidesChatAttachments(args: {
           "File handling rules:",
           '- PPTX files: call `import-pptx --filePath "<path>"` to create or replace a deck from the presentation.',
           '- PDF and DOCX files: call `import-file --filePath "<path>" --format auto` and use the returned content as source material before creating slides.',
+          '- Image files with an embeddable URL can be inserted directly into slide HTML as `<img src="...">` or used as visual references.',
           "- Do not say no PDF/PPTX/DOCX was attached when a matching saved path is listed here.",
         ].join("\n")
       : "",

@@ -26,6 +26,10 @@ import type { DesignSystemData } from "../../../shared/api";
 import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import { TAB_ID } from "@/lib/tab-id";
+import {
+  createPlaceholderImageTarget,
+  imageFileLooksSupported,
+} from "@/lib/slide-image-replacement";
 import { IconMaximize, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -180,6 +184,7 @@ interface SlideEditorProps {
   onUploadImage: (replaceSrc: string) => void;
   onSearchImage: (replaceSrc: string) => void;
   onLogoSearch: (replaceSrc: string) => void;
+  onDropImage?: (replaceSrc: string | null, file: File) => void;
   onToggleObjectFit: (imgSrc: string, newFit: string) => void;
   /** Yjs document for collaborative editing */
   ydoc?: Y.Doc | null;
@@ -330,6 +335,7 @@ export default function SlideEditor({
   onUploadImage,
   onSearchImage,
   onLogoSearch,
+  onDropImage,
   onToggleObjectFit,
   agentActive,
   slideIndex = 0,
@@ -607,6 +613,36 @@ export default function SlideEditor({
     applyMultiSelection(new Set());
   }, [applyMultiSelection, multiSelection.size]);
 
+  const getPlaceholderTarget = useCallback(
+    (placeholder: HTMLElement): string => {
+      const slideContent = getSlideContent();
+      const placeholders = slideContent
+        ? Array.from(
+            slideContent.querySelectorAll<HTMLElement>(".fmd-img-placeholder"),
+          )
+        : [];
+      const index = Math.max(0, placeholders.indexOf(placeholder));
+      return createPlaceholderImageTarget(
+        index,
+        placeholder.textContent?.trim() || "image",
+      );
+    },
+    [getSlideContent],
+  );
+
+  const getImageReplacementTarget = useCallback(
+    (target: HTMLElement): string | null => {
+      if (target.tagName === "IMG") {
+        return (target as HTMLImageElement).getAttribute("src") || null;
+      }
+      const placeholder = target.closest(
+        ".fmd-img-placeholder",
+      ) as HTMLElement | null;
+      return placeholder ? getPlaceholderTarget(placeholder) : null;
+    },
+    [getPlaceholderTarget],
+  );
+
   // Keep cached rects fresh on scroll/resize so outlines + chip stay aligned
   useEffect(() => {
     if (multiSelection.size === 0) return;
@@ -802,31 +838,65 @@ export default function SlideEditor({
     agentChat.prefill(`[Selected: ${list}]\n`);
   }, [multiSelection.size, multiSelectionRects]);
 
-  const showImageOverlay = useCallback((target: HTMLElement) => {
-    if (target.tagName === "IMG") {
-      const img = target as HTMLImageElement;
-      const rect = img.getBoundingClientRect();
-      const src = img.getAttribute("src") || "";
-      const fit = (
-        window.getComputedStyle(img).objectFit === "contain"
-          ? "contain"
-          : "cover"
-      ) as "cover" | "contain";
-      setSelectedImg(img);
-      setImageOverlay({ rect, src, objectFit: fit });
-      return;
-    }
-    // Also handle placeholder divs (dashed border boxes meant for images)
-    const placeholder = target.closest(
-      ".fmd-img-placeholder",
-    ) as HTMLElement | null;
-    if (placeholder) {
-      const rect = placeholder.getBoundingClientRect();
-      const src = `placeholder:${placeholder.textContent?.trim() || "image"}`;
-      setSelectedImg(placeholder as any);
-      setImageOverlay({ rect, src, objectFit: "cover" });
-    }
+  const showImageOverlay = useCallback(
+    (target: HTMLElement) => {
+      if (target.tagName === "IMG") {
+        const img = target as HTMLImageElement;
+        const rect = img.getBoundingClientRect();
+        const src = img.getAttribute("src") || "";
+        const fit = (
+          window.getComputedStyle(img).objectFit === "contain"
+            ? "contain"
+            : "cover"
+        ) as "cover" | "contain";
+        setSelectedImg(img);
+        setImageOverlay({ rect, src, objectFit: fit });
+        return;
+      }
+      // Also handle placeholder divs (dashed border boxes meant for images)
+      const placeholder = target.closest(
+        ".fmd-img-placeholder",
+      ) as HTMLElement | null;
+      if (placeholder) {
+        const rect = placeholder.getBoundingClientRect();
+        setSelectedImg(placeholder as any);
+        setImageOverlay({
+          rect,
+          src: getPlaceholderTarget(placeholder),
+          objectFit: "cover",
+        });
+      }
+    },
+    [getPlaceholderTarget],
+  );
+
+  const handleSlideDragOver = useCallback((e: React.DragEvent) => {
+    const files = Array.from(e.dataTransfer.files ?? []);
+    const items = Array.from(e.dataTransfer.items ?? []);
+    const types = Array.from(e.dataTransfer.types ?? []);
+    const hasImage =
+      types.includes("Files") ||
+      files.some(imageFileLooksSupported) ||
+      items.some(
+        (item) => item.kind === "file" && item.type.startsWith("image/"),
+      );
+    if (!hasImage) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
   }, []);
+
+  const handleSlideDrop = useCallback(
+    (e: React.DragEvent) => {
+      const files = Array.from(e.dataTransfer.files ?? []);
+      const file = files.find(imageFileLooksSupported);
+      if (files.length === 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (!file) return;
+      onDropImage?.(getImageReplacementTarget(e.target as HTMLElement), file);
+    },
+    [getImageReplacementTarget, onDropImage],
+  );
 
   const handleSlideClick = useCallback(
     (e: React.MouseEvent) => {
@@ -1030,6 +1100,8 @@ export default function SlideEditor({
                       onContextMenu={handleSlideContextMenu}
                       onDoubleClick={handleSlideDoubleClick}
                       onPointerDown={handleSlidePointerDown}
+                      onDragOver={handleSlideDragOver}
+                      onDrop={handleSlideDrop}
                       onMouseEnter={() => setIsHoveringText(true)}
                       onMouseLeave={() => setIsHoveringText(false)}
                     >

@@ -8,6 +8,7 @@ import fs from "fs";
 import { nanoid } from "nanoid";
 import { getSession } from "@agent-native/core/server";
 import { tenantUploadDir } from "../lib/tenant-files.js";
+import { canSaveAsUploadedAsset, saveUploadedAsset } from "./assets.js";
 import {
   SLIDES_REFERENCE_FILE_ERROR_LABEL,
   isSlidesReferenceFileExtension,
@@ -15,6 +16,7 @@ import {
 
 export interface UploadedReferenceFile {
   path: string;
+  url?: string;
   originalName: string;
   filename: string;
   type: string;
@@ -92,8 +94,29 @@ export async function saveUploadedReferenceFile(args: {
   await fs.promises.mkdir(uploadDir, { recursive: true });
   const destPath = path.join(uploadDir, filename);
   await fs.promises.writeFile(destPath, args.data);
+  let url: string | undefined;
+  if (
+    canSaveAsUploadedAsset({
+      originalName: args.originalName,
+      data: args.data,
+    })
+  ) {
+    try {
+      url = (
+        await saveUploadedAsset({
+          email: args.email,
+          originalName: args.originalName,
+          data: args.data,
+          type: args.type,
+        })
+      ).url;
+    } catch {
+      url = undefined;
+    }
+  }
   return {
     path: pathForAgent(destPath),
+    url,
     originalName: args.originalName,
     filename,
     type: args.type || "application/octet-stream",

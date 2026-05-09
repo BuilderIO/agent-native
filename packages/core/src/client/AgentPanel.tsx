@@ -48,6 +48,7 @@ import {
 } from "./components/ui/dropdown-menu.js";
 import {
   IconMessageCircle,
+  IconMessageDots,
   IconTerminal2,
   IconSettings,
   IconLayoutSidebarRightCollapse,
@@ -64,7 +65,6 @@ import {
   IconArrowsMinimize,
   IconExternalLink,
 } from "@tabler/icons-react";
-import { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
 import { FeedbackButton } from "./FeedbackButton.js";
 import {
   MultiTabAssistantChat,
@@ -792,8 +792,8 @@ function AgentPanelInner({
         {mode === "chat" && chatNotice ? (
           <div className="border-b border-border">{chatNotice}</div>
         ) : null}
-        {/* Tab bar: always visible for chat and CLI */}
-        {(mode === "chat" || mode === "cli") &&
+        {/* Tab bar: visible for chat, and for CLI only when terminals are usable. */}
+        {(mode === "chat" || (mode === "cli" && canUseCodeTools)) &&
           (() => {
             // Compute parent/child tab groups for the sub-tab bar
             const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -1165,6 +1165,7 @@ function AgentPanelInner({
       renderHeaderActions,
       renderModeButtons,
       chatNotice,
+      canUseCodeTools,
       cliTabs,
       activeCliTab,
       addCliTab,
@@ -2085,7 +2086,7 @@ export function AgentToggleButton({ className }: { className?: string }) {
               className,
             )}
           >
-            <AgentNativeIcon size={22} aria-hidden />
+            <IconMessageDots size={20} aria-hidden />
           </button>
         </TooltipTrigger>
         <TooltipContent>Toggle agent</TooltipContent>
