@@ -42,7 +42,7 @@ export function InteractiveButton({
   y,
   width,
   height,
-  backgroundColor = "#6366f1",
+  backgroundColor = "#00B5FF",
   textColor = "#ffffff",
   cursorHistory,
   tracks,

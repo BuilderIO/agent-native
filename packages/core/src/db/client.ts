@@ -46,9 +46,35 @@ export function getDatabaseUrl(fallback = ""): string {
   const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
   if (appName) {
     const prefixed = process.env[`${appName}_DATABASE_URL`];
-    if (prefixed) return prefixed;
+    if (prefixed) {
+      logResolvedDb(appName, `${appName}_DATABASE_URL`, prefixed);
+      return prefixed;
+    }
   }
-  return process.env.DATABASE_URL || fallback;
+  const url = process.env.DATABASE_URL || fallback;
+  logResolvedDb(appName, "DATABASE_URL", url);
+  return url;
+}
+
+let loggedFor: string | undefined;
+function logResolvedDb(
+  appName: string | undefined,
+  source: string,
+  url: string,
+) {
+  const key = `${appName ?? ""}|${source}|${url}`;
+  if (loggedFor === key) return;
+  loggedFor = key;
+  let host = "<empty>";
+  try {
+    if (url) host = new URL(url).host;
+  } catch {
+    host = url.slice(0, 40);
+  }
+  // eslint-disable-next-line no-console
+  console.log(
+    `[db] resolved url for APP_NAME=${appName ?? "<unset>"} via ${source} -> host=${host}`,
+  );
 }
 
 /** Same per-app resolution for DATABASE_AUTH_TOKEN (used by Turso/libsql). */
