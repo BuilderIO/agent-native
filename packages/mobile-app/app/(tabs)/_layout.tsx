@@ -279,10 +279,7 @@ export default function TabLayout() {
         animationType="fade"
         onRequestClose={() => setMoreOpen(false)}
       >
-        <Pressable
-          style={styles.backdrop}
-          onPress={() => setMoreOpen(false)}
-        >
+        <Pressable style={styles.backdrop} onPress={() => setMoreOpen(false)}>
           <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
             <View style={styles.handle} />
             <Text style={styles.sheetTitle}>More Apps</Text>
@@ -306,18 +303,10 @@ export default function TabLayout() {
                           { backgroundColor: `${app.color}33` },
                         ]}
                       >
-                        <Feather
-                          name={iconName}
-                          size={18}
-                          color={app.color}
-                        />
+                        <Feather name={iconName} size={18} color={app.color} />
                       </View>
                       <Text style={styles.rowText}>{app.name}</Text>
-                      <Feather
-                        name="chevron-right"
-                        size={18}
-                        color="#555555"
-                      />
+                      <Feather name="chevron-right" size={18} color="#555555" />
                     </TouchableOpacity>
                   );
                 })
