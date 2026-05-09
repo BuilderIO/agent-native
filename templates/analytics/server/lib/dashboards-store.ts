@@ -174,6 +174,9 @@ async function migrateDashboardFromSettings(
       updatedAt,
     })
     .onConflictDoNothing();
+  // guard:allow-unscoped — read-after-write of the row just inserted above
+  // with ownerEmail from ctx; eq(id) is sufficient because we know the id we
+  // just wrote and onConflictDoNothing leaves any pre-existing row untouched.
   const [row] = await db
     .select()
     .from(schema.dashboards)
@@ -732,6 +735,10 @@ export async function upsertAnalysis(
       visibility: "private",
     });
   }
+  // guard:allow-unscoped — read-after-write of the analysis row just upserted
+  // above with ownerEmail from ctx; the upsert path already gated access via
+  // assertAccess earlier in this function for the update branch, and the
+  // insert branch sets ownerEmail = ctx.email, so eq(id) is sufficient.
   const [row] = await db
     .select()
     .from(schema.analyses)
