@@ -104,6 +104,56 @@ export const credentialKeys: CredentialKeyConfig[] = [
   },
 ];
 
+/**
+ * Keys that act as overrides for a default value — providers list them under
+ * `optionalKeys`. A blank submission for one of these keys means "go back to
+ * the default", which the credentials POST handler treats as a delete. Keys
+ * that are required by *any* provider are excluded so a typo on a critical
+ * field can never silently erase it.
+ */
+export function buildOptionalCredentialKeys(
+  configs: CredentialProviderConfig[],
+): Set<string> {
+  const requiredAnywhere = new Set(configs.flatMap((cfg) => cfg.requiredKeys));
+  return new Set(
+    configs
+      .flatMap((cfg) => cfg.optionalKeys ?? [])
+      .filter((key) => !requiredAnywhere.has(key)),
+  );
+}
+
+export interface CredentialUpdatePartition {
+  toSave: Array<{ key: string; value: string }>;
+  toDelete: string[];
+  blankRequired: string[];
+}
+
+/**
+ * Split incoming credential updates into the keys that should be saved and
+ * the optional keys whose blank value means "clear and use the default".
+ * `blankRequired` collects any blank values for required keys so the caller
+ * can reject them before touching storage.
+ */
+export function partitionCredentialUpdate(
+  vars: Array<{ key: string; value: string }>,
+  optionalKeys: Set<string>,
+): CredentialUpdatePartition {
+  const toSave: Array<{ key: string; value: string }> = [];
+  const toDelete: string[] = [];
+  const blankRequired: string[] = [];
+  for (const { key, value } of vars) {
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    if (trimmed) {
+      toSave.push({ key, value: trimmed });
+    } else if (optionalKeys.has(key)) {
+      toDelete.push(key);
+    } else {
+      blankRequired.push(key);
+    }
+  }
+  return { toSave, toDelete, blankRequired };
+}
+
 export const credentialProviderConfigs: CredentialProviderConfig[] = [
   {
     provider: "google-analytics",
@@ -218,6 +268,10 @@ export const credentialProviderConfigs: CredentialProviderConfig[] = [
     requiredKeys: ["DATAFORSEO_LOGIN", "DATAFORSEO_PASSWORD"],
   },
 ];
+
+export const optionalCredentialKeys = buildOptionalCredentialKeys(
+  credentialProviderConfigs,
+);
 
 const credentialAliases: Record<string, string[]> = {
   amplitude: ["AMPLITUDE_API_KEY", "AMPLITUDE_SECRET_KEY"],
