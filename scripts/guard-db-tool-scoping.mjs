@@ -92,6 +92,33 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "meeting-notes:meeting_notes": "child rows scoped through meetings",
   "meeting-notes:meeting_transcripts": "child rows scoped through meetings",
   "meeting-notes:people": "directory/cache table accessed by actions",
+  // Scheduling package re-exports (templates/scheduling). All child / join /
+  // cache rows reachable only through a scoped parent (booking, user,
+  // event-type, schedule, workflow, team) or via dedicated actions.
+  "scheduling:api_keys": "credential-style rows accessed by actions",
+  "scheduling:booking_attendees": "child rows scoped through bookings",
+  "scheduling:booking_notes": "child rows scoped through bookings",
+  "scheduling:booking_references": "child rows scoped through bookings",
+  "scheduling:booking_seats": "child rows scoped through bookings",
+  "scheduling:calendar_cache": "provider cache, not a user-facing resource",
+  "scheduling:destination_calendars": "child rows scoped through users",
+  "scheduling:event_type_host_groups": "child rows scoped through event types",
+  "scheduling:event_type_slug_redirects":
+    "public redirect helper, no user data",
+  "scheduling:hashed_links":
+    "public share-token rows scoped through event types",
+  "scheduling:out_of_office_entries": "child rows scoped through users",
+  "scheduling:routing_form_responses":
+    "public submissions scoped through forms",
+  "scheduling:schedule_availability": "child rows scoped through schedules",
+  "scheduling:scheduled_reminders": "child rows scoped through workflows",
+  "scheduling:selected_calendars": "child rows scoped through users",
+  "scheduling:team_members": "membership join rows scoped through teams",
+  "scheduling:travel_schedules": "child rows scoped through users",
+  "scheduling:verified_emails": "credential-style rows accessed by actions",
+  "scheduling:verified_numbers": "credential-style rows accessed by actions",
+  "scheduling:webhook_deliveries": "audit/event rows scoped through webhooks",
+  "scheduling:workflow_steps": "child rows scoped through workflows",
   "slides:deck_share_links": "public share-token rows scoped through decks",
   "slides:slide_comments": "child rows scoped through decks",
   "videos:folder_memberships": "membership join rows scoped through folders",
@@ -171,6 +198,45 @@ function hasRawDbScope(tableBody) {
   );
 }
 
+/**
+ * Resolve an `export * from "@agent-native/<pkg>/schema[/<sub>]"` (or relative)
+ * specifier in the given source file to one or more on-disk schema files.
+ * Returns an empty array when the import doesn't point at an in-repo package.
+ */
+async function resolveSchemaReExports(sourceFile) {
+  const contents = readFileSync(sourceFile, "utf8");
+  const re = /export\s+\*\s+from\s+["']([^"']+)["']/g;
+  const out = [];
+  let m;
+  while ((m = re.exec(contents)) !== null) {
+    const spec = m[1];
+    const pkgMatch = spec.match(/^@agent-native\/([^/]+)(?:\/([^"']+))?$/);
+    if (pkgMatch) {
+      const pkg = pkgMatch[1];
+      const sub = pkgMatch[2] ?? "schema";
+      const pkgRoot = path.join(REPO_ROOT, "packages", pkg, "src", sub);
+      // sub may be "schema" (a directory with index.ts + siblings) or
+      // "schema/<file>"; both resolve to in-repo TS sources.
+      try {
+        const stat = await readdir(pkgRoot, { withFileTypes: true });
+        for (const e of stat) {
+          if (e.isFile() && e.name.endsWith(".ts") && !e.name.endsWith(".d.ts"))
+            out.push(path.join(pkgRoot, e.name));
+        }
+      } catch {
+        const single = `${pkgRoot}.ts`;
+        try {
+          readFileSync(single);
+          out.push(single);
+        } catch {
+          // not a file we can scan — silently skip
+        }
+      }
+    }
+  }
+  return out;
+}
+
 const findings = [];
 const seenAllowed = new Set();
 
@@ -179,21 +245,33 @@ for await (const file of walk(path.join(REPO_ROOT, "templates"))) {
   const template = templateNameFromSchemaPath(file);
   if (!template) continue;
 
-  const contents = readFileSync(file, "utf8");
-  const tables = extractTableCalls(contents);
-  for (const table of tables) {
-    if (hasRawDbScope(table.body)) continue;
-    const key = `${template}:${table.sqlName}`;
-    if (Object.hasOwn(INTENTIONAL_RAW_DB_DENYLIST, key)) {
-      seenAllowed.add(key);
+  // Scan the template's own schema.ts plus any package schemas it
+  // re-exports. Without the re-export resolution, templates like
+  // scheduling that ship their tables from @agent-native/scheduling/schema
+  // bypass the guard entirely (the file looks empty of `table(...)` calls).
+  const filesToScan = [file, ...(await resolveSchemaReExports(file))];
+  for (const scanFile of filesToScan) {
+    let contents;
+    try {
+      contents = readFileSync(scanFile, "utf8");
+    } catch {
       continue;
     }
-    findings.push({
-      file: path.relative(REPO_ROOT, file).replaceAll("\\", "/"),
-      exportName: table.exportName,
-      sqlName: table.sqlName,
-      key,
-    });
+    const tables = extractTableCalls(contents);
+    for (const table of tables) {
+      if (hasRawDbScope(table.body)) continue;
+      const key = `${template}:${table.sqlName}`;
+      if (Object.hasOwn(INTENTIONAL_RAW_DB_DENYLIST, key)) {
+        seenAllowed.add(key);
+        continue;
+      }
+      findings.push({
+        file: path.relative(REPO_ROOT, scanFile).replaceAll("\\", "/"),
+        exportName: table.exportName,
+        sqlName: table.sqlName,
+        key,
+      });
+    }
   }
 }
 

@@ -136,11 +136,12 @@ function runtimeEnvValue(name: string): string | undefined {
       : undefined
   )?.[name];
   if (viteEnv) return viteEnv;
-  const nodeEnv =
-    typeof process !== "undefined"
-      ? (process.env as Record<string, string | undefined>)?.[name]
-      : undefined;
-  return nodeEnv;
+  const globalProcess = (
+    globalThis as unknown as {
+      process?: { env?: Record<string, string | undefined> };
+    }
+  ).process;
+  return globalProcess?.env?.[name];
 }
 
 export function getTemplateGatewayUrl(): string | null {

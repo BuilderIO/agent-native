@@ -131,15 +131,26 @@ export default runMigrations(
     },
     {
       version: 18,
+      // Backfill owner_email + org_id on existing bookings. Direct slug match
+      // covers the common case; the redirect-aware subquery picks up bookings
+      // created under a slug that's since been renamed (the booking_links row
+      // now lives at the new slug, with booking_slug_redirects mapping the
+      // historical old_slug → current new_slug).
       sql: `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost';
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS org_id TEXT;
 UPDATE bookings
 SET owner_email = COALESCE(
     (SELECT booking_links.owner_email FROM booking_links WHERE booking_links.slug = bookings.slug LIMIT 1),
+    (SELECT booking_links.owner_email FROM booking_links
+       JOIN booking_slug_redirects ON booking_slug_redirects.new_slug = booking_links.slug
+       WHERE booking_slug_redirects.old_slug = bookings.slug LIMIT 1),
     owner_email
   ),
   org_id = COALESCE(
     (SELECT booking_links.org_id FROM booking_links WHERE booking_links.slug = bookings.slug LIMIT 1),
+    (SELECT booking_links.org_id FROM booking_links
+       JOIN booking_slug_redirects ON booking_slug_redirects.new_slug = booking_links.slug
+       WHERE booking_slug_redirects.old_slug = bookings.slug LIMIT 1),
     org_id
   )
 WHERE owner_email = ${LEGACY_DEV_OWNER_SQL}`,

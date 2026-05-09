@@ -176,6 +176,14 @@ export function getOrigin(event: H3Event): string {
     getHeader(event, "x-forwarded-proto") || (isProd ? "https" : "http");
 
   if (isProd) {
+    // Loopback hosts can't legitimately be in the allowlist, but a Builder
+    // preview iframe relaying through a local desktop bridge legitimately
+    // arrives on loopback with a Builder preview referer. Resolve the
+    // preview origin BEFORE the allowlist fallback so the OAuth redirect
+    // returns the user back to the preview surface, not the canonical URL.
+    const builderPreviewOrigin = getBuilderPreviewOrigin(event, headerHost);
+    if (builderPreviewOrigin) return builderPreviewOrigin;
+
     const allow = getConfiguredOriginAllowlist();
     // If the deploy declares its public URL, prefer it over inbound headers.
     if (allow.size > 0) {
@@ -184,8 +192,6 @@ export function getOrigin(event: H3Event): string {
       // Inbound didn't match — fall back to the first configured origin.
       return [...allow][0];
     }
-    const builderPreviewOrigin = getBuilderPreviewOrigin(event, headerHost);
-    if (builderPreviewOrigin) return builderPreviewOrigin;
     // No allowlist configured: still default to https, but accept the
     // inbound Host (best we can do without a configured base URL).
     return `${headerProto}://${headerHost ?? ""}`;
