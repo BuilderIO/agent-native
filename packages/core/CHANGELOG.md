@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.12.38
+
+### Patch Changes
+
+- cd451f8: Clarify Builder Cloud Agent waitlist copy and desktop fallback links.
+
 ## 0.12.37
 
 ### Patch Changes
