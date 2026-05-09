@@ -72,6 +72,16 @@ export {
   type MultiTabAssistantChatProps,
   type MultiTabAssistantChatHeaderProps,
 } from "./MultiTabAssistantChat.js";
+export {
+  RunStuckBanner,
+  type RunStuckBannerProps,
+} from "./RunStuckBanner.js";
+export {
+  useRunStuckDetection,
+  useAbortRun,
+  type RunStuckState,
+  type UseRunStuckDetectionOptions,
+} from "./use-run-stuck-detection.js";
 export { createAgentChatAdapter } from "./agent-chat-adapter.js";
 export {
   PromptComposer,
