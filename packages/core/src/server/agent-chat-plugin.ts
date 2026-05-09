@@ -3725,14 +3725,69 @@ export function createAgentChatPlugin(
         return buildRuntimeContextPrompt({ timezone });
       };
 
+      // Chat-in-browser-on-localdev is the one surface where the agent must
+      // not edit code: source-file edits trigger Vite HMR / page reloads and
+      // kill the chat session mid-run. The client sends an
+      // `x-agent-native-surface` header (desktop | frame | browser); we fall
+      // back to UA + Host inspection when the header is missing (older clients,
+      // server-to-server callers, etc.). Returning true forces the prod
+      // handler (no shell / no fs) AND injects a redirect-prompt block telling
+      // the agent to point users at Desktop / Claude Code / Codex / Builder.io.
+      const isChatInBrowserOnLocalDev = (event: any): boolean => {
+        const surface = (
+          getHeader(event, "x-agent-native-surface") || ""
+        ).toLowerCase();
+        const ua = getHeader(event, "user-agent") || "";
+        const isDesktop =
+          surface === "desktop" || /AgentNativeDesktop/i.test(ua);
+        if (isDesktop) return false;
+        if (surface === "frame") return false;
+        const host = (getHeader(event, "host") || "").toLowerCase();
+        const hostname = host.split(":")[0] ?? "";
+        const isLocal =
+          hostname === "localhost" ||
+          hostname === "127.0.0.1" ||
+          hostname === "::1" ||
+          hostname === "[::1]";
+        if (!isLocal) return false;
+        // No header from an older client + non-desktop UA: be conservative and
+        // only trip on plain browser UAs. Treat unknown clients as safe (frame
+        // / desktop / scripting) so we don't break their tool access.
+        if (!surface) {
+          return /Mozilla\/|Chrome\/|Safari\/|Firefox\/|Edg\//i.test(ua);
+        }
+        return surface === "browser";
+      };
+
+      const CHAT_IN_BROWSER_LOCAL_DEV_PROMPT = `
+
+<chat-in-browser-on-localdev>
+This chat is running in a plain browser tab on localhost. Source-code edits would trigger Vite HMR or a full page reload, which kills the chat session mid-run, so source-code work cannot happen on this surface.
+
+When the user asks for ANY of the following — add a feature, edit a component, fix a bug in the app itself, change styles, add a route, scaffold a new app, run shell commands that modify code, or anything else that requires touching source files:
+
+1. Do NOT call \`connect-builder\`, \`scaffold-workspace-app\`, \`start-workspace-app-creation\`, or any other tool that creates or edits source.
+2. Do NOT write code, list files, propose patches, or describe what you would change.
+3. Reply with one short message saying chat-in-browser on localhost can't edit code (page reloads kill the session) and offer these alternatives, in this order:
+   - **Agent Native Desktop** — https://www.agent-native.com/download (recommended; same chat, no reload risk)
+   - **Claude Code** — \`claude\` in the project directory
+   - **Codex** — \`codex\` in the project directory
+   - **Builder.io** — open the project in Builder for cloud-based code changes
+
+Non-code requests are still fine on this surface — read data, navigate the UI, summarize, search, create/update extensions (sandboxed Alpine.js mini-apps stored in SQL), and call template actions. The restriction is specifically about editing the app's own source files.
+</chat-in-browser-on-localdev>`;
+
       const prodHandler = createProductionAgentHandler({
         actions: leanPrompt ? leanActions : prodActions,
         systemPrompt: async (event: any) => {
           const { owner, extra } = await prepareRun(event);
           const runtimeContext = runtimeContextForEvent(event);
+          const browserLocalDev = isChatInBrowserOnLocalDev(event)
+            ? CHAT_IN_BROWSER_LOCAL_DEV_PROMPT
+            : "";
           if (leanPrompt) {
             return setSystemPromptOnContext(
-              leanBasePrompt + runtimeContext + extra,
+              leanBasePrompt + runtimeContext + browserLocalDev + extra,
             );
           }
           const resources = await loadResourcesForPrompt(owner, lazyContext);
@@ -3742,7 +3797,12 @@ export function createAgentChatPlugin(
             ? ""
             : await buildSchemaBlock(owner, false);
           return setSystemPromptOnContext(
-            basePrompt + runtimeContext + resources + schemaBlock + extra,
+            basePrompt +
+              runtimeContext +
+              resources +
+              schemaBlock +
+              browserLocalDev +
+              extra,
           );
         },
         model: options?.model,
@@ -4984,10 +5044,16 @@ export function createAgentChatPlugin(
               timezone,
             },
             () => {
+              // Chat-in-browser on localhost can't host code edits — Vite HMR
+              // and full reloads would kill the chat mid-run. Force the prod
+              // handler (no shell / no fs); the prompt block injected by
+              // `prodHandler.systemPrompt` then steers the agent to suggest
+              // Desktop / Claude Code / Codex / Builder.io instead.
+              const browserLocalDev = isChatInBrowserOnLocalDev(event);
               const handler =
                 ownerContext.anonymous && anonymousHandler
                   ? anonymousHandler
-                  : currentDevMode && devHandler
+                  : !browserLocalDev && currentDevMode && devHandler
                     ? devHandler
                     : prodHandler;
               return handler(event);
