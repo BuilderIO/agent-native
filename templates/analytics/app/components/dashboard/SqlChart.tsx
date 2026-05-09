@@ -56,8 +56,8 @@ import type {
 import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
 
 const DEFAULT_COLORS = [
-  "#6366f1",
-  "#8b5cf6",
+  "#00B5FF",
+  "#48FFE4",
   "#06b6d4",
   "#10b981",
   "#f59e0b",

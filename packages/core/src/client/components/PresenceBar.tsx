@@ -31,7 +31,7 @@ const AVATAR_SIZE = 28;
 const OVERLAP = -8;
 const BORDER_WIDTH = 2;
 const FONT_SIZE = 12;
-const AGENT_COLOR = "#a78bfa";
+const AGENT_COLOR = "#00B5FF";
 
 const baseAvatarStyle: React.CSSProperties = {
   width: AVATAR_SIZE,

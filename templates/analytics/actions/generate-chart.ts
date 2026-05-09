@@ -33,11 +33,11 @@ const THEMES = {
 } as const;
 
 const PALETTE = [
-  "#18B4F4",
-  "#8b5cf6",
+  "#00B5FF",
+  "#48FFE4",
   "#22c55e",
   "#f59e0b",
-  "#6366f1",
+  "#0ea5e9",
   "#ef4444",
   "#14b8a6",
   "#f97316",
