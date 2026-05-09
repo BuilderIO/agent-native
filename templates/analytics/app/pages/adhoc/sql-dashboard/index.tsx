@@ -128,6 +128,7 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
       description: data.description,
       filters: data.filters,
       variables: data.variables,
+      columns: typeof data.columns === "number" ? data.columns : undefined,
       panels: data.panels ?? [],
     },
     archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,

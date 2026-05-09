@@ -12,6 +12,7 @@ import {
   getRunByThread,
   cleanupOldRuns,
   updateRunHeartbeat,
+  bumpRunProgress,
   reapIfStale,
 } from "./run-store.js";
 
@@ -180,6 +181,18 @@ export function startRun(
   // overwritten by a late row stuck at status='running'.
   const insertRunPromise = insertRun(runId, threadId).catch(() => {});
 
+  // Throttle the durable progress timestamp to at most once per second so
+  // a chatty token-by-token stream doesn't translate into one DB write per
+  // chunk. The stuck-detector threshold is on the order of tens of seconds,
+  // so 1s resolution is plenty.
+  let lastProgressBumpAt = 0;
+  const bumpProgressIfDue = () => {
+    const now = Date.now();
+    if (now - lastProgressBumpAt < 1000) return;
+    lastProgressBumpAt = now;
+    bumpRunProgress(runId).catch(() => {});
+  };
+
   // Periodic SQL abort check interval (for cross-isolate abort on Workers)
   let lastAbortCheck = Date.now() - 3000;
   const checkSqlAbort = () => {
@@ -268,6 +281,12 @@ export function startRun(
         run.subscribers.delete(subscriber);
       }
     }
+
+    // Bump the durable progress timestamp. Distinct from the heartbeat:
+    // heartbeat = "process is up", progress = "real work is happening." The
+    // gap between them is what the client-side stuck-detector reads to tell
+    // a hung run from a healthy one.
+    bumpProgressIfDue();
 
     // Persist event to SQL. Ordinary streaming events are fire-and-forget, but
     // terminal events are awaited before final status is persisted so reconnects
