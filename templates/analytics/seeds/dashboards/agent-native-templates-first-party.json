@@ -51,7 +51,7 @@
       "config": {
         "xKey": "date",
         "yKey": "count",
-        "color": "#6366f1"
+        "color": "#00B5FF"
       }
     },
     {
@@ -64,7 +64,7 @@
       "config": {
         "xKey": "template",
         "yKey": "count",
-        "color": "#6366f1"
+        "color": "#00B5FF"
       }
     },
     {
@@ -77,7 +77,7 @@
       "config": {
         "xKey": "template",
         "yKey": "count",
-        "color": "#8b5cf6"
+        "color": "#48FFE4"
       }
     },
     {

@@ -64,7 +64,7 @@
       "config": {
         "xKey": "date",
         "yKey": "sessions",
-        "color": "#6366f1"
+        "color": "#00B5FF"
       }
     },
     {
@@ -94,7 +94,7 @@
       "config": {
         "xKey": "sessionSource",
         "yKey": "sessions",
-        "color": "#6366f1"
+        "color": "#00B5FF"
       }
     },
     {
@@ -107,7 +107,7 @@
       "config": {
         "xKey": "country",
         "yKey": "activeUsers",
-        "color": "#6366f1"
+        "color": "#00B5FF"
       }
     }
   ]
