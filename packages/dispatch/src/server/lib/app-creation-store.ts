@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -52,10 +53,27 @@ export interface WorkspaceAppSummary {
   a2aEndpointUrl?: string | null;
   agentName?: string | null;
   agentSkillsCount?: number | null;
+  archived?: boolean;
 }
 
 export interface ListWorkspaceAppsOptions {
   includeAgentCards?: boolean;
+  /**
+   * Include apps the current viewer has hidden (archived). Defaults to false
+   * so polling/UI callers see only the visible set; the apps page passes true
+   * when rendering the "Hidden apps" expander.
+   */
+  includeArchived?: boolean;
+}
+
+export interface AvailableWorkspaceTemplate {
+  name: string;
+  label: string;
+  hint: string;
+  icon: string;
+  color: string;
+  colorRgb: string;
+  core: boolean;
 }
 
 export interface AppCreationSettings {
@@ -258,6 +276,76 @@ function parsePendingWorkspaceApps(value: unknown): PendingWorkspaceApp[] {
 async function listPendingWorkspaceApps(): Promise<PendingWorkspaceApp[]> {
   const raw = await readSettingsRecord();
   return parsePendingWorkspaceApps(raw.pendingApps);
+}
+
+function parseArchivedAppIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids = value
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter(Boolean);
+  return Array.from(new Set(ids));
+}
+
+async function listArchivedAppIds(): Promise<string[]> {
+  const raw = await readSettingsRecord();
+  return parseArchivedAppIds(raw.archivedAppIds);
+}
+
+export async function archiveWorkspaceApp(input: {
+  appId: string;
+}): Promise<{ archivedAppIds: string[] }> {
+  const appId = input.appId.trim();
+  if (!appId) throw new Error("appId is required");
+  const raw = await readSettingsRecord();
+  const current = parseArchivedAppIds(raw.archivedAppIds);
+  if (!current.includes(appId)) current.push(appId);
+  await putSetting(scopedSettingsKey(), { ...raw, archivedAppIds: current });
+  await recordAudit({
+    action: "workspace-app.archived",
+    targetType: "workspace-app",
+    targetId: appId,
+    summary: "Hid workspace app from the Apps list",
+  });
+  return { archivedAppIds: current };
+}
+
+export async function unarchiveWorkspaceApp(input: {
+  appId: string;
+}): Promise<{ archivedAppIds: string[] }> {
+  const appId = input.appId.trim();
+  if (!appId) throw new Error("appId is required");
+  const raw = await readSettingsRecord();
+  const current = parseArchivedAppIds(raw.archivedAppIds).filter(
+    (id) => id !== appId,
+  );
+  await putSetting(scopedSettingsKey(), { ...raw, archivedAppIds: current });
+  await recordAudit({
+    action: "workspace-app.unarchived",
+    targetType: "workspace-app",
+    targetId: appId,
+    summary: "Restored workspace app to the Apps list",
+  });
+  return { archivedAppIds: current };
+}
+
+export async function removePendingWorkspaceApp(input: {
+  appId: string;
+}): Promise<{ removed: boolean }> {
+  const appId = input.appId.trim();
+  if (!appId) throw new Error("appId is required");
+  const raw = await readSettingsRecord();
+  const pending = parsePendingWorkspaceApps(raw.pendingApps);
+  const next = pending.filter((app) => app.id !== appId);
+  const removed = next.length !== pending.length;
+  if (!removed) return { removed: false };
+  await putSetting(scopedSettingsKey(), { ...raw, pendingApps: next });
+  await recordAudit({
+    action: "workspace-app.pending-removed",
+    targetType: "workspace-app",
+    targetId: appId,
+    summary: "Removed pending Builder app from the Apps list",
+  });
+  return { removed: true };
 }
 
 function pendingAppToSummary(app: PendingWorkspaceApp): WorkspaceAppSummary {
@@ -597,13 +685,30 @@ export function getWorkspaceInfo(): WorkspaceInfo {
   };
 }
 
+async function applyArchivedAndPending(
+  apps: WorkspaceAppSummary[],
+  options: ListWorkspaceAppsOptions,
+): Promise<WorkspaceAppSummary[]> {
+  const [withPending, archivedIds] = await Promise.all([
+    appendPendingWorkspaceApps(apps),
+    listArchivedAppIds(),
+  ]);
+  const archivedSet = new Set(archivedIds);
+  const annotated = withPending.map((app) =>
+    archivedSet.has(app.id) ? { ...app, archived: true } : app,
+  );
+  return options.includeArchived
+    ? annotated
+    : annotated.filter((app) => !app.archived);
+}
+
 export async function listWorkspaceApps(
   options: ListWorkspaceAppsOptions = {},
 ): Promise<WorkspaceAppSummary[]> {
   const gatewayApps = await readWorkspaceAppsFromGateway();
   if (gatewayApps) {
     return maybeIncludeAgentCards(
-      await appendPendingWorkspaceApps(gatewayApps),
+      await applyArchivedAndPending(gatewayApps, options),
       options,
     );
   }
@@ -615,7 +720,7 @@ export async function listWorkspaceApps(
       : null;
   if (localFilesystemApps) {
     return maybeIncludeAgentCards(
-      await appendPendingWorkspaceApps(localFilesystemApps),
+      await applyArchivedAndPending(localFilesystemApps, options),
       options,
     );
   }
@@ -624,33 +729,225 @@ export async function listWorkspaceApps(
     readWorkspaceAppsFromEnv() ?? readWorkspaceAppsFromManifestFile();
   if (manifestApps) {
     return maybeIncludeAgentCards(
-      await appendPendingWorkspaceApps(manifestApps),
+      await applyArchivedAndPending(manifestApps, options),
       options,
     );
   }
 
   if (!workspaceRoot) {
     return maybeIncludeAgentCards(
-      await appendPendingWorkspaceApps([
-        {
-          id: "dispatch",
-          name: "Dispatch",
-          description: "Workspace control plane",
-          path: "/dispatch",
-          url: workspaceAppUrl("/dispatch"),
-          isDispatch: true,
-          status: "ready",
-        },
-      ]),
+      await applyArchivedAndPending(
+        [
+          {
+            id: "dispatch",
+            name: "Dispatch",
+            description: "Workspace control plane",
+            path: "/dispatch",
+            url: workspaceAppUrl("/dispatch"),
+            isDispatch: true,
+            status: "ready",
+          },
+        ],
+        options,
+      ),
       options,
     );
   }
 
   const apps = readWorkspaceAppsFromFilesystem(workspaceRoot) ?? [];
   return maybeIncludeAgentCards(
-    await appendPendingWorkspaceApps(apps),
+    await applyArchivedAndPending(apps, options),
     options,
   );
+}
+
+/**
+ * First-party templates the user can scaffold into this workspace via the
+ * Apps page tiles. Inlined here (rather than importing from
+ * `@agent-native/shared-app-config`) because the published `@agent-native/dispatch`
+ * package has no `workspace:*` runtime dependencies. Keep in sync with
+ * `packages/core/src/cli/templates-meta.ts`.
+ */
+const ADDABLE_TEMPLATES: AvailableWorkspaceTemplate[] = [
+  {
+    name: "mail",
+    label: "Mail",
+    hint: "Email client with keyboard shortcuts and AI triage",
+    icon: "Mail",
+    color: "#3B82F6",
+    colorRgb: "59 130 246",
+    core: true,
+  },
+  {
+    name: "calendar",
+    label: "Calendar",
+    hint: "Manage events, sync, and public booking",
+    icon: "CalendarDays",
+    color: "#8B5CF6",
+    colorRgb: "139 92 246",
+    core: true,
+  },
+  {
+    name: "content",
+    label: "Content",
+    hint: "Write and organize with agent assistance",
+    icon: "FileText",
+    color: "#10B981",
+    colorRgb: "16 185 129",
+    core: true,
+  },
+  {
+    name: "slides",
+    label: "Slides",
+    hint: "Generate and edit React presentations",
+    icon: "GalleryHorizontal",
+    color: "#EC4899",
+    colorRgb: "236 72 153",
+    core: true,
+  },
+  {
+    name: "clips",
+    label: "Clips",
+    hint: "Screen recording, meeting notes, and voice dictation",
+    icon: "ScreenShare",
+    color: "#625DF5",
+    colorRgb: "98 93 245",
+    core: true,
+  },
+  {
+    name: "analytics",
+    label: "Analytics",
+    hint: "Connect data sources, prompt for charts",
+    icon: "BarChart2",
+    color: "#F59E0B",
+    colorRgb: "245 158 11",
+    core: true,
+  },
+  {
+    name: "forms",
+    label: "Forms",
+    hint: "Create, edit, and manage forms",
+    icon: "ClipboardList",
+    color: "#06B6D4",
+    colorRgb: "6 182 212",
+    core: true,
+  },
+  {
+    name: "design",
+    label: "Design",
+    hint: "Create and edit visual designs with agent assistance",
+    icon: "Brush",
+    color: "#F472B6",
+    colorRgb: "244 114 182",
+    core: true,
+  },
+  {
+    name: "videos",
+    label: "Video",
+    hint: "Video editing with Remotion",
+    icon: "Video",
+    color: "#EF4444",
+    colorRgb: "239 68 68",
+    core: false,
+  },
+];
+
+export async function listAvailableWorkspaceTemplates(): Promise<
+  AvailableWorkspaceTemplate[]
+> {
+  const installed = new Set(
+    (await listWorkspaceApps({ includeArchived: true })).map((app) => app.id),
+  );
+  return ADDABLE_TEMPLATES.filter((tpl) => !installed.has(tpl.name));
+}
+
+const SCAFFOLD_TIMEOUT_MS = 90_000;
+
+export async function scaffoldWorkspaceAppFromTemplate(input: {
+  template: string;
+  appId?: string | null;
+}): Promise<{ appId: string; template: string; output: string }> {
+  if (!isLocalAppCreationRuntime()) {
+    throw new Error(
+      "Scaffolding from Dispatch is only available in local development. " +
+        "Use the Builder branch flow on a deployed workspace.",
+    );
+  }
+  const template = input.template.trim();
+  if (!template) throw new Error("template is required");
+  if (!ADDABLE_TEMPLATES.some((tpl) => tpl.name === template)) {
+    throw new Error(`Unknown template "${template}".`);
+  }
+
+  const appId = (input.appId?.trim() || template).toLowerCase();
+  assertValidWorkspaceAppId(appId);
+
+  const workspaceRoot = findWorkspaceRoot();
+  if (!workspaceRoot) {
+    throw new Error("No agent-native workspace detected for scaffolding.");
+  }
+  const appDir = path.join(workspaceRoot, "apps", appId);
+  if (fs.existsSync(appDir)) {
+    throw new Error(`apps/${appId} already exists.`);
+  }
+
+  const output = await runScaffoldCli({
+    cwd: workspaceRoot,
+    args: ["add-app", appId, "--template", template],
+  });
+
+  await recordAudit({
+    action: "workspace-app.scaffolded",
+    targetType: "workspace-app",
+    targetId: appId,
+    summary: `Scaffolded apps/${appId} from ${template}`,
+    metadata: { template },
+  });
+
+  return { appId, template, output };
+}
+
+function runScaffoldCli(input: {
+  cwd: string;
+  args: string[];
+}): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("pnpm", ["exec", "agent-native", ...input.args], {
+      cwd: input.cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, CI: "1", FORCE_COLOR: "0" },
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(
+        new Error(
+          `Scaffold timed out after ${Math.round(SCAFFOLD_TIMEOUT_MS / 1000)}s`,
+        ),
+      );
+    }, SCAFFOLD_TIMEOUT_MS);
+    timer.unref();
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve([stdout, stderr].filter(Boolean).join("\n").trim());
+        return;
+      }
+      const detail = (stderr || stdout || "").trim() || `exit code ${code}`;
+      reject(new Error(`Scaffold failed: ${detail}`));
+    });
+  });
 }
 
 export async function getAppCreationSettings(): Promise<AppCreationSettings> {

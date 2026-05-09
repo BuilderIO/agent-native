@@ -94,7 +94,7 @@ export default function AppScreen() {
     );
   }
 
-  const baseUrl = app.mode === "dev" && app.devUrl ? app.devUrl : app.url;
+  const baseUrl = app.url;
 
   // Append the session token as a query param so the server can promote it to
   // an httpOnly cookie. This bridges the Safari/WKWebView cookie jar gap.

@@ -25,13 +25,6 @@ export default function SettingsScreen() {
     [updateApp],
   );
 
-  const handleModeToggle = useCallback(
-    (id: string, mode: "dev" | "prod") => {
-      updateApp(id, { mode });
-    },
-    [updateApp],
-  );
-
   const handleEdit = useCallback((app: AppConfig) => {
     setEditingApp(app);
   }, []);
@@ -94,41 +87,6 @@ export default function SettingsScreen() {
               </View>
             </View>
             <View style={styles.appActions}>
-              <View style={styles.modeToggle}>
-                <TouchableOpacity
-                  style={[
-                    styles.modeButton,
-                    (app.mode ?? "prod") === "prod" && styles.modeButtonActive,
-                  ]}
-                  onPress={() => handleModeToggle(app.id, "prod")}
-                >
-                  <Text
-                    style={[
-                      styles.modeButtonText,
-                      (app.mode ?? "prod") === "prod" &&
-                        styles.modeButtonTextActive,
-                    ]}
-                  >
-                    Prod
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.modeButton,
-                    app.mode === "dev" && styles.modeButtonActive,
-                  ]}
-                  onPress={() => handleModeToggle(app.id, "dev")}
-                >
-                  <Text
-                    style={[
-                      styles.modeButtonText,
-                      app.mode === "dev" && styles.modeButtonTextActive,
-                    ]}
-                  >
-                    Dev
-                  </Text>
-                </TouchableOpacity>
-              </View>
               <TouchableOpacity
                 onPress={() => handleEdit(app)}
                 style={styles.editButton}
@@ -245,29 +203,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-  },
-  modeToggle: {
-    flexDirection: "row",
-    backgroundColor: "#1A1A1A",
-    borderRadius: 6,
-    padding: 2,
-    gap: 1,
-  },
-  modeButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  modeButtonActive: {
-    backgroundColor: "#333333",
-  },
-  modeButtonText: {
-    color: "#555555",
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  modeButtonTextActive: {
-    color: "#ffffff",
   },
   editButton: {
     padding: 6,

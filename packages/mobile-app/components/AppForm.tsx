@@ -57,8 +57,6 @@ export default function AppForm({
 }: AppFormProps) {
   const [name, setName] = useState(editApp?.name ?? "");
   const [url, setUrl] = useState(editApp?.url ?? "");
-  const [devUrl, setDevUrl] = useState(editApp?.devUrl ?? "");
-  const [devCommand, setDevCommand] = useState(editApp?.devCommand ?? "");
   const [description, setDescription] = useState(editApp?.description ?? "");
   const [color, setColor] = useState(editApp?.color ?? COLOR_PRESETS[0]);
   const [icon, setIcon] = useState(editApp?.icon ?? "Globe");
@@ -71,7 +69,7 @@ export default function AppForm({
       return;
     }
     if (!url.trim()) {
-      Alert.alert("Error", "Production URL is required");
+      Alert.alert("Error", "URL is required");
       return;
     }
 
@@ -97,8 +95,8 @@ export default function AppForm({
       description: description.trim() || name.trim(),
       url: url.trim(),
       devPort: 0,
-      devUrl: devUrl.trim() || undefined,
-      devCommand: devCommand.trim() || undefined,
+      devUrl: editApp?.devUrl,
+      devCommand: editApp?.devCommand,
       color,
       colorRgb: hexToRgb(color),
       isBuiltIn: editApp?.isBuiltIn ?? false,
@@ -136,7 +134,7 @@ export default function AppForm({
             placeholderTextColor="#555555"
           />
 
-          <Text style={styles.label}>Production URL *</Text>
+          <Text style={styles.label}>URL *</Text>
           <TextInput
             style={styles.input}
             value={url}
@@ -144,31 +142,6 @@ export default function AppForm({
             placeholder="https://myapp.example.com"
             placeholderTextColor="#555555"
             keyboardType="url"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-
-          <Text style={styles.label}>Dev URL (optional)</Text>
-          <TextInput
-            style={styles.input}
-            value={devUrl}
-            onChangeText={setDevUrl}
-            placeholder="http://localhost:3000"
-            placeholderTextColor="#555555"
-            keyboardType="url"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-
-          <Text style={styles.label}>
-            Dev Command (optional, for reference)
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={devCommand}
-            onChangeText={setDevCommand}
-            placeholder="pnpm dev"
-            placeholderTextColor="#555555"
             autoCapitalize="none"
             autoCorrect={false}
           />

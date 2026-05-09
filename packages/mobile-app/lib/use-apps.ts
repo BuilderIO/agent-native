@@ -14,6 +14,7 @@ export function useApps() {
 
   useEffect(() => {
     reload();
+    return AppStore.subscribe(reload);
   }, [reload]);
 
   const addApp = useCallback(

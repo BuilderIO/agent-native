@@ -1,6 +1,7 @@
 import type { ActionEntry } from "@agent-native/core/server";
 import approveDispatchChange from "./approve-dispatch-change.js";
 import approveVaultRequest from "./approve-vault-request.js";
+import archiveWorkspaceApp from "./archive-workspace-app.js";
 import createLinkToken from "./create-link-token.js";
 import createVaultGrant from "./create-vault-grant.js";
 import createVaultSecret from "./create-vault-secret.js";
@@ -17,6 +18,7 @@ import getWorkspaceInfo from "./get-workspace-info.js";
 import grantWorkspaceResourcesToApp from "./grant-workspace-resources-to-app.js";
 import grantVaultSecretsToApp from "./grant-vault-secrets-to-app.js";
 import listAgentThreadSources from "./list-agent-thread-sources.js";
+import listAvailableWorkspaceTemplates from "./list-available-workspace-templates.js";
 import listConnectedAgents from "./list-connected-agents.js";
 import listDestinations from "./list-destinations.js";
 import listDispatchApprovals from "./list-dispatch-approvals.js";
@@ -36,9 +38,11 @@ import listWorkspaceResourceGrants from "./list-workspace-resource-grants.js";
 import listWorkspaceResources from "./list-workspace-resources.js";
 import navigate from "./navigate.js";
 import rejectDispatchChange from "./reject-dispatch-change.js";
+import removePendingWorkspaceApp from "./remove-pending-workspace-app.js";
 import requestVaultSecret from "./request-vault-secret.js";
 import revokeVaultGrant from "./revoke-vault-grant.js";
 import revokeWorkspaceResourceGrant from "./revoke-workspace-resource-grant.js";
+import scaffoldWorkspaceApp from "./scaffold-workspace-app.js";
 import searchAgentThreads from "./search-agent-threads.js";
 import sendPlatformMessage from "./send-platform-message.js";
 import setAppCreationSettings from "./set-app-creation-settings.js";
@@ -47,6 +51,7 @@ import startWorkspaceAppCreation from "./start-workspace-app-creation.js";
 import syncVaultToApp from "./sync-vault-to-app.js";
 import syncWorkspaceResourcesToAll from "./sync-workspace-resources-to-all.js";
 import syncWorkspaceResourcesToApp from "./sync-workspace-resources-to-app.js";
+import unarchiveWorkspaceApp from "./unarchive-workspace-app.js";
 import updateVaultSecret from "./update-vault-secret.js";
 import updateWorkspaceResource from "./update-workspace-resource.js";
 import upsertDestination from "./upsert-destination.js";
@@ -61,6 +66,7 @@ import viewScreen from "./view-screen.js";
 export const dispatchActions: Record<string, ActionEntry> = {
   "approve-dispatch-change": approveDispatchChange,
   "approve-vault-request": approveVaultRequest,
+  "archive-workspace-app": archiveWorkspaceApp,
   "create-link-token": createLinkToken,
   "create-vault-grant": createVaultGrant,
   "create-vault-secret": createVaultSecret,
