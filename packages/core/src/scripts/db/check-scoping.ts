@@ -4,8 +4,9 @@
  * Validates that all template tables have the required ownership columns
  * (owner_email, org_id) for per-user and per-org data scoping.
  *
- * Tables without these columns are invisible to the scoping system and
- * will be accessible to all users in production mode.
+ * Tables without these columns are denied to raw db-* tools by default. If a
+ * table should be queryable/writable through raw DB tools, add explicit
+ * owner_email/org_id scoping columns and an additive migration.
  *
  * Usage:
  *   pnpm action db-check-scoping [--db path] [--require-org] [--format json]
@@ -190,7 +191,7 @@ Options:
   }
 
   if (withIssues.length > 0) {
-    console.log("Unscoped tables (WARNING):");
+    console.log("Tables denied to raw DB tools:");
     for (const r of withIssues) {
       for (const issue of r.issues) {
         console.log(`  ✗ ${r.table} — ${issue}`);
@@ -198,8 +199,9 @@ Options:
     }
     console.log();
     console.log(
-      `${withIssues.length} table(s) lack scoping columns. ` +
-        `In production, agents can see ALL rows in these tables regardless of user/org.`,
+      `${withIssues.length} table(s) lack scoping columns. Raw db-* tools ` +
+        `will fail closed for these tables; use scoped actions or add ` +
+        `owner_email/org_id when raw DB access is intended.`,
     );
     process.exitCode = 1;
   } else {
