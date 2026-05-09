@@ -156,7 +156,7 @@ Ephemeral UI state is stored in the SQL `application_state` table, accessed via 
 | `navigation`      | Current view, design ID                                | UI -> Agent (read-only)    |
 | `navigate`        | Navigate command (one-shot, auto-deleted)              | Agent -> UI (auto-deleted) |
 | `show-questions`  | Trigger pre-generation question overlay                | Agent -> UI (auto-deleted) |
-| `design-variants` | 2-5 candidate designs the user picks between in a grid | Agent -> UI (auto-deleted) |
+| `design-variants` | In-progress candidate designs the user picks between in a grid | Agent -> UI (auto-deleted) |
 
 ### Navigation state (read what the user sees)
 
@@ -402,9 +402,20 @@ When a request arrives from Slack, Dispatch, or any other app via A2A, the calle
 
 For any non-trivial first prompt, write structured questions to `application-state/show-questions` BEFORE generating. The editor renders them as a full-canvas overlay. The user submits or skips, and the answers come back to you as a chat message. See "Question Flow Protocol" below for the exact JSON shape and when to ask vs skip.
 
+### Progress visibility
+
+For generation that may take more than a few seconds, make progress visible with complete checkpoints:
+
+1. Start a `manage-progress` run before creating variants, a multi-screen prototype, or a substantial refinement. Update the current step after each meaningful checkpoint and complete it when the visible design is ready.
+2. Prefer checkpoints that the UI can render safely: complete `design-variants` payloads or complete files saved through `generate-design`. Never stream partial HTML, token fragments, broken documents, or scratch files into the UI.
+3. Do not add artificial waits just to show progress. Save or publish a checkpoint as soon as a coherent candidate/screen is ready, then keep polishing.
+4. Keep checkpoint frequency modest. One update per finished candidate, screen, or major refinement pass is enough; avoid churn from saving after every tiny edit.
+
 ### Phase 2 — Generate three variations side-by-side
 
-For new designs, default to **three** variations side-by-side. Don't skip straight to a single design — Claude Design's "smartest UX choice" is showing 3 directions on first generation so users pick before refining. Write the candidates to `application-state/design-variants`:
+For new designs, default to **three** variations side-by-side. Don't skip straight to a single design — Claude Design's "smartest UX choice" is showing 3 directions on first generation so users pick before refining.
+
+Write variants incrementally so the user can watch the options arrive. As soon as the first complete candidate is ready, write `application-state/design-variants` with one variant. When the second and third candidates are ready, rewrite the same key with the full array produced so far. Each write must be a complete JSON payload, and each candidate `content` must be a complete, self-contained HTML document. The editor can render a one-variant grid while the remaining options are still being generated.
 
 ```json
 {
@@ -437,6 +448,12 @@ Use `generate-design` directly (skipping variants) only for:
 - One-off prompts where the user clearly knows the direction ("re-skin this with my brand colors")
 
 Always include the latest `tweaks` array (see Phase 4) when calling `generate-design` so user-tunable knobs survive content updates.
+
+For substantial refinements or multi-screen additions, save complete checkpoints rather than waiting for every polish pass. Examples:
+
+- When adding three new screens, call `generate-design` after the first complete renderable screen is ready, then again as each additional screen is ready.
+- When overhauling a large existing file, save one coherent complete pass first, then save a second polished pass after details, animations, and responsive states are tightened.
+- If a checkpoint would overwrite a good existing design with an obviously worse incomplete state, hold it until the replacement is coherent.
 
 ### Phase 4 — Generate tweak knobs with the design
 

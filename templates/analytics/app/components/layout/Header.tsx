@@ -7,6 +7,7 @@ import {
   useHeaderActions,
 } from "./HeaderActions";
 import { AgentToggleButton } from "@agent-native/core/client";
+import { RunsTray } from "@agent-native/core/client/progress";
 
 const pageTitles: Record<string, string> = {
   "/": "Overview",
@@ -54,6 +55,7 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
+        <RunsTray pollMs={1500} />
         <AgentToggleButton />
       </div>
     </header>

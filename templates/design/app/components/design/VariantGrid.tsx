@@ -26,7 +26,9 @@ export function VariantGrid({
 
   // Determine grid layout based on variant count
   const gridClass =
-    variants.length === 2
+    variants.length <= 1
+      ? "grid-cols-1"
+      : variants.length === 2
       ? "grid-cols-2"
       : variants.length === 3
         ? "grid-cols-3"
