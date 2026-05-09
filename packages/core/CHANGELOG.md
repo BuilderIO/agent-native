@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.13.1
+
+### Patch Changes
+
+- 051fcac: Swap `AgentPresenceChip`, `PresenceBar`, and `agent-identity` accent colors to the agent-native brand blues (#00B5FF / #48FFE4) so presence indicators match the new analytics chart palette.
+- 051fcac: Route Builder desktop Google sign-in through the configured public OAuth origin so the centralized callback host mints and redeems the OAuth state.
+
 ## 0.13.0
 
 ### Minor Changes
