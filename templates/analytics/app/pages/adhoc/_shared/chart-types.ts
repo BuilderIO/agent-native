@@ -76,11 +76,11 @@ export interface Tab2FilterState {
 }
 
 export const CHART_COLORS = [
-  "#00B5FF", // agent-native blue
+  "var(--brand-blue)", // agent-native blue
   "#10b981", // emerald
   "#f59e0b", // amber
   "#ef4444", // red
-  "#48FFE4", // agent-native teal
+  "var(--brand-teal)", // agent-native teal
   "#06b6d4", // cyan
   "#f97316", // orange
   "#ec4899", // pink

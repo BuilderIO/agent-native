@@ -32,16 +32,28 @@ const THEMES = {
   },
 } as const;
 
-const PALETTE = [
-  "#00B5FF",
-  "#48FFE4",
-  "#22c55e",
-  "#f59e0b",
-  "#0ea5e9",
-  "#ef4444",
-  "#14b8a6",
-  "#f97316",
-];
+const PALETTES = {
+  dark: [
+    "#00B5FF",
+    "#48FFE4",
+    "#22c55e",
+    "#f59e0b",
+    "#0ea5e9",
+    "#ef4444",
+    "#14b8a6",
+    "#f97316",
+  ],
+  light: [
+    "#0284C7",
+    "#0D9488",
+    "#16a34a",
+    "#d97706",
+    "#0369a1",
+    "#dc2626",
+    "#0f766e",
+    "#ea580c",
+  ],
+} as const;
 
 function getTheme(): "dark" | "light" {
   try {
@@ -138,7 +150,8 @@ export default defineAction({
     const height = args.height ?? 400;
     const themeName = args.theme || getTheme();
     const theme = THEMES[themeName];
-    const primaryColor = args.color || PALETTE[0];
+    const palette = PALETTES[themeName];
+    const primaryColor = args.color || palette[0];
 
     let labels: string[];
     try {
@@ -181,7 +194,7 @@ export default defineAction({
       data: {
         labels,
         datasets: datasets.map((ds, i) => {
-          const color = ds.color || PALETTE[i % PALETTE.length];
+          const color = ds.color || palette[i % palette.length];
           return {
             label: ds.label,
             data: ds.data,

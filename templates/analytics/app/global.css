@@ -48,6 +48,10 @@
   --chart-4: 280 65% 60%;
   --chart-5: 340 75% 55%;
 
+  /* Brand colors — bright stops from the agent-native gradient, suited to dark backgrounds */
+  --brand-blue: #00b5ff;
+  --brand-teal: #48ffe4;
+
   --radius: 0.5rem;
 
   /* Table header - solid card color for sticky headers */
@@ -90,6 +94,11 @@
   --chart-3: 30 80% 55%;
   --chart-4: 280 65% 60%;
   --chart-5: 340 75% 55%;
+
+  /* Brand colors — darker variants for readability on white */
+  --brand-blue: #0284c7;
+  --brand-teal: #0d9488;
+
   --sidebar-background: 0 0% 98%;
   --sidebar-foreground: 240 5.3% 26.1%;
   --sidebar-primary: 240 5.9% 10%;

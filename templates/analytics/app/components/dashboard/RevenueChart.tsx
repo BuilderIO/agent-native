@@ -31,8 +31,16 @@ export function RevenueChart() {
             <AreaChart data={data}>
               <defs>
                 <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#00B5FF" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#00B5FF" stopOpacity={0} />
+                  <stop
+                    offset="5%"
+                    stopColor="var(--brand-blue)"
+                    stopOpacity={0.3}
+                  />
+                  <stop
+                    offset="95%"
+                    stopColor="var(--brand-blue)"
+                    stopOpacity={0}
+                  />
                 </linearGradient>
               </defs>
               <XAxis
@@ -66,7 +74,7 @@ export function RevenueChart() {
               <Area
                 type="monotone"
                 dataKey="total"
-                stroke="#00B5FF"
+                stroke="var(--brand-blue)"
                 strokeWidth={2}
                 fillOpacity={1}
                 fill="url(#colorTotal)"

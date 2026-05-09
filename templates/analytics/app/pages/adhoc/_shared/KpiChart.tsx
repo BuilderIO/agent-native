@@ -45,7 +45,7 @@ export function KpiChart({
   rows,
   dataKey,
   chartType = "area",
-  color = "#00B5FF",
+  color = "var(--brand-blue)",
   isLoading,
   error,
   yFormatter,
