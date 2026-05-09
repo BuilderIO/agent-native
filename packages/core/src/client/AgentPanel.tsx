@@ -569,7 +569,7 @@ function AgentPanelInner({
   const codeUnavailableCtaLabel =
     codeAccess?.unavailableCtaLabel ?? "Download Desktop";
   const codeUnavailableCtaHref =
-    codeAccess?.unavailableCtaHref ?? "https://agent-native.com/download";
+    codeAccess?.unavailableCtaHref ?? "https://www.agent-native.com/download";
   const codeUnavailableSecondaryCtaLabel =
     codeAccess?.unavailableSecondaryCtaLabel ?? "Use Builder";
   const codeUnavailableSecondaryCtaHref =

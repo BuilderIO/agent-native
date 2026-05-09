@@ -151,11 +151,11 @@ Every design starts from this skeleton:
 
 Ephemeral UI state is stored in the SQL `application_state` table, accessed via `readAppState(key)` and `writeAppState(key, value)` from `@agent-native/core/application-state`.
 
-| State Key         | Purpose                                                | Direction                  |
-| ----------------- | ------------------------------------------------------ | -------------------------- |
-| `navigation`      | Current view, design ID                                | UI -> Agent (read-only)    |
-| `navigate`        | Navigate command (one-shot, auto-deleted)              | Agent -> UI (auto-deleted) |
-| `show-questions`  | Trigger pre-generation question overlay                | Agent -> UI (auto-deleted) |
+| State Key         | Purpose                                                        | Direction                  |
+| ----------------- | -------------------------------------------------------------- | -------------------------- |
+| `navigation`      | Current view, design ID                                        | UI -> Agent (read-only)    |
+| `navigate`        | Navigate command (one-shot, auto-deleted)                      | Agent -> UI (auto-deleted) |
+| `show-questions`  | Trigger pre-generation question overlay                        | Agent -> UI (auto-deleted) |
 | `design-variants` | In-progress candidate designs the user picks between in a grid | Agent -> UI (auto-deleted) |
 
 ### Navigation state (read what the user sees)
