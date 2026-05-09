@@ -213,14 +213,44 @@ describe("scoping", () => {
       expect(orgOnlyView).toContain('"org_id" = ');
       expect(orgOnlyView).not.toContain("owner_email");
 
-      // plain_table has neither — should not be scoped
+      // plain_table has neither — raw DB tools must fail closed instead of
+      // falling through to a cross-tenant base table.
       const plainView = ctx.setup.find((s) => s.includes('"plain_table"'));
-      expect(plainView).toBeUndefined();
+      expect(plainView).toBeDefined();
+      expect(plainView).toContain("WHERE 1 = 0");
 
       // Track org_id tables
       expect(ctx.orgIdTables.has("notes")).toBe(true);
       expect(ctx.orgIdTables.has("org_only_table")).toBe(true);
       expect(ctx.orgIdTables.has("plain_table")).toBe(false);
+    });
+
+    it("scopes resources by the nonstandard owner column", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AGENT_USER_EMAIL", "reader+qa@test.com");
+      const { buildScopingSqlite } = await import("./scoping.js");
+
+      const mockClient = {
+        execute: vi.fn().mockImplementation((sql: string) => {
+          if (sql.includes("sqlite_master")) {
+            return { rows: [{ name: "resources" }] };
+          }
+          return {
+            rows: [
+              { name: "id" },
+              { name: "path" },
+              { name: "owner" },
+              { name: "content" },
+            ],
+          };
+        }),
+      };
+
+      const ctx = await buildScopingSqlite(mockClient);
+      const resourcesView = ctx.setup.find((s) => s.includes('"resources"'));
+      expect(resourcesView).toBeDefined();
+      expect(resourcesView).toContain(`"owner" = 'reader+qa@test.com'`);
+      expect(resourcesView).not.toContain("__shared__");
     });
 
     it("skips org_id scoping when AGENT_ORG_ID is not set", async () => {
@@ -458,6 +488,27 @@ describe("scoping", () => {
       expect(tasksView).toContain('"owner_email"');
 
       expect(ctx.ownerEmailTables.has("tasks")).toBe(true);
+    });
+
+    it("creates deny-all Postgres views for tables without scoping columns", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AGENT_USER_EMAIL", "deny+qa@test.com");
+      const { buildScopingPostgres } = await import("./scoping.js");
+
+      const mockPgSql: any = async function (): Promise<any[]> {
+        return [
+          { table_name: "bookings", column_name: "id" },
+          { table_name: "bookings", column_name: "email" },
+          { table_name: "bookings", column_name: "status" },
+        ];
+      };
+
+      const ctx = await buildScopingPostgres(mockPgSql);
+      const bookingsView = ctx.setup.find((s) => s.includes('"bookings"'));
+
+      expect(bookingsView).toBeDefined();
+      expect(bookingsView).toContain("WHERE 1 = 0");
+      expect(bookingsView).toContain("WITH LOCAL CHECK OPTION");
     });
 
     it("keeps owner legacy rows visible in postgres when org scoping is active", async () => {

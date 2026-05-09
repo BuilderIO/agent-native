@@ -61,13 +61,14 @@ function submitCreateTool(prompt: string) {
 
 function CreateToolInput({ className }: { className?: string }) {
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
-      <p className="text-center text-base font-semibold text-foreground">
-        New extension
+    <div className={cn("flex flex-col gap-2 text-left", className)}>
+      <p className="px-1 text-sm font-medium text-foreground">
+        What should it do?
       </p>
       <PromptComposer
         autoFocus
-        placeholder="Describe what you'd like to build... e.g. a todo list, API dashboard, calculator"
+        className="text-left"
+        placeholder="A todo list, API dashboard, calculator..."
         draftScope="extensions:create"
         onSubmit={(text) => submitCreateTool(text)}
       />
@@ -200,16 +201,16 @@ export function ExtensionsListPage() {
             ))}
           </div>
         ) : toolList.length === 0 ? (
-          <div className="flex min-h-[calc(100vh-9rem)] flex-col items-center justify-center px-2 py-12 text-center sm:py-16">
-            <div className="mx-auto flex w-full max-w-2xl flex-col items-center gap-8">
-              <div className="flex flex-col items-center gap-4">
-                <IconTool className="h-12 w-12 text-muted-foreground/40" />
-                <div className="space-y-2">
+          <div className="flex min-h-[calc(100vh-9rem)] flex-col items-center justify-start px-2 pb-12 pt-[clamp(5rem,18vh,11rem)] sm:pb-16">
+            <div className="mx-auto flex w-full max-w-[34rem] flex-col gap-7">
+              <div className="flex flex-col items-center gap-3 text-center">
+                <IconTool className="h-10 w-10 text-muted-foreground/40" />
+                <div className="space-y-1.5">
                   <p className="text-base font-semibold text-foreground">
-                    No extensions yet
+                    Create your first extension
                   </p>
-                  <p className="text-sm text-muted-foreground">
-                    Describe what you'd like to build
+                  <p className="mx-auto max-w-sm text-sm text-muted-foreground">
+                    Describe the small app you want and the agent will build it.
                   </p>
                 </div>
               </div>

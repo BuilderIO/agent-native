@@ -41,8 +41,23 @@ while ((m = re.exec(templatesSrc)) !== null) {
   labelMap.set(m[1], m[2]);
 }
 
+function templateGatewayUrl(): string | null {
+  const value =
+    process.env.VITE_AGENT_NATIVE_TEMPLATE_GATEWAY_URL ||
+    process.env.AGENT_NATIVE_TEMPLATE_GATEWAY_URL ||
+    process.env.VITE_WORKSPACE_GATEWAY_URL ||
+    process.env.WORKSPACE_GATEWAY_URL ||
+    null;
+  if (!value) return null;
+  try {
+    return new URL(value).toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
 /** Extract the app ID from the request (Referer, state param, or cookie) */
-function getAppPort(req: IncomingMessage): number {
+function getAppId(req: IncomingMessage): string {
   const url = req.url || "";
   const queryStart = url.indexOf("?");
   const queryStr = queryStart >= 0 ? url.slice(queryStart + 1) : "";
@@ -51,35 +66,35 @@ function getAppPort(req: IncomingMessage): number {
   // 1. Explicit _app query param
   const explicitApp = params.get("_app");
   if (explicitApp) {
-    const port = portMap.get(explicitApp);
-    if (port) return port;
+    if (portMap.has(explicitApp)) return explicitApp;
   }
 
   // 2. OAuth state param (needed for system-browser callbacks — no Referer, no cookie)
   const stateApp = extractAppFromState(params.get("state") || undefined);
   if (stateApp) {
-    const port = portMap.get(stateApp);
-    if (port) return port;
+    if (portMap.has(stateApp)) return stateApp;
   }
 
   // 3. Referer header (contains ?app=<id>) — used during normal in-webview calls
   const referer = req.headers.referer || "";
   const refMatch = referer.match(/[?&]app=([^&]+)/);
   if (refMatch) {
-    const port = portMap.get(refMatch[1]);
-    if (port) return port;
+    if (portMap.has(refMatch[1])) return refMatch[1];
   }
 
   // 4. frame_active_app cookie — fallback for in-webview requests without Referer
   const cookie = req.headers.cookie || "";
   const cookieMatch = cookie.match(/(?:^|;\s*)frame_active_app=([^;]+)/);
   if (cookieMatch) {
-    const port = portMap.get(cookieMatch[1]);
-    if (port) return port;
+    if (portMap.has(cookieMatch[1])) return cookieMatch[1];
   }
 
   // Default to mail
-  return 8085;
+  return "mail";
+}
+
+function getAppPort(req: IncomingMessage): number {
+  return portMap.get(getAppId(req)) || 8085;
 }
 
 /**
@@ -97,11 +112,18 @@ function framePlugin(): Plugin {
 
     const appId = url.searchParams.get("app") || "mail";
     const devPort = portMap.get(appId);
+    const gatewayUrl = templateGatewayUrl();
+    const devUrl =
+      gatewayUrl && devPort
+        ? new URL(`/${appId}`, `${gatewayUrl}/`).toString().replace(/\/$/, "")
+        : devPort
+          ? `http://localhost:${devPort}`
+          : null;
     const body = JSON.stringify({
       id: appId,
       name: labelMap.get(appId) || appId,
       devPort,
-      devUrl: devPort ? `http://localhost:${devPort}` : null,
+      devUrl,
     });
     res.writeHead(200, {
       "Content-Type": "application/json",
@@ -151,6 +173,46 @@ function framePlugin(): Plugin {
     req.pipe(proxyReq);
   }
 
+  function forwardToGateway(
+    req: IncomingMessage,
+    res: ServerResponse,
+    appId: string,
+    gatewayUrl: string,
+    next: (err?: unknown) => void,
+  ) {
+    const target = new URL(`/${appId}${req.url || "/"}`, `${gatewayUrl}/`);
+    const headers = { ...req.headers };
+    headers["x-forwarded-host"] = req.headers.host || `localhost:3334`;
+    headers["x-forwarded-proto"] = "http";
+    headers.host = target.host;
+
+    const proxyReq = http.request(
+      {
+        host: target.hostname,
+        port: target.port || (target.protocol === "https:" ? 443 : 80),
+        protocol: target.protocol,
+        method: req.method,
+        path: `${target.pathname}${target.search}`,
+        headers,
+      },
+      (proxyRes) => {
+        res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+        proxyRes.pipe(res);
+      },
+    );
+
+    proxyReq.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "ECONNREFUSED") {
+        res.writeHead(503, { "Content-Type": "text/plain" });
+        res.end(`Template gateway at ${gatewayUrl} is not running`);
+        return;
+      }
+      next(err);
+    });
+
+    req.pipe(proxyReq);
+  }
+
   return {
     name: "frame-proxy",
     configureServer(server) {
@@ -159,7 +221,13 @@ function framePlugin(): Plugin {
         if (handleAppInfo(req, res)) return;
         const shouldProxy = PROXY_PREFIXES.some((p) => url.startsWith(p));
         if (!shouldProxy) return next();
-        const port = getAppPort(req);
+        const gatewayUrl = templateGatewayUrl();
+        const appId = getAppId(req);
+        if (gatewayUrl) {
+          forwardToGateway(req, res, appId, gatewayUrl, next);
+          return;
+        }
+        const port = portMap.get(appId) || getAppPort(req);
         forward(req, res, port, next);
       });
     },

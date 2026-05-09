@@ -113,6 +113,50 @@ function getConfiguredOriginAllowlist(): Set<string> {
   return out;
 }
 
+function isLoopbackHost(host: string | undefined): boolean {
+  if (!host) return false;
+  try {
+    const parsed = new URL(`http://${host}`);
+    return (
+      parsed.hostname === "localhost" ||
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "::1" ||
+      parsed.hostname === "[::1]"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isBuilderPreviewHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return (
+    host === "builderio.xyz" ||
+    host.endsWith(".builderio.xyz") ||
+    host === "builder.io" ||
+    host.endsWith(".builder.io") ||
+    host === "builder.my" ||
+    host.endsWith(".builder.my")
+  );
+}
+
+function getBuilderPreviewOrigin(event: H3Event, headerHost?: string): string {
+  if (!isWorkspaceOAuthCallbackRelayEnabled() || !isLoopbackHost(headerHost)) {
+    return "";
+  }
+  const referer =
+    getHeader(event, "referer") || getHeader(event, "referrer") || "";
+  if (!referer) return "";
+  try {
+    const url = new URL(referer);
+    if (!["https:", "http:"].includes(url.protocol)) return "";
+    if (!isBuilderPreviewHost(url.hostname)) return "";
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Get the origin from forwarded headers or Host.
  *
@@ -132,6 +176,14 @@ export function getOrigin(event: H3Event): string {
     getHeader(event, "x-forwarded-proto") || (isProd ? "https" : "http");
 
   if (isProd) {
+    // Loopback hosts can't legitimately be in the allowlist, but a Builder
+    // preview iframe relaying through a local desktop bridge legitimately
+    // arrives on loopback with a Builder preview referer. Resolve the
+    // preview origin BEFORE the allowlist fallback so the OAuth redirect
+    // returns the user back to the preview surface, not the canonical URL.
+    const builderPreviewOrigin = getBuilderPreviewOrigin(event, headerHost);
+    if (builderPreviewOrigin) return builderPreviewOrigin;
+
     const allow = getConfiguredOriginAllowlist();
     // If the deploy declares its public URL, prefer it over inbound headers.
     if (allow.size > 0) {
@@ -144,6 +196,9 @@ export function getOrigin(event: H3Event): string {
     // inbound Host (best we can do without a configured base URL).
     return `${headerProto}://${headerHost ?? ""}`;
   }
+
+  const builderPreviewOrigin = getBuilderPreviewOrigin(event, headerHost);
+  if (builderPreviewOrigin) return builderPreviewOrigin;
 
   return `${headerProto}://${headerHost ?? "localhost"}`;
 }

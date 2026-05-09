@@ -7,6 +7,8 @@ export {
   TEMPLATE_APPS,
   FRAME_PORT,
   getAppUrl,
+  getTemplateGatewayAppUrl,
+  getTemplateGatewayUrl,
   getAppById,
   toAppDefinition,
   generateAppId,

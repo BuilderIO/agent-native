@@ -1646,6 +1646,41 @@ describe("server/auth", () => {
       );
     });
 
+    it("uses the Builder preview origin instead of loopback for workspace OAuth redirects", async () => {
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/_agent-native/google/auth-url",
+        headers: {
+          host: "127.0.0.1:8080",
+          referer:
+            "https://940ebc5a83164aa6a37dde445e494f3a-thunder-handle-xmq6tgfy.builderio.xyz/?builder.preview=interact",
+        },
+      });
+
+      expect(resolveOAuthRedirectUri(event)).toBe(
+        "https://940ebc5a83164aa6a37dde445e494f3a-thunder-handle-xmq6tgfy.builderio.xyz/_agent-native/google/callback",
+      );
+    });
+
+    it("keeps loopback origins when the referrer is not a Builder preview origin", async () => {
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/_agent-native/google/auth-url",
+        headers: {
+          host: "127.0.0.1:8080",
+          referer: "https://attacker.example/?builder.preview=interact",
+        },
+      });
+
+      expect(resolveOAuthRedirectUri(event)).toBe(
+        "http://127.0.0.1:8080/_agent-native/google/callback",
+      );
+    });
+
     it("allows same-origin root and app-base framework redirect overrides", async () => {
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
       const { resolveOAuthRedirectUri } = await import("./google-oauth.js");

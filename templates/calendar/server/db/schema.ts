@@ -27,6 +27,8 @@ export const bookings = table("bookings", {
     .notNull()
     .default("confirmed"),
   createdAt: text("created_at").notNull(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  orgId: text("org_id"),
 });
 
 export const bookingLinks = table("booking_links", {
