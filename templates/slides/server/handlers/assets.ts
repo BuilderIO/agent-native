@@ -12,6 +12,14 @@ import { getAppBasePath, getSession } from "@agent-native/core/server";
 import { uploadedAssetUrlForBasePath } from "./assets-url.js";
 
 const UPLOADS_ROOT = path.join(process.cwd(), "public", "uploads");
+export const MAX_ASSET_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+
+export interface UploadedAsset {
+  url: string;
+  filename: string;
+  type: string;
+  size: number;
+}
 
 export function uploadedAssetUrl(filename: string): string {
   return uploadedAssetUrlForBasePath(filename, getAppBasePath());
@@ -40,7 +48,16 @@ function tenantAssetDir(email: string): string {
 
 function safeAssetFilename(originalName: string): string | null {
   const ext = path.extname(originalName).toLowerCase();
-  const allowed = new Set([
+  if (!isRasterAssetExtension(ext)) return null;
+  // Filename uniqueness comes from nanoid, not `Date.now()` — second-resolution
+  // timestamps are guessable. The per-tenant subdirectory already namespaces
+  // assets by user; the leaf must also be unguessable so a peer can't probe
+  // their upload window. (audit 10 medium / audit 01 medium).
+  return `${nanoid()}${ext}`;
+}
+
+function isRasterAssetExtension(ext: string): boolean {
+  return new Set([
     ".jpg",
     ".jpeg",
     ".png",
@@ -48,13 +65,7 @@ function safeAssetFilename(originalName: string): string | null {
     ".webp",
     ".avif",
     ".ico",
-  ]);
-  if (!allowed.has(ext)) return null;
-  // Filename uniqueness comes from nanoid, not `Date.now()` — second-resolution
-  // timestamps are guessable. The per-tenant subdirectory already namespaces
-  // assets by user; the leaf must also be unguessable so a peer can't probe
-  // their upload window. (audit 10 medium / audit 01 medium).
-  return `${nanoid()}${ext}`;
+  ]).has(ext);
 }
 
 function ascii(data: Uint8Array, start: number, end: number): string {
@@ -94,6 +105,55 @@ function hasExpectedImageSignature(ext: string, data: Uint8Array): boolean {
   return false;
 }
 
+export function canSaveAsUploadedAsset(args: {
+  originalName: string;
+  data: Uint8Array;
+}): boolean {
+  return (
+    args.data.length <= MAX_ASSET_FILE_SIZE &&
+    isRasterAssetExtension(path.extname(args.originalName).toLowerCase())
+  );
+}
+
+export async function saveUploadedAsset(args: {
+  email: string;
+  originalName: string;
+  data: Uint8Array;
+  type?: string;
+}): Promise<UploadedAsset> {
+  if (args.data.length > MAX_ASSET_FILE_SIZE) {
+    throw new Error("File too large (max 10 MB)");
+  }
+
+  const filename = safeAssetFilename(args.originalName);
+  // SVG is excluded — it can embed <script> tags and execute when served
+  // as image/svg+xml from the same origin.
+  if (!filename) {
+    throw new Error(
+      "Only raster image files are allowed (jpg, png, gif, webp, avif, ico)",
+    );
+  }
+
+  const ext = path.extname(filename).toLowerCase();
+  if (!hasExpectedImageSignature(ext, args.data)) {
+    throw new Error("Uploaded image bytes do not match file extension");
+  }
+
+  const assetKey = tenantAssetKey(args.email);
+  const uploadDir = tenantAssetDir(args.email);
+  await fs.promises.mkdir(uploadDir, { recursive: true });
+  const destPath = path.join(uploadDir, filename);
+
+  await fs.promises.writeFile(destPath, args.data);
+
+  return {
+    url: uploadedAssetUrl(`${assetKey}/${filename}`),
+    filename,
+    type: args.type || "application/octet-stream",
+    size: args.data.length,
+  };
+}
+
 // Upload an asset
 export const uploadAsset = defineEventHandler(async (event) => {
   const session = await requireSession(event);
@@ -108,42 +168,24 @@ export const uploadAsset = defineEventHandler(async (event) => {
     return { error: "No file uploaded" };
   }
 
-  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
-  if (filePart.data.length > MAX_FILE_SIZE) {
+  if (filePart.data.length > MAX_ASSET_FILE_SIZE) {
     setResponseStatus(event, 413);
     return { error: "File too large (max 10 MB)" };
   }
 
-  const originalName = filePart.filename || "upload";
-  const filename = safeAssetFilename(originalName);
-  // SVG is excluded — it can embed <script> tags and execute when served
-  // as image/svg+xml from the same origin.
-  if (!filename) {
+  try {
+    return await saveUploadedAsset({
+      email: session.email,
+      originalName: filePart.filename || "upload",
+      data: filePart.data,
+      type: filePart.type,
+    });
+  } catch (error) {
     setResponseStatus(event, 400);
     return {
-      error:
-        "Only raster image files are allowed (jpg, png, gif, webp, avif, ico)",
+      error: error instanceof Error ? error.message : "Invalid image upload",
     };
   }
-  const ext = path.extname(filename).toLowerCase();
-  if (!hasExpectedImageSignature(ext, filePart.data)) {
-    setResponseStatus(event, 400);
-    return { error: "Uploaded image bytes do not match file extension" };
-  }
-
-  const assetKey = tenantAssetKey(session.email);
-  const uploadDir = tenantAssetDir(session.email);
-  await fs.promises.mkdir(uploadDir, { recursive: true });
-  const destPath = path.join(uploadDir, filename);
-
-  await fs.promises.writeFile(destPath, filePart.data);
-
-  return {
-    url: uploadedAssetUrl(`${assetKey}/${filename}`),
-    filename,
-    type: filePart.type || "application/octet-stream",
-    size: filePart.data.length,
-  };
 });
 
 // List all assets

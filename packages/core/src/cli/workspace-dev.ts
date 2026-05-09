@@ -444,6 +444,7 @@ export function runWorkspaceDev(
         APP_BASE_PATH: basePath,
         VITE_AGENT_NATIVE_WORKSPACE: "1",
         VITE_APP_BASE_PATH: basePath,
+        VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
         PORT: String(app.port),
         WORKSPACE_GATEWAY_URL: gatewayUrl,
       },

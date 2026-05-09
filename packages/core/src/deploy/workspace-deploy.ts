@@ -186,6 +186,8 @@ function buildOneApp(
   workspaceApps: WorkspaceAppManifestEntry[],
 ): void {
   const appDir = path.join(workspaceRoot, "apps", app);
+  const workspaceGatewayUrl =
+    process.env.VITE_WORKSPACE_GATEWAY_URL || workspaceBaseUrl();
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     NITRO_PRESET: preset,
@@ -193,6 +195,13 @@ function buildOneApp(
     VITE_AGENT_NATIVE_WORKSPACE: "1",
     APP_BASE_PATH: `/${app}`,
     VITE_APP_BASE_PATH: `/${app}`,
+    ...(workspaceGatewayUrl
+      ? {
+          WORKSPACE_GATEWAY_URL:
+            process.env.WORKSPACE_GATEWAY_URL || workspaceGatewayUrl,
+          VITE_WORKSPACE_GATEWAY_URL: workspaceGatewayUrl,
+        }
+      : {}),
     [WORKSPACE_APPS_ENV_KEY]: JSON.stringify(workspaceApps),
   };
 

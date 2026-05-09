@@ -3357,12 +3357,18 @@ export function createAgentChatPlugin(
             // Store debug metadata so we can inspect what the LLM actually
             // received (system prompt, model, engine) when diagnosing issues.
             const runCtx = getRequestRunContext();
-            repo._debug = {
+            const debug = {
+              runId: run.runId,
               systemPrompt: runCtx?.systemPrompt,
               model: runCtx?.model ?? resolvedModel,
               engine: runCtx?.engine?.name ?? "unknown",
               timestamp: Date.now(),
             };
+            repo._debug = debug;
+            const debugRuns = Array.isArray(repo._debugRuns)
+              ? repo._debugRuns
+              : [];
+            repo._debugRuns = [...debugRuns, debug].slice(-50);
 
             const meta = extractThreadMeta(repo);
             await updateThreadData(

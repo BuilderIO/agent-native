@@ -20,6 +20,11 @@ import {
 import { listWorkspaceApps } from "../server/lib/app-creation-store.js";
 import { listDispatchUsageMetrics } from "../server/lib/usage-metrics-store.js";
 import { listWorkspaceResourceOptions } from "../server/lib/workspace-resources-store.js";
+import {
+  getAgentThreadDebug,
+  listThreadDebugSources,
+  searchAgentThreads,
+} from "../server/lib/thread-debug-store.js";
 
 export default defineAction({
   description:
@@ -91,6 +96,42 @@ export default defineAction({
     }
     if (navigation?.view === "workspace" || navigation?.view === "new-app") {
       screen.workspaceResources = await listWorkspaceResourceOptions();
+    }
+    if (navigation?.view === "thread-debug") {
+      try {
+        const nav = navigation as Record<string, any>;
+        screen.threadDebugSources = await listThreadDebugSources();
+        if (nav.query) {
+          screen.threadDebugResults = await searchAgentThreads({
+            sourceId: nav.sourceId,
+            query: nav.query,
+            ownerEmail: nav.ownerEmail,
+            limit: 10,
+          });
+        }
+        if (nav.threadId) {
+          const detail = await getAgentThreadDebug({
+            sourceId: nav.sourceId,
+            threadId: nav.threadId,
+            ownerEmail: nav.ownerEmail,
+            maxRuns: 5,
+            maxEvents: 80,
+            maxTraceSpans: 50,
+          });
+          screen.threadDebugSelection = {
+            source: detail.source,
+            thread: detail.thread,
+            messageCount: detail.messages.length,
+            runCount: detail.runs.length,
+            debug: detail.debug,
+            debugRuns: (detail as any).debugRuns?.slice(-5) ?? [],
+            messages: detail.messages.slice(-6),
+          };
+        }
+      } catch (error) {
+        screen.threadDebugError =
+          error instanceof Error ? error.message : String(error);
+      }
     }
 
     if (Object.keys(screen).length === 0) {

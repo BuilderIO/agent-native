@@ -345,6 +345,31 @@ const PENDING_SELECTION_KEY = "pending-selection-context";
 const ACTIVE_RUN_CLEAR_TIMEOUT_MS = 5_000;
 const ACTIVE_RUN_POLL_INTERVAL_MS = 150;
 
+type ActiveRunLookup = {
+  active?: boolean;
+  runId?: string;
+  threadId?: string;
+  status?: string;
+  heartbeatAt?: number | null;
+};
+
+function activeRunLooksStale(runInfo: ActiveRunLookup): boolean {
+  const heartbeatAt =
+    typeof runInfo.heartbeatAt === "number" ? runInfo.heartbeatAt : null;
+  return (
+    runInfo.status === "running" &&
+    heartbeatAt != null &&
+    Date.now() - heartbeatAt > 5000
+  );
+}
+
+function repoHasAssistantMessage(repo: any): boolean {
+  return repo?.messages?.some(
+    (m: { message?: { role?: string }; role?: string }) =>
+      (m.message?.role ?? m.role) === "assistant",
+  );
+}
+
 function clearPendingSelection() {
   fetch(
     agentNativePath(
@@ -2916,6 +2941,7 @@ const AssistantChatInner = forwardRef<
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   const [activityLabel, setActivityLabel] = useState<string | null>(null);
+  const activityStepIdCounter = useRef(0);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
@@ -2955,6 +2981,239 @@ const AssistantChatInner = forwardRef<
   onGenerateTitleRef.current = onGenerateTitle;
   const titleGeneratedRef = useRef(false);
 
+  const importThreadData = useCallback(
+    (threadData: unknown, options?: { markTitleGenerated?: boolean }): any => {
+      const repo =
+        typeof threadData === "string" ? JSON.parse(threadData) : threadData;
+      if (repo?.messages?.length > 0) {
+        if (options?.markTitleGenerated) {
+          titleGeneratedRef.current = true;
+        }
+        threadRuntime.import(ensureMessageMetadata(repo));
+      }
+      if (Array.isArray(repo?.queuedMessages)) {
+        setQueuedMessages(repo.queuedMessages);
+        lastPersistedQueueRef.current = JSON.stringify(repo.queuedMessages);
+      }
+      return repo;
+    },
+    [threadRuntime],
+  );
+
+  const refreshThreadFromServer = useCallback(async (): Promise<any | null> => {
+    if (!threadId) return null;
+    try {
+      const refreshRes = await fetch(
+        `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
+      );
+      if (!refreshRes.ok) return null;
+      const refreshData = await refreshRes.json();
+      if (!refreshData.threadData) return null;
+      return importThreadData(refreshData.threadData);
+    } catch {
+      return null;
+    }
+  }, [apiUrl, importThreadData, threadId]);
+
+  const wasRecentlyStoppedRun = useCallback((runId?: string): boolean => {
+    const stopped = userStoppedRunRef.current;
+    return Boolean(
+      stopped &&
+      Date.now() - stopped.at < 10_000 &&
+      (!stopped.runId || !runId || stopped.runId === runId),
+    );
+  }, []);
+
+  const startReconnectToRun = useCallback(
+    (runInfo: ActiveRunLookup): boolean => {
+      if (!threadId || !runInfo.runId || runInfo.status !== "running") {
+        return false;
+      }
+      const runId = String(runInfo.runId);
+      if (wasRecentlyStoppedRun(runId)) return false;
+      if (reconnectRunIdRef.current === runId) return true;
+
+      reconnectRunIdRef.current = runId;
+      setIsReconnecting(true);
+      setReconnectFrozen(false);
+      setReconnectContent([]);
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: tabId || threadId },
+        }),
+      );
+
+      const abortCtrl = new AbortController();
+      reconnectAbortRef.current = abortCtrl;
+
+      const watchdog = setInterval(async () => {
+        try {
+          const res = await fetch(
+            `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+          );
+          if (!res.ok) {
+            abortCtrl.abort();
+            clearInterval(watchdog);
+            return;
+          }
+          const info = (await res.json()) as ActiveRunLookup;
+          if (info.status !== "running" || activeRunLooksStale(info)) {
+            abortCtrl.abort();
+            clearInterval(watchdog);
+          }
+        } catch {
+          // Network blip — keep polling.
+        }
+      }, 1000);
+
+      let reconnectTimedOut = false;
+      const maxReconnectTimer = setTimeout(() => {
+        reconnectTimedOut = true;
+        abortCtrl.abort();
+        clearInterval(watchdog);
+      }, 20_000);
+
+      const streamReconnect = async () => {
+        let noProgressDuringReconnect = false;
+        let latestContent: ContentPart[] = [];
+        try {
+          const sseRes = await fetch(
+            `${apiUrl}/runs/${encodeURIComponent(runId)}/events?after=0`,
+            { signal: abortCtrl.signal },
+          );
+          if (sseRes.ok && sseRes.body) {
+            const content: ContentPart[] = [];
+            latestContent = content;
+            const toolCallCounter = { value: 0 };
+
+            let rafPending = false;
+            let latestSnapshot: ContentPart[] = [];
+            const scheduleUpdate = (snapshot: ContentPart[]) => {
+              latestSnapshot = snapshot;
+              if (rafPending) return;
+              rafPending = true;
+              requestAnimationFrame(() => {
+                rafPending = false;
+                setReconnectContent(latestSnapshot);
+              });
+            };
+
+            await readSSEStreamRaw(
+              sseRes.body,
+              content,
+              toolCallCounter,
+              tabId,
+              scheduleUpdate,
+            );
+            setReconnectContent([...content]);
+          }
+        } catch (err) {
+          if (
+            err instanceof AgentAutoContinueSignal &&
+            err.reason === "no_progress"
+          ) {
+            noProgressDuringReconnect = true;
+          } else if (
+            reconnectTimedOut &&
+            err instanceof Error &&
+            err.name === "AbortError"
+          ) {
+            noProgressDuringReconnect = true;
+          }
+        } finally {
+          clearInterval(watchdog);
+          clearTimeout(maxReconnectTimer);
+        }
+
+        if (noProgressDuringReconnect && reconnectRunIdRef.current === runId) {
+          try {
+            await fetch(`${apiUrl}/runs/${encodeURIComponent(runId)}/abort`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ reason: "no_progress" }),
+            });
+          } catch {
+            // Best effort — the important part is unwinding the UI.
+          }
+          setReconnectContent([...latestContent]);
+          setReconnectFrozen(latestContent.length > 0);
+          setRunErrorInfo({
+            message:
+              "The previous agent run stopped producing visible progress while reconnecting, so it was stopped before it could keep looping.",
+            errorCode: "reconnect_no_progress",
+            recoverable: true,
+            runId,
+          });
+          setDismissedRunErrorKey(null);
+          reconnectAbortRef.current = null;
+          setIsReconnecting(false);
+          reconnectRunIdRef.current = null;
+          window.dispatchEvent(
+            new CustomEvent("agentNative.chatRunning", {
+              detail: { isRunning: false, tabId: tabId || threadId },
+            }),
+          );
+          return;
+        }
+
+        setReconnectFrozen(true);
+        let loaded = false;
+        for (let attempt = 0; attempt < 10; attempt++) {
+          await new Promise((r) => setTimeout(r, 500));
+          if (reconnectRunIdRef.current !== runId) break;
+          const repo = await refreshThreadFromServer();
+          if (repoHasAssistantMessage(repo)) {
+            setReconnectContent([]);
+            setReconnectFrozen(false);
+            loaded = true;
+            break;
+          }
+        }
+
+        if (reconnectRunIdRef.current === runId) {
+          reconnectAbortRef.current = null;
+          setIsReconnecting(false);
+          reconnectRunIdRef.current = null;
+          window.dispatchEvent(
+            new CustomEvent("agentNative.chatRunning", {
+              detail: { isRunning: false, tabId: tabId || threadId },
+            }),
+          );
+        }
+        if (!loaded) {
+          await refreshThreadFromServer();
+        }
+      };
+
+      void streamReconnect();
+      return true;
+    },
+    [apiUrl, refreshThreadFromServer, tabId, threadId, wasRecentlyStoppedRun],
+  );
+
+  const reconnectActiveRunForThread =
+    useCallback(async (): Promise<boolean> => {
+      if (!threadId) return false;
+      try {
+        const runRes = await fetch(
+          `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+        );
+        if (!runRes.ok) return false;
+        const runInfo = (await runRes.json()) as ActiveRunLookup;
+        if (
+          !runInfo.active ||
+          runInfo.status !== "running" ||
+          activeRunLooksStale(runInfo)
+        ) {
+          await refreshThreadFromServer();
+          return false;
+        }
+        return startReconnectToRun(runInfo);
+      } catch {
+        return false;
+      }
+    }, [apiUrl, refreshThreadFromServer, startReconnectToRun, threadId]);
+
   // Restore messages from server on mount (when threadId is set)
   useEffect(() => {
     if (hasRestoredRef.current) return;
@@ -2970,287 +3229,16 @@ const AssistantChatInner = forwardRef<
           if (!res.ok) return;
           const data = await res.json();
           if (data.threadData) {
-            const repo =
-              typeof data.threadData === "string"
-                ? JSON.parse(data.threadData)
-                : data.threadData;
-            if (repo?.messages?.length > 0) {
-              titleGeneratedRef.current = true; // Don't re-generate for restored threads
-              threadRuntime.import(ensureMessageMetadata(repo));
-            }
-            // Restore user-queued messages that were persisted before reload.
-            if (Array.isArray(repo?.queuedMessages)) {
-              setQueuedMessages(repo.queuedMessages);
-              // Mark as restored so the debounced save effect doesn't write
-              // the same data back to the server on mount.
-              lastPersistedQueueRef.current = JSON.stringify(
-                repo.queuedMessages,
-              );
-            }
+            importThreadData(data.threadData, { markTitleGenerated: true });
           }
           // Also skip title generation if thread already has a title
           if (data.title) {
             titleGeneratedRef.current = true;
           }
 
-          // Check if there's an active run for this thread (e.g. after hot reload)
-          try {
-            const runRes = await fetch(
-              `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
-            );
-            if (runRes.ok) {
-              const runInfo = await runRes.json();
-
-              // Defense in depth: if the server says status="running" but the
-              // heartbeat is stale (producer died before the server-side reap
-              // sweep noticed), treat it as dead. 5s tolerates normal jitter
-              // around the 1.5s heartbeat without false positives.
-              const heartbeatAt =
-                typeof runInfo.heartbeatAt === "number"
-                  ? runInfo.heartbeatAt
-                  : null;
-              const looksStale =
-                runInfo.status === "running" &&
-                heartbeatAt != null &&
-                Date.now() - heartbeatAt > 5000;
-
-              // If the run already completed or looks stale, just re-fetch
-              // thread data (don't enter "Thinking." reconnection mode).
-              if (runInfo.status !== "running" || looksStale) {
-                try {
-                  const refreshRes = await fetch(
-                    `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
-                  );
-                  if (refreshRes.ok) {
-                    const refreshData = await refreshRes.json();
-                    if (refreshData.threadData) {
-                      const repo =
-                        typeof refreshData.threadData === "string"
-                          ? JSON.parse(refreshData.threadData)
-                          : refreshData.threadData;
-                      if (repo?.messages?.length > 0) {
-                        threadRuntime.import(ensureMessageMetadata(repo));
-                      }
-                      if (Array.isArray(repo?.queuedMessages)) {
-                        setQueuedMessages(repo.queuedMessages);
-                        lastPersistedQueueRef.current = JSON.stringify(
-                          repo.queuedMessages,
-                        );
-                      }
-                    }
-                  }
-                } catch {}
-                // Skip reconnection entirely
-              } else {
-                // Agent is still running — subscribe to live SSE stream
-                reconnectRunIdRef.current = runInfo.runId;
-                setIsReconnecting(true);
-                setReconnectContent([]);
-                // Signal tab running indicator
-                window.dispatchEvent(
-                  new CustomEvent("agentNative.chatRunning", {
-                    detail: { isRunning: true, tabId: tabId || threadId },
-                  }),
-                );
-
-                // Create AbortController before the async call so stop button
-                // can abort it even if clicked before the function body runs.
-                const abortCtrl = new AbortController();
-                reconnectAbortRef.current = abortCtrl;
-
-                // Watchdog: poll /runs/active every 1s to detect when the run
-                // is no longer running server-side, or the heartbeat has gone
-                // stale (producer died). Aborts the SSE fetch so we fall
-                // through to thread refresh instead of showing "Thinking..."
-                // forever.
-                const watchdog = setInterval(async () => {
-                  try {
-                    const res = await fetch(
-                      `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
-                    );
-                    if (!res.ok) {
-                      abortCtrl.abort();
-                      clearInterval(watchdog);
-                      return;
-                    }
-                    const info = await res.json();
-                    const hb =
-                      typeof info.heartbeatAt === "number"
-                        ? info.heartbeatAt
-                        : null;
-                    const stale =
-                      info.status === "running" &&
-                      hb != null &&
-                      Date.now() - hb > 5000;
-                    if (info.status !== "running" || stale) {
-                      abortCtrl.abort();
-                      clearInterval(watchdog);
-                    }
-                  } catch {
-                    // Network blip — keep polling
-                  }
-                }, 1000);
-
-                // Hard cap: no single reconnect should wedge the UI for
-                // more than 20s. With the 1s watchdog + stale-heartbeat
-                // detection + startup reap, this only triggers in truly
-                // pathological cases. Keeps "Reconnecting…" from feeling
-                // infinite.
-                let reconnectTimedOut = false;
-                const maxReconnectTimer = setTimeout(() => {
-                  reconnectTimedOut = true;
-                  abortCtrl.abort();
-                  clearInterval(watchdog);
-                }, 20_000);
-
-                const streamReconnect = async () => {
-                  let noProgressDuringReconnect = false;
-                  let latestContent: ContentPart[] = [];
-                  try {
-                    const sseRes = await fetch(
-                      `${apiUrl}/runs/${encodeURIComponent(runInfo.runId)}/events?after=0`,
-                      { signal: abortCtrl.signal },
-                    );
-                    if (sseRes.ok && sseRes.body) {
-                      const content: ContentPart[] = [];
-                      latestContent = content;
-                      const toolCallCounter = { value: 0 };
-
-                      // Throttle React state updates via requestAnimationFrame
-                      let rafPending = false;
-                      let latestSnapshot: ContentPart[] = [];
-                      const scheduleUpdate = (snapshot: ContentPart[]) => {
-                        latestSnapshot = snapshot;
-                        if (!rafPending) {
-                          rafPending = true;
-                          requestAnimationFrame(() => {
-                            rafPending = false;
-                            setReconnectContent(latestSnapshot);
-                          });
-                        }
-                      };
-
-                      await readSSEStreamRaw(
-                        sseRes.body,
-                        content,
-                        toolCallCounter,
-                        tabId,
-                        scheduleUpdate,
-                      );
-
-                      // Final update with complete content
-                      setReconnectContent([...content]);
-                    }
-                  } catch (err) {
-                    if (
-                      err instanceof AgentAutoContinueSignal &&
-                      err.reason === "no_progress"
-                    ) {
-                      noProgressDuringReconnect = true;
-                    } else if (
-                      reconnectTimedOut &&
-                      err instanceof Error &&
-                      err.name === "AbortError"
-                    ) {
-                      noProgressDuringReconnect = true;
-                    }
-                    // Other stream errors/aborts fall through to re-fetch.
-                  } finally {
-                    clearInterval(watchdog);
-                    clearTimeout(maxReconnectTimer);
-                  }
-
-                  if (noProgressDuringReconnect && reconnectRunIdRef.current) {
-                    try {
-                      await fetch(
-                        `${apiUrl}/runs/${encodeURIComponent(runInfo.runId)}/abort`,
-                        {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ reason: "no_progress" }),
-                        },
-                      );
-                    } catch {
-                      // Best effort — the important part is unwinding the UI.
-                    }
-                    setReconnectContent([...latestContent]);
-                    setReconnectFrozen(latestContent.length > 0);
-                    setRunErrorInfo({
-                      message:
-                        "The previous agent run stopped producing visible progress while reconnecting, so it was stopped before it could keep looping.",
-                      errorCode: "reconnect_no_progress",
-                      recoverable: true,
-                      runId: runInfo.runId,
-                    });
-                    setDismissedRunErrorKey(null);
-                    reconnectAbortRef.current = null;
-                    setIsReconnecting(false);
-                    reconnectRunIdRef.current = null;
-                    window.dispatchEvent(
-                      new CustomEvent("agentNative.chatRunning", {
-                        detail: { isRunning: false, tabId: tabId || threadId },
-                      }),
-                    );
-                    return;
-                  }
-
-                  // Poll for thread data — server's updateThreadData may not have
-                  // committed yet when the SSE `done` event fires, so retry until
-                  // an assistant message appears (up to ~5 s) before clearing.
-                  setReconnectFrozen(true);
-                  let loaded = false;
-                  for (let attempt = 0; attempt < 10; attempt++) {
-                    await new Promise((r) => setTimeout(r, 500));
-                    // If the stop button fired mid-poll, bail out
-                    if (!reconnectRunIdRef.current) break;
-                    try {
-                      const refreshRes = await fetch(
-                        `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
-                      );
-                      if (refreshRes.ok) {
-                        const refreshData = await refreshRes.json();
-                        if (refreshData.threadData) {
-                          const repo =
-                            typeof refreshData.threadData === "string"
-                              ? JSON.parse(refreshData.threadData)
-                              : refreshData.threadData;
-                          const hasAssistant = repo?.messages?.some(
-                            (m: {
-                              message?: { role?: string };
-                              role?: string;
-                            }) => (m.message?.role ?? m.role) === "assistant",
-                          );
-                          if (hasAssistant) {
-                            threadRuntime.import(ensureMessageMetadata(repo));
-                            setReconnectContent([]);
-                            setReconnectFrozen(false);
-                            loaded = true;
-                            break;
-                          }
-                        }
-                      }
-                    } catch {}
-                  }
-                  // Only clean up if the stop button hasn't already done it
-                  if (reconnectRunIdRef.current) {
-                    reconnectAbortRef.current = null;
-                    // If loaded=true, reconnectContent already cleared above.
-                    // If loaded=false (timeout), keep content frozen so user sees what happened.
-                    setIsReconnecting(false);
-                    reconnectRunIdRef.current = null;
-                    window.dispatchEvent(
-                      new CustomEvent("agentNative.chatRunning", {
-                        detail: { isRunning: false, tabId: tabId || threadId },
-                      }),
-                    );
-                  }
-                };
-                streamReconnect();
-              } // end else (running)
-            }
-          } catch {
-            // No active run — nothing to reconnect to
-          }
+          // Check if there's an active run for this thread (e.g. after hot
+          // reload), and reconnect to it if it is still running.
+          await reconnectActiveRunForThread();
         } catch {
           // Start fresh
         } finally {
@@ -3271,7 +3259,52 @@ const AssistantChatInner = forwardRef<
       } catch {}
       setIsRestoring(false);
     }
-  }, [threadId, tabId, apiUrl, threadRuntime]);
+  }, [
+    threadId,
+    tabId,
+    apiUrl,
+    threadRuntime,
+    importThreadData,
+    reconnectActiveRunForThread,
+  ]);
+
+  // If assistant-ui stops the local runtime while the background server run is
+  // still alive, immediately switch into the same reconnect path used after a
+  // reload. Otherwise the composer unlocks, the next send hits a 409, and the
+  // user sees "still working" even though the UI stopped updating.
+  const prevRuntimeRunningForReconnectRef = useRef(isRuntimeRunning);
+  useEffect(() => {
+    const wasRuntimeRunning = prevRuntimeRunningForReconnectRef.current;
+    prevRuntimeRunningForReconnectRef.current = isRuntimeRunning;
+    if (
+      !wasRuntimeRunning ||
+      isRuntimeRunning ||
+      !threadId ||
+      forceStopped ||
+      isReconnecting ||
+      wasRecentlyStoppedRun()
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (!cancelled) {
+        void reconnectActiveRunForThread();
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    forceStopped,
+    isReconnecting,
+    isRuntimeRunning,
+    reconnectActiveRunForThread,
+    threadId,
+    wasRecentlyStoppedRun,
+  ]);
 
   // Generate a title when the first user message is sent
   useEffect(() => {
@@ -3566,7 +3599,7 @@ const AssistantChatInner = forwardRef<
           return [
             ...prev,
             {
-              id: `${Date.now()}-${prev.length}`,
+              id: `${Date.now()}-${++activityStepIdCounter.current}`,
               label,
               ...(tool ? { tool } : {}),
             },

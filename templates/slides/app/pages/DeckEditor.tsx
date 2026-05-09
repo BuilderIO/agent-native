@@ -57,6 +57,10 @@ import {
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
 } from "@/lib/generation-state";
+import {
+  insertImageIntoSlideHtml,
+  replaceImageTargetInSlideHtml,
+} from "@/lib/slide-image-replacement";
 import { toast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { nanoid } from "nanoid";
@@ -197,22 +201,73 @@ export default function DeckEditor() {
     [deck, id, reorderSlides],
   );
 
-  // Replace an image src in the current slide's HTML content
+  const uploadImageAsset = useCallback(async (file: File): Promise<string> => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${appBasePath()}/api/assets/upload`, {
+      method: "POST",
+      body: form,
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.url) {
+      throw new Error(data?.error || "Image upload failed");
+    }
+    return data.url as string;
+  }, []);
+
+  // Replace an image or placeholder in the current slide's HTML content.
   const replaceImageInSlide = useCallback(
-    (oldSrc: string, newSrc: string) => {
+    (oldSrc: string, newSrc: string, alt?: string) => {
       if (!id || !currentSlideRef.current) return;
       const slide = currentSlideRef.current;
-      const updatedContent = slide.content.replace(
-        new RegExp(
-          `src=["']${oldSrc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`,
-        ),
-        `src="${newSrc}"`,
+      const updatedContent = replaceImageTargetInSlideHtml(
+        slide.content,
+        oldSrc,
+        newSrc,
+        { alt },
       );
       if (updatedContent !== slide.content) {
         updateSlide(id, slide.id, { content: updatedContent });
       }
     },
     [id, updateSlide],
+  );
+
+  const uploadAndApplyImage = useCallback(
+    async (replaceSrc: string | null, file: File) => {
+      if (!id || !currentSlideRef.current) return;
+      const targetSlide = currentSlideRef.current;
+      try {
+        const newUrl = await uploadImageAsset(file);
+        const updatedContent = replaceSrc
+          ? replaceImageTargetInSlideHtml(
+              targetSlide.content,
+              replaceSrc,
+              newUrl,
+              { alt: file.name },
+            )
+          : insertImageIntoSlideHtml(targetSlide.content, newUrl, {
+              alt: file.name,
+            });
+        if (updatedContent !== targetSlide.content) {
+          updateSlide(id, targetSlide.id, { content: updatedContent });
+        }
+        toast({
+          title: "Image added",
+          description: file.name,
+        });
+      } catch (error) {
+        toast({
+          title: "Image upload failed",
+          description:
+            error instanceof Error
+              ? error.message
+              : "Something went wrong uploading this image.",
+          variant: "destructive",
+        });
+      }
+    },
+    [id, updateSlide, uploadImageAsset],
   );
 
   // Toggle object-fit on an image in the current slide
@@ -257,22 +312,11 @@ export default function DeckEditor() {
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = e.target.files;
       if (!files || files.length === 0 || !replaceImageSrc) return;
-      const form = new FormData();
-      form.append("file", files[0]);
-      try {
-        const res = await fetch(`${appBasePath()}/api/assets/upload`, {
-          method: "POST",
-          body: form,
-        });
-        if (res.ok) {
-          const data = await res.json();
-          replaceImageInSlide(replaceImageSrc, data.url);
-        }
-      } catch {}
+      await uploadAndApplyImage(replaceImageSrc, files[0]);
       setReplaceImageSrc(null);
       e.target.value = "";
     },
-    [replaceImageSrc, replaceImageInSlide],
+    [replaceImageSrc, uploadAndApplyImage],
   );
 
   /**
@@ -667,6 +711,7 @@ export default function DeckEditor() {
                 setReplaceImageSrc(src);
                 setLogoSearchOpen(true);
               }}
+              onDropImage={uploadAndApplyImage}
               onToggleObjectFit={toggleObjectFit}
               slideIndex={currentIndex >= 0 ? currentIndex : 0}
               slideCount={deck.slides.length}

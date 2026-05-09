@@ -112,7 +112,7 @@ describe("createAnthropicEngine", () => {
     const events = await collectEvents(engine.stream(opts));
     const stopEvent = events.find((e) => e.type === "stop");
     expect(stopEvent?.reason).toBe("error");
-    expect(stopEvent?.error).toContain("Connect an LLM provider or Builder");
+    expect(stopEvent?.error).toContain("Agent settings > LLM");
     expect(stopEvent?.error).not.toContain("ANTHROPIC_API_KEY");
     expect(stopEvent?.errorCode).toBe("missing_credentials");
   });

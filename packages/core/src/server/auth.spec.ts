@@ -1646,9 +1646,10 @@ describe("server/auth", () => {
       );
     });
 
-    it("uses the Builder preview origin instead of loopback for workspace OAuth redirects", async () => {
+    it("uses the configured workspace gateway instead of loopback for workspace OAuth redirects", async () => {
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
       vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
       const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
       const event = createMockEvent({
         path: "/_agent-native/google/auth-url",
@@ -1660,11 +1661,29 @@ describe("server/auth", () => {
       });
 
       expect(resolveOAuthRedirectUri(event)).toBe(
-        "https://940ebc5a83164aa6a37dde445e494f3a-thunder-handle-xmq6tgfy.builderio.xyz/_agent-native/google/callback",
+        "https://agent-workspace.builder.io/_agent-native/google/callback",
       );
     });
 
-    it("keeps loopback origins when the referrer is not a Builder preview origin", async () => {
+    it("uses the configured workspace gateway instead of Builder preview hosts for workspace OAuth redirects", async () => {
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+      const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/_agent-native/google/auth-url",
+        headers: {
+          host: "940ebc5a83164aa6a37dde445e494f3a-thunder-handle-xmq6tgfy.builderio.xyz",
+          "x-forwarded-proto": "https",
+        },
+      });
+
+      expect(resolveOAuthRedirectUri(event)).toBe(
+        "https://agent-workspace.builder.io/_agent-native/google/callback",
+      );
+    });
+
+    it("does not use Builder preview origins as OAuth redirect URIs", async () => {
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
       vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
       const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
@@ -1672,7 +1691,8 @@ describe("server/auth", () => {
         path: "/_agent-native/google/auth-url",
         headers: {
           host: "127.0.0.1:8080",
-          referer: "https://attacker.example/?builder.preview=interact",
+          referer:
+            "https://940ebc5a83164aa6a37dde445e494f3a-thunder-handle-xmq6tgfy.builderio.xyz/?builder.preview=interact",
         },
       });
 

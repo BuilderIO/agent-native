@@ -110,7 +110,7 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("missing_credentials");
-    expect(stop?.error).toContain("Connect an LLM provider or Builder");
+    expect(stop?.error).toContain("Agent settings > LLM");
     expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
   });
 

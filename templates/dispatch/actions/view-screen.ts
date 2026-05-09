@@ -90,6 +90,48 @@ export default defineAction({
         {},
       );
     }
+    if (navigation?.view === "thread-debug") {
+      try {
+        const nav = navigation as Record<string, any>;
+        screen.threadDebugSources = await runDispatchAction(
+          "list-agent-thread-sources",
+          {},
+        );
+        if (nav.query) {
+          screen.threadDebugResults = await runDispatchAction(
+            "search-agent-threads",
+            {
+              sourceId: nav.sourceId,
+              query: nav.query,
+              ownerEmail: nav.ownerEmail,
+              limit: 10,
+            },
+          );
+        }
+        if (nav.threadId) {
+          const detail = (await runDispatchAction("get-agent-thread-debug", {
+            sourceId: nav.sourceId,
+            threadId: nav.threadId,
+            ownerEmail: nav.ownerEmail,
+            maxRuns: 5,
+            maxEvents: 80,
+            maxTraceSpans: 50,
+          })) as any;
+          screen.threadDebugSelection = {
+            source: detail.source,
+            thread: detail.thread,
+            messageCount: detail.messages?.length ?? 0,
+            runCount: detail.runs?.length ?? 0,
+            debug: detail.debug,
+            debugRuns: detail.debugRuns?.slice(-5) ?? [],
+            messages: detail.messages?.slice(-6) ?? [],
+          };
+        }
+      } catch (error) {
+        screen.threadDebugError =
+          error instanceof Error ? error.message : String(error);
+      }
+    }
 
     if (Object.keys(screen).length === 0) {
       return "No application state found. Is the app running?";

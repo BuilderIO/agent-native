@@ -563,7 +563,7 @@ describe("A2A continuation processor", () => {
 
     const sentText = vi.mocked(sendResponse).mock.calls[0]?.[0].text ?? "";
     expect(sentText).toContain("needs an LLM connection");
-    expect(sentText).toContain("Connect an LLM provider or Builder");
+    expect(sentText).toContain("Agent settings > LLM");
     expect(sentText).not.toContain("ANTHROPIC_API_KEY");
     expect(failA2AContinuationMock).toHaveBeenCalledWith(
       "cont-1",

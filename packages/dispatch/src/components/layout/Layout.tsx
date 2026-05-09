@@ -17,6 +17,7 @@ import {
   IconKey,
   IconChevronDown,
   IconLayersSubtract,
+  IconMessages,
   IconPlugConnected,
   IconBroadcast,
   IconFingerprint,
@@ -148,6 +149,13 @@ const OPERATIONS_NAV_ITEMS = [
     to: "/audit",
     label: "Audit",
     icon: IconHistory,
+    section: "operations",
+  },
+  {
+    id: "thread-debug",
+    to: "/thread-debug",
+    label: "Thread Debug",
+    icon: IconMessages,
     section: "operations",
   },
   {

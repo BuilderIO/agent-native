@@ -24,7 +24,7 @@ export default defineAction({
     try {
       const indexPath = join(
         import.meta.dirname,
-        "../../public/source-index.json",
+        "../public/source-index.json",
       );
       const raw = await readFile(indexPath, "utf-8");
       const index: Array<{ path: string; content: string }> = JSON.parse(raw);

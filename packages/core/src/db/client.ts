@@ -22,6 +22,12 @@ export interface DbExec {
   ): Promise<{ rows: any[]; rowsAffected: number }>;
 }
 
+export interface DbExecConfig {
+  url?: string;
+  authToken?: string;
+  d1Binding?: any;
+}
+
 // ---------------------------------------------------------------------------
 // Per-app DATABASE_URL resolution
 // ---------------------------------------------------------------------------
@@ -238,6 +244,20 @@ export function isPostgres(): boolean {
   return getDialect() === "postgres";
 }
 
+function dialectForConfig(config: DbExecConfig): Dialect {
+  const url = config.url ?? "";
+  if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
+    return "postgres";
+  }
+  if (url && !url.startsWith("file:")) {
+    return "sqlite";
+  }
+  if (config.d1Binding) {
+    return "d1";
+  }
+  return "sqlite";
+}
+
 /**
  * Returns true when the database is a local-only SQLite file (or unset, which
  * defaults to a local SQLite file). Returns false for Postgres, remote libsql
@@ -331,15 +351,16 @@ let _neonPool: any;
 let _sqlite: any;
 let _initPromise: Promise<void> | undefined;
 
-async function initClient(): Promise<void> {
-  if (_exec) return;
-
-  const dialect = getDialect();
+async function createDbExecInternal(
+  config: DbExecConfig = {},
+  trackSingletonResources = false,
+): Promise<DbExec> {
+  const dialect = dialectForConfig(config);
 
   // Cloudflare D1
   if (dialect === "d1") {
-    const d1 = globalThis.__cf_env?.DB;
-    _exec = {
+    const d1 = config.d1Binding;
+    return {
       async execute(sql) {
         if (typeof sql === "string") {
           const r = await d1.prepare(sql).all();
@@ -355,10 +376,9 @@ async function initClient(): Promise<void> {
         return { rows: r.results || [], rowsAffected: r.meta?.changes ?? 0 };
       },
     };
-    return;
   }
 
-  let url = getDatabaseUrl("file:./data/app.db");
+  let url = config.url || "file:./data/app.db";
 
   // Postgres — uses postgres.js. Works on Node.js natively and on Cloudflare
   // Workers with the nodejs_compat compatibility flag (provides net/tls polyfills).
@@ -376,9 +396,9 @@ async function initClient(): Promise<void> {
     // and keeps the same `pg`-compatible query(...) interface we need here.
     if (isNeonUrl(url)) {
       const { Pool } = await import("@neondatabase/serverless");
-      _neonPool = new Pool({ connectionString: url });
-      const pool = _neonPool;
-      _exec = {
+      const pool = new Pool({ connectionString: url });
+      if (trackSingletonResources) _neonPool = pool;
+      return {
         async execute(sql) {
           const rawSql = typeof sql === "string" ? sql : sql.sql;
           const args = typeof sql === "string" ? [] : sql.args || [];
@@ -393,7 +413,6 @@ async function initClient(): Promise<void> {
           };
         },
       };
-      return;
     }
 
     const { default: postgres } = await import("postgres");
@@ -404,7 +423,7 @@ async function initClient(): Promise<void> {
 
     if (isWorkers) {
       // Workers: fresh connection per query — I/O can't be shared across requests
-      _exec = {
+      return {
         async execute(sql) {
           const conn = postgres(url, {
             max: 1,
@@ -429,7 +448,7 @@ async function initClient(): Promise<void> {
       // Node.js: reuse connection pool.
       // idle_timeout:240 closes idle connections before Neon's ~5min server-side
       // timeout, avoiding ECONNRESET when the server hangs up on us.
-      _pgPool = postgres(url, {
+      const pool = postgres(url, {
         onnotice: () => {},
         idle_timeout: 240,
         max_lifetime: 60 * 30,
@@ -438,9 +457,9 @@ async function initClient(): Promise<void> {
         // Only disable for Supabase URLs to avoid degrading other Postgres deployments.
         ...(url.includes("supabase") ? { prepare: false } : {}),
       });
-      const pool = _pgPool;
+      if (trackSingletonResources) _pgPool = pool;
 
-      _exec = {
+      return {
         async execute(sql) {
           const rawSql = typeof sql === "string" ? sql : sql.sql;
           const args = typeof sql === "string" ? [] : sql.args || [];
@@ -455,7 +474,6 @@ async function initClient(): Promise<void> {
         },
       };
     }
-    return;
   }
 
   // SQLite / libsql (default). Local file databases use better-sqlite3 so
@@ -465,15 +483,16 @@ async function initClient(): Promise<void> {
       url.startsWith("file:") ? url : `file:${url}`,
     );
     const { default: Database } = await import("better-sqlite3");
-    _sqlite = new Database(sqliteFilenameFromUrl(url));
-    _sqlite.pragma("busy_timeout = 10000");
-    _sqlite.pragma("journal_mode = WAL");
+    const sqlite = new Database(sqliteFilenameFromUrl(url));
+    sqlite.pragma("busy_timeout = 10000");
+    sqlite.pragma("journal_mode = WAL");
+    if (trackSingletonResources) _sqlite = sqlite;
 
-    _exec = {
+    return {
       async execute(sql) {
         const rawSql = typeof sql === "string" ? sql : sql.sql;
         const args = typeof sql === "string" ? [] : sql.args || [];
-        const stmt = _sqlite.prepare(rawSql);
+        const stmt = sqlite.prepare(rawSql);
         if (stmt.reader) {
           return {
             rows: stmt.all(...args),
@@ -487,16 +506,15 @@ async function initClient(): Promise<void> {
         };
       },
     };
-    return;
   }
 
   const { createClient } = await import("@libsql/client/web");
   const client = createClient({
     url,
-    authToken: getDatabaseAuthToken(),
+    authToken: config.authToken,
   });
 
-  _exec = {
+  return {
     async execute(sql) {
       if (typeof sql === "string") {
         const r = await client.execute(sql);
@@ -515,6 +533,25 @@ async function initClient(): Promise<void> {
       };
     },
   };
+}
+
+export async function createDbExec(config: DbExecConfig = {}): Promise<DbExec> {
+  return createDbExecInternal(config, false);
+}
+
+async function initClient(): Promise<void> {
+  if (_exec) return;
+
+  const dialect = getDialect();
+  const url = getDatabaseUrl("file:./data/app.db");
+  _exec = await createDbExecInternal(
+    {
+      url,
+      authToken: getDatabaseAuthToken(),
+      d1Binding: dialect === "d1" ? globalThis.__cf_env?.DB : undefined,
+    },
+    true,
+  );
 }
 
 /**

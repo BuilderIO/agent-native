@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   IconPlus,
   IconBrandSlack,
@@ -138,6 +138,30 @@ const PLATFORMS: PlatformInfo[] = [
   },
 ];
 
+function useAgentEngineConfigured() {
+  const [configured, setConfigured] = useState<boolean | undefined>(undefined);
+
+  const refresh = useCallback(() => {
+    fetch(agentNativePath("/_agent-native/agent-engine/status"))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (typeof data?.configured === "boolean") {
+          setConfigured(data.configured);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    window.addEventListener("agent-engine:configured-changed", refresh);
+    return () =>
+      window.removeEventListener("agent-engine:configured-changed", refresh);
+  }, [refresh]);
+
+  return configured;
+}
+
 // ─── Integration detail view ─────────────────────────────────────────────────
 
 function IntegrationDetail({
@@ -154,6 +178,7 @@ function IntegrationDetail({
   const [toggling, setToggling] = useState(false);
   const [copied, setCopied] = useState(false);
   const [toggleError, setToggleError] = useState<string | null>(null);
+  const agentEngineConfigured = useAgentEngineConfigured();
 
   const handleToggle = useCallback(async () => {
     setToggling(true);
@@ -196,8 +221,18 @@ function IntegrationDetail({
     setTimeout(() => setCopied(false), 2000);
   }, []);
 
+  const handleOpenLlmSettings = useCallback(() => {
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:open-settings", {
+        detail: { section: "llm" },
+      }),
+    );
+  }, []);
+
   const isConfigured = serverStatus?.configured ?? false;
   const isEnabled = serverStatus?.enabled ?? false;
+  const showAgentEnginePrereq =
+    !platform.isClient && agentEngineConfigured === false;
   const serviceAccountEmail =
     typeof serverStatus?.details?.serviceAccountEmail === "string"
       ? serverStatus.details.serviceAccountEmail
@@ -224,6 +259,29 @@ function IntegrationDetail({
           </div>
         </div>
       </div>
+
+      {showAgentEnginePrereq && (
+        <div className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-[10px] font-medium text-foreground">
+                Agent engine required
+              </div>
+              <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
+                Connect Builder.io or an LLM key before {platform.label} can
+                answer.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleOpenLlmSettings}
+              className="shrink-0 rounded border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+            >
+              Open LLM
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Setup steps */}
       <div className="mb-3">

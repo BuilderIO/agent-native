@@ -31,11 +31,13 @@ export { createGetDb } from "./create-get-db.js";
 export { runMigrations } from "./migrations.js";
 export {
   getDbExec,
+  createDbExec,
   getDialect,
   isPostgres,
   intType,
   closeDbExec,
   type DbExec,
+  type DbExecConfig,
   type Dialect,
 } from "./client.js";
 export { table, text, integer, now } from "./schema.js";

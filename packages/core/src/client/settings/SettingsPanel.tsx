@@ -1605,6 +1605,88 @@ const environmentOptions: SettingsSelectOption[] = [
   },
 ];
 
+function CapabilityStatusRow({
+  label,
+  value,
+  active,
+}: {
+  label: string;
+  value: React.ReactNode;
+  active: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 text-[10px]">
+      <span className="flex items-center gap-1.5 text-muted-foreground">
+        <span
+          className={`h-1.5 w-1.5 rounded-full ${active ? "bg-green-500" : "bg-muted-foreground/30"}`}
+          aria-hidden="true"
+        />
+        {label}
+      </span>
+      <span className="min-w-0 truncate text-right text-foreground">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function CapabilityStatusStrip({
+  isDevMode,
+  builderConnected,
+  builderLoading,
+  builderBranchesAvailable,
+  onOpenLlm,
+}: {
+  isDevMode: boolean;
+  builderConnected: boolean;
+  builderLoading: boolean;
+  builderBranchesAvailable: boolean;
+  onOpenLlm: () => void;
+}) {
+  const codeAvailable =
+    isDevMode || (builderConnected && builderBranchesAvailable);
+  const codeLabel = isDevMode
+    ? "Local tools"
+    : builderConnected && builderBranchesAvailable
+      ? "Builder branches"
+      : "Desktop/local";
+
+  return (
+    <div className="rounded-md border border-border bg-muted/20 px-2.5 py-2">
+      <div className="mb-1.5 text-[10px] font-medium text-muted-foreground">
+        Available now
+      </div>
+      <div className="space-y-1.5">
+        <CapabilityStatusRow label="App" value="Chat + actions" active />
+        <CapabilityStatusRow
+          label="Code"
+          value={codeLabel}
+          active={codeAvailable}
+        />
+        <CapabilityStatusRow
+          label="Builder"
+          active={builderConnected}
+          value={
+            builderLoading ? (
+              "Checking..."
+            ) : builderConnected ? (
+              "Connected"
+            ) : (
+              <button
+                type="button"
+                onClick={onOpenLlm}
+                className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+              >
+                Connect
+              </button>
+            )
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
 function AccountSectionInner({
   open,
   onToggle,
@@ -1819,6 +1901,14 @@ export function SettingsPanel({
           )}
         </div>
       )}
+
+      <CapabilityStatusStrip
+        isDevMode={isDevMode}
+        builderConnected={connected}
+        builderLoading={builderLoading}
+        builderBranchesAvailable={builderBranchesAvailable}
+        onOpenLlm={() => openSettingsSection("llm", true)}
+      />
 
       {/* Account */}
       <AccountSectionInner

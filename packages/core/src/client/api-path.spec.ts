@@ -74,6 +74,25 @@ describe("oauthRedirectUri", () => {
       "https://workspace.example/_agent-native/google/callback",
     );
   });
+
+  it("uses the configured workspace gateway origin in workspace mode", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_WORKSPACE_GATEWAY_URL",
+      "https://workspace.example/dispatch",
+    );
+    vi.stubGlobal("window", {
+      location: {
+        origin:
+          "https://940ebc5a83164aa6a37dde445e494f3a-thunder-handle-xmq6tgfy.builderio.xyz",
+        pathname: "/dispatch/_agent-native/google/auth-url",
+      },
+    });
+
+    expect(oauthRedirectUri("/_agent-native/google/callback")).toBe(
+      "https://workspace.example/_agent-native/google/callback",
+    );
+  });
 });
 
 describe("appPath", () => {

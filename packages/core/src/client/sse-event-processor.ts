@@ -389,7 +389,7 @@ export function processEvent(
     }
     content.push({
       type: "text",
-      text: "No LLM provider is connected. Connect Builder.io or set an `ANTHROPIC_API_KEY` in Settings, then try again.",
+      text: "No LLM provider is connected. Open Agent settings > LLM, then connect Builder.io or add a provider key.",
     });
     return {
       action: "missing_api_key",

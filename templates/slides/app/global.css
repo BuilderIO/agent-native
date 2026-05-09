@@ -807,6 +807,10 @@ button[title="Open agent sidebar"] {
   margin: 0;
 }
 
+.slide-content .fmd-slide img.fmd-img-uploaded {
+  cursor: pointer;
+}
+
 .slide-content .fmd-slide table {
   border-collapse: collapse;
 }

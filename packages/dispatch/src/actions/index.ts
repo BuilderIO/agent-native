@@ -11,10 +11,12 @@ import deleteVaultSecret from "./delete-vault-secret.js";
 import deleteWorkspaceResource from "./delete-workspace-resource.js";
 import denyVaultRequest from "./deny-vault-request.js";
 import getAppCreationSettings from "./get-app-creation-settings.js";
+import getAgentThreadDebug from "./get-agent-thread-debug.js";
 import getDispatchSettings from "./get-dispatch-settings.js";
 import getWorkspaceInfo from "./get-workspace-info.js";
 import grantWorkspaceResourcesToApp from "./grant-workspace-resources-to-app.js";
 import grantVaultSecretsToApp from "./grant-vault-secrets-to-app.js";
+import listAgentThreadSources from "./list-agent-thread-sources.js";
 import listConnectedAgents from "./list-connected-agents.js";
 import listDestinations from "./list-destinations.js";
 import listDispatchApprovals from "./list-dispatch-approvals.js";
@@ -37,6 +39,7 @@ import rejectDispatchChange from "./reject-dispatch-change.js";
 import requestVaultSecret from "./request-vault-secret.js";
 import revokeVaultGrant from "./revoke-vault-grant.js";
 import revokeWorkspaceResourceGrant from "./revoke-workspace-resource-grant.js";
+import searchAgentThreads from "./search-agent-threads.js";
 import sendPlatformMessage from "./send-platform-message.js";
 import setAppCreationSettings from "./set-app-creation-settings.js";
 import setDispatchApprovalPolicy from "./set-dispatch-approval-policy.js";
@@ -68,10 +71,12 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "delete-workspace-resource": deleteWorkspaceResource,
   "deny-vault-request": denyVaultRequest,
   "get-app-creation-settings": getAppCreationSettings,
+  "get-agent-thread-debug": getAgentThreadDebug,
   "get-dispatch-settings": getDispatchSettings,
   "get-workspace-info": getWorkspaceInfo,
   "grant-workspace-resources-to-app": grantWorkspaceResourcesToApp,
   "grant-vault-secrets-to-app": grantVaultSecretsToApp,
+  "list-agent-thread-sources": listAgentThreadSources,
   "list-connected-agents": listConnectedAgents,
   "list-destinations": listDestinations,
   "list-dispatch-approvals": listDispatchApprovals,
@@ -94,6 +99,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "request-vault-secret": requestVaultSecret,
   "revoke-vault-grant": revokeVaultGrant,
   "revoke-workspace-resource-grant": revokeWorkspaceResourceGrant,
+  "search-agent-threads": searchAgentThreads,
   "send-platform-message": sendPlatformMessage,
   "set-app-creation-settings": setAppCreationSettings,
   "set-dispatch-approval-policy": setDispatchApprovalPolicy,
