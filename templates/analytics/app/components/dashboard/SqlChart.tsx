@@ -449,7 +449,7 @@ function MetricRenderer({
       : String(raw ?? "-");
 
   return (
-    <div className="flex min-h-[250px] flex-1 flex-col items-center justify-center py-6 text-center">
+    <div className="flex flex-1 flex-col items-center justify-center py-2 text-center">
       <div className="text-3xl font-bold">{value}</div>
       {panel.config?.description && (
         <p className="text-xs text-muted-foreground mt-1">
