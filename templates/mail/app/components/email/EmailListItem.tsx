@@ -96,8 +96,8 @@ const labelColors: Record<string, { bg: string; text: string }> = {
     text: "text-green-700 dark:text-green-300",
   },
   forums: {
-    bg: "bg-purple-500/20",
-    text: "text-purple-700 dark:text-purple-300",
+    bg: "bg-sky-500/20",
+    text: "text-sky-700 dark:text-sky-300",
   },
   finance: {
     bg: "bg-emerald-500/20",
@@ -112,7 +112,7 @@ const accountDotColors = [
   "bg-emerald-400",
   "bg-amber-400",
   "bg-rose-400",
-  "bg-violet-400",
+  "bg-sky-400",
   "bg-cyan-400",
   "bg-orange-400",
   "bg-pink-400",

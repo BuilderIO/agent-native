@@ -41,7 +41,7 @@ export function getInitials(name: string): string {
 export function getAvatarColor(name: string): string {
   const colors = [
     "bg-blue-500",
-    "bg-purple-500",
+    "bg-sky-500",
     "bg-green-500",
     "bg-orange-500",
     "bg-pink-500",

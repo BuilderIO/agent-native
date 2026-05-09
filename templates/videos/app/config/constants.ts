@@ -119,7 +119,7 @@ export const COLORS = {
   CAMERA: "#3b82f6", // blue-500
 
   /** Cursor track color */
-  CURSOR: "#a855f7", // purple-500
+  CURSOR: "#00B5FF", // brand blue
 
   /** Interaction color (hover/click) */
   INTERACTION: "#ef4444", // red-500

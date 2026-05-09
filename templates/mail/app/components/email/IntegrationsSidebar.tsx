@@ -1065,7 +1065,7 @@ function PylonSection({ email }: { email: string }) {
               </p>
             )}
             {data.account.type && (
-              <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-500/10 text-violet-400/80">
+              <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-sky-500/10 text-sky-400/80">
                 {data.account.type}
               </span>
             )}
