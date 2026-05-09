@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.12.37
+
+### Patch Changes
+
+- 10d8f30: Keep workspace Google OAuth redirects on the configured gateway callback instead of Builder preview origins.
+- 10d8f30: Restore the chat-with-dots Tabler icon for the shared agent sidebar toggle.
+- 10d8f30: Fix user-testing bugs around unavailable CLI controls, desktop Builder connect fallback, missing-LLM guidance, and duplicate chat activity step keys. Also adds quieter capability cues for code/Builder availability and integration setup prerequisites.
+- 10d8f30: Keep chat connected to active server runs when the local runtime drops idle unexpectedly.
+- 10d8f30: Add a Dispatch thread debugger with cross-source thread search and deep agent run inspection.
+
 ## 0.12.36
 
 ### Patch Changes

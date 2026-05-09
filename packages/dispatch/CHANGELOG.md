@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.3.0
+
+### Minor Changes
+
+- 10d8f30: Add a Dispatch thread debugger with cross-source thread search and deep agent run inspection.
+
 ## 0.2.20
 
 ### Patch Changes
