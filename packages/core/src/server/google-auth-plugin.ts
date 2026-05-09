@@ -1,4 +1,5 @@
 import { createAuthPlugin } from "./auth-plugin.js";
+import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -7,7 +8,9 @@ export interface GoogleAuthPluginOptions {
   publicPaths?: string[];
 }
 
-const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
+function getGoogleLoginHtml(): string {
+  const publicOAuthOrigin = getPublicOAuthOrigin();
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -85,6 +88,20 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
   }
   function __anPath(path) {
     return __anBasePath() + path;
+  }
+  var __AN_PUBLIC_OAUTH_ORIGIN = ${JSON.stringify(publicOAuthOrigin)};
+  function __anConfiguredOAuthOrigin() {
+    if (!__AN_PUBLIC_OAUTH_ORIGIN) return '';
+    try {
+      var origin = new URL(__AN_PUBLIC_OAUTH_ORIGIN).origin;
+      return origin && origin !== window.location.origin ? origin : '';
+    } catch(e) {
+      return '';
+    }
+  }
+  function __anAuthPath(path) {
+    var origin = __anIsBuilderPreview() ? __anConfiguredOAuthOrigin() : '';
+    return origin ? origin + path : __anPath(path);
   }
   function __anIsBuilderPreview() {
     try {
@@ -221,6 +238,14 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
       __anStartBuilderOAuth(ret, btn, err);
       return;
     }
+    if (__anIsBuilderPreview()) {
+      var params = new URLSearchParams();
+      if (ret) params.set('return', ret);
+      params.set('redirect', '1');
+      __anSetOAuthDebug('Opening Google sign-in redirect');
+      __anOpenOAuthUrl(__anAuthPath('/_agent-native/google/auth-url') + '?' + params.toString());
+      return;
+    }
     try {
       var res = await fetch(__anPath('/_agent-native/google/auth-url') + '?return=' + encodeURIComponent(ret));
       var data = await res.json();
@@ -240,6 +265,7 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
 </script>
 </body>
 </html>`;
+}
 
 /**
  * Create an auth plugin that uses Google OAuth for authentication.
@@ -269,6 +295,6 @@ export function createGoogleAuthPlugin(
       "/_agent-native/auth/ba",
       ...(options?.publicPaths ?? []),
     ],
-    loginHtml: GOOGLE_LOGIN_HTML,
+    loginHtml: getGoogleLoginHtml(),
   });
 }

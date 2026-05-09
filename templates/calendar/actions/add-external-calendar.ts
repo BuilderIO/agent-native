@@ -8,14 +8,14 @@ import type { ExternalCalendar } from "../shared/api.js";
 
 const CALENDAR_COLORS = [
   "#E07C4F",
-  "#8B5CF6",
+  "#0EA5E9",
   "#10B981",
   "#F59E0B",
   "#EC4899",
   "#06B6D4",
   "#84CC16",
   "#EF4444",
-  "#6366F1",
+  "#FACC15",
   "#14B8A6",
 ];
 

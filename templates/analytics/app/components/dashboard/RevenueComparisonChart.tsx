@@ -136,7 +136,7 @@ export function RevenueComparisonChart({
                   type="monotone"
                   dataKey="net"
                   name="Net"
-                  stroke="#a78bfa"
+                  stroke="#00B5FF"
                   strokeWidth={2}
                   dot={false}
                 />

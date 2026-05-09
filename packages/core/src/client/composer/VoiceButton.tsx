@@ -58,7 +58,7 @@ export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
           aria-pressed={recording}
           className={`shrink-0 flex h-7 w-7 items-center justify-center rounded-md disabled:opacity-30 disabled:cursor-not-allowed ${
             recording
-              ? "text-[#625DF5] bg-[#625DF5]/10 hover:bg-[#625DF5]/20"
+              ? "text-[#00B5FF] bg-[#00B5FF]/10 hover:bg-[#00B5FF]/20"
               : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
           }`}
         >
@@ -129,7 +129,7 @@ export function VoiceRecordingOverlay({ voice }: VoiceRecordingOverlayProps) {
 
   return (
     <div
-      className="flex items-center gap-2 mx-2 mt-2 mb-1 h-[2rem] rounded-md border border-[#625DF5]/40 bg-[#625DF5]/10 px-2"
+      className="flex items-center gap-2 mx-2 mt-2 mb-1 h-[2rem] rounded-md border border-[#00B5FF]/40 bg-[#00B5FF]/10 px-2"
       aria-live="polite"
     >
       <Tooltip>
@@ -181,7 +181,7 @@ function AmplitudeBars({ amplitude }: { amplitude: number }) {
     bars.push(
       <span
         key={i}
-        className="flex-1 rounded-full bg-[#625DF5]"
+        className="flex-1 rounded-full bg-[#00B5FF]"
         style={{ height: `${heightPct}%`, minHeight: 2 }}
       />,
     );

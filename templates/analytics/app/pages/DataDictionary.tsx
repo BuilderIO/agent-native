@@ -109,7 +109,7 @@ const EMPTY_ENTRY: Partial<DictionaryEntry> = {
 const DEPARTMENT_BADGE: Record<string, string> = {
   Sales: "bg-green-500/10 text-green-600 dark:text-green-400",
   Marketing: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-  Product: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
+  Product: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
   Data: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
   Finance: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
   Engineering: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
@@ -297,7 +297,7 @@ export default function DataDictionary() {
                   {e.aiGenerated && (
                     <Badge
                       variant="outline"
-                      className={`${ENTRY_BADGE_CLASS} bg-purple-500/10 text-purple-600 dark:text-purple-400 border-0`}
+                      className={`${ENTRY_BADGE_CLASS} bg-sky-500/10 text-sky-600 dark:text-sky-400 border-0`}
                     >
                       AI
                     </Badge>

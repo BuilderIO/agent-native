@@ -61,7 +61,7 @@ const CURSOR_COLORS = [
   "#34d399",
   "#22d3ee",
   "#60a5fa",
-  "#a78bfa",
+  "#14b8a6",
   "#f472b6",
   "#e879f9",
 ];

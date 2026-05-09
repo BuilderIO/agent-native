@@ -734,7 +734,7 @@ function badgeStyle(
 ): React.CSSProperties {
   const palette = {
     recommended: { bg: "rgba(59,130,246,0.15)", fg: "#60a5fa" },
-    beta: { bg: "rgba(168,85,247,0.15)", fg: "#c084fc" },
+    beta: { bg: "rgba(6,182,212,0.15)", fg: "#22d3ee" },
     free: { bg: "rgba(34,197,94,0.15)", fg: "#4ade80" },
     soon: { bg: "rgba(148,163,184,0.15)", fg: "#cbd5e1" },
   }[kind];

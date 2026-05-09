@@ -229,7 +229,7 @@ export function ComponentLibrarySidebar({
                   <details className="group" open>
                     <summary className="cursor-pointer list-none">
                       <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
-                        <IconFileText className="w-3.5 h-3.5 text-purple-400" />
+                        <IconFileText className="w-3.5 h-3.5 text-sky-400" />
                         <span className="text-xs font-medium">
                           Text Animations
                         </span>
@@ -237,14 +237,14 @@ export function ComponentLibrarySidebar({
                       </div>
                     </summary>
                     <div className="mt-1 px-4 py-3 space-y-3 bg-secondary/20">
-                      <div className="px-4 py-3 bg-purple-500/10 rounded-lg border border-purple-500/20">
+                      <div className="px-4 py-3 bg-sky-500/10 rounded-lg border border-sky-500/20">
                         <div className="flex items-start gap-2">
-                          <IconInfoCircle className="w-4 h-4 text-purple-400 flex-shrink-0 mt-0.5" />
+                          <IconInfoCircle className="w-4 h-4 text-sky-400 flex-shrink-0 mt-0.5" />
                           <div>
-                            <p className="text-xs font-medium text-purple-200 mb-1">
+                            <p className="text-xs font-medium text-sky-200 mb-1">
                               Interactive Text Input
                             </p>
-                            <p className="text-xs text-purple-300/80">
+                            <p className="text-xs text-sky-300/80">
                               Type in the "Ask Builder" textarea below. The send
                               button will light up blue when text is entered.
                             </p>

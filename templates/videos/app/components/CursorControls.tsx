@@ -375,7 +375,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
   if (!cursorTrack) {
     return (
       <div className="space-y-3 p-4 text-center">
-        <IconMouse className="h-8 w-8 mx-auto opacity-50 text-purple-400" />
+        <IconMouse className="h-8 w-8 mx-auto opacity-50 text-sky-400" />
         <div className="space-y-1">
           <p className="text-xs font-medium text-foreground/80">
             Add animated cursor
@@ -387,7 +387,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
         <Button
           size="sm"
           onClick={addCursorTrack}
-          className="w-full bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30"
+          className="w-full bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30"
         >
           <IconPlus className="h-3 w-3 mr-1" />
           Cursor Animation
@@ -415,7 +415,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
             onClick={toggleClick}
             className={`w-full text-xs gap-1.5 ${
               isClickingAtFrame()
-                ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
+                ? "bg-sky-500/20 text-sky-400 border-sky-500/30"
                 : ""
             }`}
             aria-label={isClickingAtFrame() ? "Click ON" : "Add Click"}
@@ -481,7 +481,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
                   }}
                   className={`h-12 rounded-lg border-2 flex items-center justify-center ${
                     localState.type === "default"
-                      ? "border-purple-500 bg-purple-500/10"
+                      ? "border-sky-500 bg-sky-500/10"
                       : "border-border bg-secondary/50 hover:bg-secondary"
                   }`}
                 >
@@ -508,7 +508,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
                   }}
                   className={`h-12 rounded-lg border-2 flex items-center justify-center ${
                     localState.type === "pointer"
-                      ? "border-purple-500 bg-purple-500/10"
+                      ? "border-sky-500 bg-sky-500/10"
                       : "border-border bg-secondary/50 hover:bg-secondary"
                   }`}
                 >
@@ -535,7 +535,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
                   }}
                   className={`h-12 rounded-lg border-2 flex items-center justify-center ${
                     localState.type === "text"
-                      ? "border-purple-500 bg-purple-500/10"
+                      ? "border-sky-500 bg-sky-500/10"
                       : "border-border bg-secondary/50 hover:bg-secondary"
                   }`}
                 >
@@ -622,7 +622,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
         <MotionCurveSelect
           value={handleGetCurrentKeyframeEasing()}
           onChange={handleUpdateKeyframeEasing}
-          accentColor="purple-400"
+          accentColor="sky-400"
         />
       )}
 

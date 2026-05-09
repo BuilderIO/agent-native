@@ -3,7 +3,7 @@ export interface AgentPresenceChipProps {
   active: boolean;
   /** Label text. Default: "AI editing" */
   label?: string;
-  /** Color. Default: "#a78bfa" */
+  /** Color. Default: "#00B5FF" */
   color?: string;
   /** Additional CSS classes. */
   className?: string;
@@ -29,7 +29,7 @@ function injectStyles() {
 export function AgentPresenceChip({
   active,
   label = "AI editing",
-  color = "#a78bfa",
+  color = "#00B5FF",
   className,
 }: AgentPresenceChipProps) {
   if (!active) return null;

@@ -61,9 +61,7 @@ export function CollabPresenceBar({
         <div
           className={cn(
             "flex items-center justify-center w-6 h-6 rounded-full shrink-0",
-            agentActive
-              ? "bg-violet-500/20 ring-1 ring-violet-400/50"
-              : "bg-muted",
+            agentActive ? "bg-sky-500/20 ring-1 ring-sky-400/50" : "bg-muted",
           )}
           title={agentActive ? "AI is editing" : "AI agent connected"}
         >
@@ -71,7 +69,7 @@ export function CollabPresenceBar({
             size={12}
             className={cn(
               agentActive
-                ? "text-violet-400 animate-pulse"
+                ? "text-sky-400 animate-pulse"
                 : "text-muted-foreground",
             )}
           />

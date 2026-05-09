@@ -7,6 +7,8 @@
  * After first account exists, this page acts as a normal login page.
  */
 
+import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
+
 function hasGoogleOAuth(): boolean {
   return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 }
@@ -78,6 +80,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const appBasePath = normalizeAppBasePath(
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
   );
+  const publicOAuthOrigin = getPublicOAuthOrigin();
 
   const marketing = opts.marketing;
   const hasMarketing = !!marketing;
@@ -889,6 +892,20 @@ ${
     function __anPath(path) {
       return __anBasePath() + path;
     }
+    var __AN_PUBLIC_OAUTH_ORIGIN = ${JSON.stringify(publicOAuthOrigin)};
+    function __anConfiguredOAuthOrigin() {
+      if (!__AN_PUBLIC_OAUTH_ORIGIN) return '';
+      try {
+        var origin = new URL(__AN_PUBLIC_OAUTH_ORIGIN).origin;
+        return origin && origin !== window.location.origin ? origin : '';
+      } catch(e) {
+        return '';
+      }
+    }
+    function __anAuthPath(path) {
+      var origin = __anIsBuilderPreview() ? __anConfiguredOAuthOrigin() : '';
+      return origin ? origin + path : __anPath(path);
+    }
     function __anGetReturnPath() {
       try {
         var inner = new URLSearchParams(window.location.search).get('return');
@@ -1497,6 +1514,14 @@ ${
     err.classList.remove('show');
     if (__anIsBuilderPreview() && !__anIsBuilderDesktop()) {
       __anStartBuilderOAuth(ret, btn, err);
+      return;
+    }
+    if (__anIsBuilderPreview()) {
+      var params = new URLSearchParams();
+      if (ret) params.set('return', ret);
+      params.set('redirect', '1');
+      __anSetOAuthDebug('Opening Google sign-in redirect');
+      __anOpenOAuthUrl(__anAuthPath('/_agent-native/google/auth-url') + '?' + params.toString());
       return;
     }
     try {

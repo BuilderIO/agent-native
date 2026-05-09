@@ -40,4 +40,22 @@ describe("getOnboardingHtml", () => {
     );
     expect(html).toContain("__anPath('/_agent-native/google/auth-url')");
   });
+
+  it("embeds the public OAuth origin for Builder desktop redirects", () => {
+    vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
+    vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
+    vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
+
+    const html = getOnboardingHtml();
+
+    expect(html).toContain(
+      'var __AN_PUBLIC_OAUTH_ORIGIN = "https://agent-workspace.builder.io";',
+    );
+    expect(html).toContain(
+      "__anSetOAuthDebug('Opening Google sign-in redirect')",
+    );
+    expect(html).toContain(
+      "__anOpenOAuthUrl(__anAuthPath('/_agent-native/google/auth-url') + '?' + params.toString())",
+    );
+  });
 });

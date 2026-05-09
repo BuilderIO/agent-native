@@ -18,5 +18,5 @@ export const DEFAULT_AGENT_IDENTITY: AgentIdentity = {
   clientId: AGENT_CLIENT_ID,
   name: "AI Assistant",
   email: "agent@system",
-  color: "#a78bfa", // Soft purple
+  color: "#00B5FF", // agent-native blue
 };

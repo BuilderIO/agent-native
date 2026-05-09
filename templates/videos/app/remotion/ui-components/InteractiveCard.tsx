@@ -65,7 +65,7 @@ export function InteractiveCard({
   height,
   backgroundColor = "rgba(17, 24, 39, 0.7)",
   borderColor = "#374151",
-  accentColor = "#6366f1",
+  accentColor = "#00B5FF",
   cursorHistory,
   tracks,
   registerForCursor,

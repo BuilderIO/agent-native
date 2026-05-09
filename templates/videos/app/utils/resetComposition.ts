@@ -74,7 +74,7 @@ if (typeof window !== "undefined") {
 
   console.log(
     "%c[Videos] Reset utilities loaded!",
-    "color: #6366f1; font-weight: bold",
+    "color: #00B5FF; font-weight: bold",
     "\n\nAvailable commands:",
     "\n- resetCurrent()          → Reset the current composition",
     '\n- resetTracks("id")       → Reset only tracks/keyframes',

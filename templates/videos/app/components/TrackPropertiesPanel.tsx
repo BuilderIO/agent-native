@@ -53,10 +53,10 @@ const EASING_COLORS: Record<EasingKey, string> = {
   "power4.in": "#60a5fa",
   "power4.out": "#3b82f6",
   "power4.inOut": "#2563eb",
-  // Back - purple tones
-  "back.in": "#a78bfa",
-  "back.out": "#8b5cf6",
-  "back.inOut": "#7c3aed",
+  // Back - blue tones
+  "back.in": "#7DD3FC",
+  "back.out": "#00B5FF",
+  "back.inOut": "#0284C7",
   // Bounce - green tones
   "bounce.in": "#34d399",
   "bounce.out": "#10b981",
