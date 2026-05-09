@@ -53,6 +53,28 @@ const DEFAULT_APP_PORT_START = 8100;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
 
+function normalizeOrigin(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function workspaceOAuthOrigin(
+  env: NodeJS.ProcessEnv,
+  gatewayUrl: string,
+): string | undefined {
+  return (
+    normalizeOrigin(env.VITE_WORKSPACE_OAUTH_ORIGIN) ||
+    normalizeOrigin(env.WORKSPACE_OAUTH_ORIGIN) ||
+    normalizeOrigin(env.APP_URL) ||
+    normalizeOrigin(env.BETTER_AUTH_URL) ||
+    normalizeOrigin(gatewayUrl)
+  );
+}
+
 export function isWorkspaceWatcherLimitError(
   err: Pick<NodeJS.ErrnoException, "code">,
 ): boolean {
@@ -444,6 +466,7 @@ export function runWorkspaceDev(
         APP_BASE_PATH: basePath,
         VITE_AGENT_NATIVE_WORKSPACE: "1",
         VITE_APP_BASE_PATH: basePath,
+        VITE_WORKSPACE_OAUTH_ORIGIN: workspaceOAuthOrigin(env, gatewayUrl),
         VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
         PORT: String(app.port),
         WORKSPACE_GATEWAY_URL: gatewayUrl,
