@@ -394,7 +394,7 @@ function SortableRow({
                 <span className="block truncate">{name}</span>
               </Link>
             </TooltipTrigger>
-            <TooltipContent>{name}</TooltipContent>
+            <TooltipContent side="right">{name}</TooltipContent>
           </Tooltip>
         )}
         <div className="pointer-events-none absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/item:opacity-100 md:group-focus-within/item:opacity-100">
@@ -414,7 +414,9 @@ function SortableRow({
                 <IconStar className={cn("h-3 w-3", isFav && "fill-current")} />
               </button>
             </TooltipTrigger>
-            <TooltipContent>{isFav ? "Unfavorite" : "Favorite"}</TooltipContent>
+            <TooltipContent side="right">
+              {isFav ? "Unfavorite" : "Favorite"}
+            </TooltipContent>
           </Tooltip>
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <Tooltip>
@@ -429,7 +431,7 @@ function SortableRow({
                   </button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
-              <TooltipContent>{`${name} actions`}</TooltipContent>
+              <TooltipContent side="right">{`${name} actions`}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent side="right" align="start" className="w-44">
               <DropdownMenuItem
