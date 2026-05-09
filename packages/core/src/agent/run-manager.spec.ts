@@ -13,6 +13,7 @@ vi.mock("./run-store.js", () => ({
   getRunByThread: vi.fn(() => Promise.resolve(null)),
   cleanupOldRuns: vi.fn(() => Promise.resolve()),
   updateRunHeartbeat: vi.fn(() => Promise.resolve()),
+  bumpRunProgress: vi.fn(() => Promise.resolve()),
   reapIfStale: vi.fn(() => Promise.resolve(null)),
 }));
 
