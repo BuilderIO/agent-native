@@ -1025,6 +1025,7 @@ export default function SqlDashboardPage() {
                       <SqlChartCard
                         panel={resolved}
                         resolvedSql={interpolate(panel.sql, vars)}
+                        gridColumns={group.columns}
                         onRemove={() => removePanel(panel.id)}
                         onToggleWidth={() =>
                           toggleWidth(panel.id, group.columns)
