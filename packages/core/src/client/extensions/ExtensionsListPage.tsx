@@ -210,7 +210,7 @@ export function ExtensionsListPage() {
                     Create your first extension
                   </p>
                   <p className="mx-auto max-w-sm text-sm text-muted-foreground">
-                    Describe the small app you want and the agent will build it.
+                    Describe a small app and the agent will build it.
                   </p>
                 </div>
               </div>
