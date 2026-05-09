@@ -371,7 +371,7 @@ const s: Record<string, React.CSSProperties> = {
   },
   optionIcon: {
     flexShrink: 0,
-    color: "#6366f1",
+    color: "#00B5FF",
     marginTop: "2px",
   },
   optionText: {
@@ -401,8 +401,8 @@ const s: Record<string, React.CSSProperties> = {
     right: "10px",
     fontSize: "10px",
     fontWeight: 600,
-    color: "#6366f1",
-    background: "#eef2ff",
+    color: "#00B5FF",
+    background: "#e0f2fe",
     padding: "2px 8px",
     borderRadius: "99px",
     textTransform: "uppercase",
@@ -434,7 +434,7 @@ const s: Record<string, React.CSSProperties> = {
   },
   resultLink: {
     fontSize: "12px",
-    color: "#6366f1",
+    color: "#00B5FF",
     textDecoration: "none",
     wordBreak: "break-all",
   },

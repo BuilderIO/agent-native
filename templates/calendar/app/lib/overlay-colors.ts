@@ -9,7 +9,7 @@ export const OVERLAY_COLORS = [
   "#06B6D4", // cyan
   "#84CC16", // lime
   "#EF4444", // red
-  "#6366F1", // indigo
+  "#FACC15", // yellow
   "#14B8A6", // teal
 ];
 
