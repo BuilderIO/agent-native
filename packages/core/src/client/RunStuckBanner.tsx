@@ -131,8 +131,8 @@ export function RunStuckBanner({
           <span className="font-medium">This chat looks stuck.</span>{" "}
           <span className="text-muted-foreground">
             No progress
-            {stuckSeconds != null ? ` for ${stuckSeconds}s` : ""}. The agent
-            may have hit a server timeout or lost its connection.
+            {stuckSeconds != null ? ` for ${stuckSeconds}s` : ""}. The agent may
+            have hit a server timeout or lost its connection.
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">

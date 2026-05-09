@@ -72,10 +72,7 @@ export {
   type MultiTabAssistantChatProps,
   type MultiTabAssistantChatHeaderProps,
 } from "./MultiTabAssistantChat.js";
-export {
-  RunStuckBanner,
-  type RunStuckBannerProps,
-} from "./RunStuckBanner.js";
+export { RunStuckBanner, type RunStuckBannerProps } from "./RunStuckBanner.js";
 export {
   useRunStuckDetection,
   useAbortRun,

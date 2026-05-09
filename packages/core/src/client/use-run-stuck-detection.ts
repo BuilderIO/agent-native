@@ -95,9 +95,9 @@ export function useRunStuckDetection({
             lastProgressAt != null ? Date.now() - lastProgressAt : null;
           const isStuck = Boolean(
             data.active &&
-              data.status === "running" &&
-              stuckSinceMs != null &&
-              stuckSinceMs > stuckThresholdMs,
+            data.status === "running" &&
+            stuckSinceMs != null &&
+            stuckSinceMs > stuckThresholdMs,
           );
           setState({
             isStuck,
