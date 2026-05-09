@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.12.36
+
+### Patch Changes
+
+- bc8311a: Tighten the extensions empty-state copy ("Describe a small app and the agent will build it.").
+
 ## 0.12.35
 
 ### Patch Changes
