@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -52,10 +53,27 @@ export interface WorkspaceAppSummary {
   a2aEndpointUrl?: string | null;
   agentName?: string | null;
   agentSkillsCount?: number | null;
+  archived?: boolean;
 }
 
 export interface ListWorkspaceAppsOptions {
   includeAgentCards?: boolean;
+  /**
+   * Include apps the current viewer has hidden (archived). Defaults to false
+   * so polling/UI callers see only the visible set; the apps page passes true
+   * when rendering the "Hidden apps" expander.
+   */
+  includeArchived?: boolean;
+}
+
+export interface AvailableWorkspaceTemplate {
+  name: string;
+  label: string;
+  hint: string;
+  icon: string;
+  color: string;
+  colorRgb: string;
+  core: boolean;
 }
 
 export interface AppCreationSettings {
@@ -258,6 +276,76 @@ function parsePendingWorkspaceApps(value: unknown): PendingWorkspaceApp[] {
 async function listPendingWorkspaceApps(): Promise<PendingWorkspaceApp[]> {
   const raw = await readSettingsRecord();
   return parsePendingWorkspaceApps(raw.pendingApps);
+}
+
+function parseArchivedAppIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids = value
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter(Boolean);
+  return Array.from(new Set(ids));
+}
+
+async function listArchivedAppIds(): Promise<string[]> {
+  const raw = await readSettingsRecord();
+  return parseArchivedAppIds(raw.archivedAppIds);
+}
+
+export async function archiveWorkspaceApp(input: {
+  appId: string;
+}): Promise<{ archivedAppIds: string[] }> {
+  const appId = input.appId.trim();
+  if (!appId) throw new Error("appId is required");
+  const raw = await readSettingsRecord();
+  const current = parseArchivedAppIds(raw.archivedAppIds);
+  if (!current.includes(appId)) current.push(appId);
+  await putSetting(scopedSettingsKey(), { ...raw, archivedAppIds: current });
+  await recordAudit({
+    action: "workspace-app.archived",
+    targetType: "workspace-app",
+    targetId: appId,
+    summary: "Hid workspace app from the Apps list",
+  });
+  return { archivedAppIds: current };
+}
+
+export async function unarchiveWorkspaceApp(input: {
+  appId: string;
+}): Promise<{ archivedAppIds: string[] }> {
+  const appId = input.appId.trim();
+  if (!appId) throw new Error("appId is required");
+  const raw = await readSettingsRecord();
+  const current = parseArchivedAppIds(raw.archivedAppIds).filter(
+    (id) => id !== appId,
+  );
+  await putSetting(scopedSettingsKey(), { ...raw, archivedAppIds: current });
+  await recordAudit({
+    action: "workspace-app.unarchived",
+    targetType: "workspace-app",
+    targetId: appId,
+    summary: "Restored workspace app to the Apps list",
+  });
+  return { archivedAppIds: current };
+}
+
+export async function removePendingWorkspaceApp(input: {
+  appId: string;
+}): Promise<{ removed: boolean }> {
+  const appId = input.appId.trim();
+  if (!appId) throw new Error("appId is required");
+  const raw = await readSettingsRecord();
+  const pending = parsePendingWorkspaceApps(raw.pendingApps);
+  const next = pending.filter((app) => app.id !== appId);
+  const removed = next.length !== pending.length;
+  if (!removed) return { removed: false };
+  await putSetting(scopedSettingsKey(), { ...raw, pendingApps: next });
+  await recordAudit({
+    action: "workspace-app.pending-removed",
+    targetType: "workspace-app",
+    targetId: appId,
+    summary: "Removed pending Builder app from the Apps list",
+  });
+  return { removed: true };
 }
 
 function pendingAppToSummary(app: PendingWorkspaceApp): WorkspaceAppSummary {
