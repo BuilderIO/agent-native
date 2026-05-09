@@ -1,8 +1,5 @@
 import { useState } from "react";
-import {
-  useActionMutation,
-  useActionQuery,
-} from "@agent-native/core/client";
+import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
   IconApps,
   IconBrush,
@@ -219,10 +216,7 @@ function AddTemplateCard({ template }: { template: AvailableTemplate }) {
           >
             {scaffold.isPending ? (
               <>
-                <IconLoader2
-                  size={14}
-                  className="mr-1.5 animate-spin"
-                />
+                <IconLoader2 size={14} className="mr-1.5 animate-spin" />
                 Adding…
               </>
             ) : (
