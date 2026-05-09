@@ -823,6 +823,26 @@ export function createAgentChatAdapter(options?: {
         } catch {
           // Non-browser or Intl unavailable — tool calls will fall back to UTC.
         }
+        // Surface hint — the server uses this to gate code-editing dev tools
+        // when the chat is running in a plain browser tab on localhost. Editing
+        // source files there would trigger HMR/page reloads and kill the chat
+        // session, so the agent must redirect users to Desktop / Claude Code /
+        // Codex / Builder.io instead of attempting code work.
+        try {
+          const ua =
+            typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
+          const inIframe =
+            typeof window !== "undefined" && window.parent !== window;
+          const surface = /AgentNativeDesktop/i.test(ua)
+            ? "desktop"
+            : inIframe
+              ? "frame"
+              : "browser";
+          headers["x-agent-native-surface"] = surface;
+        } catch {
+          // Non-browser environment — leave the header off and let the server
+          // fall back to its own UA/host detection.
+        }
 
         const reconnectCurrentRun = async function* (): AsyncGenerator<
           ChatModelRunResult,
