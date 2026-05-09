@@ -64,6 +64,28 @@ describe("workspace dev startup", () => {
     expect(fake.startedApps()).toEqual(["dispatch", "starter", "todo"]);
   });
 
+  it("passes the public workspace OAuth origin separately from the local gateway", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = runWorkspaceDev({
+      root: tmpDir,
+      env: {
+        ...testEnv(),
+        APP_URL: "https://workspace.example.test/dispatch",
+      },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    await handle.ready;
+
+    const env = fake.calls()[0]?.options?.env;
+    expect(env?.WORKSPACE_GATEWAY_URL).toMatch(/^http:\/\/127\.0\.0\.1:/);
+    expect(env?.VITE_WORKSPACE_GATEWAY_URL).toBe(env?.WORKSPACE_GATEWAY_URL);
+    expect(env?.VITE_WORKSPACE_OAUTH_ORIGIN).toBe(
+      "https://workspace.example.test",
+    );
+  });
+
   it("uses the root list as fallback when Dispatch is absent", async () => {
     tmpDir = makeWorkspace(["starter"]);
     const fake = fakeSpawn();
@@ -308,6 +330,7 @@ function fakeSpawn(): {
   calls: () => Array<{
     command: string;
     args: string[];
+    options?: { env?: NodeJS.ProcessEnv };
     child: ChildProcess & EventEmitter;
   }>;
   startedApps: () => string[];
@@ -315,22 +338,34 @@ function fakeSpawn(): {
   const calls: Array<{
     command: string;
     args: string[];
+    options?: { env?: NodeJS.ProcessEnv };
     child: ChildProcess & EventEmitter;
   }> = [];
-  const spawnProcess = vi.fn((command: string, args: string[]) => {
-    const child = new EventEmitter() as ChildProcess;
-    child.stdout = new EventEmitter() as ChildProcess["stdout"];
-    child.stderr = new EventEmitter() as ChildProcess["stderr"];
-    child.killed = false;
-    child.kill = vi.fn(() => {
-      child.killed = true;
-      child.emit("exit", 0, null);
-      return true;
-    }) as ChildProcess["kill"];
-    child.unref = vi.fn() as ChildProcess["unref"];
-    calls.push({ command, args, child: child as ChildProcess & EventEmitter });
-    return child;
-  }) as unknown as typeof spawn;
+  const spawnProcess = vi.fn(
+    (
+      command: string,
+      args: string[],
+      options?: { env?: NodeJS.ProcessEnv },
+    ) => {
+      const child = new EventEmitter() as ChildProcess;
+      child.stdout = new EventEmitter() as ChildProcess["stdout"];
+      child.stderr = new EventEmitter() as ChildProcess["stderr"];
+      child.killed = false;
+      child.kill = vi.fn(() => {
+        child.killed = true;
+        child.emit("exit", 0, null);
+        return true;
+      }) as ChildProcess["kill"];
+      child.unref = vi.fn() as ChildProcess["unref"];
+      calls.push({
+        command,
+        args,
+        options,
+        child: child as ChildProcess & EventEmitter,
+      });
+      return child;
+    },
+  ) as unknown as typeof spawn;
 
   return {
     spawnProcess,

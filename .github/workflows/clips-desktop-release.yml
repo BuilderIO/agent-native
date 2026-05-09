@@ -29,6 +29,12 @@ jobs:
   build-tauri:
     strategy:
       fail-fast: false
+      # Serialize so the two jobs can't race to create the draft release at
+      # the same time — when both call tauri-action concurrently, one job's
+      # bundles + latest.json get orphaned (clips-v0.1.74 lost its macOS
+      # assets this way, leaving the manifest Windows-only and breaking the
+      # Tauri updater on macOS clients).
+      max-parallel: 1
       matrix:
         include:
           - os: macos-latest

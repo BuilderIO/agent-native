@@ -8,7 +8,9 @@ import { runWorkspaceDeploy } from "./workspace-deploy.js";
 
 let tmpDir: string;
 let previousAppBasePath: string | undefined;
+let previousAppUrl: string | undefined;
 let previousA2ASecret: string | undefined;
+let previousBetterAuthUrl: string | undefined;
 let previousCfPages: string | undefined;
 let previousDatabaseUrl: string | undefined;
 let previousUnpooledDatabaseUrl: string | undefined;
@@ -17,6 +19,10 @@ let previousNetlifyLocal: string | undefined;
 let previousNitroPreset: string | undefined;
 let previousVercel: string | undefined;
 let previousViteAppBasePath: string | undefined;
+let previousViteWorkspaceGatewayUrl: string | undefined;
+let previousViteWorkspaceOAuthOrigin: string | undefined;
+let previousWorkspaceGatewayUrl: string | undefined;
+let previousWorkspaceOAuthOrigin: string | undefined;
 let previousWorkspaceAppsJson: string | undefined;
 let execFile: ReturnType<typeof vi.fn>;
 
@@ -35,7 +41,9 @@ beforeEach(() => {
     return Buffer.from("");
   }) as typeof execFileSync);
   previousAppBasePath = process.env.APP_BASE_PATH;
+  previousAppUrl = process.env.APP_URL;
   previousA2ASecret = process.env.A2A_SECRET;
+  previousBetterAuthUrl = process.env.BETTER_AUTH_URL;
   previousCfPages = process.env.CF_PAGES;
   previousDatabaseUrl = process.env.DATABASE_URL;
   previousUnpooledDatabaseUrl = process.env.NETLIFY_DATABASE_URL_UNPOOLED;
@@ -44,9 +52,15 @@ beforeEach(() => {
   previousNitroPreset = process.env.NITRO_PRESET;
   previousVercel = process.env.VERCEL;
   previousViteAppBasePath = process.env.VITE_APP_BASE_PATH;
+  previousViteWorkspaceGatewayUrl = process.env.VITE_WORKSPACE_GATEWAY_URL;
+  previousViteWorkspaceOAuthOrigin = process.env.VITE_WORKSPACE_OAUTH_ORIGIN;
+  previousWorkspaceGatewayUrl = process.env.WORKSPACE_GATEWAY_URL;
+  previousWorkspaceOAuthOrigin = process.env.WORKSPACE_OAUTH_ORIGIN;
   previousWorkspaceAppsJson = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
   delete process.env.APP_BASE_PATH;
+  delete process.env.APP_URL;
   delete process.env.A2A_SECRET;
+  delete process.env.BETTER_AUTH_URL;
   delete process.env.CF_PAGES;
   delete process.env.DATABASE_URL;
   delete process.env.NETLIFY_DATABASE_URL_UNPOOLED;
@@ -55,12 +69,18 @@ beforeEach(() => {
   delete process.env.NITRO_PRESET;
   delete process.env.VERCEL;
   delete process.env.VITE_APP_BASE_PATH;
+  delete process.env.VITE_WORKSPACE_GATEWAY_URL;
+  delete process.env.VITE_WORKSPACE_OAUTH_ORIGIN;
+  delete process.env.WORKSPACE_GATEWAY_URL;
+  delete process.env.WORKSPACE_OAUTH_ORIGIN;
   delete process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
 });
 
 afterEach(() => {
   restoreEnv("APP_BASE_PATH", previousAppBasePath);
+  restoreEnv("APP_URL", previousAppUrl);
   restoreEnv("A2A_SECRET", previousA2ASecret);
+  restoreEnv("BETTER_AUTH_URL", previousBetterAuthUrl);
   restoreEnv("CF_PAGES", previousCfPages);
   restoreEnv("DATABASE_URL", previousDatabaseUrl);
   restoreEnv("NETLIFY_DATABASE_URL_UNPOOLED", previousUnpooledDatabaseUrl);
@@ -69,6 +89,10 @@ afterEach(() => {
   restoreEnv("NITRO_PRESET", previousNitroPreset);
   restoreEnv("VERCEL", previousVercel);
   restoreEnv("VITE_APP_BASE_PATH", previousViteAppBasePath);
+  restoreEnv("VITE_WORKSPACE_GATEWAY_URL", previousViteWorkspaceGatewayUrl);
+  restoreEnv("VITE_WORKSPACE_OAUTH_ORIGIN", previousViteWorkspaceOAuthOrigin);
+  restoreEnv("WORKSPACE_GATEWAY_URL", previousWorkspaceGatewayUrl);
+  restoreEnv("WORKSPACE_OAUTH_ORIGIN", previousWorkspaceOAuthOrigin);
   restoreEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", previousWorkspaceAppsJson);
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
@@ -702,6 +726,9 @@ describe("workspace deploy", () => {
     });
 
     const dispatchCall = buildCallForApp("dispatch");
+    expect(dispatchCall?.env?.VITE_WORKSPACE_OAUTH_ORIGIN).toBe(
+      "https://workspace.example.test",
+    );
     expect(
       JSON.parse(dispatchCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]"),
     ).toEqual([

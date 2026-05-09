@@ -188,6 +188,7 @@ function buildOneApp(
   const appDir = path.join(workspaceRoot, "apps", app);
   const workspaceGatewayUrl =
     process.env.VITE_WORKSPACE_GATEWAY_URL || workspaceBaseUrl();
+  const workspaceOAuthUrl = workspaceOAuthOrigin(workspaceGatewayUrl);
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     NITRO_PRESET: preset,
@@ -200,6 +201,9 @@ function buildOneApp(
           WORKSPACE_GATEWAY_URL:
             process.env.WORKSPACE_GATEWAY_URL || workspaceGatewayUrl,
           VITE_WORKSPACE_GATEWAY_URL: workspaceGatewayUrl,
+          ...(workspaceOAuthUrl
+            ? { VITE_WORKSPACE_OAUTH_ORIGIN: workspaceOAuthUrl }
+            : {}),
         }
       : {}),
     [WORKSPACE_APPS_ENV_KEY]: JSON.stringify(workspaceApps),
@@ -905,6 +909,29 @@ function workspaceBaseUrl(): string | null {
     process.env.DEPLOY_URL ||
     process.env.BETTER_AUTH_URL ||
     null
+  );
+}
+
+function normalizeOrigin(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function workspaceOAuthOrigin(
+  workspaceGatewayUrl: string | null,
+): string | undefined {
+  return (
+    normalizeOrigin(process.env.VITE_WORKSPACE_OAUTH_ORIGIN) ||
+    normalizeOrigin(process.env.WORKSPACE_OAUTH_ORIGIN) ||
+    normalizeOrigin(process.env.APP_URL) ||
+    normalizeOrigin(process.env.BETTER_AUTH_URL) ||
+    normalizeOrigin(process.env.URL) ||
+    normalizeOrigin(process.env.DEPLOY_URL) ||
+    normalizeOrigin(workspaceGatewayUrl)
   );
 }
 

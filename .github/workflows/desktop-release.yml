@@ -37,7 +37,10 @@ jobs:
             echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.event_name }}" = "push" ]; then
             BASE=$(node -p "require('./packages/desktop-app/package.json').version")
-            echo "version=${BASE}+${AUTO_VERSION_SUFFIX}" >> "$GITHUB_OUTPUT"
+            # Use a prerelease tag (-N) not build metadata (+N): npm version
+            # silently strips +metadata when writing package.json, which would
+            # cause every run to collide on the same release tag and assets.
+            echo "version=${BASE}-${AUTO_VERSION_SUFFIX}" >> "$GITHUB_OUTPUT"
           else
             echo "version=$(node -p "require('./packages/desktop-app/package.json').version")" >> "$GITHUB_OUTPUT"
           fi

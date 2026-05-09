@@ -53,6 +53,28 @@ const DEFAULT_APP_PORT_START = 8100;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
 
+function normalizeOrigin(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function workspaceOAuthOrigin(
+  env: NodeJS.ProcessEnv,
+  gatewayUrl: string,
+): string | undefined {
+  return (
+    normalizeOrigin(env.VITE_WORKSPACE_OAUTH_ORIGIN) ||
+    normalizeOrigin(env.WORKSPACE_OAUTH_ORIGIN) ||
+    normalizeOrigin(env.APP_URL) ||
+    normalizeOrigin(env.BETTER_AUTH_URL) ||
+    normalizeOrigin(gatewayUrl)
+  );
+}
+
 export function isWorkspaceWatcherLimitError(
   err: Pick<NodeJS.ErrnoException, "code">,
 ): boolean {
@@ -216,12 +238,15 @@ function renderStartingApp(app: WorkspaceApp): string {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta http-equiv="refresh" content="1" />
     <title>Starting ${escapedName}</title>
+    <meta name="color-scheme" content="light dark" />
     <style>
-      body { min-height: 100vh; margin: 0; display: grid; place-items: center; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #fafafa; color: #171717; }
+      :root { --bg: #fafafa; --fg: #171717; --muted: #737373; --bar-bg: #e5e5e5; --bar-fill: #171717; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #0a0a0a; --fg: #fafafa; --muted: #a3a3a3; --bar-bg: #262626; --bar-fill: #fafafa; } }
+      body { min-height: 100vh; margin: 0; display: grid; place-items: center; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--fg); }
       main { width: min(420px, calc(100vw - 48px)); }
-      .bar { height: 3px; overflow: hidden; border-radius: 999px; background: #e5e5e5; }
-      .bar::before { content: ""; display: block; height: 100%; width: 42%; border-radius: inherit; background: #171717; animation: load 1s ease-in-out infinite; }
-      p { color: #737373; }
+      .bar { height: 3px; overflow: hidden; border-radius: 999px; background: var(--bar-bg); }
+      .bar::before { content: ""; display: block; height: 100%; width: 42%; border-radius: inherit; background: var(--bar-fill); animation: load 1s ease-in-out infinite; }
+      p { color: var(--muted); }
       @keyframes load { 0% { transform: translateX(-105%); } 100% { transform: translateX(245%); } }
     </style>
     <script>setTimeout(() => window.location.reload(), 900);</script>
@@ -260,13 +285,16 @@ function renderIndex(apps: WorkspaceApp[]): string {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Agent-Native Workspace</title>
+    <meta name="color-scheme" content="light dark" />
     <style>
-      body { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 32px; background: #fafafa; color: #171717; }
+      :root { --bg: #fafafa; --fg: #171717; --muted: #737373; --card-bg: #ffffff; --card-border: #d4d4d4; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #0a0a0a; --fg: #fafafa; --muted: #a3a3a3; --card-bg: #171717; --card-border: #262626; } }
+      body { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 32px; background: var(--bg); color: var(--fg); }
       main { max-width: 760px; margin: 0 auto; }
       a { color: inherit; text-decoration: none; }
       .grid { display: grid; gap: 12px; margin-top: 20px; }
-      .card { display: flex; justify-content: space-between; border: 1px solid #d4d4d4; border-radius: 8px; padding: 14px 16px; background: white; }
-      .muted { color: #737373; }
+      .card { display: flex; justify-content: space-between; border: 1px solid var(--card-border); border-radius: 8px; padding: 14px 16px; background: var(--card-bg); }
+      .muted { color: var(--muted); }
     </style>
   </head>
   <body>
@@ -444,6 +472,7 @@ export function runWorkspaceDev(
         APP_BASE_PATH: basePath,
         VITE_AGENT_NATIVE_WORKSPACE: "1",
         VITE_APP_BASE_PATH: basePath,
+        VITE_WORKSPACE_OAUTH_ORIGIN: workspaceOAuthOrigin(env, gatewayUrl),
         VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
         PORT: String(app.port),
         WORKSPACE_GATEWAY_URL: gatewayUrl,
