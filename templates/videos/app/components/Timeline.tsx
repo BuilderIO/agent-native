@@ -385,10 +385,10 @@ function RangeBar({
 
   const isZoomed = viewStart > 0 || viewEnd < durationInFrames;
   const HANDLE_COLOR = isZoomed
-    ? "rgba(139,92,246,0.85)"
+    ? "rgba(0,181,255,0.85)"
     : "rgba(148,163,184,0.65)";
   const RANGE_COLOR = isZoomed
-    ? "rgba(139,92,246,0.15)"
+    ? "rgba(0,181,255,0.15)"
     : "rgba(148,163,184,0.12)";
   const BG_COLOR = "rgba(0,0,0,0.20)";
 
@@ -466,7 +466,7 @@ function RangeBar({
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <span
             className="text-[7px] font-mono tracking-widest select-none uppercase"
-            style={{ color: "rgba(139,92,246,0.4)" }}
+            style={{ color: "rgba(0,181,255,0.4)" }}
           >
             zoom
           </span>
