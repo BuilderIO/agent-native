@@ -308,7 +308,9 @@ function PanelEditorContent({
         </div>
 
         <div className="grid gap-1.5">
-          <Label>{form.chartType === "section" ? "Section columns" : "Span"}</Label>
+          <Label>
+            {form.chartType === "section" ? "Section columns" : "Span"}
+          </Label>
           {form.chartType === "section" ? (
             <ToggleGroup
               type="single"
@@ -320,17 +322,18 @@ function PanelEditorContent({
               }}
               className="justify-start h-9"
             >
-              {Array.from({ length: MAX_DASHBOARD_COLUMNS }, (_, i) => i + 1).map(
-                (n) => (
-                  <ToggleGroupItem
-                    key={n}
-                    value={String(n)}
-                    className="h-9 w-9 px-0 text-xs"
-                  >
-                    {n}
-                  </ToggleGroupItem>
-                ),
-              )}
+              {Array.from(
+                { length: MAX_DASHBOARD_COLUMNS },
+                (_, i) => i + 1,
+              ).map((n) => (
+                <ToggleGroupItem
+                  key={n}
+                  value={String(n)}
+                  className="h-9 w-9 px-0 text-xs"
+                >
+                  {n}
+                </ToggleGroupItem>
+              ))}
             </ToggleGroup>
           ) : (
             <ToggleGroup
@@ -338,25 +341,23 @@ function PanelEditorContent({
               value={String(form.width)}
               onValueChange={(v) => {
                 if (!v) return;
-                const next = clampPanelWidth(
-                  Number(v),
-                  MAX_DASHBOARD_COLUMNS,
-                );
+                const next = clampPanelWidth(Number(v), MAX_DASHBOARD_COLUMNS);
                 setForm((f) => ({ ...f, width: next }));
               }}
               className="justify-start h-9"
             >
-              {Array.from({ length: MAX_DASHBOARD_COLUMNS }, (_, i) => i + 1).map(
-                (n) => (
-                  <ToggleGroupItem
-                    key={n}
-                    value={String(n)}
-                    className="h-9 w-9 px-0 text-xs"
-                  >
-                    {n}
-                  </ToggleGroupItem>
-                ),
-              )}
+              {Array.from(
+                { length: MAX_DASHBOARD_COLUMNS },
+                (_, i) => i + 1,
+              ).map((n) => (
+                <ToggleGroupItem
+                  key={n}
+                  value={String(n)}
+                  className="h-9 w-9 px-0 text-xs"
+                >
+                  {n}
+                </ToggleGroupItem>
+              ))}
             </ToggleGroup>
           )}
         </div>

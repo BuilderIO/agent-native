@@ -22,6 +22,16 @@ export interface ChatThreadData {
 }
 
 const ACTIVE_THREAD_KEY = "agent-chat-active-thread";
+const THREAD_DATA_CACHE_PREFIX = "agent-chat-thread-cache:";
+
+/**
+ * Key for the per-thread message cache in localStorage. AssistantChat reads
+ * this synchronously on mount so existing chats can hydrate from cache and
+ * paint immediately, then refreshes from the server in the background.
+ */
+export function getThreadCacheKey(threadId: string): string {
+  return `${THREAD_DATA_CACHE_PREFIX}${threadId}`;
+}
 
 export function useChatThreads(
   apiUrl = agentNativePath("/_agent-native/agent-chat"),
@@ -192,6 +202,9 @@ export function useChatThreads(
           method: "DELETE",
         });
       } catch {}
+      try {
+        localStorage.removeItem(getThreadCacheKey(id));
+      } catch {}
       setThreads((prev) => {
         const next = prev.filter((t) => t.id !== id);
         if (id === activeThreadId) {
@@ -219,6 +232,12 @@ export function useChatThreads(
         messageCount?: number;
       },
     ) => {
+      // Cache locally so the next mount of this thread can hydrate
+      // synchronously and skip the per-message restore skeleton. Quota errors
+      // (5–10MB cap) are swallowed — the thread just falls back to fetching.
+      try {
+        localStorage.setItem(getThreadCacheKey(id), data.threadData);
+      } catch {}
       try {
         await fetch(`${apiUrl}/threads/${encodeURIComponent(id)}`, {
           method: "PUT",

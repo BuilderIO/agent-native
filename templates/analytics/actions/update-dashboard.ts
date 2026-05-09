@@ -275,7 +275,11 @@ function validateDashboardConfig(
     if (!isSection && !validSources.has(p.source as string)) {
       return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', or 'first-party' (got '${p.source}'). source selects the backend — put the table name in sql, not here.`;
     }
-    if (isSection && p.columns !== undefined && !isValidColumnCount(p.columns)) {
+    if (
+      isSection &&
+      p.columns !== undefined &&
+      !isValidColumnCount(p.columns)
+    ) {
       return `panel[${i}].columns must be an integer between 1 and 6 (only valid on section panels)`;
     }
   }

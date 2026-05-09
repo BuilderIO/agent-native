@@ -2,6 +2,7 @@ import React, {
   useState,
   useRef,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useMemo,
   forwardRef,
@@ -63,6 +64,7 @@ import {
 import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { agentNativePath } from "./api-path.js";
+import { getThreadCacheKey } from "./use-chat-threads.js";
 import { BUILDER_SPACE_SETTINGS_URL } from "./error-format.js";
 import { ThumbsFeedback } from "./observability/ThumbsFeedback.js";
 import {
@@ -2974,7 +2976,21 @@ const AssistantChatInner = forwardRef<
 
   // ─── Chat persistence ──────────────────────────────────────────────
   const hasRestoredRef = useRef(false);
-  const [isRestoring, setIsRestoring] = useState(!!threadId && !isNewThread);
+  // Cached thread data from a prior session, read synchronously so existing
+  // chats can paint their messages on first commit instead of after the server
+  // round-trip. The server fetch still runs to refresh with the latest.
+  const [cachedThreadData] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    if (!threadId || isNewThread) return null;
+    try {
+      return localStorage.getItem(getThreadCacheKey(threadId));
+    } catch {
+      return null;
+    }
+  });
+  const [isRestoring, setIsRestoring] = useState(
+    !!threadId && !isNewThread && !cachedThreadData,
+  );
   const onSaveThreadRef = useRef(onSaveThread);
   onSaveThreadRef.current = onSaveThread;
   const onGenerateTitleRef = useRef(onGenerateTitle);

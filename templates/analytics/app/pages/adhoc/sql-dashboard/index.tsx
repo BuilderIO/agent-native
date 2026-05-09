@@ -1031,9 +1031,7 @@ export default function SqlDashboardPage() {
                           toggleWidth(panel.id, group.columns)
                         }
                         onEdit={() => openEditPanel(panel)}
-                        onSaveSql={(sql) =>
-                          handleSavePanel({ ...panel, sql })
-                        }
+                        onSaveSql={(sql) => handleSavePanel({ ...panel, sql })}
                       />
                     </div>
                   );
