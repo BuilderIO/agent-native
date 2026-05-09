@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.12.34
+
+### Patch Changes
+
+- d749754: Drop the command menu from `top-[5vh]` to `top-[15vh]` so the palette sits comfortably below the page header instead of pinned to the top.
+- d749754: Top-align command palettes so result count changes do not shift their viewport position.
+
 ## 0.12.33
 
 ### Patch Changes
