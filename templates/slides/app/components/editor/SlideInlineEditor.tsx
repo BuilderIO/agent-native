@@ -300,8 +300,8 @@ export function SlideInlineEditor({
 
       {/* AI editing indicator — shown briefly when agent makes edits */}
       {agentActive && (
-        <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#a78bfa]/20 border border-[#a78bfa]/40 text-[#a78bfa] text-xs font-medium animate-pulse pointer-events-none">
-          <div className="w-1.5 h-1.5 rounded-full bg-[#a78bfa]" />
+        <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#00B5FF]/20 border border-[#00B5FF]/40 text-[#00B5FF] text-xs font-medium animate-pulse pointer-events-none">
+          <div className="w-1.5 h-1.5 rounded-full bg-[#00B5FF]" />
           AI editing
         </div>
       )}

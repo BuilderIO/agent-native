@@ -2,7 +2,7 @@ import type { OverlayPerson } from "@shared/api";
 
 export const OVERLAY_COLORS = [
   "#E07C4F", // warm orange
-  "#8B5CF6", // purple
+  "#0EA5E9", // sky blue
   "#10B981", // emerald
   "#F59E0B", // amber
   "#EC4899", // pink

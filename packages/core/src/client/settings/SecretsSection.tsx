@@ -276,7 +276,7 @@ function SecretCard({ secret, onChanged, focusInput }: SecretCardProps) {
             <a
               href={secret.oauthConnectUrl}
               className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium no-underline"
-              style={{ backgroundColor: "#625DF5", color: "white" }}
+              style={{ backgroundColor: "#00B5FF", color: "white" }}
             >
               <IconPlugConnected size={10} />
               {secret.status === "set" ? "Reconnect" : "Connect"}
@@ -325,7 +325,7 @@ function SecretCard({ secret, onChanged, focusInput }: SecretCardProps) {
               onClick={handleSave}
               disabled={!value.trim() || busy !== null}
               className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
-              style={{ backgroundColor: "#625DF5", color: "white" }}
+              style={{ backgroundColor: "#00B5FF", color: "white" }}
             >
               {busy === "save" ? (
                 <IconLoader2 size={10} className="animate-spin" />
@@ -639,7 +639,7 @@ function AdHocKeysSection() {
                 onClick={handleAdd}
                 disabled={!formName.trim() || !formValue.trim() || formBusy}
                 className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
-                style={{ backgroundColor: "#625DF5", color: "white" }}
+                style={{ backgroundColor: "#00B5FF", color: "white" }}
               >
                 {formBusy ? (
                   <IconLoader2 size={10} className="animate-spin" />
