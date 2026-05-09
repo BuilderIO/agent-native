@@ -31,7 +31,18 @@ import {
   IconArrowsMinimize,
   IconPencil,
   IconExternalLink,
+  IconArchive,
+  IconArchiveOff,
+  IconDots,
 } from "@tabler/icons-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { toast } from "sonner";
 import {
   PresenceBar,
   useCollaborativeDoc,
@@ -100,13 +111,24 @@ async function fetchWithAuth(url: string, options?: RequestInit) {
   });
 }
 
+type FetchedExplorerDashboard = {
+  data: ExplorerDashboardData;
+  archivedAt: string | null;
+};
+
 async function fetchDashboard(
   id: string,
-): Promise<ExplorerDashboardData | null> {
+): Promise<FetchedExplorerDashboard | null> {
   const res = await fetchWithAuth(`/api/explorer-dashboards/${id}`);
   if (!res.ok) return null;
   const data = await res.json();
-  return { name: data.name ?? "Untitled Dashboard", charts: data.charts ?? [] };
+  return {
+    data: {
+      name: data.name ?? "Untitled Dashboard",
+      charts: data.charts ?? [],
+    },
+    archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
+  };
 }
 
 async function saveDashboard(id: string, data: ExplorerDashboardData) {
@@ -134,10 +156,12 @@ export default function ExplorerDashboardPage() {
   const [dashboard, setDashboard] = useState<ExplorerDashboardData | null>(
     null,
   );
+  const [archivedAt, setArchivedAt] = useState<string | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [addChartOpen, setAddChartOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   // ── Collaborative editing ──────────────────────────────────────────
   const { session } = useSession();
@@ -211,13 +235,47 @@ export default function ExplorerDashboardPage() {
     if (!dashboardId) return;
     fetchDashboard(dashboardId).then((d) => {
       if (d) {
-        setDashboard(d);
+        setDashboard(d.data);
+        setArchivedAt(d.archivedAt);
       } else {
         setDashboard({ name: "Untitled Dashboard", charts: [] });
+        setArchivedAt(null);
       }
       setLoaded(true);
     });
   }, [dashboardId]);
+
+  const handleArchiveToggle = useCallback(
+    async (action: "archive" | "restore") => {
+      if (!dashboardId) return;
+      const path =
+        action === "archive"
+          ? `/api/explorer-dashboards/${dashboardId}/archive`
+          : `/api/explorer-dashboards/${dashboardId}/unarchive`;
+      try {
+        const res = await fetchWithAuth(path, { method: "POST" });
+        if (!res.ok) throw new Error(`${action} failed (${res.status})`);
+        queryClient.invalidateQueries({
+          queryKey: ["explorer-dashboards-sidebar"],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["explorer-dashboards-palette"],
+        });
+        if (action === "archive") {
+          toast.success(`Archived "${dashboard?.name ?? "dashboard"}"`);
+          navigate("/adhoc/explorer");
+        } else {
+          setArchivedAt(null);
+          toast.success(`Restored "${dashboard?.name ?? "dashboard"}"`);
+        }
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : `Couldn't ${action} dashboard`,
+        );
+      }
+    },
+    [dashboardId, queryClient, navigate, dashboard?.name],
+  );
 
   const persist = useCallback(
     (updated: ExplorerDashboardData) => {
@@ -381,27 +439,83 @@ export default function ExplorerDashboardPage() {
             <IconPlus className="h-4 w-4 mr-1" />
             Add Chart
           </Button>
-          <AlertDialog>
+          {archivedAt ? (
             <Tooltip>
               <TooltipTrigger asChild>
-                <AlertDialogTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleArchiveToggle("restore")}
+                >
+                  <IconArchiveOff className="h-4 w-4 mr-1.5" />
+                  Restore
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>This dashboard is archived</TooltipContent>
+            </Tooltip>
+          ) : null}
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
                   <Button
                     size="sm"
                     variant="ghost"
                     className="text-muted-foreground hover:text-foreground"
+                    aria-label="Dashboard actions"
                   >
-                    <IconTrash className="h-4 w-4" />
+                    <IconDots className="h-4 w-4" />
                   </Button>
-                </AlertDialogTrigger>
+                </DropdownMenuTrigger>
               </TooltipTrigger>
-              <TooltipContent>Delete dashboard</TooltipContent>
+              <TooltipContent>More actions</TooltipContent>
             </Tooltip>
+            <DropdownMenuContent align="end" className="w-44">
+              {archivedAt ? (
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void handleArchiveToggle("restore");
+                  }}
+                >
+                  <IconArchiveOff className="mr-2 h-3.5 w-3.5" />
+                  Restore
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void handleArchiveToggle("archive");
+                  }}
+                >
+                  <IconArchive className="mr-2 h-3.5 w-3.5" />
+                  Archive
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setConfirmDeleteOpen(true);
+                }}
+                className="text-destructive focus:text-destructive"
+              >
+                <IconTrash className="mr-2 h-3.5 w-3.5" />
+                Delete permanently
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <AlertDialog
+            open={confirmDeleteOpen}
+            onOpenChange={setConfirmDeleteOpen}
+          >
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Delete dashboard?</AlertDialogTitle>
+                <AlertDialogTitle>Delete permanently?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will permanently delete &ldquo;{dashboard.name}&rdquo;.
-                  This action cannot be undone.
+                  This permanently deletes &ldquo;{dashboard.name}&rdquo; and
+                  cannot be undone. To keep it recoverable, choose Archive
+                  instead.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -425,10 +539,12 @@ export default function ExplorerDashboardPage() {
                     queryClient.invalidateQueries({
                       queryKey: ["explorer-dashboards-palette"],
                     });
+                    setConfirmDeleteOpen(false);
                     navigate("/adhoc/explorer");
                   }}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                 >
-                  Delete
+                  Delete permanently
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

@@ -278,6 +278,8 @@ Read (`/api/sql-dashboards/:id`, `/api/analyses/:id`) admits rows the current us
 
 **Storage.** Dashboards and analyses now live in SQL (`dashboards`, `analyses`, `dashboard_shares`, `analysis_shares`, `dashboard_views`). Legacy settings-KV keys (`u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, `adhoc-analysis-*`) are read as a fallback on first access and copied into SQL automatically — existing dashboards are preserved. See `server/lib/dashboards-store.ts` for the exact migration policy.
 
+**Archive.** `dashboards.archived_at` is a soft-delete timestamp. The default `listDashboards`/`/api/sql-dashboards` response hides archived rows; pass `?archived=1` (or `archived: 'archived' | 'all'` to the store) to surface them. Hard delete still removes a row entirely. Prefer archive for ordinary destructive flows so users can restore from the sidebar's Archived section.
+
 ## Organizations & Team
 
 This template supports multi-org deployments using the framework-provided org module. The schema (`organizations`, `org_members`, `org_invitations`) lives in `@agent-native/core/org` — there is no template-side schema file. Users sign in with Google, create or get invited to an org, and dashboards remember the org context they were created in while staying private until explicitly shared.
@@ -460,6 +462,8 @@ pnpm action commonroom-members --query="enterprise" --limit=10
 | "Build me a dashboard for X"         | If ambiguous, use guided questions; then `list-data-dictionary --search=X` FIRST and compose from entries                                                                    |
 | "Document this metric"               | `save-data-dictionary-entry --metric="…" --definition="…" …`                                                                                                                 |
 | "Populate the data dictionary"       | Ask where definitions live, fetch them, loop over `save-data-dictionary-entry`                                                                                               |
+| "Delete / remove this dashboard"     | `archive-dashboard --id <id>` (soft, recoverable). Use a hard delete only if the user says "permanently" / "for good".                                                       |
+| "Restore / unarchive this dashboard" | `archive-dashboard --id <id> --archived false`                                                                                                                               |
 
 **Key principle**: When asked a question, don't say "check the dashboard" — actually query the data, get results, and present the answer directly in chat with tables and/or charts.
 
@@ -484,7 +488,7 @@ title: Weekly signups
 ```
 ````
 
-The `SqlPanel` shape is the same one used by `update-dashboard` (see `app/pages/adhoc/sql-dashboard/types.ts`). Required fields: `id`, `title`, `sql`, `source` (`"bigquery" | "ga4" | "amplitude" | "first-party"`), `chartType` (`"line" | "area" | "bar" | "metric" | "table" | "pie"`), `width` (`1` or `2`). Optional `config` for axis keys, formatting, pivots, color palettes, stacking, and `legend`. Chart legends render automatically; set `config.legend=false` only when the user asks to hide them.
+The `SqlPanel` shape is the same one used by `update-dashboard` (see `app/pages/adhoc/sql-dashboard/types.ts`). Required fields: `id`, `title`, `sql`, `source` (`"bigquery" | "ga4" | "amplitude" | "first-party"`), `chartType` (`"line" | "area" | "bar" | "metric" | "table" | "pie"`), `width` (1..6 — number of grid columns to span; clamped to the active section's column count). Optional `config` for axis keys, formatting, pivots, color palettes, stacking, and `legend`. Chart legends render automatically; set `config.legend=false` only when the user asks to hide them. The dashboard always renders 1 column on screens narrower than `md` and expands to the configured column count from `md` and up — set the dashboard-level `columns` (1..6, default 2) for the panels before any section, and use a `chartType: "section"` panel with its own `columns` to switch the grid for the panels that follow it.
 
 Keep the JSON compact — URLs are capped around 4KB. If the SQL is long, persist it as a saved dashboard panel instead and link to that dashboard.
 

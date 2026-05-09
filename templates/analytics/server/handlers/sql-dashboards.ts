@@ -1,4 +1,9 @@
-import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
+import {
+  defineEventHandler,
+  getQuery,
+  getRouterParam,
+  setResponseStatus,
+} from "h3";
 import { readBody } from "@agent-native/core/server";
 import { getOrgContext } from "@agent-native/core/org";
 import { runApiHandlerWithContext } from "../lib/credentials";
@@ -7,6 +12,9 @@ import {
   listDashboards,
   upsertDashboard,
   removeDashboard,
+  archiveDashboard,
+  unarchiveDashboard,
+  type DashboardArchiveFilter,
 } from "../lib/dashboards-store";
 import { dryRunQuery } from "../lib/bigquery";
 import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate";
@@ -76,16 +84,25 @@ function buildDryRunVars(
   return vars;
 }
 
+function parseArchivedFilter(raw: unknown): DashboardArchiveFilter {
+  if (raw === "1" || raw === "true" || raw === "only" || raw === "archived")
+    return "archived";
+  if (raw === "all") return "all";
+  return "active";
+}
+
 export const listSqlDashboards = defineEventHandler(async (event) => {
   try {
     const ctx = await ctxFromEvent(event);
-    const rows = await listDashboards(ctx, { kind: "sql" });
+    const archived = parseArchivedFilter(getQuery(event).archived);
+    const rows = await listDashboards(ctx, { kind: "sql", archived });
     const dashboards = rows.map((d) => ({
       id: d.id,
       ...(d.config as Record<string, unknown>),
       ownerEmail: d.ownerEmail,
       orgId: d.orgId,
       visibility: d.visibility,
+      archivedAt: d.archivedAt,
     }));
     return { dashboards };
   } catch (err: any) {
@@ -113,6 +130,7 @@ export const getSqlDashboard = defineEventHandler(async (event) => {
       ownerEmail: dash.ownerEmail,
       orgId: dash.orgId,
       visibility: dash.visibility,
+      archivedAt: dash.archivedAt,
     };
   } catch (err: any) {
     const status = err?.statusCode ?? 500;
@@ -340,9 +358,37 @@ function validateDashboardConfig(
       if (!isSection && !validSources.has(p.source as string)) {
         return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', or 'first-party' (got '${p.source}'). The table name belongs in the panel's sql, not in source — source selects the backend, not the table.`;
       }
-      if (p.width !== 1 && p.width !== 2) {
-        return `panel[${i}].width must be 1 or 2`;
+      if (
+        typeof p.width !== "number" ||
+        !Number.isFinite(p.width) ||
+        p.width < 1 ||
+        p.width > 6 ||
+        Math.floor(p.width) !== p.width
+      ) {
+        return `panel[${i}].width must be an integer between 1 and 6 (number of grid columns to span)`;
       }
+      if (isSection && p.columns !== undefined) {
+        if (
+          typeof p.columns !== "number" ||
+          !Number.isFinite(p.columns) ||
+          p.columns < 1 ||
+          p.columns > 6 ||
+          Math.floor(p.columns) !== p.columns
+        ) {
+          return `panel[${i}].columns must be an integer between 1 and 6 (only valid on section panels)`;
+        }
+      }
+    }
+  }
+  if (config.columns !== undefined) {
+    if (
+      typeof config.columns !== "number" ||
+      !Number.isFinite(config.columns) ||
+      config.columns < 1 ||
+      config.columns > 6 ||
+      Math.floor(config.columns) !== config.columns
+    ) {
+      return "config.columns must be an integer between 1 and 6";
     }
   }
   return null;
@@ -358,6 +404,48 @@ export const deleteSqlDashboard = defineEventHandler(async (event) => {
     const ctx = await ctxFromEvent(event);
     await removeDashboard(id, ctx);
     return { id, success: true };
+  } catch (err: any) {
+    const status = err?.statusCode ?? 500;
+    setResponseStatus(event, status);
+    return { error: err.message };
+  }
+});
+
+export const archiveSqlDashboard = defineEventHandler(async (event) => {
+  const id = getRouterParam(event, "id");
+  if (!id) {
+    setResponseStatus(event, 400);
+    return { error: "Missing dashboard id" };
+  }
+  try {
+    const ctx = await ctxFromEvent(event);
+    const dash = await archiveDashboard(id, ctx);
+    if (!dash) {
+      setResponseStatus(event, 404);
+      return { error: "Dashboard not found" };
+    }
+    return { id, archivedAt: dash.archivedAt, success: true };
+  } catch (err: any) {
+    const status = err?.statusCode ?? 500;
+    setResponseStatus(event, status);
+    return { error: err.message };
+  }
+});
+
+export const unarchiveSqlDashboard = defineEventHandler(async (event) => {
+  const id = getRouterParam(event, "id");
+  if (!id) {
+    setResponseStatus(event, 400);
+    return { error: "Missing dashboard id" };
+  }
+  try {
+    const ctx = await ctxFromEvent(event);
+    const dash = await unarchiveDashboard(id, ctx);
+    if (!dash) {
+      setResponseStatus(event, 404);
+      return { error: "Dashboard not found" };
+    }
+    return { id, archivedAt: dash.archivedAt, success: true };
   } catch (err: any) {
     const status = err?.statusCode ?? 500;
     setResponseStatus(event, status);

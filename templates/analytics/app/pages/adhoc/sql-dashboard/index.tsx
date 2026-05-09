@@ -1,4 +1,11 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import {
+  Fragment,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import { useSearchParams, useParams, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -24,7 +31,21 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
+import {
+  IconArchive,
+  IconArchiveOff,
+  IconDots,
+  IconPencil,
+  IconPlus,
+  IconTrash,
+} from "@tabler/icons-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   ShareButton,
   PresenceBar,
@@ -47,7 +68,13 @@ import {
 import { interpolate } from "./interpolate";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
 import { ViewsMenu } from "./ViewsMenu";
-import type { SqlDashboardConfig, SqlPanel } from "./types";
+import {
+  clampDashboardColumns,
+  clampPanelWidth,
+  DEFAULT_DASHBOARD_COLUMNS,
+  type SqlDashboardConfig,
+  type SqlPanel,
+} from "./types";
 import { useUserPref } from "@/hooks/use-user-pref";
 import { useDashboardViews } from "@/hooks/use-dashboard-views";
 import { incrementItemView } from "@/lib/item-popularity";
@@ -86,16 +113,25 @@ async function fetchWithAuth(url: string, options?: RequestInit) {
   });
 }
 
-async function fetchDashboard(id: string): Promise<SqlDashboardConfig | null> {
+type FetchedDashboard = {
+  config: SqlDashboardConfig;
+  archivedAt: string | null;
+};
+
+async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
   const res = await fetchWithAuth(`/api/sql-dashboards/${id}`);
   if (!res.ok) return null;
   const data = await res.json();
   return {
-    name: data.name ?? "Untitled Dashboard",
-    description: data.description,
-    filters: data.filters,
-    variables: data.variables,
-    panels: data.panels ?? [],
+    config: {
+      name: data.name ?? "Untitled Dashboard",
+      description: data.description,
+      filters: data.filters,
+      variables: data.variables,
+      columns: typeof data.columns === "number" ? data.columns : undefined,
+      panels: data.panels ?? [],
+    },
+    archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
   };
 }
 
@@ -129,11 +165,13 @@ export default function SqlDashboardPage() {
   const dashboardId = searchParams.get("id") || routeId;
 
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
+  const [archivedAt, setArchivedAt] = useState<string | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [editingDescription, setEditingDescription] = useState(false);
   const [descriptionInput, setDescriptionInput] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const viewedDashboardIdRef = useRef<string | null>(null);
 
   const dashboardQuery = useQuery({
@@ -243,18 +281,21 @@ export default function SqlDashboardPage() {
     appliedSaved.current = false;
     setLoaded(false);
     setDashboard(null);
+    setArchivedAt(null);
     if (!dashboardId) setLoaded(true);
   }, [dashboardId]);
 
   useEffect(() => {
     if (!dashboardId || !dashboardQuery.isSuccess) return;
-    const next = dashboardQuery.data ?? {
+    const fetched = dashboardQuery.data;
+    const next = fetched?.config ?? {
       name: "Untitled Dashboard",
       panels: [],
     };
     setDashboard(next);
+    setArchivedAt(fetched?.archivedAt ?? null);
     setLoaded(true);
-    if (dashboardQuery.data && viewedDashboardIdRef.current !== dashboardId) {
+    if (fetched && viewedDashboardIdRef.current !== dashboardId) {
       viewedDashboardIdRef.current = dashboardId;
       incrementItemView("dashboard", dashboardId);
     }
@@ -411,13 +452,16 @@ export default function SqlDashboardPage() {
   );
 
   const toggleWidth = useCallback(
-    (panelId: string) => {
+    (panelId: string, gridColumns: number) => {
       if (!dashboard) return;
+      const max = clampDashboardColumns(gridColumns);
       persist({
         ...dashboard,
-        panels: dashboard.panels.map((p) =>
-          p.id === panelId ? { ...p, width: p.width === 1 ? 2 : 1 } : p,
-        ),
+        panels: dashboard.panels.map((p) => {
+          if (p.id !== panelId) return p;
+          const current = clampPanelWidth(p.width, max);
+          return { ...p, width: current >= max ? 1 : max };
+        }),
       });
     },
     [dashboard, persist],
@@ -553,18 +597,104 @@ export default function SqlDashboardPage() {
     return dashboard.panels.filter((p) => !p.tab || p.tab === activeTab);
   }, [dashboard, activeTab]);
 
+  // Group panels into "section blocks": each section starts a new block whose
+  // grid uses the section's `columns` (falling back to the dashboard default).
+  // Panels before any section go in an initial unsectioned block.
+  const dashboardColumns = clampDashboardColumns(
+    dashboard?.columns ?? DEFAULT_DASHBOARD_COLUMNS,
+  );
+  const panelGroups = useMemo(() => {
+    const groups: Array<{
+      key: string;
+      section: SqlPanel | null;
+      panels: SqlPanel[];
+      columns: number;
+    }> = [];
+    let current: {
+      key: string;
+      section: SqlPanel | null;
+      panels: SqlPanel[];
+      columns: number;
+    } = {
+      key: "intro",
+      section: null,
+      panels: [],
+      columns: dashboardColumns,
+    };
+    for (const panel of visiblePanels) {
+      if (panel.chartType === "section") {
+        if (current.section || current.panels.length > 0) groups.push(current);
+        current = {
+          key: panel.id,
+          section: panel,
+          panels: [],
+          columns: clampDashboardColumns(panel.columns ?? dashboardColumns),
+        };
+      } else {
+        current.panels.push(panel);
+      }
+    }
+    if (current.section || current.panels.length > 0) groups.push(current);
+    return groups;
+  }, [visiblePanels, dashboardColumns]);
+
   const handleDelete = useCallback(async () => {
     if (!dashboardId) return;
     await fetchWithAuth(`/api/sql-dashboards/${dashboardId}`, {
       method: "DELETE",
     });
     queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
+    queryClient.invalidateQueries({
+      queryKey: ["sql-dashboards-archived-sidebar"],
+    });
     queryClient.invalidateQueries({ queryKey: ["sql-dashboards-palette"] });
     queryClient.invalidateQueries({
       queryKey: ["data", "sql-dashboard", dashboardId],
     });
     navigate("/");
   }, [dashboardId, queryClient, navigate]);
+
+  const handleArchiveToggle = useCallback(
+    async (action: "archive" | "restore") => {
+      if (!dashboardId) return;
+      const path =
+        action === "archive"
+          ? `/api/sql-dashboards/${dashboardId}/archive`
+          : `/api/sql-dashboards/${dashboardId}/unarchive`;
+      try {
+        const res = await fetchWithAuth(path, { method: "POST" });
+        if (!res.ok) {
+          let msg = `${action} failed (${res.status})`;
+          try {
+            const body = await res.json();
+            if (body?.error) msg = body.error;
+          } catch {
+            // non-JSON body — keep generic message
+          }
+          throw new Error(msg);
+        }
+        queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
+        queryClient.invalidateQueries({
+          queryKey: ["sql-dashboards-archived-sidebar"],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["data", "sql-dashboard", dashboardId],
+        });
+        if (action === "archive") {
+          toast.success(`Archived "${dashboard?.name ?? "dashboard"}"`);
+          navigate("/");
+        } else {
+          setArchivedAt(null);
+          toast.success(`Restored "${dashboard?.name ?? "dashboard"}"`);
+        }
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : `Couldn't ${action} dashboard`,
+        );
+      }
+    },
+    [dashboardId, queryClient, navigate, dashboard?.name],
+  );
 
   const handleSaveView = useCallback(
     async (name: string, filters: Record<string, string>) => {
@@ -637,34 +767,92 @@ export default function SqlDashboardPage() {
             Add panel
           </Button>
         </AddPanelPopover>
-        <AlertDialog>
+        {archivedAt ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <AlertDialogTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleArchiveToggle("restore")}
+              >
+                <IconArchiveOff className="h-4 w-4 mr-1.5" />
+                Restore
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>This dashboard is archived</TooltipContent>
+          </Tooltip>
+        ) : null}
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
                 <Button
                   size="sm"
                   variant="ghost"
                   className="text-muted-foreground hover:text-foreground"
-                  aria-label="Delete dashboard"
+                  aria-label="Dashboard actions"
                 >
-                  <IconTrash className="h-4 w-4" />
+                  <IconDots className="h-4 w-4" />
                 </Button>
-              </AlertDialogTrigger>
+              </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent>Delete dashboard</TooltipContent>
+            <TooltipContent>More actions</TooltipContent>
           </Tooltip>
+          <DropdownMenuContent align="end" className="w-44">
+            {archivedAt ? (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  void handleArchiveToggle("restore");
+                }}
+              >
+                <IconArchiveOff className="mr-2 h-3.5 w-3.5" />
+                Restore
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  void handleArchiveToggle("archive");
+                }}
+              >
+                <IconArchive className="mr-2 h-3.5 w-3.5" />
+                Archive
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                setConfirmDeleteOpen(true);
+              }}
+              className="text-destructive focus:text-destructive"
+            >
+              <IconTrash className="mr-2 h-3.5 w-3.5" />
+              Delete permanently
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <AlertDialog
+          open={confirmDeleteOpen}
+          onOpenChange={setConfirmDeleteOpen}
+        >
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Delete dashboard?</AlertDialogTitle>
+              <AlertDialogTitle>Delete permanently?</AlertDialogTitle>
               <AlertDialogDescription>
-                This will permanently delete &ldquo;{dashboard?.name}&rdquo;.
-                This action cannot be undone.
+                This permanently deletes &ldquo;{dashboard?.name}&rdquo; and
+                cannot be undone. To keep it recoverable, choose Archive
+                instead.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleDelete}>
-                Delete
+              <AlertDialogAction
+                onClick={handleDelete}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Delete permanently
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -790,63 +978,130 @@ export default function SqlDashboardPage() {
             items={visiblePanels.map((p) => p.id)}
             strategy={rectSortingStrategy}
           >
-            <div className="grid auto-rows-auto grid-cols-1 items-stretch gap-4 md:grid-cols-2">
-              {visiblePanels.map((panel) => {
-                const resolved = panel.config?.description
-                  ? {
-                      ...panel,
-                      config: {
-                        ...panel.config,
-                        description: interpolate(
-                          panel.config.description,
-                          vars,
-                        ),
-                      },
-                    }
-                  : panel;
-                const remoteEditor = remoteEditingPanels.get(panel.id);
-                const isSection = panel.chartType === "section";
-                const isFullWidth = panel.width === 2;
+            <div className="flex flex-col gap-4">
+              {panelGroups.map((group) => {
+                const renderPanelCell = (panel: SqlPanel) => {
+                  const resolved = panel.config?.description
+                    ? {
+                        ...panel,
+                        config: {
+                          ...panel.config,
+                          description: interpolate(
+                            panel.config.description,
+                            vars,
+                          ),
+                        },
+                      }
+                    : panel;
+                  const remoteEditor = remoteEditingPanels.get(panel.id);
+                  const span = clampPanelWidth(panel.width, group.columns);
+                  return (
+                    <div
+                      key={panel.id}
+                      className="relative h-full md:[grid-column:span_var(--panel-span)]"
+                      style={
+                        {
+                          "--panel-span": span,
+                          ...(remoteEditor
+                            ? {
+                                outline: `2px solid ${remoteEditor.color}`,
+                                outlineOffset: 2,
+                                borderRadius: 8,
+                              }
+                            : null),
+                        } as React.CSSProperties
+                      }
+                    >
+                      {remoteEditor && (
+                        <span
+                          className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
+                          style={{
+                            backgroundColor: remoteEditor.color,
+                            color: "#fff",
+                          }}
+                        >
+                          {remoteEditor.name}
+                        </span>
+                      )}
+                      <SqlChartCard
+                        panel={resolved}
+                        resolvedSql={interpolate(panel.sql, vars)}
+                        gridColumns={group.columns}
+                        onRemove={() => removePanel(panel.id)}
+                        onToggleWidth={() =>
+                          toggleWidth(panel.id, group.columns)
+                        }
+                        onEdit={() => openEditPanel(panel)}
+                        onSaveSql={(sql) => handleSavePanel({ ...panel, sql })}
+                      />
+                    </div>
+                  );
+                };
+
+                const renderSection = (section: SqlPanel) => {
+                  const remoteEditor = remoteEditingPanels.get(section.id);
+                  const resolved = section.config?.description
+                    ? {
+                        ...section,
+                        config: {
+                          ...section.config,
+                          description: interpolate(
+                            section.config.description,
+                            vars,
+                          ),
+                        },
+                      }
+                    : section;
+                  return (
+                    <div
+                      className="relative"
+                      style={
+                        remoteEditor
+                          ? {
+                              outline: `2px solid ${remoteEditor.color}`,
+                              outlineOffset: 2,
+                              borderRadius: 8,
+                            }
+                          : undefined
+                      }
+                    >
+                      {remoteEditor && (
+                        <span
+                          className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
+                          style={{
+                            backgroundColor: remoteEditor.color,
+                            color: "#fff",
+                          }}
+                        >
+                          {remoteEditor.name}
+                        </span>
+                      )}
+                      <SqlChartCard
+                        panel={resolved}
+                        resolvedSql=""
+                        onRemove={() => removePanel(section.id)}
+                        onEdit={() => openEditPanel(section)}
+                      />
+                    </div>
+                  );
+                };
+
                 return (
-                  <div
-                    key={panel.id}
-                    className={
-                      isSection
-                        ? "relative md:col-span-2"
-                        : isFullWidth
-                          ? "relative h-full md:col-span-2"
-                          : "relative h-full"
-                    }
-                    style={
-                      remoteEditor
-                        ? {
-                            outline: `2px solid ${remoteEditor.color}`,
-                            outlineOffset: 2,
-                            borderRadius: 8,
-                          }
-                        : undefined
-                    }
-                  >
-                    {remoteEditor && (
-                      <span
-                        className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
-                        style={{
-                          backgroundColor: remoteEditor.color,
-                          color: "#fff",
-                        }}
+                  <Fragment key={group.key}>
+                    {group.section && renderSection(group.section)}
+                    {group.panels.length > 0 && (
+                      <div
+                        className="grid auto-rows-auto grid-cols-1 items-stretch gap-4 md:[grid-template-columns:repeat(var(--dash-cols),minmax(0,1fr))]"
+                        style={
+                          {
+                            "--dash-cols": group.columns,
+                          } as React.CSSProperties
+                        }
                       >
-                        {remoteEditor.name}
-                      </span>
+                        {group.panels.map(renderPanelCell)}
+                      </div>
                     )}
-                    <SqlChartCard
-                      panel={resolved}
-                      resolvedSql={interpolate(panel.sql, vars)}
-                      onRemove={() => removePanel(panel.id)}
-                      onToggleWidth={() => toggleWidth(panel.id)}
-                      onEdit={() => openEditPanel(panel)}
-                      onSaveSql={(sql) => handleSavePanel({ ...panel, sql })}
-                    />
-                  </div>
+                  </Fragment>
                 );
               })}
             </div>

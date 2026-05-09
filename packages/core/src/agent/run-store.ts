@@ -37,7 +37,8 @@ async function ensureRunTables(): Promise<void> {
           abort_reason TEXT,
           started_at ${intType()} NOT NULL,
           completed_at ${intType()},
-          heartbeat_at ${intType()}
+          heartbeat_at ${intType()},
+          last_progress_at ${intType()}
         )
       `);
       // Backfill heartbeat_at on older deployments.
@@ -66,6 +67,23 @@ async function ensureRunTables(): Promise<void> {
       } catch {
         // Column already exists — ignore
       }
+      // Backfill last_progress_at — this is distinct from heartbeat_at.
+      // heartbeat_at = "the producer process is alive" (bumped on a timer).
+      // last_progress_at = "the agent is actually emitting events" (bumped on
+      // each emit). The gap between them is the stuck-detector signal.
+      try {
+        if (isPostgres()) {
+          await client.execute(
+            `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS last_progress_at ${intType()}`,
+          );
+        } else {
+          await client.execute(
+            `ALTER TABLE agent_runs ADD COLUMN last_progress_at ${intType()}`,
+          );
+        }
+      } catch {
+        // Column already exists — ignore
+      }
       await client.execute(`
         CREATE TABLE IF NOT EXISTS agent_run_events (
           run_id TEXT NOT NULL,
@@ -84,8 +102,8 @@ export async function insertRun(id: string, threadId: string): Promise<void> {
   const client = getDbExec();
   const now = Date.now();
   await client.execute({
-    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at) VALUES (?, ?, 'running', ?, ?)`,
-    args: [id, threadId, now, now],
+    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at) VALUES (?, ?, 'running', ?, ?, ?)`,
+    args: [id, threadId, now, now, now],
   });
 }
 
@@ -95,6 +113,21 @@ export async function updateRunHeartbeat(runId: string): Promise<void> {
   const client = getDbExec();
   await client.execute({
     sql: `UPDATE agent_runs SET heartbeat_at = ? WHERE id = ?`,
+    args: [Date.now(), runId],
+  });
+}
+
+/**
+ * Bump `last_progress_at` — call this whenever the agent actually emits an
+ * event (token, tool call, message). Distinct from `heartbeat_at` so the
+ * stuck-detector can tell "process alive but nothing happening" from
+ * "process dead." Callers should throttle (run-manager debounces to ~1/s).
+ */
+export async function bumpRunProgress(runId: string): Promise<void> {
+  await ensureRunTables();
+  const client = getDbExec();
+  await client.execute({
+    sql: `UPDATE agent_runs SET last_progress_at = ? WHERE id = ?`,
     args: [Date.now(), runId],
   });
 }
@@ -239,12 +272,13 @@ export async function getRunByThread(
   startedAt: number;
   heartbeatAt: number | null;
   completedAt: number | null;
+  lastProgressAt: number | null;
 } | null> {
   await ensureRunTables();
   const client = getDbExec();
   const sql = options?.includeTerminal
-    ? `SELECT id, thread_id, status, started_at, heartbeat_at, completed_at FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`
-    : `SELECT id, thread_id, status, started_at, heartbeat_at, completed_at FROM agent_runs WHERE thread_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`;
+    ? `SELECT id, thread_id, status, started_at, heartbeat_at, completed_at, last_progress_at FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`
+    : `SELECT id, thread_id, status, started_at, heartbeat_at, completed_at, last_progress_at FROM agent_runs WHERE thread_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`;
   const { rows } = await client.execute({ sql, args: [threadId] });
   if (rows.length === 0) return null;
   const r = rows[0] as {
@@ -254,6 +288,7 @@ export async function getRunByThread(
     started_at: number | string;
     heartbeat_at: number | string | null;
     completed_at: number | string | null;
+    last_progress_at: number | string | null;
   };
   return {
     id: r.id,
@@ -262,6 +297,8 @@ export async function getRunByThread(
     startedAt: Number(r.started_at),
     heartbeatAt: r.heartbeat_at == null ? null : Number(r.heartbeat_at),
     completedAt: r.completed_at == null ? null : Number(r.completed_at),
+    lastProgressAt:
+      r.last_progress_at == null ? null : Number(r.last_progress_at),
   };
 }
 

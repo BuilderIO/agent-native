@@ -44,10 +44,12 @@ When the user asks for a dashboard:
 
 1. Read the injected `<data-dictionary>` block first. If relevant entries exist, use their `table`, `columns`, `queryTemplate`, and gotchas verbatim.
 2. If a metric is not documented, do not guess column names. Ask for the table/columns or introspect the provider schema, then propose a dictionary entry with `save-data-dictionary-entry`.
-3. Build a complete `SqlDashboardConfig` with `name` and `panels`.
-4. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`.
+3. Build a complete `SqlDashboardConfig` with `name` and `panels`. Optionally set top-level `columns` (1–6, default 2) to control how many grid columns the panels before any section use.
+4. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`. `width` is the number of grid columns the panel spans (1..6, clamped to the active section's column count). Section panels skip `source` and `sql` and may set their own `columns` (1–6) to override the dashboard default for the panels following the section.
 5. Persist with `update-dashboard`, not raw SQL or settings writes.
 6. Navigate to it with `pnpm action navigate --view=adhoc --dashboardId=<id>`.
+
+Layout is always **1 column on screens narrower than `md`** (panels stack), then expands to the configured column count from `md` and up. So picking 3 or 4 columns is fine — the renderer keeps mobile/narrow layouts readable automatically.
 
 ```bash
 pnpm action update-dashboard --dashboardId weekly-metrics --config '<full json>'
@@ -62,6 +64,9 @@ The save path dry-runs BigQuery panels before persisting. If validation returns 
 {
   "name": "Weekly Metrics",
   "description": "Core product and acquisition metrics",
+  // Default grid columns for panels before any section. 1–6, default 2.
+  // The grid is always 1 column on small screens and expands at `md:`.
+  "columns": 3,
   "filters": [
     { "id": "date", "type": "date-range", "label": "Date Range", "default": "30d" }
   ],
@@ -69,6 +74,12 @@ The save path dry-runs BigQuery panels before persisting. If validation returns 
     "EVENTS": "`my_project.analytics.events`"
   },
   "panels": [
+    // 3 metric cards sit side-by-side at md+ thanks to the dashboard's "columns": 3.
+    { "id": "kpi-clicks", "title": "Clicks", "source": "first-party", "chartType": "metric", "width": 1, "sql": "SELECT COUNT(*) AS value FROM analytics_events WHERE event_name = 'click'" },
+    { "id": "kpi-signups", "title": "Signups", "source": "first-party", "chartType": "metric", "width": 1, "sql": "SELECT COUNT(*) AS value FROM analytics_events WHERE event_name = 'signup'" },
+    { "id": "kpi-active", "title": "Active users", "source": "first-party", "chartType": "metric", "width": 1, "sql": "SELECT COUNT(DISTINCT user_id) AS value FROM analytics_events" },
+    // Section header switches the grid to 2 columns for the panels below it.
+    { "id": "trends", "title": "Trends", "chartType": "section", "width": 1, "columns": 2 },
     {
       "id": "events",
       "title": "Events",
@@ -113,6 +124,19 @@ pnpm action update-dashboard --dashboardId weekly-metrics --config '<full json>'
 ```
 
 After a mutation, navigate to the dashboard if the user is elsewhere. The app syncs through the framework's polling/query invalidation path.
+
+## Archiving vs deleting
+
+Dashboards have a soft-delete state. The default user-facing destructive action is **Archive** (recoverable). Hard delete still exists, but lives behind a "Delete permanently" confirm in both the page header and the sidebar dropdown — and in the agent surface, behind the older `delete-dashboard` action. Archived rows stay in the `dashboards` table with `archived_at` set, are hidden from the default sidebar list, and remain accessible by id (so deep links in chat history keep working) until explicitly purged.
+
+```bash
+# Archive
+pnpm action archive-dashboard --id weekly-metrics
+# Restore
+pnpm action archive-dashboard --id weekly-metrics --archived false
+```
+
+Default the agent to archive when the user says "delete" / "remove" / "get rid of" a dashboard. Reach for hard delete only when the user explicitly says "permanently", "for good", or similar. List queries default to active rows only — use `?archived=1` on `/api/sql-dashboards` (or the `archived: 'all' | 'archived' | 'active'` option on `listDashboards`) to see archived rows.
 
 ## Sharing
 

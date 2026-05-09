@@ -31,7 +31,15 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
-import type { ChartType, DataSourceType, SqlPanel } from "./types";
+import {
+  clampDashboardColumns,
+  clampPanelWidth,
+  DEFAULT_DASHBOARD_COLUMNS,
+  MAX_DASHBOARD_COLUMNS,
+  type ChartType,
+  type DataSourceType,
+  type SqlPanel,
+} from "./types";
 
 const CHART_TYPES: { value: ChartType; label: string }[] = [
   { value: "line", label: "Line" },
@@ -63,7 +71,10 @@ export interface PanelFormValues {
   title: string;
   chartType: ChartType;
   source: DataSourceType;
-  width: 1 | 2;
+  width: number;
+  /** Section panels only: number of grid columns the panels following this
+   *  section should use. Ignored when `chartType` is not `"section"`. */
+  columns: number;
   sql: string;
   description: string;
 }
@@ -75,6 +86,7 @@ function panelToForm(panel: SqlPanel | null): PanelFormValues {
       chartType: "line",
       source: "bigquery",
       width: 1,
+      columns: DEFAULT_DASHBOARD_COLUMNS,
       sql: "",
       description: "",
     };
@@ -83,7 +95,8 @@ function panelToForm(panel: SqlPanel | null): PanelFormValues {
     title: panel.title,
     chartType: panel.chartType,
     source: panel.source,
-    width: panel.width,
+    width: clampPanelWidth(panel.width, MAX_DASHBOARD_COLUMNS),
+    columns: clampDashboardColumns(panel.columns ?? DEFAULT_DASHBOARD_COLUMNS),
     sql: panel.sql,
     description: panel.config?.description ?? "",
   };
@@ -102,13 +115,19 @@ function formToPanel(
   } else {
     delete config.description;
   }
+  const isSection = form.chartType === "section";
   return {
     id,
     title: form.title.trim() || "Untitled panel",
     sql: form.sql,
     source: form.source,
     chartType: form.chartType,
-    width: form.width,
+    width: clampPanelWidth(form.width, MAX_DASHBOARD_COLUMNS),
+    ...(isSection
+      ? { columns: clampDashboardColumns(form.columns) }
+      : existing?.columns !== undefined
+        ? { columns: existing.columns }
+        : null),
     config: Object.keys(config).length > 0 ? config : undefined,
   };
 }
@@ -206,7 +225,7 @@ function PanelEditorContent({
         `If no source can answer, report the exact unavailable/error result instead of saving a panel with guessed schema or metrics. ` +
         `Use the \`update-dashboard\` action with ops=[{op:'insert', path:'/panels/-', value: <panel>}] ` +
         `to append, or an appropriate index to place the panel in the right spot. ` +
-        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'), width (1 half | 2 full), config? }. ` +
+        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'|'section'), width (number of grid columns to span, 1..6), columns? (section panels only — 1..6 grid columns for the panels following this section), config? }. ` +
         `For amplitude panels, sql is a JSON descriptor: {"event":"event name","groupBy":"property","days":30}. ` +
         `For first-party panels, sql is read-only SQL over analytics_events only; use source 'first-party' and do not call db-query for this datasource. ` +
         `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), description, columns, pivot, limit, color, colors, stacked, legend }. ` +
@@ -289,24 +308,58 @@ function PanelEditorContent({
         </div>
 
         <div className="grid gap-1.5">
-          <Label>Width</Label>
-          <ToggleGroup
-            type="single"
-            value={String(form.width)}
-            onValueChange={(v) => {
-              if (v === "1" || v === "2") {
-                setForm((f) => ({ ...f, width: Number(v) as 1 | 2 }));
-              }
-            }}
-            className="justify-start h-9"
-          >
-            <ToggleGroupItem value="1" className="h-9 px-3 text-xs">
-              Half
-            </ToggleGroupItem>
-            <ToggleGroupItem value="2" className="h-9 px-3 text-xs">
-              Full
-            </ToggleGroupItem>
-          </ToggleGroup>
+          <Label>
+            {form.chartType === "section" ? "Section columns" : "Span"}
+          </Label>
+          {form.chartType === "section" ? (
+            <ToggleGroup
+              type="single"
+              value={String(form.columns)}
+              onValueChange={(v) => {
+                if (!v) return;
+                const next = clampDashboardColumns(Number(v));
+                setForm((f) => ({ ...f, columns: next }));
+              }}
+              className="justify-start h-9"
+            >
+              {Array.from(
+                { length: MAX_DASHBOARD_COLUMNS },
+                (_, i) => i + 1,
+              ).map((n) => (
+                <ToggleGroupItem
+                  key={n}
+                  value={String(n)}
+                  className="h-9 w-9 px-0 text-xs"
+                >
+                  {n}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          ) : (
+            <ToggleGroup
+              type="single"
+              value={String(form.width)}
+              onValueChange={(v) => {
+                if (!v) return;
+                const next = clampPanelWidth(Number(v), MAX_DASHBOARD_COLUMNS);
+                setForm((f) => ({ ...f, width: next }));
+              }}
+              className="justify-start h-9"
+            >
+              {Array.from(
+                { length: MAX_DASHBOARD_COLUMNS },
+                (_, i) => i + 1,
+              ).map((n) => (
+                <ToggleGroupItem
+                  key={n}
+                  value={String(n)}
+                  className="h-9 w-9 px-0 text-xs"
+                >
+                  {n}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          )}
         </div>
       </div>
 

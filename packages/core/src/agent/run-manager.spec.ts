@@ -13,6 +13,7 @@ vi.mock("./run-store.js", () => ({
   getRunByThread: vi.fn(() => Promise.resolve(null)),
   cleanupOldRuns: vi.fn(() => Promise.resolve()),
   updateRunHeartbeat: vi.fn(() => Promise.resolve()),
+  bumpRunProgress: vi.fn(() => Promise.resolve()),
   reapIfStale: vi.fn(() => Promise.resolve(null)),
 }));
 
@@ -609,11 +610,12 @@ describe("run manager soft timeout", () => {
       startedAt: Date.now() - 1000,
       heartbeatAt: Date.now() - 1000,
       completedAt: Date.now() - 500,
+      lastProgressAt: Date.now() - 800,
     });
 
     const result = await getActiveRunForThreadAsync("thread-recent");
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       runId: "run-recent-completed",
       threadId: "thread-recent",
       status: "completed",
@@ -634,6 +636,7 @@ describe("run manager soft timeout", () => {
       startedAt: completedAt - 5_000,
       heartbeatAt: null,
       completedAt,
+      lastProgressAt: null,
     });
 
     const result = await getActiveRunForThreadAsync("thread-old");
@@ -655,6 +658,7 @@ describe("run manager soft timeout", () => {
       startedAt,
       heartbeatAt: Date.now() - 5_000,
       completedAt: Date.now() - 2_000,
+      lastProgressAt: Date.now() - 5_000,
     });
 
     const result = await getActiveRunForThreadAsync("thread-long");
@@ -676,6 +680,7 @@ describe("run manager soft timeout", () => {
       startedAt: Date.now() - TERMINAL_RUN_RECONNECT_WINDOW_MS - 120_000,
       heartbeatAt: Date.now() - 3_000,
       completedAt: null,
+      lastProgressAt: null,
     });
 
     const result = await getActiveRunForThreadAsync("thread-legacy");
@@ -694,6 +699,7 @@ describe("run manager soft timeout", () => {
       startedAt: Date.now() - 1000,
       heartbeatAt: null,
       completedAt: Date.now() - 500,
+      lastProgressAt: null,
     });
 
     const result = await getActiveRunForThreadAsync("thread-errored");

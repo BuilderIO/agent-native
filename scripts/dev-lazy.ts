@@ -65,7 +65,8 @@ Options:
   --all                Expose every template in packages/shared-app-config
   --desktop            Also start the local frame and Electron desktop app
   --eager              Start every exposed template immediately
-  --no-open            Do not open the gateway URL in the browser
+  --open               Open the gateway URL in the browser on ready
+  --no-open            (legacy / no-op — auto-open is off by default)
   --no-kill            Do not kill stale processes on gateway/template ports
   --dry-run            Print ports and commands without spawning
   -h, --help           Show this help message
@@ -155,6 +156,7 @@ const isHeadlessEnv =
   !!process.env.CODESPACES ||
   !!process.env.GITPOD_WORKSPACE_ID;
 const shouldOpen =
+  (hasFlag("--open") || process.env.WORKSPACE_OPEN === "1") &&
   !hasFlag("--no-open") &&
   process.env.WORKSPACE_NO_OPEN !== "1" &&
   !isHeadlessEnv;

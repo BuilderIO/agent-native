@@ -42,7 +42,13 @@ interface SqlChartCardProps {
   panel: SqlPanel;
   resolvedSql?: string;
   onRemove: () => void;
-  onToggleWidth: () => void;
+  /** Toggle between "span 1 column" and "span all columns of the current
+   *  section". Optional because section panels never expose this control. */
+  onToggleWidth?: () => void;
+  /** Number of columns in the section this panel currently lives in. Used to
+   *  decide the toggle label / icon: when the panel already spans the full
+   *  row, we offer to shrink; otherwise we offer to expand. */
+  gridColumns?: number;
   onEdit?: () => void;
   /** Persist a SQL-only edit from the inline View SQL popover. Should throw on
    *  validation failure so the popover can stay open and surface the error. */
@@ -54,6 +60,7 @@ export function SqlChartCard({
   resolvedSql,
   onRemove,
   onToggleWidth,
+  gridColumns,
   onEdit,
   onSaveSql,
 }: SqlChartCardProps) {
@@ -223,14 +230,21 @@ export function SqlChartCard({
                     </DropdownMenuItem>
                   </ViewSqlPopover>
                 )}
-                <DropdownMenuItem onSelect={onToggleWidth}>
-                  {panel.width === 2 ? (
-                    <IconArrowsMinimize className="h-4 w-4 mr-2" />
-                  ) : (
-                    <IconArrowsMaximize className="h-4 w-4 mr-2" />
-                  )}
-                  {panel.width === 2 ? "Half width" : "Full width"}
-                </DropdownMenuItem>
+                {onToggleWidth && (gridColumns ?? 2) > 1 && (
+                  <DropdownMenuItem onSelect={onToggleWidth}>
+                    {panel.width >= (gridColumns ?? 2) ? (
+                      <>
+                        <IconArrowsMinimize className="h-4 w-4 mr-2" />
+                        Span 1 column
+                      </>
+                    ) : (
+                      <>
+                        <IconArrowsMaximize className="h-4 w-4 mr-2" />
+                        Span full row
+                      </>
+                    )}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 {onEdit && (
                   <DropdownMenuItem onSelect={() => onEdit()}>

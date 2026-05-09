@@ -475,7 +475,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
     },
     {
       icon: <IconClock className="h-3.5 w-3.5" />,
-      label: "Scheduled Task",
+      label: "Schedule Task",
       desc: "Run something on a schedule",
       action: () => setView("job"),
     },
@@ -616,7 +616,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
         {view === "job" && (
           <div className="p-3">
             <label className="mb-1 block text-[11px] font-semibold text-foreground">
-              Scheduled Task
+              Schedule Task
             </label>
             <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
               Describe what should happen and when.

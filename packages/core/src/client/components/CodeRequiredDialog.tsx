@@ -216,14 +216,14 @@ export function CodeRequiredDialog({
               </div>
               <div style={s.optionText}>
                 <span style={s.optionTitle}>
-                  Builder Cloud Agents unavailable
+                  Builder Cloud Agents coming soon
                 </span>
                 <span style={s.optionDesc}>
                   You don't have access yet. Use the desktop app or your local
                   clone for this code change.
                 </span>
               </div>
-              <span style={s.badge}>Unavailable</span>
+              <span style={s.badge}>Coming soon</span>
             </div>
           ) : (
             <a

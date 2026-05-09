@@ -15,6 +15,7 @@ import {
 } from "./components/ui/tooltip.js";
 import { useChatThreads, type ChatThreadSummary } from "./use-chat-threads.js";
 import { agentNativePath } from "./api-path.js";
+import { RunStuckBanner } from "./RunStuckBanner.js";
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
   getReasoningEffortOptionsForModel,
@@ -408,6 +409,7 @@ export function MultiTabAssistantChat({
     generateTitle,
     searchThreads,
     refreshThreads,
+    isNewThread,
   } = useChatThreads(apiUrl, storageKey);
 
   // Namespace all localStorage keys by storageKey when provided (for per-app isolation in frame)
@@ -772,11 +774,14 @@ export function MultiTabAssistantChat({
     }
   }, [activeThreadId]);
 
-  // Ensure at least one tab is always open — auto-create if sidebar is empty
+  // Ensure at least one tab is always open — auto-create if sidebar is empty.
+  // Skipped when an active thread already exists (e.g. the hook generated an
+  // optimistic id for a brand-new session); the activeThreadId effect above
+  // adds it to openTabIds without spinning up a duplicate thread.
   const autoCreatingRef = useRef(false);
   useEffect(() => {
     if (isLoading || autoCreatingRef.current) return;
-    if (openTabIds.length === 0) {
+    if (openTabIds.length === 0 && !activeThreadId) {
       autoCreatingRef.current = true;
       createThread().then((id) => {
         autoCreatingRef.current = false;
@@ -786,7 +791,7 @@ export function MultiTabAssistantChat({
         }
       });
     }
-  }, [isLoading, openTabIds, createThread]);
+  }, [isLoading, openTabIds, activeThreadId, createThread]);
 
   // Focus the composer when switching tabs
   useEffect(() => {
@@ -1309,7 +1314,11 @@ export function MultiTabAssistantChat({
     tabCount: openTabIds.length,
   };
 
-  if (isLoading) {
+  // No full-shell skeleton: the hook seeds an optimistic activeThreadId
+  // synchronously so the chat shell + composer can paint on first render.
+  // Per-thread restore (existing chats with history) shows its own message-area
+  // skeleton inside AssistantChat — header and composer stay visible.
+  if (isLoading && !activeThreadId) {
     return (
       <ChatSkeleton
         header={renderHeader?.(headerProps)}
@@ -1535,12 +1544,22 @@ export function MultiTabAssistantChat({
             return (
               <div
                 key={tabId}
-                className="flex-1 min-h-0"
+                className="flex-1 min-h-0 flex-col"
                 style={{
                   display:
                     contentHidden || tabId !== activeThreadId ? "none" : "flex",
                 }}
               >
+                <RunStuckBanner
+                  threadId={tabId}
+                  apiUrl={apiUrl}
+                  onRetry={() => {
+                    const handle = chatRefs.current.get(tabId);
+                    handle?.sendMessage(
+                      "Continue from where you left off and finish my last request. Do not repeat completed work.",
+                    );
+                  }}
+                />
                 <AssistantChat
                   {...props}
                   ref={(handle) => {
@@ -1553,7 +1572,9 @@ export function MultiTabAssistantChat({
                   threadId={tabId}
                   tabId={tabId}
                   apiUrl={apiUrl}
-                  isNewThread={newThreadIds.current.has(tabId)}
+                  isNewThread={
+                    newThreadIds.current.has(tabId) || isNewThread(tabId)
+                  }
                   onMessageCountChange={(count) =>
                     setMessageCounts((prev) =>
                       prev[tabId] === count

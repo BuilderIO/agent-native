@@ -2,6 +2,7 @@ import React, {
   useState,
   useRef,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useMemo,
   forwardRef,
@@ -63,6 +64,7 @@ import {
 import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { agentNativePath } from "./api-path.js";
+import { getThreadCacheKey } from "./use-chat-threads.js";
 import { BUILDER_SPACE_SETTINGS_URL } from "./error-format.js";
 import { ThumbsFeedback } from "./observability/ThumbsFeedback.js";
 import {
@@ -2974,7 +2976,21 @@ const AssistantChatInner = forwardRef<
 
   // ─── Chat persistence ──────────────────────────────────────────────
   const hasRestoredRef = useRef(false);
-  const [isRestoring, setIsRestoring] = useState(!!threadId && !isNewThread);
+  // Cached thread data from a prior session, read synchronously so existing
+  // chats can paint their messages on first commit instead of after the server
+  // round-trip. The server fetch still runs to refresh with the latest.
+  const [cachedThreadData] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    if (!threadId || isNewThread) return null;
+    try {
+      return localStorage.getItem(getThreadCacheKey(threadId));
+    } catch {
+      return null;
+    }
+  });
+  const [isRestoring, setIsRestoring] = useState(
+    !!threadId && !isNewThread && !cachedThreadData,
+  );
   const onSaveThreadRef = useRef(onSaveThread);
   onSaveThreadRef.current = onSaveThread;
   const onGenerateTitleRef = useRef(onGenerateTitle);
@@ -3214,6 +3230,21 @@ const AssistantChatInner = forwardRef<
       }
     }, [apiUrl, refreshThreadFromServer, startReconnectToRun, threadId]);
 
+  // Hydrate from the localStorage cache synchronously so the message bubbles
+  // paint on the first commit instead of after the server round-trip. The
+  // server fetch below still runs to refresh with the latest content.
+  const hydratedFromCacheRef = useRef(false);
+  useLayoutEffect(() => {
+    if (hydratedFromCacheRef.current) return;
+    if (!cachedThreadData) return;
+    hydratedFromCacheRef.current = true;
+    try {
+      importThreadData(cachedThreadData, { markTitleGenerated: true });
+    } catch {
+      // Corrupt cache entry — ignore and let the server fetch repopulate.
+    }
+  }, [cachedThreadData, importThreadData]);
+
   // Restore messages from server on mount (when threadId is set)
   useEffect(() => {
     if (hasRestoredRef.current) return;
@@ -3229,7 +3260,12 @@ const AssistantChatInner = forwardRef<
           if (!res.ok) return;
           const data = await res.json();
           if (data.threadData) {
-            importThreadData(data.threadData, { markTitleGenerated: true });
+            // Skip the re-import if the server data matches what we already
+            // hydrated from cache — avoids a second runtime.import that would
+            // briefly flicker the message list.
+            if (data.threadData !== cachedThreadData) {
+              importThreadData(data.threadData, { markTitleGenerated: true });
+            }
           }
           // Also skip title generation if thread already has a title
           if (data.title) {
@@ -3266,6 +3302,7 @@ const AssistantChatInner = forwardRef<
     threadRuntime,
     importThreadData,
     reconnectActiveRunForThread,
+    cachedThreadData,
   ]);
 
   // If assistant-ui stops the local runtime while the background server run is

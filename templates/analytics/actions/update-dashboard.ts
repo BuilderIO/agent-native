@@ -242,6 +242,12 @@ function validateDashboardConfig(
     return "config.panels must be an array (use [] for an empty dashboard)";
   }
   const validSources = new Set(["bigquery", "ga4", "amplitude", "first-party"]);
+  const isValidColumnCount = (v: unknown): v is number =>
+    typeof v === "number" &&
+    Number.isFinite(v) &&
+    v >= 1 &&
+    v <= 6 &&
+    Math.floor(v) === v;
   for (let i = 0; i < panels.length; i++) {
     const p = panels[i] as Record<string, unknown> | null;
     if (!p || typeof p !== "object") {
@@ -257,7 +263,9 @@ function validateDashboardConfig(
     for (const field of required) {
       const v = p[field];
       if (field === "width") {
-        if (v !== 1 && v !== 2) return `panel[${i}].width must be 1 or 2`;
+        if (!isValidColumnCount(v)) {
+          return `panel[${i}].width must be an integer between 1 and 6 (number of grid columns to span)`;
+        }
         continue;
       }
       if (typeof v !== "string" || v.trim().length === 0) {
@@ -267,6 +275,16 @@ function validateDashboardConfig(
     if (!isSection && !validSources.has(p.source as string)) {
       return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', or 'first-party' (got '${p.source}'). source selects the backend — put the table name in sql, not here.`;
     }
+    if (
+      isSection &&
+      p.columns !== undefined &&
+      !isValidColumnCount(p.columns)
+    ) {
+      return `panel[${i}].columns must be an integer between 1 and 6 (only valid on section panels)`;
+    }
+  }
+  if (config.columns !== undefined && !isValidColumnCount(config.columns)) {
+    return "config.columns must be an integer between 1 and 6";
   }
   return null;
 }

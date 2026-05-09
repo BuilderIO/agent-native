@@ -12,6 +12,7 @@ import {
   getRunByThread,
   cleanupOldRuns,
   updateRunHeartbeat,
+  bumpRunProgress,
   reapIfStale,
 } from "./run-store.js";
 
@@ -180,6 +181,18 @@ export function startRun(
   // overwritten by a late row stuck at status='running'.
   const insertRunPromise = insertRun(runId, threadId).catch(() => {});
 
+  // Throttle the durable progress timestamp to at most once per second so
+  // a chatty token-by-token stream doesn't translate into one DB write per
+  // chunk. The stuck-detector threshold is on the order of tens of seconds,
+  // so 1s resolution is plenty.
+  let lastProgressBumpAt = 0;
+  const bumpProgressIfDue = () => {
+    const now = Date.now();
+    if (now - lastProgressBumpAt < 1000) return;
+    lastProgressBumpAt = now;
+    bumpRunProgress(runId).catch(() => {});
+  };
+
   // Periodic SQL abort check interval (for cross-isolate abort on Workers)
   let lastAbortCheck = Date.now() - 3000;
   const checkSqlAbort = () => {
@@ -268,6 +281,12 @@ export function startRun(
         run.subscribers.delete(subscriber);
       }
     }
+
+    // Bump the durable progress timestamp. Distinct from the heartbeat:
+    // heartbeat = "process is up", progress = "real work is happening." The
+    // gap between them is what the client-side stuck-detector reads to tell
+    // a hung run from a healthy one.
+    bumpProgressIfDue();
 
     // Persist event to SQL. Ordinary streaming events are fire-and-forget, but
     // terminal events are awaited before final status is persisted so reconnects
@@ -725,13 +744,17 @@ export function getActiveRunForThread(threadId: string): ActiveRun | null {
  * Used by the /runs/active endpoint.
  *
  * Returns `heartbeatAt` so the client can independently decide a run is
- * dead even before the server-side stale reap has fired.
+ * dead even before the server-side stale reap has fired. Returns
+ * `lastProgressAt` so the client-side stuck-detector can show a
+ * user-visible "this chat looks stuck" affordance when a run is alive
+ * (heartbeating) but not actually emitting events.
  */
 export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   runId: string;
   threadId: string;
   status: string;
   heartbeatAt: number;
+  lastProgressAt: number | null;
 } | null> {
   // Check memory first — return both running AND recently-completed runs
   // that still have events in memory. This allows sub-agent tabs to replay
@@ -745,6 +768,12 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       // In-memory means this isolate is the producer. By definition, the
       // heartbeat is fresh as of "now" — the client can trust this.
       heartbeatAt: Date.now(),
+      // For an in-memory run we don't have a separate "last event emit"
+      // timestamp tracked in JS — the SQL bump is throttled per-second.
+      // Read it back from SQL on demand. For the common case the SQL row
+      // is well under 1s old; if it isn't, the stuck-detector will pick
+      // it up on the next poll cycle.
+      lastProgressAt: await fetchLastProgressAt(memRun.runId),
     };
   }
   // Fall back to SQL — also surface recently terminated runs so the client
@@ -768,6 +797,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         threadId: sqlRun.threadId,
         status: sqlRun.status,
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
+        lastProgressAt: sqlRun.lastProgressAt,
       };
     }
     if (sqlRun.status === "completed" || sqlRun.status === "errored") {
@@ -791,12 +821,29 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         threadId: sqlRun.threadId,
         status: sqlRun.status,
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
+        lastProgressAt: sqlRun.lastProgressAt,
       };
     }
   } catch {
     // SQL error — fall through
   }
   return null;
+}
+
+async function fetchLastProgressAt(runId: string): Promise<number | null> {
+  try {
+    const run = await getRunById(runId);
+    if (!run) return null;
+    // `getRunById` returns a narrow projection today; ask for the row via
+    // the thread lookup which carries last_progress_at.
+    const byThread = await getRunByThread(run.threadId, {
+      includeTerminal: true,
+    });
+    if (byThread && byThread.id === runId) return byThread.lastProgressAt;
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /** Get a run by ID */
