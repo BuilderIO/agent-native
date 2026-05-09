@@ -1,9 +1,14 @@
 import { defineEventHandler, setResponseStatus } from "h3";
 import {
   saveCredential,
+  deleteCredential,
   getCredentialContextFromEvent,
 } from "../../lib/credentials";
-import { credentialKeys } from "../../lib/credential-keys";
+import {
+  credentialKeys,
+  optionalCredentialKeys,
+  partitionCredentialUpdate,
+} from "../../lib/credential-keys";
 import { readBody } from "@agent-native/core/server";
 import {
   getScopedSettingRecord,
@@ -60,17 +65,33 @@ export default defineEventHandler(async (event) => {
     return { error: "vars array required" };
   }
 
-  const filtered = vars.filter(
-    (v) => typeof v.key === "string" && ALLOWED_KEYS.has(v.key) && v.value,
+  const recognized = vars.filter(
+    (v) => typeof v.key === "string" && ALLOWED_KEYS.has(v.key),
   );
-  if (filtered.length === 0) {
+  if (recognized.length === 0) {
     setResponseStatus(event, 400);
     return { error: "No recognized credential keys in request" };
   }
 
-  for (const { key, value } of filtered) {
-    const trimmed = value.trim();
-    const validationError = validateCredential(key, trimmed);
+  const { toSave, toDelete, blankRequired } = partitionCredentialUpdate(
+    recognized,
+    optionalCredentialKeys,
+  );
+
+  if (blankRequired.length > 0) {
+    setResponseStatus(event, 400);
+    return {
+      error: `Cannot clear required credentials: ${blankRequired.join(", ")}`,
+    };
+  }
+
+  if (toSave.length === 0 && toDelete.length === 0) {
+    setResponseStatus(event, 400);
+    return { error: "No values to save or delete" };
+  }
+
+  for (const { key, value } of toSave) {
+    const validationError = validateCredential(key, value);
     if (validationError) {
       setResponseStatus(event, 400);
       return { error: validationError };
@@ -82,15 +103,18 @@ export default defineEventHandler(async (event) => {
     setResponseStatus(event, 401);
     return { error: "Sign in to save credentials" };
   }
-  for (const { key, value } of filtered) {
-    await saveCredential(key, value.trim(), ctx);
+  for (const { key, value } of toSave) {
+    await saveCredential(key, value, ctx);
+  }
+  for (const key of toDelete) {
+    await deleteCredential(key, ctx);
   }
 
   // Auto-seed the Google Analytics SQL dashboard the first time a user
   // wires up either GA4 credential. Idempotent: if the dashboard already
   // exists (even empty) we leave it alone so a user who deleted panels
   // doesn't get them resurrected on the next reconnect.
-  const savedKeys = new Set(filtered.map((v) => v.key));
+  const savedKeys = new Set(toSave.map((v) => v.key));
   const savedGaCred = [...GA4_CREDENTIAL_KEYS].some((k) => savedKeys.has(k));
   if (savedGaCred) {
     try {
@@ -111,5 +135,5 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  return { saved: filtered.map((v) => v.key) };
+  return { saved: toSave.map((v) => v.key), deleted: toDelete };
 });

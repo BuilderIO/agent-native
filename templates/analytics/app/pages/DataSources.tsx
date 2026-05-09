@@ -267,6 +267,7 @@ function ConnectedView({
   const [editing, setEditing] = useState(false);
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
+  const [pendingClears, setPendingClears] = useState<Set<string>>(new Set());
   const [testResult, setTestResult] = useState<{
     ok: boolean;
     error?: string;
@@ -274,14 +275,20 @@ function ConnectedView({
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const vars = Object.entries(inputValues)
-        .filter(([, v]) => v.trim())
-        .map(([key, value]) => ({ key, value: value.trim() }));
+      const vars: Array<{ key: string; value: string }> = [];
+      for (const [key, value] of Object.entries(inputValues)) {
+        const trimmed = value.trim();
+        if (trimmed) vars.push({ key, value: trimmed });
+      }
+      for (const key of pendingClears) {
+        if (!inputValues[key]?.trim()) vars.push({ key, value: "" });
+      }
       if (vars.length === 0) return;
       await saveEnvVars(vars);
     },
     onSuccess: () => {
       setInputValues({});
+      setPendingClears(new Set());
       setEditing(false);
       onSaved();
     },
@@ -305,7 +312,8 @@ function ConnectedView({
     },
   });
 
-  const hasInputValues = Object.values(inputValues).some((v) => v.trim());
+  const hasInputValues =
+    Object.values(inputValues).some((v) => v.trim()) || pendingClears.size > 0;
 
   // Get credential labels from walkthrough steps
   const keyLabels: Record<string, string> = {};
@@ -345,74 +353,126 @@ function ConnectedView({
       <div className="space-y-3 py-3">
         {source.walkthroughSteps
           .filter((step) => step.inputKey)
-          .map((step) => (
-            <div key={step.inputKey} className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-muted-foreground">
-                  {step.inputLabel || step.inputKey}
-                </label>
-                {step.inputAcceptFile && (
-                  <label className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 cursor-pointer">
-                    <IconUpload className="h-3 w-3" />
-                    Upload file
-                    <input
-                      type="file"
-                      accept={step.inputAcceptFile}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (!file || !step.inputKey) return;
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                          if (typeof reader.result === "string") {
-                            setInputValues((prev) => ({
-                              ...prev,
-                              [step.inputKey!]: reader.result as string,
-                            }));
-                          }
-                        };
-                        reader.readAsText(file);
-                        e.target.value = "";
-                      }}
-                      className="hidden"
-                    />
+          .map((step) => {
+            const stepKey = step.inputKey!;
+            const isOptional = optionalKeys.has(stepKey);
+            const isConfigured = !!envStatus.find((s) => s.key === stepKey)
+              ?.configured;
+            const isPendingClear = pendingClears.has(stepKey);
+            const hasTyped = !!inputValues[stepKey]?.trim();
+            return (
+              <div key={stepKey} className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {step.inputLabel || stepKey}
                   </label>
+                  <div className="flex items-center gap-3">
+                    {isOptional && isConfigured && !isPendingClear && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPendingClears((prev) => {
+                            const next = new Set(prev);
+                            next.add(stepKey);
+                            return next;
+                          });
+                          setInputValues((prev) => {
+                            const next = { ...prev };
+                            delete next[stepKey];
+                            return next;
+                          });
+                        }}
+                        className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-rose-400 cursor-pointer"
+                      >
+                        <IconTrash className="h-3 w-3" />
+                        Clear saved value
+                      </button>
+                    )}
+                    {step.inputAcceptFile && !isPendingClear && (
+                      <label className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 cursor-pointer">
+                        <IconUpload className="h-3 w-3" />
+                        Upload file
+                        <input
+                          type="file"
+                          accept={step.inputAcceptFile}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              if (typeof reader.result === "string") {
+                                setInputValues((prev) => ({
+                                  ...prev,
+                                  [stepKey]: reader.result as string,
+                                }));
+                              }
+                            };
+                            reader.readAsText(file);
+                            e.target.value = "";
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+                {step.inputType === "textarea" ? (
+                  <textarea
+                    value={inputValues[stepKey] || ""}
+                    disabled={isPendingClear}
+                    onChange={(e) =>
+                      setInputValues((prev) => ({
+                        ...prev,
+                        [stepKey]: e.target.value,
+                      }))
+                    }
+                    placeholder={isPendingClear ? "" : "••••••••"}
+                    className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 min-h-[80px] resize-y font-mono disabled:opacity-50"
+                  />
+                ) : (
+                  <input
+                    type={step.inputType || "text"}
+                    value={inputValues[stepKey] || ""}
+                    disabled={isPendingClear}
+                    onChange={(e) =>
+                      setInputValues((prev) => ({
+                        ...prev,
+                        [stepKey]: e.target.value,
+                      }))
+                    }
+                    placeholder={isPendingClear ? "" : "••••••••"}
+                    className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 disabled:opacity-50"
+                  />
+                )}
+                {isPendingClear ? (
+                  <div className="flex items-center justify-between gap-2 text-xs text-amber-500">
+                    <span>Will be cleared on save (back to default).</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPendingClears((prev) => {
+                          const next = new Set(prev);
+                          next.delete(stepKey);
+                          return next;
+                        });
+                      }}
+                      className="text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      Undo
+                    </button>
+                  </div>
+                ) : (
+                  isConfigured &&
+                  !hasTyped && (
+                    <p className="text-xs text-muted-foreground">
+                      A value is already saved. Leave blank to keep it, or enter
+                      a new value to replace it.
+                    </p>
+                  )
                 )}
               </div>
-              {step.inputType === "textarea" ? (
-                <textarea
-                  value={inputValues[step.inputKey!] || ""}
-                  onChange={(e) =>
-                    setInputValues((prev) => ({
-                      ...prev,
-                      [step.inputKey!]: e.target.value,
-                    }))
-                  }
-                  placeholder="••••••••"
-                  className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 min-h-[80px] resize-y font-mono"
-                />
-              ) : (
-                <input
-                  type={step.inputType || "text"}
-                  value={inputValues[step.inputKey!] || ""}
-                  onChange={(e) =>
-                    setInputValues((prev) => ({
-                      ...prev,
-                      [step.inputKey!]: e.target.value,
-                    }))
-                  }
-                  placeholder="••••••••"
-                  className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-                />
-              )}
-              {envStatus.find((s) => s.key === step.inputKey)?.configured &&
-                !inputValues[step.inputKey!] && (
-                  <p className="text-xs text-muted-foreground">
-                    A value is already saved. Leave blank to keep it, or enter a
-                    new value to replace it.
-                  </p>
-                )}
-            </div>
-          ))}
+            );
+          })}
         <div className="flex items-center gap-2 pt-2">
           <Button
             size="sm"
@@ -435,6 +495,7 @@ function ConnectedView({
             onClick={() => {
               setEditing(false);
               setInputValues({});
+              setPendingClears(new Set());
             }}
             className="text-xs"
           >
