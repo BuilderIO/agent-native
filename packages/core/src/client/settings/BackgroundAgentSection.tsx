@@ -19,6 +19,7 @@ interface AgentsRunResult {
 export function BackgroundAgentSection() {
   const { status: builder } = useBuilderStatus();
   const connected = builder?.configured ?? false;
+  const cloudAgentsAvailable = !!builder?.builderEnabled;
 
   const [projectUrl, setProjectUrl] = useState("");
   const [running, setRunning] = useState(false);
@@ -76,6 +77,29 @@ export function BackgroundAgentSection() {
               <IconExternalLink size={10} />
             </a>
           )}
+        </div>
+      ) : !cloudAgentsAvailable ? (
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <IconCheck size={10} />
+            Builder connected
+            {builder?.orgName && (
+              <span className="text-muted-foreground">({builder.orgName})</span>
+            )}
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            You don't have access to Builder Cloud Agents for this workspace
+            yet. Use the desktop app or your local clone for code changes.
+          </p>
+          <a
+            href="https://www.agent-native.com/download"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80"
+          >
+            Download desktop app
+            <IconExternalLink size={10} />
+          </a>
         </div>
       ) : (
         <div className="space-y-2.5">

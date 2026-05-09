@@ -29,10 +29,10 @@ export function VariantGrid({
     variants.length <= 1
       ? "grid-cols-1"
       : variants.length === 2
-      ? "grid-cols-2"
-      : variants.length === 3
-        ? "grid-cols-3"
-        : "grid-cols-2";
+        ? "grid-cols-2"
+        : variants.length === 3
+          ? "grid-cols-3"
+          : "grid-cols-2";
 
   return (
     <div className="flex h-full w-full flex-col bg-background p-6">

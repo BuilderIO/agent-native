@@ -6,7 +6,17 @@ import { BuilderBMark } from "./builder-mark.js";
 import { cn } from "./utils.js";
 import { agentNativePath } from "./api-path.js";
 
-const DESKTOP_DOWNLOAD_URL = "https://agent-native.com/download";
+const DESKTOP_DOWNLOAD_URL = "https://www.agent-native.com/download";
+
+function isLocalBrowserOutsideDesktop() {
+  if (typeof window === "undefined" || typeof navigator === "undefined") {
+    return false;
+  }
+  const hostname = window.location.hostname;
+  const local =
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  return local && !/AgentNativeDesktop/i.test(navigator.userAgent || "");
+}
 
 export interface ConnectBuilderCardProps {
   configured: boolean;
@@ -68,10 +78,12 @@ export function ConnectBuilderCard({
   const [sending, setSending] = useState(false);
   const [runResult, setRunResult] = useState<BuilderRunResult | null>(null);
   const [sendErr, setSendErr] = useState<string | null>(null);
+  const [localBrowser, setLocalBrowser] = useState(false);
   const mountedRef = useRef(true);
 
   useEffect(() => {
     mountedRef.current = true;
+    setLocalBrowser(isLocalBrowserOutsideDesktop());
     return () => {
       mountedRef.current = false;
     };
@@ -150,6 +162,9 @@ export function ConnectBuilderCard({
 
   // Title + subtitle depend on which mode we're in. We compute them up front
   // so the render tree below stays flat.
+  const connectedCapabilityText = builderEnabled
+    ? "LLM access, browser automation, and cloud code changes are ready to use."
+    : "LLM access and browser automation are ready to use. Builder Cloud Agents for code changes are not enabled for this workspace yet.";
   let title: string;
   let subtitle: React.ReactNode;
   if (runResult) {
@@ -166,16 +181,21 @@ export function ConnectBuilderCard({
   } else if (showWaitlist) {
     title = waitlistJoined
       ? "You're on the waitlist"
-      : "Cloud code changes unavailable";
+      : "Builder Cloud Agents unavailable";
     subtitle = waitlistJoined ? (
       <>
-        We'll let you know when Builder branch creation is available. You can
-        still use Desktop or a local clone for code changes.
+        We'll let you know when Builder Cloud Agents are available for this
+        workspace.{" "}
+        {localBrowser
+          ? "Since this project is already running locally, open it in the desktop app for local coding tools or keep editing from your clone."
+          : "You can still clone the project locally and use the desktop app for code changes."}
       </>
     ) : (
       <>
-        This workspace can't create Builder branches yet. Use Desktop or a local
-        clone for code changes now, or join the waitlist for cloud branches.
+        You don't have access to Builder Cloud Agents for this workspace yet.{" "}
+        {localBrowser
+          ? "Since this project is already running locally, open it in the desktop app for local coding tools or keep editing from your clone."
+          : "You can still clone the project locally and use the desktop app for code changes."}
       </>
     );
   } else if (canSend) {
@@ -191,24 +211,23 @@ export function ConnectBuilderCard({
     subtitle = flow.envManaged ? (
       <>
         Managed by this deployment — every user of this app uses the same
-        Builder identity. LLM access, browser automation, and more are ready to
-        use.
+        Builder identity. {connectedCapabilityText}
       </>
     ) : orgName ? (
       <>
         Connected to{" "}
-        <span className="font-medium text-foreground">{orgName}</span>. LLM
-        access, browser automation, and more are ready to use.
+        <span className="font-medium text-foreground">{orgName}</span>.{" "}
+        {connectedCapabilityText}
       </>
     ) : (
-      <>LLM access, browser automation, and more are ready to use.</>
+      <>{connectedCapabilityText}</>
     );
   } else {
     title = "Connect Builder.io";
     subtitle = (
       <>
-        One click to spin up a cloud code sandbox — Builder writes the changes
-        for you, no local setup needed.
+        Connect Builder for managed LLM access, browser automation, and cloud
+        code changes when they are enabled for this workspace.
       </>
     );
   }
@@ -245,7 +264,7 @@ export function ConnectBuilderCard({
               rel="noopener noreferrer"
               className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground no-underline hover:text-foreground"
             >
-              Download Desktop
+              Download desktop app
               <IconExternalLink className="h-3 w-3" />
             </a>
           )}

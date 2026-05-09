@@ -9,6 +9,8 @@ import {
 } from "@tabler/icons-react";
 import { agentNativePath } from "../api-path.js";
 
+const DESKTOP_DOWNLOAD_URL = "https://www.agent-native.com/download";
+
 export interface CodeRequiredDialogProps {
   open: boolean;
   onClose: () => void;
@@ -18,6 +20,7 @@ export interface CodeRequiredDialogProps {
 
 function useBuilderConnected() {
   const [connected, setConnected] = useState(false);
+  const [cloudAgentsAvailable, setCloudAgentsAvailable] = useState(false);
   const [connectUrl, setConnectUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -26,13 +29,14 @@ function useBuilderConnected() {
       .then((data) => {
         if (data) {
           setConnected(!!data.configured);
+          setCloudAgentsAvailable(!!data.builderEnabled);
           setConnectUrl(data.connectUrl || null);
         }
       })
       .catch(() => {});
   }, []);
 
-  return { connected, connectUrl };
+  return { connected, cloudAgentsAvailable, connectUrl };
 }
 
 /**
@@ -46,7 +50,11 @@ export function CodeRequiredDialog({
   onClose,
   featureLabel,
 }: CodeRequiredDialogProps) {
-  const { connected: builderConnected, connectUrl } = useBuilderConnected();
+  const {
+    connected: builderConnected,
+    cloudAgentsAvailable,
+    connectUrl,
+  } = useBuilderConnected();
   const [submitting, setSubmitting] = useState(false);
   const [branchUrl, setBranchUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -138,7 +146,7 @@ export function CodeRequiredDialog({
         {/* Options */}
         <div style={s.options}>
           <a
-            href="https://agent-native.com/download"
+            href={DESKTOP_DOWNLOAD_URL}
             target="_blank"
             rel="noreferrer"
             style={{ ...s.optionCard, ...s.optionLink }}
@@ -161,7 +169,7 @@ export function CodeRequiredDialog({
             </div>
           </a>
 
-          {builderConnected ? (
+          {builderConnected && cloudAgentsAvailable ? (
             <button
               style={{
                 ...s.optionCard,
@@ -195,6 +203,28 @@ export function CodeRequiredDialog({
                 </span>
               </div>
             </button>
+          ) : builderConnected ? (
+            <div
+              style={{
+                ...s.optionCard,
+                cursor: "default",
+                opacity: 0.85,
+              }}
+            >
+              <div style={s.optionIcon}>
+                <IconExternalLink size={24} />
+              </div>
+              <div style={s.optionText}>
+                <span style={s.optionTitle}>
+                  Builder Cloud Agents unavailable
+                </span>
+                <span style={s.optionDesc}>
+                  You don't have access yet. Use the desktop app or your local
+                  clone for this code change.
+                </span>
+              </div>
+              <span style={s.badge}>Unavailable</span>
+            </div>
           ) : (
             <a
               href={builderHref}

@@ -211,17 +211,6 @@ export default function DownloadPage() {
             </a>
           )}
 
-          {!isDesktopApp && (
-            <a
-              href={OPEN_DESKTOP_URL}
-              onClick={handleOpenDesktop}
-              className="inline-flex items-center gap-2.5 rounded-lg border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline hover:bg-[var(--sidebar-hover)] hover:no-underline"
-            >
-              <IconAppWindow size={17} />
-              Open installed app
-            </a>
-          )}
-
           {primaryAsset || manifestError ? (
             <a
               href={primaryAsset?.url ?? RELEASES}

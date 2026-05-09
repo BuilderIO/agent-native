@@ -45,7 +45,7 @@ const SIDEBAR_OPEN_KEY = "frame-sidebar-open";
 const SIDEBAR_FULLSCREEN_KEY = "frame-sidebar-fullscreen";
 const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
 const OPEN_DESKTOP_URL = "agentnative://open";
-const DOWNLOAD_DESKTOP_URL = "https://agent-native.com/download";
+const DOWNLOAD_DESKTOP_URL = "https://www.agent-native.com/download";
 
 function getAppId(): string {
   const params = new URLSearchParams(window.location.search);
