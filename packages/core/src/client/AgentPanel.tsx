@@ -1798,11 +1798,23 @@ export function AgentSidebar({
         setOpenPersisted(true);
       }
     };
+    const closeHandler = () => {
+      if (frameCodeMode && window.parent !== window) {
+        window.parent.postMessage(
+          { type: "agentNative.toggleSidebar", data: { open: false } },
+          parentFrameTargetOrigin(),
+        );
+      } else {
+        setOpenPersisted(false);
+      }
+    };
     window.addEventListener("agent-panel:toggle", toggleHandler);
     window.addEventListener("agent-panel:open", openHandler);
+    window.addEventListener("agent-panel:close", closeHandler);
     return () => {
       window.removeEventListener("agent-panel:toggle", toggleHandler);
       window.removeEventListener("agent-panel:open", openHandler);
+      window.removeEventListener("agent-panel:close", closeHandler);
     };
   }, [setOpenPersisted, frameCodeMode]);
 
