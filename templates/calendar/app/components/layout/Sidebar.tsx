@@ -766,24 +766,33 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                           >
                             {person.name || person.email}
                           </span>
-                          <div className="flex items-center opacity-0 group-hover:opacity-100">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                toggleHiddenCalendar("people", person.email)
-                              }
-                              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
-                            >
-                              {isHiddenCalendar("people", person.email) ? (
-                                <IconEyeOff className="h-3 w-3" />
-                              ) : (
-                                <IconEye className="h-3 w-3" />
-                              )}
-                            </button>
+                          <div className="flex items-center">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    toggleHiddenCalendar("people", person.email)
+                                  }
+                                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
+                                >
+                                  {isHiddenCalendar("people", person.email) ? (
+                                    <IconEyeOff className="h-3 w-3" />
+                                  ) : (
+                                    <IconEye className="h-3 w-3" />
+                                  )}
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="right">
+                                {isHiddenCalendar("people", person.email)
+                                  ? "Show calendar"
+                                  : "Hide calendar"}
+                              </TooltipContent>
+                            </Tooltip>
                             <button
                               type="button"
                               onClick={() => removePerson.mutate(person.email)}
-                              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
+                              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
                             >
                               <IconX className="h-3 w-3" />
                             </button>
@@ -851,24 +860,33 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                           >
                             {cal.name}
                           </span>
-                          <div className="flex items-center opacity-0 group-hover:opacity-100">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                toggleHiddenCalendar("external", cal.id)
-                              }
-                              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
-                            >
-                              {isHiddenCalendar("external", cal.id) ? (
-                                <IconEyeOff className="h-3 w-3" />
-                              ) : (
-                                <IconEye className="h-3 w-3" />
-                              )}
-                            </button>
+                          <div className="flex items-center">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    toggleHiddenCalendar("external", cal.id)
+                                  }
+                                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
+                                >
+                                  {isHiddenCalendar("external", cal.id) ? (
+                                    <IconEyeOff className="h-3 w-3" />
+                                  ) : (
+                                    <IconEye className="h-3 w-3" />
+                                  )}
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="right">
+                                {isHiddenCalendar("external", cal.id)
+                                  ? "Show calendar"
+                                  : "Hide calendar"}
+                              </TooltipContent>
+                            </Tooltip>
                             <button
                               type="button"
                               onClick={() => removeExternal.mutate(cal.id)}
-                              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
+                              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
                             >
                               <IconX className="h-3 w-3" />
                             </button>
