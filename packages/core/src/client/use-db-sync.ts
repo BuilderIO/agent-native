@@ -74,7 +74,9 @@ async function fetchPollJson<T>(
       controller ? { signal: controller.signal } : undefined,
     );
     if (!res.ok) throw new Error("HTTP " + res.status);
-    return res.json();
+    // Await the json before the finally so a body-stream abort doesn't
+    // produce a dangling promise that escapes as an unhandled rejection.
+    return await res.json();
   } finally {
     if (timeout) clearTimeout(timeout);
   }
