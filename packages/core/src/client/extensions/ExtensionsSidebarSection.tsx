@@ -424,7 +424,7 @@ export function ExtensionsSidebarSection() {
             }
             aria-expanded={extensionsOpen}
           />
-          <div className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 pr-24">
+          <div className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 pr-20">
             <IconTool className="h-4 w-4 shrink-0" />
             <span className="min-w-0 truncate">Extensions</span>
             <HoverCard openDelay={250} closeDelay={120}>

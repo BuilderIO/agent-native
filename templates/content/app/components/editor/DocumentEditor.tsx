@@ -77,15 +77,19 @@ function DocumentEditorSkeleton() {
 export function DocumentEditor({ documentId }: DocumentEditorProps) {
   const { data: document, isLoading, isError } = useDocument(documentId);
 
-  if (isError || (!isLoading && !document)) {
-    return (
-      <div className="flex items-center justify-center h-full text-muted-foreground">
-        Document not found
-      </div>
-    );
-  }
-
-  if (isLoading || !document) {
+  // If we have a doc (real or optimistic from create) render the editor —
+  // an `isError` blip during a just-fired create shouldn't flash "not found".
+  if (!document) {
+    if (isLoading) {
+      return <DocumentEditorSkeleton />;
+    }
+    if (isError) {
+      return (
+        <div className="flex items-center justify-center h-full text-muted-foreground">
+          Document not found
+        </div>
+      );
+    }
     return <DocumentEditorSkeleton />;
   }
 

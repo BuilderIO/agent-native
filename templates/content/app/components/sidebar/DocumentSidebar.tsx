@@ -212,6 +212,14 @@ export function DocumentSidebar({
           title: "",
           parentId: parentId ?? undefined,
         });
+        // Replace optimistic doc with real server doc + clear any 404 error
+        // state from the in-flight fetch that ran before create completed.
+        queryClient.invalidateQueries({
+          queryKey: ["action", "get-document", { id }],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
       } catch (err) {
         // Revert optimistic updates
         queryClient.invalidateQueries({
